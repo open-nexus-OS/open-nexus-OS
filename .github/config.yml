@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and Discussion
+    url: https://github.com/orgs/open-nexus-OS/discussions
+    about: Ask general usage questions here
+  - name: Development Roadmap
+    url: https://github.com/open-nexus-OS/open-nexus/wiki/ROADMAP
+    about: See our development priorities
