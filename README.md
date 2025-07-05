@@ -1,6 +1,10 @@
-Eine moderne RISC-V Distribution mit Cosmic Desktop Environment
+# Why we need another OS: The vision of a Unified Open Ecosystem
 
-Open-Nexus-OS kombiniert die Sicherheit von Redox mit der Eleganz von Cosmic Desktop in einer RISC-V optimierten Distribution.
+## The Next Evolution of Computing
+
+We're creating an OS where devices become **virtualized resources** in a self-organizing network. Your workflow transcends hardware - a watch extends your desktop, your EV integrates with your smart home - through open standards, not proprietary silos.
+
+[More Infos](https://github.com/open-nexus-OS/open-nexus/wiki)
 
 ✨ Features
 🚀 Redox Microkernel (Apache 2.0 Lizenz)
@@ -49,13 +53,13 @@ text
 open-nexus-OS/
 ├── redox/      # Redox Kernel (Apache 2.0)
 ├── cosmic/     # Cosmic Desktop (GPL)
-├── nexus/      # Nexus-spezifische Komponenten
+├── open-nexus/      # Nexus-spezifische Komponenten
 ├── scripts/    # Build- und Hilfsskripte
 └── docs/       # Dokumentation
 🤝 Mitwirken
 Wir freuen uns über Beiträge! Bitte lesen Sie:
 
-CONTRIBUTING.md
+[CONTRIBUTING](https://github.com/open-nexus-OS/open-nexus/wiki/Contributing)
 
 Verhaltenskodex
 
@@ -66,4 +70,6 @@ Redox OS: Apache 2.0
 
 Cosmic Desktop: GPL
 
-Details siehe LICENSE und NOTICE.
+Details siehe [LICENSE](https://github.com/open-nexus-OS/open-nexus-OS/blob/main/LICENSE) und [NOTICE](https://github.com/open-nexus-OS/open-nexus-OS/blob/main/NOTICE).
+
+💡 Tipp: Nutzen Sie unsere Diskussionen für Fragen und Ideen!
