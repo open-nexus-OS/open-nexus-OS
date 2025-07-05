@@ -1,0 +1,17 @@
+name: CLA Check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  cla-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check CLA
+        uses: cla-assistant/github-action@v2
+        with:
+          path-to-signatures: 'signed_clas.json'
+          path-to-document: '.github/CLA.md'
+          branch: 'main'
+          remote-organization-name: 'open-nexus-OS'
+          remote-repository-name: 'open-nexus-OS'
