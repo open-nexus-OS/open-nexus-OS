@@ -1,6 +1,0 @@
-[submodule "redox"]
-	path = redox
-	url = https://github.com/redox-os/redox.git
-[submodule "cosmic"]
-	path = cosmic
-	url = https://github.com/pop-os/cosmic.git
