@@ -1,47 +1,52 @@
-name: RISC-V Build and Test
+name: Redox Build Check
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-redox:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
-        
-    - name: Install RISC-V toolchain
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          gcc-riscv64-unknown-elf \
-          qemu-system-misc \
-          cargo \
-          build-essential
-        
-    - name: Build Redox kernel
-      run: |
-        cd redox
-        make -j$(nproc) ARCH=riscv64
-        cd ..
-        
-    - name: Build Cosmic components
-      run: |
-        cd cosmic
-        cargo build --release --target=riscv64gc-unknown-none-elf
-        cd ..
-        
-    - name: Run QEMU smoke test
-      run: |
-        ./scripts/run-qemu.sh -nographic -monitor none -serial stdio \
-          -kernel redox/target/riscv64-redox/debug/kernel \
-          -append "console=ttyS0" &
-        sleep 10
-        kill %1
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: 🛠 Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl build-essential linux-headers-$(uname -r)
+
+      - name: 🧰 Setup Podman Build Environment
+        run: |
+          curl -sf https://gitlab.redox-os.org/redox-os/redox/raw/master/podman_bootstrap.sh -o podman_bootstrap.sh
+          chmod +x podman_bootstrap.sh
+          time bash -e podman_bootstrap.sh <<EOF
+          1
+          1
+          EOF
+
+      - name: 🔁 Source Rust Environment
+        run: |
+          source $HOME/.cargo/env
+          rustup show
+
+      - name: ⚙️ Run Initial Setup
+        run: |
+          chmod +x ./scripts/initial-setup.sh
+          ./scripts/initial-setup.sh
+
+      - name: 🔨 Build OS
+        run: |
+          chmod +x ./scripts/build.sh
+          ./scripts/build.sh
+
+      - name: ✅ Check for Build Artifact
+        run: |
+          if [ ! -f redox/build/x86_64/harddrive.bin ]; then
+            echo "Build artifact missing!"
+            exit 1
+          fi

@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check CLA
-        uses: cla-assistant/github-action@v2
+        uses: cla-assistant/cla-assistant@v1
         with:
           path-to-signatures: 'signed_clas.json'
           path-to-document: '.github/CLA.md'
