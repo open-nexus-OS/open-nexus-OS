@@ -123,12 +123,20 @@ check_headers_installed() {
 }
 check_headers_installed
 
-# Download and run podman_bootstrap.sh
-echo -e "$INFO Downloading podman_bootstrap.sh from Redox upstream..."
-curl -sf https://gitlab.redox-os.org/redox-os/redox/raw/master/podman_bootstrap.sh -o podman_bootstrap.sh
+# Check if Redox directory exists and clone if not
+echo -e "check if Redox directory exists..."
+if [ ! -d "redox/.git" ]; then
+  # Download and run podman_bootstrap.sh
+  echo -e "$INFO Downloading podman_bootstrap.sh from Redox upstream..."
+  curl -sf https://gitlab.redox-os.org/redox-os/redox/raw/master/podman_bootstrap.sh -o podman_bootstrap.sh
 
-echo -e "$INFO Executing podman_bootstrap.sh..."
-time bash -e podman_bootstrap.sh
+  echo -e "$INFO Executing podman_bootstrap.sh..."
+  time bash -e podman_bootstrap.sh
+else
+  echo "Redox already exists, skipping clone."
+fi
+
+
 
 # Load Cargo environment
 echo -e "$INFO Sourcing Cargo environment..."
