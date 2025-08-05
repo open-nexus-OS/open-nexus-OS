@@ -1,0 +1,10 @@
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/libowned_ttf_parser-7d4248453ca3dea5.rmeta: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/convert.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/owned.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/preparse.rs
+
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/libowned_ttf_parser-7d4248453ca3dea5.rlib: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/convert.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/owned.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/preparse.rs
+
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/owned_ttf_parser-7d4248453ca3dea5.d: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/convert.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/owned.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/preparse.rs
+
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/lib.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/convert.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/owned.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/owned_ttf_parser-0.15.2/src/preparse.rs:

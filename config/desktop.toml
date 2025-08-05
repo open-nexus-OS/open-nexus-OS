@@ -11,16 +11,16 @@ filesystem_size = 256
 
 # Package settings
 [packages]
-orbdata = {}
-orbital = {}
+nexus-assets = {}
+nexus = {}
 orbterm = {}
 orbutils = {}
 
 [[files]]
-path = "/usr/lib/init.d/20_orbital"
+path = "/usr/lib/init.d/20_nexus"
 data = """
 export VT 3
-orbital orblogin launcher
+nexus orblogin launcher
 unset VT
 """
 

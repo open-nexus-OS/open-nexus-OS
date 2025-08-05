@@ -1,0 +1,4 @@
+name = "orbital"
+version = "TODO"
+target = "aarch64-unknown-redox"
+depends = ["orbdata"]

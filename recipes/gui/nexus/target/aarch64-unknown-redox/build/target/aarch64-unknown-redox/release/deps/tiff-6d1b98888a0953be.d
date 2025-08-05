@@ -1,0 +1,11 @@
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/libtiff-6d1b98888a0953be.rmeta: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/mod.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/ifd.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/stream.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/error.rs
+
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/libtiff-6d1b98888a0953be.rlib: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/mod.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/ifd.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/stream.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/error.rs
+
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/tiff-6d1b98888a0953be.d: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/mod.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/ifd.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/stream.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/error.rs
+
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/lib.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/mod.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/ifd.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/decoder/stream.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tiff-0.2.2/src/error.rs:

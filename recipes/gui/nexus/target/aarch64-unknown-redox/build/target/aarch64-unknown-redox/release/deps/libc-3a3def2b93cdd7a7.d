@@ -1,0 +1,11 @@
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/liblibc-3a3def2b93cdd7a7.rmeta: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/macros.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/primitives.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/mod.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/redox/mod.rs
+
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/liblibc-3a3def2b93cdd7a7.rlib: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/macros.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/primitives.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/mod.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/redox/mod.rs
+
+/mnt/redox/cookbook/recipes/gui/orbital/target/aarch64-unknown-redox/build/target/aarch64-unknown-redox/release/deps/libc-3a3def2b93cdd7a7.d: /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/lib.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/macros.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/primitives.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/mod.rs /home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/redox/mod.rs
+
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/lib.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/macros.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/primitives.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/mod.rs:
+/home/poduser/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.171/src/unix/redox/mod.rs:
