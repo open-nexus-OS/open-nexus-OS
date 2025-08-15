@@ -1,6 +1,6 @@
 # Minimal network configuration
 
-include = ["../redox/config/minimal-net.toml"]
+include = ["../minimal-net.toml"]
 
 # Override the default settings here
 
@@ -14,7 +14,9 @@ filesystem_size = 256
 nexus-assets = {}
 nexus = {}
 orbterm = {}
-orbutils = {}
+orbutils-background = {}
+orbutils-launcher = {}
+orbutils-orblogin = {}
 
 [[files]]
 path = "/usr/lib/init.d/20_nexus"

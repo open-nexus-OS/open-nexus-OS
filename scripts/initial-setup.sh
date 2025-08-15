@@ -59,8 +59,11 @@ fi
 check_build_tools() {
     case "$OS" in
         arch|manjaro)
-            if ! pacman -Qqg base-devel &>/dev/null; then
-                echo -e "$ERROR 'base-devel' is not fully installed. Run:"
+            missing=$(comm -23 <(pacman -Sgq base-devel | sort) <(pacman -Qq | sort))
+            if [[ -n "$missing" ]]; then
+                echo "[ERROR] 'base-devel' is not fully installed. Missing:"
+                echo "$missing"
+                echo "Run:"
                 echo "  sudo pacman -S --needed base-devel"
                 exit 1
             fi
@@ -91,11 +94,12 @@ check_build_tools
 check_headers_installed() {
     case "$OS" in
         arch|manjaro)
-            KVER=$(uname -r | cut -d '.' -f1)
-            HEADER_PKG="linux$KVER-headers"
-            if ! pacman -Qs "^$HEADER_PKG$" &>/dev/null; then
+            KVER=$(uname -r | cut -d '-' -f1 | cut -d '.' -f1,2 | tr -d '.')
+            HEADER_PKG="linux${KVER}-headers"
+
+            if ! pacman -Qs "^${HEADER_PKG}$" &>/dev/null; then
                 echo -e "$ERROR Kernel headers not found. Run:"
-                echo "  sudo pacman -S $HEADER_PKG"
+                echo "  sudo pacman -S ${HEADER_PKG}"
                 echo "Or install an LTS kernel with headers:"
                 echo "  sudo mhwd-kernel -i linux65 && sudo reboot"
                 exit 1

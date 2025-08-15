@@ -1,0 +1,37 @@
+[build]
+template = "custom"
+script = """
+# 1. Verzeichnisstruktur erstellen
+mkdir -pv "${COOKBOOK_STAGE}/ui/apps"
+
+# 2. Hauptkomponenten installieren
+for component in launcher controlcenter; do
+    if [ -d "${COOKBOOK_SOURCE}/${component}" ]; then
+        "${COOKBOOK_CARGO}" install \
+            --path "${COOKBOOK_SOURCE}/${component}" \
+            --root "${COOKBOOK_STAGE}/usr" \
+            --locked \
+            --no-track \
+            ${install_flags}
+    fi
+done
+
+# 3. Apps installieren
+for app in background calculator calendar character_map editor file_manager orblogin viewer; do
+    if [ -d "${COOKBOOK_SOURCE}/apps/${app}" ]; then
+        "${COOKBOOK_CARGO}" install \
+            --path "${COOKBOOK_SOURCE}/apps/${app}" \
+            --root "${COOKBOOK_STAGE}/usr" \
+            --locked \
+            --no-track \
+            ${install_flags}
+            
+        # Desktop-Einträge kopieren falls vorhanden
+        [ -f "${COOKBOOK_SOURCE}/apps/${app}/${app}.desktop" ] && \
+            cp "${COOKBOOK_SOURCE}/apps/${app}/${app}.desktop" "${COOKBOOK_STAGE}/ui/apps/"
+    fi
+done
+
+# 4. Assets kopieren falls vorhanden
+[ -d "${COOKBOOK_SOURCE}/assets" ] && cp -r "${COOKBOOK_SOURCE}/assets" "${COOKBOOK_STAGE}/ui/nexus-utils-assets"
+"""

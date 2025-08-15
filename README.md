@@ -36,7 +36,7 @@ git clone https://github.com/open-nexus-OS/open-nexus-OS.git
 ## 🧰 Initial Setup
 
 ```bash
-./scripts/initial-setup.sh
+make initial-setup
 ```
 
 During the setup, you will be asked to choose a QEMU version.
@@ -50,7 +50,7 @@ You will also be prompted to choose a Podman container runtime:
 ## 🏗️ Build
 
 ```bash
-./scripts/build.sh
+make build
 ```
 
 ---
@@ -58,7 +58,7 @@ You will also be prompted to choose a Podman container runtime:
 ## ▶️ Run
 
 ```bash
-./scripts/run-qemu.sh
+make run
 ```
 
 ---

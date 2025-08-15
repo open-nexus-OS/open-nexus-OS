@@ -1,0 +1,51 @@
+# Minimal network configuration
+
+include = ["../minimal-net.toml"]
+
+# Override the default settings here
+
+# General settings
+[general]
+# Filesystem size in MiB
+filesystem_size = 256
+verify_packages = false
+
+# Package settings
+[packages]
+# Grafikstack (Ihre modifizierten Komponenten)
+nexus = {}          # Ihr Orbital-Ersatz
+nexus-assets = { requires = ["nexus"] }
+orbterm = { requires = ["nexus"] }
+nexus-utils = { include = ["launcher"], requires = ["nexus"] }
+
+# Optional aber empfohlen
+redoxfs = {}       # Dateisystemunterstützung
+
+[[files]]
+path = "/usr/lib/init.d/10_orbital"
+data = "orbital &"  # Orbital zuerst starten
+
+[[files]]
+path = "/usr/lib/init.d/15_waitorbital"
+data = """
+# Warte auf Orbital-Initialisierung
+while [ ! -e /orbital/socket ]; do
+    sleep 0.1
+done
+"""
+
+[[files]]
+path = "/usr/lib/init.d/20_nexus"
+data = """
+export VT 3
+nexus orblogin launcher
+unset VT
+"""
+
+# Override console config to not switch to VT 2
+[[files]]
+path = "/usr/lib/init.d/30_console"
+data = """
+getty 2
+getty /scheme/debug/no-preserve -J
+"""
