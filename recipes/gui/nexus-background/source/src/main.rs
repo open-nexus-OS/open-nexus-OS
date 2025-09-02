@@ -94,7 +94,7 @@ fn find_scale(
 fn find_background() -> String {
     match dirs::home_dir() {
         Some(home) => {
-            for name in &["background.png", "background.jpg"] {
+            for name in &["background.png", "background.jpeg"] {
                 let path = home.join(name);
                 if path.is_file() {
                     if let Some(path_str) = path.to_str() {
@@ -106,7 +106,7 @@ fn find_background() -> String {
         _ => (),
     }
 
-    "/ui/background.jpg".to_string()
+    "/ui/background.jpeg".to_string()
 }
 
 fn get_full_url(path: &str) -> Result<String, String> {
