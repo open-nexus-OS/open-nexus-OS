@@ -26,7 +26,7 @@ use orbfont::Font;
 use orbimage::Image;
 
 use package::{IconSource, Package};
-use themes::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR};
+use themes::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR, BAR_HEIGHT, ICON_PADDING, ICON_SCALE};
 
 mod package;
 mod themes;
@@ -42,11 +42,11 @@ fn font_size() -> i32 {
 }
 
 fn icon_size() -> i32 {
-    48 * SCALE.load(Ordering::Relaxed) as i32
+    ( (themes::BAR_HEIGHT as f32) * themes::ICON_SCALE ).round() as i32
 }
 
 fn icon_small_size() -> i32 {
-    32 * SCALE.load(Ordering::Relaxed) as i32
+    (icon_size() as f32 * 0.75).round() as i32
 }
 
 #[cfg(target_os = "redox")]
@@ -337,9 +337,9 @@ impl Bar {
             height,
             window: Window::new_flags(
                 0,
-                height as i32 - icon_size(),
+                height as i32 - themes::BAR_HEIGHT as i32,
                 width,
-                icon_size() as u32,
+                themes::BAR_HEIGHT,
                 "",
                 &[
                     WindowFlag::Async,
@@ -381,26 +381,28 @@ impl Bar {
         self.window.set(BAR_COLOR);
 
         let mut x = 0;
-        let mut y = 0;
+        let bar_h = themes::BAR_HEIGHT as i32;
+        let ic = icon_size();                        // gewünschte Icon-Kantenlänge
+        let pad_y = (bar_h - ic) / 2;                // vertikal mittig in der Bar
+        let mut y = pad_y;                           // statt 0
+
         let mut i = 0;
 
-        {
-            if i == self.selected {
-                self.window.rect(
-                    x as i32,
-                    y as i32,
-                    self.start.width() as u32,
-                    self.start.height() as u32,
-                    BAR_HIGHLIGHT_COLOR,
-                );
-            }
-
-            self.start.draw(&mut self.window, x as i32, y as i32);
-
-            x += self.start.width() as i32;
-            i += 1;
+        // Start-Icon
+        if i == self.selected {
+            self.window.rect(
+                x as i32,
+                y as i32,
+                self.start.width() as u32,
+                self.start.height() as u32,
+                BAR_HIGHLIGHT_COLOR,
+            );
         }
+        self.start.draw(&mut self.window, x as i32, y as i32);
+        x += self.start.width() as i32;
+        i += 1;
 
+        // App-Icons
         for package in self.packages.iter_mut() {
             if i == self.selected {
                 let image = package.icon.image();
@@ -424,9 +426,10 @@ impl Bar {
                 self.selected_window.set_pos(0, sw_y);
             }
 
-            let image = package.icon.image();
+            let image = package.icon.image(); // ist dank size_icon() bereits auf icon_size() skaliert
             image.draw(&mut self.window, x as i32, y as i32);
 
+            // Activity-Balken
             let mut count = 0;
             for (exec, _) in self.children.iter() {
                 if exec == &package.exec {
@@ -447,10 +450,11 @@ impl Bar {
             i += 1;
         }
 
+        // Uhr rechts außen, vertikal mittig
         let text = self.font.render(&self.time, (font_size() * 2) as f32);
-        x = self.width as i32 - text.width() as i32 - 8;
-        y = (icon_size() - text.height() as i32) / 2;
-        text.draw(&mut self.window, x, y, TEXT_HIGHLIGHT_COLOR);
+        let tx = self.width as i32 - text.width() as i32 - 8;
+        let ty = pad_y + (ic - text.height() as i32) / 2;
+        text.draw(&mut self.window, tx, ty, TEXT_HIGHLIGHT_COLOR);
 
         self.window.sync();
     }
