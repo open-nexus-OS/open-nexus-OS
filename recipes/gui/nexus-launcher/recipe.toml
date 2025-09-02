@@ -1,0 +1,15 @@
+[build]
+template = "cargo"
+package_path = "."
+cargoflags = "--bin nexus-launcher"
+
+[package]
+dependencies = []
+
+
+[files]
+# Hauptbinary
+"/bin/nexus_launcher" = "build/*/release/nexus-launcher"
+
+# Alias, damit alles was "launcher" erwartet weiter funktioniert (Login etc.)
+"/bin/launcher" = "build/*/release/nexus-launcher"

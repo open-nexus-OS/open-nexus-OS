@@ -13,16 +13,21 @@ filesystem_size = 256
 [packages]
 nexus-assets = {}
 nexus = {}
+#orbital = {}
 orbterm = {}
-orbutils-background = {}
-orbutils-launcher = {}
-orbutils-orblogin = {}
+#orbutils-background = {}
+#orbutils-launcher = {}
+#orbutils-orblogin = {}
+nexus-login = {}
+nexus-background = {}
+nexus-launcher = {}
 
 [[files]]
 path = "/usr/lib/init.d/20_nexus"
 data = """
 export VT 3
-nexus orblogin launcher
+nexus-background &
+nexus nexus-login nexus-launcher
 unset VT
 """
 

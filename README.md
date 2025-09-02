@@ -66,10 +66,11 @@ make run
 ## 📂 Project Structure
 
 open-nexus-OS/
-├── redox/      # Redox Kernel (Apache 2.0)
-├── recipes/    # Open-Nexus-specific components
-├── scripts/    # Build and helper scripts
-└── docs/       # Documentation
+├── config/      # Open-Nexus-specific build configs
+├── docs/        # Documentation
+├── recipes/     # Open-Nexus-specific components
+├── redox/       # Redox Kernel (Apache 2.0)
+└── scripts/     # Build and helper scripts
 
 ---
 

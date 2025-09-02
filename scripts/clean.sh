@@ -19,7 +19,7 @@ trap 'echo -e "\033[1;31m[CRASHED]\033[0m Fehler in Zeile $LINENO (Befehl: $BASH
 set -e
 
 echo "🧹 Removes old build directories..."
-rm -rf build/x86_64/desktop-nexus
+rm -rf build/x86_64/desktop
 rm -rf redox/build
 
 echo "🧹 Removes old recipe builds..."
@@ -34,5 +34,19 @@ echo "🧹 Deletes Cargo Registry and Git Checkouts..."
 rm -rf ~/.cargo/registry/index
 rm -rf ~/.cargo/registry/cache
 rm -rf ~/.cargo/git/checkouts
+
+echo "  Goto Redox directory..."
+cd redox
+
+echo "🧹 Clean all recipe binaries for complete rebuild"
+make clean
+
+echo "🧹 Update relibc"
+make pull
+touch relibc
+make prefix
+
+echo "  Go back to the previous directory..."
+cd ..
 
 echo "✅ Cleanup complete."

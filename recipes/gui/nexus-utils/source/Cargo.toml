@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    #"launcher",
+    "apps/nexus_background",
+    #"apps/calculator",
+    #"apps/calendar",
+    #"apps/character_map",
+    #"apps/editor",
+    #"apps/file_manager",
+    "apps/nexus_login",
+    #"apps/viewer",
+    #"controlcenter"
+]
+resolver = "2"
