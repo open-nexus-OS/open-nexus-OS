@@ -26,7 +26,7 @@ use orbfont::Font;
 use orbimage::Image;
 
 use package::{IconSource, Package};
-use themes::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR, BAR_HEIGHT, ICON_PADDING, ICON_SCALE};
+use themes::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, BAR_ACTIVITY_MARKER, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE};
 
 mod package;
 mod themes;
@@ -37,16 +37,16 @@ fn chooser_width() -> u32 {
     200 * SCALE.load(Ordering::Relaxed) as u32
 }
 
-fn font_size() -> i32 {
-    16 * SCALE.load(Ordering::Relaxed) as i32
-}
-
 fn icon_size() -> i32 {
-    ( (themes::BAR_HEIGHT as f32) * themes::ICON_SCALE ).round() as i32
+    (BAR_HEIGHT as f32 * ICON_SCALE).round() as i32
 }
 
 fn icon_small_size() -> i32 {
-    (icon_size() as f32 * 0.75).round() as i32
+    (icon_size() as f32 * ICON_SMALL_SCALE).round() as i32
+}
+
+fn font_size() -> i32 {
+    (icon_size() as f32 * 0.5).round() as i32
 }
 
 #[cfg(target_os = "redox")]
@@ -119,18 +119,31 @@ fn wait(status: &mut i32) -> io::Result<usize> {
     })
 }
 
-fn size_icon(icon: Image, small: bool) -> Image {
-    let size = if small {
-        icon_small_size()
-    } else {
-        icon_size()
-    } as u32;
-    if icon.width() == size && icon.height() == size {
-        icon
-    } else {
-        icon.resize(size, size, orbimage::ResizeType::Lanczos3)
-            .unwrap()
+fn size_icon(mut icon: orbimage::Image, small: bool) -> orbimage::Image {
+    if small {
+        let target = icon_small_size() as u32;
+        if icon.width() == target && icon.height() == target {
+            return icon;
+        }
+        return icon.resize(target, target, orbimage::ResizeType::Lanczos3).unwrap();
     }
+
+    // Bar-Icon: in quadratische Box (icon_size x icon_size) EINPASSEN, AR bewahren, kein Upscale
+    let box_side = icon_size() as u32;
+    let iw = icon.width();
+    let ih = icon.height();
+
+    if iw <= box_side && ih <= box_side {
+        return icon; // kleiner/gleich → nicht skalieren
+    }
+
+    let scale = f32::min(
+        box_side as f32 / iw as f32,
+        box_side as f32 / ih as f32,
+    );
+    let nw = ((iw as f32 * scale).round() as u32).max(1);
+    let nh = ((ih as f32 * scale).round() as u32).max(1);
+    icon.resize(nw, nh, orbimage::ResizeType::Lanczos3).unwrap()
 }
 
 fn load_icon<P: AsRef<Path>>(path: P) -> Image {
@@ -292,6 +305,9 @@ impl Bar {
         // Sort root packages by ID
         root_packages.sort_by(|a, b| a.id.cmp(&b.id));
 
+        // Keep only packages that have a non-empty executable command
+        root_packages.retain(|p| !p.exec.trim().is_empty());
+
         let mut start_packages = Vec::new();
 
         for (category, packages) in category_packages.iter_mut() {
@@ -380,80 +396,80 @@ impl Bar {
     fn draw(&mut self) {
         self.window.set(BAR_COLOR);
 
-        let mut x = 0;
-        let bar_h = themes::BAR_HEIGHT as i32;
-        let ic = icon_size();                        // gewünschte Icon-Kantenlänge
-        let pad_y = (bar_h - ic) / 2;                // vertikal mittig in der Bar
-        let mut y = pad_y;                           // statt 0
+        let bar_h_u = self.window.height(); // u32
+        let bar_h_i = bar_h_u as i32;       // i32
 
-        let mut i = 0;
+        // Slot width/height equals full bar height (square slot)
+        let slot    = bar_h_i;
 
-        // Start-Icon
-        if i == self.selected {
-            self.window.rect(
-                x as i32,
-                y as i32,
-                self.start.width() as u32,
-                self.start.height() as u32,
-                BAR_HIGHLIGHT_COLOR,
-            );
-        }
-        self.start.draw(&mut self.window, x as i32, y as i32);
-        x += self.start.width() as i32;
-        i += 1;
+        // Total width of all slots: 1 (start) + N (packages)
+        let count   = 1 + self.packages.len() as i32;
+        let total_w = count * slot;
 
-        // App-Icons
-        for package in self.packages.iter_mut() {
+        // Center the whole block horizontally
+        let mut x   = (self.width as i32 - total_w) / 2;
+        let mut i   = 0i32;
+
+        // --- Start icon ---
+        {
+            let img = &self.start;
             if i == self.selected {
-                let image = package.icon.image();
-                self.window.rect(
-                    x as i32,
-                    y as i32,
-                    image.width() as u32,
-                    image.height() as u32,
-                    BAR_HIGHLIGHT_COLOR,
-                );
+                self.window.rect(x, 0, slot as u32, bar_h_u, BAR_HIGHLIGHT_COLOR);
+            }
 
-                self.selected_window.set(Color::rgba(0, 0, 0, 0));
+            let y  = (bar_h_i - img.height() as i32) / 2;
+            let ix = x + (slot - img.width() as i32) / 2;
+            img.draw(&mut self.window, ix, y);
 
+            x += slot;
+            i += 1;
+        }
+
+        // --- Packages ---
+        for package in self.packages.iter_mut() {
+            let image = package.icon.image();
+
+            if i == self.selected {
+                self.window.rect(x, 0, slot as u32, bar_h_u, BAR_HIGHLIGHT_COLOR);
+
+                self.selected_window.set(orbclient::Color::rgba(0, 0, 0, 0));
                 let text = self.font.render(&package.name, font_size() as f32);
                 self.selected_window
                     .rect(x, 0, text.width() + 8, text.height() + 8, BAR_COLOR);
                 text.draw(&mut self.selected_window, x + 4, 4, TEXT_HIGHLIGHT_COLOR);
-
                 self.selected_window.sync();
                 let sw_y = self.window.y() - self.selected_window.height() as i32 - 4;
                 self.selected_window.set_pos(0, sw_y);
             }
 
-            let image = package.icon.image(); // ist dank size_icon() bereits auf icon_size() skaliert
-            image.draw(&mut self.window, x as i32, y as i32);
+            let y  = (bar_h_i - image.height() as i32) / 2;
+            let ix = x + (slot - image.width() as i32) / 2;
+            image.draw(&mut self.window, ix, y);
 
-            // Activity-Balken
-            let mut count = 0;
+            // Activity marker
+            let mut running = false;
             for (exec, _) in self.children.iter() {
                 if exec == &package.exec {
-                    count += 1;
+                    running = true;
+                    break;
                 }
             }
-            if count > 0 {
-                self.window.rect(
-                    x as i32 + 4,
-                    y as i32,
-                    image.width() - 8,
-                    2,
-                    TEXT_HIGHLIGHT_COLOR,
-                );
+            if running {
+                // Place at y = 0 (top edge of the bar window), leave a small horizontal inset
+                let inset = 4i32;
+                let marker_x = x + inset;
+                let marker_w = (slot - 2 * inset).max(2) as u32;
+                self.window.rect(marker_x, 0, marker_w, 4, BAR_ACTIVITY_MARKER);
             }
 
-            x += image.width() as i32;
+            x += slot;
             i += 1;
         }
 
-        // Uhr rechts außen, vertikal mittig
+        // --- Clock rechts ---
         let text = self.font.render(&self.time, (font_size() * 2) as f32);
         let tx = self.width as i32 - text.width() as i32 - 8;
-        let ty = pad_y + (ic - text.height() as i32) / 2;
+        let ty = (bar_h_i - text.height() as i32) / 2;
         text.draw(&mut self.window, tx, ty, TEXT_HIGHLIGHT_COLOR);
 
         self.window.sync();
@@ -726,32 +742,28 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
 
                     if redraw {
                         let mut now_selected = -1;
-
                         {
-                            let mut x = 0;
+                            // Compute the same slot geometry as in draw()
+                            let slot  = bar.window.height() as i32;         // slot = bar height
+                            let count = 1 + bar.packages.len() as i32;      // start + packages
+                            let total = count * slot;
+                            let mut x = (bar.width as i32 - total) / 2;     // centered start
                             let y = 0;
                             let mut i = 0;
 
-                            {
-                                if mouse_y >= y
-                                    && mouse_x >= x
-                                    && mouse_x < x + bar.start.width() as i32
-                                {
-                                    now_selected = i;
-                                }
-                                x += bar.start.width() as i32;
-                                i += 1;
+                            // Start slot
+                            if mouse_y >= y && mouse_x >= x && mouse_x < x + slot {
+                                now_selected = i;
                             }
+                            x += slot;
+                            i += 1;
 
-                            for package in bar.packages.iter_mut() {
-                                let image = package.icon.image();
-                                if mouse_y >= y
-                                    && mouse_x >= x
-                                    && mouse_x < x + image.width() as i32
-                                {
+                            // App slots
+                            for _ in bar.packages.iter() {
+                                if mouse_y >= y && mouse_x >= x && mouse_x < x + slot {
                                     now_selected = i;
                                 }
-                                x += image.width() as i32;
+                                x += slot;
                                 i += 1;
                             }
                         }
@@ -789,7 +801,12 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             for package_i in 0..bar.packages.len() {
                                 if i == bar.selected {
                                     let exec = bar.packages[package_i].exec.clone();
-                                    bar.spawn(exec);
+                                    // Skip empty exec to avoid "failed to parse"
+                                    if exec.trim().is_empty() {
+                                        log::warn!("selected package has empty exec, skipping");
+                                    } else {
+                                        bar.spawn(exec);
+                                    }
                                 }
                                 i += 1;
                             }
