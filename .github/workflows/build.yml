@@ -13,7 +13,17 @@ jobs:
 
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+          fetch-depth: 0
+
+      - name: 🧭 Debug - show nexus-assets source contents
+        run: |
+          set -euxo pipefail
+          ls -la cookbook/recipes/gui/nexus-assets || true
+          ls -la cookbook/recipes/gui/nexus-assets/source || true
 
       - name: 🛠 Install Dependencies
         run: |
