@@ -1,13 +1,5 @@
 [build]
 template = "custom"
 script = """
-set -euxo pipefail
-shopt -s nullglob
-mkdir -p "${COOKBOOK_STAGE}"
-srcs=("${COOKBOOK_SOURCE}/"*)
-if [ ${#srcs[@]} -gt 0 ]; then
-  cp -rv "${COOKBOOK_SOURCE}/"* "${COOKBOOK_STAGE}/"
-else
-  echo "nexus-assets: no files in ${COOKBOOK_SOURCE}, skipping copy"
-fi
+cp -rv "${COOKBOOK_SOURCE}/"* "${COOKBOOK_STAGE}/"
 """
