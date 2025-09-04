@@ -52,7 +52,7 @@ jobs:
 
       - name: ✅ Check for Build Artifact
         run: |
-          if [ ! -f redox/build/x86_64/harddrive.img ]; then
+          if [ ! -f redox/build/x86_64/desktop/harddrive.img ]; then
             echo "Build artifact missing!"
             exit 1
           fi
