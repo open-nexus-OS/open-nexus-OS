@@ -8,7 +8,7 @@ extern crate orbimage;
 extern crate redox_log;
 extern crate redox_users;
 
-use log::{error, info};
+use log::{error};
 use std::process::Command;
 use std::{env, io, str};
 use std::time::{Duration, Instant};
@@ -32,6 +32,13 @@ const PANEL_PAD: i32 = 16;          // panel inner padding
 const FIELD_H: i32 = 36;            // password field height
 const BTN_H: i32 = 36;              // bottom action buttons height
 const BTN_GAP: i32 = 28;            // spacing between bottom buttons
+
+// --- Actions bar layout constants (keep in sync across call sites) ---
+const ACTIONS_SLOT_W: i32         = 120; // width per button
+const ACTIONS_SLOT_H: i32         = 92;  // total height (icon + text + padding)
+const ACTIONS_BOTTOM_PADDING: i32 = 40;  // distance of the whole bar from the bottom
+const ICON_BTN_SIZE: i32          = 36;  // target icon size inside each button
+const ICON_TEXT_GAP: i32          = 6;   // vertical gap between icon and text
 
 // Actions
 #[derive(Clone, Copy, Debug)]
@@ -83,6 +90,32 @@ struct ActionIcons {
     restart: Option<Image>,
     shutdown: Option<Image>,
     logout:  Option<Image>,
+}
+
+// CACHE for background image scaling
+struct CachedBackground {
+    original: Image,
+    scaled: Option<Image>,
+    last_size: (u32, u32),
+}
+
+impl CachedBackground {
+    fn new(image: Image) -> Self {
+        Self {
+            original: image,
+            scaled: None,
+            last_size: (0, 0),
+        }
+    }
+    
+    fn get_scaled(&mut self, width: u32, height: u32) -> &Image {
+        if self.last_size != (width, height) || self.scaled.is_none() {
+            let scaled = self.original.resize(width, height, orbimage::ResizeType::Lanczos3).unwrap();
+            self.scaled = Some(scaled);
+            self.last_size = (width, height);
+        }
+        self.scaled.as_ref().unwrap()
+    }
 }
 
 fn find_scale(
@@ -189,9 +222,9 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
         ],
     ).ok_or("Could not create window")?;
 
-    // --- Background image setup ---
+    // --- Background image setup with caching ---
     let image_path = "/ui/login.png";
-    let image = match Image::from_path(image_path) {
+    let original_image = match Image::from_path(image_path) {
         Ok(img) => {
             log::info!("Loaded background image {}: {}x{}", image_path, img.width(), img.height());
             img
@@ -202,6 +235,9 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
             create_fallback_image(display_width.max(1), display_height.max(1))
         }
     };
+
+    // Create background cache
+    let mut bg_cache = CachedBackground::new(original_image);
 
     // Action icons
     let action_icons = ActionIcons {
@@ -225,38 +261,57 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
     // Track last mouse position (ButtonEvent has no coordinates)
     let mut mouse_x = 0;
     let mut mouse_y = 0;
+    let mut last_mouse_pos = (0, 0); 
 
     loop {
-        if dirty || resize.take().is_some() || last_clock_redraw.elapsed() >= Duration::from_secs(1) {
-            // 1) Draw background first (cover-fit via helper)
-            //    This always paints the full window; no clears to black needed.
-            draw_fullscreen_zoom(&mut window, &image);
+        let mut redraw_needed = dirty || resize.is_some();
+        
+        // Check for clock update only every 100ms
+        if last_clock_redraw.elapsed() >= Duration::from_millis(100) {
+            redraw_needed = true;
+        }
 
+        if redraw_needed {
+            // 1) Draw background from cache (much faster)
+            let current_size = (window.width(), window.height());
+            let bg_image = bg_cache.get_scaled(current_size.0, current_size.1);
+            bg_image.draw(&mut window, 0, 0);
+
+            let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
+            
             // 2) Draw UI on top
             match &state {
                 AppState::SelectUser { users, hover } => {
-                    let _ = draw_select_state(&font, &mut window, users, *hover, &action_icons);
-                    let h_i = window.height() as i32;
-                    let _ = draw_actions_bar(&font, &mut window, h_i - BTN_H - 24, false, &action_icons, Some((mouse_x, mouse_y)));
-
+                    draw_select_state(&font, &mut window, users, *hover);
                 }
                 AppState::EnterPassword { user, password, focus_pwd, show_error } => {
-                    let _ = draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error, &action_icons);
-                    let h_i = window.height() as i32;
-                    let _ = draw_actions_bar(&font, &mut window, h_i - BTN_H - 24, true, &action_icons, Some((mouse_x, mouse_y)));
+                    draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error);
                 }
-            }
-
+            };
+            
+            // 3) Draw actions bar for BOTH states (only once!)
+            let is_password_state = matches!(&state, AppState::EnterPassword {..});
+            draw_actions_bar(&font, &mut window, y_actions, is_password_state, 
+                            &action_icons, Some((mouse_x, mouse_y)));
+            
             window.sync();
             last_clock_redraw = Instant::now();
             dirty = false;
+            resize = None;
         }
 
+        // Process events without blocking
         for event in window.events() {
             match event.to_option() {
                 EventOption::Mouse(m) => {
+                    last_mouse_pos = (mouse_x, mouse_y);
                     mouse_x = m.x;
                     mouse_y = m.y;
+                    
+                    // Only redraw if mouse actually moved and we need hover effects
+                    if (mouse_x, mouse_y) != last_mouse_pos {
+                        dirty = true;
+                    }
 
                     if let AppState::SelectUser { users, hover } = &mut state {
                         let w = window.width() as i32;
@@ -269,7 +324,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                             center_x - AVATAR_RADIUS, center_y - AVATAR_RADIUS,
                             (AVATAR_RADIUS*2) as u32, (AVATAR_RADIUS*2) as u32
                         );
-                        // rough name hitbox (only for hit testing)
+                        // Rough name hitbox (only for hit testing)
                         let name_rect = Rect::new(center_x - 75, center_y + AVATAR_RADIUS + 8, 150, 24);
 
                         let mut new_hover = None;
@@ -317,8 +372,8 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                 continue;
                             }
                             // Click on bottom actions?
-                            let h = window.height() as i32;
-                            let actions = draw_actions_bar(&font, &mut window, h - BTN_H - 24, false, &action_icons, Some((mouse_x, mouse_y)));
+                            let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
+                            let actions = get_actions_hitboxes(&mut window, y_actions, false, &action_icons);
                             for (act, rect) in actions {
                                 if rect.contains(mouse_x, mouse_y) {
                                     handle_action(act);
@@ -328,10 +383,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                         }
                         AppState::EnterPassword { user, password, focus_pwd, show_error } => {
                             let (back_rect, field_rect) =
-                                draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error, &action_icons);
-
-                            let h_i = window.height() as i32;
-                            let _ = draw_actions_bar(&font, &mut window, h_i - BTN_H - 24, true, &action_icons, Some((mouse_x, mouse_y)));
+                                get_password_hitboxes(&mut window, user, password, *focus_pwd, *show_error);
 
                             if back_rect.contains(mouse_x, mouse_y) {
                                 state = AppState::SelectUser { users: normal_usernames(), hover: None };
@@ -343,9 +395,8 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                             } else {
                                 *focus_pwd = false;
                             }
-                            let h = window.height() as i32;
-                            let actions =
-                                draw_actions_bar(&font, &mut window, h - BTN_H - 24, true, &action_icons, Some((mouse_x, mouse_y)));
+                            let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
+                            let actions = get_actions_hitboxes(&mut window, y_actions, true, &action_icons);
                             for (act, rect) in actions {
                                 if rect.contains(mouse_x, mouse_y) {
                                     if let Action::Logout = act {
@@ -392,7 +443,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                     if *focus_pwd { password.pop(); dirty = true; }
                                 }
                                 orbclient::K_ENTER => {
-                                    if let Some(mut cmd) = login_command(user, password, launcher_cmd, launcher_args) {
+                                    if let Some(cmd) = login_command(user, password, launcher_cmd, launcher_args) {
                                         return Ok(Some(cmd)); 
                                     } else {
                                         *show_error = true;
@@ -423,6 +474,9 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                 _ => {}
             }
         }
+        
+        // Short sleep to reduce CPU usage (crucial for performance)
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -455,7 +509,7 @@ fn draw_fullscreen_zoom(win: &mut Window, img: &Image) {
     let scaled = if dw == iw && dh == ih {
         img.clone()
     } else {
-        img.resize(dw, dh, orbimage::ResizeType::Lanczos3).unwrap()
+        img.resize(dw, dh, orbimage::ResizeType::Lanczos3).unwrap_or_else(|_| img.clone())
     };
 
     // Crop mittig
@@ -467,6 +521,7 @@ fn draw_fullscreen_zoom(win: &mut Window, img: &Image) {
     roi.draw(win, 0, 0);
 }
 
+// Draw a clock in the top-right corner
 fn draw_top_right_clock(font: &Font, win: &mut Window) {
     // Draw a simple HH:MM clock in the top-right corner
     if let Ok((w, _h)) = orbclient::get_display_size() {
@@ -510,6 +565,7 @@ fn draw_image_centered(win: &mut Window, img: &orbimage::Image, rect: Rect) {
     }
 }
 
+// Draws a circular user avatar placeholder at the given center position.
 fn draw_user_avatar(win: &mut Window, center_x: i32, center_y: i32) {
     let size = (AVATAR_RADIUS * 2) as u32;
     let rect = Rect::new(center_x - AVATAR_RADIUS, center_y - AVATAR_RADIUS, size, size);
@@ -522,63 +578,89 @@ fn draw_user_avatar(win: &mut Window, center_x: i32, center_y: i32) {
     }
 }
 
+/// Draws the bottom actions (Sleep/Restart/Shutdown[/Logout]) as icon-buttons.
 fn draw_actions_bar(
     font: &Font,
     win: &mut Window,
     y: i32,
     state_is_pwd: bool,
     icons: &ActionIcons,
-    mouse_pos: Option<(i32, i32)>, 
+    mouse: Option<(i32, i32)>,
 ) -> Vec<(Action, Rect)> {
-    // Items: icon + label, centered
+    // Assemble items and their icons (some icons may be None)
     let mut items: Vec<(Action, &str, Option<&Image>)> = vec![
         (Action::Sleep,    "Sleep",    icons.sleep.as_ref()),
         (Action::Restart,  "Restart",  icons.restart.as_ref()),
-        (Action::Shutdown, "Shut Down",icons.shutdown.as_ref()),
+        (Action::Shutdown, "Shutdown", icons.shutdown.as_ref()),
     ];
     if state_is_pwd {
         items.push((Action::Logout, "Logout", icons.logout.as_ref()));
     }
 
-    let w = win.width() as i32;
-    let total_items = items.len() as i32;
-    let slot = 140; // breiter Slot, damit Platz links/rechts bleibt
-    let total_w = total_items * slot + (total_items - 1) * BTN_GAP;
-    let mut x = (w - total_w) / 2;
+    let w      = win.width() as i32;
+    let n      = items.len() as i32;
+    let total_w = n * ACTIONS_SLOT_W + (n - 1) * BTN_GAP;
+    let mut x   = (w - total_w) / 2;
 
-    let mut hit: Vec<(Action, Rect)> = Vec::new();
+    let mut hits: Vec<(Action, Rect)> = Vec::new();
+
     for (act, label, icon_opt) in items {
-        let rect = Rect::new(x, y, slot as u32, BTN_H as u32);
+        // Full slot hitbox
+        let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, ACTIONS_SLOT_H as u32);
 
-        // Hover?
-        let hovered = if let Some((mx, my)) = mouse_pos {
-            rect.contains(mx, my)
-        } else {
-            false
-        };
-
-        // evtl. leichtes Highlight bei Hover zeichnen
-        if hovered {
-            win.rect(rect.x, rect.y, rect.w, rect.h, Color::rgba(255,255,255,30));
+        // Hover highlight (subtle)
+        if let Some((mx, my)) = mouse {
+            if rect.contains(mx, my) {
+                win.rect(rect.x, rect.y, rect.w, rect.h, Color::rgba(255, 255, 255, 32));
+            }
         }
 
-        // Icon + Label zeichnen (z.B. Label heller bei Hover)
+        // Draw icon centered horizontally, higher in the slot
         if let Some(icon) = icon_opt {
-            let icon_box = Rect::new(x + (slot - 24) / 2, y + 2, 24, 24);
-            draw_image_centered(win, icon, icon_box);
-        }
-        let r = font.render(label, 14.0);
-        let ty = y + (BTN_H - r.height() as i32) - 2;
-        let label_col = if hovered { LABEL } else { LABEL_D };
-        r.draw(win, x + (slot - r.width() as i32) / 2, ty, label_col);
+            // Scale icon to ICON_BTN_SIZE, preserving aspect ratio
+            let iw = icon.width()  as i32;
+            let ih = icon.height() as i32;
 
-        hit.push((act, rect));
-        x += slot + BTN_GAP;
+            let scale = f32::min(
+                ICON_BTN_SIZE as f32 / iw.max(1) as f32,
+                ICON_BTN_SIZE as f32 / ih.max(1) as f32,
+            );
+            let dw = ((iw as f32 * scale).round() as i32).max(1) as u32;
+            let dh = ((ih as f32 * scale).round() as i32).max(1) as u32;
+
+            // Resize into a temporary (avoid mutating original)
+            let scaled = if dw == icon.width() && dh == icon.height() {
+                icon.clone()
+            } else {
+                icon.resize(dw, dh, orbimage::ResizeType::Lanczos3).unwrap_or_else(|_| icon.clone())
+            };
+
+            let ix = x + (ACTIONS_SLOT_W - scaled.width() as i32) / 2;
+            let iy = y + 6; // push icon towards the top inside the slot
+            scaled.draw(win, ix, iy);
+        }
+
+        // Draw label centered under the icon
+        let text_run = font.render(label, 14.0);
+        let tx   = x + (ACTIONS_SLOT_W - text_run.width() as i32) / 2;
+        // Place text so that icon + gap + text fits within slot height
+        let ty   = y + ICON_BTN_SIZE + ICON_TEXT_GAP + 10;
+        text_run.draw(win, tx, ty, LABEL);
+
+        hits.push((act, rect));
+        x += ACTIONS_SLOT_W + BTN_GAP;
     }
-    hit
+
+    hits
 }
 
-fn draw_select_state(font: &Font, win: &mut Window, usernames: &[String], hover: Option<usize>, icons: &ActionIcons,) -> Vec<(usize, Rect)> {
+// Get hitboxes for select user state (avatar/name and user list)
+fn draw_select_state(
+    font: &Font,
+    win: &mut Window,
+    usernames: &[String],
+    hover: Option<usize>,
+) -> Vec<(usize, Rect)> {
     let w = win.width() as i32;
     let h = win.height() as i32;
 
@@ -616,12 +698,10 @@ fn draw_select_state(font: &Font, win: &mut Window, usernames: &[String], hover:
             x += slot_w + gap;
         }
     }
-
-    let h = win.height() as i32;
-    let _ = draw_actions_bar(font, win, h - BTN_H - 24, false, icons, None);
     hit
 }
 
+// Get hitboxes for password state (back button and password field)
 fn draw_password_state(
     font: &Font,
     win: &mut Window,
@@ -629,7 +709,6 @@ fn draw_password_state(
     pwd: &str,
     focus_pwd: bool,
     show_error: bool,
-    _icons: &ActionIcons,
 ) -> (Rect, Rect) {
 
     let w = win.width() as i32;
@@ -685,8 +764,60 @@ fn draw_password_state(
     (back_rect, field_rect)
 }
 
+fn get_actions_hitboxes(
+    win: &mut Window,
+    y: i32,
+    state_is_pwd: bool,
+    icons: &ActionIcons,
+) -> Vec<(Action, Rect)> {
+    // gleiche Reihenfolge wie in draw_actions_bar
+    let mut items: Vec<(Action, &str, Option<&Image>)> = vec![
+        (Action::Sleep,    "Sleep",    icons.sleep.as_ref()),
+        (Action::Restart,  "Restart",  icons.restart.as_ref()),
+        (Action::Shutdown, "Shutdown", icons.shutdown.as_ref()),
+    ];
+    if state_is_pwd {
+        items.push((Action::Logout, "Logout", icons.logout.as_ref()));
+    }
+
+    let w = win.width() as i32;
+    let n = items.len() as i32;
+    let total_w = n * ACTIONS_SLOT_W + (n - 1) * BTN_GAP;
+    let mut x = (w - total_w) / 2;
+
+    let mut hits = Vec::with_capacity(items.len());
+    for (act, _label, _icon_opt) in items {
+        let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, ACTIONS_SLOT_H as u32);
+        hits.push((act, rect));
+        x += ACTIONS_SLOT_W + BTN_GAP;
+    }
+    hits
+}
+
+fn get_password_hitboxes(
+    win: &mut Window,
+    _user: &str,
+    _pwd: &str,
+    _focus_pwd: bool,
+    _show_error: bool,
+) -> (Rect, Rect) {
+    let w = win.width() as i32;
+    let h = win.height() as i32;
+
+    let center_x = w/2;
+    let center_y = h/2 - 40;
+
+    let field_w = 360;
+    let panel_y = center_y + AVATAR_RADIUS + 40;
+    let panel_x = center_x - field_w/2;
+
+    let back_rect  = Rect::new(panel_x - (FIELD_H + 8), panel_y, FIELD_H as u32, FIELD_H as u32);
+    let field_rect = Rect::new(panel_x, panel_y, field_w as u32, FIELD_H as u32);
+    (back_rect, field_rect)
+}
+
 fn main() -> io::Result<()> {
-    // Ignore possible errors while enabling logging
+    // Initialize logging (ignore errors if logging setup fails)
     let _ = RedoxLogger::new()
         .with_output(
             OutputBuilder::stdout()
@@ -698,25 +829,36 @@ fn main() -> io::Result<()> {
         .enable();
     log::info!("*** NEXUS_Login ACTIVE ***");
 
-
+    // Collect launcher command + args from arguments
     let mut args = env::args().skip(1);
-
     let launcher_cmd = args.next().ok_or(io::Error::new(
         io::ErrorKind::Other,
         "Could not get 'launcher_cmd'",
     ))?;
     let launcher_args: Vec<String> = args.collect();
 
+    // Main login loop: show login, start session, then return to login on logout
     loop {
         match login_window(&launcher_cmd, &launcher_args) {
             Ok(Some(mut command)) => {
-                // Start the user session and EXIT the login process
+                // Spawn user session and wait until it exits
                 match command.spawn() {
-                    Ok(_child) => return Ok(()), // exit login immediately
-                    Err(e) => return Err(io::Error::new(io::ErrorKind::Other, format!("failed to exec '{}': {}", launcher_cmd, e))),
+                    Ok(mut child) => {
+                        if let Err(e) = child.wait() {
+                            error!("failed to wait for '{}': {}", launcher_cmd, e);
+                        }
+                        // After session exit, loop restarts and login_window is shown again
+                    }
+                    Err(e) => {
+                        error!("failed to exec '{}': {}", launcher_cmd, e);
+                        // Continue loop to retry login
+                    }
                 }
             }
-            Ok(None) => return Ok(()), // user cancelled or window quit
+            Ok(None) => {
+                // User cancelled or window quit → end login process
+                return Ok(());
+            }
             Err(e) => {
                 error!("{}", e);
                 return Err(io::Error::new(io::ErrorKind::Other, e));
@@ -724,3 +866,4 @@ fn main() -> io::Result<()> {
         }
     }
 }
+
