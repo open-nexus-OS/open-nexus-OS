@@ -210,9 +210,11 @@ fn login_command(
 }
 
 fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<Command>, String> {
+    // Font and display metrics
     let font = Font::find(Some("Sans"), None, None)?;
     let (display_width, display_height) = orbclient::get_display_size()?;
 
+    // Fullscreen, borderless window
     let mut window = Window::new_flags(
         0, 0, display_width, display_height, "nexus_login",
         &[
@@ -222,7 +224,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
         ],
     ).ok_or("Could not create window")?;
 
-    // --- Background image setup with caching ---
+    // --- Background image with resize cache ---
     let image_path = "/ui/login.png";
     let original_image = match Image::from_path(image_path) {
         Ok(img) => {
@@ -231,15 +233,12 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
         }
         Err(e) => {
             error!("Login background not found at {}: {}", image_path, e);
-            // Fallback so we do not end up with a black window
             create_fallback_image(display_width.max(1), display_height.max(1))
         }
     };
-
-    // Create background cache
     let mut bg_cache = CachedBackground::new(original_image);
 
-    // Action icons
+    // Action icons (optional assets)
     let action_icons = ActionIcons {
         sleep:    Image::from_path("/ui/icons/actions/system-sleep.png").ok(),
         restart:  Image::from_path("/ui/icons/actions/system-restart.png").ok(),
@@ -247,91 +246,91 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
         logout:   Image::from_path("/ui/icons/actions/system-log-out.png").ok(),
     };
 
-    // Initial state
+    // Initial UI state
     let mut state = {
         let mut users = normal_usernames();
         if users.is_empty() { users.push("nexus".into()); }
         AppState::SelectUser { users, hover: None }
     };
 
+    // Redraw scheduling
     let mut last_clock_redraw = Instant::now();
     let mut resize = Some((display_width, display_height));
     let mut dirty = true;
+    const CLOCK_INTERVAL: Duration = Duration::from_secs(1);
 
-    // Track last mouse position (ButtonEvent has no coordinates)
+    // Track last mouse position for hover invalidation
     let mut mouse_x = 0;
     let mut mouse_y = 0;
-    let mut last_mouse_pos = (0, 0); 
+    let mut last_mouse_pos = (0, 0);
 
     loop {
-        let mut redraw_needed = dirty || resize.is_some();
-        
-        // Check for clock update only every 100ms
-        if last_clock_redraw.elapsed() >= Duration::from_millis(100) {
-            redraw_needed = true;
-        }
+        // Decide if a redraw is needed (dirty, resize or clock tick)
+        let redraw_needed = dirty || resize.is_some() || last_clock_redraw.elapsed() >= CLOCK_INTERVAL;
 
         if redraw_needed {
-            // 1) Draw background from cache (much faster)
-            let current_size = (window.width(), window.height());
-            let bg_image = bg_cache.get_scaled(current_size.0, current_size.1);
+            // 1) Draw cached background scaled to the current window size
+            let bg_image = bg_cache.get_scaled(window.width(), window.height());
             bg_image.draw(&mut window, 0, 0);
 
+            // 2) Draw UI content for current state
             let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
-            
-            // 2) Draw UI on top
+
             match &state {
                 AppState::SelectUser { users, hover } => {
-                    draw_select_state(&font, &mut window, users, *hover);
+                    // Select screen draws avatar (85% / 100% handled inside), username, and list
+                    let _ = draw_select_state(&font, &mut window, users, *hover, Some((mouse_x, mouse_y)));
                 }
                 AppState::EnterPassword { user, password, focus_pwd, show_error } => {
-                    draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error);
+                    // Password screen draws avatar (always 100%), username and field
+                    let _ = draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error);
                 }
-            };
-            
-            // 3) Draw actions bar for BOTH states (only once!)
-            let is_password_state = matches!(&state, AppState::EnterPassword {..});
-            draw_actions_bar(&font, &mut window, y_actions, is_password_state, 
-                            &action_icons, Some((mouse_x, mouse_y)));
-            
+            }
+
+            // 3) Draw actions bar once (both states)
+            let is_password_state = matches!(state, AppState::EnterPassword { .. });
+            let _ = draw_actions_bar(&font, &mut window, y_actions, is_password_state, &action_icons, Some((mouse_x, mouse_y)));
+
+            // Present
             window.sync();
+
+            // Bookkeeping
             last_clock_redraw = Instant::now();
             dirty = false;
             resize = None;
         }
 
-        // Process events without blocking
+        // Non-blocking event pump
         for event in window.events() {
             match event.to_option() {
                 EventOption::Mouse(m) => {
+                    // Update mouse and invalidate on real motion (for hover effects)
                     last_mouse_pos = (mouse_x, mouse_y);
                     mouse_x = m.x;
                     mouse_y = m.y;
-                    
-                    // Only redraw if mouse actually moved and we need hover effects
                     if (mouse_x, mouse_y) != last_mouse_pos {
                         dirty = true;
                     }
 
+                    // Update hover in SelectUser state
                     if let AppState::SelectUser { users, hover } = &mut state {
                         let w = window.width() as i32;
                         let h = window.height() as i32;
                         let center_x = w / 2;
                         let center_y = h / 2 - 40;
 
-                        // Avatar & name area are clickable
+                        // Avatar/name hitboxes
                         let avatar_rect = Rect::new(
                             center_x - AVATAR_RADIUS, center_y - AVATAR_RADIUS,
-                            (AVATAR_RADIUS*2) as u32, (AVATAR_RADIUS*2) as u32
+                            (AVATAR_RADIUS * 2) as u32, (AVATAR_RADIUS * 2) as u32
                         );
-                        // Rough name hitbox (only for hit testing)
                         let name_rect = Rect::new(center_x - 75, center_y + AVATAR_RADIUS + 8, 150, 24);
 
                         let mut new_hover = None;
                         if avatar_rect.contains(mouse_x, mouse_y) || name_rect.contains(mouse_x, mouse_y) {
                             new_hover = Some(hover.unwrap_or(0).min(users.len().saturating_sub(1)));
                         } else if users.len() > 1 {
-                            // Username row
+                            // Username row (simple centered layout)
                             let slot_w = 140;
                             let gap = 16;
                             let total = users.len() as i32 * slot_w + (users.len() as i32 - 1) * gap;
@@ -346,7 +345,8 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                 x += slot_w + gap;
                             }
                         } else {
-                            new_hover = Some(0);
+                            // new hover = Some(0); No hover when there is only one user
+                            new_hover = None; // only hover when the pointer is really over the avatar/name
                         }
 
                         if new_hover != *hover {
@@ -355,11 +355,12 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                         }
                     }
                 }
+
                 EventOption::Button(b) => {
                     if !b.left { continue; }
                     match &mut state {
                         AppState::SelectUser { users, hover } => {
-                            // Click on avatar/name/user row?
+                            // Clicking on selected user advances to password
                             if let Some(sel) = *hover {
                                 let user = users[sel].clone();
                                 state = AppState::EnterPassword {
@@ -371,7 +372,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                 dirty = true;
                                 continue;
                             }
-                            // Click on bottom actions?
+                            // Bottom action buttons
                             let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
                             let actions = get_actions_hitboxes(&mut window, y_actions, false, &action_icons);
                             for (act, rect) in actions {
@@ -381,20 +382,20 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                 }
                             }
                         }
+
                         AppState::EnterPassword { user, password, focus_pwd, show_error } => {
-                            let (back_rect, field_rect) =
-                                get_password_hitboxes(&mut window, user, password, *focus_pwd, *show_error);
+                            // Back and field hitboxes
+                            let (back_rect, field_rect) = get_password_hitboxes(&mut window, user, password, *focus_pwd, *show_error);
 
                             if back_rect.contains(mouse_x, mouse_y) {
                                 state = AppState::SelectUser { users: normal_usernames(), hover: None };
                                 dirty = true;
                                 continue;
                             }
-                            if field_rect.contains(mouse_x, mouse_y) {
-                                *focus_pwd = true;
-                            } else {
-                                *focus_pwd = false;
-                            }
+
+                            *focus_pwd = field_rect.contains(mouse_x, mouse_y);
+
+                            // Bottom action buttons
                             let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
                             let actions = get_actions_hitboxes(&mut window, y_actions, true, &action_icons);
                             for (act, rect) in actions {
@@ -410,22 +411,15 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                         }
                     }
                 }
+
                 EventOption::Key(k) if k.pressed => {
                     match &mut state {
                         AppState::SelectUser { users, hover } => {
                             match k.scancode {
-                                orbclient::K_LEFT => {
-                                    if let Some(hh) = hover { if *hh > 0 { *hh -= 1; } }
-                                    else if !users.is_empty() { *hover = Some(0); }
-                                    dirty = true;
-                                }
-                                orbclient::K_RIGHT => {
-                                    if let Some(hh) = hover { if *hh + 1 < users.len() { *hh += 1; } }
-                                    else if users.len() > 1 { *hover = Some(1); }
-                                    dirty = true;
-                                }
+                                orbclient::K_LEFT  => { if let Some(hh) = hover { if *hh > 0 { *hh -= 1; } } else if !users.is_empty() { *hover = Some(0); } dirty = true; }
+                                orbclient::K_RIGHT => { if let Some(hh) = hover { if *hh + 1 < users.len() { *hh += 1; } } else if users.len() > 1 { *hover = Some(1); } dirty = true; }
                                 orbclient::K_ENTER => {
-                                    let i = hover.unwrap_or(0).min(users.len()-1);
+                                    let i = hover.unwrap_or(0).min(users.len().saturating_sub(1));
                                     let user = users[i].clone();
                                     state = AppState::EnterPassword { user, password: String::new(), focus_pwd: true, show_error: false };
                                     dirty = true;
@@ -444,11 +438,11 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                 }
                                 orbclient::K_ENTER => {
                                     if let Some(cmd) = login_command(user, password, launcher_cmd, launcher_args) {
-                                        return Ok(Some(cmd)); 
+                                        return Ok(Some(cmd));
                                     } else {
                                         *show_error = true;
+                                        dirty = true;
                                     }
-                                    dirty = true;
                                 }
                                 _ => {
                                     if *focus_pwd && k.character != '\0' {
@@ -460,12 +454,15 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                         }
                     }
                 }
+
                 EventOption::Resize(r) => {
+                    // Update window size and schedule background rescale
                     window.set_size(r.width, r.height);
                     resize = Some((r.width, r.height));
                     dirty = true;
                 }
                 EventOption::Screen(s) => {
+                    // Handle screen geometry changes (e.g., mode switch)
                     window.set_size(s.width, s.height);
                     resize = Some((s.width, s.height));
                     dirty = true;
@@ -474,8 +471,8 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                 _ => {}
             }
         }
-        
-        // Short sleep to reduce CPU usage (crucial for performance)
+
+        // Small sleep to reduce CPU usage when idle
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -567,15 +564,7 @@ fn draw_image_centered(win: &mut Window, img: &orbimage::Image, rect: Rect) {
 
 // Draws a circular user avatar placeholder at the given center position.
 fn draw_user_avatar(win: &mut Window, center_x: i32, center_y: i32) {
-    let size = (AVATAR_RADIUS * 2) as u32;
-    let rect = Rect::new(center_x - AVATAR_RADIUS, center_y - AVATAR_RADIUS, size, size);
-
-    if let Ok(img) = Image::from_path("/ui/icons/system/avatar.png") {
-        draw_image_centered(win, &img, rect);
-    } else {
-        // fallback rectangle if asset missing
-        win.rect(rect.x, rect.y, rect.w, rect.h, Color::rgba(255,255,255,32));
-    }
+    draw_user_avatar_with_opacity(win, center_x, center_y, 255);
 }
 
 /// Draws the bottom actions (Sleep/Restart/Shutdown[/Logout]) as icon-buttons.
@@ -654,45 +643,85 @@ fn draw_actions_bar(
     hits
 }
 
-// Get hitboxes for select user state (avatar/name and user list)
+// draws text and avatar for user selection state
 fn draw_select_state(
     font: &Font,
     win: &mut Window,
     usernames: &[String],
     hover: Option<usize>,
+    mouse: Option<(i32, i32)>, // <-- added
 ) -> Vec<(usize, Rect)> {
     let w = win.width() as i32;
     let h = win.height() as i32;
 
+    // clock
     draw_top_right_clock(font, win);
 
-    let center_x = w/2;
-    let center_y = h/2 - 40;
-    draw_user_avatar(win, center_x, center_y);
+    let center_x = w / 2;
+    let center_y = h / 2 - 40;
 
+    // Determine which username the big avatar represents
     let selected_i = hover.unwrap_or(0).min(usernames.len().saturating_sub(1));
+
+    // Recompute avatar and name hitboxes (same as in your event code)
+    let avatar_rect = Rect::new(
+        center_x - AVATAR_RADIUS,
+        center_y - AVATAR_RADIUS,
+        (AVATAR_RADIUS * 2) as u32,
+        (AVATAR_RADIUS * 2) as u32,
+    );
+    let name_rect = Rect::new(center_x - 75, center_y + AVATAR_RADIUS + 8, 150, 24);
+
+    // True hover is based on pointer position, not on the 'hover' index
+    let over_avatar = if let Some((mx, my)) = mouse {
+        avatar_rect.contains(mx, my) || name_rect.contains(mx, my)
+    } else {
+        false
+    };
+
+    // Avatar opacity: 85% normally, 100% on real hover
+    let avatar_opacity: u8 = if over_avatar { 255 } else { 217 };
+    draw_user_avatar_with_opacity(win, center_x, center_y, avatar_opacity);
+
+    // Username label (brighten when pointer is over avatar/name)
     let name = &usernames[selected_i];
     let label = font.render(name, 18.0);
-    let is_main_hover = hover == Some(selected_i);
-    let label_col = if is_main_hover { LABEL } else { LABEL_D };
-    label.draw(win, center_x - label.width() as i32/2, center_y + AVATAR_RADIUS + 8, label_col);
+    let label_col = if over_avatar { LABEL } else { LABEL_D };
+    label.draw(
+        win,
+        center_x - label.width() as i32 / 2,
+        center_y + AVATAR_RADIUS + 8,
+        label_col,
+    );
 
+    // Secondary row (list) with per-item hover based on 'hover' index
     let mut hit = Vec::new();
     if usernames.len() > 1 {
         let slot_w = 140;
         let gap = 16;
         let total = usernames.len() as i32 * slot_w + (usernames.len() as i32 - 1) * gap;
-        let mut x = center_x - total/2;
+        let mut x = center_x - total / 2;
         let y = center_y + AVATAR_RADIUS + 32 + 8;
 
         for (i, u) in usernames.iter().enumerate() {
             let rect = Rect::new(x, y, slot_w as u32, 28);
             let hl = hover == Some(i);
-            win.rect(x, y, rect.w, rect.h, if hl { Color::rgba(255,255,255,40) } else { Color::rgba(0,0,0,0) });
-            // Use brighter text when hovered
+
+            // subtle hover background
+            win.rect(
+                x, y, rect.w, rect.h,
+                if hl { Color::rgba(255, 255, 255, 40) } else { Color::rgba(0, 0, 0, 0) }
+            );
+
+            // brighter text when hovered
             let r = font.render(u, 14.0);
             let text_col = if hl { LABEL } else { LABEL_D };
-            r.draw(win, x + (slot_w - r.width() as i32)/2, y + (28 - r.height() as i32)/2, text_col);
+            r.draw(
+                win,
+                x + (slot_w - r.width() as i32) / 2,
+                y + (28 - r.height() as i32) / 2,
+                text_col,
+            );
 
             hit.push((i, rect));
             x += slot_w + gap;
@@ -701,7 +730,7 @@ fn draw_select_state(
     hit
 }
 
-// Get hitboxes for password state (back button and password field)
+// draws avatar with password enter
 fn draw_password_state(
     font: &Font,
     win: &mut Window,
@@ -710,53 +739,72 @@ fn draw_password_state(
     focus_pwd: bool,
     show_error: bool,
 ) -> (Rect, Rect) {
-
     let w = win.width() as i32;
     let h = win.height() as i32;
 
+    // clock
     draw_top_right_clock(font, win);
 
-    let center_x = w/2;
-    let center_y = h/2 - 40;
+    let center_x = w / 2;
+    let center_y = h / 2 - 40;
 
-    draw_user_avatar(win, center_x, center_y);
+    // Avatar always 100% in password state
+    draw_user_avatar_with_opacity(win, center_x, center_y, 255);
 
     // Username label
     let name = font.render(user, 18.0);
-    name.draw(win, center_x - name.width() as i32/2, center_y + AVATAR_RADIUS + 8, LABEL);
+    name.draw(
+        win,
+        center_x - name.width() as i32 / 2,
+        center_y + AVATAR_RADIUS + 8,
+        LABEL,
+    );
 
-    // Password panel with back arrow on the left
+    // ---- BACK BUTTON (round) ----
     let field_w = 360;
     let panel_y = center_y + AVATAR_RADIUS + 40;
-    let panel_x = center_x - field_w/2;
+    let panel_x = center_x - field_w / 2;
 
-    // Back arrow button (image)
     let back_rect = Rect::new(panel_x - (FIELD_H + 8), panel_y, FIELD_H as u32, FIELD_H as u32);
-    win.rect(back_rect.x, back_rect.y, back_rect.w, back_rect.h, Color::rgba(255,255,255,40));
 
+    // White @ 35% (≈ alpha 90)
+    let white35 = Color::rgba(255, 255, 255, 90);
+
+    // Round back button
+    let back_cx = back_rect.x + back_rect.w as i32 / 2;
+    let back_cy = back_rect.y + back_rect.h as i32 / 2;
+    let back_r  = (back_rect.w.min(back_rect.h) as i32) / 2;
+    fill_circle(win, back_cx, back_cy, back_r, white35);
+
+    // Icon (image or fallback glyph)
     if let Ok(back_img) = Image::from_path("/ui/back.png") {
         draw_image_centered(win, &back_img, back_rect);
     } else {
         let arr = font.render("<", 18.0);
         arr.draw(
             win,
-            back_rect.x + (FIELD_H - arr.width() as i32)/2,
-            back_rect.y + (FIELD_H - arr.height() as i32)/2,
-            LABEL
+            back_rect.x + (FIELD_H - arr.width() as i32) / 2,
+            back_rect.y + (FIELD_H - arr.height() as i32) / 2,
+            LABEL,
         );
     }
 
-    // Password field (rounded pill illusion via overlay)
+    // ---- PASSWORD FIELD (rounded corners: 10px) ----
     let field_rect = Rect::new(panel_x, panel_y, field_w as u32, FIELD_H as u32);
-    win.rect(field_rect.x, field_rect.y, field_rect.w, field_rect.h, PANEL_BG);
+    fill_round_rect(win, field_rect, 10, white35);
 
     // Placeholder / dots
     let shown = if pwd.is_empty() { "Enter Password" } else { &"•".repeat(pwd.chars().count()) };
-    let color = if show_error { ERROR } else { if focus_pwd { LABEL } else { LABEL_D } };
+    let color = if show_error { ERROR } else if focus_pwd { LABEL } else { LABEL_D };
     let r = font.render(shown, 16.0);
-    r.draw(win, field_rect.x + PANEL_PAD, field_rect.y + (FIELD_H - r.height() as i32)/2, color);
+    r.draw(
+        win,
+        field_rect.x + PANEL_PAD,
+        field_rect.y + (FIELD_H - r.height() as i32) / 2,
+        color,
+    );
 
-    // Error underline
+    // Optional error underline
     if show_error {
         win.rect(field_rect.x, field_rect.y + FIELD_H - 2, field_rect.w, 2, ERROR);
     }
@@ -814,6 +862,73 @@ fn get_password_hitboxes(
     let back_rect  = Rect::new(panel_x - (FIELD_H + 8), panel_y, FIELD_H as u32, FIELD_H as u32);
     let field_rect = Rect::new(panel_x, panel_y, field_w as u32, FIELD_H as u32);
     (back_rect, field_rect)
+}
+
+// Draws the avatar with a simulated opacity effect.
+// We render the avatar normally, then if opacity < 100%,
+// we darken it by overlaying a semi-transparent black circle.
+fn draw_user_avatar_with_opacity(win: &mut Window, center_x: i32, center_y: i32, opacity: u8) {
+    let size = (AVATAR_RADIUS * 2) as u32;
+    let rect = Rect::new(center_x - AVATAR_RADIUS, center_y - AVATAR_RADIUS, size, size);
+
+    if let Ok(img) = Image::from_path("/ui/icons/system/avatar.png") {
+        draw_image_centered(win, &img, rect);
+    } else {
+        // fallback rectangle if the asset is missing
+        win.rect(rect.x, rect.y, rect.w, rect.h, Color::rgba(255,255,255,32));
+    }
+
+    // Apply overlay mask if opacity < 100%
+    if opacity < 255 {
+        let overlay_alpha = 255u16.saturating_sub(opacity as u16) as u8;
+        let cx = rect.x + rect.w as i32 / 2;
+        let cy = rect.y + rect.h as i32 / 2;
+        fill_circle(win, cx, cy, AVATAR_RADIUS, Color::rgba(0, 0, 0, overlay_alpha));
+    }
+}
+
+fn fill_circle(win: &mut Window, cx: i32, cy: i32, r: i32, color: Color) {
+    // Rasterized filled circle via horizontal scanlines
+    for dy in -r..=r {
+        let dx = (((r * r) - (dy * dy)) as f32).sqrt() as i32;
+        let x = cx - dx;
+        let y = cy + dy;
+        win.rect(x, y, (dx * 2 + 1) as u32, 1, color);
+    }
+}
+
+fn fill_round_rect(win: &mut Window, rect: Rect, radius: i32, color: Color) {
+    // clamp radius
+    let r = radius.min(rect.w.min(rect.h) as i32 / 2).max(0);
+
+    // center area (without the rounded corners)
+    let x = rect.x;
+    let y = rect.y;
+    let w = rect.w as i32;
+    let h = rect.h as i32;
+
+    // middle rectangle
+    win.rect(x + r, y, (w - 2 * r) as u32, h as u32, color);
+
+    // left & right rectangles (between the corner arcs)
+    if r > 0 {
+        win.rect(x,         y + r, r as u32,        (h - 2 * r) as u32, color);
+        win.rect(x + w - r, y + r, r as u32,        (h - 2 * r) as u32, color);
+
+        // four quarter-circles
+        for dy in 0..r {
+            let dx = (((r * r) - (dy * dy)) as f32).sqrt() as i32;
+
+            // top-left
+            win.rect(x + r - dx,       y + r - 1 - dy, (dx) as u32, 1, color);
+            // top-right
+            win.rect(x + w - r,        y + r - 1 - dy, (dx) as u32, 1, color);
+            // bottom-left
+            win.rect(x + r - dx,       y + h - r + dy, (dx) as u32, 1, color);
+            // bottom-right
+            win.rect(x + w - r,        y + h - r + dy, (dx) as u32, 1, color);
+        }
+    }
 }
 
 fn main() -> io::Result<()> {
