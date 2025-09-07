@@ -777,7 +777,7 @@ fn draw_password_state(
     fill_circle(win, back_cx, back_cy, back_r, white35);
 
     // Icon (image or fallback glyph)
-    if let Ok(back_img) = Image::from_path("/ui/back.png") {
+    if let Ok(back_img) = Image::from_path("/ui/icons/actions/back.png") {
         draw_image_centered(win, &back_img, back_rect);
     } else {
         let arr = font.render("<", 18.0);
