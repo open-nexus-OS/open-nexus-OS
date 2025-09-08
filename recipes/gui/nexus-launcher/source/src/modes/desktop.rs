@@ -1,10 +1,10 @@
-use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT, K_RIGHT, K_UP, K_DOWN};
+use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT, K_RIGHT, K_UP, K_DOWN, K_BKSP, K_ENTER,};
 use orbimage::{Image, ResizeType};
 use orbfont::Font;
 
 use crate::config;
 use crate::icons::CommonIcons;
-use crate::themes::{BAR_HEIGHT, BAR_COLOR};
+use crate::themes::{BAR_HEIGHT};
 
 use std::collections::HashMap;
 
@@ -170,6 +170,8 @@ pub fn show_desktop_menu(
     let mut toggle_hit:  (i32,i32,i32,i32);
     let mut dot_hits: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
 
+    let mut search_active = false;
+
     'ev: loop {
         // ---------- Background ----------
         if large {
@@ -183,6 +185,14 @@ pub fn show_desktop_menu(
             fill_round_rect(&mut window, 0, 0, ww, wh, 5, Color::rgba(255, 255, 255, 210));
         }
 
+        // ---------- Toggle (we need its x for search width) ----------
+        let toggle_icon = if large { &icons.resize_lg } else { &icons.resize_sm };
+        let tiw = toggle_icon.width() as i32;
+        let tih = toggle_icon.height() as i32;
+        let rx = window.width() as i32 - tiw - 10; // right inset
+        let ry = 10;
+        toggle_hit = (rx, ry, tiw, tih);
+
         // ---------- Search bar (top) ----------
         let pad = 14i32;
         let search_h = 36i32;
@@ -191,23 +201,50 @@ pub fn show_desktop_menu(
         let sw = window.width() as i32 - pad*2;
         let sh = search_h;
 
-        // search field background
-        fill_round_rect(
-            &mut window,
-            sx, sy, sw as u32, sh as u32, 6,
-            if large { Color::rgba(255, 255, 255, 26) } else { Color::rgba(0, 0, 0, 18) }
-        );
-        // placeholder / text
-        let qtxt = if query.is_empty() { "Search apps…" } else { &query };
-        let qcol = if large {
-            if query.is_empty() { Color::rgba(255,255,255,150) } else { Color::rgba(255,255,255,230) }
+        // ---------- Search bar (top) ----------
+        let pad = 14i32;
+        let search_h = 36i32;
+        let sx = pad;
+        let sy = pad;
+        // leave some gap (10px) to the toggle button so the field doesn't go underneath
+        let sw = (rx - sx - 10).max(80);
+        let sh = search_h;
+
+        // slightly different background when focused
+        let search_bg = if large {
+            if search_active { Color::rgba(255,255,255,34) } else { Color::rgba(255,255,255,26) }
         } else {
-            if query.is_empty() { Color::rgba(20,20,20,160) } else { Color::rgba(20,20,20,230) }
+            if search_active { Color::rgba(0,0,0,28) } else { Color::rgba(0,0,0,18) }
         };
-        let q = font.render(qtxt, 14.0);
-        q.draw(&mut window, sx + 10, sy + (sh - q.height() as i32)/2, qcol);
+        fill_round_rect(&mut window, sx, sy, sw as u32, sh as u32, 6, search_bg);
+
+        // placeholder only when empty & not focused
+        let qtxt = if query.is_empty() && !search_active { "Search apps…" } else { &query };
+        let qcol = if large {
+            if query.is_empty() && !search_active { Color::rgba(255,255,255,150) } else { Color::rgba(255,255,255,230) }
+        } else {
+            if query.is_empty() && !search_active { Color::rgba(20,20,20,160) } else { Color::rgba(20,20,20,230) }
+        };
+        let text = font.render(qtxt, 14.0);
+        let text_x = sx + 10;
+        let text_y = sy + (sh - text.height() as i32)/2;
+        text.draw(&mut window, text_x, text_y, qcol);
+
+        // draw a caret when active (simple solid line at end of text)
+        if search_active {
+            let caret_x = (text_x + text.width() as i32).min(sx + sw - 8);
+            let caret_top = sy + 6;
+            let caret_h   = sh - 12;
+            window.rect(caret_x, caret_top, 1, caret_h as u32, qcol);
+        }
 
         search_rect = (sx, sy, sw, sh);
+
+        // ---------- Toggle hover + draw ----------
+        if point_in(mouse_pos, toggle_hit) {
+            fill_round_rect(&mut window, rx - 6, ry - 6, (tiw + 12) as u32, (tih + 12) as u32, 6, hover_fill_color(large));
+        }
+        toggle_icon.draw(&mut window, rx, ry);
 
         // ---------- Filter packages ----------
         let mut indices: Vec<usize> = Vec::with_capacity(pkgs.len());
@@ -223,7 +260,7 @@ pub fn show_desktop_menu(
         }
 
         // ---------- Toggle icon (top-right) ----------
-        let toggle_icon = if large { &icons.resize_lg } else { &icons.resize_sm };
+        /*let toggle_icon = if large { &icons.resize_lg } else { &icons.resize_sm };
         let tiw = toggle_icon.width() as i32;
         let tih = toggle_icon.height() as i32;
         let rx = window.width() as i32 - tiw - 10;
@@ -232,7 +269,7 @@ pub fn show_desktop_menu(
         if point_in(mouse_pos, toggle_hit) {
             fill_round_rect(&mut window, rx - 6, ry - 6, (tiw + 12) as u32, (tih + 12) as u32, 6, hover_fill_color(large));
         }
-        toggle_icon.draw(&mut window, rx, ry);
+        toggle_icon.draw(&mut window, rx, ry);*/
 
         // --- Content area and grid/list layout ---
         let base_content_x = pad;
@@ -425,30 +462,48 @@ pub fn show_desktop_menu(
             match ev.to_option() {
                 EventOption::Key(k) if k.scancode == K_ESC && k.pressed => break 'ev,
                 EventOption::Key(k) if k.pressed => {
-                    // typing
                     let ch = k.character;
-                    match ch {
-                        '\u{8}' => { query.pop(); }    // backspace
-                        '\n' | '\r' => {}               // enter
-                        c if c != '\0' && !c.is_control() => query.push(c),
-                        _ => {}
+                    let is_printable = ch != '\0' && !ch.is_control();
+
+                    // Backspace via scancode (orbclient standard, wie in orblogin)
+                    if k.scancode == K_BKSP {
+                        // Auto-focus the search if user hits backspace
+                        if !search_active { search_active = true; }
+                        let _ = query.pop();
                     }
-                    // navigation
-                    match k.scancode {
-                        K_LEFT  if large => { if page > 0 { page -= 1; } }
-                        K_RIGHT if large => { if page + 1 < page_count { page += 1; } }
-                        K_UP    if !large => { if list_top > 0 { list_top -= 1; } }
-                        K_DOWN  if !large => {
-                            // scroll down one row in small mode
-                            let total_rows = ((indices.len() as i32) + cols - 1) / cols;
-                            let max_top = (total_rows - rows).max(0) as usize;
-                            if list_top < max_top { list_top += 1; }
+                    // Printable character → type into search
+                    else if is_printable {
+                        // Auto-focus when typing
+                        if !search_active { search_active = true; }
+                        query.push(ch);
+                    }
+                    else if k.scancode == K_ENTER && search_active {
+                    }
+                    // Navigation keys only when not typing in the search field
+                    else if !search_active {
+                        match k.scancode {
+                            K_LEFT  if large => { if page > 0 { page -= 1; } }
+                            K_RIGHT if large => { if page + 1 < page_count { page += 1; } }
+                            K_UP    if !large => { if list_top > 0 { list_top -= 1; } }
+                            K_DOWN  if !large => {
+                                if !indices.is_empty() {
+                                    let total_rows = ((indices.len() as i32) + cols - 1) / cols;
+                                    let max_top    = (total_rows - rows).max(0) as usize;
+                                    if list_top < max_top { list_top += 1; }
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
                 EventOption::Mouse(m)  => { mouse_pos = (m.x, m.y); }
-                EventOption::Button(b) => { mouse_down = b.left; }
+                EventOption::Button(b) => {
+                    mouse_down = b.left;
+                    if b.left {
+                        // focus search if clicked inside; defocus otherwise
+                        search_active = point_in(mouse_pos, search_rect);
+                    }
+                }
                 EventOption::Scroll(s) => {
                     if !large {
                         let dy = s.y; // or s.dy depending on orbclient
