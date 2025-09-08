@@ -134,8 +134,12 @@ pub fn draw_app_cell(
     (x, y, cell_w, cell_h)
 }
 
-pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package::Package]) -> DesktopMenuResult {
-
+pub fn show_desktop_menu(
+    screen_w: u32,
+    screen_h: u32,
+    pkgs: &mut [crate::package::Package],
+) -> DesktopMenuResult {
+    // Cache for resized icons: (package_index, icon_side_px) -> Image
     let mut icon_cache: HashMap<(usize, i32), Image> = HashMap::new();
 
     let mut large = config::desktop_large();
@@ -149,35 +153,37 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
     let icons = CommonIcons::load(UI_PATH);
     let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
 
+    // UI state
     let mut query = String::new();
     let mut mouse_pos = (0, 0);
     let mut mouse_down = false;
     let mut last_mouse_down = false;
 
-    // Paging & scrolling state
-    let mut page: usize = 0;         // large mode & mobile use pages
-    let mut list_top: usize = 0;     // small mode vertical list top index
+    // Paging & scrolling
+    let mut page: usize = 0;     // large mode (pages)
+    let mut list_top: usize = 0; // small mode (top row offset)
 
     // Hitboxes
-    let mut power_hit: (i32,i32,i32,i32);
-    let mut settings_hit: (i32,i32,i32,i32);
+    let mut power_hit:   (i32,i32,i32,i32);
+    let mut settings_hit:(i32,i32,i32,i32);
     let mut search_rect: (i32,i32,i32,i32);
-    let mut toggle_hit: (i32,i32,i32,i32);
+    let mut toggle_hit:  (i32,i32,i32,i32);
     let mut dot_hits: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
 
     'ev: loop {
-        // Backgrounds
+        // ---------- Background ----------
         if large {
-            window.set(Color::rgba(0, 0, 0, 80)); // dark overlay
+            // full-screen overlay (except taskbar), dark veil
+            window.set(Color::rgba(0, 0, 0, 80));
         } else {
-            window.set(Color::rgba(0, 0, 0, 0));  // clear fully transparent
+            // small panel: clear window, then draw bright rounded panel
+            window.set(Color::rgba(0, 0, 0, 0));
             let ww = window.width();
             let wh = window.height();
-            fill_round_rect(&mut window, 0, 0, ww, wh, 5, Color::rgba(255, 255, 255, 210)); // bright rounded panel
+            fill_round_rect(&mut window, 0, 0, ww, wh, 5, Color::rgba(255, 255, 255, 210));
         }
 
-        // --- Search bar (top) ---
-        // Simple inline search bar: 14px font, returns (x,y,w,h)
+        // ---------- Search bar (top) ----------
         let pad = 14i32;
         let search_h = 36i32;
         let sx = pad;
@@ -185,10 +191,13 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
         let sw = window.width() as i32 - pad*2;
         let sh = search_h;
 
-        // Search background (rounded) to match style
-        fill_round_rect(&mut window, sx, sy, sw as u32, sh as u32, 6,
-            if large { Color::rgba(255,255,255,26) } else { Color::rgba(0,0,0,18) });
-        // Search text
+        // search field background
+        fill_round_rect(
+            &mut window,
+            sx, sy, sw as u32, sh as u32, 6,
+            if large { Color::rgba(255, 255, 255, 26) } else { Color::rgba(0, 0, 0, 18) }
+        );
+        // placeholder / text
         let qtxt = if query.is_empty() { "Search apps…" } else { &query };
         let qcol = if large {
             if query.is_empty() { Color::rgba(255,255,255,150) } else { Color::rgba(255,255,255,230) }
@@ -200,7 +209,7 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
 
         search_rect = (sx, sy, sw, sh);
 
-        // --- Filter packages by query ---
+        // ---------- Filter packages ----------
         let mut indices: Vec<usize> = Vec::with_capacity(pkgs.len());
         if query.trim().is_empty() {
             indices.extend(0..pkgs.len());
@@ -213,7 +222,7 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
             }
         }
 
-        // --- Toggle icon (top-right) ---
+        // ---------- Toggle icon (top-right) ----------
         let toggle_icon = if large { &icons.resize_lg } else { &icons.resize_sm };
         let tiw = toggle_icon.width() as i32;
         let tih = toggle_icon.height() as i32;
@@ -221,127 +230,125 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
         let ry = 10;
         toggle_hit = (rx, ry, tiw, tih);
         if point_in(mouse_pos, toggle_hit) {
-            let hp = 6;
-            fill_round_rect(&mut window, rx - hp, ry - hp, (tiw + 2*hp) as u32, (tih + 2*hp) as u32, 6, hover_fill_color(large));
+            fill_round_rect(&mut window, rx - 6, ry - 6, (tiw + 12) as u32, (tih + 12) as u32, 6, hover_fill_color(large));
         }
         toggle_icon.draw(&mut window, rx, ry);
 
         // --- Content area and grid/list layout ---
-        let content_x = pad;
-        let content_y = sy + sh + 12;
-        let content_w = window.width() as i32 - pad*2;
+        let base_content_x = pad;
+        let base_content_y = sy + sh + 12;
+        let base_content_w = window.width() as i32 - pad*2;
+        // etwas mehr Platz unten im Large-Modus
+        let bottom_reserve = if large { 96 } else { 64 };
+        let base_content_h = (window.height() as i32 - bottom_reserve) - base_content_y;
 
-        // Bottom area reserved for user/settings/power + page dots spacing
-        let bottom_reserve = 64i32;
+        // Grid constants
+        let label_h  = 16;
+        let cell_pad = if large { 10 } else { 8 };
+        let hgap     = if large { 18 } else { 12 };
+        let vgap     = if large { 20 } else { 12 };
+        let cols: i32 = 8;
 
-        let content_h = (window.height() as i32 - bottom_reserve) - content_y;
+        // Large: clamp icon size, Small: wie zuvor
+        let max_icon_large = 96; // <- hier kannst du die maximale Icongröße anpassen
 
-        // Layout params
-        let (cols, rows) = if large { (8usize, 5usize) } else { (1usize, (content_h / 88).max(3) as usize) };
-        let hgap = if large { 18 } else { 8 };
-        let vgap = if large { 18 } else { 8 };
+        // 1) raw per-cell width aus verfügbarer Breite
+        let cell_w_avail = ((base_content_w - (cols - 1) * hgap) / cols).max(48);
+        let icon_side_raw = (cell_w_avail - 2*cell_pad).max(24);
+        let icon_side = if large { icon_side_raw.min(max_icon_large) } else { icon_side_raw };
+        let cell_w    = icon_side + 2*cell_pad;
+        let cell_h    = icon_side + label_h + 2*cell_pad;
 
-        // Compute cell size
-        let cell_w = ((content_w - (cols as i32 - 1) * hgap) / cols as i32).max(48);
-        let cell_h = if large {
-            ((content_h - (rows as i32 - 1) * vgap) / rows as i32).max(64)
-        } else {
-            // small: one column, dynamic height ~ 80-100
-            ((content_h - (rows as i32 - 1) * vgap) / rows as i32).clamp(64, 112)
-        };
+        // 2) Grid horizontal zentrieren (so entsteht links/rechts Abstand)
+        let grid_w = cols * cell_w + (cols - 1) * hgap;
+        let grid_x = ((window.width() as i32 - grid_w) / 2).max(base_content_x);
+        let grid_y = base_content_y;
+        let content_h = base_content_h;
 
-        // Paging / list windowing
-        let per_page = cols * rows;
-        let page_count = if per_page == 0 { 1 } else { ((indices.len() + per_page - 1) / per_page).max(1) };
+        // 3) Zeilen, Large auf max. 5 limitieren
+        let rows_avail = ((content_h + vgap) / (cell_h + vgap)).max(1);
+        let rows: i32 = if large { rows_avail.min(5) } else { rows_avail };
+
+        // Paging / Listfenster
+        let per_page: usize = (cols * rows).max(1) as usize;
+        let page_count = ((indices.len() + per_page - 1) / per_page).max(1);
         if large && page >= page_count { page = page_count - 1; }
 
         // --- Visible slice ---
         let visible_indices: Vec<usize> = if large {
             let start = page * per_page;
-            let end = (start + per_page).min(indices.len());
+            let end   = (start + per_page).min(indices.len());
             indices.get(start..end).unwrap_or(&[]).to_vec()
         } else {
-            // small: 1 column with vertical list
-            let visible_rows = rows.max(1);
-            // clamp list_top so that at least one full "page" (rows) sichtbar ist
-            let max_top = indices.len().saturating_sub(visible_rows);
+            // Small: vertikal nach Reihen scrollen
+            let total_rows = ((indices.len() as i32) + cols - 1) / cols; // ceil(n/cols)
+            let max_top    = (total_rows - rows).max(0) as usize;
             if list_top > max_top { list_top = max_top; }
 
-            let end = (list_top + visible_rows).min(indices.len());
-            indices.get(list_top..end).unwrap_or(&[]).to_vec()
+            let start = (list_top as i32 * cols) as usize;
+            let end   = (start + per_page).min(indices.len());
+            indices.get(start..end).unwrap_or(&[]).to_vec()
         };
 
-        // Draw grid/list and collect hit rects
+        // --- Draw grid/list and collect hit rects ---
         let mut cells: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
-        let mut cx = content_x;
-        let mut cy = content_y;
 
         for (i, idx) in visible_indices.iter().enumerate() {
-            let row = (i / cols) as i32;
-            let col = (i % cols) as i32;
+            let row = (i as i32) / cols;
+            let col = (i as i32) % cols;
 
-            cx = content_x + col * (cell_w + hgap);
-            cy = content_y + row * (cell_h + vgap);
+            let cx = grid_x + col * (cell_w + hgap);
+            let cy = grid_y + row * (cell_h + vgap);
 
-            // --- compute the same icon size we use for caching ---
-            let label_h = 16i32;
-            let pad = 8i32;
-            let usable_h = (cell_h - label_h - pad*2).max(24);
-            let usable_w = (cell_w - pad*2).max(24);
-            let icon_side = usable_h.min(usable_w).max(28);
-
-            // Hover background (unchanged)
+            // hover background
             if point_in(mouse_pos, (cx, cy, cell_w, cell_h)) {
                 fill_round_rect(&mut window, cx, cy, cell_w as u32, cell_h as u32, 8, hover_fill_color(large));
             }
 
-            // --- ICON CACHE LOOKUP (this is the piece you asked for) ---
+            // cached icon (key = (package_index, icon_side))
             let key = (*idx, icon_side);
             let icon_ref = if let Some(img) = icon_cache.get(&key) {
                 img
             } else {
-                let img_src = pkgs[*idx].icon.image().clone();
-                let img = img_src
+                let img = pkgs[*idx].icon.image().clone()
                     .resize(icon_side as u32, icon_side as u32, ResizeType::Lanczos3)
                     .expect("resize");
                 icon_cache.insert(key, img);
                 icon_cache.get(&key).unwrap()
             };
 
-            // Draw cell using the pre-resized icon
             let rect = draw_app_cell(
-                &mut window,
-                &font,
-                &mut pkgs[*idx],
+                &mut window, &font, &mut pkgs[*idx],
                 cx, cy,
                 cell_w, cell_h,
                 icon_side,
                 large,
                 Some(icon_ref),
             );
-
             cells.push((rect, *idx));
         }
 
-        // --- Bottom controls ---
+        // ---------- Bottom controls ----------
         let margin = 16i32;
-        let gap = 16i32;
+        let gap    = 16i32;
 
-        // Avatar + username (left)
+        // left: user avatar + name
         let target_h = if large { 22 } else { 20 };
         let mut user_img = icons.user.clone();
-        let target_h_u = target_h as u32;
-        let target_w_u = ((user_img.width() * target_h_u) / user_img.height()).max(1);
-        user_img = user_img.resize(target_w_u, target_h_u, ResizeType::Lanczos3).unwrap();
+        let th_u = target_h as u32;
+        let tw_u = ((user_img.width() * th_u) / user_img.height()).max(1);
+        user_img = user_img.resize(tw_u, th_u, ResizeType::Lanczos3).unwrap();
 
         let user_x = margin;
         let user_y = window.height() as i32 - target_h - margin;
 
-        // Hover user area
         let name_text = font.render(&username, 16.0);
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (target_h - name_text.height() as i32) / 2;
-        let user_hit = (user_x, user_y.min(name_y), (name_x + name_text.width() as i32) - user_x, target_h.max(name_text.height() as i32));
+        let user_hit = (user_x, user_y.min(name_y),
+            (name_x + name_text.width() as i32) - user_x,
+            target_h.max(name_text.height() as i32));
+
         if point_in(mouse_pos, user_hit) {
             fill_round_rect(&mut window, user_hit.0 - 6, user_hit.1 - 6, (user_hit.2 + 12) as u32, (user_hit.3 + 12) as u32, 6, hover_fill_color(large));
         }
@@ -353,7 +360,7 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
         } else { base_name_color };
         name_text.draw(&mut window, name_x, name_y, name_col);
 
-        // Right: settings (outer) + power (left)
+        // right: settings (outer) + power (left)
         let (settings_icon, power_icon) = if large {
             (&icons.settings_lg, &icons.power_lg)
         } else {
@@ -361,18 +368,17 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
         };
         let sw2 = settings_icon.width() as i32;
         let sh2 = settings_icon.height() as i32;
-        let pw = power_icon.width() as i32;
-        let ph = power_icon.height() as i32;
+        let pw  = power_icon.width() as i32;
+        let ph  = power_icon.height() as i32;
 
         let settings_x = window.width() as i32 - sw2 - margin;
         let settings_y = window.height() as i32 - sh2 - margin;
-        let power_x = settings_x - gap - pw;
-        let power_y = window.height() as i32 - ph - margin;
+        let power_x    = settings_x - gap - pw;
+        let power_y    = window.height() as i32 - ph - margin;
 
         settings_hit = (settings_x, settings_y, sw2, sh2);
         power_hit    = (power_x,    power_y,    pw,  ph);
 
-        // Hover backgrounds
         if point_in(mouse_pos, settings_hit) {
             fill_round_rect(&mut window, settings_x - 6, settings_y - 6, (sw2 + 12) as u32, (sh2 + 12) as u32, 6, hover_fill_color(large));
         }
@@ -380,11 +386,10 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
             fill_round_rect(&mut window, power_x - 6, power_y - 6, (pw + 12) as u32, (ph + 12) as u32, 6, hover_fill_color(large));
         }
 
-        // Draw icons last
         settings_icon.draw(&mut window, settings_x, settings_y);
         power_icon.draw(&mut window, power_x, power_y);
 
-        // --- Divider line (small only): from user_x to settings right edge ---
+        // small only: divider from user_x to right edge of settings
         if !large {
             let controls_top = user_y.min(settings_y).min(power_y);
             let sep_y = (controls_top - 8).max(0);
@@ -395,133 +400,120 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::packag
             }
         }
 
-        // --- Page dots (large only) ---
+        // page dots (large only)
+        dot_hits.clear();
         if large && page_count > 1 {
-            let dots_y = (window.height() as i32 - sh2 - margin) - 18;
-            let dot_w = 8;
-            let dot_h = 3;
+            let dots_y  = (window.height() as i32 - sh2 - margin) - 18;
+            let dot_w   = 8;
+            let dot_h   = 3;
             let spacing = 8;
             let total_w = (page_count as i32) * dot_w + ((page_count as i32 - 1) * spacing);
-            let mut dx = (window.width() as i32 - total_w) / 2;
+            let mut dx  = (window.width() as i32 - total_w) / 2;
             for i in 0..page_count {
                 let active = i == page;
                 let a = if active { 220 } else { 90 };
-                // store hit rect
                 dot_hits.push(((dx, dots_y, dot_w, dot_h), i));
-                window.rect(dx, dots_y, dot_w as u32, dot_h as u32, Color::rgba(255,255,255,a));
+                window.rect(dx, dots_y, dot_w as u32, dot_h as u32, Color::rgba(255, 255, 255, a));
                 dx += dot_w + spacing;
             }
         }
 
         window.sync();
 
-        // --- Events ---
+        // ---------- Events ----------
         for ev in window.events() {
             match ev.to_option() {
                 EventOption::Key(k) if k.scancode == K_ESC && k.pressed => break 'ev,
                 EventOption::Key(k) if k.pressed => {
+                    // typing
                     let ch = k.character;
-                    // type into search
                     match ch {
-                        '\u{8}' => { query.pop(); }
-                        '\n' | '\r' => {}
+                        '\u{8}' => { query.pop(); }    // backspace
+                        '\n' | '\r' => {}               // enter
                         c if c != '\0' && !c.is_control() => query.push(c),
                         _ => {}
                     }
-                    // navigation keys
+                    // navigation
                     match k.scancode {
                         K_LEFT  if large => { if page > 0 { page -= 1; } }
                         K_RIGHT if large => { if page + 1 < page_count { page += 1; } }
                         K_UP    if !large => { if list_top > 0 { list_top -= 1; } }
                         K_DOWN  if !large => {
-                            if indices.len() > 0 {
-                                let max_top = indices.len().saturating_sub(rows.max(1));
-                                if list_top < max_top { list_top += 1; }
-                            }
+                            // scroll down one row in small mode
+                            let total_rows = ((indices.len() as i32) + cols - 1) / cols;
+                            let max_top = (total_rows - rows).max(0) as usize;
+                            if list_top < max_top { list_top += 1; }
                         }
                         _ => {}
                     }
                 }
-                EventOption::Mouse(m) => { mouse_pos = (m.x, m.y); }
+                EventOption::Mouse(m)  => { mouse_pos = (m.x, m.y); }
                 EventOption::Button(b) => { mouse_down = b.left; }
                 EventOption::Scroll(s) => {
-                    // NOTE: On orbclient, positive y typically means "scroll up", negative "down".
                     if !large {
-                        // one step per event
-                        let visible_rows = rows.max(1);
-                        let max_top = indices.len().saturating_sub(visible_rows);
-
-                        // Try to read vertical delta; if your orbclient uses a different field
-                        // name (e.g. dy), change 's.y' to match. We only need the sign.
-                        if s.y < 0 {
-                            // scroll down
-                            if list_top < max_top { list_top = list_top.saturating_add(1); }
-                        } else if s.y > 0 {
-                            // scroll up
-                            if list_top > 0 { list_top -= 1; }
+                        let dy = s.y; // or s.dy depending on orbclient
+                        let total_rows = ((indices.len() as i32) + cols - 1) / cols;
+                        let max_top = (total_rows - rows).max(0) as usize;
+                        if dy < 0 && (list_top as i32) < max_top as i32 {
+                            list_top += 1;
+                        } else if dy > 0 && list_top > 0 {
+                            list_top -= 1;
                         }
                     }
                 }
                 EventOption::Focus(f) => { if !f.focused { break 'ev; } }
-                EventOption::Quit(_) => break 'ev,
+                EventOption::Quit(_)  => break 'ev,
                 _ => {}
             }
         }
 
-        // --- Release edge handling ---
+        // ---------- Release edge ----------
         if !mouse_down && last_mouse_down {
-            // 1) Toggle small/large
+            // toggle small/large
             if point_in(mouse_pos, toggle_hit) {
                 large = !large;
                 config::set_desktop_large(large);
                 (win_x, win_y, win_w, win_h) = target_geometry(screen_w, screen_h, large);
                 window.set_pos(win_x, win_y);
                 window.set_size(win_w, win_h);
-                // reset paging/scroll
                 page = 0;
                 list_top = 0;
             }
-            // 2) Settings closes menu (MVP)
+            // settings: close menu (MVP)
             else if point_in(mouse_pos, settings_hit) {
                 break 'ev;
             }
-            // 3) Power → Logout
+            // power: logout
             else if point_in(mouse_pos, power_hit) {
                 return DesktopMenuResult::Logout;
             }
-            // 4) App cells (both modes): launch if a cell was clicked
+            // app cells: launch
             else {
                 let mut launched = false;
                 for (rect, idx) in &cells {
                     if point_in(mouse_pos, *rect) {
                         let exec = pkgs[*idx].exec.clone();
-                        if !exec.trim().is_empty() {
-                            return DesktopMenuResult::Launch(exec);
-                        }
-                        launched = true; // clicked but empty exec; treated as handled
+                        if !exec.trim().is_empty() { return DesktopMenuResult::Launch(exec); }
+                        launched = true;
                         break;
                     }
                 }
-
                 if !launched {
-                    // 5) Large-only: clickable dots, else background close
+                    // large only: clickable dots or background-close
                     if large {
                         let mut dot_clicked = false;
                         for (rect, idx) in &dot_hits {
                             if point_in(mouse_pos, *rect) {
-                                page = *idx;          // switch page, keep menu open
+                                page = *idx;
                                 dot_clicked = true;
                                 break;
                             }
                         }
-                        if !dot_clicked {
-                            // background click closes menu (unless on search bar)
-                            if !point_in(mouse_pos, search_rect) {
-                                break 'ev;
-                            }
+                        if !dot_clicked && !point_in(mouse_pos, search_rect) {
+                            break 'ev;
                         }
                     }
-                    // Small mode: background click does nothing (intended)
+                    // small: background click = no-op
                 }
             }
         }
