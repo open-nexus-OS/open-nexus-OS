@@ -21,15 +21,22 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::{env, io, mem};
 
-use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC};
+use orbclient::{Color, EventOption, Renderer, Window, WindowFlag};
 use orbfont::Font;
 use orbimage::Image;
 
 use package::{IconSource, Package};
 use themes::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, BAR_ACTIVITY_MARKER, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE};
 
+pub mod modes {
+    pub mod desktop;
+    pub mod mobile;
+}
 mod package;
 mod themes;
+mod ui;
+mod icons;
+mod config;
 
 static SCALE: AtomicIsize = AtomicIsize::new(1);
 
@@ -273,6 +280,8 @@ struct Bar {
     selected: i32,
     selected_window: Window,
     time: String,
+    start_menu_open: bool,
+    suppress_start_open: bool,
 }
 
 impl Bar {
@@ -379,6 +388,8 @@ impl Bar {
             )
             .expect("launcher: failed to open selected window"),
             time: String::new(),
+            start_menu_open: false,
+            suppress_start_open: false,
         }
     }
 
@@ -476,9 +487,30 @@ impl Bar {
     }
 
     fn start_window(&mut self, category_opt: Option<&String>) -> Option<String> {
+        use orbclient::{EventOption, Window, WindowFlag, K_ESC};
+
+        // 1) NEW PATH: No category requested -> open the new start menu
+        if category_opt.is_none() {
+            match crate::config::mode() {
+                crate::config::Mode::Desktop => {
+                    match crate::modes::desktop::show_desktop_menu(self.width, self.height) {
+                        crate::modes::desktop::DesktopMenuResult::Launch(exec) => return Some(exec),
+                        _ => return None,
+                    }
+                }
+                crate::config::Mode::Mobile => {
+                    match crate::modes::mobile::show_mobile_menu(self.width, self.height) {
+                        crate::modes::mobile::MobileMenuResult::Launch(exec) => return Some(exec),
+                        _ => return None,
+                    }
+                }
+            }
+        }
+
+        // 2) LEGACY PATH: category chooser (keeps old small list for subcategories)
         let packages = match category_opt {
             Some(category) => self.category_packages.get_mut(category)?,
-            None => &mut self.start_packages,
+            None => &mut self.start_packages, // not used now because handled above, but kept for safety
         };
 
         let start_h = packages.len() as u32 * icon_small_size() as u32;
@@ -497,6 +529,7 @@ impl Bar {
         let mut mouse_left = false;
         let mut last_mouse_left = false;
         draw_chooser(&mut start_window, &self.font, packages, selected);
+
         'start_choosing: loop {
             for event in start_window.events() {
                 let redraw = match event.to_option() {
@@ -505,6 +538,10 @@ impl Bar {
                         true
                     }
                     EventOption::Button(button_event) => {
+                        if button_event.left {
+                            // New press → allow opening again on this press/release cycle
+                            self.suppress_start_open = false; // <-- 'self.' statt 'bar.'
+                        }
                         mouse_left = button_event.left;
                         true
                     }
@@ -553,6 +590,7 @@ impl Bar {
                 }
             }
         }
+
         None
     }
 
@@ -609,7 +647,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut mouse_left = false;
     let mut last_mouse_left = false;
 
-    let all_events = core::array::IntoIter::new([Event::Time, Event::Window]);
+    let all_events = [Event::Time, Event::Window].into_iter();
 
     'events: for event in all_events
         .chain(event_queue.map(|e| e.expect("launcher: failed to get next event").user_data))
@@ -712,6 +750,10 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             true
                         }
                         EventOption::Button(button_event) => {
+                            // On a NEW press allow opening again in this press/release cycle
+                            if button_event.left {
+                                bar.suppress_start_open = false;
+                            }
                             mouse_left = button_event.left;
                             true
                         }
@@ -778,30 +820,58 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                         if !mouse_left && last_mouse_left {
                             let mut i = 0;
 
+                            // --- Start button slot (i == 0) ---
                             if i == bar.selected {
-                                let mut category_opt = None;
-                                while let Some(exec) = bar.start_window(category_opt.as_ref()) {
-                                    if exec.starts_with("category=") {
-                                        let category = &exec[9..];
-                                        category_opt = Some(category.to_string());
-                                    } else if exec == "exit" {
-                                        if category_opt.is_some() {
-                                            category_opt = None;
-                                        } else {
-                                            break 'events;
+                                // True toggle behavior:
+                                if bar.start_menu_open {
+                                    // Menu is open -> clicking Start should close it, not reopen.
+                                    // The menu window will receive Focus(false) and close itself.
+                                    // Guard so this very same click cannot reopen immediately.
+                                    bar.suppress_start_open = true;
+                                } else {
+                                    // Menu is closed
+                                    if !bar.suppress_start_open {
+                                        bar.start_menu_open = true;
+
+                                        // Open start menu (blocking call) according to current mode
+                                        match crate::config::mode() {
+                                            crate::config::Mode::Desktop => {
+                                                match crate::modes::desktop::show_desktop_menu(bar.width, bar.height) {
+                                                    crate::modes::desktop::DesktopMenuResult::Launch(exec) => {
+                                                        if !exec.trim().is_empty() { bar.spawn(exec); }
+                                                    }
+                                                    crate::modes::desktop::DesktopMenuResult::Logout => {
+                                                        break 'events; // jump to login like the old Logout
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            crate::config::Mode::Mobile => {
+                                                match crate::modes::mobile::show_mobile_menu(bar.width, bar.height) {
+                                                    crate::modes::mobile::MobileMenuResult::Launch(exec) => {
+                                                        if !exec.trim().is_empty() { bar.spawn(exec); }
+                                                    }
+                                                    crate::modes::mobile::MobileMenuResult::Logout => {
+                                                        break 'events;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
                                         }
-                                    } else {
-                                        bar.spawn(exec);
-                                        break;
+
+                                        // Menu returned/closed
+                                        bar.start_menu_open = false;
+                                        // Prevent immediate re-open caused by this same click sequence
+                                        bar.suppress_start_open = true;
                                     }
                                 }
                             }
                             i += 1;
 
+                            // --- App slots (unchanged) ---
                             for package_i in 0..bar.packages.len() {
                                 if i == bar.selected {
                                     let exec = bar.packages[package_i].exec.clone();
-                                    // Skip empty exec to avoid "failed to parse"
                                     if exec.trim().is_empty() {
                                         log::warn!("selected package has empty exec, skipping");
                                     } else {
