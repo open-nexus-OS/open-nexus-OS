@@ -280,7 +280,7 @@ pub fn show_desktop_menu(screen_w: u32, screen_h: u32) -> DesktopMenuResult {
 
             // From the start of the user area to the RIGHT EDGE of the settings icon
             let sep_x1 = user_x;
-            let sep_x2 = settings_x + sw2; // extend to settings, not just power
+            let sep_x2 = settings_x + sw2; // extend to settings
 
             if sep_x2 > sep_x1 {
                 // 1-px line; adjust alpha for stronger/weaker look
