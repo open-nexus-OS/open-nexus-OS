@@ -126,7 +126,7 @@ fn wait(status: &mut i32) -> io::Result<usize> {
     })
 }
 
-fn size_icon(mut icon: orbimage::Image, small: bool) -> orbimage::Image {
+fn size_icon(icon: orbimage::Image, small: bool) -> orbimage::Image {
     if small {
         let target = icon_small_size() as u32;
         if icon.width() == target && icon.height() == target {
@@ -493,13 +493,13 @@ impl Bar {
         if category_opt.is_none() {
             match crate::config::mode() {
                 crate::config::Mode::Desktop => {
-                    match crate::modes::desktop::show_desktop_menu(self.width, self.height) {
+                    match crate::modes::desktop::show_desktop_menu(self.width, self.height, &mut self.packages) {
                         crate::modes::desktop::DesktopMenuResult::Launch(exec) => return Some(exec),
                         _ => return None,
                     }
                 }
                 crate::config::Mode::Mobile => {
-                    match crate::modes::mobile::show_mobile_menu(self.width, self.height) {
+                    match crate::modes::mobile::show_mobile_menu(self.width, self.height, &mut self.packages) {
                         crate::modes::mobile::MobileMenuResult::Launch(exec) => return Some(exec),
                         _ => return None,
                     }
@@ -836,7 +836,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                         // Open start menu (blocking call) according to current mode
                                         match crate::config::mode() {
                                             crate::config::Mode::Desktop => {
-                                                match crate::modes::desktop::show_desktop_menu(bar.width, bar.height) {
+                                                match crate::modes::desktop::show_desktop_menu(bar.width, bar.height, &mut bar.packages) {
                                                     crate::modes::desktop::DesktopMenuResult::Launch(exec) => {
                                                         if !exec.trim().is_empty() { bar.spawn(exec); }
                                                     }
@@ -847,7 +847,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                                 }
                                             }
                                             crate::config::Mode::Mobile => {
-                                                match crate::modes::mobile::show_mobile_menu(bar.width, bar.height) {
+                                                match crate::modes::mobile::show_mobile_menu(bar.width, bar.height, &mut bar.packages) {
                                                     crate::modes::mobile::MobileMenuResult::Launch(exec) => {
                                                         if !exec.trim().is_empty() { bar.spawn(exec); }
                                                     }
