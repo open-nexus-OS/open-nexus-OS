@@ -1,0 +1,6 @@
+[build]
+template = "custom"
+script = """
+# No-op: this is a library-only crate, built transitively via path dependencies.
+true
+"""

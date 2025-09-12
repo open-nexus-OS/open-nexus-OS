@@ -33,8 +33,10 @@ SUCCESS="\033[1;32m[SUCCESS]\033[0m"
 # Configuration
 REDOX_DIR="redox"
 ARCH="x86_64"  # Change this to your target architecture (e.g., x86_64, aarch64, riscv64gc)
-RECIPES_SOURCE="$(realpath recipes/gui)"
-RECIPES_TARGET_PATH="cookbook/recipes/gui"
+GUI_RECIPES_SOURCE="$(realpath recipes/gui)"
+GUI_RECIPES_TARGET_PATH="cookbook/recipes/gui"
+LIBS_RECIPES_SOURCE="$(realpath recipes/libs)"
+LIBS_RECIPES_TARGET_PATH="cookbook/recipes/libs"
 CONFIG_NAME="desktop"
 CONFIG_SOURCE="$(realpath config/desktop.toml)"
 CONFIG_TARGET_PATH="config/$ARCH/$CONFIG_NAME.toml"
@@ -44,8 +46,10 @@ echo -e "$INFO Environment:"
 echo "  ARCH=$ARCH"
 echo "  CONFIG=$CONFIG"
 echo -e "$INFO Using config: $CONFIG_TARGET_PATH"
-echo -e "$INFO Using recipes source: $RECIPES_SOURCE"
-echo -e "$INFO Using recipes target: $RECIPES_TARGET_PATH"
+echo -e "$INFO Using gui recipes source: $GUI_RECIPES_SOURCE"
+echo -e "$INFO Using gui recipes target: $GUI_RECIPES_TARGET_PATH"
+echo -e "$INFO Using libs recipes source: $LIBS_RECIPES_SOURCE"
+echo -e "$INFO Using libs recipes target: $LIBS_RECIPES_TARGET_PATH"
 
 # Step 2: Check if Redox directory exists and navigate to it
 cd "$REDOX_DIR" || { 
@@ -63,8 +67,12 @@ make pull
 
 # Copy recipe files
 echo -e "$INFO Copying recipe files..."
-rsync -a "$RECIPES_SOURCE/" "$RECIPES_TARGET_PATH" || {
-    echo -e "$ERROR Could not copy recipe files"
+rsync -a "$GUI_RECIPES_SOURCE/" "$GUI_RECIPES_TARGET_PATH" || {
+    echo -e "$ERROR Could not copy gui recipe files"
+    exit 1
+}
+rsync -a "$LIBS_RECIPES_SOURCE/" "$LIBS_RECIPES_TARGET_PATH" || {
+    echo -e "$ERROR Could not copy libs recipe files"
     exit 1
 }
 

@@ -16,6 +16,7 @@ redox-log = "0.1"
 log = "0.4.14"
 dirs = "5.0.0"
 libc = "0.2.50"
+libnexus = { path = "../../../libs/libnexus/source", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "redox")'.dependencies]
 redox_event = "0.4.1"

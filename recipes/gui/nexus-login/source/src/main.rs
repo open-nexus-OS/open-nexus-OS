@@ -225,7 +225,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
     ).ok_or("Could not create window")?;
 
     // --- Background image with resize cache ---
-    let image_path = "/ui/login.png";
+    let image_path = "/ui/login.jpg";
     let original_image = match Image::from_path(image_path) {
         Ok(img) => {
             log::info!("Loaded background image {}: {}x{}", image_path, img.width(), img.height());
@@ -777,7 +777,7 @@ fn draw_password_state(
     fill_circle(win, back_cx, back_cy, back_r, white35);
 
     // Icon (image or fallback glyph)
-    if let Ok(back_img) = Image::from_path("/ui/icons/actions/back.png") {
+    if let Ok(back_img) = Image::from_path("/ui/icons/system/back.white.png") {
         draw_image_centered(win, &back_img, back_rect);
     } else {
         let arr = font.render("<", 18.0);
