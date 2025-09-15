@@ -8,9 +8,9 @@
 #
 # 💡 This script:
 #   1. Removes old build directories
-#   2. Removes old recipe builds
-#   3. Deletes Redox cache
-#   4. Deletes Cargo registry and git checkouts
+#   2. Removes old recipe copies
+#   3. Deletes Redox binaries
+#   4. Updates relibc
 # =============================================================================
 
 # Error Messages with row numbers
@@ -18,25 +18,19 @@ trap 'echo -e "\033[1;31m[CRASHED]\033[0m Fehler in Zeile $LINENO (Befehl: $BASH
 
 set -e
 
-echo "🧹 Removes old build directories..."
-rm -rf build/x86_64/desktop
-rm -rf redox/build
-
-echo "🧹 Removes old recipe builds..."
-rm -rf recipes/gui/nexus/target
-rm -rf recipes/gui/nexus-assets/target
-rm -rf recipes/gui/nexus-utils/target
-
-echo "🧹 Deletes Redox Cache..."
-rm -rf ~/.cache/redox
-
-echo "🧹 Deletes Cargo Registry and Git Checkouts..."
-rm -rf ~/.cargo/registry/index
-rm -rf ~/.cargo/registry/cache
-rm -rf ~/.cargo/git/checkouts
-
 echo "  Goto Redox directory..."
 cd redox
+
+echo "🧹 Removes old build directories..."
+rm -rf build
+
+echo "🧹 Removes old recipe builds..."
+rm -rf cookbook/recipes/gui/nexus
+rm -rf cookbook/recipes/gui/nexus-assets
+rm -rf cookbook/recipes/gui/nexus-login
+rm -rf cookbook/recipes/gui/nexus-background
+rm -rf cookbook/recipes/gui/nexus-launcher
+rm -rf cookbook/recipes/libs/libnexus   
 
 echo "🧹 Clean all recipe binaries for complete rebuild"
 make clean

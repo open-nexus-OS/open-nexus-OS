@@ -19,6 +19,7 @@ use orbimage::Image;
 use redox_log::{OutputBuilder, RedoxLogger};
 use redox_users::{All, AllUsers, Config};
 use libredox::flag;
+use libnexus::{THEME, IconVariant};
 
 // -------- UI THEME --------
 const PANEL_BG: Color = Color::rgba(255, 255, 255, 191);   // 75% white
@@ -27,18 +28,22 @@ const LABEL_D:  Color = Color::rgb(0xCC, 0xCC, 0xCC);
 const ACCENT:   Color = Color::rgb(0x7A, 0xB7, 0xFF);
 const ERROR:    Color = Color::rgb(0xFF, 0x55, 0x55);
 
-const AVATAR_RADIUS: i32 = 64;      // avatar circle radius
+const AVATAR_RADIUS: i32 = 79;      // avatar circle radius
 const PANEL_PAD: i32 = 16;          // panel inner padding
 const FIELD_H: i32 = 36;            // password field height
 const BTN_H: i32 = 36;              // bottom action buttons height
 const BTN_GAP: i32 = 28;            // spacing between bottom buttons
 
 // --- Actions bar layout constants (keep in sync across call sites) ---
-const ACTIONS_SLOT_W: i32         = 120; // width per button
-const ACTIONS_SLOT_H: i32         = 92;  // total height (icon + text + padding)
-const ACTIONS_BOTTOM_PADDING: i32 = 40;  // distance of the whole bar from the bottom
-const ICON_BTN_SIZE: i32          = 36;  // target icon size inside each button
-const ICON_TEXT_GAP: i32          = 6;   // vertical gap between icon and text
+const ACTIONS_SLOT_W: i32          = 120; // width per button
+const ACTIONS_BOTTOM_PADDING: i32  = 40;  // distance of the whole bar from the bottom
+const ICON_BTN_SIZE: i32           = 48;  // target icon size inside each button
+const ICON_TEXT_GAP: i32           = 6;   // vertical gap between icon and text
+const ACTIONS_SLOT_PAD_TOP: i32    = 8;   // top padding inside slot
+const ACTIONS_SLOT_PAD_BOTTOM: i32 = 16;  // bottom padding inside slot (slightly more breathing room)
+const BACK_ICON_INNER_PAD: i32     = 6;   // inner padding for back button icon (px)
+const BACK_ICON_Y_OFFSET: i32      = 2;   // fine-tune back icon vertical center (px)
+const AVATAR_ICON_PAD: i32         = 4;   // inner padding inside avatar circle (px)
 
 // Actions
 #[derive(Clone, Copy, Debug)]
@@ -49,6 +54,30 @@ enum Action { Sleep, Restart, Shutdown, Logout }
 enum AppState {
     SelectUser { users: Vec<String>, hover: Option<usize> },
     EnterPassword { user: String, password: String, focus_pwd: bool, show_error: bool },
+}
+
+/// Compute dynamic slot height from icon size and label metrics.
+fn actions_slot_height(font: &orbfont::Font) -> i32 {
+    // Use a representative label; this height includes ascent+descent.
+    let label_h = font.render("Shutdown", 14.0).height() as i32;
+    ACTIONS_SLOT_PAD_TOP + ICON_BTN_SIZE + ICON_TEXT_GAP + label_h + ACTIONS_SLOT_PAD_BOTTOM
+}
+
+/// Snap a requested icon size to a crisp grid (helps sharp edges).
+fn snap_icon_size(px: u32) -> u32 {
+    // Preferred crisp sizes (24px grid multiples + a few common powers of two)
+    const CANDIDATES: &[u32] = &[
+        24, 36, 48, 56, 60, 64, 72, 80, 96, 112, 120, 128, 144, 160, 192
+    ];
+    // Find nearest >= 24; if below 24 just return original (tiny icons not our case)
+    if px < 24 { return px; }
+    let mut best = CANDIDATES[0];
+    let mut best_d = best.abs_diff(px);
+    for &c in CANDIDATES.iter() {
+        let d = c.abs_diff(px);
+        if d < best_d { best = c; best_d = d; }
+    }
+    best
 }
 
 #[derive(Clone, Copy)]
@@ -85,11 +114,28 @@ impl Rect {
     }
 }
 
-struct ActionIcons {
-    sleep:   Option<Image>,
-    restart: Option<Image>,
-    shutdown: Option<Image>,
-    logout:  Option<Image>,
+/// Compute outer (circle), inner (image) rects and inner radius for the avatar.
+/// All avatar drawing and hit-testing should use these to stay in sync.
+fn avatar_geometry(center_x: i32, center_y: i32) -> (Rect, Rect, i32) {
+    // Outer circle area based on AVATAR_RADIUS.
+    let diameter = (AVATAR_RADIUS * 2) as u32;
+    let outer = Rect::new(center_x - AVATAR_RADIUS, center_y - AVATAR_RADIUS, diameter, diameter);
+    // Inner content rect: leave padding so strokes won't clip on the circle boundary.
+    let inner = Rect::new(
+        outer.x + AVATAR_ICON_PAD,
+        outer.y + AVATAR_ICON_PAD,
+        (outer.w as i32 - 2 * AVATAR_ICON_PAD).max(1) as u32,
+        (outer.h as i32 - 2 * AVATAR_ICON_PAD).max(1) as u32
+    );
+    let inner_radius = (inner.w.min(inner.h) as i32) / 2;
+    (outer, inner, inner_radius)
+}
+
+struct ActionIcons { 
+    sleep: Option<Image>, 
+    restart: Option<Image>, 
+    shutdown: Option<Image>, 
+    logout: Option<Image> 
 }
 
 // CACHE for background image scaling
@@ -225,26 +271,23 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
     ).ok_or("Could not create window")?;
 
     // --- Background image with resize cache ---
-    let image_path = "/ui/login.jpg";
-    let original_image = match Image::from_path(image_path) {
-        Ok(img) => {
-            log::info!("Loaded background image {}: {}x{}", image_path, img.width(), img.height());
-            img
-        }
-        Err(e) => {
-            error!("Login background not found at {}: {}", image_path, e);
-            create_fallback_image(display_width.max(1), display_height.max(1))
-        }
-    };
+    let original_image = THEME
+        .load_background("login", None)
+        .unwrap_or_else(|| {
+            error!("Login background not found via THEME.load_background(\"login\"); using fallback.");
+            create_fallback_image(display_width.max(1) as u32, display_height.max(1) as u32)
+        });
+
     let mut bg_cache = CachedBackground::new(original_image);
 
-    // Action icons (optional assets)
-    let action_icons = ActionIcons {
-        sleep:    Image::from_path("/ui/icons/actions/system-sleep.png").ok(),
-        restart:  Image::from_path("/ui/icons/actions/system-restart.png").ok(),
-        shutdown: Image::from_path("/ui/icons/actions/system-shut-down.png").ok(),
-        logout:   Image::from_path("/ui/icons/actions/system-log-out.png").ok(),
-    };
+    // Icons are pre-sized to ICON_BTN_SIZE so drawing doesn't need to resize.
+     let icon_sz = ICON_BTN_SIZE as u32;
+     let action_icons = ActionIcons {
+        sleep:    THEME.load_icon_sized("power.sleep",    IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
+        restart:  THEME.load_icon_sized("power.restart",  IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
+        shutdown: THEME.load_icon_sized("power.shutdown", IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
+        logout:   THEME.load_icon_sized("session.logout", IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
+     };
 
     // Initial UI state
     let mut state = {
@@ -257,7 +300,11 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
     let mut last_clock_redraw = Instant::now();
     let mut resize = Some((display_width, display_height));
     let mut dirty = true;
-    const CLOCK_INTERVAL: Duration = Duration::from_secs(1);
+    const CLOCK_INTERVAL: Duration = Duration::from_millis(500);
+    // Dynamic slot height based on font + icon size
+    let slot_h = actions_slot_height(&font);
+    let app_start = Instant::now(); // for caret blinking phase
+    let mut last_input = app_start - Duration::from_secs(1); // ensure caret isn't forced on initially
 
     // Track last mouse position for hover invalidation
     let mut mouse_x = 0;
@@ -274,7 +321,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
             bg_image.draw(&mut window, 0, 0);
 
             // 2) Draw UI content for current state
-            let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
+            let y_actions = window.height() as i32 - slot_h - ACTIONS_BOTTOM_PADDING;
 
             match &state {
                 AppState::SelectUser { users, hover } => {
@@ -283,14 +330,17 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                 }
                 AppState::EnterPassword { user, password, focus_pwd, show_error } => {
                     // Password screen draws avatar (always 100%), username and field
-                    let _ = draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error);
-                }
+                    let now = Instant::now();
+                    // Blink + keep caret solid ON shortly after input for immediate feedback.
+                    let blink_on = ((now.duration_since(app_start).as_millis() / 500) % 2) == 0;
+                    let caret_wake = now.duration_since(last_input) < Duration::from_millis(600);
+                    let caret_on = blink_on || caret_wake;
+                    let _ = draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error, caret_on);            }
             }
 
             // 3) Draw actions bar once (both states)
             let is_password_state = matches!(state, AppState::EnterPassword { .. });
-            let _ = draw_actions_bar(&font, &mut window, y_actions, is_password_state, &action_icons, Some((mouse_x, mouse_y)));
-
+            let _ = draw_actions_bar(&font, &mut window, y_actions, slot_h, is_password_state, &action_icons, Some((mouse_x, mouse_y)));
             // Present
             window.sync();
 
@@ -373,8 +423,8 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                 continue;
                             }
                             // Bottom action buttons
-                            let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
-                            let actions = get_actions_hitboxes(&mut window, y_actions, false, &action_icons);
+                            let y_actions = window.height() as i32 - slot_h - ACTIONS_BOTTOM_PADDING;
+                            let actions = get_actions_hitboxes(&mut window, y_actions, slot_h, false, &action_icons);
                             for (act, rect) in actions {
                                 if rect.contains(mouse_x, mouse_y) {
                                     handle_action(act);
@@ -396,8 +446,8 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                             *focus_pwd = field_rect.contains(mouse_x, mouse_y);
 
                             // Bottom action buttons
-                            let y_actions = window.height() as i32 - ACTIONS_SLOT_H - ACTIONS_BOTTOM_PADDING;
-                            let actions = get_actions_hitboxes(&mut window, y_actions, true, &action_icons);
+                            let y_actions = window.height() as i32 - slot_h - ACTIONS_BOTTOM_PADDING;
+                            let actions = get_actions_hitboxes(&mut window, y_actions, slot_h, true, &action_icons);
                             for (act, rect) in actions {
                                 if rect.contains(mouse_x, mouse_y) {
                                     if let Action::Logout = act {
@@ -434,7 +484,11 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                     dirty = true;
                                 }
                                 orbclient::K_BKSP => {
-                                    if *focus_pwd { password.pop(); dirty = true; }
+                                    if *focus_pwd {
+                                        password.pop();
+                                        last_input = Instant::now(); // keep caret ON after edit
+                                        dirty = true;
+                                    }
                                 }
                                 orbclient::K_ENTER => {
                                     if let Some(cmd) = login_command(user, password, launcher_cmd, launcher_args) {
@@ -447,6 +501,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                                 _ => {
                                     if *focus_pwd && k.character != '\0' {
                                         password.push(k.character);
+                                        last_input = Instant::now(); // keep caret ON after edit
                                         dirty = true;
                                     }
                                 }
@@ -572,6 +627,7 @@ fn draw_actions_bar(
     font: &Font,
     win: &mut Window,
     y: i32,
+    slot_h: i32,
     state_is_pwd: bool,
     icons: &ActionIcons,
     mouse: Option<(i32, i32)>,
@@ -594,8 +650,9 @@ fn draw_actions_bar(
     let mut hits: Vec<(Action, Rect)> = Vec::new();
 
     for (act, label, icon_opt) in items {
+        let cx = x + ACTIONS_SLOT_W / 2;
         // Full slot hitbox
-        let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, ACTIONS_SLOT_H as u32);
+        let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, slot_h as u32);
 
         // Hover highlight (subtle)
         if let Some((mx, my)) = mouse {
@@ -604,38 +661,23 @@ fn draw_actions_bar(
             }
         }
 
-        // Draw icon centered horizontally, higher in the slot
+        // Draw icon centered horizontally, placed at top padding
         if let Some(icon) = icon_opt {
-            // Scale icon to ICON_BTN_SIZE, preserving aspect ratio
-            let iw = icon.width()  as i32;
-            let ih = icon.height() as i32;
-
-            let scale = f32::min(
-                ICON_BTN_SIZE as f32 / iw.max(1) as f32,
-                ICON_BTN_SIZE as f32 / ih.max(1) as f32,
-            );
-            let dw = ((iw as f32 * scale).round() as i32).max(1) as u32;
-            let dh = ((ih as f32 * scale).round() as i32).max(1) as u32;
-
-            // Resize into a temporary (avoid mutating original)
-            let scaled = if dw == icon.width() && dh == icon.height() {
-                icon.clone()
-            } else {
-                icon.resize(dw, dh, orbimage::ResizeType::Lanczos3).unwrap_or_else(|_| icon.clone())
-            };
-
-            let ix = x + (ACTIONS_SLOT_W - scaled.width() as i32) / 2;
-            let iy = y + 6; // push icon towards the top inside the slot
-            scaled.draw(win, ix, iy);
+            // Icons are already sized to ICON_BTN_SIZE by THEME.load_icon_sized.
+            let ix = cx - (icon.width() as i32) / 2;
+            let iy = y + ACTIONS_SLOT_PAD_TOP; // top padding within slot
+            icon.draw(win, ix, iy);
         }
 
-        // Draw label centered under the icon
+        // Draw label centered under the icon; vertically centered in the space below the icon.
         let text_run = font.render(label, 14.0);
-        let tx   = x + (ACTIONS_SLOT_W - text_run.width() as i32) / 2;
-        // Place text so that icon + gap + text fits within slot height
-        let ty   = y + ICON_BTN_SIZE + ICON_TEXT_GAP + 10;
+        let tx = cx - (text_run.width() as i32) / 2;
+        // Space below the icon:
+        let space_top    = y + ACTIONS_SLOT_PAD_TOP + ICON_BTN_SIZE + ICON_TEXT_GAP;
+        let space_bottom = y + slot_h - ACTIONS_SLOT_PAD_BOTTOM;
+        let avail        = (space_bottom - space_top).max(text_run.height() as i32);
+        let ty           = space_top + (avail - text_run.height() as i32) / 2;
         text_run.draw(win, tx, ty, LABEL);
-
         hits.push((act, rect));
         x += ACTIONS_SLOT_W + BTN_GAP;
     }
@@ -663,13 +705,8 @@ fn draw_select_state(
     // Determine which username the big avatar represents
     let selected_i = hover.unwrap_or(0).min(usernames.len().saturating_sub(1));
 
-    // Recompute avatar and name hitboxes (same as in your event code)
-    let avatar_rect = Rect::new(
-        center_x - AVATAR_RADIUS,
-        center_y - AVATAR_RADIUS,
-        (AVATAR_RADIUS * 2) as u32,
-        (AVATAR_RADIUS * 2) as u32,
-    );
+    // Avatar hitbox: use inner rect (actual image area), not the full outer circle.
+    let (_outer, avatar_rect, _inner_r) = avatar_geometry(center_x, center_y);
     let name_rect = Rect::new(center_x - 75, center_y + AVATAR_RADIUS + 8, 150, 24);
 
     // True hover is based on pointer position, not on the 'hover' index
@@ -738,6 +775,7 @@ fn draw_password_state(
     pwd: &str,
     focus_pwd: bool,
     show_error: bool,
+    caret_on: bool,
 ) -> (Rect, Rect) {
     let w = win.width() as i32;
     let h = win.height() as i32;
@@ -770,16 +808,30 @@ fn draw_password_state(
     // White @ 35% (≈ alpha 90)
     let white35 = Color::rgba(255, 255, 255, 90);
 
-    // Round back button
-    let back_cx = back_rect.x + back_rect.w as i32 / 2;
-    let back_cy = back_rect.y + back_rect.h as i32 / 2;
-    let back_r  = (back_rect.w.min(back_rect.h) as i32) / 2;
-    fill_circle(win, back_cx, back_cy, back_r, white35);
+    // Back button background with anti-aliased circle image (no jaggies)
+    let d = back_rect.w.min(back_rect.h);
+    let aa = aa_filled_circle_image(d, 255, 255, 255, 90);
+    let bx = back_rect.x + (back_rect.w as i32 - aa.width() as i32) / 2;
+    let by = back_rect.y + (back_rect.h as i32 - aa.height() as i32) / 2;
+    aa.draw(win, bx, by);
 
-    // Icon (image or fallback glyph)
-    if let Ok(back_img) = Image::from_path("/ui/icons/system/back.white.png") {
-        draw_image_centered(win, &back_img, back_rect);
+    // Icon (SVG-first). Small inner padding + fine Y offset to visually center in the circle.
+    let back_icon_px = (FIELD_H - 2 * BACK_ICON_INNER_PAD).max(1) as u32;
+    if let Some(back_img) = THEME.load_icon_sized(
+        "login.back",
+        IconVariant::Light,
+        Some((back_icon_px, back_icon_px)),
+    ) {
+        // Compute exact centered position inside padded rect; apply Y fine offset.
+        let inner_x = back_rect.x + BACK_ICON_INNER_PAD;
+        let inner_y = back_rect.y + BACK_ICON_INNER_PAD + BACK_ICON_Y_OFFSET;
+        let inner_w = (back_rect.w as i32 - 2 * BACK_ICON_INNER_PAD).max(1) as u32;
+        let inner_h = (back_rect.h as i32 - 2 * BACK_ICON_INNER_PAD - BACK_ICON_Y_OFFSET).max(1) as u32;
+        let dx = inner_x + (inner_w as i32 - back_img.width() as i32) / 2;
+        let dy = inner_y + (inner_h as i32 - back_img.height() as i32) / 2;
+        back_img.draw(win, dx, dy);
     } else {
+        // Fallback-Glyph wie gehabt
         let arr = font.render("<", 18.0);
         arr.draw(
             win,
@@ -793,8 +845,13 @@ fn draw_password_state(
     let field_rect = Rect::new(panel_x, panel_y, field_w as u32, FIELD_H as u32);
     fill_round_rect(win, field_rect, 10, white35);
 
-    // Placeholder / dots
-    let shown = if pwd.is_empty() { "Enter Password" } else { &"•".repeat(pwd.chars().count()) };
+    // Placeholder / dots (when focused and empty we show nothing so the caret sits at start)
+    let dots = "•".repeat(pwd.chars().count());
+    let shown = if focus_pwd {
+        if pwd.is_empty() { "" } else { &dots }
+    } else {
+        if pwd.is_empty() { "Enter Password" } else { &dots }
+    };
     let color = if show_error { ERROR } else if focus_pwd { LABEL } else { LABEL_D };
     let r = font.render(shown, 16.0);
     r.draw(
@@ -803,6 +860,14 @@ fn draw_password_state(
         field_rect.y + (FIELD_H - r.height() as i32) / 2,
         color,
     );
+    
+    // Blinking caret (only when focused)
+    if focus_pwd && caret_on {
+        let caret_h = if r.height() > 0 { r.height() } else { font.render("•", 16.0).height() } as u32;
+        let cx = field_rect.x + PANEL_PAD + r.width() as i32;
+        let cy = field_rect.y + (FIELD_H - caret_h as i32) / 2;
+        win.rect(cx, cy, 2, caret_h, ACCENT); // 2px wide caret
+    }
 
     // Optional error underline
     if show_error {
@@ -815,10 +880,11 @@ fn draw_password_state(
 fn get_actions_hitboxes(
     win: &mut Window,
     y: i32,
+    slot_h: i32,
     state_is_pwd: bool,
     icons: &ActionIcons,
 ) -> Vec<(Action, Rect)> {
-    // gleiche Reihenfolge wie in draw_actions_bar
+    // same order as in draw_actions_bar
     let mut items: Vec<(Action, &str, Option<&Image>)> = vec![
         (Action::Sleep,    "Sleep",    icons.sleep.as_ref()),
         (Action::Restart,  "Restart",  icons.restart.as_ref()),
@@ -835,7 +901,7 @@ fn get_actions_hitboxes(
 
     let mut hits = Vec::with_capacity(items.len());
     for (act, _label, _icon_opt) in items {
-        let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, ACTIONS_SLOT_H as u32);
+        let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, slot_h as u32);
         hits.push((act, rect));
         x += ACTIONS_SLOT_W + BTN_GAP;
     }
@@ -868,22 +934,31 @@ fn get_password_hitboxes(
 // We render the avatar normally, then if opacity < 100%,
 // we darken it by overlaying a semi-transparent black circle.
 fn draw_user_avatar_with_opacity(win: &mut Window, center_x: i32, center_y: i32, opacity: u8) {
-    let size = (AVATAR_RADIUS * 2) as u32;
-    let rect = Rect::new(center_x - AVATAR_RADIUS, center_y - AVATAR_RADIUS, size, size);
+    // Use unified geometry so image, overlay and hitboxes always match.
+    let (outer, inner, inner_radius) = avatar_geometry(center_x, center_y);
 
-    if let Ok(img) = Image::from_path("/ui/icons/system/avatar.png") {
-        draw_image_centered(win, &img, rect);
+    // Desired icon size is the inner square's side, snapped to a crisp size (never larger than inner).
+    let target_side    = inner.w.min(inner.h);
+    let target_snapped = snap_icon_size(target_side).min(target_side);
+
+    if let Some(img) = THEME.load_icon_sized(
+        "system.avatar",
+        IconVariant::Auto,
+        Some((target_snapped, target_snapped)),
+    ) {
+        draw_image_centered(win, &img, inner);
     } else {
-        // fallback rectangle if the asset is missing
-        win.rect(rect.x, rect.y, rect.w, rect.h, Color::rgba(255,255,255,32));
+        // Fallback, wenn Asset fehlt
+        win.rect(inner.x, inner.y, inner.w, inner.h, Color::rgba(255, 255, 255, 32));
     }
 
     // Apply overlay mask if opacity < 100%
     if opacity < 255 {
+        // Overlay circle exactly matches inner image area (perfect alignment).
         let overlay_alpha = 255u16.saturating_sub(opacity as u16) as u8;
-        let cx = rect.x + rect.w as i32 / 2;
-        let cy = rect.y + rect.h as i32 / 2;
-        fill_circle(win, cx, cy, AVATAR_RADIUS, Color::rgba(0, 0, 0, overlay_alpha));
+        let cx = outer.x + outer.w as i32 / 2;
+        let cy = outer.y + outer.h as i32 / 2;
+        fill_circle(win, cx, cy, inner_radius, Color::rgba(0, 0, 0, overlay_alpha));
     }
 }
 
@@ -931,6 +1006,30 @@ fn fill_round_rect(win: &mut Window, rect: Rect, radius: i32, color: Color) {
     }
 }
 
+/// Build an anti-aliased filled circle image (RGBA) with the given diameter and color.
+fn aa_filled_circle_image(diameter: u32, r: u8, g: u8, b: u8, a: u8) -> Image {
+    let d = diameter.max(1);
+    let rad = d as f32 / 2.0;
+    let cx = rad;
+    let cy = rad;
+    let mut data: Vec<Color> = Vec::with_capacity((d * d) as usize);
+    for y in 0..d {
+        for x in 0..d {
+            // sample at pixel center
+            let fx = x as f32 + 0.5;
+            let fy = y as f32 + 0.5;
+            let dx = fx - cx;
+            let dy = fy - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+            // soft 1px edge
+            let coverage = (rad - dist + 0.5).clamp(0.0, 1.0);
+            let alpha = ((a as f32) * coverage).round() as u8;
+            data.push(Color::rgba(r, g, b, alpha));
+        }
+    }
+    Image::from_data(d, d, data.into()).unwrap()
+}
+
 fn main() -> io::Result<()> {
     // Initialize logging (ignore errors if logging setup fails)
     let _ = RedoxLogger::new()
@@ -942,7 +1041,6 @@ fn main() -> io::Result<()> {
         )
         .with_process_name("nexus-login".into())
         .enable();
-    log::info!("*** NEXUS_Login ACTIVE ***");
 
     // Collect launcher command + args from arguments
     let mut args = env::args().skip(1);

@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 # Enable SVG rendering (consumers setzen features = ["svg"])
-svg = ["resvg"]
+svg = ["resvg", "usvg", "tiny-skia", "fontdb"]
 
 [dependencies]
 once_cell = "1.19"
@@ -19,6 +19,7 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 orbclient = "0.3"
 orbimage  = "0.1"
-
-# Optional SVG backend
-resvg = { version = "0.44", optional = true }
+resvg     = { version = "0.43", optional = true, default-features = false, features = ["text"] }
+usvg      = { version = "0.43", optional = true, default-features = false, features = ["text"] }
+tiny-skia = { version = "0.11", optional = true }
+fontdb = { version = "0.21", optional = true }

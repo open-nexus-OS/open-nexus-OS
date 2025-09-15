@@ -7,6 +7,7 @@ use std::{
 };
 
 use log::{error, info, warn};
+use std::path::Path;
 use orbclient::{
     self, ButtonEvent, ClipboardEvent, Color, Event, EventOption, FocusEvent, HoverEvent, KeyEvent,
     MouseEvent, MouseRelativeEvent, MoveEvent, QuitEvent, Renderer, ResizeEvent, ScreenEvent,
@@ -18,8 +19,11 @@ use syscall::EVENT_READ;
 
 use crate::compositor::Compositor;
 use crate::config::Config;
-use crate::core::{display::Display, image::Image, rect::Rect, Orbital, Properties};
 use crate::window::{self, Window, WindowZOrder};
+use crate::core::{display::Display, image::Image, rect::Rect, Orbital, Properties};
+use libnexus::{THEME, IconVariant};    // theme-driven cursor loading
+// We only need the type; alias to avoid name clash with core image.
+use orbimage as oimg;
 
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 enum CursorKind {
@@ -115,52 +119,24 @@ impl OrbitalScheme {
 
         let mut cursors = BTreeMap::new();
         cursors.insert(CursorKind::None, Arc::new(Image::new(0, 0)));
-        cursors.insert(
-            CursorKind::LeftPtr,
-            Arc::new(Image::from_path_scale(&config.cursor, scale).unwrap_or(Image::new(0, 0))),
-        );
-        cursors.insert(
-            CursorKind::BottomLeftCorner,
-            Arc::new(
-                Image::from_path_scale(&config.bottom_left_corner, scale)
-                    .unwrap_or(Image::new(0, 0)),
-            ),
-        );
-        cursors.insert(
-            CursorKind::BottomRightCorner,
-            Arc::new(
-                Image::from_path_scale(&config.bottom_right_corner, scale)
-                    .unwrap_or(Image::new(0, 0)),
-            ),
-        );
-        cursors.insert(
-            CursorKind::BottomSide,
-            Arc::new(
-                Image::from_path_scale(&config.bottom_side, scale).unwrap_or(Image::new(0, 0)),
-            ),
-        );
-        cursors.insert(
-            CursorKind::LeftSide,
-            Arc::new(Image::from_path_scale(&config.left_side, scale).unwrap_or(Image::new(0, 0))),
-        );
-        cursors.insert(
-            CursorKind::RightSide,
-            Arc::new(Image::from_path_scale(&config.right_side, scale).unwrap_or(Image::new(0, 0))),
-        );
+        // Load from nexus.toml → [cursor] via THEME key names:
+        cursors.insert(CursorKind::LeftPtr,          Arc::new(load_cursor_theme("cursor/default",       scale)));
+        cursors.insert(CursorKind::BottomLeftCorner, Arc::new(load_cursor_theme("cursor/resizesouthwest", scale)));
+        cursors.insert(CursorKind::BottomRightCorner,Arc::new(load_cursor_theme("cursor/resizesoutheast", scale)));
+        cursors.insert(CursorKind::BottomSide,       Arc::new(load_cursor_theme("cursor/resizesouth",   scale)));
+        cursors.insert(CursorKind::LeftSide,         Arc::new(load_cursor_theme("cursor/resizewest",    scale)));
+        cursors.insert(CursorKind::RightSide,        Arc::new(load_cursor_theme("cursor/resizeeast",    scale)));
 
         let font = orbfont::Font::find(Some("Sans"), None, None)?;
 
         let mut orbital_scheme = OrbitalScheme {
             compositor: Compositor::new(displays),
 
-            window_max: Image::from_path_scale(&config.window_max, scale)
-                .unwrap_or(Image::new(0, 0)),
-            window_max_unfocused: Image::from_path_scale(&config.window_max_unfocused, scale)
-                .unwrap_or(Image::new(0, 0)),
-            window_close: Image::from_path_scale(&config.window_close, scale)
-                .unwrap_or(Image::new(0, 0)),
-            window_close_unfocused: Image::from_path_scale(&config.window_close_unfocused, scale)
-                .unwrap_or(Image::new(0, 0)),
+            // Use theme keys from [system] in nexus.toml; fall back to old config.* paths.
+            window_max: load_title_icon("system.window_max", scale),
+            window_max_unfocused: load_title_icon("system.window_max_unfocused", scale),
+            window_close: load_title_icon("system.window_close", scale),
+            window_close_unfocused: load_title_icon("system.window_close_unfocused", scale),
             cursors,
             cursor_x: 0,
             cursor_y: 0,
@@ -1721,4 +1697,57 @@ impl OrbitalScheme {
 
         Ok(id)
     }
+}
+
+// --- Theme-aware cursor loader (SVG → RGBA → core::Image) --------------------
+/// Convert an `orbimage::Image` (RGBA) into `crate::core::image::Image`.
+/// Copies the pixel buffer (shared Color type), preserving alpha.
+fn core_image_from_orb(img: &oimg::Image) -> Image {
+    let w = img.width() as i32;
+    let h = img.height() as i32;
+    // Copy RGBA buffer from orbimage
+    let buf: Vec<Color> = img.data().to_vec();
+    // core::image::Image::from_data returns Image directly in Orbital
+    Image::from_data(w, h, buf.into())
+}
+
+/// Try to render a themed cursor via THEME (SVG-first), with PNG path fallback.
+fn load_cursor_theme(id: &str, scale: i32) -> Image {
+    // Choose a crisp logical size (per-display scale).
+    const CURSOR_BASE_PX: u32 = 24;
+    let px = (CURSOR_BASE_PX * scale.max(1) as u32).max(16);
+
+    // 1) SVG-first via THEME (returns orbimage::Image)
+    if let Some(svg_img) = THEME.load_icon_sized(id, IconVariant::Auto, Some((px, px))) {
+        return core_image_from_orb(&svg_img);
+    }
+
+    // 2) PNG fallback at themed/global locations (in case you ship PNGs too)
+    let theme = match THEME.theme() { libnexus::ThemeId::Dark => "dark", _ => "light" };
+    // `id` like "cursor/default" → files under icons/<id>.png
+    let cand = [
+        format!("/ui/themes/{}/icons/{}.png", theme, id),
+        format!("/ui/icons/{}.png", id),
+    ];
+    for p in cand {
+        if Path::new(&p).exists() {
+            if let Some(img) = Image::from_path_scale(&p, scale) {
+                return img;
+            }
+        }
+    }
+    Image::new(0, 0)
+}
+
+// --- Themed title buttons (maximize/close), SVG-first ONLY (no PNG fallback) ---
+/// Load a titlebar button via THEME at a small fixed size for the titlebar.
+fn load_title_icon(theme_id: &str, scale: i32) -> Image {
+    // 12px fits typical titlebars better than 16px.
+    const TITLE_BTN_BASE_PX: u32 = 12;
+    let px = TITLE_BTN_BASE_PX * scale.max(1) as u32;
+    if let Some(img) = THEME.load_icon_sized(theme_id, IconVariant::Auto, Some((px, px))) {
+        return core_image_from_orb(&img);
+    }
+    // Not found in THEME → empty image (no legacy fallback).
+    Image::new(0, 0)
 }

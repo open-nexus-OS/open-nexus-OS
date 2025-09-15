@@ -2,7 +2,7 @@
 set -e
 
 # =============================================================================
-# GUI Package Auto-Signer for Redox OS
+# Was experimental GUI Package Auto-Signer for Redox OS
 #
 # This script signs all packages in "open-nexus-os/recipes/gui" with a single PKGAR key.
 # This prevents Redox from rebuilding them unnecessarily if they have not changed.
@@ -10,6 +10,9 @@ set -e
 #
 # Usage:
 #   ./sign-nexus.sh
+#
+# Currently not in use in the build process and not updated, but can be integrated 
+# after building GUI packages. So don't use if you don't know what you're doing.
 # =============================================================================
 
 # Config
