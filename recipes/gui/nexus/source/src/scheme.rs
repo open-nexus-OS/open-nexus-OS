@@ -19,11 +19,14 @@ use syscall::EVENT_READ;
 
 use crate::compositor::Compositor;
 use crate::config::Config;
-use crate::window::{self, Window, WindowZOrder};
+use crate::window::{self, Window, WindowZOrder, TITLE_ICON_PX};
 use crate::core::{display::Display, image::Image, rect::Rect, Orbital, Properties};
+use crate::core::image::Image as CoreImage;      
+use orbimage::Image as SvgImage;                 
 use libnexus::{THEME, IconVariant};    // theme-driven cursor loading
-// We only need the type; alias to avoid name clash with core image.
-use orbimage as oimg;
+
+const TITLE_BTN_RIGHT_PAD: i32 = 8;
+const TITLE_BTN_GAP: i32 = 6;
 
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 enum CursorKind {
@@ -76,10 +79,12 @@ const SUPER_MODIFIER: u8 = 1 << 7;
 pub struct OrbitalScheme {
     compositor: Compositor,
 
-    window_max: Image,
-    window_max_unfocused: Image,
-    window_close: Image,
-    window_close_unfocused: Image,
+    window_max: CoreImage,
+    window_max_unfocused: CoreImage,
+    window_close: CoreImage,
+    window_close_unfocused: CoreImage,
+    window_hide: CoreImage,
+    window_hide_unfocused: CoreImage,
     cursors: BTreeMap<CursorKind, Arc<Image>>,
     cursor_x: i32,
     cursor_y: i32,
@@ -129,14 +134,38 @@ impl OrbitalScheme {
 
         let font = orbfont::Font::find(Some("Sans"), None, None)?;
 
+        // Pre-size titlebar icons: logical 26px * scale for crisp raster
+        let icon_px: u32 = (TITLE_ICON_PX * scale) as u32;
+
         let mut orbital_scheme = OrbitalScheme {
             compositor: Compositor::new(displays),
 
             // Use theme keys from [system] in nexus.toml; fall back to old config.* paths.
-            window_max: load_title_icon("system.window_max", scale),
-            window_max_unfocused: load_title_icon("system.window_max_unfocused", scale),
-            window_close: load_title_icon("system.window_close", scale),
-            window_close_unfocused: load_title_icon("system.window_close_unfocused", scale),
+            // Load themed SVGs sized at icon_px
+            window_max: THEME
+                .load_icon_sized("system.window_max", IconVariant::Auto, Some((icon_px, icon_px)))
+                .map(svg_to_core)
+                .unwrap_or_else(|| CoreImage::new(0, 0)),
+            window_max_unfocused: THEME
+                .load_icon_sized("system.window_max_unfocused", IconVariant::Auto, Some((icon_px, icon_px)))
+                .map(svg_to_core)
+                .unwrap_or_else(|| CoreImage::new(0, 0)),
+            window_close: THEME
+                .load_icon_sized("system.window_close", IconVariant::Auto, Some((icon_px, icon_px)))
+                .map(svg_to_core)
+                .unwrap_or_else(|| CoreImage::new(0, 0)),
+            window_close_unfocused: THEME
+                .load_icon_sized("system.window_close_unfocused", IconVariant::Auto, Some((icon_px, icon_px)))
+                .map(svg_to_core)
+                .unwrap_or_else(|| CoreImage::new(0, 0)),
+            window_hide: THEME
+                .load_icon_sized("system.window_hide", IconVariant::Auto, Some((icon_px, icon_px)))
+                .map(svg_to_core)
+                .unwrap_or_else(|| CoreImage::new(0, 0)),
+            window_hide_unfocused: THEME
+                .load_icon_sized("system.window_hide_unfocused", IconVariant::Auto, Some((icon_px, icon_px)))
+                .map(svg_to_core)
+                .unwrap_or_else(|| CoreImage::new(0, 0)),
             cursors,
             cursor_x: 0,
             cursor_y: 0,
@@ -543,35 +572,50 @@ impl OrbitalScheme {
 
         let mut total_redraw_opt: Option<Rect> = None;
 
+        let bg_color = self.config.background_color;
+        let close_f = &self.window_close;
+        let close_u = &self.window_close_unfocused;
+        let max_f   = &self.window_max;
+        let max_u   = &self.window_max_unfocused;
+        let hide_f  = &self.window_hide;
+        let hide_u  = &self.window_hide_unfocused;
+        let close_wh = (close_f.width().max(close_u.width()), close_f.height().max(close_u.height()));
+        let max_wh   = (max_f.width().max(max_u.width()),     max_f.height().max(max_u.height()));
+        let hide_wh  = (hide_f.width().max(hide_u.width()),   hide_f.height().max(hide_u.height()));
+
         self.compositor
             .redraw_windows(&mut total_redraw_opt, |display, rect| {
-                display.rect(&rect, self.config.background_color.into());
+                // Hintergrund
+                display.rect(&rect, bg_color.into());
 
                 for &(id, _, i) in self.zbuffer.iter().rev() {
-                    if let Some(window) = self.windows.get(&id) {
-                        window.draw_title(
-                            display,
-                            &rect,
-                            i == 0,
-                            if i == 0 {
-                                &self.window_max
-                            } else {
-                                &self.window_max_unfocused
-                            },
-                            if i == 0 {
-                                &self.window_close
-                            } else {
-                                &self.window_close_unfocused
-                            },
-                        );
-                        window.draw(display, &rect);
+                    if let Some(win) = self.windows.get(&id) {
+                        // Rechtecke aus vorbereiteten Max-Slot-Größen berechnen
+                        let (r_close, r_max, r_hide) =
+                            compute_title_button_rects(win, close_wh, max_wh, hide_wh);
+
+                        // Hover-Check gegen diese stabilen Rechtecke
+                        let over_close = r_close.contains(self.cursor_x, self.cursor_y);
+                        let over_max   = r_max.contains(self.cursor_x, self.cursor_y);
+                        let over_hide  = r_hide.contains(self.cursor_x, self.cursor_y);
+
+                        // Welche Bilder zeichnen (focused bei Hover)
+                        let img_max   = if over_max   { max_f }   else { max_u };
+                        let img_close = if over_close { close_f } else { close_u };
+                        let img_hide  = if over_hide  { hide_f }  else { hide_u };
+
+                        // Titel + Buttons zeichnen (Window kümmert sich ums exakte Zentrieren)
+                        win.draw_title(display, &rect, i == 0, img_max, img_close, img_hide);
+
+                        // Fensterinhalt
+                        win.draw(display, &rect);
                     }
                 }
 
                 if let Some(popup) = &popup {
                     display
                         .roi_mut(popup_rect.as_ref().unwrap())
-                        .blend(&popup.roi(&Rect::new(0, 0, popup.width(), popup.height())));
+                        .blend(&popup.roi(&crate::core::rect::Rect::new(0, 0, popup.width(), popup.height())));
                 }
             });
 
@@ -1111,6 +1155,8 @@ impl OrbitalScheme {
     }
 
     fn mouse_event(&mut self, event: MouseEvent) {
+        let old_x = self.cursor_x;
+        let old_y = self.cursor_y;
         let mut new_cursor = CursorKind::LeftPtr;
         let mut new_hover = None;
 
@@ -1308,6 +1354,9 @@ impl OrbitalScheme {
             self.hover = new_hover;
         }
 
+        self.schedule_title_under_point(old_x, old_y);
+        self.schedule_title_under_point(event.x, event.y);
+
         self.update_cursor(event.x, event.y, new_cursor);
     }
 
@@ -1360,112 +1409,129 @@ impl OrbitalScheme {
     }
 
     fn button_event(&mut self, event: ButtonEvent) {
-        // Check for focus switch, dragging, and forward mouse events to applications
+        // Focus switching / dragging / forwarding to apps
         match self.dragging {
             DragMode::None => {
                 let mut focus = 0;
+
                 for entry in self.zbuffer.iter() {
                     let id = entry.0;
-                    let i = entry.2;
-                    if let Some(window) = self.windows.get(&id) {
-                        if window.rect().contains(self.cursor_x, self.cursor_y) {
+                    let i  = entry.2;
+
+                    if let Some(win) = self.windows.get(&id) {
+                        // Inside client area
+                        if win.rect().contains(self.cursor_x, self.cursor_y) {
                             if self.modifier_state & SUPER_MODIFIER == SUPER_MODIFIER {
                                 if event.left && !self.cursor_left {
                                     focus = i;
-                                    self.dragging =
-                                        DragMode::Title(id, self.cursor_x, self.cursor_y);
+                                    self.dragging = DragMode::Title(id, self.cursor_x, self.cursor_y);
                                 }
-                            } else if let Some(window) = self.windows.get_mut(&id) {
-                                window.event(event.to_event());
-                                if event.left && !self.cursor_left
-                                    || event.middle && !self.cursor_middle
-                                    || event.right && !self.cursor_right
+                            } else if let Some(win_mut) = self.windows.get_mut(&id) {
+                                win_mut.event(event.to_event());
+                                if (event.left && !self.cursor_left)
+                                    || (event.middle && !self.cursor_middle)
+                                    || (event.right && !self.cursor_right)
                                 {
                                     focus = i;
                                 }
                             }
                             break;
-                        } else if window.title_rect().contains(self.cursor_x, self.cursor_y) {
-                            //TODO: Trigger max and exit on release
+                        }
+                        // Inside title bar
+                        else if win.title_rect().contains(self.cursor_x, self.cursor_y) {
                             if event.left && !self.cursor_left {
                                 focus = i;
-                                if (window.max_contains(self.cursor_x, self.cursor_y))
-                                    && (window.resizable)
-                                {
+
+                                // ---- Immutable borrow scope: compute button hit-test ----
+                                let (do_close, do_max) = {
+                                    // gleiche Slot-Größen wie im redraw()
+                                    let close_f  = &self.window_close;
+                                    let close_u  = &self.window_close_unfocused;
+                                    let max_f    = &self.window_max;
+                                    let max_u    = &self.window_max_unfocused;
+                                    let hide_f   = &self.window_hide;
+                                    let hide_u   = &self.window_hide_unfocused;
+
+                                    let close_wh = (close_f.width().max(close_u.width()),
+                                                    close_f.height().max(close_u.height()));
+                                    let max_wh   = (max_f.width().max(max_u.width()),
+                                                    max_f.height().max(max_u.height()));
+                                    let hide_wh  = (hide_f.width().max(hide_u.width()),
+                                                    hide_f.height().max(hide_u.height()));
+
+                                    let (r_close, r_max, _r_hide) =
+                                        compute_title_button_rects(win, close_wh, max_wh, hide_wh);
+
+                                    let hit_close = r_close.contains(self.cursor_x, self.cursor_y) && !win.unclosable;
+                                    let hit_max   = r_max.contains(self.cursor_x, self.cursor_y)   &&  win.resizable;
+                                    (hit_close, hit_max)
+                                };
+                                // ---- immutable borrow von `win` endet hier ----
+
+                                if do_max {
                                     self.tile_window(Some(&id), TilePosition::Maximized);
-                                } else if (window.close_contains(self.cursor_x, self.cursor_y))
-                                    && (!window.unclosable)
-                                {
-                                    if let Some(window) = self.windows.get_mut(&id) {
-                                        window.event(QuitEvent.to_event());
+                                } else if do_close {
+                                    if let Some(wm) = self.windows.get_mut(&id) {
+                                        wm.event(QuitEvent.to_event());
                                     }
                                 } else {
-                                    self.dragging =
-                                        DragMode::Title(id, self.cursor_x, self.cursor_y);
+                                    self.dragging = DragMode::Title(id, self.cursor_x, self.cursor_y);
+                                }
+
+                                // Titlebar für Redraw vormerken
+                                if let Some(wm) = self.windows.get(&id) {
+                                    self.compositor.schedule(wm.title_rect());
                                 }
                             }
                             break;
-                        } else if window
-                            .left_border_rect()
-                            .contains(self.cursor_x, self.cursor_y)
-                        {
+                        }
+                        // Edges for resize
+                        else if win.left_border_rect().contains(self.cursor_x, self.cursor_y) {
                             if event.left && !self.cursor_left {
                                 focus = i;
                                 self.dragging = DragMode::LeftBorder(
                                     id,
-                                    self.cursor_x - window.x,
-                                    window.x + window.width(),
+                                    self.cursor_x - win.x,
+                                    win.x + win.width(),
                                 );
                             }
                             break;
-                        } else if window
-                            .right_border_rect()
-                            .contains(self.cursor_x, self.cursor_y)
-                        {
+                        } else if win.right_border_rect().contains(self.cursor_x, self.cursor_y) {
                             if event.left && !self.cursor_left {
                                 focus = i;
                                 self.dragging = DragMode::RightBorder(
                                     id,
-                                    self.cursor_x - (window.x + window.width()),
+                                    self.cursor_x - (win.x + win.width()),
                                 );
                             }
                             break;
-                        } else if window
-                            .bottom_border_rect()
-                            .contains(self.cursor_x, self.cursor_y)
-                        {
+                        } else if win.bottom_border_rect().contains(self.cursor_x, self.cursor_y) {
                             if event.left && !self.cursor_left {
                                 focus = i;
                                 self.dragging = DragMode::BottomBorder(
                                     id,
-                                    self.cursor_y - (window.y + window.height()),
+                                    self.cursor_y - (win.y + win.height()),
                                 );
                             }
                             break;
-                        } else if window
-                            .bottom_left_border_rect()
-                            .contains(self.cursor_x, self.cursor_y)
-                        {
+                        } else if win.bottom_left_border_rect().contains(self.cursor_x, self.cursor_y) {
                             if event.left && !self.cursor_left {
                                 focus = i;
                                 self.dragging = DragMode::BottomLeftBorder(
                                     id,
-                                    self.cursor_x - window.x,
-                                    self.cursor_y - (window.y + window.height()),
-                                    window.x + window.width(),
+                                    self.cursor_x - win.x,
+                                    self.cursor_y - (win.y + win.height()),
+                                    win.x + win.width(),
                                 );
                             }
                             break;
-                        } else if window
-                            .bottom_right_border_rect()
-                            .contains(self.cursor_x, self.cursor_y)
-                        {
+                        } else if win.bottom_right_border_rect().contains(self.cursor_x, self.cursor_y) {
                             if event.left && !self.cursor_left {
                                 focus = i;
                                 self.dragging = DragMode::BottomRightBorder(
                                     id,
-                                    self.cursor_x - (window.x + window.width()),
-                                    self.cursor_y - (window.y + window.height()),
+                                    self.cursor_x - (win.x + win.width()),
+                                    self.cursor_y - (win.y + win.height()),
                                 );
                             }
                             break;
@@ -1474,28 +1540,20 @@ impl OrbitalScheme {
                 }
 
                 if focus > 0 {
-                    // Redraw old focused window
+                    // Old focus off
                     if let Some(id) = self.order.front() {
                         self.focus(*id, false);
                     }
-
-                    // Reorder windows
+                    // Reorder
                     if let Some(id) = self.order.remove(focus) {
-                        if let Some(window) = self.windows.get(&id) {
-                            match window.zorder {
-                                WindowZOrder::Front | WindowZOrder::Normal => {
-                                    // Transfer focus if a front or normal window
-                                    self.order.push_front(id);
-                                }
-                                WindowZOrder::Back => {
-                                    // Return to original position if a background window
-                                    self.order.insert(focus, id);
-                                }
+                        if let Some(win) = self.windows.get(&id) {
+                            match win.zorder {
+                                WindowZOrder::Front | WindowZOrder::Normal => self.order.push_front(id),
+                                WindowZOrder::Back => self.order.insert(focus, id),
                             }
                         }
                     }
-
-                    // Redraw new focused window
+                    // New focus on
                     if let Some(id) = self.order.front() {
                         self.focus(*id, true);
                     }
@@ -1508,9 +1566,9 @@ impl OrbitalScheme {
             }
         }
 
-        self.cursor_left = event.left;
+        self.cursor_left   = event.left;
         self.cursor_middle = event.middle;
-        self.cursor_right = event.right;
+        self.cursor_right  = event.right;
     }
 
     fn resize_event(&mut self, event: ResizeEvent) {
@@ -1699,16 +1757,78 @@ impl OrbitalScheme {
     }
 }
 
+impl OrbitalScheme {
+    fn schedule_title_under_point(&mut self, x: i32, y: i32) {
+        for &(id, _z, _i) in self.zbuffer.iter() {
+            if let Some(w) = self.windows.get(&id) {
+                if w.title_rect().contains(x, y) {
+                    self.compositor.schedule(w.title_rect());
+                    break; // nur die oberste treffen
+                }
+            }
+        }
+    }
+}
+
+impl OrbitalScheme {
+    fn title_button_rects_for(&self, win: &Window) -> (Rect, Rect, Rect) {
+        // Use the *larger* of focused/unfocused variants so hover doesn't jump
+        let close_w = self.window_close.width().max(self.window_close_unfocused.width());
+        let close_h = self.window_close.height().max(self.window_close_unfocused.height());
+        let max_w   = self.window_max.width().max(self.window_max_unfocused.width());
+        let max_h   = self.window_max.height().max(self.window_max_unfocused.height());
+        let hide_w  = self.window_hide.width().max(self.window_hide_unfocused.width());
+        let hide_h  = self.window_hide.height().max(self.window_hide_unfocused.height());
+
+        let tr = win.title_rect();
+        let pad_r = TITLE_BTN_RIGHT_PAD * win.scale;
+        let gap   = TITLE_BTN_GAP       * win.scale;
+
+        let tallest = close_h.max(max_h).max(hide_h);
+        let y_base  = tr.top() + ((tr.height() - tallest).max(0) / 2);
+
+        let mut x_right = tr.right() - pad_r;
+
+        let r_close = Rect::new(
+            x_right - close_w,
+            y_base + ((tallest - close_h).max(0) / 2),
+            close_w,
+            close_h,
+        );
+        x_right = r_close.left() - gap;
+
+        let r_max = Rect::new(
+            x_right - max_w,
+            y_base + ((tallest - max_h).max(0) / 2),
+            max_w,
+            max_h,
+        );
+        x_right = r_max.left() - gap;
+
+        let r_hide = Rect::new(
+            x_right - hide_w,
+            y_base + ((tallest - hide_h).max(0) / 2),
+            hide_w,
+            hide_h,
+        );
+
+        (r_close, r_max, r_hide)
+    }
+}
+
 // --- Theme-aware cursor loader (SVG → RGBA → core::Image) --------------------
-/// Convert an `orbimage::Image` (RGBA) into `crate::core::image::Image`.
-/// Copies the pixel buffer (shared Color type), preserving alpha.
-fn core_image_from_orb(img: &oimg::Image) -> Image {
-    let w = img.width() as i32;
+/// Convert orbimage (SVG gerastert) → core::image (RGBA) – Alpha bleibt erhalten.
+fn core_image_from_orb(img: &SvgImage) -> Image {
+    let w = img.width()  as i32;
     let h = img.height() as i32;
-    // Copy RGBA buffer from orbimage
     let buf: Vec<Color> = img.data().to_vec();
-    // core::image::Image::from_data returns Image directly in Orbital
     Image::from_data(w, h, buf.into())
+}
+
+fn svg_to_core(img: SvgImage) -> CoreImage {
+    let w = img.width()  as i32;
+    let h = img.height() as i32;
+    CoreImage::from_data(w, h, img.data().to_vec().into())
 }
 
 /// Try to render a themed cursor via THEME (SVG-first), with PNG path fallback.
@@ -1750,4 +1870,74 @@ fn load_title_icon(theme_id: &str, scale: i32) -> Image {
     }
     // Not found in THEME → empty image (no legacy fallback).
     Image::new(0, 0)
+}
+
+fn compute_title_button_rects(
+    win: &crate::window::Window,
+    close_wh: (i32, i32),
+    max_wh:   (i32, i32),
+    hide_wh:  (i32, i32),
+) -> (crate::core::rect::Rect, crate::core::rect::Rect, crate::core::rect::Rect) {
+    use crate::core::rect::Rect;
+
+    // Treat right/bottom as exclusive → 1px Sicherheitsabstand verhindert Clipping
+    let tr      = win.title_rect();
+    let tr_top  = tr.top();
+    let tr_left = tr.left();
+    let tr_w    = tr.width();
+    let tr_h    = tr.height();
+
+    // Layout-Konstanten (wie zuvor)
+    let pad_r = TITLE_BTN_RIGHT_PAD * win.scale;
+    let gap   = TITLE_BTN_GAP       * win.scale;
+
+    // Einheitliches Slot-Niveau + „optical nudges“
+    let (cw, ch) = close_wh;
+    let (mw, mh) = max_wh;
+    let (hw, hh) = hide_wh;
+
+    let tallest = ch.max(mh).max(hh);
+
+    // 1) vertikal: 1px inner inset + kleiner Up-Nudge
+    //    → Hitboxen sitzen nicht mehr „zu tief“
+    let inner_h   = tr_h.saturating_sub(1);
+    let y_center  = tr_top + ((inner_h - tallest).max(0) / 2);
+    let y_nudge   = -(win.scale.max(1) / 2); // typ. −1px bei scale=1
+    let y_base    = y_center + y_nudge;
+
+    // 2) horizontal: 1px inner inset auf der rechten Kante
+    let inner_w   = tr_w.saturating_sub(1);
+    let mut x_right = tr_left + inner_w - pad_r;
+
+    // Optional: Close minimal nach links/oben nudgen (optische Korrektur)
+    let close_x_nudge = -(win.scale.max(1) / 2); // typ. −1px
+    let close_y_nudge = -(win.scale.max(1) / 2); // typ. −1px
+
+    // CLOSE (rechts außen)
+    let r_close = Rect::new(
+        x_right - cw + close_x_nudge,
+        y_base + ((tallest - ch).max(0) / 2) + close_y_nudge,
+        cw,
+        ch,
+    );
+    x_right = r_close.left() - gap;
+
+    // MAX
+    let r_max = Rect::new(
+        x_right - mw,
+        y_base + ((tallest - mh).max(0) / 2),
+        mw,
+        mh,
+    );
+    x_right = r_max.left() - gap;
+
+    // HIDE
+    let r_hide = Rect::new(
+        x_right - hw,
+        y_base + ((tallest - hh).max(0) / 2),
+        hw,
+        hh,
+    );
+
+    (r_close, r_max, r_hide)
 }

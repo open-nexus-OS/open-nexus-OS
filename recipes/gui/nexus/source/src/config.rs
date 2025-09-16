@@ -140,16 +140,16 @@ mod test {
 
     #[test]
     fn valid_partial_config() {
-        let config_str = r##"cursor = "/ui/left_ptr.png"
-bottom_left_corner = "/ui/bottom_left_corner.png"
-bottom_right_corner = "/ui/bottom_right_corner.png"
-bottom_side = "/ui/bottom_side.png"
-left_side = "/ui/left_side.png"
-right_side = "/ui/right_side.png"
-window_max = "/ui/window_max.png"
-window_max_unfocused = "/ui/window_max_unfocused.png"
-window_close = "/ui/window_close.png"
-window_close_unfocused = "/ui/window_close_unfocused.png""##;
+        let config_str = r##"cursor = "/ui/icons/cursor/left_ptr.png"
+        bottom_left_corner = "/ui/icons/cursor/bottom_left_corner.png"
+        bottom_right_corner = "/ui/icons/cursor/bottom_right_corner.png"
+        bottom_side = "/ui/icons/cursor/bottom_side.png"
+        left_side = "/ui/icons/cursor/left_side.png"
+        right_side = "/ui/icons/cursor/right_side.png"
+        window_max = "/ui/icons/actions/window_max.png"
+        window_max_unfocused = "/ui/icons/actions/window_max_unfocused.png"
+        window_close = "/ui/icons/actions/window_close.png"
+        window_close_unfocused = "/ui/icons/actions/window_close_unfocused.png""##;
         let config = Config::config_from_string(config_str);
         assert_eq!(config.background_color, background_color_default());
         assert_eq!(config.bottom_left_corner, "/ui/bottom_left_corner.png");

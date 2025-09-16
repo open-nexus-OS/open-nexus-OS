@@ -27,17 +27,6 @@ filemanager.layout = "actions/layout"
 filemanager.actions = "actions/more"
 filemanager.more = "actions/show-more"
 
-[system]
-start = "system/start"
-overview = "system/overview"
-avatar = "system/avatar-default"
-window_hide = "actions/window_hide"
-window_hide_unfocused = "actions/window_hide_unfocused"
-window_max = "actions/window_max"
-window_max_unfocused = "actions/window_max_unfocused"
-window_close = "actions/window_close"
-window_close_unfocused = "actions/window_close_unfocused"
-
 [cursor]
 cursor = "cursor/default"
 handpointing = "cursor/handpointing"
@@ -64,6 +53,18 @@ textcursor = "cursor/textcursor"
 textcursorvertical = "cursor/textcursorvertical"
 zoomin = "cursor/zoomin"
 zoomout = "cursor/zoomout"
+
+[system]
+start = "system/start"
+overview = "system/overview"
+avatar = "system/avatar-default"
+window_hide = "actions/window_hide"
+window_hide_unfocused = "actions/window_hide_unfocused"
+window_max = "actions/window_max"
+window_max_unfocused = "actions/window_max_unfocused"
+window_close = "actions/window_close"
+window_close_unfocused = "actions/window_close_unfocused"
+
 
 [places]
 current = "places/current"

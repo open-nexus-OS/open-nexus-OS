@@ -127,6 +127,7 @@ fn avatar_geometry(center_x: i32, center_y: i32) -> (Rect, Rect, i32) {
         (outer.w as i32 - 2 * AVATAR_ICON_PAD).max(1) as u32,
         (outer.h as i32 - 2 * AVATAR_ICON_PAD).max(1) as u32
     );
+    // DThe radius of the inner circle is half the length of the shorter side of the inner rectangle.
     let inner_radius = (inner.w.min(inner.h) as i32) / 2;
     (outer, inner, inner_radius)
 }
@@ -946,9 +947,12 @@ fn draw_user_avatar_with_opacity(win: &mut Window, center_x: i32, center_y: i32,
         IconVariant::Auto,
         Some((target_snapped, target_snapped)),
     ) {
-        draw_image_centered(win, &img, inner);
+        // Center the icon in the inner rectangle
+        let img_x = inner.x + (inner.w as i32 - img.width() as i32) / 2;
+        let img_y = inner.y + (inner.h as i32 - img.height() as i32) / 2;
+        img.draw(win, img_x, img_y);
     } else {
-        // Fallback, wenn Asset fehlt
+        // Fallback if asset is missing
         win.rect(inner.x, inner.y, inner.w, inner.h, Color::rgba(255, 255, 255, 32));
     }
 
@@ -956,9 +960,13 @@ fn draw_user_avatar_with_opacity(win: &mut Window, center_x: i32, center_y: i32,
     if opacity < 255 {
         // Overlay circle exactly matches inner image area (perfect alignment).
         let overlay_alpha = 255u16.saturating_sub(opacity as u16) as u8;
-        let cx = outer.x + outer.w as i32 / 2;
-        let cy = outer.y + outer.h as i32 / 2;
-        fill_circle(win, cx, cy, inner_radius, Color::rgba(0, 0, 0, overlay_alpha));
+        // Create an anti-aliased circle image with the diameter of the inner circle.
+        let diameter = (inner_radius * 2) as u32;
+        let overlay_img = aa_filled_circle_image(diameter, 0, 0, 0, overlay_alpha);
+        // Center the overlay image in the inner rectangle.
+        let overlay_x = inner.x + (inner.w as i32 - overlay_img.width() as i32) / 2;
+        let overlay_y = inner.y + (inner.h as i32 - overlay_img.height() as i32) / 2;
+        overlay_img.draw(win, overlay_x, overlay_y);
     }
 }
 

@@ -1,22 +1,27 @@
 use crate::{
-    core::{
-        display::Display,
-        image::{Image, ImageAligned},
-        rect::Rect,
-        Properties,
-    },
+    core::{display::Display, rect::Rect, Properties},
+    core::image::{Image, ImageAligned},
     scheme::TilePosition,
 };
+use std::cmp::min;
 use orbclient::{Color, Event, Renderer};
 use orbfont::Font;
 
-use std::cmp::{max, min};
 use std::collections::VecDeque;
 
 use std::rc::Rc;
 
 // use theme::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR};
 use crate::config::Config;
+
+const TITLEBAR_HEIGHT_PX: i32 = 45;
+const TITLE_BTN_SAFE_INSET: i32 = 5;
+const TITLE_BTN_GAP:      i32 = 6;  // horizontal gap between title buttons
+const TITLE_BTN_RIGHT_PAD:i32 = 8;  // right padding inside title bar
+
+pub const TITLE_ICON_PX:      i32 = 31;
+pub const TITLE_HEIGHT: i32 = TITLEBAR_HEIGHT_PX; // keep old name used in geometry, set to 45
+pub const TITLE_TEXT_HEIGHT: i32 = 25;
 
 //TODO: move to orbclient?
 pub const ORBITAL_FLAG_ASYNC: char = 'a';
@@ -35,6 +40,32 @@ pub enum WindowZOrder {
     Back,
     Normal,
     Front,
+}
+
+fn draw_icon(display: &mut crate::core::display::Display,
+             clip: &crate::core::rect::Rect,
+             dst: crate::core::rect::Rect,
+             icon: &crate::core::image::Image)
+{
+    // Adjust to actual icon size
+    let iw = icon.width().min(dst.width());
+    let ih = icon.height().min(dst.height());
+    if iw <= 0 || ih <= 0 {
+        return;
+    }
+
+    // Target rectangle pinned to icon size
+    let dst2 = crate::core::rect::Rect::new(dst.left(), dst.top(), iw, ih);
+
+    // cut with the current redraw clip
+    let ir = clip.intersection(&dst2);
+    if ir.is_empty() {
+        return;
+    }
+
+    // Source ROI relative to (clamped) target
+    let src = ir.offset(-dst2.left(), -dst2.top());
+    display.roi_mut(&ir).blend(&icon.roi(&src));
 }
 
 pub struct Window {
@@ -64,9 +95,6 @@ pub struct Window {
 
     config: Rc<Config>,
 }
-
-const TITLE_HEIGHT: i32 = 28;
-const TITLE_TEXT_HEIGHT: i32 = 16;
 
 impl Window {
     // TODO Consider creating Rect for the title area, max and close areas and removing a lot
@@ -191,25 +219,22 @@ impl Window {
     }
 
     pub fn max_contains(&self, x: i32, y: i32) -> bool {
-        !self.borderless
-            && x >= max(
-                self.x + 6 * self.scale,
-                self.x + self.width() - 36 * self.scale,
-            )
-            && y >= self.y - TITLE_HEIGHT * self.scale
-            && x < self.x + self.width() - 18 * self.scale
-            && y < self.y
+        if self.borderless { return false; }
+        let (_close, maxr, _hide) = title_button_rects(self);
+        maxr.contains(x, y)
     }
 
     pub fn close_contains(&self, x: i32, y: i32) -> bool {
-        !self.borderless
-            && x >= max(
-                self.x + 6 * self.scale,
-                self.x + self.width() - 18 * self.scale,
-            )
-            && y >= self.y - TITLE_HEIGHT * self.scale
-            && x < self.x + self.width()
-            && y < self.y
+        if self.borderless { return false; }
+        let (closer, _maxr, _hide) = title_button_rects(self);
+        closer.contains(x, y)
+    }
+
+    /// hit-test for minimize/hide button.
+    pub fn hide_contains(&self, x: i32, y: i32) -> bool {
+        if self.borderless { return false; }
+        let (_close, _maxr, hider) = title_button_rects(self);
+        hider.contains(x, y)
     }
 
     pub fn draw_title(
@@ -219,91 +244,99 @@ impl Window {
         focused: bool,
         window_max: &Image,
         window_close: &Image,
+        window_hide: &Image,
     ) {
         let bar_color = Color::from(self.config.bar_color);
         let bar_highlight_color = Color::from(self.config.bar_highlight_color);
 
-        let title_rect = self.title_rect();
-        let title_intersect = rect.intersection(&title_rect);
-        if !title_intersect.is_empty() {
-            display.rect(
-                &title_intersect,
-                if focused {
-                    bar_highlight_color
-                } else {
-                    bar_color
-                },
-            );
+        let tr = self.title_rect();
+        let title_intersect = rect.intersection(&tr);
+        if title_intersect.is_empty() {
+            return;
+        }
 
-            let mut x = self.x + 6 * self.scale;
-            let w = max(
-                self.x + 6 * self.scale,
-                self.x + self.width() - 18 * self.scale,
-            ) - x;
-            if w > 0 {
-                let title_image = if focused {
-                    &self.title_image
-                } else {
-                    &self.title_image_unfocused
-                };
-                let image_rect = Rect::new(
-                    x,
-                    title_rect.top() + 6 * self.scale,
-                    min(w, title_image.width()),
-                    title_image.height(),
-                );
-                let image_intersect = rect.intersection(&image_rect);
-                if !image_intersect.is_empty() {
-                    display.roi_mut(&image_intersect).blend(
-                        &title_image
-                            .roi(&image_intersect.offset(-image_rect.left(), -image_rect.top())),
-                    );
-                }
-            }
+        // Background (focused vs. unfocused)
+        display.rect(&title_intersect, if focused { bar_highlight_color } else { bar_color });
 
-            if self.resizable {
-                x = max(self.x + 6, self.x + self.width() - 36 * self.scale);
-                if x + 36 * self.scale <= self.x + self.width() {
-                    let image_rect = Rect::new(
-                        x,
-                        title_rect.top() + 7 * self.scale,
-                        window_max.width(),
-                        window_max.height(),
-                    );
-                    let image_intersect = rect.intersection(&image_rect);
-                    if !image_intersect.is_empty() {
-                        display.roi_mut(&image_intersect).blend(
-                            &window_max.roi(
-                                &image_intersect.offset(-image_rect.left(), -image_rect.top()),
-                            ),
-                        );
-                    }
-                }
-            }
+        // --- Right-aligned icon layout using *actual* image sizes -----------------
+        let pad_r = TITLE_BTN_RIGHT_PAD * self.scale;
+        let gap   = TITLE_BTN_GAP       * self.scale;
 
-            if !self.unclosable {
-                x = max(
-                    self.x + 6 * self.scale,
-                    self.x + self.width() - 18 * self.scale,
-                );
-                if x + 18 * self.scale <= self.x + self.width() {
-                    let image_rect = Rect::new(
-                        x,
-                        title_rect.top() + 7 * self.scale,
-                        window_close.width(),
-                        window_close.height(),
+        // tallest determines vertical centering baseline
+        let tallest = core::cmp::max(
+            window_close.height(),
+            core::cmp::max(window_max.height(), window_hide.height()),
+        );
+        let y_base = tr.top() + ((tr.height() - tallest).max(0) / 2);
+
+        // place from right to left
+        let mut x_right = tr.right() - pad_r;
+
+        // CLOSE
+        let close_w = window_close.width();
+        let close_h = window_close.height();
+        let r_close = Rect::new(
+            x_right - close_w,
+            y_base + ((tallest - close_h).max(0) / 2),
+            close_w,
+            close_h,
+        );
+        x_right = r_close.left() - gap;
+
+        // MAX
+        let max_w = window_max.width();
+        let max_h = window_max.height();
+        let r_max = Rect::new(
+            x_right - max_w,
+            y_base + ((tallest - max_h).max(0) / 2),
+            max_w,
+            max_h,
+        );
+        x_right = r_max.left() - gap;
+
+        // HIDE
+        let hide_w = window_hide.width();
+        let hide_h = window_hide.height();
+        let r_hide = Rect::new(
+            x_right - hide_w,
+            y_base + ((tallest - hide_h).max(0) / 2),
+            hide_w,
+            hide_h,
+        );
+
+        // --- Title text: clamp to area left of the leftmost button ---------------
+        let x_text = self.x + 6 * self.scale;
+        let right_limit = r_hide.left() - gap;
+        let w_text = (right_limit - x_text).max(0);
+        if w_text > 0 {
+            let title_image = if focused { &self.title_image } else { &self.title_image_unfocused };
+            if title_image.width() > 0 && title_image.height() > 0 {
+                let text_w = core::cmp::min(w_text, title_image.width());
+                let text_h = title_image.height();
+                let ty = tr.top() + ((tr.height() - text_h).max(0) / 2);
+                let image_rect = Rect::new(x_text, ty, text_w, text_h);
+                let ir = rect.intersection(&image_rect);
+                if !ir.is_empty() {
+                    display.roi_mut(&ir).blend(
+                        &title_image.roi(&ir.offset(-image_rect.left(), -image_rect.top()))
                     );
-                    let image_intersect = rect.intersection(&image_rect);
-                    if !image_intersect.is_empty() {
-                        display.roi_mut(&image_intersect).blend(
-                            &window_close.roi(
-                                &image_intersect.offset(-image_rect.left(), -image_rect.top()),
-                            ),
-                        );
-                    }
                 }
             }
         }
+
+        // --- Draw icons (no scaling, no cropping) ---------------------------------
+        #[inline]
+        fn blit_icon(dst: &mut Display, clip: &Rect, dst_rect: &Rect, img: &Image) {
+            if img.width() <= 0 || img.height() <= 0 { return; }
+            let ir = clip.intersection(dst_rect);
+            if !ir.is_empty() {
+                dst.roi_mut(&ir).blend(&img.roi(&ir.offset(-dst_rect.left(), -dst_rect.top())));
+            }
+        }
+
+        blit_icon(display, rect, &r_max,   window_max);
+        blit_icon(display, rect, &r_close, window_close);
+        blit_icon(display, rect, &r_hide,  window_hide);
     }
 
     pub fn draw(&self, display: &mut Display, rect: &Rect) {
@@ -485,6 +518,25 @@ impl Window {
 
         self.image = new_image;
     }
+}
+
+/// Compute right-aligned button rects (close, max, hide) with proper vertical centering.
+/// Sizes are based on TITLE_ICON_PX and scaled by self.scale.
+fn title_button_rects(win: &Window) -> (Rect, Rect, Rect) {
+    // Work in i32 because Rect::new takes i32.
+    let icon  = (TITLE_ICON_PX * win.scale).max(1);
+    let pad_r = TITLE_BTN_RIGHT_PAD * win.scale;
+    let gap   = TITLE_BTN_GAP * win.scale;
+    let inset = TITLE_BTN_SAFE_INSET * win.scale;
+
+    let tr = win.title_rect();
+    let y = tr.top() + inset + ((tr.height() - 2 * inset - icon).max(0) / 2);
+
+    // Order: [hide] [gap] [max] [gap] [close | pad-right]
+    let r_close = Rect::new(tr.right() - pad_r - inset - icon, y, icon, icon);
+    let r_max   = Rect::new(r_close.left() - gap - icon,       y, icon, icon);
+    let r_hide  = Rect::new(r_max.left()   - gap - icon,       y, icon, icon);
+    (r_close, r_max, r_hide)
 }
 
 #[cfg(test)]
