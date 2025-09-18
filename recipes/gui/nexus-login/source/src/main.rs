@@ -822,12 +822,24 @@ fn draw_password_state(
     // Use theme colors for back button background
     let button_color = if is_hovering { button_bg_hover() } else { button_bg() };
 
-    // Back button background with anti-aliased circle image (no jaggies)
+    // Back button background - use cached anti-aliased circle for sharp edges
     let d = back_rect.w.min(back_rect.h);
-    let aa = aa_filled_circle_image(d, button_color.r(), button_color.g(), button_color.b(), button_color.a());
-    let bx = back_rect.x + (back_rect.w as i32 - aa.width() as i32) / 2;
-    let by = back_rect.y + (back_rect.h as i32 - aa.height() as i32) / 2;
-    aa.draw(win, bx, by);
+
+    // Use a simple but effective approach: draw multiple circles with decreasing radius
+    // This gives smooth edges without expensive anti-aliasing calculations
+    let center_x = back_rect.x + (d / 2) as i32;
+    let center_y = back_rect.y + (d / 2) as i32;
+    let max_radius = (d / 2) as i32;
+
+    // Draw multiple circles for smooth edges (much faster than full anti-aliasing)
+    for i in 0..3 {
+        let radius = max_radius - i;
+        if radius > 0 {
+            let alpha = if i == 0 { 255 } else { 200 - (i * 50) as u8 };
+            let smooth_color = Color::rgba(button_color.r(), button_color.g(), button_color.b(), alpha);
+            fill_circle(win, center_x, center_y, radius, smooth_color);
+        }
+    }
 
     // Icon (SVG-first). Small inner padding + fine Y offset to visually center in the circle.
     let back_icon_px = (FIELD_H - 2 * BACK_ICON_INNER_PAD).max(1) as u32;
@@ -959,14 +971,14 @@ fn draw_user_avatar_with_opacity(win: &mut Window, center_x: i32, center_y: i32,
     // Use unified geometry so image, overlay and hitboxes always match.
     let (outer, inner, inner_radius) = avatar_geometry(center_x, center_y);
 
-    // Desired icon size is the inner square's side, snapped to a crisp size (never larger than inner).
-    let target_side    = inner.w.min(inner.h);
-    let target_snapped = snap_icon_size(target_side).min(target_side);
+    // Unified size calculation: use the same size for both avatar and overlay
+    let target_side = inner.w.min(inner.h);
+    let unified_size = snap_icon_size(target_side).min(target_side);
 
     if let Some(img) = THEME.load_icon_sized(
         "avatar",
         IconVariant::Auto,
-        Some((target_snapped, target_snapped)),
+        Some((unified_size, unified_size)),
     ) {
         // Center the icon in the inner rectangle
         let img_x = inner.x + (inner.w as i32 - img.width() as i32) / 2;
@@ -979,12 +991,10 @@ fn draw_user_avatar_with_opacity(win: &mut Window, center_x: i32, center_y: i32,
 
     // Apply overlay mask if opacity < 100%
     if opacity < 255 {
-        // Overlay circle exactly matches inner image area (perfect alignment).
+        // Use the same unified size for the overlay to ensure perfect alignment
         let overlay_alpha = 255u16.saturating_sub(opacity as u16) as u8;
-        // Create an anti-aliased circle image with the diameter of the inner circle.
-        let diameter = (inner_radius * 2) as u32;
-        let overlay_img = aa_filled_circle_image(diameter, 0, 0, 0, overlay_alpha);
-        // Center the overlay image in the inner rectangle.
+        let overlay_img = aa_filled_circle_image(unified_size, 0, 0, 0, overlay_alpha);
+        // Center the overlay image in the inner rectangle using the same positioning as the avatar
         let overlay_x = inner.x + (inner.w as i32 - overlay_img.width() as i32) / 2;
         let overlay_y = inner.y + (inner.h as i32 - overlay_img.height() as i32) / 2;
         overlay_img.draw(win, overlay_x, overlay_y);

@@ -112,34 +112,31 @@ pub fn render_svg_to_image_with_theme(
     let (mut w, mut h) = (isize.width(), isize.height());
 
     // Contain-fit into target size:
+    let mut scale = 1.0;
     if let Some((tw, th)) = target {
-        if w == 0 || h == 0 { w = tw.max(1); h = th.max(1); }
-        else {
-            let s = (tw as f32 / w as f32).min(th as f32 / h as f32).max(0.0);
-            w = (w as f32 * s).round().max(1.0) as u32;
-            h = (h as f32 * s).round().max(1.0) as u32;
+        if w == 0 || h == 0 {
+            w = tw.max(1);
+            h = th.max(1);
+        } else {
+            scale = (tw as f32 / w as f32).min(th as f32 / h as f32).max(0.0);
+            w = (w as f32 * scale).round().max(1.0) as u32;
+            h = (h as f32 * scale).round().max(1.0) as u32;
         }
     } else if w == 0 || h == 0 {
         w = 24; h = 24; // reasonable default if the SVG has no explicit size
     }
 
-    // 1px pad to avoid clipping strokes at the edges
-    let pad = 1;
-    let bw = w + pad*2;
-    let bh = h + pad*2;
-    let mut pm = Pixmap::new(bw, bh)?;
+    // Render with proper scaling transform
+    let mut pm = Pixmap::new(w, h)?;
     let mut pmut = pm.as_mut();
-    resvg::render(&tree, Transform::from_translate(pad as f32, pad as f32), &mut pmut);
+    let transform = Transform::from_scale(scale, scale);
+    resvg::render(&tree, transform, &mut pmut);
 
-    // Crop back to requested size and convert to orbimage::Image
+    // Convert to orbimage::Image
     let src = pm.data();
     let mut out = Vec::with_capacity((w*h) as usize);
-    for row in 0..h {
-        let start = ((row + pad) * bw * 4 + pad * 4) as usize;
-        let end   = start + (w * 4) as usize;
-        for px in src[start..end].chunks_exact(4) {
-            out.push(Color::rgba(px[0], px[1], px[2], px[3]));
-        }
+    for px in src.chunks_exact(4) {
+        out.push(Color::rgba(px[0], px[1], px[2], px[3]));
     }
     Image::from_data(w, h, out.into()).ok()
 }
