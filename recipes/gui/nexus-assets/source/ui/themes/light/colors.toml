@@ -1,92 +1,4 @@
-cursor = "cursor/default"
-handpointing = "cursor/handpointing"
-handopen = "cursor/handopen"
-handgrabbing = "cursor/handgrabbing"
-help = "cursor/help"
-bottom_left_corner = "cursor/resizesouthwest"
-bottom_right_corner = "cursor/resizesoutheast"
-bottom_side = "cursor/resizesouth"
-left_side = "cursor/resizewest"
-right_side = "cursor/resizeeast"
-top_left_corner = "cursor/resizenorthwest"
-top_right_corner = "cursor/resizenortheast"
-top_side = "cursor/resizenorth"
-add_cell = "cursor/cell"
-open_context_menu = "cursor/contextualmenu"
-makealias = "cursor/makealias"
-move = "cursor/move"
-notallowed = "cursor/notallowed"
-proof = "cursor/proof"
-screenshotselection = "cursor/screenshotselection"
-screenshotwindow = "cursor/screenshotwindow"
-textcursor = "cursor/textcursor"
-textcursorvertical = "cursor/textcursorvertical"
-zoomin = "cursor/zoomin"
-zoomout = "cursor/zoomout"
-
-window_max               = "actions/window_max"
-window_max_unfocused     = "actions/window_max_unfocused"
-window_close             = "actions/window_close"
-window_close_unfocused   = "actions/window_close_unfocused"
-window_hide              = "actions/window_hide"
-window_hide_unfocused    = "actions/window_hide_unfocused"
-
-[theme]
-current = "light"
-
-[icons]
-power.shutdown = "actions/system-shut-down"
-power.restart = "actions/system-restart"
-power.sleep = "actions/system-sleep"
-session.logout = "actions/session-logout"
-notifications.button = "actions/notifications"
-notifications.mails = "status/mails"
-notifications.chats = "status/messages"
-notifications.calls = "status/calls"
-controlcenter.button = "actions/control-center"
-files.copy = "actions/copy"
-files.delete = "actions/delete"
-files.move = "actions/move"
-files.new = "actions/add"
-files.sort_direction = "actions/sort-direction"
-files.sort_type = "actions/sort-type"
-login.back = "actions/back"
-menu.bigger = "actions/bigger"
-menu.smaller = "actions/smaller"
-menu.search = "actions/search"
-filemanager.back = "actions/back"
-filemanager.forward = "actions/forward"
-filemanager.layout = "actions/layout"
-filemanager.actions = "actions/more"
-filemanager.more = "actions/show-more"
-start = "system/start"
-overview = "system/overview"
-avatar = "system/avatar-default"
-current = "places/current"
-home = "places/home"
-documents = "places/documents"
-downloads = "places/downloads"
-pictures = "places/fotos"
-music = "places/audio"
-videos = "places/videos"
-trash = "places/trash-bin"
-storage.nx_cloud = "places/nx-cloud"
-storage.network = "places/network-storage"
-storage.google_drive = "places/google-drive"
-storage.computer = "places/internal-storage"
-storage.sd_card = "places/sd-card"
-#storage.usb = "places/usb-stick"
-#storage.external_drive = "places/external-drive"
-
-[backgrounds]
-login = "backgrounds/login"
-desktop = "backgrounds/desktop"
-
-[defaults.acrylic]
-downscale = 4
-tint = "#33FFFFFF"      # ARGB-ish hex (we parse as RGBA; this is a light white tint)
-noise_alpha = 16
-
+# /ui/themes/light/colors.toml
 [colors]
 # Surfaces
 surface_bg              = { rgba = [250,250,250,255], acrylic = { enabled = false } }
@@ -95,7 +7,7 @@ surface_elev1_bg        = { rgba = [255,255,255,240], acrylic = { enabled = true
 
 # Text/Icon
 text_fg                 = "#0A0A0A"
-text_highlight_fg       = { rgba = [255,255,255,51] } # 20%
+text_highlight_fg       = "#0A0A0A"  # Same as text_fg for better readability
 text_muted_fg           = "#5A5A5A"
 text_inverse_fg         = "#FFFFFF"
 icon_fg                 = "#222222"
@@ -115,10 +27,10 @@ window_content_bg       = { rgba = [255,255,255,134], acrylic = { enabled = true
 menu_bar_bg             = { rgba = [255,255,255,191], acrylic = { enabled = true} } # 75%
 menu_surface_sm_bg      = { rgba = [255,255,255,128], acrylic = { enabled = true } } # 50%
 menu_surface_lg_bg      = { rgba = [0,0,0,64], acrylic = { enabled = true } } # 25%
-menu_icon_bg_hover      = { rgba = [255,255,255,26] } # 10%
+menu_icon_bg_hover      = { rgba = [0,0,0,26] } # 10%
 menu_bar_icon_active = "#000000"
-menu_bar_icon_bg_hover  = { rgba = [255,255,255,26] } # 10%
-menu_bar_devider        = { rgba = [255,255,255,89] } # 35%
+menu_bar_icon_bg_hover  = { rgba = [0,0,0,26] } # 10%
+menu_bar_devider        = { rgba = [0,0,0,89] } # 35%
 
 # Panels/COntrolcenter+Notifications
 panel_bg                = { rgba = [255,255,255,26], acrylic = { enabled = true, blur_px = 16 } } # 10%

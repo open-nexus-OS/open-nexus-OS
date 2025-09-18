@@ -7,7 +7,6 @@ use std::{
 };
 
 use log::{error, info, warn};
-use std::path::Path;
 use orbclient::{
     self, ButtonEvent, ClipboardEvent, Color, Event, EventOption, FocusEvent, HoverEvent, KeyEvent,
     MouseEvent, MouseRelativeEvent, MoveEvent, QuitEvent, Renderer, ResizeEvent, ScreenEvent,
@@ -21,9 +20,7 @@ use crate::compositor::Compositor;
 use crate::config::Config;
 use crate::window::{self, Window, WindowZOrder, TITLE_ICON_PX};
 use crate::core::{display::Display, image::Image, rect::Rect, Orbital, Properties};
-use crate::core::image::Image as CoreImage;      
-use orbimage::Image as SvgImage;                 
-use libnexus::{THEME, IconVariant};    // theme-driven cursor loading
+use crate::core::image::Image as CoreImage;
 
 const TITLE_BTN_RIGHT_PAD: i32 = 8;
 const TITLE_BTN_GAP: i32 = 6;
@@ -124,48 +121,38 @@ impl OrbitalScheme {
 
         let mut cursors = BTreeMap::new();
         cursors.insert(CursorKind::None, Arc::new(Image::new(0, 0)));
-        // Load from nexus.toml → [cursor] via THEME key names:
-        cursors.insert(CursorKind::LeftPtr,          Arc::new(load_cursor_theme("cursor/default",       scale)));
-        cursors.insert(CursorKind::BottomLeftCorner, Arc::new(load_cursor_theme("cursor/resizesouthwest", scale)));
-        cursors.insert(CursorKind::BottomRightCorner,Arc::new(load_cursor_theme("cursor/resizesoutheast", scale)));
-        cursors.insert(CursorKind::BottomSide,       Arc::new(load_cursor_theme("cursor/resizesouth",   scale)));
-        cursors.insert(CursorKind::LeftSide,         Arc::new(load_cursor_theme("cursor/resizewest",    scale)));
-        cursors.insert(CursorKind::RightSide,        Arc::new(load_cursor_theme("cursor/resizeeast",    scale)));
+        // Cursors via libnexus THEME (keys from nexus.toml). Scale-aware.
+        let cursor_px_base: u32 = 24;
+        let themed = |key: &str| Arc::new(config.themed_icon_scaled(key, scale, cursor_px_base));
+        cursors.insert(CursorKind::LeftPtr,           themed("cursor/default"));
+        cursors.insert(CursorKind::BottomLeftCorner,  themed("cursor/resizesouthwest"));
+        cursors.insert(CursorKind::BottomRightCorner, themed("cursor/resizesoutheast"));
+        cursors.insert(CursorKind::BottomSide,        themed("cursor/resizesouth"));
+        cursors.insert(CursorKind::LeftSide,          themed("cursor/resizewest"));
+        cursors.insert(CursorKind::RightSide,         themed("cursor/resizeeast"));
 
         let font = orbfont::Font::find(Some("Sans"), None, None)?;
 
-        // Pre-size titlebar icons: logical 26px * scale for crisp raster
-        let icon_px: u32 = (TITLE_ICON_PX * scale) as u32;
+        // Titlebar icons via THEME (through config): logical TITLE_ICON_PX * scale.
+        let icon_px: u32 = (TITLE_ICON_PX * scale.max(1)) as u32;
+        let window_max             = config.themed_icon_px("window_max",             icon_px);
+        let window_max_unfocused   = config.themed_icon_px("window_max_unfocused",   icon_px);
+        let window_close           = config.themed_icon_px("window_close",           icon_px);
+        let window_close_unfocused = config.themed_icon_px("window_close_unfocused", icon_px);
+        let window_hide            = config.themed_icon_px("window_hide",            icon_px);
+        let window_hide_unfocused  = config.themed_icon_px("window_hide_unfocused",  icon_px);
 
         let mut orbital_scheme = OrbitalScheme {
             compositor: Compositor::new(displays),
 
-            // Use theme keys from [system] in nexus.toml; fall back to old config.* paths.
-            // Load themed SVGs sized at icon_px
-            window_max: THEME
-                .load_icon_sized("system.window_max", IconVariant::Auto, Some((icon_px, icon_px)))
-                .map(svg_to_core)
-                .unwrap_or_else(|| CoreImage::new(0, 0)),
-            window_max_unfocused: THEME
-                .load_icon_sized("system.window_max_unfocused", IconVariant::Auto, Some((icon_px, icon_px)))
-                .map(svg_to_core)
-                .unwrap_or_else(|| CoreImage::new(0, 0)),
-            window_close: THEME
-                .load_icon_sized("system.window_close", IconVariant::Auto, Some((icon_px, icon_px)))
-                .map(svg_to_core)
-                .unwrap_or_else(|| CoreImage::new(0, 0)),
-            window_close_unfocused: THEME
-                .load_icon_sized("system.window_close_unfocused", IconVariant::Auto, Some((icon_px, icon_px)))
-                .map(svg_to_core)
-                .unwrap_or_else(|| CoreImage::new(0, 0)),
-            window_hide: THEME
-                .load_icon_sized("system.window_hide", IconVariant::Auto, Some((icon_px, icon_px)))
-                .map(svg_to_core)
-                .unwrap_or_else(|| CoreImage::new(0, 0)),
-            window_hide_unfocused: THEME
-                .load_icon_sized("system.window_hide_unfocused", IconVariant::Auto, Some((icon_px, icon_px)))
-                .map(svg_to_core)
-                .unwrap_or_else(|| CoreImage::new(0, 0)),
+            // IDs = mapping keys from nexus.toml ([system] section recommended).
+            window_max:             window_max,
+            window_max_unfocused:   window_max_unfocused,
+            window_close:           window_close,
+            window_close_unfocused: window_close_unfocused,
+            window_hide:            window_hide,
+            window_hide_unfocused:  window_hide_unfocused,
+
             cursors,
             cursor_x: 0,
             cursor_y: 0,
@@ -572,7 +559,7 @@ impl OrbitalScheme {
 
         let mut total_redraw_opt: Option<Rect> = None;
 
-        let bg_color = self.config.background_color;
+        let (bg_color, bg_acrylic) = self.config.paint_window_bg();
         let close_f = &self.window_close;
         let close_u = &self.window_close_unfocused;
         let max_f   = &self.window_max;
@@ -585,8 +572,16 @@ impl OrbitalScheme {
 
         self.compositor
             .redraw_windows(&mut total_redraw_opt, |display, rect| {
-                // Hintergrund
-                display.rect(&rect, bg_color.into());
+                // Hintergrund mit Acrylic-Effekt
+                if let Some(acrylic) = bg_acrylic {
+                    // Implement simple acrylic effect with enhanced transparency
+                    let mut acrylic_color = bg_color;
+                    // Reduce alpha for more transparency effect
+                    acrylic_color.data = (acrylic_color.data & 0x00FFFFFF) | 0x60000000; // ~37% opacity
+                    display.rect(&rect, acrylic_color.into());
+                } else {
+                    display.rect(&rect, bg_color.into());
+                }
 
                 for &(id, _, i) in self.zbuffer.iter().rev() {
                     if let Some(win) = self.windows.get(&id) {
@@ -604,8 +599,18 @@ impl OrbitalScheme {
                         let img_close = if over_close { close_f } else { close_u };
                         let img_hide  = if over_hide  { hide_f }  else { hide_u };
 
-                        // Titel + Buttons zeichnen (Window kümmert sich ums exakte Zentrieren)
-                        win.draw_title(display, &rect, i == 0, img_max, img_close, img_hide);
+                        // Titel + Buttons zeichnen mit exakt den Hitbox-Rechtecken
+                        win.draw_title_with_rects(
+                            display,
+                            &rect,
+                            i == 0,
+                            img_max,
+                            img_close,
+                            img_hide,
+                            r_close,
+                            r_max,
+                            r_hide,
+                        );
 
                         // Fensterinhalt
                         win.draw(display, &rect);
@@ -735,14 +740,11 @@ impl OrbitalScheme {
             return None;
         }
 
-        // follow the look of the current config - in terms of colors
-        let Config {
-            bar_color,
-            bar_highlight_color,
-            text_color,
-            text_highlight_color,
-            ..
-        } = *self.config;
+        // Farben via config.rs → libnexus Theme
+        let bar_color            = self.config.color_bar();
+        let bar_highlight_color  = self.config.color_bar_highlight();
+        let text_color           = self.config.color_text();
+        let text_highlight_color = self.config.color_text_highlight();
 
         let list_h = (selectable_window_ids.len() as u32 * SELECT_ROW_HEIGHT
             + (SELECT_POPUP_TOP_BOTTOM_MARGIN * 2)) as i32;
@@ -782,22 +784,18 @@ impl OrbitalScheme {
         Some(image)
     }
 
-    // Draw an on screen display (overlay) for volume control
+    // Draw an on-screen display (overlay) for volume control.
     fn draw_volume_osd(&mut self) -> Image {
-        let Config {
-            bar_color,
-            bar_highlight_color,
-            ..
-        } = *self.config;
+        let bar_color           = self.config.color_bar();
+        let bar_highlight_color = self.config.color_bar_highlight();
 
         const BAR_HEIGHT: i32 = 20;
         const BAR_WIDTH: i32 = 100;
         const POPUP_MARGIN: i32 = 2;
 
-        //TODO: HiDPI
+        // TODO: HiDPI
         let list_h = BAR_HEIGHT + (2 * POPUP_MARGIN);
         let list_w = BAR_WIDTH + (2 * POPUP_MARGIN);
-        // Color copied over from orbtk's window background
         let mut image = Image::from_color(list_w, list_h, bar_color.into());
         image.rect(
             POPUP_MARGIN,
@@ -806,7 +804,6 @@ impl OrbitalScheme {
             BAR_HEIGHT as u32,
             bar_highlight_color.into(),
         );
-
         image
     }
 
@@ -840,12 +837,9 @@ impl OrbitalScheme {
         const FONT_HEIGHT: f32 = 16.0;
 
         // follow the look of the current config - in terms of colors
-        let Config {
-            bar_color,
-            bar_highlight_color,
-            text_highlight_color,
-            ..
-        } = *self.config;
+        let bar_color           = self.config.color_bar();
+        let bar_highlight_color = self.config.color_bar_highlight();
+        let text_highlight_color= self.config.color_text_highlight();
 
         let list_h = (Self::SHORTCUTS_LIST.len() as u32 * ROW_HEIGHT + (POPUP_BORDER * 2)) as i32;
         let list_w = ROW_WIDTH;
@@ -1816,62 +1810,6 @@ impl OrbitalScheme {
     }
 }
 
-// --- Theme-aware cursor loader (SVG → RGBA → core::Image) --------------------
-/// Convert orbimage (SVG gerastert) → core::image (RGBA) – Alpha bleibt erhalten.
-fn core_image_from_orb(img: &SvgImage) -> Image {
-    let w = img.width()  as i32;
-    let h = img.height() as i32;
-    let buf: Vec<Color> = img.data().to_vec();
-    Image::from_data(w, h, buf.into())
-}
-
-fn svg_to_core(img: SvgImage) -> CoreImage {
-    let w = img.width()  as i32;
-    let h = img.height() as i32;
-    CoreImage::from_data(w, h, img.data().to_vec().into())
-}
-
-/// Try to render a themed cursor via THEME (SVG-first), with PNG path fallback.
-fn load_cursor_theme(id: &str, scale: i32) -> Image {
-    // Choose a crisp logical size (per-display scale).
-    const CURSOR_BASE_PX: u32 = 24;
-    let px = (CURSOR_BASE_PX * scale.max(1) as u32).max(16);
-
-    // 1) SVG-first via THEME (returns orbimage::Image)
-    if let Some(svg_img) = THEME.load_icon_sized(id, IconVariant::Auto, Some((px, px))) {
-        return core_image_from_orb(&svg_img);
-    }
-
-    // 2) PNG fallback at themed/global locations (in case you ship PNGs too)
-    let theme = match THEME.theme() { libnexus::ThemeId::Dark => "dark", _ => "light" };
-    // `id` like "cursor/default" → files under icons/<id>.png
-    let cand = [
-        format!("/ui/themes/{}/icons/{}.png", theme, id),
-        format!("/ui/icons/{}.png", id),
-    ];
-    for p in cand {
-        if Path::new(&p).exists() {
-            if let Some(img) = Image::from_path_scale(&p, scale) {
-                return img;
-            }
-        }
-    }
-    Image::new(0, 0)
-}
-
-// --- Themed title buttons (maximize/close), SVG-first ONLY (no PNG fallback) ---
-/// Load a titlebar button via THEME at a small fixed size for the titlebar.
-fn load_title_icon(theme_id: &str, scale: i32) -> Image {
-    // 12px fits typical titlebars better than 16px.
-    const TITLE_BTN_BASE_PX: u32 = 12;
-    let px = TITLE_BTN_BASE_PX * scale.max(1) as u32;
-    if let Some(img) = THEME.load_icon_sized(theme_id, IconVariant::Auto, Some((px, px))) {
-        return core_image_from_orb(&img);
-    }
-    // Not found in THEME → empty image (no legacy fallback).
-    Image::new(0, 0)
-}
-
 fn compute_title_button_rects(
     win: &crate::window::Window,
     close_wh: (i32, i32),
@@ -1896,33 +1834,24 @@ fn compute_title_button_rects(
     let (mw, mh) = max_wh;
     let (hw, hh) = hide_wh;
 
+    // 1) vertikal: Match exactly how visual icons are positioned
+    //    → Hitboxen sollen genau über den Icons sitzen
     let tallest = ch.max(mh).max(hh);
+    let y_base = tr_top + ((tr_h - tallest).max(0) / 2);
 
-    // 1) vertikal: 1px inner inset + kleiner Up-Nudge
-    //    → Hitboxen sitzen nicht mehr „zu tief“
-    let inner_h   = tr_h.saturating_sub(1);
-    let y_center  = tr_top + ((inner_h - tallest).max(0) / 2);
-    let y_nudge   = -(win.scale.max(1) / 2); // typ. −1px bei scale=1
-    let y_base    = y_center + y_nudge;
+    // 2) horizontal: Match exactly how visual icons are positioned
+    let mut x_right = tr_left + tr_w - pad_r;
 
-    // 2) horizontal: 1px inner inset auf der rechten Kante
-    let inner_w   = tr_w.saturating_sub(1);
-    let mut x_right = tr_left + inner_w - pad_r;
-
-    // Optional: Close minimal nach links/oben nudgen (optische Korrektur)
-    let close_x_nudge = -(win.scale.max(1) / 2); // typ. −1px
-    let close_y_nudge = -(win.scale.max(1) / 2); // typ. −1px
-
-    // CLOSE (rechts außen)
+    // CLOSE (rechts außen) - match visual icon positioning exactly
     let r_close = Rect::new(
-        x_right - cw + close_x_nudge,
-        y_base + ((tallest - ch).max(0) / 2) + close_y_nudge,
+        x_right - cw,
+        y_base + ((tallest - ch).max(0) / 2),
         cw,
         ch,
     );
     x_right = r_close.left() - gap;
 
-    // MAX
+    // MAX - match visual icon positioning exactly
     let r_max = Rect::new(
         x_right - mw,
         y_base + ((tallest - mh).max(0) / 2),
@@ -1931,7 +1860,7 @@ fn compute_title_button_rects(
     );
     x_right = r_max.left() - gap;
 
-    // HIDE
+    // HIDE - match visual icon positioning exactly
     let r_hide = Rect::new(
         x_right - hw,
         y_base + ((tallest - hh).max(0) / 2),

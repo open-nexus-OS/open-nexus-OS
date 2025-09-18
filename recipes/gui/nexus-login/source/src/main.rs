@@ -28,6 +28,11 @@ const LABEL_D:  Color = Color::rgb(0xCC, 0xCC, 0xCC);
 const ACCENT:   Color = Color::rgb(0x7A, 0xB7, 0xFF);
 const ERROR:    Color = Color::rgb(0xFF, 0x55, 0x55);
 
+/*let bar_color          = THEME.color("bar",          orbclient::Color::rgba(255,255,255,191));
+let bar_highlight      = THEME.color("bar_highlight",orbclient::Color::rgba(255,255,255,200));
+let text_color         = THEME.color("text",         orbclient::Color::rgba(0,0,0,255));
+let maybe_bar_acrylic  = THEME.acrylic_for("bar"); // Option<Acrylic>*/
+
 const AVATAR_RADIUS: i32 = 79;      // avatar circle radius
 const PANEL_PAD: i32 = 16;          // panel inner padding
 const FIELD_H: i32 = 36;            // password field height
@@ -132,11 +137,11 @@ fn avatar_geometry(center_x: i32, center_y: i32) -> (Rect, Rect, i32) {
     (outer, inner, inner_radius)
 }
 
-struct ActionIcons { 
-    sleep: Option<Image>, 
-    restart: Option<Image>, 
-    shutdown: Option<Image>, 
-    logout: Option<Image> 
+struct ActionIcons {
+    sleep: Option<Image>,
+    restart: Option<Image>,
+    shutdown: Option<Image>,
+    logout: Option<Image>
 }
 
 // CACHE for background image scaling
@@ -154,7 +159,7 @@ impl CachedBackground {
             last_size: (0, 0),
         }
     }
-    
+
     fn get_scaled(&mut self, width: u32, height: u32) -> &Image {
         if self.last_size != (width, height) || self.scaled.is_none() {
             let scaled = self.original.resize(width, height, orbimage::ResizeType::Lanczos3).unwrap();
@@ -861,7 +866,7 @@ fn draw_password_state(
         field_rect.y + (FIELD_H - r.height() as i32) / 2,
         color,
     );
-    
+
     // Blinking caret (only when focused)
     if focus_pwd && caret_on {
         let caret_h = if r.height() > 0 { r.height() } else { font.render("•", 16.0).height() } as u32;
@@ -943,7 +948,7 @@ fn draw_user_avatar_with_opacity(win: &mut Window, center_x: i32, center_y: i32,
     let target_snapped = snap_icon_size(target_side).min(target_side);
 
     if let Some(img) = THEME.load_icon_sized(
-        "system.avatar",
+        "avatar",
         IconVariant::Auto,
         Some((target_snapped, target_snapped)),
     ) {
@@ -1087,4 +1092,3 @@ fn main() -> io::Result<()> {
         }
     }
 }
-

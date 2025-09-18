@@ -1,0 +1,101 @@
+# /ui/themes/dark/colors.toml
+[defaults.acrylic]
+downscale = 4
+tint = "#33000000"      # ARGB-ish hex (we parse as RGBA; this is a dark black tint)
+noise_alpha = 16
+
+[colors]
+# Surfaces
+surface_bg              = { rgba = [30,30,30,255], acrylic = { enabled = false } }
+surface_muted_bg        = { rgba = [25,25,25,255], acrylic = { enabled = false } }
+surface_elev1_bg        = { rgba = [40,40,40,240], acrylic = { enabled = true,  blur_px = 16 } }
+
+# Text/Icon
+text_fg                 = "#F5F5F5"
+text_highlight_fg       = { rgba = [0,0,0,51] } # 20%
+text_muted_fg           = "#A5A5A5"
+text_inverse_fg         = "#000000"
+icon_fg                 = "#DDDDDD"
+icon_muted_fg           = "#858585"
+
+# Brand & Links (optional)
+link_fg                 = "#4A9EFF"
+link_fg_hover           = "#66B3FF"
+
+# Window
+window_bg               = { rgba = [40,40,40,240], acrylic = { enabled = true } }
+window_titlebar_bg      = { rgba = [50,50,50,224], acrylic = { enabled = true } }
+window_border           = "#1B1B1B"
+window_content_bg       = { rgba = [40,40,40,134], acrylic = { enabled = true } } # 60%
+
+# Menu
+menu_bar_bg             = { rgba = [50,50,50,191], acrylic = { enabled = true} } # 75%
+menu_surface_sm_bg      = { rgba = [50,50,50,128], acrylic = { enabled = true } } # 50%
+menu_surface_lg_bg      = { rgba = [255,255,255,64], acrylic = { enabled = true } } # 25%
+menu_icon_bg_hover      = { rgba = [255,255,255,26] } # 10%
+menu_bar_icon_active = "#FFFFFF"
+menu_bar_icon_bg_hover  = { rgba = [255,255,255,26] } # 10%
+menu_bar_devider        = { rgba = [255,255,255,89] } # 35%
+
+# Panels/Controlcenter+Notifications
+panel_bg                = { rgba = [0,0,0,26], acrylic = { enabled = true, blur_px = 16 } } # 10%
+
+# Notifications
+notification_bg         = { rgba = [50,50,50,191], acrylic = { enabled = true, blur_px = 16 } } # 75%
+notification_lower1_bg = { rgba = [50,50,50,178], acrylic = { enabled = true, blur_px = 16 } } # 70%
+
+# Control Center
+control_center_group_bg         = { rgba = [50,50,50,128], acrylic = { enabled = true} } # 50%
+control_center_item_bg_active   = { rgba = [50,50,50,191], acrylic = { enabled = true} } # 75%
+control_center_item_fg_muted    = { rgba = [255,255,255,51], acrylic = { enabled = true} } # 20%
+
+# Inputs
+input_bg                = { rgba = [50,50,50,128] } # 50%
+input_fg                = "#EEEEEE"
+input_placeholder_fg    = "#757575"
+
+# Buttons
+button_bg               = { rgba = [50,50,50,191] } # 75%
+button_bg_hover         = { rgba = [50,50,50,128] } # 50%
+button_bg_muted        = { rgba = [255,255,255,51] } # 20%
+button_fg               = "#EEEEEE"
+
+# System states
+selection_bg            = "#003366"
+selection_fg            = "#F5F5F5"
+focus_ring              = "#4A9EFF"
+disabled_fg             = "#575757"
+disabled_bg             = "#1A1A1A"
+
+# Semantic feedback
+success_bg              = "#1A3D1A"
+success_fg              = "#4CAF50"
+warning_bg              = "#3D2A00"
+warning_fg              = "#FF9800"
+danger_bg               = "#3D1A1A"
+danger_fg               = "#F44336"
+
+# Structure
+border                  = "#1B1B1B"
+border_muted            = "#111111"
+divider                 = "#1B1B1B"
+shadow_color            = { rgba = [0,0,0,128] }
+
+# Overlays
+overlay_scrim_bg        = { rgba = [0,0,0,153] } # ~60% für Modals
+tooltip_bg              = "#EEEEEE"
+tooltip_fg              = "#000000"
+
+# Scrollbars
+scrollbar_track_bg      = "#0F0F0F"
+scrollbar_thumb_bg      = "#2F2F2F"
+scrollbar_thumb_bg_hover= "#3F3F3F"
+
+# Legacy colors for backward compatibility
+bar            = { rgba = [50,50,50,191], acrylic = { enabled = true } }
+bar_highlight  = { rgba = [50,50,50,200], acrylic = { enabled = true } }
+bar_activity   = { rgba = [50,50,50,224], acrylic = { enabled = true } }
+text           = "#F5F5F5"
+text_highlight = "#EBEBEB"
+
+# 10% = 26, 20% = 51, 25% = 64, 35% = 89, 50% = 128, 70% = 178, 75% = 191, 80% = 204, 90% = 230, 100% = 255

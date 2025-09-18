@@ -68,6 +68,7 @@ fn draw_icon(display: &mut crate::core::display::Display,
     display.roi_mut(&ir).blend(&icon.roi(&src));
 }
 
+
 pub struct Window {
     pub x: i32,
     pub y: i32,
@@ -246,8 +247,8 @@ impl Window {
         window_close: &Image,
         window_hide: &Image,
     ) {
-        let bar_color = Color::from(self.config.bar_color);
-        let bar_highlight_color = Color::from(self.config.bar_highlight_color);
+        let (bar_color, bar_acrylic) = self.config.paint_window_titlebar_bg();
+        let (bar_highlight_color, bar_highlight_acrylic) = self.config.paint_window_content_bg();
 
         let tr = self.title_rect();
         let title_intersect = rect.intersection(&tr);
@@ -255,8 +256,22 @@ impl Window {
             return;
         }
 
-        // Background (focused vs. unfocused)
-        display.rect(&title_intersect, if focused { bar_highlight_color } else { bar_color });
+        // Background (focused vs. unfocused) with acrylic effect
+        let (bg_color, bg_acrylic) = if focused {
+            (bar_highlight_color, bar_highlight_acrylic)
+        } else {
+            (bar_color, bar_acrylic)
+        };
+
+        // Apply acrylic effect if available
+        if let Some(_acrylic) = bg_acrylic {
+            // Simplified acrylic effect - just use the background color with transparency
+            let mut acrylic_color = bg_color;
+            acrylic_color.data = (acrylic_color.data & 0x00FFFFFF) | 0x80000000; // ~50% opacity
+            display.rect(&title_intersect, acrylic_color);
+        } else {
+            display.rect(&title_intersect, bg_color);
+        }
 
         // --- Right-aligned icon layout using *actual* image sizes -----------------
         let pad_r = TITLE_BTN_RIGHT_PAD * self.scale;
@@ -339,10 +354,81 @@ impl Window {
         blit_icon(display, rect, &r_hide,  window_hide);
     }
 
+    /// Draw titlebar using precomputed button rects (to exactly match hitboxes)
+    pub fn draw_title_with_rects(
+        &self,
+        display: &mut Display,
+        rect: &Rect,
+        focused: bool,
+        window_max: &Image,
+        window_close: &Image,
+        window_hide: &Image,
+        r_close: Rect,
+        r_max: Rect,
+        r_hide: Rect,
+    ) {
+        let (bar_color, bar_acrylic) = self.config.paint_window_titlebar_bg();
+        let (bar_highlight_color, bar_highlight_acrylic) = self.config.paint_window_content_bg();
+
+        let tr = self.title_rect();
+        let title_intersect = rect.intersection(&tr);
+        if title_intersect.is_empty() {
+            return;
+        }
+
+        let (bg_color, bg_acrylic) = if focused {
+            (bar_highlight_color, bar_highlight_acrylic)
+        } else {
+            (bar_color, bar_acrylic)
+        };
+
+        if let Some(_acrylic) = bg_acrylic {
+            // Simplified acrylic effect - just use the background color with transparency
+            let mut acrylic_color = bg_color;
+            acrylic_color.data = (acrylic_color.data & 0x00FFFFFF) | 0x80000000; // ~50% opacity
+            display.rect(&title_intersect, acrylic_color);
+        } else {
+            display.rect(&title_intersect, bg_color);
+        }
+
+        // Title text area clamped to left of buttons
+        let gap = TITLE_BTN_GAP * self.scale;
+        let x_text = self.x + 6 * self.scale;
+        let right_limit = r_hide.left() - gap;
+        let w_text = (right_limit - x_text).max(0);
+        if w_text > 0 {
+            let title_image = if focused { &self.title_image } else { &self.title_image_unfocused };
+            if title_image.width() > 0 && title_image.height() > 0 {
+                let text_w = core::cmp::min(w_text, title_image.width());
+                let text_h = title_image.height();
+                let ty = tr.top() + ((tr.height() - text_h).max(0) / 2);
+                let image_rect = Rect::new(x_text, ty, text_w, text_h);
+                let ir = rect.intersection(&image_rect);
+                if !ir.is_empty() {
+                    display.roi_mut(&ir).blend(&title_image.roi(&ir.offset(-image_rect.left(), -image_rect.top())));
+                }
+            }
+        }
+
+        #[inline]
+        fn blit_icon(dst: &mut Display, clip: &Rect, dst_rect: &Rect, img: &Image) {
+            if img.width() <= 0 || img.height() <= 0 { return; }
+            let ir = clip.intersection(dst_rect);
+            if !ir.is_empty() {
+                dst.roi_mut(&ir).blend(&img.roi(&ir.offset(-dst_rect.left(), -dst_rect.top())));
+            }
+        }
+
+        blit_icon(display, rect, &r_max,   window_max);
+        blit_icon(display, rect, &r_close, window_close);
+        blit_icon(display, rect, &r_hide,  window_hide);
+    }
+
     pub fn draw(&self, display: &mut Display, rect: &Rect) {
         let self_rect = self.rect();
         let intersect = self_rect.intersection(rect);
         if !intersect.is_empty() {
+            // Draw window content (restore original behavior)
             if self.transparent {
                 display.roi_mut(&intersect).blend(
                     &self
@@ -445,8 +531,8 @@ impl Window {
     }
 
     pub fn render_title(&mut self, font: &Font) {
-        let text_color = self.config.text_color;
-        let text_highlight_color = self.config.text_highlight_color;
+        let (text_color, _) = self.config.paint_text_fg();
+        let (text_highlight_color, _) = self.config.paint_text_highlight_fg();
 
         let title_render = font.render(&self.title, (TITLE_TEXT_HEIGHT * self.scale) as f32);
 

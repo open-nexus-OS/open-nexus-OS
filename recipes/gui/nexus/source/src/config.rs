@@ -1,8 +1,13 @@
 use log::{debug, error};
-use orbclient::Color;
+use orbclient::{Color, Renderer};
 use serde_derive::Deserialize;
 use std::fs::File;
 use std::io::Read;
+
+// THEME-Adapter (libnexus → CoreImage)
+use libnexus::{THEME, IconVariant};
+use libnexus::{Acrylic, Paint};
+use crate::core::image::Image as CoreImage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 pub struct ConfigColor {
@@ -46,18 +51,23 @@ pub struct Config {
 }
 
 fn background_color_default() -> ConfigColor {
-    Color::rgb(0, 0, 0).into()
+    // fallback for "window_bg"
+    Color::rgba(2, 168, 38, 1).into()
 }
 fn bar_color_default() -> ConfigColor {
-    Color::rgba(0x1B, 0x1B, 0x1B, 224).into()
+    // fallback for "window_titlebar_bg"
+    Color::rgba(192, 33, 152, 1).into()
 }
 fn bar_highlight_color_default() -> ConfigColor {
+    // fallback for "window_content_bg"
     Color::rgba(0x36, 0x36, 0x36, 224).into()
 }
 fn text_color_default() -> ConfigColor {
+    // fallback for "text_fg"
     Color::rgb(0xE7, 0xE7, 0xE7).into()
 }
 fn text_highlight_color_default() -> ConfigColor {
+    // fallback for "text_highlight_fg"
     Color::rgb(0xE7, 0xE7, 0xE7).into()
 }
 
@@ -89,6 +99,13 @@ impl Default for Config {
     }
 }
 
+/// Small Wrapper used by UI code to hold a color + optional acrylic effect
+#[derive(Clone, Copy, Debug)]
+pub struct UiPaint {
+    pub color: Color,
+    pub acrylic: Option<Acrylic>,
+}
+
 /// [Config] holds configuration information for Orbital, such as colors, cursors etc.
 impl Config {
     // returns the default config if the string passed is not a valid config
@@ -115,7 +132,99 @@ impl Config {
         }
 
         Self::config_from_string(&string)
+
     }
+
+    // --- THEME helpers (icons/colors/acrylic) ----------------------------------------
+    // Render a themed icon (key from nexus.toml) at an exact pixel size.
+    pub fn themed_icon_px(&self, id: &str, px: u32) -> CoreImage {
+        THEME
+            .load_icon_sized(id, IconVariant::Auto, Some((px, px)))
+            .map(|svg| {
+                let w = svg.width() as i32;
+                let h = svg.height() as i32;
+                CoreImage::from_data(w, h, svg.data().to_vec().into())
+            })
+            .unwrap_or_else(|| CoreImage::new(0, 0))
+    }
+
+    // Convenience: scale-aware icon rendered from a logical base size.
+    pub fn themed_icon_scaled(&self, id: &str, scale: i32, base_px: u32) -> CoreImage {
+        let px = (base_px * scale.max(1) as u32).max(1);
+        self.themed_icon_px(id, px)
+    }
+
+    // --- Window colors via libnexus (flat Color) -----------------------------
+    // These keep the old function names but fetch by your new theme keys.
+    // Acrylic is ignored here on purpose; use the *paint_* getters below when needed.
+    pub fn color_background(&self) -> Color {
+        // maps to "window_bg"
+        let p = THEME.paint("window_bg", Paint { color: self.background_color.into(), acrylic: None });
+        debug!("color_background: using theme color {:?} (fallback: {:?})", p.color, Color::from(self.background_color));
+        p.color
+    }
+    pub fn color_bar(&self) -> Color {
+        // maps to "window_titlebar_bg"
+        let p = THEME.paint("window_titlebar_bg", Paint { color: self.bar_color.into(), acrylic: None });
+        debug!("color_bar: using theme color {:?} (fallback: {:?})", p.color, Color::from(self.bar_color));
+        p.color
+    }
+    pub fn color_bar_highlight(&self) -> Color {
+        // maps to "window_content_bg"
+        let p = THEME.paint("window_content_bg", Paint { color: self.bar_highlight_color.into(), acrylic: None });
+        debug!("color_bar_highlight: using theme color {:?} (fallback: {:?})", p.color, Color::from(self.bar_highlight_color));
+        p.color
+    }
+    pub fn color_text(&self) -> Color {
+        // maps to "text_fg"
+        let p = THEME.paint("text_fg", Paint { color: self.text_color.into(), acrylic: None });
+        debug!("color_text: using theme color {:?} (fallback: {:?})", p.color, Color::from(self.text_color));
+        p.color
+    }
+    pub fn color_text_highlight(&self) -> Color {
+        // maps to "text_highlight_fg"
+        let p = THEME.paint("text_highlight_fg", Paint { color: self.text_highlight_color.into(), acrylic: None });
+        debug!("color_text_highlight: using theme color {:?} (fallback: {:?})", p.color, Color::from(self.text_highlight_color));
+        p.color
+    }
+
+    // --- Optional: Window paints (Color + Acrylic) for window.rs -------------
+    // Use these if you want to apply acrylic in the titlebar/content rendering.
+    pub fn paint_window_bg(&self) -> (Color, Option<Acrylic>) {
+        let p = THEME.paint("window_bg", Paint { color: self.background_color.into(), acrylic: None });
+        (p.color, p.acrylic)
+    }
+    pub fn paint_window_titlebar_bg(&self) -> (Color, Option<Acrylic>) {
+        let p = THEME.paint("window_titlebar_bg", Paint { color: self.bar_color.into(), acrylic: None });
+        (p.color, p.acrylic)
+    }
+    pub fn paint_window_content_bg(&self) -> (Color, Option<Acrylic>) {
+        let p = THEME.paint("window_content_bg", Paint { color: self.bar_highlight_color.into(), acrylic: None });
+        (p.color, p.acrylic)
+    }
+    pub fn paint_text_fg(&self) -> (Color, Option<Acrylic>) {
+        let p = THEME.paint("text_fg", Paint { color: self.text_color.into(), acrylic: None });
+        (p.color, p.acrylic)
+    }
+    pub fn paint_text_highlight_fg(&self) -> (Color, Option<Acrylic>) {
+        let p = THEME.paint("text_highlight_fg", Paint { color: self.text_highlight_color.into(), acrylic: None });
+        (p.color, p.acrylic)
+    }
+
+    pub fn paint_shadow_color(&self) -> (Color, Option<Acrylic>) {
+        let p = THEME.paint("shadow_color", Paint { color: Color::rgba(0, 0, 0, 64), acrylic: None });
+        (p.color, p.acrylic)
+    }
+
+    // NEW: Paint getters (color + optional acrylic) fed from colors.toml
+    // Use these in window/scheme drawing; switch on `paint.acrylic.is_some()`
+    // to enable your acrylic/blur path.
+    fn themed_paint(&self, key: &str, fallback: Color) -> UiPaint {
+        let fb = Paint { color: fallback, acrylic: None };
+        let p  = THEME.paint(key, fb);
+        UiPaint { color: p.color, acrylic: p.acrylic }
+    }
+
 }
 
 #[cfg(test)]
