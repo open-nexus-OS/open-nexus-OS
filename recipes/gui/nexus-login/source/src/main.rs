@@ -22,16 +22,16 @@ use libredox::flag;
 use libnexus::{THEME, IconVariant};
 
 // -------- UI THEME --------
-const PANEL_BG: Color = Color::rgba(255, 255, 255, 191);   // 75% white
-const LABEL:    Color = Color::rgb(0xEE, 0xEE, 0xEE);
-const LABEL_D:  Color = Color::rgb(0xCC, 0xCC, 0xCC);
-const ACCENT:   Color = Color::rgb(0x7A, 0xB7, 0xFF);
-const ERROR:    Color = Color::rgb(0xFF, 0x55, 0x55);
-
-/*let bar_color          = THEME.color("bar",          orbclient::Color::rgba(255,255,255,191));
-let bar_highlight      = THEME.color("bar_highlight",orbclient::Color::rgba(255,255,255,200));
-let text_color         = THEME.color("text",         orbclient::Color::rgba(0,0,0,255));
-let maybe_bar_acrylic  = THEME.acrylic_for("bar"); // Option<Acrylic>*/
+// Theme colors loaded from nexus-assets via libnexus
+fn panel_bg() -> Color { THEME.color("panel_bg", Color::rgba(255, 255, 255, 191)) }
+fn label() -> Color { THEME.color("text_fg", Color::rgb(0xEE, 0xEE, 0xEE)) }
+fn label_d() -> Color { THEME.color("text_muted_fg", Color::rgb(0xCC, 0xCC, 0xCC)) }
+fn accent() -> Color { THEME.color("focus_ring", Color::rgb(0x7A, 0xB7, 0xFF)) }
+fn error() -> Color { THEME.color("danger_fg", Color::rgb(0xFF, 0x55, 0x55)) }
+fn button_bg() -> Color { THEME.color("button_bg", Color::rgba(255, 255, 255, 191)) }
+fn button_bg_hover() -> Color { THEME.color("button_bg_hover", Color::rgba(255, 255, 255, 128)) }
+fn input_bg() -> Color { THEME.color("input_bg", Color::rgba(255, 255, 255, 128)) }
+fn input_placeholder_fg() -> Color { THEME.color("input_placeholder_fg", Color::rgb(0x8A, 0x8A, 0x8A)) }
 
 const AVATAR_RADIUS: i32 = 79;      // avatar circle radius
 const PANEL_PAD: i32 = 16;          // panel inner padding
@@ -341,7 +341,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
                     let blink_on = ((now.duration_since(app_start).as_millis() / 500) % 2) == 0;
                     let caret_wake = now.duration_since(last_input) < Duration::from_millis(600);
                     let caret_on = blink_on || caret_wake;
-                    let _ = draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error, caret_on);            }
+                    let _ = draw_password_state(&font, &mut window, user, password, *focus_pwd, *show_error, caret_on, Some((mouse_x, mouse_y)));            }
             }
 
             // 3) Draw actions bar once (both states)
@@ -591,7 +591,7 @@ fn draw_top_right_clock(font: &Font, win: &mut Window) {
             let text = format!("{:02}:{:02}", h, m);
             let layout = font.render(&text, 18.0);
             let x = w as i32 - layout.width() as i32 - 16;
-            layout.draw(win, x, 12, LABEL_D);
+            layout.draw(win, x, 12, label_d());
         }
     }
 }
@@ -655,7 +655,7 @@ fn draw_actions_bar(
 
     let mut hits: Vec<(Action, Rect)> = Vec::new();
 
-    for (act, label, icon_opt) in items {
+    for (act, label_text, icon_opt) in items {
         let cx = x + ACTIONS_SLOT_W / 2;
         // Full slot hitbox
         let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, slot_h as u32);
@@ -676,14 +676,14 @@ fn draw_actions_bar(
         }
 
         // Draw label centered under the icon; vertically centered in the space below the icon.
-        let text_run = font.render(label, 14.0);
+        let text_run = font.render(label_text, 14.0);
         let tx = cx - (text_run.width() as i32) / 2;
         // Space below the icon:
         let space_top    = y + ACTIONS_SLOT_PAD_TOP + ICON_BTN_SIZE + ICON_TEXT_GAP;
         let space_bottom = y + slot_h - ACTIONS_SLOT_PAD_BOTTOM;
         let avail        = (space_bottom - space_top).max(text_run.height() as i32);
         let ty           = space_top + (avail - text_run.height() as i32) / 2;
-        text_run.draw(win, tx, ty, LABEL);
+        text_run.draw(win, tx, ty, label());
         hits.push((act, rect));
         x += ACTIONS_SLOT_W + BTN_GAP;
     }
@@ -728,11 +728,11 @@ fn draw_select_state(
 
     // Username label (brighten when pointer is over avatar/name)
     let name = &usernames[selected_i];
-    let label = font.render(name, 18.0);
-    let label_col = if over_avatar { LABEL } else { LABEL_D };
-    label.draw(
+    let label_text = font.render(name, 18.0);
+    let label_col = if over_avatar { label() } else { label_d() };
+    label_text.draw(
         win,
-        center_x - label.width() as i32 / 2,
+        center_x - label_text.width() as i32 / 2,
         center_y + AVATAR_RADIUS + 8,
         label_col,
     );
@@ -758,7 +758,7 @@ fn draw_select_state(
 
             // brighter text when hovered
             let r = font.render(u, 14.0);
-            let text_col = if hl { LABEL } else { LABEL_D };
+            let text_col = if hl { label() } else { label_d() };
             r.draw(
                 win,
                 x + (slot_w - r.width() as i32) / 2,
@@ -782,6 +782,7 @@ fn draw_password_state(
     focus_pwd: bool,
     show_error: bool,
     caret_on: bool,
+    mouse: Option<(i32, i32)>,
 ) -> (Rect, Rect) {
     let w = win.width() as i32;
     let h = win.height() as i32;
@@ -801,22 +802,29 @@ fn draw_password_state(
         win,
         center_x - name.width() as i32 / 2,
         center_y + AVATAR_RADIUS + 8,
-        LABEL,
+        label(),
     );
 
     // ---- BACK BUTTON (round) ----
-    let field_w = 360;
+    let field_w = 320;
     let panel_y = center_y + AVATAR_RADIUS + 40;
     let panel_x = center_x - field_w / 2;
 
     let back_rect = Rect::new(panel_x - (FIELD_H + 8), panel_y, FIELD_H as u32, FIELD_H as u32);
 
-    // White @ 35% (≈ alpha 90)
-    let white35 = Color::rgba(255, 255, 255, 90);
+    // Check if mouse is hovering over back button
+    let is_hovering = if let Some((mx, my)) = mouse {
+        back_rect.contains(mx, my)
+    } else {
+        false
+    };
+
+    // Use theme colors for back button background
+    let button_color = if is_hovering { button_bg_hover() } else { button_bg() };
 
     // Back button background with anti-aliased circle image (no jaggies)
     let d = back_rect.w.min(back_rect.h);
-    let aa = aa_filled_circle_image(d, 255, 255, 255, 90);
+    let aa = aa_filled_circle_image(d, button_color.r(), button_color.g(), button_color.b(), button_color.a());
     let bx = back_rect.x + (back_rect.w as i32 - aa.width() as i32) / 2;
     let by = back_rect.y + (back_rect.h as i32 - aa.height() as i32) / 2;
     aa.draw(win, bx, by);
@@ -825,7 +833,7 @@ fn draw_password_state(
     let back_icon_px = (FIELD_H - 2 * BACK_ICON_INNER_PAD).max(1) as u32;
     if let Some(back_img) = THEME.load_icon_sized(
         "login.back",
-        IconVariant::Light,
+        IconVariant::Auto,
         Some((back_icon_px, back_icon_px)),
     ) {
         // Compute exact centered position inside padded rect; apply Y fine offset.
@@ -843,13 +851,13 @@ fn draw_password_state(
             win,
             back_rect.x + (FIELD_H - arr.width() as i32) / 2,
             back_rect.y + (FIELD_H - arr.height() as i32) / 2,
-            LABEL,
+            label(),
         );
     }
 
     // ---- PASSWORD FIELD (rounded corners: 10px) ----
     let field_rect = Rect::new(panel_x, panel_y, field_w as u32, FIELD_H as u32);
-    fill_round_rect(win, field_rect, 10, white35);
+    fill_round_rect(win, field_rect, 10, input_bg());
 
     // Placeholder / dots (when focused and empty we show nothing so the caret sits at start)
     let dots = "•".repeat(pwd.chars().count());
@@ -858,7 +866,15 @@ fn draw_password_state(
     } else {
         if pwd.is_empty() { "Enter Password" } else { &dots }
     };
-    let color = if show_error { ERROR } else if focus_pwd { LABEL } else { LABEL_D };
+    let color = if show_error {
+        error()
+    } else if focus_pwd {
+        label()
+    } else if pwd.is_empty() {
+        input_placeholder_fg()
+    } else {
+        label_d()
+    };
     let r = font.render(shown, 16.0);
     r.draw(
         win,
@@ -872,12 +888,12 @@ fn draw_password_state(
         let caret_h = if r.height() > 0 { r.height() } else { font.render("•", 16.0).height() } as u32;
         let cx = field_rect.x + PANEL_PAD + r.width() as i32;
         let cy = field_rect.y + (FIELD_H - caret_h as i32) / 2;
-        win.rect(cx, cy, 2, caret_h, ACCENT); // 2px wide caret
+        win.rect(cx, cy, 2, caret_h, accent()); // 2px wide caret
     }
 
     // Optional error underline
     if show_error {
-        win.rect(field_rect.x, field_rect.y + FIELD_H - 2, field_rect.w, 2, ERROR);
+        win.rect(field_rect.x, field_rect.y + FIELD_H - 2, field_rect.w, 2, error());
     }
 
     (back_rect, field_rect)
@@ -906,7 +922,7 @@ fn get_actions_hitboxes(
     let mut x = (w - total_w) / 2;
 
     let mut hits = Vec::with_capacity(items.len());
-    for (act, _label, _icon_opt) in items {
+    for (act, _label_text, _icon_opt) in items {
         let rect = Rect::new(x, y, ACTIONS_SLOT_W as u32, slot_h as u32);
         hits.push((act, rect));
         x += ACTIONS_SLOT_W + BTN_GAP;
@@ -927,7 +943,7 @@ fn get_password_hitboxes(
     let center_x = w/2;
     let center_y = h/2 - 40;
 
-    let field_w = 360;
+    let field_w = 320;
     let panel_y = center_y + AVATAR_RADIUS + 40;
     let panel_x = center_x - field_w/2;
 
