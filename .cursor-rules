@@ -1,0 +1,87 @@
+# ==============================================================================
+# Cursor AI Rules for Open-Nexus-OS Project
+# ==============================================================================
+#
+# This file contains rules and restrictions for AI assistance in this project.
+# These rules help maintain project integrity and prevent unintended changes.
+#
+# ==============================================================================
+
+# PROTECTED FILES AND DIRECTORIES
+# ==============================================================================
+# The following files and directories are PROTECTED and should NEVER be modified
+# without explicit user consent:
+
+PROTECTED_ITEMS:
+  - "scripts/" directory and ALL contents
+  - "Makefile" (root level)
+  - "config/" directory and ALL contents
+  - "redox/" directory and ALL contents
+  - "recipes/gui/nexus-assets/" directory and ALL contents
+  - "recipes/libs/libnexus/" directory and ALL contents
+
+# RULES FOR PROTECTED ITEMS:
+# ==============================================================================
+# 1. NEVER modify files in the scripts/ directory
+# 2. NEVER modify the root Makefile
+# 3. NEVER modify files in config/ directory
+# 4. NEVER modify files in redox/ directory
+# 5. NEVER modify files in recipes/gui/nexus-assets/ directory
+# 6. NEVER modify files in recipes/libs/libnexus/ directory
+# 7. If changes to these items are needed, ALWAYS ask for explicit user consent first
+# 8. Explain WHY the change is needed and WHAT the impact will be
+# 9. Wait for explicit "yes" or "proceed" confirmation before making any changes
+# 10. READING from protected directories is allowed for analysis purposes
+
+# SAFE TO MODIFY:
+# ==============================================================================
+# The following directories are safe to modify without explicit consent:
+# - recipes/gui/nexus-*/source/src/ (application source code)
+# - Any .md files (documentation)
+# - Any .toml files in recipes/ (recipe configurations)
+
+# CAUTION ZONE - MODIFY WITH DEEP THINKING:
+# ==============================================================================
+# The following directories require EXTREME CAUTION and deep analysis:
+# - recipes/gui/nexus/ (core window manager - changes can break entire system)
+#   * Only modify after deep thinking about system-wide impact
+#   * Consider how changes affect all GUI applications
+#   * Test thoroughly as this is the foundation of the entire GUI system
+#   * Ask for confirmation before making significant changes
+
+# BUILD AND RUN COMMANDS:
+# ==============================================================================
+# Standard commands for this project:
+# - Build: "cd ~/open-nexus-OS && make build"
+# - Run: "cd ~/open-nexus-OS && make run"
+# - Debug output: "cd ~/open-nexus-OS && make run 2>&1 | grep 'DEBUG:'"
+# - Test mode: "cd ~/open-nexus-OS && make run test"
+#
+# The build process:
+# 1. Updates Redox repository (git pull)
+# 2. Copies custom recipes from recipes/ to redox/cookbook/recipes/
+# 3. Copies config from config/ to redox/config/x86_64/
+# 4. Builds Redox with custom configuration
+# 5. Creates harddrive.img with all packages
+#
+# The run process:
+# 1. Launches QEMU with the built harddrive.img
+# 2. Starts Redox OS with Nexus GUI applications
+# 3. Debug output appears at runtime, not during build
+
+# SPECIAL CONSIDERATIONS:
+# ==============================================================================
+# - Always test changes with "make build" before considering them complete
+# - If build fails, fix the issue rather than reverting changes
+# - Provide clear explanations of what was changed and why
+# - Ask for confirmation before making large architectural changes
+# - Use absolute paths (~/open-nexus-OS) for commands to work on any system
+
+# EMERGENCY OVERRIDE:
+# ==============================================================================
+# If the user explicitly states "override rules" or "ignore protection",
+# then proceed with caution and document the override clearly.
+
+# ==============================================================================
+# End of Rules
+# ==============================================================================

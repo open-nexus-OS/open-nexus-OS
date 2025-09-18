@@ -4,7 +4,8 @@ use orbfont::Font;
 
 use crate::config;
 use crate::icons::CommonIcons;
-use crate::themes::{BAR_HEIGHT};
+use crate::config::{BAR_HEIGHT, menu_surface_sm_paint, menu_surface_lg_paint};
+use libnexus::themes::{effects::make_acrylic_overlay, Paint};
 
 use std::collections::HashMap;
 
@@ -45,6 +46,19 @@ fn fill_round_rect(win: &mut Window, x: i32, y: i32, w: u32, h: u32, r: i32, col
         if line_w > 0 {
             win.rect(sx, y + yi, line_w, 1, color);
         }
+    }
+}
+
+/// Render acrylic glass effect using libnexus
+fn render_acrylic_effect(win: &mut Window, x: i32, y: i32, w: u32, h: u32, r: i32,
+                        paint: Paint) {
+    if let Some(acrylic) = paint.acrylic {
+        // For now, just render the base color with rounded corners
+        // TODO: Implement proper acrylic overlay when we have access to the background
+        fill_round_rect(win, x, y, w, h, r, paint.color);
+    } else {
+        // No acrylic, just render the base color
+        fill_round_rect(win, x, y, w, h, r, paint.color);
     }
 }
 
@@ -95,13 +109,14 @@ pub fn draw_app_cell(
     // Layout constants
     let pad = 8;           // inner padding at top/left/right
     let label_gap = 6;     // gap between icon and label
-    let label_size = 14.0; // font size for app name
+    let label_size = if large { 16.0 } else { 14.0 }; // larger font for large menu
 
     // Use the cached, pre-resized icon if available; otherwise resize now
     let mut owned_icon: Option<Image> = None;
     let icon_ref: &Image = if let Some(img) = pre_icon {
         img
     } else {
+
         // Fallback: compute resized icon now (slower, but okay as a fallback)
         let base = pkg.icon.image().clone();
         let img = base
@@ -111,16 +126,37 @@ pub fn draw_app_cell(
         owned_icon.as_ref().unwrap()
     };
 
+    draw_app_cell_with_icon(win, font, pkg, x, y, cell_w, cell_h, icon_side, large, Some(icon_ref))
+}
+
+/// Helper function to draw app cell with a specific icon
+fn draw_app_cell_with_icon(
+    win: &mut Window,
+    font: &Font,
+    pkg: &mut crate::package::Package,
+    x: i32,
+    y: i32,
+    cell_w: i32,
+    cell_h: i32,
+    icon_side: i32,
+    large: bool,
+    icon_ref: Option<&Image>,
+) -> (i32, i32, i32, i32) {
+    // Layout constants
+    let pad = 8;           // inner padding at top/left/right
+    let label_gap = 6;     // gap between icon and label
+    let label_size = if large { 16.0 } else { 14.0 }; // larger font for large menu
+
     // Place the icon centered horizontally, near the top with padding
-    let ix = x + (cell_w - icon_ref.width() as i32) / 2;
+    let ix = x + (cell_w - icon_ref.unwrap().width() as i32) / 2;
     let iy = y + pad;
 
-    icon_ref.draw(win, ix, iy);
+    icon_ref.unwrap().draw(win, ix, iy);
 
     // Render the label below the icon, centered horizontally
     let label = font.render(&pkg.name, label_size);
     let tx = x + (cell_w - label.width() as i32) / 2;
-    let ty = iy + icon_ref.height() as i32 + label_gap;
+    let ty = iy + icon_ref.unwrap().height() as i32 + label_gap;
 
     // Use light text on dark (large/fullscreen), dark text on light (small panel)
     let text_color = if large {
@@ -141,6 +177,9 @@ pub fn show_desktop_menu(
 ) -> DesktopMenuResult {
     // Cache for resized icons: (package_index, icon_side_px) -> Image
     let mut icon_cache: HashMap<(usize, i32), Image> = HashMap::new();
+
+    // Cache for hover states to prevent artifacts
+    let mut last_hover_states: (bool, bool) = (false, false); // (settings_hover, power_hover)
 
     let mut large = config::desktop_large();
     let (mut win_x, mut win_y, mut win_w, mut win_h) = target_geometry(screen_w, screen_h, large);
@@ -175,14 +214,17 @@ pub fn show_desktop_menu(
     'ev: loop {
         // ---------- Background ----------
         if large {
-            // full-screen overlay (except taskbar), dark veil
-            window.set(Color::rgba(0, 0, 0, 80));
+            // full-screen overlay (except taskbar), use acrylic glass effect
+            let paint = menu_surface_lg_paint();
+            window.set(paint.color);
+            // TODO: Implement proper acrylic overlay for large menu
         } else {
-            // small panel: clear window, then draw bright rounded panel
-            window.set(Color::rgba(0, 0, 0, 0));
+            // small panel: use acrylic glass background directly
+            let paint = menu_surface_sm_paint();
+            window.set(paint.color);
             let ww = window.width();
             let wh = window.height();
-            fill_round_rect(&mut window, 0, 0, ww, wh, 5, Color::rgba(255, 255, 255, 210));
+            render_acrylic_effect(&mut window, 0, 0, ww, wh, 5, paint);
         }
 
         // ---------- Toggle (we need its x for search width) ----------
@@ -286,7 +328,7 @@ pub fn show_desktop_menu(
         let vgap     = if large { 20 } else { 12 };
         let cols: i32 = 8;
 
-        // Large: clamp icon size, Small: wie zuvor
+        // Large: use native high-res icons, Small: wie zuvor
         let max_icon_large = 96; // <- hier kannst du die maximale Icongröße anpassen
 
         // 1) raw per-cell width aus verfügbarer Breite
@@ -347,6 +389,7 @@ pub fn show_desktop_menu(
             let icon_ref = if let Some(img) = icon_cache.get(&key) {
                 img
             } else {
+                // Use high-quality scaling for better icon rendering
                 let img = pkgs[*idx].icon.image().clone()
                     .resize(icon_side as u32, icon_side as u32, ResizeType::Lanczos3)
                     .expect("resize");
@@ -413,14 +456,32 @@ pub fn show_desktop_menu(
         let power_x    = settings_x - gap - pw;
         let power_y    = window.height() as i32 - ph - margin;
 
-        settings_hit = (settings_x, settings_y, sw2, sh2);
-        power_hit    = (power_x,    power_y,    pw,  ph);
+        // Define hitboxes with padding for better usability
+        settings_hit = (settings_x - 6, settings_y - 6, sw2 + 12, sh2 + 12);
+        power_hit    = (power_x - 6,    power_y - 6,    pw + 12,  ph + 12);
 
-        if point_in(mouse_pos, settings_hit) {
-            fill_round_rect(&mut window, settings_x - 6, settings_y - 6, (sw2 + 12) as u32, (sh2 + 12) as u32, 6, hover_fill_color(large));
+        // Check hover states and only redraw if changed
+        let settings_hover = point_in(mouse_pos, settings_hit);
+        let power_hover = point_in(mouse_pos, power_hit);
+
+        if settings_hover != last_hover_states.0 {
+            if settings_hover {
+                fill_round_rect(&mut window, settings_hit.0, settings_hit.1, settings_hit.2 as u32, settings_hit.3 as u32, 6, hover_fill_color(large));
+            } else {
+                // Redraw background to remove hover effect
+                fill_round_rect(&mut window, settings_hit.0, settings_hit.1, settings_hit.2 as u32, settings_hit.3 as u32, 6, menu_surface_sm_paint().color);
+            }
+            last_hover_states.0 = settings_hover;
         }
-        if point_in(mouse_pos, power_hit) {
-            fill_round_rect(&mut window, power_x - 6, power_y - 6, (pw + 12) as u32, (ph + 12) as u32, 6, hover_fill_color(large));
+
+        if power_hover != last_hover_states.1 {
+            if power_hover {
+                fill_round_rect(&mut window, power_hit.0, power_hit.1, power_hit.2 as u32, power_hit.3 as u32, 6, hover_fill_color(large));
+            } else {
+                // Redraw background to remove hover effect
+                fill_round_rect(&mut window, power_hit.0, power_hit.1, power_hit.2 as u32, power_hit.3 as u32, 6, menu_surface_sm_paint().color);
+            }
+            last_hover_states.1 = power_hover;
         }
 
         settings_icon.draw(&mut window, settings_x, settings_y);

@@ -26,14 +26,13 @@ use orbfont::Font;
 use orbimage::Image;
 
 use package::{IconSource, Package};
-use themes::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, BAR_ACTIVITY_MARKER, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE};
+use config::{bar_paint, bar_highlight_paint, bar_activity_marker_paint, text_paint, text_highlight_paint, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, menu_surface_sm_paint, menu_surface_lg_paint};
 
 pub mod modes {
     pub mod desktop;
     pub mod mobile;
 }
 mod package;
-mod themes;
 mod ui;
 mod icons;
 mod config;
@@ -240,12 +239,12 @@ fn get_packages() -> Vec<Package> {
 fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, selected: i32) {
     let w = window.width();
 
-    window.set(BAR_COLOR);
+    window.set(bar_paint().color);
 
     let mut y = 0;
     for (i, package) in packages.iter_mut().enumerate() {
         if i as i32 == selected {
-            window.rect(0, y, w, icon_small_size() as u32, BAR_HIGHLIGHT_COLOR);
+            window.rect(0, y, w, icon_small_size() as u32, bar_highlight_paint().color);
         }
 
         package.icon_small.image().draw(window, 0, y);
@@ -255,9 +254,9 @@ fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, s
             icon_small_size() + 8,
             y + 8,
             if i as i32 == selected {
-                TEXT_HIGHLIGHT_COLOR
+                text_highlight_paint().color
             } else {
-                TEXT_COLOR
+                text_paint().color
             },
         );
 
@@ -362,9 +361,9 @@ impl Bar {
             height,
             window: Window::new_flags(
                 0,
-                height as i32 - themes::BAR_HEIGHT as i32,
+                height as i32 - BAR_HEIGHT as i32,
                 width,
-                themes::BAR_HEIGHT,
+                BAR_HEIGHT,
                 "",
                 &[
                     WindowFlag::Async,
@@ -405,7 +404,7 @@ impl Bar {
     }
 
     fn draw(&mut self) {
-        self.window.set(BAR_COLOR);
+        self.window.set(bar_paint().color);
 
         let bar_h_u = self.window.height(); // u32
         let bar_h_i = bar_h_u as i32;       // i32
@@ -425,7 +424,7 @@ impl Bar {
         {
             let img = &self.start;
             if i == self.selected {
-                self.window.rect(x, 0, slot as u32, bar_h_u, BAR_HIGHLIGHT_COLOR);
+                self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
             }
 
             let y  = (bar_h_i - img.height() as i32) / 2;
@@ -441,13 +440,13 @@ impl Bar {
             let image = package.icon.image();
 
             if i == self.selected {
-                self.window.rect(x, 0, slot as u32, bar_h_u, BAR_HIGHLIGHT_COLOR);
+                self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
 
                 self.selected_window.set(orbclient::Color::rgba(0, 0, 0, 0));
                 let text = self.font.render(&package.name, font_size() as f32);
                 self.selected_window
-                    .rect(x, 0, text.width() + 8, text.height() + 8, BAR_COLOR);
-                text.draw(&mut self.selected_window, x + 4, 4, TEXT_HIGHLIGHT_COLOR);
+                    .rect(x, 0, text.width() + 8, text.height() + 8, bar_paint().color);
+                text.draw(&mut self.selected_window, x + 4, 4, text_highlight_paint().color);
                 self.selected_window.sync();
                 let sw_y = self.window.y() - self.selected_window.height() as i32 - 4;
                 self.selected_window.set_pos(0, sw_y);
@@ -470,7 +469,7 @@ impl Bar {
                 let inset = 4i32;
                 let marker_x = x + inset;
                 let marker_w = (slot - 2 * inset).max(2) as u32;
-                self.window.rect(marker_x, 0, marker_w, 4, BAR_ACTIVITY_MARKER);
+                self.window.rect(marker_x, 0, marker_w, 4, bar_activity_marker_paint().color);
             }
 
             x += slot;
@@ -481,7 +480,7 @@ impl Bar {
         let text = self.font.render(&self.time, (font_size() * 2) as f32);
         let tx = self.width as i32 - text.width() as i32 - 8;
         let ty = (bar_h_i - text.height() as i32) / 2;
-        text.draw(&mut self.window, tx, ty, TEXT_HIGHLIGHT_COLOR);
+        text.draw(&mut self.window, tx, ty, text_highlight_paint().color);
 
         self.window.sync();
     }

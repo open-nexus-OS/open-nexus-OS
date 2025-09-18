@@ -316,10 +316,10 @@ impl ThemeManager {
                         colors_legacy.insert(name, color);
                     }
                 }
-                Err(e) => warn!("failed to parse colors.toml: {e}"),
+                Err(e) => {
+                    warn!("failed to parse colors.toml: {e}");
+                }
             }
-        } else {
-            debug!("no theme colors at {}", colors_path);
         }
 
         // 6) Build manager
@@ -333,13 +333,6 @@ impl ThemeManager {
             bg_cache: Mutex::new(HashMap::new()),
         };
 
-        // Debug: Print loaded colors
-        debug!("ThemeManager loaded with theme: {:?}", manager.theme);
-        debug!("Loaded {} colors", manager.colors_legacy.len());
-        debug!("Loaded {} paints", manager.paints.len());
-        for (name, color) in &manager.colors_legacy {
-            debug!("Color {}: {:?}", name, color);
-        }
 
         manager
     }
@@ -348,9 +341,14 @@ impl ThemeManager {
 impl ThemeManager {
     /// Get a full paint (color + optional acrylic). Falls back to provided `fallback`.
     pub fn paint(&self, name: &str, fallback: Paint) -> Paint {
-        if let Some(p) = self.paints.get(name) { *p } else {
-            let color = self.colors_legacy.get(name).copied().unwrap_or(fallback.color);
-            Paint { color, acrylic: fallback.acrylic }
+        if let Some(p) = self.paints.get(name) {
+            *p
+        } else {
+            if let Some(color) = self.colors_legacy.get(name) {
+                Paint { color: *color, acrylic: fallback.acrylic }
+            } else {
+                Paint { color: fallback.color, acrylic: fallback.acrylic }
+            }
         }
     }
 

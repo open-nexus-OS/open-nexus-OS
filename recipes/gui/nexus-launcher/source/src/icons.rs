@@ -1,4 +1,5 @@
 use orbimage::Image;
+use libnexus::themes::THEME;
 
 /// A small icon collection used by the start menu (desktop + mobile).
 ///
@@ -19,44 +20,34 @@ pub struct CommonIcons {
 }
 
 impl CommonIcons {
-    /// Load all icons relative to `ui_path`.
-    ///
-    /// Important:
-    /// - `ui_path` should be the **root** path for UI assets
-    ///   (e.g. `"/ui"` on Redox, `"ui"` on other targets).
-    /// - Pass only the *relative* filename inside that root here.
-    ///
-    /// Example expected paths (joined as `format!("{}/{}", ui_path, name)`):
-    /// - `/ui/turn-off-black.png`
-    /// - `/ui/icons/system/avatar.png`
-    pub fn load(ui_path: &str) -> Self {
-        let p = |name: &str| {
-            let full = format!("{}/{}", ui_path, name);
-            // In this codebase, Image::from_path returns a Result; fall back to an empty image.
-            Image::from_path(full).unwrap_or(Image::default())
+    /// Load all icons from nexus-assets via libnexus theme system.
+    pub fn load(_ui_path: &str) -> Self {
+        // Load icons from nexus-assets using the theme system
+        let load_icon = |name: &str, size: u32| {
+            THEME.load_icon_sized(name, libnexus::themes::IconVariant::Auto, Some((size, size))).unwrap_or(Image::default())
         };
 
         Self {
             // Contrast logic:
             //  - small desktop menu → bright background → black icons
             //  - large desktop & mobile → dark overlay → white icons
-            power_sm:    p("turn-off-black.png"),
-            power_lg:    p("turn-off-white.png"),
+            power_sm:    load_icon("power.shutdown", 24),
+            power_lg:    load_icon("power.shutdown", 24),
 
-            settings_sm: p("settings-black.png"),
-            settings_lg: p("settings-white.png"),
+            settings_sm: load_icon("settings", 24),
+            settings_lg: load_icon("settings", 24),
 
-            search_sm:   p("search-black.png"),
-            search_lg:   p("search-white.png"),
+            search_sm:   load_icon("menu.search", 24),
+            search_lg:   load_icon("menu.search", 24),
 
             // Toggle between small/large menu:
-            //  - in small menu we show “bigger”
-            //  - in large menu we show “smaller”
-            resize_sm:   p("bigger-black.png"),
-            resize_lg:   p("smaller-white.png"),
+            //  - in small menu we show "bigger"
+            //  - in large menu we show "smaller"
+            resize_sm:   load_icon("menu.bigger", 24),
+            resize_lg:   load_icon("menu.smaller", 24),
 
             // Avatar is typically provided in the icon tree
-            user:        p("icons/system/avatar.png"),
+            user:        load_icon("avatar", 32),
         }
     }
 }

@@ -291,7 +291,7 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
      let action_icons = ActionIcons {
         sleep:    THEME.load_icon_sized("power.sleep",    IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
         restart:  THEME.load_icon_sized("power.restart",  IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
-        shutdown: THEME.load_icon_sized("power.shutdown", IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
+        shutdown: THEME.load_icon_sized("power.shutdown", IconVariant::Light, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
         logout:   THEME.load_icon_sized("session.logout", IconVariant::Auto, Some((ICON_BTN_SIZE as u32, ICON_BTN_SIZE as u32))),
      };
 

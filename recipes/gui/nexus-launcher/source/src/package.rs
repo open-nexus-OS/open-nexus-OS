@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 use orbimage::Image;
+use libnexus::themes::THEME;
 
 use crate::{load_icon, load_icon_small, load_icon_svg};
 
@@ -25,6 +26,14 @@ pub enum IconSource {
 }
 
 impl IconSource {
+    /// Get the icon name if available
+    pub fn get_name(&self) -> Option<&str> {
+        match self {
+            IconSource::Name(name) => Some(name),
+            _ => None,
+        }
+    }
+
     /// Resolve a `Name` to an actual theme path once, and cache it as Path.
     pub fn lookup(&mut self, small: bool) -> Option<&Path> {
         match self {
@@ -70,18 +79,32 @@ impl Icon {
         }
     }
 
+
     /// Load (and cache) the image. If none is found, use a safe local fallback.
     pub fn image(&mut self) -> &Image {
         if self.image_opt.is_none() {
-            // Try resolving the source first
-            if let Some(path) = self.source.lookup(self.small) {
-                self.image_opt = if path.extension() == Some(OsStr::new("png")) {
-                    Some(if self.small { load_icon_small(path) } else { load_icon(path) })
-                } else if path.extension() == Some(OsStr::new("svg")) {
-                    load_icon_svg(path, self.small)
-                } else {
-                    None
-                };
+            // Try loading from nexus-assets theme system first
+            if let Some(name) = self.source.get_name() {
+                let size = if self.small { 32 } else { 48 };
+                // Try different icon variants for better quality
+                if let Some(img) = THEME.load_icon_sized(&format!("apps/{}", name), libnexus::themes::IconVariant::Auto, Some((size, size))) {
+                    self.image_opt = Some(img);
+                } else if let Some(img) = THEME.load_icon_sized(&format!("apps/{}.symbolic", name), libnexus::themes::IconVariant::Auto, Some((size, size))) {
+                    self.image_opt = Some(img);
+                }
+            }
+
+            // Fallback to original system if theme loading failed
+            if self.image_opt.is_none() {
+                if let Some(path) = self.source.lookup(self.small) {
+                    self.image_opt = if path.extension() == Some(OsStr::new("png")) {
+                        Some(if self.small { load_icon_small(path) } else { load_icon(path) })
+                    } else if path.extension() == Some(OsStr::new("svg")) {
+                        load_icon_svg(path, self.small)
+                    } else {
+                        None
+                    };
+                }
             }
 
             // Fallback: use a generic icon from /ui if nothing resolved

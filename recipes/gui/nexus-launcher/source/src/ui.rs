@@ -1,7 +1,7 @@
 use orbclient::{Color, Renderer, Window};
 use orbfont::Font;
 
-use crate::themes::{TEXT_COLOR, TEXT_HIGHLIGHT_COLOR, BAR_HEIGHT};
+use crate::config::{text_paint, text_highlight_paint, BAR_HEIGHT};
 use crate::package::Package;
 
 pub struct SearchState { pub query: String }
@@ -31,7 +31,7 @@ pub fn draw_searchbar(w: &mut Window, font: &Font, y: i32, text: &str) -> (i32, 
     let rend = font.render(label, (bar_h as f32 * 0.5).max(14.0));
     let tx = x + 12;
     let ty = y + (bar_h - rend.height() as i32) / 2;
-    rend.draw(w, tx, ty, TEXT_COLOR);
+    rend.draw(w, tx, ty, text_paint().color);
 
     (x, y, bar_w, bar_h)
 }
@@ -56,7 +56,7 @@ pub fn draw_app_cell(win: &mut Window, font: &Font, x: i32, y: i32, size: i32, p
         let text = font.render(&pkg.name, (size as f32 * 0.22).max(12.0));
         let tx = x + (size - text.width() as i32) / 2;
         let ty = y + size + 6;
-        text.draw(win, tx, ty, TEXT_HIGHLIGHT_COLOR);
+        text.draw(win, tx, ty, text_highlight_paint().color);
     }
 }
 
