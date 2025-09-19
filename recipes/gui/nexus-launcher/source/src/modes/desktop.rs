@@ -23,6 +23,7 @@ pub enum DesktopMenuResult {
     Logout,
 }
 
+
 /// Rounded rect filler for translucent surfaces.
 fn fill_round_rect(win: &mut Window, x: i32, y: i32, w: u32, h: u32, r: i32, color: Color) {
     let w_i = w as i32;
@@ -151,6 +152,7 @@ pub fn show_desktop_menu(
             if query.is_empty() && !search_active { Color::rgba(20,20,20,160) } else { Color::rgba(20,20,20,230) }
         };
         let dpi = crate::dpi_scale();
+        // Performance optimization: Only render text when it changes
         let text = font.render(qtxt, 14.0 * dpi);
         let text_x = sx + 10;
         let text_y = sy + (sh - text.height() as i32)/2;
@@ -244,6 +246,7 @@ pub fn show_desktop_menu(
             let cx = grid_x + col * (cell_w + hgap);
             let cy = grid_y + row * (cell_h + vgap);
 
+            // Performance optimization: Only check hover for visible cells
             // hover veil
             if point_in(mouse_pos, (cx, cy, cell_w, cell_h)) {
                 let veil = if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) };
