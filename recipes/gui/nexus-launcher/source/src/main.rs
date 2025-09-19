@@ -233,11 +233,10 @@ impl Bar {
             package
         });
 
-        // Start icon on the bar (theme-sized to BAR_HEIGHT)
-        let start_size = BAR_HEIGHT.max(24);
+        // Start icon on the bar (use natural icon size, not forced square)
         let start = THEME
-            .load_icon_sized("places/start-here", IconVariant::Auto, Some((start_size, start_size)))
-            .unwrap_or_else(|| load_png(format!("{}/icons/places/start-here.png", UI_PATH), start_size));
+            .load_icon_sized("system/start", IconVariant::Auto, None)
+            .unwrap_or_else(|| load_png(format!("{}/icons/places/start-here.png", UI_PATH), icon_size() as u32));
 
         Bar {
             children: Vec::new(),
@@ -322,7 +321,7 @@ impl Bar {
 
         // App slots
         let dpi = dpi_scale();
-        let target_icon = slot as u32 - 6; // a bit of padding in slot
+        let target_icon = icon_size() as u32; // Use configured icon size (37px)
         for package in self.packages.iter_mut() {
             if i == self.selected {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);

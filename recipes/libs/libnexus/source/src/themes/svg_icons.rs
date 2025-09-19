@@ -129,31 +129,29 @@ pub fn render_svg_to_image_with_theme(
 
     println!("🔍 SVG original size: {}x{}", isize.width(), isize.height());
 
-    // Force exact scaling to target size
-    if let Some((tw, th)) = target {
-        w = tw.max(1);
-        h = th.max(1);
-        println!("🎯 Target size: {}x{}", tw, th);
+    // Scale SVG only to target height, let width adjust automatically
+    if let Some((_tw, th)) = target {
+        // Use target height, calculate width based on aspect ratio
+        let scale = if isize.height() > 0 { th as f32 / isize.height() as f32 } else { 1.0 };
+        w = (isize.width() as f32 * scale) as u32;
+        h = th;
+        println!("🎯 Target height: {}px, calculated width: {}px (scale: {:.2})", th, w, scale);
     } else if w == 0 || h == 0 {
         w = 24; h = 24; // reasonable default if the SVG has no explicit size
     }
 
     println!("📏 Final size: {}x{}", w, h);
 
-    // Create pixmap with exact target size
+    // Create pixmap with calculated size (height-based)
     let mut pm = Pixmap::new(w, h)?;
     let mut pmut = pm.as_mut();
 
-    // Calculate transform to fit SVG into target size while preserving aspect ratio
-    let scale_x = if isize.width() > 0 { w as f32 / isize.width() as f32 } else { 1.0 };
-    let scale_y = if isize.height() > 0 { h as f32 / isize.height() as f32 } else { 1.0 };
+    // Calculate scale based on height only
+    let scale = if isize.height() > 0 { h as f32 / isize.height() as f32 } else { 1.0 };
 
-    // Use the smaller scale to preserve aspect ratio
-    let scale = scale_x.min(scale_y);
+    println!("🔧 Transform: scale={:.2} (height-based only)", scale);
 
-    println!("🔧 Transform: scale_x={:.2}, scale_y={:.2}, preserving aspect ratio with scale={:.2}", scale_x, scale_y, scale);
-
-    // Create transform that scales the SVG while preserving aspect ratio
+    // Create transform that scales the SVG based on height only
     let transform = Transform::from_scale(scale, scale);
 
     // Render the SVG with the transform

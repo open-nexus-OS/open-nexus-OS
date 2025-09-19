@@ -89,6 +89,6 @@ pub fn menu_surface_lg_paint() -> Paint {
 }
 
 // -------- UI CONSTANTS --------
-pub const BAR_HEIGHT: u32 = 53;      // bar height
-pub const ICON_SCALE: f32 = 0.65;     // 65% of the bar height for icons
+pub const BAR_HEIGHT: u32 = 54;      // bar height (original: 54px)
+pub const ICON_SCALE: f32 = 0.685;   // 68.5% of the bar height for icons (37/54 = 0.685)
 pub const ICON_SMALL_SCALE: f32 = 0.75; // 75% of the bar height for small icons
