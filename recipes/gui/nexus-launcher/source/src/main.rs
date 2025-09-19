@@ -1,3 +1,8 @@
+// src/main.rs
+// Launcher entry: taskbar ("bar"), start menu (desktop/mobile), chooser.
+// Updated to use themed, sized icons via Package::get_icon_sized.
+// Removed legacy image() usage and ensures crisp icons across toggles.
+
 extern crate event;
 extern crate freedesktop_entry_parser;
 extern crate libredox;
@@ -21,12 +26,14 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::{env, io, mem};
 
-use orbclient::{Color, EventOption, Renderer, Window, WindowFlag};
+use orbclient::{EventOption, Renderer, Window, WindowFlag};
 use orbfont::Font;
 use orbimage::Image;
 
 use package::{IconSource, Package};
-use config::{bar_paint, bar_highlight_paint, bar_activity_marker_paint, text_paint, text_highlight_paint, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, menu_surface_sm_paint, menu_surface_lg_paint};
+use config::{bar_paint, bar_highlight_paint, bar_activity_marker_paint, text_paint, text_highlight_paint, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE};
+
+use libnexus::themes::{THEME, IconVariant};
 
 pub mod modes {
     pub mod desktop;
@@ -36,8 +43,16 @@ mod package;
 mod ui;
 mod icons;
 mod config;
+mod helper {
+    pub mod dpi_helper;
+}
 
 static SCALE: AtomicIsize = AtomicIsize::new(1);
+
+/// Get DPI scale factor using the helper module
+pub fn dpi_scale() -> f32 {
+    helper::dpi_helper::get_dpi_scale()
+}
 
 fn chooser_width() -> u32 {
     200 * SCALE.load(Ordering::Relaxed) as u32
@@ -57,142 +72,20 @@ fn font_size() -> i32 {
 
 #[cfg(target_os = "redox")]
 static UI_PATH: &'static str = "/ui";
-
 #[cfg(not(target_os = "redox"))]
 static UI_PATH: &'static str = "ui";
 
-fn exec_to_command(exec: &str, path_opt: Option<&str>) -> Option<Command> {
-    let args_vec: Vec<String> = shlex::split(exec)?;
-    let mut args = args_vec.iter();
-    let mut command = Command::new(args.next()?);
-    for arg in args {
-        if arg.starts_with('%') {
-            match arg.as_str() {
-                "%f" | "%F" | "%u" | "%U" => {
-                    if let Some(path) = &path_opt {
-                        command.arg(path);
-                    }
-                }
-                _ => {
-                    log::warn!("unsupported Exec code {:?} in {:?}", arg, exec);
-                    return None;
-                }
-            }
-        } else {
-            command.arg(arg);
-        }
+// Legacy helpers kept only for local PNGs (e.g. start-here as fallback).
+fn size_icon(icon: orbimage::Image, target: u32) -> orbimage::Image {
+    if icon.width() == target && icon.height() == target {
+        return icon;
     }
-    Some(command)
+    icon.resize(target, target, orbimage::ResizeType::Lanczos3).unwrap()
 }
 
-fn spawn_exec(exec: &str, path_opt: Option<&str>) {
-    match exec_to_command(exec, path_opt) {
-        Some(mut command) => match command.spawn() {
-            Ok(_) => {}
-            Err(err) => {
-                error!("failed to launch {}: {}", exec, err);
-            }
-        },
-        None => {
-            error!("failed to parse {}", exec);
-        }
-    }
-}
-
-#[cfg(not(target_os = "redox"))]
-fn wait(status: &mut i32) -> io::Result<usize> {
-    extern crate libc;
-
-    use std::io::Error;
-
-    let pid = unsafe { libc::waitpid(0, status as *mut i32, libc::WNOHANG) };
-    if pid < 0 {
-        Err(io::Error::new(
-            ErrorKind::Other,
-            format!("waitpid failed: {}", Error::last_os_error()),
-        ))
-    }
-    Ok(pid as usize)
-}
-
-#[cfg(target_os = "redox")]
-fn wait(status: &mut i32) -> io::Result<usize> {
-    libredox::call::waitpid(0, status, libc::WNOHANG).map_err(|e| {
-        io::Error::new(
-            ErrorKind::Other,
-            format!("Error in waitpid(): {}", e.to_string()),
-        )
-    })
-}
-
-fn size_icon(icon: orbimage::Image, small: bool) -> orbimage::Image {
-    if small {
-        let target = icon_small_size() as u32;
-        if icon.width() == target && icon.height() == target {
-            return icon;
-        }
-        return icon.resize(target, target, orbimage::ResizeType::Lanczos3).unwrap();
-    }
-
-    // Bar-Icon: in quadratische Box (icon_size x icon_size) EINPASSEN, AR bewahren, kein Upscale
-    let box_side = icon_size() as u32;
-    let iw = icon.width();
-    let ih = icon.height();
-
-    if iw <= box_side && ih <= box_side {
-        return icon; // kleiner/gleich → nicht skalieren
-    }
-
-    let scale = f32::min(
-        box_side as f32 / iw as f32,
-        box_side as f32 / ih as f32,
-    );
-    let nw = ((iw as f32 * scale).round() as u32).max(1);
-    let nh = ((ih as f32 * scale).round() as u32).max(1);
-    icon.resize(nw, nh, orbimage::ResizeType::Lanczos3).unwrap()
-}
-
-fn load_icon<P: AsRef<Path>>(path: P) -> Image {
+fn load_png<P: AsRef<Path>>(path: P, target: u32) -> Image {
     let icon = Image::from_path(path).unwrap_or(Image::default());
-    size_icon(icon, false)
-}
-
-fn load_icon_small<P: AsRef<Path>>(path: P) -> Image {
-    let icon = Image::from_path(path).unwrap_or(Image::default());
-    size_icon(icon, true)
-}
-
-lazy_static::lazy_static! {
-    static ref USVG_OPTIONS: resvg::usvg::Options<'static> = {
-        let mut opt = resvg::usvg::Options::default();
-        opt.fontdb_mut().load_system_fonts();
-        opt
-    };
-}
-
-fn load_icon_svg<P: AsRef<Path>>(path: P, small: bool) -> Option<Image> {
-    let tree = {
-        let svg_data = std::fs::read(path).ok()?;
-        resvg::usvg::Tree::from_data(&svg_data, &USVG_OPTIONS).ok()?
-    };
-
-    let pixmap_size = tree.size().to_int_size();
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())?;
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::default(),
-        &mut pixmap.as_mut(),
-    );
-
-    let width = pixmap.width();
-    let height = pixmap.height();
-    let mut data = Vec::with_capacity(width as usize * height as usize);
-    for rgba in pixmap.take().chunks_exact(4) {
-        data.push(Color::rgba(rgba[0], rgba[1], rgba[2], rgba[3]));
-    }
-
-    let icon = Image::from_data(width, height, data.into()).ok()?;
-    Some(size_icon(icon, small))
+    size_icon(icon, target)
 }
 
 fn get_packages() -> Vec<Package> {
@@ -218,12 +111,8 @@ fn get_packages() -> Vec<Package> {
         for path in xdg_dirs.find_data_files("applications") {
             if let Ok(read_dir) = path.read_dir() {
                 for dir_entry_res in read_dir {
-                    let Ok(dir_entry) = dir_entry_res else {
-                        continue;
-                    };
-                    let Ok(id) = dir_entry.file_name().into_string() else {
-                        continue;
-                    };
+                    let Ok(dir_entry) = dir_entry_res else { continue; };
+                    let Ok(id) = dir_entry.file_name().into_string() else { continue; };
                     if let Some(package) = Package::from_desktop_entry(id, &dir_entry.path()) {
                         packages.push(package);
                     }
@@ -236,22 +125,26 @@ fn get_packages() -> Vec<Package> {
     packages
 }
 
+/// Simple chooser list for file-open scenarios (small icons)
 fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, selected: i32) {
     let w = window.width();
-
     window.set(bar_paint().color);
+
+    let dpi = dpi_scale();
+    let target_icon = icon_small_size().max(20) as u32;
 
     let mut y = 0;
     for (i, package) in packages.iter_mut().enumerate() {
         if i as i32 == selected {
-            window.rect(0, y, w, icon_small_size() as u32, bar_highlight_paint().color);
+            window.rect(0, y, w, target_icon as u32, bar_highlight_paint().color);
         }
 
-        package.icon_small.image().draw(window, 0, y);
+        let img = package.get_icon_sized(target_icon, dpi, false);
+        img.draw(window, 0, y);
 
         font.render(&package.name, font_size() as f32).draw(
             window,
-            icon_small_size() + 8,
+            target_icon as i32 + 8,
             y + 8,
             if i as i32 == selected {
                 text_highlight_paint().color
@@ -260,7 +153,7 @@ fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, s
             },
         );
 
-        y += icon_small_size();
+        y += target_icon as i32;
     }
 
     window.sync();
@@ -287,21 +180,16 @@ impl Bar {
     fn new(width: u32, height: u32) -> Bar {
         let all_packages = get_packages();
 
-        // Handle packages with categories
+        // Split packages by category
         let mut root_packages = Vec::new();
         let mut category_packages = BTreeMap::<String, Vec<Package>>::new();
         for package in all_packages {
             if package.categories.is_empty() {
-                // Packages without a category go on the bar
                 root_packages.push(package);
             } else {
-                // Packages with a category are collected
-                //TODO: since this clones the package, use an Arc to prevent icon reloads?
                 for category in package.categories.iter() {
                     match category_packages.get_mut(category) {
-                        Some(packages) => {
-                            packages.push(package.clone());
-                        }
+                        Some(vec) => vec.push(package.clone()),
                         None => {
                             category_packages.insert(category.clone(), vec![package.clone()]);
                         }
@@ -310,21 +198,18 @@ impl Bar {
             }
         }
 
-        // Sort root packages by ID
         root_packages.sort_by(|a, b| a.id.cmp(&b.id));
-
-        // Keep only packages that have a non-empty executable command
         root_packages.retain(|p| !p.exec.trim().is_empty());
 
         let mut start_packages = Vec::new();
 
+        // Category launchers in start menu — use logical icon ids (theme-managed)
         for (category, packages) in category_packages.iter_mut() {
             start_packages.push({
                 let mut package = Package::new();
                 package.name = category.to_string();
-                let icon = format!("{}/icons/mimetypes/inode-directory.png", UI_PATH);
-                package.icon.source = IconSource::Path(icon.clone().into());
-                package.icon_small.source = IconSource::Path(icon.into());
+                package.icon.source = IconSource::Name("mimetypes/inode-directory".into());
+                package.icon_small.source = IconSource::Name("mimetypes/inode-directory".into());
                 package.exec = format!("category={}", category);
                 package
             });
@@ -332,9 +217,8 @@ impl Bar {
             packages.push({
                 let mut package = Package::new();
                 package.name = "Go back".to_string();
-                let icon = format!("{}/icons/mimetypes/inode-directory.png", UI_PATH);
-                package.icon.source = IconSource::Path(icon.clone().into());
-                package.icon_small.source = IconSource::Path(icon.into());
+                package.icon.source = IconSource::Name("mimetypes/inode-directory".into());
+                package.icon_small.source = IconSource::Name("mimetypes/inode-directory".into());
                 package.exec = "exit".to_string();
                 package
             });
@@ -343,17 +227,22 @@ impl Bar {
         start_packages.push({
             let mut package = Package::new();
             package.name = "Logout".to_string();
-            let icon = format!("{}/icons/actions/system-log-out.png", UI_PATH);
-            package.icon.source = IconSource::Path(icon.clone().into());
-            package.icon_small.source = IconSource::Path(icon.into());
+            package.icon.source = IconSource::Name("actions/system-log-out".into());
+            package.icon_small.source = IconSource::Name("actions/system-log-out".into());
             package.exec = "exit".to_string();
             package
         });
 
+        // Start icon on the bar (theme-sized to BAR_HEIGHT)
+        let start_size = BAR_HEIGHT.max(24);
+        let start = THEME
+            .load_icon_sized("places/start-here", IconVariant::Auto, Some((start_size, start_size)))
+            .unwrap_or_else(|| load_png(format!("{}/icons/places/start-here.png", UI_PATH), start_size));
+
         Bar {
             children: Vec::new(),
             packages: root_packages,
-            start: load_icon(&format!("{}/icons/places/start-here.png", UI_PATH)),
+            start,
             start_packages,
             category_packages,
             font: Font::find(Some("Sans"), None, None).unwrap(),
@@ -406,39 +295,35 @@ impl Bar {
     fn draw(&mut self) {
         self.window.set(bar_paint().color);
 
-        let bar_h_u = self.window.height(); // u32
-        let bar_h_i = bar_h_u as i32;       // i32
+        let bar_h_u = self.window.height();
+        let bar_h_i = bar_h_u as i32;
+        let slot = bar_h_i;
 
-        // Slot width/height equals full bar height (square slot)
-        let slot    = bar_h_i;
-
-        // Total width of all slots: 1 (start) + N (packages)
-        let count   = 1 + self.packages.len() as i32;
+        let count = 1 + self.packages.len() as i32;
         let total_w = count * slot;
 
-        // Center the whole block horizontally
-        let mut x   = (self.width as i32 - total_w) / 2;
-        let mut i   = 0i32;
+        let mut x = (self.width as i32 - total_w) / 2;
+        let mut i = 0i32;
 
-        // --- Start icon ---
+        // Start icon slot
         {
-            let img = &self.start;
             if i == self.selected {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
             }
 
-            let y  = (bar_h_i - img.height() as i32) / 2;
-            let ix = x + (slot - img.width() as i32) / 2;
-            img.draw(&mut self.window, ix, y);
+            // Draw start icon centered in slot
+            let y  = (bar_h_i - self.start.height() as i32) / 2;
+            let ix = x + (slot - self.start.width() as i32) / 2;
+            self.start.draw(&mut self.window, ix, y);
 
             x += slot;
             i += 1;
         }
 
-        // --- Packages ---
+        // App slots
+        let dpi = dpi_scale();
+        let target_icon = slot as u32 - 6; // a bit of padding in slot
         for package in self.packages.iter_mut() {
-            let image = package.icon.image();
-
             if i == self.selected {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
 
@@ -452,20 +337,16 @@ impl Bar {
                 self.selected_window.set_pos(0, sw_y);
             }
 
+            // Get a small (bar) icon at crisp size
+            let image = package.get_icon_sized(target_icon, dpi, false);
+
             let y  = (bar_h_i - image.height() as i32) / 2;
             let ix = x + (slot - image.width() as i32) / 2;
             image.draw(&mut self.window, ix, y);
 
             // Activity marker
-            let mut running = false;
-            for (exec, _) in self.children.iter() {
-                if exec == &package.exec {
-                    running = true;
-                    break;
-                }
-            }
+            let running = self.children.iter().any(|(exec, _)| exec == &package.exec);
             if running {
-                // Place at y = 0 (top edge of the bar window), leave a small horizontal inset
                 let inset = 4i32;
                 let marker_x = x + inset;
                 let marker_w = (slot - 2 * inset).max(2) as u32;
@@ -476,7 +357,7 @@ impl Bar {
             i += 1;
         }
 
-        // --- Clock rechts ---
+        // Clock right
         let text = self.font.render(&self.time, (font_size() * 2) as f32);
         let tx = self.width as i32 - text.width() as i32 - 8;
         let ty = (bar_h_i - text.height() as i32) / 2;
@@ -488,7 +369,7 @@ impl Bar {
     fn start_window(&mut self, category_opt: Option<&String>) -> Option<String> {
         use orbclient::{EventOption, Window, WindowFlag, K_ESC};
 
-        // 1) NEW PATH: No category requested -> open the new start menu
+        // New path: delegate to desktop/mobile menus
         if category_opt.is_none() {
             match crate::config::mode() {
                 crate::config::Mode::Desktop => {
@@ -506,13 +387,16 @@ impl Bar {
             }
         }
 
-        // 2) LEGACY PATH: category chooser (keeps old small list for subcategories)
+        // Legacy small category chooser (kept only for nested categories)
         let packages = match category_opt {
             Some(category) => self.category_packages.get_mut(category)?,
-            None => &mut self.start_packages, // not used now because handled above, but kept for safety
+            None => &mut self.start_packages,
         };
 
-        let start_h = packages.len() as u32 * icon_small_size() as u32;
+        let dpi = dpi_scale();
+        let target = icon_small_size() as u32;
+
+        let start_h = packages.len() as u32 * target;
         let mut start_window = Window::new_flags(
             0,
             self.height as i32 - icon_size() - start_h as i32,
@@ -520,41 +404,36 @@ impl Bar {
             start_h,
             "Start",
             &[WindowFlag::Borderless, WindowFlag::Transparent],
-        )
-        .unwrap();
+        ).unwrap();
 
         let mut selected = -1;
         let mut mouse_y = 0;
         let mut mouse_left = false;
         let mut last_mouse_left = false;
-        draw_chooser(&mut start_window, &self.font, packages, selected);
+        // initial draw
+        start_window.set(bar_paint().color);
+        {
+            let mut y = 0;
+            for (i, p) in packages.iter_mut().enumerate() {
+                if i as i32 == selected {
+                    start_window.rect(0, y, chooser_width(), target, bar_highlight_paint().color);
+                }
+                let img = p.get_icon_sized(target, dpi, false);
+                img.draw(&mut start_window, 0, y);
+                let text = self.font.render(&p.name, font_size() as f32);
+                text.draw(&mut start_window, target as i32 + 8, y + 8, text_paint().color);
+                y += target as i32;
+            }
+            start_window.sync();
+        }
 
         'start_choosing: loop {
             for event in start_window.events() {
                 let redraw = match event.to_option() {
-                    EventOption::Mouse(mouse_event) => {
-                        mouse_y = mouse_event.y;
-                        true
-                    }
-                    EventOption::Button(button_event) => {
-                        if button_event.left {
-                            // New press → allow opening again on this press/release cycle
-                            self.suppress_start_open = false; // <-- 'self.' statt 'bar.'
-                        }
-                        mouse_left = button_event.left;
-                        true
-                    }
-                    EventOption::Key(key_event) => match key_event.scancode {
-                        K_ESC => break 'start_choosing,
-                        _ => false,
-                    },
-                    EventOption::Focus(focus_event) => {
-                        if !focus_event.focused {
-                            break 'start_choosing;
-                        } else {
-                            false
-                        }
-                    }
+                    EventOption::Mouse(mouse_event) => { mouse_y = mouse_event.y; true }
+                    EventOption::Button(button_event) => { mouse_left = button_event.left; true }
+                    EventOption::Key(key_event) if key_event.scancode == K_ESC => break 'start_choosing,
+                    EventOption::Focus(focus_event) => { if !focus_event.focused { break 'start_choosing; } false }
                     EventOption::Quit(_) => break 'start_choosing,
                     _ => false,
                 };
@@ -598,7 +477,6 @@ impl Bar {
             Some(mut command) => match command.spawn() {
                 Ok(child) => {
                     self.children.push((exec, child));
-                    //TODO: should redraw be done here?
                     self.draw();
                 }
                 Err(err) => error!("failed to spawn {}: {}", exec, err),
@@ -606,6 +484,57 @@ impl Bar {
             None => error!("failed to parse {}", exec),
         }
     }
+}
+
+fn exec_to_command(exec: &str, path_opt: Option<&str>) -> Option<Command> {
+    let args_vec: Vec<String> = shlex::split(exec)?;
+    let mut args = args_vec.iter();
+    let mut command = Command::new(args.next()?);
+    for arg in args {
+        if arg.starts_with('%') {
+            match arg.as_str() {
+                "%f" | "%F" | "%u" | "%U" => {
+                    if let Some(path) = &path_opt { command.arg(path); }
+                }
+                _ => {
+                    log::warn!("unsupported Exec code {:?} in {:?}", arg, exec);
+                    return None;
+                }
+            }
+        } else {
+            command.arg(arg);
+        }
+    }
+    Some(command)
+}
+
+fn spawn_exec(exec: &str, path_opt: Option<&str>) {
+    match exec_to_command(exec, path_opt) {
+        Some(mut command) => {
+            if let Err(err) = command.spawn() {
+                error!("failed to launch {}: {}", exec, err);
+            }
+        }
+        None => error!("failed to parse {}", exec),
+    }
+}
+
+#[cfg(not(target_os = "redox"))]
+fn wait(status: &mut i32) -> io::Result<usize> {
+    extern crate libc;
+    use std::io::Error;
+    let pid = unsafe { libc::waitpid(0, status as *mut i32, libc::WNOHANG) };
+    if pid < 0 {
+        Err(io::Error::new(ErrorKind::Other, format!("waitpid failed: {}", Error::last_os_error())))
+    }
+    Ok(pid as usize)
+}
+
+#[cfg(target_os = "redox")]
+fn wait(status: &mut i32) -> io::Result<usize> {
+    libredox::call::waitpid(0, status, libc::WNOHANG).map_err(|e| {
+        io::Error::new(ErrorKind::Other, format!("Error in waitpid(): {}", e.to_string()))
+    })
 }
 
 fn bar_main(width: u32, height: u32) -> io::Result<()> {
@@ -617,29 +546,14 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
     }
 
     user_data! {
-        enum Event {
-            Time,
-            Window,
-        }
+        enum Event { Time, Window }
     }
     let event_queue = EventQueue::<Event>::new().expect("launcher: failed to create event queue");
 
     let mut time_file = File::open(&format!("/scheme/time/{}", flag::CLOCK_MONOTONIC))?;
 
-    event_queue
-        .subscribe(
-            time_file.as_raw_fd() as usize,
-            Event::Time,
-            event::EventFlags::READ,
-        )
-        .expect("launcher: failed to subscribe to timer");
-    event_queue
-        .subscribe(
-            bar.window.as_raw_fd() as usize,
-            Event::Window,
-            event::EventFlags::READ,
-        )
-        .expect("launcher: failed to subscribe to timer");
+    event_queue.subscribe(time_file.as_raw_fd() as usize, Event::Time, event::EventFlags::READ)?;
+    event_queue.subscribe(bar.window.as_raw_fd() as usize, Event::Window, event::EventFlags::READ)?;
 
     let mut mouse_x = -1;
     let mut mouse_y = -1;
@@ -654,46 +568,29 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
         match event {
             Event::Time => {
                 let mut time_buf = [0_u8; core::mem::size_of::<TimeSpec>()];
-                if time_file.read(&mut time_buf)? < mem::size_of::<TimeSpec>() {
-                    continue;
-                }
+                if time_file.read(&mut time_buf)? < mem::size_of::<TimeSpec>() { continue; }
 
+                // Reap exited children
                 let mut i = 0;
                 while i < bar.children.len() {
                     let remove = match bar.children[i].1.try_wait() {
                         Ok(None) => false,
                         Ok(Some(status)) => {
-                            info!(
-                                "{} ({}) exited with {}",
-                                bar.children[i].0,
-                                bar.children[i].1.id(),
-                                status
-                            );
+                            info!("{} ({}) exited with {}", bar.children[i].0, bar.children[i].1.id(), status);
                             true
                         }
                         Err(err) => {
-                            error!(
-                                "failed to wait for {} ({}): {}",
-                                bar.children[i].0,
-                                bar.children[i].1.id(),
-                                err
-                            );
+                            error!("failed to wait for {} ({}): {}", bar.children[i].0, bar.children[i].1.id(), err);
                             true
                         }
                     };
-                    if remove {
-                        bar.children.remove(i);
-                    } else {
-                        i += 1;
-                    }
+                    if remove { bar.children.remove(i); } else { i += 1; }
                 }
 
                 loop {
                     let mut status = 0;
                     let pid = wait(&mut status)?;
-                    if pid == 0 {
-                        break;
-                    }
+                    if pid == 0 { break; }
                 }
 
                 bar.update_time();
@@ -709,73 +606,41 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
             }
             Event::Window => {
                 for event in bar.window.events() {
-                    //TODO: remove hack for super event
+                    // Handle super key combos (unchanged)
                     if event.code >= 0x1000_0000 {
                         let mut super_event = event;
                         super_event.code -= 0x1000_0000;
-
-                        //TODO: configure super keybindings
-                        let event_option = super_event.to_option();
-                        debug!("launcher: super {:?}", event_option);
-                        match event_option {
+                        match super_event.to_option() {
                             EventOption::Key(key_event) => match key_event.scancode {
-                                orbclient::K_B => {
-                                    if key_event.pressed {
-                                        bar.spawn("netsurf-fb".to_string());
-                                    }
-                                }
-                                orbclient::K_F => {
-                                    if key_event.pressed {
-                                        bar.spawn("cosmic-files".to_string());
-                                    }
-                                }
-                                orbclient::K_T => {
-                                    if key_event.pressed {
-                                        bar.spawn("cosmic-term".to_string());
-                                    }
-                                }
+                                orbclient::K_B if key_event.pressed => { bar.spawn("netsurf-fb".to_string()); }
+                                orbclient::K_F if key_event.pressed => { bar.spawn("cosmic-files".to_string()); }
+                                orbclient::K_T if key_event.pressed => { bar.spawn("cosmic-term".to_string()); }
                                 _ => (),
                             },
                             _ => (),
                         }
-
                         continue;
                     }
 
                     let redraw = match event.to_option() {
-                        EventOption::Mouse(mouse_event) => {
-                            mouse_x = mouse_event.x;
-                            mouse_y = mouse_event.y;
-                            true
-                        }
+                        EventOption::Mouse(mouse_event) => { mouse_x = mouse_event.x; mouse_y = mouse_event.y; true }
                         EventOption::Button(button_event) => {
-                            // On a NEW press allow opening again in this press/release cycle
-                            if button_event.left {
-                                bar.suppress_start_open = false;
-                            }
+                            if button_event.left { bar.suppress_start_open = false; }
                             mouse_left = button_event.left;
                             true
                         }
                         EventOption::Screen(screen_event) => {
                             bar.width = screen_event.width;
                             bar.height = screen_event.height;
-                            bar.window
-                                .set_pos(0, screen_event.height as i32 - icon_size());
+                            bar.window.set_pos(0, screen_event.height as i32 - icon_size());
                             bar.window.set_size(screen_event.width, icon_size() as u32);
-                            bar.selected = -2; // Force bar redraw
+                            bar.selected = -2; // force redraw
                             bar.selected_window.set_pos(0, screen_event.height as i32);
-                            bar.selected_window
-                                .set_size(screen_event.width, (font_size() + 8) as u32);
+                            bar.selected_window.set_size(screen_event.width, (font_size() + 8) as u32);
                             true
                         }
                         EventOption::Hover(hover_event) => {
-                            if hover_event.entered {
-                                false
-                            } else {
-                                mouse_x = -1;
-                                mouse_y = -1;
-                                true
-                            }
+                            if hover_event.entered { false } else { mouse_x = -1; mouse_y = -1; true }
                         }
                         EventOption::Quit(_) => break 'events,
                         _ => false,
@@ -784,28 +649,21 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                     if redraw {
                         let mut now_selected = -1;
                         {
-                            // Compute the same slot geometry as in draw()
-                            let slot  = bar.window.height() as i32;         // slot = bar height
-                            let count = 1 + bar.packages.len() as i32;      // start + packages
+                            let slot  = bar.window.height() as i32;
+                            let count = 1 + bar.packages.len() as i32;
                             let total = count * slot;
-                            let mut x = (bar.width as i32 - total) / 2;     // centered start
+                            let mut x = (bar.width as i32 - total) / 2;
                             let y = 0;
                             let mut i = 0;
 
                             // Start slot
-                            if mouse_y >= y && mouse_x >= x && mouse_x < x + slot {
-                                now_selected = i;
-                            }
-                            x += slot;
-                            i += 1;
+                            if mouse_y >= y && mouse_x >= x && mouse_x < x + slot { now_selected = i; }
+                            x += slot; i += 1;
 
                             // App slots
                             for _ in bar.packages.iter() {
-                                if mouse_y >= y && mouse_x >= x && mouse_x < x + slot {
-                                    now_selected = i;
-                                }
-                                x += slot;
-                                i += 1;
+                                if mouse_y >= y && mouse_x >= x && mouse_x < x + slot { now_selected = i; }
+                                x += slot; i += 1;
                             }
                         }
 
@@ -819,55 +677,45 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                         if !mouse_left && last_mouse_left {
                             let mut i = 0;
 
-                            // --- Start button slot (i == 0) ---
+                            // Start button slot
                             if i == bar.selected {
-                                // True toggle behavior:
                                 if bar.start_menu_open {
-                                    // Menu is open -> clicking Start should close it, not reopen.
-                                    // The menu window will receive Focus(false) and close itself.
-                                    // Guard so this very same click cannot reopen immediately.
                                     bar.suppress_start_open = true;
-                                } else {
-                                    // Menu is closed
-                                    if !bar.suppress_start_open {
-                                        bar.start_menu_open = true;
+                                } else if !bar.suppress_start_open {
+                                    bar.start_menu_open = true;
 
-                                        // Open start menu (blocking call) according to current mode
-                                        match crate::config::mode() {
-                                            crate::config::Mode::Desktop => {
-                                                match crate::modes::desktop::show_desktop_menu(bar.width, bar.height, &mut bar.packages) {
-                                                    crate::modes::desktop::DesktopMenuResult::Launch(exec) => {
-                                                        if !exec.trim().is_empty() { bar.spawn(exec); }
-                                                    }
-                                                    crate::modes::desktop::DesktopMenuResult::Logout => {
-                                                        break 'events; // jump to login like the old Logout
-                                                    }
-                                                    _ => {}
+                                    match crate::config::mode() {
+                                        crate::config::Mode::Desktop => {
+                                            match crate::modes::desktop::show_desktop_menu(bar.width, bar.height, &mut bar.packages) {
+                                                crate::modes::desktop::DesktopMenuResult::Launch(exec) => {
+                                                    if !exec.trim().is_empty() { bar.spawn(exec); }
                                                 }
-                                            }
-                                            crate::config::Mode::Mobile => {
-                                                match crate::modes::mobile::show_mobile_menu(bar.width, bar.height, &mut bar.packages) {
-                                                    crate::modes::mobile::MobileMenuResult::Launch(exec) => {
-                                                        if !exec.trim().is_empty() { bar.spawn(exec); }
-                                                    }
-                                                    crate::modes::mobile::MobileMenuResult::Logout => {
-                                                        break 'events;
-                                                    }
-                                                    _ => {}
+                                                crate::modes::desktop::DesktopMenuResult::Logout => {
+                                                    break 'events;
                                                 }
+                                                _ => {}
                                             }
                                         }
-
-                                        // Menu returned/closed
-                                        bar.start_menu_open = false;
-                                        // Prevent immediate re-open caused by this same click sequence
-                                        bar.suppress_start_open = true;
+                                        crate::config::Mode::Mobile => {
+                                            match crate::modes::mobile::show_mobile_menu(bar.width, bar.height, &mut bar.packages) {
+                                                crate::modes::mobile::MobileMenuResult::Launch(exec) => {
+                                                    if !exec.trim().is_empty() { bar.spawn(exec); }
+                                                }
+                                                crate::modes::mobile::MobileMenuResult::Logout => {
+                                                    break 'events;
+                                                }
+                                                _ => {}
+                                            }
+                                        }
                                     }
+
+                                    bar.start_menu_open = false;
+                                    bar.suppress_start_open = true;
                                 }
                             }
                             i += 1;
 
-                            // --- App slots (unchanged) ---
+                            // App slots
                             for package_i in 0..bar.packages.len() {
                                 if i == bar.selected {
                                     let exec = bar.packages[package_i].exec.clone();
@@ -901,7 +749,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
         }
     }
 
-    // kill any descendents of one of the children killed above that are still running
+    // Reap leftover zombies
     debug!("Launcher exiting, reaping all zombie processes");
     let mut status = 0;
     while wait(&mut status).is_ok() {}
@@ -944,14 +792,8 @@ fn chooser_main(paths: env::Args) {
             'choosing: loop {
                 for event in window.events() {
                     let redraw = match event.to_option() {
-                        EventOption::Mouse(mouse_event) => {
-                            mouse_y = mouse_event.y;
-                            true
-                        }
-                        EventOption::Button(button_event) => {
-                            mouse_left = button_event.left;
-                            true
-                        }
+                        EventOption::Mouse(mouse_event) => { mouse_y = mouse_event.y; true }
+                        EventOption::Button(button_event) => { mouse_left = button_event.left; true }
                         EventOption::Quit(_) => break 'choosing,
                         _ => false,
                     };

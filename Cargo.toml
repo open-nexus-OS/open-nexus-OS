@@ -1,0 +1,13 @@
+[package]
+name = "test_svg_rendering"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "test_svg_rendering"
+path = "test_svg_rendering.rs"
+
+[dependencies]
+resvg = { version = "0.43", default-features = false, features = ["text"] }
+usvg = { version = "0.43", default-features = false, features = ["text"] }
+tiny-skia = "0.11"

@@ -1,11 +1,12 @@
 // themes/manager.rs — main theme manager: loads nexus.toml, resolves icons/backgrounds/colors, caches rendered assets.
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Mutex;
 use toml;
-use log::{debug, warn, error};
+use log::{warn, error};
+#[cfg(not(feature = "svg"))]
 use std::sync::atomic::{AtomicBool};
 
 use orbclient::Color;
@@ -14,8 +15,9 @@ use orbimage::Image;
 use crate::themes::colors::{
     Acrylic, Paint, ThemeColorsToml, ColorEntry, to_color, hex_to_color
 };
-use crate::themes::svg_icons::{self, IconVariant, scale_nearest};
+use crate::themes::svg_icons::IconVariant;
 
+#[cfg(not(feature = "svg"))]
 static SVG_FEATURE_MISSING_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// Light/Dark selection from `nexus.toml`
@@ -32,12 +34,13 @@ struct ThemeSection {
 #[derive(Debug, Clone, Deserialize)]
 struct NexusToml {
     #[serde(default)] theme: ThemeSection,
+    #[allow(dead_code)]
     #[serde(default)] colors: Option<toml::Value>,
-    #[serde(flatten)] tables: HashMap<String, toml::Value>,
+    #[serde(flatten)] tables: BTreeMap<String, toml::Value>,
 }
 
 fn collect_icon_ids(
-    out: &mut HashMap<String, String>,
+    out: &mut BTreeMap<String, String>,
     prefix: &str,
     table: &toml::map::Map<String, toml::Value>,
 ) {
@@ -55,20 +58,25 @@ fn collect_icon_ids(
 pub struct ThemeManager {
     theme: ThemeId,
     /// logical name -> relative icon path (e.g. "actions/system-shut-down")
-    icons: HashMap<String, String>,
+    icons: BTreeMap<String, String>,
     /// background name -> relative path (e.g. "backgrounds/login")
-    backgrounds: HashMap<String, String>,
+    backgrounds: BTreeMap<String, String>,
     /// legacy color map (flat Color, no acrylic), derived from paints
-    pub(crate) colors_legacy: HashMap<String, Color>,
+    pub(crate) colors_legacy: BTreeMap<String, Color>,
     /// new paint map (Color + optional Acrylic)
-    paints: HashMap<String, Paint>,
+    paints: BTreeMap<String, Paint>,
     /// in-process cache for icons
-    cache: Mutex<HashMap<(String, IconVariant, Option<(u32,u32)>), Image>>,
+    cache: Mutex<BTreeMap<(String, IconVariant, Option<(u32,u32)>), Image>>,
     /// in-process cache for backgrounds
-    bg_cache: Mutex<HashMap<(String, Option<(u32,u32)>), Image>>,
+    bg_cache: Mutex<BTreeMap<(String, Option<(u32,u32)>), Image>>,
 }
 
 impl ThemeManager {
+    /// Get the current theme ID
+    pub fn theme_id(&self) -> ThemeId {
+        self.theme
+    }
+
     fn candidates_for(&self, id: &str, variant: IconVariant) -> Vec<String> {
         let rel: String = if let Some(s) = self.icons.get(id) {
             s.clone()
@@ -87,10 +95,15 @@ impl ThemeManager {
         size: Option<(u32, u32)>,
     ) -> Option<Image> {
         let key = (id.to_string(), variant, size);
+        //println!("🔍 libnexus::load_icon_sized: id={}, variant={:?}, size={:?}, key={:?}", id, variant, size, key);
 
+        // Cache lookup (enabled)
         if let Some(img) = self.cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
+            //println!("✅ libnexus::cache_hit: returning cached image {}x{} for key {:?}", img.width(), img.height(), key);
             return Some(img);
         }
+
+        //println!("🔄 libnexus::cache_miss: loading new icon");
 
         let candidates = self.candidates_for(id, variant);
         if candidates.is_empty() {
@@ -214,8 +227,8 @@ impl ThemeManager {
             return;
         }
         for p in cands {
-            let exists = std::fs::metadata(&p).is_ok();
-            let kind = if p.ends_with(".svg") { "svg" } else { "ras" };
+            let _exists = std::fs::metadata(&p).is_ok();
+            let _kind = if p.ends_with(".svg") { "svg" } else { "ras" };
         }
     }
 }
@@ -229,7 +242,7 @@ impl ThemeManager {
         let parsed: NexusToml = toml::from_str(&txt).unwrap_or(NexusToml {
             theme: ThemeSection { current: Some("light".into()) },
             colors: None,
-            tables: HashMap::new(),
+            tables: BTreeMap::new(),
         });
 
         // 2) Resolve theme id
@@ -240,7 +253,7 @@ impl ThemeManager {
 
         // 3) Collect icon mappings from all tables (icons, system, places, ...)
         //    + auch Root-Level-Stringkeys berücksichtigen (robuster)
-        let mut icons: HashMap<String, String> = HashMap::new();
+        let mut icons: BTreeMap<String, String> = BTreeMap::new();
         for (table_name, value) in parsed.tables.iter() {
             match value {
                 toml::Value::Table(t)  => collect_icon_ids(&mut icons, table_name, t),
@@ -264,7 +277,7 @@ impl ThemeManager {
         // --- End Alias-Block ---
 
         // 4) Backgrounds table (optional)
-        let mut backgrounds: HashMap<String, String> = HashMap::new();
+        let mut backgrounds: BTreeMap<String, String> = BTreeMap::new();
         if let Some(toml::Value::Table(bg)) = parsed.tables.get("backgrounds") {
             for (k, v) in bg {
                 if let toml::Value::String(s) = v {
@@ -274,8 +287,8 @@ impl ThemeManager {
         }
 
         // 5) Colors: try to load paints (color + optional acrylic) from colors.toml
-        let mut paints: HashMap<String, Paint> = HashMap::new();
-        let mut colors_legacy: HashMap<String, Color> = HashMap::new();
+        let mut paints: BTreeMap<String, Paint> = BTreeMap::new();
+        let mut colors_legacy: BTreeMap<String, Color> = BTreeMap::new();
         let theme_name = match theme { ThemeId::Light => "light", ThemeId::Dark => "dark" };
         let colors_path = format!("/ui/themes/{}/colors.toml", theme_name);
         if let Ok(txt) = fs::read_to_string(&colors_path) {
@@ -329,8 +342,8 @@ impl ThemeManager {
             backgrounds,
             colors_legacy,
             paints,
-            cache: Mutex::new(HashMap::new()),
-            bg_cache: Mutex::new(HashMap::new()),
+            cache: Mutex::new(BTreeMap::new()),
+            bg_cache: Mutex::new(BTreeMap::new()),
         };
 
 

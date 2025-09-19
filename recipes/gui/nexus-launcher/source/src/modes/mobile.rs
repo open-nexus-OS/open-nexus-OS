@@ -1,8 +1,12 @@
+// src/mobile.rs
+// Mobile start menu (fullscreen) using the shared ui::draw_app_cell.
+
 use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT, K_RIGHT};
 use orbfont::Font;
 use orbimage::ResizeType;
 
 use crate::icons::CommonIcons;
+use crate::ui;
 
 #[cfg(target_os = "redox")]
 const UI_PATH: &str = "/ui";
@@ -50,37 +54,7 @@ fn point_in(p: (i32, i32), r: (i32, i32, i32, i32)) -> bool {
     x >= rx && x < rx + rw && y >= ry && y < ry + rh
 }
 
-fn draw_app_cell(
-    win: &mut Window,
-    font: &Font,
-    pkg: &mut crate::package::Package,
-    x: i32, y: i32,
-    cell_w: i32, cell_h: i32,
-) -> (i32, i32, i32, i32) {
-    let label_h = 16i32;
-    let pad = 8i32;
-    let usable_h = (cell_h - label_h - pad*2).max(24);
-    let usable_w = (cell_w - pad*2).max(24);
-    let icon_side = usable_h.min(usable_w).max(28);
-
-    let img_src = pkg.icon.image().clone();
-    let icon = img_src.resize(icon_side as u32, icon_side as u32, ResizeType::Lanczos3).unwrap();
-
-    let ix = x + (cell_w - icon.width() as i32) / 2;
-    let iy = y + pad;
-
-    icon.draw(win, ix, iy);
-
-    let name = font.render(&pkg.name, 14.0);
-    let tx = x + (cell_w - name.width() as i32) / 2;
-    let ty = iy + icon.height() as i32 + 6;
-    name.draw(win, tx, ty, Color::rgba(0xFF, 0xFF, 0xFF, 240));
-
-    (x, y, cell_w, cell_h)
-}
-
 pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package::Package]) -> MobileMenuResult {
-
     let mut window = Window::new_flags(
         0, 0, screen_w, screen_h, "StartMenuMobile",
         &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
@@ -107,7 +81,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         // Dark overlay
         window.set(Color::rgba(0, 0, 0, 80));
 
-        // --- Search bar ---
+        // Search bar
         let pad = 16i32;
         let sx = pad;
         let sy = pad;
@@ -117,22 +91,23 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         fill_round_rect(&mut window, sx, sy, sw as u32, sh as u32, 8, Color::rgba(255,255,255,26));
         let qtxt = if query.is_empty() { "Search apps…" } else { &query };
         let qcol = if query.is_empty() { Color::rgba(255,255,255,150) } else { Color::rgba(255,255,255,230) };
-        let q = font.render(qtxt, 14.0);
+        let dpi = crate::dpi_scale();
+        let q = font.render(qtxt, 14.0 * dpi);
         q.draw(&mut window, sx + 10, sy + (sh - q.height() as i32)/2, qcol);
 
         search_rect = (sx, sy, sw, sh);
 
         // Filter
-        let mut indices: Vec<usize> = Vec::with_capacity(pkgs.len());
-        if query.trim().is_empty() { indices.extend(0..pkgs.len()); }
-        else {
+        let indices: Vec<usize> = if query.trim().is_empty() {
+            (0..pkgs.len()).collect()
+        } else {
             let ql = query.to_lowercase();
-            for (i,p) in pkgs.iter().enumerate() {
-                if p.name.to_lowercase().contains(&ql) { indices.push(i); }
-            }
-        }
+            pkgs.iter().enumerate().filter_map(|(i,p)| {
+                if p.name.to_lowercase().contains(&ql) { Some(i) } else { None }
+            }).collect()
+        };
 
-        // --- Grid layout ---
+        // Grid layout
         let content_x = pad;
         let content_y = sy + sh + 16;
         let content_w = window.width() as i32 - pad*2;
@@ -140,17 +115,13 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         let bottom_reserve = 72i32; // room for dots & bottom controls
         let content_h = (window.height() as i32 - bottom_reserve) - content_y;
 
-        // Decide columns based on orientation
         let landscape = window.width() > window.height();
         let cols = if landscape { 8usize } else { 5usize };
 
-        // Try to fit ~5 rows if possible; otherwise compute max that fits
-        let target_rows = 5usize;
-        // approximate cell size by width; then compute rows
         let hgap = 16;
         let vgap = 16;
         let cell_w = ((content_w - (cols as i32 - 1) * hgap) / cols as i32).max(54);
-        // derive cell_h so that target_rows roughly fit
+        let target_rows = 5usize;
         let cell_h_guess = (content_h - ((target_rows as i32 - 1) * vgap)) / target_rows as i32;
         let cell_h = cell_h_guess.max(72);
         let rows = ((content_h + vgap) / (cell_h + vgap)).max(3) as usize;
@@ -165,6 +136,10 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         let slice = indices.get(start..end).unwrap_or(&[]);
 
         // Draw cells
+        let icon_side = {
+            let dpi = crate::dpi_scale();
+            (cell_w as f32 * 0.82 * dpi).round().clamp(32.0, 96.0) as i32
+        };
         let mut cells: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
         for (i, idx) in slice.iter().enumerate() {
             let row = (i / cols) as i32;
@@ -172,15 +147,19 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
             let cx = content_x + col * (cell_w + hgap);
             let cy = content_y + row * (cell_h + vgap);
 
-            // hover veil
             if point_in(mouse_pos, (cx, cy, cell_w, cell_h)) {
                 fill_round_rect(&mut window, cx, cy, cell_w as u32, cell_h as u32, 10, Color::rgba(255,255,255,26));
             }
-            let rect = draw_app_cell(&mut window, &font, &mut pkgs[*idx], cx, cy, cell_w, cell_h);
+
+            let rect = ui::draw_app_cell(
+                &mut window, &font, &mut pkgs[*idx],
+                cx, cy, cell_w, cell_h,
+                icon_side, true, true, // large=true for fullscreen
+            );
             cells.push((rect, *idx));
         }
 
-        // --- Bottom controls (right): settings & power ---
+        // Bottom controls (right): settings & power
         let margin = 20i32;
         let gap = 24i32;
 
@@ -201,7 +180,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         settings_icon.draw(&mut window, settings_x, settings_y);
         power_icon.draw(&mut window, power_x, power_y);
 
-        // --- User (left bottom) ---
+        // User (left bottom)
         let target_h = 22u32;
         let user_img = icons.user.clone().resize(
             ((icons.user.width() * target_h) / icons.user.height()).max(1),
@@ -213,12 +192,13 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         let user_y = window.height() as i32 - user_img.height() as i32 - margin;
         user_img.draw(&mut window, user_x, user_y);
 
-        let name_text = font.render(&username, 16.0);
+        let dpi = crate::dpi_scale();
+        let name_text = font.render(&username, 16.0 * dpi);
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (user_img.height() as i32 - name_text.height() as i32) / 2;
         name_text.draw(&mut window, name_x, name_y, Color::rgba(0xFF, 0xFF, 0xFF, 230));
 
-        // --- Page dots ---
+        // Page dots
         if page_count > 1 {
             let dots_y = (window.height() as i32 - sh2 - margin) - 18;
             let dot_w = 8;

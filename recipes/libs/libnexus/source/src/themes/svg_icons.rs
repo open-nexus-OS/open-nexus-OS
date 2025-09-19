@@ -1,19 +1,19 @@
 // themes/svg_icons.rs --- SVG icon loading, caching, and rendering.
 use once_cell::sync::Lazy;
 use orbimage::Image;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use orbclient::{Color, Renderer};
 
 use super::manager::ThemeId;
 
 /// Which icon flavor to resolve (and cache separately).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum IconVariant { Auto, Light, Dark, Symbolic }
 
-/// Optional shared cache for icons (if you want a global cache in addition to ThemeManager’s).
-pub static ICON_CACHE: Lazy<Mutex<HashMap<(String, IconVariant, Option<(u32,u32)>), Image>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+/// Optional shared cache for icons (if you want a global cache in addition to ThemeManager's).
+pub static ICON_CACHE: Lazy<Mutex<BTreeMap<(String, IconVariant, Option<(u32,u32)>), Image>>> =
+    Lazy::new(|| Mutex::new(BTreeMap::new()));
 
 /// Cheap nearest-neighbor scaler for raster images (PNG/JPG).
 pub fn scale_nearest(src: &Image, tw: u32, th: u32) -> Image {
@@ -77,6 +77,22 @@ pub fn icon_candidates(rel: &str, theme: ThemeId, variant: IconVariant) -> Vec<S
     // Global non-themed fallback:
     v.push(format!("/ui/icons/{}.svg", rel));
     v.push(format!("/ui/icons/{}.png", rel));
+    // App icons fallback:
+    v.push(format!("/ui/icons/apps/{}.svg", rel));
+    v.push(format!("/ui/icons/apps/{}.png", rel));
+
+    // Debug: List what's in /ui/icons/apps/
+    println!("🔍 DEBUG: Looking for icon '{}' in /ui/icons/apps/", rel);
+    if let Ok(entries) = std::fs::read_dir("/ui/icons/apps/") {
+        println!("📁 DEBUG: Contents of /ui/icons/apps/:");
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                println!("  - {}", name);
+            }
+        }
+    } else {
+        println!("❌ DEBUG: Cannot read /ui/icons/apps/ directory");
+    }
     v
 }
 
@@ -111,26 +127,42 @@ pub fn render_svg_to_image_with_theme(
     let isize = tree.size().to_int_size();
     let (mut w, mut h) = (isize.width(), isize.height());
 
-    // Contain-fit into target size:
-    let mut scale = 1.0;
+    println!("🔍 SVG original size: {}x{}", isize.width(), isize.height());
+
+    // Force exact scaling to target size
     if let Some((tw, th)) = target {
-        if w == 0 || h == 0 {
-            w = tw.max(1);
-            h = th.max(1);
-        } else {
-            scale = (tw as f32 / w as f32).min(th as f32 / h as f32).max(0.0);
-            w = (w as f32 * scale).round().max(1.0) as u32;
-            h = (h as f32 * scale).round().max(1.0) as u32;
-        }
+        w = tw.max(1);
+        h = th.max(1);
+        println!("🎯 Target size: {}x{}", tw, th);
     } else if w == 0 || h == 0 {
         w = 24; h = 24; // reasonable default if the SVG has no explicit size
     }
 
-    // Render with proper scaling transform
+    println!("📏 Final size: {}x{}", w, h);
+
+    // Create pixmap with exact target size
     let mut pm = Pixmap::new(w, h)?;
     let mut pmut = pm.as_mut();
+
+    // Calculate transform to fit SVG into target size while preserving aspect ratio
+    let scale_x = if isize.width() > 0 { w as f32 / isize.width() as f32 } else { 1.0 };
+    let scale_y = if isize.height() > 0 { h as f32 / isize.height() as f32 } else { 1.0 };
+
+    // Use the smaller scale to preserve aspect ratio
+    let scale = scale_x.min(scale_y);
+
+    println!("🔧 Transform: scale_x={:.2}, scale_y={:.2}, preserving aspect ratio with scale={:.2}", scale_x, scale_y, scale);
+
+    // Create transform that scales the SVG while preserving aspect ratio
     let transform = Transform::from_scale(scale, scale);
+
+    // Render the SVG with the transform
     resvg::render(&tree, transform, &mut pmut);
+
+    // Verify the final pixmap size
+    println!("🔍 Final pixmap size after render: {}x{}", pm.width(), pm.height());
+
+    println!("🎨 Rendered to: {}x{}", pm.width(), pm.height());
 
     // Convert to orbimage::Image
     let src = pm.data();

@@ -76,6 +76,7 @@ storage.google_drive = "places/google-drive"
 storage.computer = "places/internal-storage"
 storage.sd_card = "places/sd-card"
 settings = "actions/settings"
+apps.unknown = "apps/unknown"
 #storage.usb = "places/usb-stick"
 #storage.external_drive = "places/external-drive"
 
