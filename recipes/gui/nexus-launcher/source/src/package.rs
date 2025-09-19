@@ -60,12 +60,8 @@ impl Icon {
     /// - None -> ""
     fn logical_id(&self) -> Option<String> {
         match &self.source {
-            IconSource::Name(name) => {
-                println!("🔍 DEBUG: IconSource::Name = '{}'", name);
-                Some(name.clone())
-            },
+            IconSource::Name(name) => Some(name.clone()),
             IconSource::Path(p) => {
-                println!("🔍 DEBUG: IconSource::Path = '{}'", p.display());
                 // Strip known prefixes and extension to get something the theme can try.
                 // e.g. /ui/themes/light/icons/places/start-here.svg -> places/start-here
                 let s = p.to_string_lossy();
@@ -76,7 +72,6 @@ impl Icon {
                 let s = s.trim_start_matches('/');
                 let stem = Path::new(s).with_extension("");
                 let stem = stem.to_string_lossy().to_string();
-                println!("🔍 DEBUG: logical_id result = '{}'", stem);
                 if stem.is_empty() { None } else { Some(stem) }
             }
             IconSource::None => None,

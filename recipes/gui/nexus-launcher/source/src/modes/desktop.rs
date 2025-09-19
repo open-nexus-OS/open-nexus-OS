@@ -308,6 +308,20 @@ pub fn show_desktop_menu(
         let power_x    = settings_x - gap - pw;
         let power_y    = window.height() as i32 - ph - margin;
 
+        // Set hitboxes for settings and power icons
+        power_hit = (power_x, power_y, pw, ph);
+        settings_hit = (settings_x, settings_y, sw2, sh2);
+
+        // Draw hover effects
+        if point_in(mouse_pos, power_hit) {
+            let veil = if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) };
+            fill_round_rect(&mut window, power_x - 6, power_y - 6, (pw + 12) as u32, (ph + 12) as u32, 6, veil);
+        }
+        if point_in(mouse_pos, settings_hit) {
+            let veil = if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) };
+            fill_round_rect(&mut window, settings_x - 6, settings_y - 6, (sw2 + 12) as u32, (sh2 + 12) as u32, 6, veil);
+        }
+
         settings_icon.draw(&mut window, settings_x, settings_y);
         power_icon.draw(&mut window, power_x, power_y);
 

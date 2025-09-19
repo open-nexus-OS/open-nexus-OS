@@ -81,18 +81,6 @@ pub fn icon_candidates(rel: &str, theme: ThemeId, variant: IconVariant) -> Vec<S
     v.push(format!("/ui/icons/apps/{}.svg", rel));
     v.push(format!("/ui/icons/apps/{}.png", rel));
 
-    // Debug: List what's in /ui/icons/apps/
-    println!("🔍 DEBUG: Looking for icon '{}' in /ui/icons/apps/", rel);
-    if let Ok(entries) = std::fs::read_dir("/ui/icons/apps/") {
-        println!("📁 DEBUG: Contents of /ui/icons/apps/:");
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                println!("  - {}", name);
-            }
-        }
-    } else {
-        println!("❌ DEBUG: Cannot read /ui/icons/apps/ directory");
-    }
     v
 }
 
@@ -127,7 +115,6 @@ pub fn render_svg_to_image_with_theme(
     let isize = tree.size().to_int_size();
     let (mut w, mut h) = (isize.width(), isize.height());
 
-    println!("🔍 SVG original size: {}x{}", isize.width(), isize.height());
 
     // Scale SVG only to target height, let width adjust automatically
     if let Some((_tw, th)) = target {
@@ -135,12 +122,10 @@ pub fn render_svg_to_image_with_theme(
         let scale = if isize.height() > 0 { th as f32 / isize.height() as f32 } else { 1.0 };
         w = (isize.width() as f32 * scale) as u32;
         h = th;
-        println!("🎯 Target height: {}px, calculated width: {}px (scale: {:.2})", th, w, scale);
     } else if w == 0 || h == 0 {
         w = 24; h = 24; // reasonable default if the SVG has no explicit size
     }
 
-    println!("📏 Final size: {}x{}", w, h);
 
     // Create pixmap with calculated size (height-based)
     let mut pm = Pixmap::new(w, h)?;
@@ -149,7 +134,6 @@ pub fn render_svg_to_image_with_theme(
     // Calculate scale based on height only
     let scale = if isize.height() > 0 { h as f32 / isize.height() as f32 } else { 1.0 };
 
-    println!("🔧 Transform: scale={:.2} (height-based only)", scale);
 
     // Create transform that scales the SVG based on height only
     let transform = Transform::from_scale(scale, scale);
@@ -158,9 +142,7 @@ pub fn render_svg_to_image_with_theme(
     resvg::render(&tree, transform, &mut pmut);
 
     // Verify the final pixmap size
-    println!("🔍 Final pixmap size after render: {}x{}", pm.width(), pm.height());
 
-    println!("🎨 Rendered to: {}x{}", pm.width(), pm.height());
 
     // Convert to orbimage::Image
     let src = pm.data();
