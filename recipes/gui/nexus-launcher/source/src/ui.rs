@@ -4,7 +4,7 @@
 use orbclient::{Color, Renderer, Window};
 use orbfont::Font;
 
-use crate::config::{text_highlight_paint, BAR_HEIGHT};
+use crate::config::BAR_HEIGHT;
 use crate::package::Package;
 
 pub struct SearchState { pub query: String }
@@ -53,12 +53,12 @@ pub fn draw_app_cell(
     icon.draw(win, ix, iy);
 
     if show_label {
-        let label_size = if large { 16.0 * dpi } else { 14.0 * dpi };
+        let label_size = if large { 16.0 } else { 14.0 };
         let text = font.render(&name_owned, label_size);
         let tx = x + (cell_w - text.width() as i32) / 2;
         let ty = iy + icon.height() as i32 + gap;
         // Light text on dark (large), darker on light (small)
-        let col = if large { Color::rgba(0xFF, 0xFF, 0xFF, 240) } else { text_highlight_paint().color };
+        let col = if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x0A, 0x0A, 0x0A, 255) };
         text.draw(win, tx, ty, col);
     }
 

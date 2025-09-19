@@ -74,12 +74,12 @@ pub fn icon_candidates(rel: &str, theme: ThemeId, variant: IconVariant) -> Vec<S
     ).collect::<Vec<_>>();
     v.append(&mut alt);
 
+    // App icons first (higher priority):
+    v.push(format!("/ui/icons/apps/{}.svg", rel));
+    v.push(format!("/ui/icons/apps/{}.png", rel));
     // Global non-themed fallback:
     v.push(format!("/ui/icons/{}.svg", rel));
     v.push(format!("/ui/icons/{}.png", rel));
-    // App icons fallback:
-    v.push(format!("/ui/icons/apps/{}.svg", rel));
-    v.push(format!("/ui/icons/apps/{}.png", rel));
 
     v
 }

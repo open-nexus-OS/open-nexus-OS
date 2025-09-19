@@ -90,9 +90,8 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
 
         fill_round_rect(&mut window, sx, sy, sw as u32, sh as u32, 8, Color::rgba(255,255,255,26));
         let qtxt = if query.is_empty() { "Search apps…" } else { &query };
-        let qcol = if query.is_empty() { Color::rgba(255,255,255,150) } else { Color::rgba(255,255,255,230) };
-        let dpi = crate::dpi_scale();
-        let q = font.render(qtxt, 14.0 * dpi);
+        let qcol = if query.is_empty() { Color::rgba(255,255,255,255) } else { Color::rgba(255,255,255,255) };
+        let q = font.render(qtxt, 14.0);
         q.draw(&mut window, sx + 10, sy + (sh - q.height() as i32)/2, qcol);
 
         search_rect = (sx, sy, sw, sh);
@@ -137,8 +136,8 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
 
         // Draw cells
         let icon_side = {
-            let dpi = crate::dpi_scale();
-            (cell_w as f32 * 0.82 * dpi).round().clamp(32.0, 96.0) as i32
+            // DPI scaling is now handled by helper::dpi_helper::font_size()
+            (cell_w as f32 * 0.82 * crate::dpi_scale()).round().clamp(32.0, 96.0) as i32
         };
         let mut cells: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
         for (i, idx) in slice.iter().enumerate() {
@@ -192,11 +191,10 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         let user_y = window.height() as i32 - user_img.height() as i32 - margin;
         user_img.draw(&mut window, user_x, user_y);
 
-        let dpi = crate::dpi_scale();
-        let name_text = font.render(&username, 16.0 * dpi);
+        let name_text = font.render(&username, 16.0);
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (user_img.height() as i32 - name_text.height() as i32) / 2;
-        name_text.draw(&mut window, name_x, name_y, Color::rgba(0xFF, 0xFF, 0xFF, 230));
+        name_text.draw(&mut window, name_x, name_y, Color::rgba(0xFF, 0xFF, 0xFF, 255));
 
         // Page dots
         if page_count > 1 {

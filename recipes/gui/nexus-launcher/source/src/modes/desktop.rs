@@ -147,13 +147,12 @@ pub fn show_desktop_menu(
 
         let qtxt = if query.is_empty() && !search_active { "Search apps…" } else { &query };
         let qcol = if large {
-            if query.is_empty() && !search_active { Color::rgba(255,255,255,150) } else { Color::rgba(255,255,255,230) }
+            if query.is_empty() && !search_active { Color::rgba(255,255,255,255) } else { Color::rgba(255,255,255,255) }
         } else {
-            if query.is_empty() && !search_active { Color::rgba(20,20,20,160) } else { Color::rgba(20,20,20,230) }
+            if query.is_empty() && !search_active { Color::rgba(10,10,10,255) } else { Color::rgba(10,10,10,255) }
         };
-        let dpi = crate::dpi_scale();
         // Performance optimization: Only render text when it changes
-        let text = font.render(qtxt, 14.0 * dpi);
+        let text = font.render(qtxt, 14.0);
         let text_x = sx + 10;
         let text_y = sy + (sh - text.height() as i32)/2;
         text.draw(&mut window, text_x, text_y, qcol);
@@ -201,11 +200,10 @@ pub fn show_desktop_menu(
         let cell_w_avail = ((base_content_w - (cols - 1) * hgap) / cols).max(48);
         let icon_side_raw = (cell_w_avail - 2*cell_pad).max(24);
 
-        let dpi_scale = crate::dpi_scale();
         let icon_side = if large {
-            (icon_side_raw as f32 * dpi_scale).max(64.0).min(96.0) as i32
+            (icon_side_raw as f32 * crate::dpi_scale()).max(64.0).min(96.0) as i32
         } else {
-            (icon_side_raw as f32 * dpi_scale).max(32.0).min(48.0) as i32
+            (icon_side_raw as f32 * crate::dpi_scale()).max(32.0).min(48.0) as i32
         };
         let cell_w    = icon_side + 2*cell_pad;
         let cell_h    = icon_side + label_h + 2*cell_pad;
@@ -275,8 +273,7 @@ pub fn show_desktop_menu(
         let user_x = margin;
         let user_y = window.height() as i32 - target_h - margin;
 
-        let dpi_scale = crate::dpi_scale();
-        let name_text = font.render(&username, 16.0 * dpi_scale);
+        let name_text = font.render(&username, 16.0);
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (target_h - name_text.height() as i32) / 2;
         let user_hit = (user_x, user_y.min(name_y),
@@ -289,9 +286,9 @@ pub fn show_desktop_menu(
         }
 
         user_img.draw(&mut window, user_x, user_y);
-        let base_name_color = if large { Color::rgba(0xFF, 0xFF, 0xFF, 230) } else { Color::rgba(0x14, 0x14, 0x14, 220) };
+        let base_name_color = if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x0A, 0x0A, 0x0A, 255) };
         let name_col = if point_in(mouse_pos, user_hit) {
-            if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x14, 0x14, 0x14, 255) }
+            if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x0A, 0x0A, 0x0A, 255) }
         } else { base_name_color };
         name_text.draw(&mut window, name_x, name_y, name_col);
 

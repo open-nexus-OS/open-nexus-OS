@@ -67,6 +67,7 @@ fn icon_small_size() -> i32 {
 }
 
 fn font_size() -> i32 {
+    // Use direct font size calculation
     (icon_size() as f32 * 0.5).round() as i32
 }
 
