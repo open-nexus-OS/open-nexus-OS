@@ -1,7 +1,0 @@
-[build]
-template = "cargo"
-package_path = "."
-cargoflags = "-p nexus_login -p nexus_background --bins"
-
-[package]
-dependencies = []

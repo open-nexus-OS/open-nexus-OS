@@ -41,29 +41,37 @@ pub fn icon_candidates(rel: &str, theme: ThemeId, variant: IconVariant) -> Vec<S
     let mut v = Vec::new();
 
     match variant {
-        IconVariant::Symbolic => {
-            v.push(format!("/ui/themes/{}/icons/{}.symbolic.svg", theme_name, rel));
-            v.push(format!("/ui/themes/{}/icons/{}.symbolic.png", theme_name, rel));
-        }
-        IconVariant::Light => {
-            v.push(format!("/ui/themes/{}/icons/{}.light.svg", theme_name, rel));
-            v.push(format!("/ui/themes/{}/icons/{}.light.png", theme_name, rel));
-        }
-        IconVariant::Dark => {
-            v.push(format!("/ui/themes/{}/icons/{}.dark.svg", theme_name, rel));
-            v.push(format!("/ui/themes/{}/icons/{}.dark.png", theme_name, rel));
-        }
         IconVariant::Auto => {
-            // theme-default
+            // Theme-specific paths first (higher priority), SVG before PNG
             v.push(format!("/ui/themes/{}/icons/{}.svg", theme_name, rel));
             v.push(format!("/ui/themes/{}/icons/{}.png", theme_name, rel));
-            // theme-suffixed
-            let suffix = match theme { ThemeId::Light => "light", ThemeId::Dark => "dark" };
-            v.push(format!("/ui/themes/{}/icons/{}.{}.svg", theme_name, rel, suffix));
-            v.push(format!("/ui/themes/{}/icons/{}.{}.png", theme_name, rel, suffix));
-            // symbolic fallback
+            // Global fallback paths, SVG before PNG
+            v.push(format!("/ui/icons/{}.svg", rel));
+            v.push(format!("/ui/icons/{}.png", rel));
+        }
+        IconVariant::Light => {
+            // Theme-specific paths first (higher priority), SVG before PNG
+            v.push(format!("/ui/themes/{}/icons/{}.light.svg", theme_name, rel));
+            v.push(format!("/ui/themes/{}/icons/{}.light.png", theme_name, rel));
+            // Global fallback paths, SVG before PNG
+            v.push(format!("/ui/icons/{}.light.svg", rel));
+            v.push(format!("/ui/icons/{}.light.png", rel));
+        }
+        IconVariant::Dark => {
+            // Theme-specific paths first (higher priority), SVG before PNG
+            v.push(format!("/ui/themes/{}/icons/{}.dark.svg", theme_name, rel));
+            v.push(format!("/ui/themes/{}/icons/{}.dark.png", theme_name, rel));
+            // Global fallback paths, SVG before PNG
+            v.push(format!("/ui/icons/{}.dark.svg", rel));
+            v.push(format!("/ui/icons/{}.dark.png", rel));
+        }
+        IconVariant::Symbolic => {
+            // Theme-specific paths first (higher priority), SVG before PNG
             v.push(format!("/ui/themes/{}/icons/{}.symbolic.svg", theme_name, rel));
             v.push(format!("/ui/themes/{}/icons/{}.symbolic.png", theme_name, rel));
+            // Global fallback paths, SVG before PNG
+            v.push(format!("/ui/icons/{}.symbolic.svg", rel));
+            v.push(format!("/ui/icons/{}.symbolic.png", rel));
         }
     }
 

@@ -1,7 +1,0 @@
-[package]
-name = "character_map"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-nexus = "*"
