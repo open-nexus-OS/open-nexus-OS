@@ -19,3 +19,4 @@ resvg = "0.44"
 shlex = "1"
 xdg = "2"
 libnexus = { path = "../../../libs/libnexus/source", default-features = false, features = ["svg"] }
+nexus-actionbar = { path = "../../../libs/nexus-actionbar/source" }

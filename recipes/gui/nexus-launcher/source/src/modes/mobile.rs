@@ -1,5 +1,7 @@
 // src/mobile.rs
-// Mobile start menu (fullscreen) using the shared ui::draw_app_cell.
+// Mobile start menu (fullscreen-ish) using the shared ui::draw_app_cell.
+// Respects top ActionBar inset and bottom launcher bar, so both bars remain visible.
+// Close-on-focus-loss is intentionally kept.
 
 use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT, K_RIGHT};
 use orbimage::ResizeType;
@@ -8,7 +10,7 @@ use orbfont::Font;
 use crate::icons::CommonIcons;
 use crate::ui;
 use crate::helper::dpi_helper;
-use crate::config::{text_inverse_fg, load_crisp_font};
+use crate::config::{text_inverse_fg, load_crisp_font, BAR_HEIGHT};
 
 #[cfg(target_os = "redox")]
 const UI_PATH: &str = "/ui";
@@ -57,8 +59,13 @@ fn point_in(p: (i32, i32), r: (i32, i32, i32, i32)) -> bool {
 }
 
 pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package::Package]) -> MobileMenuResult {
+    // Respect top ActionBar inset, and leave room for bottom launcher bar
+    let top_inset = crate::config::top_inset();
+    let y = top_inset as i32;
+    let h = screen_h.saturating_sub(top_inset + BAR_HEIGHT);
+
     let mut window = Window::new_flags(
-        0, 0, screen_w, screen_h, "StartMenuMobile",
+        0, y, screen_w, h, "StartMenuMobile",
         &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
     ).expect("mobile menu window");
 
@@ -92,12 +99,12 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
 
         fill_round_rect(&mut window, sx, sy, sw as u32, sh as u32, 8, Color::rgba(255,255,255,26));
         let qtxt = if query.is_empty() { "Search apps…" } else { &query };
-        let qcol = text_inverse_fg(); // Mobile ist immer Large Mode (weiß)
+        let qcol = text_inverse_fg(); // Mobile always uses bright text
         let q = font.render(qtxt, dpi_helper::font_size(14.0).round());
         let text_x = sx + 10;
         let text_y = sy + (sh - q.height() as i32)/2;
 
-        // "Hauch Breite" Text-Effekt für Mobile (immer Large Mode)
+        // Slight “bold-ish” effect on dark background
         q.draw(&mut window, text_x, text_y, qcol);
         q.draw(&mut window, text_x + 1, text_y, Color::rgba(255,255,255,70));
 
@@ -118,7 +125,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         let content_y = sy + sh + 16;
         let content_w = window.width() as i32 - pad*2;
 
-        let bottom_reserve = 72i32; // room for dots & bottom controls
+        let bottom_reserve = 72i32; // room for dots & bottom controls (still above launcher bar)
         let content_h = (window.height() as i32 - bottom_reserve) - content_y;
 
         let landscape = window.width() > window.height();
@@ -143,7 +150,6 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
 
         // Draw cells
         let icon_side = {
-            // DPI scaling is now handled by helper::dpi_helper::font_size()
             (cell_w as f32 * 0.82 * crate::dpi_scale()).round().clamp(32.0, 96.0) as i32
         };
         let mut cells: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
@@ -160,7 +166,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
             let rect = ui::draw_app_cell(
                 &mut window, &font, &mut pkgs[*idx],
                 cx, cy, cell_w, cell_h,
-                icon_side, true, true, // large=true for fullscreen
+                icon_side, true, true, // large=true for mobile
             );
             cells.push((rect, *idx));
         }
@@ -198,7 +204,6 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         let user_y = window.height() as i32 - user_img.height() as i32 - margin;
         user_img.draw(&mut window, user_x, user_y);
 
-        let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
         let name_text = font.render(&username, dpi_helper::font_size(16.0).round());
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (user_img.height() as i32 - name_text.height() as i32) / 2;
@@ -240,10 +245,11 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
                         _ => {}
                     }
                 }
-                EventOption::Mouse(m) => { mouse_pos = (m.x, m.y); }
+                EventOption::Mouse(m)  => { mouse_pos = (m.x, m.y); }
                 EventOption::Button(b) => { mouse_down = b.left; }
-                EventOption::Focus(f) => { if !f.focused { break 'ev; } }
-                EventOption::Quit(_) => break 'ev,
+                // Keep close-on-focus-loss behavior as requested
+                EventOption::Focus(f)  => { if !f.focused { break 'ev; } }
+                EventOption::Quit(_)   => break 'ev,
                 _ => {}
             }
         }
@@ -261,7 +267,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
                         }
                     }
                 }
-                // background click closes menu
+                // Background click closes menu
                 break 'ev;
             }
         }

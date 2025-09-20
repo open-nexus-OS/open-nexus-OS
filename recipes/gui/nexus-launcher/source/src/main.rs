@@ -1,7 +1,8 @@
 // src/main.rs
-// Launcher entry: taskbar ("bar"), start menu (desktop/mobile), chooser.
-// Updated to use themed, sized icons via Package::get_icon_sized.
-// Removed legacy image() usage and ensures crisp icons across toggles.
+// Launcher entry: bottom taskbar ("bar"), desktop/mobile start menu, chooser.
+// Adds a top ActionBar (nexus-actionbar) and keeps both bars visible together.
+// Panels overlay is temporarily hidden while the Start menu is open,
+// and large/desktop menus respect the top inset reserved by the ActionBar.
 
 extern crate event;
 extern crate freedesktop_entry_parser;
@@ -25,16 +26,21 @@ use std::path::Path;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::{env, io, mem};
+use std::time::{Duration, Instant};
 
 use orbclient::{EventOption, Renderer, Window, WindowFlag};
 use orbfont::Font;
 use orbimage::Image;
 
 use package::{IconSource, Package};
-use config::{bar_paint, bar_highlight_paint, bar_activity_marker_paint, text_paint, text_highlight_paint, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, load_crisp_font};
+use config::{
+    bar_activity_marker_paint, bar_highlight_paint, bar_paint, load_crisp_font, text_highlight_paint, text_paint,
+    BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE,
+};
 use crate::helper::dpi_helper;
 
-use libnexus::themes::{THEME, IconVariant};
+use nexus_actionbar::{ActionBar, ActionBarMsg, Config as ActionBarConfig};
+use libnexus::themes::{IconVariant, THEME};
 
 pub mod modes {
     pub mod desktop;
@@ -50,7 +56,7 @@ mod helper {
 
 static SCALE: AtomicIsize = AtomicIsize::new(1);
 
-/// Get DPI scale factor using the helper module
+/// Global UI scale factor from DPI helper
 pub fn dpi_scale() -> f32 {
     helper::dpi_helper::get_dpi_scale()
 }
@@ -68,7 +74,6 @@ fn icon_small_size() -> i32 {
 }
 
 fn font_size() -> i32 {
-    // Use direct font size calculation
     (icon_size() as f32 * 0.5).round() as i32
 }
 
@@ -77,7 +82,7 @@ static UI_PATH: &'static str = "/ui";
 #[cfg(not(target_os = "redox"))]
 static UI_PATH: &'static str = "ui";
 
-// Legacy helpers kept only for local PNGs (e.g. start-here as fallback).
+// Legacy helpers kept only for local PNGs (fallbacks)
 fn size_icon(icon: orbimage::Image, target: u32) -> orbimage::Image {
     if icon.width() == target && icon.height() == target {
         return icon;
@@ -93,22 +98,20 @@ fn load_png<P: AsRef<Path>>(path: P, target: u32) -> Image {
 fn get_packages() -> Vec<Package> {
     let mut packages: Vec<Package> = Vec::new();
 
+    // Read Redox /ui/apps
     if let Ok(read_dir) = Path::new(&format!("{}/apps/", UI_PATH)).read_dir() {
         for entry_res in read_dir {
             let entry = match entry_res {
                 Ok(x) => x,
                 Err(_) => continue,
             };
-            if entry
-                .file_type()
-                .expect("failed to get file_type")
-                .is_file()
-            {
+            if entry.file_type().expect("failed to get file_type").is_file() {
                 packages.push(Package::from_path(&entry.path().display().to_string()));
             }
         }
     }
 
+    // Read XDG .desktop applications (if available)
     if let Ok(xdg_dirs) = xdg::BaseDirectories::new() {
         for path in xdg_dirs.find_data_files("applications") {
             if let Ok(read_dir) = path.read_dir() {
@@ -127,7 +130,7 @@ fn get_packages() -> Vec<Package> {
     packages
 }
 
-/// Simple chooser list for file-open scenarios (small icons)
+/// Simple chooser list for file-open scenarios (uses small icons)
 fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, selected: i32) {
     let w = window.width();
     window.set(bar_paint().color);
@@ -235,7 +238,7 @@ impl Bar {
             package
         });
 
-        // Start icon on the bar (use natural icon size, not forced square)
+        // Start icon on the bar (theme-managed, fallback PNG)
         let start = THEME
             .load_icon_sized("system/start", IconVariant::Auto, None)
             .unwrap_or_else(|| load_png(format!("{}/icons/places/start-here.png", UI_PATH), icon_size() as u32));
@@ -306,14 +309,13 @@ impl Bar {
         let mut x = (self.width as i32 - total_w) / 2;
         let mut i = 0i32;
 
-        // Start icon slot
+        // Start icon slot (index 0)
         {
             if i == self.selected {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
             }
 
-            // Draw start icon centered in slot
-            let y  = (bar_h_i - self.start.height() as i32) / 2;
+            let y = (bar_h_i - self.start.height() as i32) / 2;
             let ix = x + (slot - self.start.width() as i32) / 2;
             self.start.draw(&mut self.window, ix, y);
 
@@ -323,7 +325,7 @@ impl Bar {
 
         // App slots
         let dpi = dpi_scale();
-        let target_icon = icon_size() as u32; // Use configured icon size (37px)
+        let target_icon = icon_size() as u32;
         for package in self.packages.iter_mut() {
             if i == self.selected {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
@@ -338,14 +340,13 @@ impl Bar {
                 self.selected_window.set_pos(0, sw_y);
             }
 
-            // Get a small (bar) icon at crisp size
             let image = package.get_icon_sized(target_icon, dpi, false);
 
-            let y  = (bar_h_i - image.height() as i32) / 2;
+            let y = (bar_h_i - image.height() as i32) / 2;
             let ix = x + (slot - image.width() as i32) / 2;
             image.draw(&mut self.window, ix, y);
 
-            // Activity marker
+            // Activity marker if child process is alive
             let running = self.children.iter().any(|(exec, _)| exec == &package.exec);
             if running {
                 let inset = 4i32;
@@ -358,7 +359,7 @@ impl Bar {
             i += 1;
         }
 
-        // Clock right
+        // Clock (right)
         let text = self.font.render(&self.time, dpi_helper::font_size((font_size() * 2) as f32).round());
         let tx = self.width as i32 - text.width() as i32 - 8;
         let ty = (bar_h_i - text.height() as i32) / 2;
@@ -367,10 +368,11 @@ impl Bar {
         self.window.sync();
     }
 
+    /// Legacy small category chooser kept for nested categories
     fn start_window(&mut self, category_opt: Option<&String>) -> Option<String> {
         use orbclient::{EventOption, Window, WindowFlag, K_ESC};
 
-        // New path: delegate to desktop/mobile menus
+        // Delegate to new desktop/mobile menus when no category is given
         if category_opt.is_none() {
             match crate::config::mode() {
                 crate::config::Mode::Desktop => {
@@ -388,7 +390,7 @@ impl Bar {
             }
         }
 
-        // Legacy small category chooser (kept only for nested categories)
+        // Small category chooser (legacy)
         let packages = match category_opt {
             Some(category) => self.category_packages.get_mut(category)?,
             None => &mut self.start_packages,
@@ -411,6 +413,7 @@ impl Bar {
         let mut mouse_y = 0;
         let mut mouse_left = false;
         let mut last_mouse_left = false;
+
         // initial draw
         start_window.set(bar_paint().color);
         {
@@ -541,33 +544,77 @@ fn wait(status: &mut i32) -> io::Result<usize> {
 fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut bar = Bar::new(width, height);
 
+    // --- ActionBar: create top bar window + overlay panels window ---
+    let dpi = dpi_scale();
+    let mut actionbar = ActionBar::new(ActionBarConfig::default());
+    let insets = actionbar.required_insets(width, height, dpi);
+
+    // Publish the top inset globally so menus can respect it
+    crate::config::set_top_inset(insets.top);
+
+    // Top action bar window (always at top)
+    let mut actionbar_win = Window::new_flags(
+        0, 0, width, insets.top,
+        "NexusActionBar",
+        &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
+    ).expect("actionbar: failed to open window");
+
+    // Panels overlay window (drawn above normal windows)
+    let mut panels_win = Window::new_flags(
+        0, 0, width, height,
+        "NexusPanels",
+        &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
+    ).expect("actionbar panels: failed to open window");
+
+    // Keep the panels window off-screen & tiny until needed
+    panels_win.set_pos(-10_000, -10_000);
+    panels_win.set_size(1, 1);
+
+    // Wallpaper/background
     match Command::new("nexus-background").spawn() {
         Ok(child) => bar.children.push(("nexus-background".to_string(), child)),
         Err(err) => error!("failed to launch nexus-background: {}", err),
     }
 
+    // Initial rendering of ActionBar so it appears immediately
+    actionbar_win.set(orbclient::Color::rgba(0, 0, 0, 0));
+    actionbar.render_bar(&mut actionbar_win, 0, bar.width);
+    actionbar_win.sync();
+
+    // Panels overlay visibility state (with short fade-out hold)
+    const PANEL_FADEOUT_HOLD_MS: u64 = 240;
+    let mut panels_visible = false;
+    let mut panels_fadeout_deadline: Option<Instant> = None;
+
+    // Event-Rate-Limiting für Event::Panels
+    let mut panels_event_count = 0u32;
+    let mut panels_last_reset = std::time::Instant::now();
+    let mut panels_rate_limited = false;
+    const PANELS_MAX_EVENTS_PER_SECOND: u32 = 10; // Maximal 10 Events pro Sekunde
+
     user_data! {
-        enum Event { Time, Window }
+        enum Event { Time, Bar, ActBar, Panels }
     }
     let event_queue = EventQueue::<Event>::new().expect("launcher: failed to create event queue");
 
-    let mut time_file = File::open(&format!("/scheme/time/{}", flag::CLOCK_MONOTONIC))?;
+    // Monotonic timer (adjust path if needed)
+    let mut time_file = File::open("/scheme/time/4")?;
 
-    event_queue.subscribe(time_file.as_raw_fd() as usize, Event::Time, event::EventFlags::READ)?;
-    event_queue.subscribe(bar.window.as_raw_fd() as usize, Event::Window, event::EventFlags::READ)?;
+    event_queue.subscribe(time_file.as_raw_fd() as usize, Event::Time,   event::EventFlags::READ)?;
+    event_queue.subscribe(bar.window.as_raw_fd()      as usize, Event::Bar,     event::EventFlags::READ)?;
+    event_queue.subscribe(actionbar_win.as_raw_fd()   as usize, Event::ActBar,  event::EventFlags::READ)?;
+    event_queue.subscribe(panels_win.as_raw_fd()      as usize, Event::Panels,  event::EventFlags::READ)?;
 
     let mut mouse_x = -1;
     let mut mouse_y = -1;
     let mut mouse_left = false;
     let mut last_mouse_left = false;
 
-    let all_events = [Event::Time, Event::Window].into_iter();
-
-    'events: for event in all_events
-        .chain(event_queue.map(|e| e.expect("launcher: failed to get next event").user_data))
-    {
-        match event {
+    'events: for ev in event_queue.map(|e| e.expect("launcher: failed to get next event")) {
+        debug!("Event-Loop: Processing event: {:?}", ev.user_data);
+        match ev.user_data {
             Event::Time => {
+                debug!("Event::Time - Timer event received!");
                 let mut time_buf = [0_u8; core::mem::size_of::<TimeSpec>()];
                 if time_file.read(&mut time_buf)? < mem::size_of::<TimeSpec>() { continue; }
 
@@ -594,9 +641,44 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                     if pid == 0 { break; }
                 }
 
+                // Update bottom bar clock & repaint
                 bar.update_time();
                 bar.draw();
 
+                // Advance ActionBar animations & paint
+                actionbar.update(16);
+                actionbar_win.set(orbclient::Color::rgba(0, 0, 0, 0));
+                actionbar.render_bar(&mut actionbar_win, 0, bar.width);
+                actionbar_win.sync();
+
+                // Panels overlay visibility with fade-out grace
+                let now = Instant::now();
+                let want_visible = if actionbar.any_panel_open() {
+                    panels_fadeout_deadline = None;
+                    true
+                } else {
+                    if panels_fadeout_deadline.is_none() {
+                        panels_fadeout_deadline = Some(now + Duration::from_millis(PANEL_FADEOUT_HOLD_MS));
+                    }
+                    panels_fadeout_deadline.unwrap() > now
+                };
+
+                if want_visible && !panels_visible {
+                    panels_win.set_pos(0, 0);
+                    panels_win.set_size(bar.width, bar.height);
+                    panels_visible = true;
+                } else if !want_visible && panels_visible {
+                    panels_win.set_pos(-10_000, -10_000);
+                    panels_win.set_size(1, 1);
+                    panels_visible = false;
+                }
+
+                // Render overlay panels (if visible)
+                panels_win.set(orbclient::Color::rgba(0, 0, 0, 0));
+                actionbar.render_panels(&mut panels_win, bar.width, bar.height);
+                panels_win.sync();
+
+                // Re-arm timer
                 match libredox::data::timespec_from_mut_bytes(&mut time_buf) {
                     time => {
                         time.tv_sec += 1;
@@ -605,9 +687,11 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                 }
                 time_file.write(&time_buf)?;
             }
-            Event::Window => {
+
+            Event::Bar => {
+                debug!("Event::Bar - Processing bar events");
                 for event in bar.window.events() {
-                    // Handle super key combos (unchanged)
+                    // Handle Super+key combos
                     if event.code >= 0x1000_0000 {
                         let mut super_event = event;
                         super_event.code -= 0x1000_0000;
@@ -631,6 +715,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             true
                         }
                         EventOption::Screen(screen_event) => {
+                            // Resize bottom bar windows
                             bar.width = screen_event.width;
                             bar.height = screen_event.height;
                             bar.window.set_pos(0, screen_event.height as i32 - icon_size());
@@ -638,6 +723,36 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             bar.selected = -2; // force redraw
                             bar.selected_window.set_pos(0, screen_event.height as i32);
                             bar.selected_window.set_size(screen_event.width, (font_size() + 8) as u32);
+
+                            // Keep ActionBar & panels in sync, and update global top inset
+                            let dpi = dpi_scale();
+                            let insets = actionbar.required_insets(screen_event.width, screen_event.height, dpi);
+                            crate::config::set_top_inset(insets.top);
+
+                            actionbar_win.set_pos(0, 0);
+                            actionbar_win.set_size(screen_event.width, insets.top);
+
+                            // Apply current overlay visibility policy on resize
+                            let now = Instant::now();
+                            let want_visible = if actionbar.any_panel_open() {
+                                panels_fadeout_deadline = None;
+                                true
+                            } else {
+                                if panels_fadeout_deadline.is_none() {
+                                    panels_fadeout_deadline = Some(now + Duration::from_millis(PANEL_FADEOUT_HOLD_MS));
+                                }
+                                panels_fadeout_deadline.unwrap() > now
+                            };
+
+                            if want_visible && !panels_visible {
+                                panels_win.set_pos(0, 0);
+                                panels_win.set_size(screen_event.width, screen_event.height);
+                                panels_visible = true;
+                            } else if !want_visible && panels_visible {
+                                panels_win.set_pos(-10_000, -10_000);
+                                panels_win.set_size(1, 1);
+                                panels_visible = false;
+                            }
                             true
                         }
                         EventOption::Hover(hover_event) => {
@@ -648,6 +763,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                     };
 
                     if redraw {
+                        // Hit-testing for slots
                         let mut now_selected = -1;
                         {
                             let slot  = bar.window.height() as i32;
@@ -675,6 +791,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             bar.draw();
                         }
 
+                        // Mouse button release logic
                         if !mouse_left && last_mouse_left {
                             let mut i = 0;
 
@@ -684,6 +801,14 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                     bar.suppress_start_open = true;
                                 } else if !bar.suppress_start_open {
                                     bar.start_menu_open = true;
+
+                                    // Ensure panels overlay is out of the way while Start menu is open
+                                    panels_fadeout_deadline = None;
+                                    if panels_visible {
+                                        panels_win.set_pos(-10_000, -10_000);
+                                        panels_win.set_size(1, 1);
+                                        panels_visible = false;
+                                    }
 
                                     match crate::config::mode() {
                                         crate::config::Mode::Desktop => {
@@ -733,6 +858,132 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                         last_mouse_left = mouse_left;
                     }
                 }
+            }
+
+            Event::ActBar => {
+                debug!("Event::ActBar - Processing actionbar events");
+                // Update animations and process input on the action bar itself
+                actionbar.update(16);
+
+                for ev in actionbar_win.events() {
+                    if let Some(msg) = actionbar.handle_event(&ev) {
+                        match msg {
+                            ActionBarMsg::DismissPanels => { /* overlay visibility is handled by policy below */ }
+                            ActionBarMsg::RequestInsetUpdate(new_insets) => {
+                                // Resize top bar and publish new top inset
+                                actionbar_win.set_size(bar.width, new_insets.top);
+                                crate::config::set_top_inset(new_insets.top);
+                            }
+                        }
+                    }
+                }
+
+                // Recompute overlay visibility immediately after input
+                let now = Instant::now();
+                let want_visible = if actionbar.any_panel_open() {
+                    panels_fadeout_deadline = None;
+                    true
+                } else {
+                    if panels_fadeout_deadline.is_none() {
+                        panels_fadeout_deadline = Some(now + Duration::from_millis(PANEL_FADEOUT_HOLD_MS));
+                    }
+                    panels_fadeout_deadline.unwrap() > now
+                };
+
+                if want_visible && !panels_visible {
+                    panels_win.set_pos(0, 0);
+                    panels_win.set_size(bar.width, bar.height);
+                    panels_visible = true;
+                } else if !want_visible && panels_visible {
+                    panels_win.set_pos(-10_000, -10_000);
+                    panels_win.set_size(1, 1);
+                    panels_visible = false;
+                }
+
+                // Redraw bar + panels
+                actionbar_win.set(orbclient::Color::rgba(0, 0, 0, 0));
+                actionbar.render_bar(&mut actionbar_win, 0, bar.width);
+                actionbar_win.sync();
+
+                panels_win.set(orbclient::Color::rgba(0, 0, 0, 0));
+                actionbar.render_panels(&mut panels_win, bar.width, bar.height);
+                panels_win.sync();
+            }
+
+            Event::Panels => {
+                // Event-Rate-Limiting: Prüfe ob zu viele Events pro Sekunde
+                let now = std::time::Instant::now();
+                if now.duration_since(panels_last_reset).as_secs() >= 1 {
+                    // Reset Counter jede Sekunde
+                    panels_event_count = 0;
+                    panels_last_reset = now;
+                    panels_rate_limited = false;
+                }
+
+                panels_event_count += 1;
+
+                if panels_event_count > PANELS_MAX_EVENTS_PER_SECOND {
+                    if !panels_rate_limited {
+                        debug!("Event::Panels - RATE LIMITING ACTIVATED! Too many events ({}), ignoring for 1 second", panels_event_count);
+                        panels_rate_limited = true;
+                    }
+                    // Ignoriere Events wenn Rate-Limit überschritten
+                    continue;
+                }
+
+                debug!("Event::Panels - Processing panel events (count: {}/{})", panels_event_count, PANELS_MAX_EVENTS_PER_SECOND);
+
+                // Event-Queue-Monitoring: Zähle Events in der Queue
+                let mut event_count = 0;
+                for ev in panels_win.events() {
+                    event_count += 1;
+                    // Optional: if you later add interactive controls inside the panels, route them here.
+                    // For now we just allow click-through dismissal handled by ActBar/Button release.
+                    let _ = ev;
+                }
+
+                if event_count > 5 {
+                    debug!("Event::Panels - WARNING: High event queue ({}) - possible event storm!", event_count);
+                }
+
+                // Forward overlay-window events to ActionBar (outside-click-to-dismiss etc.)
+                for ev in panels_win.events() {
+                    if let Some(msg) = actionbar.handle_event(&ev) {
+                        match msg {
+                            ActionBarMsg::DismissPanels => {
+                                // Start fade-out; overlay will remain visible until grace expires
+                                panels_fadeout_deadline = Some(Instant::now() + Duration::from_millis(PANEL_FADEOUT_HOLD_MS));
+                            }
+                            ActionBarMsg::RequestInsetUpdate(_) => { /* not used here */ }
+                        }
+                    }
+                }
+
+                // While animating/out-fading, keep painting
+                let now = Instant::now();
+                let want_visible = if actionbar.any_panel_open() {
+                    panels_fadeout_deadline = None;
+                    true
+                } else {
+                    if panels_fadeout_deadline.is_none() {
+                        panels_fadeout_deadline = Some(now + Duration::from_millis(PANEL_FADEOUT_HOLD_MS));
+                    }
+                    panels_fadeout_deadline.unwrap() > now
+                };
+
+                if want_visible && !panels_visible {
+                    panels_win.set_pos(0, 0);
+                    panels_win.set_size(bar.width, bar.height);
+                    panels_visible = true;
+                } else if !want_visible && panels_visible {
+                    panels_win.set_pos(-10_000, -10_000);
+                    panels_win.set_size(1, 1);
+                    panels_visible = false;
+                }
+
+                panels_win.set(orbclient::Color::rgba(0, 0, 0, 0));
+                actionbar.render_panels(&mut panels_win, bar.width, bar.height);
+                panels_win.sync();
             }
         }
     }

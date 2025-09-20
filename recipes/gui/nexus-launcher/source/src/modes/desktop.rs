@@ -1,17 +1,21 @@
 // src/desktop.rs
 // Desktop start menu (small panel & large overlay) using the shared ui::draw_app_cell.
+// Large mode respects the ActionBar top inset and leaves room for the bottom bar.
+// Close-on-focus-loss is intentionally kept.
 
 use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT, K_RIGHT, K_UP, K_DOWN, K_BKSP, K_ENTER};
-use orbimage::{ResizeType};
+use orbimage::ResizeType;
 use orbfont::Font;
 
 use crate::config;
 use crate::icons::CommonIcons;
-use crate::config::{BAR_HEIGHT, menu_surface_sm_paint, menu_surface_lg_paint, text_inverse_fg, text_fg, load_crisp_font};
+use crate::config::{
+    BAR_HEIGHT, menu_surface_lg_paint, menu_surface_sm_paint, text_fg, text_inverse_fg, load_crisp_font,
+};
 use crate::helper::dpi_helper;
 use libnexus::themes::Paint;
 
-use crate::ui; // use shared draw_app_cell
+use crate::ui; // shared draw_app_cell
 
 #[cfg(target_os = "redox")]
 const UI_PATH: &str = "/ui";
@@ -23,7 +27,6 @@ pub enum DesktopMenuResult {
     Launch(String),
     Logout,
 }
-
 
 /// Rounded rect filler for translucent surfaces.
 fn fill_round_rect(win: &mut Window, x: i32, y: i32, w: u32, h: u32, r: i32, color: Color) {
@@ -72,9 +75,20 @@ pub fn show_desktop_menu(
     pkgs: &mut [crate::package::Package],
 ) -> DesktopMenuResult {
     let mut large = config::desktop_large();
+
+    // Respect ActionBar top inset in large mode
+    let top_inset = crate::config::top_inset() as i32;
+
     let (mut win_x, mut win_y, mut win_w, mut win_h) = if large {
-        (0, 0, screen_w, screen_h.saturating_sub(BAR_HEIGHT))
+        // Large overlay: below top bar, above bottom bar
+        (
+            0,
+            top_inset,
+            screen_w,
+            screen_h.saturating_sub(BAR_HEIGHT + crate::config::top_inset())
+        )
     } else {
+        // Small panel: centered above bottom bar (unchanged)
         let w = (screen_w as f32 * 0.46) as u32;
         let h = (screen_h as f32 * 0.42) as u32;
         let x = ((screen_w - w) / 2) as i32;
@@ -147,18 +161,13 @@ pub fn show_desktop_menu(
         fill_round_rect(&mut window, sx, sy, sw as u32, sh as u32, 6, search_bg);
 
         let qtxt = if query.is_empty() && !search_active { "Search apps…" } else { &query };
-        let qcol = if large {
-            text_inverse_fg() // Weiß auf dunklem Hintergrund
-        } else {
-            text_fg() // Dunkel auf hellem Hintergrund
-        };
-        // Performance optimization: Only render text when it changes
+        let qcol = if large { text_inverse_fg() } else { text_fg() };
         let text = font.render(qtxt, dpi_helper::font_size(14.0).round());
         let text_x = sx + 10;
         let text_y = sy + (sh - text.height() as i32)/2;
 
         if large {
-            // "Hauch Breite" Text-Effekt für Large Mode
+            // Slight “bold-ish” effect on dark background
             text.draw(&mut window, text_x, text_y, qcol);
             text.draw(&mut window, text_x, text_y, qcol);
         } else {
@@ -175,8 +184,15 @@ pub fn show_desktop_menu(
 
         // Toggle hover + draw
         if point_in(mouse_pos, toggle_hit) {
-            fill_round_rect(&mut window, rx - 6, ry - 6, (tiw + 12) as u32, (tih + 12) as u32, 6,
-                if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) });
+            fill_round_rect(
+                &mut window,
+                rx - 6,
+                ry - 6,
+                (tiw + 12) as u32,
+                (tih + 12) as u32,
+                6,
+                if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) },
+            );
         }
         toggle_icon.draw(&mut window, rx, ry);
 
@@ -185,36 +201,39 @@ pub fn show_desktop_menu(
             (0..pkgs.len()).collect()
         } else {
             let ql = query.to_lowercase();
-            pkgs.iter().enumerate().filter_map(|(i,p)| {
-                if p.name.to_lowercase().contains(&ql) { Some(i) } else { None }
-            }).collect()
+            pkgs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| if p.name.to_lowercase().contains(&ql) { Some(i) } else { None })
+                .collect()
         };
 
         // Content area
+        let pad = 14i32;
         let base_content_x = pad;
         let base_content_y = sy + sh + 12;
-        let base_content_w = window.width() as i32 - pad*2;
+        let base_content_w = window.width() as i32 - pad * 2;
         let bottom_reserve = if large { 96 } else { 64 };
         let base_content_h = (window.height() as i32 - bottom_reserve) - base_content_y;
 
         // Grid params
-        let label_h  = 16;
+        let label_h = 16;
         let cell_pad = if large { 10 } else { 8 };
-        let hgap     = if large { 18 } else { 12 };
-        let vgap     = if large { 20 } else { 12 };
+        let hgap = if large { 18 } else { 12 };
+        let vgap = if large { 20 } else { 12 };
         let cols: i32 = 8;
 
         // Compute cell width and icon size
         let cell_w_avail = ((base_content_w - (cols - 1) * hgap) / cols).max(48);
-        let icon_side_raw = (cell_w_avail - 2*cell_pad).max(24);
+        let icon_side_raw = (cell_w_avail - 2 * cell_pad).max(24);
 
         let icon_side = if large {
             (icon_side_raw as f32 * crate::dpi_scale()).max(64.0).min(96.0) as i32
         } else {
             (icon_side_raw as f32 * crate::dpi_scale()).max(32.0).min(48.0) as i32
         };
-        let cell_w    = icon_side + 2*cell_pad;
-        let cell_h    = icon_side + label_h + 2*cell_pad;
+        let cell_w = icon_side + 2 * cell_pad;
+        let cell_h = icon_side + label_h + 2 * cell_pad;
 
         // Center grid horizontally
         let grid_w = cols * cell_w + (cols - 1) * hgap;
@@ -229,47 +248,57 @@ pub fn show_desktop_menu(
         // Paging
         let per_page: usize = (cols * rows).max(1) as usize;
         let page_count = ((indices.len() + per_page - 1) / per_page).max(1);
-        if large && page >= page_count { page = page_count - 1; }
+        if large && page >= page_count {
+            page = page_count - 1;
+        }
 
         let visible_indices: Vec<usize> = if large {
             let start = page * per_page;
-            let end   = (start + per_page).min(indices.len());
+            let end = (start + per_page).min(indices.len());
             indices.get(start..end).unwrap_or(&[]).to_vec()
         } else {
             let total_rows = ((indices.len() as i32) + cols - 1) / cols;
-            let max_top    = (total_rows - rows).max(0) as usize;
-            if list_top > max_top { list_top = max_top; }
+            let max_top = (total_rows - rows).max(0) as usize;
+            if list_top > max_top {
+                list_top = max_top;
+            }
             let start = (list_top as i32 * cols) as usize;
-            let end   = (start + per_page).min(indices.len());
+            let end = (start + per_page).min(indices.len());
             indices.get(start..end).unwrap_or(&[]).to_vec()
         };
 
         // Draw cells
-        let mut cells: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
+        let mut cells: Vec<((i32, i32, i32, i32), usize)> = Vec::new();
         for (i, idx) in visible_indices.iter().enumerate() {
             let row = (i as i32) / cols;
             let col = (i as i32) % cols;
             let cx = grid_x + col * (cell_w + hgap);
             let cy = grid_y + row * (cell_h + vgap);
 
-            // Performance optimization: Only check hover for visible cells
-            // hover veil
+            // Hover veil
             if point_in(mouse_pos, (cx, cy, cell_w, cell_h)) {
-                let veil = if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) };
+                let veil = if large { Color::rgba(255, 255, 255, 28) } else { Color::rgba(0, 0, 0, 22) };
                 fill_round_rect(&mut window, cx, cy, cell_w as u32, cell_h as u32, 8, veil);
             }
 
             let rect = ui::draw_app_cell(
-                &mut window, &font, &mut pkgs[*idx],
-                cx, cy, cell_w, cell_h,
-                icon_side, true, large,
+                &mut window,
+                &font,
+                &mut pkgs[*idx],
+                cx,
+                cy,
+                cell_w,
+                cell_h,
+                icon_side,
+                true,
+                large,
             );
             cells.push((rect, *idx));
         }
 
         // Bottom controls
         let margin = 16i32;
-        let gap    = 16i32;
+        let gap = 16i32;
 
         // left: user avatar + name
         let target_h = if large { 22 } else { 20 };
@@ -284,22 +313,30 @@ pub fn show_desktop_menu(
         let name_text = font.render(&username, dpi_helper::font_size(16.0).round());
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (target_h - name_text.height() as i32) / 2;
-        let user_hit = (user_x, user_y.min(name_y),
+        let user_hit = (
+            user_x,
+            user_y.min(name_y),
             (name_x + name_text.width() as i32) - user_x,
-            target_h.max(name_text.height() as i32));
+            target_h.max(name_text.height() as i32),
+        );
 
         if point_in(mouse_pos, user_hit) {
-            let veil = if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) };
-            fill_round_rect(&mut window, user_hit.0 - 6, user_hit.1 - 6, (user_hit.2 + 12) as u32, (user_hit.3 + 12) as u32, 6, veil);
+            let veil = if large { Color::rgba(255, 255, 255, 28) } else { Color::rgba(0, 0, 0, 22) };
+            fill_round_rect(
+                &mut window,
+                user_hit.0 - 6,
+                user_hit.1 - 6,
+                (user_hit.2 + 12) as u32,
+                (user_hit.3 + 12) as u32,
+                6,
+                veil,
+            );
         }
 
         user_img.draw(&mut window, user_x, user_y);
         let base_name_color = if large { text_inverse_fg() } else { text_fg() };
-        let name_col = if point_in(mouse_pos, user_hit) {
-            if large { text_inverse_fg() } else { text_fg() }
-        } else { base_name_color };
+        let name_col = if point_in(mouse_pos, user_hit) { base_name_color } else { base_name_color };
         if large {
-            // "Hauch Breite" Text-Effekt für Large Mode
             name_text.draw(&mut window, name_x, name_y, name_col);
             name_text.draw(&mut window, name_x, name_y, name_col);
         } else {
@@ -314,26 +351,33 @@ pub fn show_desktop_menu(
         };
         let sw2 = settings_icon.width() as i32;
         let sh2 = settings_icon.height() as i32;
-        let pw  = power_icon.width() as i32;
-        let ph  = power_icon.height() as i32;
+        let pw = power_icon.width() as i32;
+        let ph = power_icon.height() as i32;
 
         let settings_x = window.width() as i32 - sw2 - margin;
         let settings_y = window.height() as i32 - sh2 - margin;
-        let power_x    = settings_x - gap - pw;
-        let power_y    = window.height() as i32 - ph - margin;
+        let power_x = settings_x - gap - pw;
+        let power_y = window.height() as i32 - ph - margin;
 
-        // Set hitboxes for settings and power icons
         power_hit = (power_x, power_y, pw, ph);
         settings_hit = (settings_x, settings_y, sw2, sh2);
 
-        // Draw hover effects
+        // Hover effects
         if point_in(mouse_pos, power_hit) {
-            let veil = if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) };
+            let veil = if large { Color::rgba(255, 255, 255, 28) } else { Color::rgba(0, 0, 0, 22) };
             fill_round_rect(&mut window, power_x - 6, power_y - 6, (pw + 12) as u32, (ph + 12) as u32, 6, veil);
         }
         if point_in(mouse_pos, settings_hit) {
-            let veil = if large { Color::rgba(255,255,255,28) } else { Color::rgba(0,0,0,22) };
-            fill_round_rect(&mut window, settings_x - 6, settings_y - 6, (sw2 + 12) as u32, (sh2 + 12) as u32, 6, veil);
+            let veil = if large { Color::rgba(255, 255, 255, 28) } else { Color::rgba(0, 0, 0, 22) };
+            fill_round_rect(
+                &mut window,
+                settings_x - 6,
+                settings_y - 6,
+                (sw2 + 12) as u32,
+                (sh2 + 12) as u32,
+                6,
+                veil,
+            );
         }
 
         settings_icon.draw(&mut window, settings_x, settings_y);
@@ -343,12 +387,12 @@ pub fn show_desktop_menu(
         dot_hits.clear();
         let total_pages = ((indices.len() + per_page - 1) / per_page).max(1);
         if large && total_pages > 1 {
-            let dots_y  = (window.height() as i32 - sh2 - margin) - 18;
-            let dot_w   = 8;
-            let dot_h   = 3;
+            let dots_y = (window.height() as i32 - sh2 - margin) - 18;
+            let dot_w = 8;
+            let dot_h = 3;
             let spacing = 8;
             let total_w = (total_pages as i32) * dot_w + ((total_pages as i32 - 1) * spacing);
-            let mut dx  = (window.width() as i32 - total_w) / 2;
+            let mut dx = (window.width() as i32 - total_w) / 2;
             for i in 0..total_pages {
                 let active = i == page;
                 let a = if active { 220 } else { 90 };
@@ -378,23 +422,34 @@ pub fn show_desktop_menu(
                         // optional: launch first match
                     } else if !search_active {
                         match k.scancode {
-                            K_LEFT  if large => { if page > 0 { page -= 1; } }
-                            K_RIGHT if large => { if page + 1 < total_pages { page += 1; } }
-                            K_UP    if !large => { if list_top > 0 { list_top -= 1; } }
-                            K_DOWN  if !large => {
+                            K_LEFT if large => {
+                                if page > 0 { page -= 1; }
+                            }
+                            K_RIGHT if large => {
+                                if page + 1 < total_pages { page += 1; }
+                            }
+                            K_UP if !large => {
+                                if list_top > 0 { list_top -= 1; }
+                            }
+                            K_DOWN if !large => {
                                 let total_rows = ((indices.len() as i32) + cols - 1) / cols;
-                                let max_top    = (total_rows - rows).max(0) as usize;
+                                let max_top = (total_rows - rows).max(0) as usize;
                                 if list_top < max_top { list_top += 1; }
                             }
                             _ => {}
                         }
                     }
                 }
-                EventOption::Mouse(m)  => { mouse_pos = (m.x, m.y); }
+                EventOption::Mouse(m) => { mouse_pos = (m.x, m.y); }
                 EventOption::Button(b) => {
                     mouse_down = b.left;
                     if b.left {
-                        search_active = point_in(mouse_pos, search_rect);
+                        // Activate search when clicking inside search rect
+                        if point_in(mouse_pos, search_rect) {
+                            search_active = true;
+                        } else {
+                            search_active = false;
+                        }
                     }
                 }
                 EventOption::Scroll(s) => {
@@ -409,20 +464,23 @@ pub fn show_desktop_menu(
                         }
                     }
                 }
+                // Keep close-on-focus-loss behavior as requested
                 EventOption::Focus(f) => { if !f.focused { break 'ev; } }
-                EventOption::Quit(_)  => break 'ev,
+                EventOption::Quit(_) => break 'ev,
                 _ => {}
             }
         }
 
-        // Release edge
+        // Mouse release edge
         if !mouse_down && last_mouse_down {
             if point_in(mouse_pos, toggle_hit) {
-                // Toggle small/large, reset paging and hard-clear icon caches.
+                // Toggle small/large, reset paging and icon caches, and reapply geometry
                 large = !large;
                 config::set_desktop_large(large);
+
+                let top_inset = crate::config::top_inset() as i32;
                 (win_x, win_y, win_w, win_h) = if large {
-                    (0, 0, screen_w, screen_h.saturating_sub(BAR_HEIGHT))
+                    (0, top_inset, screen_w, screen_h.saturating_sub(BAR_HEIGHT + crate::config::top_inset()))
                 } else {
                     let w = (screen_w as f32 * 0.46) as u32;
                     let h = (screen_h as f32 * 0.42) as u32;
@@ -430,6 +488,7 @@ pub fn show_desktop_menu(
                     let y = (screen_h as i32) - (BAR_HEIGHT as i32) - 11 - (h as i32);
                     (x, y, w, h)
                 };
+
                 window.set_pos(win_x, win_y);
                 window.set_size(win_w, win_h);
                 page = 0;
@@ -447,14 +506,16 @@ pub fn show_desktop_menu(
                 for (rect, idx) in &cells {
                     if point_in(mouse_pos, *rect) {
                         let exec = pkgs[*idx].exec.clone();
-                        if !exec.trim().is_empty() { return DesktopMenuResult::Launch(exec); }
+                        if !exec.trim().is_empty() {
+                            return DesktopMenuResult::Launch(exec);
+                        }
                         launched = true;
                         break;
                     }
                 }
                 if !launched {
                     if large && !point_in(mouse_pos, search_rect) {
-                        // background click closes large menu
+                        // Background click closes large menu
                         break 'ev;
                     }
                 }

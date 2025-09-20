@@ -1,0 +1,16 @@
+[package]
+name = "nexus-actionbar"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_actionbar"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+orbclient = "0.3"
+orbimage = "0.1"
+log = "0.4"
+libnexus = { path = "../../../libs/libnexus/source", default-features = false, features = ["svg"] }

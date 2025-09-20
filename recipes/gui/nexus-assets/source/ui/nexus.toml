@@ -123,11 +123,13 @@ menu_bar_icon_bg_hover  = { rgba = [255,255,255,26] } # 10%
 menu_bar_devider        = { rgba = [255,255,255,89] } # 35%
 
 # Panels/COntrolcenter+Notifications
+actionbar_bg            = { rgba = [255,255,255,89], acrylic = { enabled = true, blur_px = 16 } } # 10%
 panel_bg                = { rgba = [255,255,255,26], acrylic = { enabled = true, blur_px = 16 } } # 10%
+button_hover_veil       = { rgba = [0,0,0,26], acrylic = { enabled = true, blur_px = 16 } } # 10%
 
 # Notifications
-notification_bg         = { rgba = [255,255,255,191], acrylic = { enabled = true, blur_px = 16 } } # 75%
-notification_lower1_bg = { rgba = [255,255,255,178], acrylic = { enabled = true, blur_px = 16 } } # 70%
+notification_pill_bg         = { rgba = [255,255,255,191], acrylic = { enabled = true, blur_px = 16 } } # 75%
+notification_pill_lower1_bg = { rgba = [255,255,255,178], acrylic = { enabled = true, blur_px = 16 } } # 70%
 
 # Control Center
 control_center_group_bg         = { rgba = [255,255,255,128], acrylic = { enabled = true} } # 50%

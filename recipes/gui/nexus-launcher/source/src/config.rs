@@ -1,4 +1,6 @@
-use core::sync::atomic::{AtomicU8, Ordering};
+// src/config.rs
+
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use orbclient::Color;
 use libnexus::themes::{THEME, Paint, Acrylic};
 use orbfont::Font;
@@ -25,6 +27,14 @@ static DESKTOP_LARGE: AtomicU8 = AtomicU8::new(0);
 
 pub fn set_desktop_large(enabled: bool) { DESKTOP_LARGE.store(if enabled {1} else {0}, Ordering::Relaxed); }
 pub fn desktop_large() -> bool { DESKTOP_LARGE.load(Ordering::Relaxed) == 1 }
+
+/// -------- GLOBAL INSETS --------
+/// Top inset in pixels reserved by the ActionBar (so large menus don't cover it).
+/// Set from main.rs via `set_top_inset(insets.top)` and read in desktop/mobile menus.
+static TOP_INSET: AtomicU32 = AtomicU32::new(0);
+
+pub fn set_top_inset(px: u32) { TOP_INSET.store(px, Ordering::Relaxed); }
+pub fn top_inset() -> u32 { TOP_INSET.load(Ordering::Relaxed) }
 
 // -------- UI THEME --------
 // Theme paints (color + acrylic) loaded from nexus-assets via libnexus
@@ -91,7 +101,6 @@ pub fn load_crisp_font() -> Font {
         .unwrap_or_else(|_| Font::find(Some("Sans"), None, None).unwrap())
 }
 
-
 // Menu surface colors with acrylic effect
 pub fn menu_surface_sm_paint() -> Paint {
     THEME.paint("menu_surface_sm_bg", Paint {
@@ -116,6 +125,6 @@ pub fn menu_surface_lg_paint() -> Paint {
 }
 
 // -------- UI CONSTANTS --------
-pub const BAR_HEIGHT: u32 = 54;      // bar height (original: 54px)
-pub const ICON_SCALE: f32 = 0.685;   // 68.5% of the bar height for icons (37/54 = 0.685)
-pub const ICON_SMALL_SCALE: f32 = 0.75; // 75% of the bar height for small icons
+pub const BAR_HEIGHT: u32 = 54;         // bar height (original: 54px)
+pub const ICON_SCALE: f32 = 0.685;      // 37/54 = 0.685
+pub const ICON_SMALL_SCALE: f32 = 0.75; // 75% of bar height for small icons
