@@ -31,7 +31,8 @@ use orbfont::Font;
 use orbimage::Image;
 
 use package::{IconSource, Package};
-use config::{bar_paint, bar_highlight_paint, bar_activity_marker_paint, text_paint, text_highlight_paint, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE};
+use config::{bar_paint, bar_highlight_paint, bar_activity_marker_paint, text_paint, text_highlight_paint, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, load_crisp_font};
+use crate::helper::dpi_helper;
 
 use libnexus::themes::{THEME, IconVariant};
 
@@ -143,7 +144,7 @@ fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, s
         let img = package.get_icon_sized(target_icon, dpi, false);
         img.draw(window, 0, y);
 
-        font.render(&package.name, font_size() as f32).draw(
+        font.render(&package.name, dpi_helper::font_size(font_size() as f32).round()).draw(
             window,
             target_icon as i32 + 8,
             y + 8,
@@ -245,7 +246,7 @@ impl Bar {
             start,
             start_packages,
             category_packages,
-            font: Font::find(Some("Sans"), None, None).unwrap(),
+            font: load_crisp_font(),
             width,
             height,
             window: Window::new_flags(
@@ -328,7 +329,7 @@ impl Bar {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
 
                 self.selected_window.set(orbclient::Color::rgba(0, 0, 0, 0));
-                let text = self.font.render(&package.name, font_size() as f32);
+                let text = self.font.render(&package.name, dpi_helper::font_size(font_size() as f32).round());
                 self.selected_window
                     .rect(x, 0, text.width() + 8, text.height() + 8, bar_paint().color);
                 text.draw(&mut self.selected_window, x + 4, 4, text_highlight_paint().color);
@@ -358,7 +359,7 @@ impl Bar {
         }
 
         // Clock right
-        let text = self.font.render(&self.time, (font_size() * 2) as f32);
+        let text = self.font.render(&self.time, dpi_helper::font_size((font_size() * 2) as f32).round());
         let tx = self.width as i32 - text.width() as i32 - 8;
         let ty = (bar_h_i - text.height() as i32) / 2;
         text.draw(&mut self.window, tx, ty, text_highlight_paint().color);
@@ -420,7 +421,7 @@ impl Bar {
                 }
                 let img = p.get_icon_sized(target, dpi, false);
                 img.draw(&mut start_window, 0, y);
-                let text = self.font.render(&p.name, font_size() as f32);
+                let text = self.font.render(&p.name, dpi_helper::font_size(font_size() as f32).round());
                 text.draw(&mut start_window, target as i32 + 8, y + 8, text_paint().color);
                 y += target as i32;
             }
@@ -781,7 +782,7 @@ fn chooser_main(paths: env::Args) {
                 path,
             )
             .expect("launcher: failed to open window");
-            let font = Font::find(Some("Sans"), None, None).expect("launcher: failed to open font");
+            let font = load_crisp_font();
 
             let mut selected = -1;
             let mut mouse_y = 0;

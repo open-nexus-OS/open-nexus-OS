@@ -7,7 +7,8 @@ use orbfont::Font;
 
 use crate::config;
 use crate::icons::CommonIcons;
-use crate::config::{BAR_HEIGHT, menu_surface_sm_paint, menu_surface_lg_paint};
+use crate::config::{BAR_HEIGHT, menu_surface_sm_paint, menu_surface_lg_paint, text_inverse_fg, text_fg, load_crisp_font};
+use crate::helper::dpi_helper;
 use libnexus::themes::Paint;
 
 use crate::ui; // use shared draw_app_cell
@@ -86,7 +87,7 @@ pub fn show_desktop_menu(
         &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
     ).expect("desktop menu window");
 
-    let font = Font::find(Some("Sans"), None, None).unwrap();
+    let font = load_crisp_font();
     let icons = CommonIcons::load(UI_PATH);
     let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
 
@@ -101,8 +102,8 @@ pub fn show_desktop_menu(
     let mut list_top: usize = 0; // small mode (top row offset)
 
     // Hitboxes
-        let mut power_hit:   (i32,i32,i32,i32) = (0, 0, 0, 0);
-        let mut settings_hit:(i32,i32,i32,i32) = (0, 0, 0, 0);
+    let mut power_hit:   (i32,i32,i32,i32) = (0, 0, 0, 0);
+    let mut settings_hit:(i32,i32,i32,i32) = (0, 0, 0, 0);
     let mut search_rect: (i32,i32,i32,i32);
     let mut toggle_hit:  (i32,i32,i32,i32);
     let mut dot_hits: Vec<((i32,i32,i32,i32), usize)> = Vec::new();
@@ -147,15 +148,22 @@ pub fn show_desktop_menu(
 
         let qtxt = if query.is_empty() && !search_active { "Search apps…" } else { &query };
         let qcol = if large {
-            if query.is_empty() && !search_active { Color::rgba(255,255,255,255) } else { Color::rgba(255,255,255,255) }
+            text_inverse_fg() // Weiß auf dunklem Hintergrund
         } else {
-            if query.is_empty() && !search_active { Color::rgba(10,10,10,255) } else { Color::rgba(10,10,10,255) }
+            text_fg() // Dunkel auf hellem Hintergrund
         };
         // Performance optimization: Only render text when it changes
-        let text = font.render(qtxt, 14.0);
+        let text = font.render(qtxt, dpi_helper::font_size(14.0).round());
         let text_x = sx + 10;
         let text_y = sy + (sh - text.height() as i32)/2;
-        text.draw(&mut window, text_x, text_y, qcol);
+
+        if large {
+            // "Hauch Breite" Text-Effekt für Large Mode
+            text.draw(&mut window, text_x, text_y, qcol);
+            text.draw(&mut window, text_x + 1, text_y, Color::rgba(255,255,255,70));
+        } else {
+            text.draw(&mut window, text_x, text_y, qcol);
+        }
 
         if search_active {
             let caret_x = (text_x + text.width() as i32).min(sx + sw - 8);
@@ -273,7 +281,7 @@ pub fn show_desktop_menu(
         let user_x = margin;
         let user_y = window.height() as i32 - target_h - margin;
 
-        let name_text = font.render(&username, 16.0);
+        let name_text = font.render(&username, dpi_helper::font_size(16.0).round());
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (target_h - name_text.height() as i32) / 2;
         let user_hit = (user_x, user_y.min(name_y),
@@ -286,11 +294,17 @@ pub fn show_desktop_menu(
         }
 
         user_img.draw(&mut window, user_x, user_y);
-        let base_name_color = if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x0A, 0x0A, 0x0A, 255) };
+        let base_name_color = if large { text_inverse_fg() } else { text_fg() };
         let name_col = if point_in(mouse_pos, user_hit) {
-            if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x0A, 0x0A, 0x0A, 255) }
+            if large { text_inverse_fg() } else { text_fg() }
         } else { base_name_color };
-        name_text.draw(&mut window, name_x, name_y, name_col);
+        if large {
+            // "Hauch Breite" Text-Effekt für Large Mode
+            name_text.draw(&mut window, name_x, name_y, name_col);
+            name_text.draw(&mut window, name_x + 1, name_y, Color::rgba(255,255,255,70));
+        } else {
+            name_text.draw(&mut window, name_x, name_y, name_col);
+        }
 
         // right: settings + power
         let (settings_icon, power_icon) = if large {

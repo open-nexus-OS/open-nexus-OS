@@ -1,6 +1,7 @@
 use core::sync::atomic::{AtomicU8, Ordering};
 use orbclient::Color;
 use libnexus::themes::{THEME, Paint, Acrylic};
+use orbfont::Font;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Mode { Desktop = 0, Mobile = 1 }
@@ -64,6 +65,32 @@ pub fn text_highlight_paint() -> Paint {
         acrylic: None
     })
 }
+
+pub fn text_inverse_fg() -> Color {
+    THEME.paint("text_inverse_fg", Paint {
+        color: Color::rgba(0xFF, 0xFF, 0xFF, 255),
+        acrylic: None
+    }).color
+}
+
+pub fn text_fg() -> Color {
+    THEME.paint("text_fg", Paint {
+        color: Color::rgba(0x0A, 0x0A, 0x0A, 255),
+        acrylic: None
+    }).color
+}
+
+// -------- FONT LOADING --------
+/// Load font with fallback strategy to avoid font loading errors
+pub fn load_crisp_font() -> Font {
+    // Try explicit SemiBold weight first, fallback to Regular, then default
+    Font::find(Some("Sans"), Some("SemiBold"), None)
+        .or_else(|_| Font::find(Some("Sans"), Some("Regular"), None))
+        .or_else(|_| Font::find(Some("Sans"), None, None))
+        .or_else(|_| Font::find(None, None, None))
+        .unwrap_or_else(|_| Font::find(Some("Sans"), None, None).unwrap())
+}
+
 
 // Menu surface colors with acrylic effect
 pub fn menu_surface_sm_paint() -> Paint {

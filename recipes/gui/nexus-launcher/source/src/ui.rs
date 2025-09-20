@@ -3,8 +3,10 @@
 
 use orbclient::{Color, Renderer, Window};
 use orbfont::Font;
+use orbimage::Image;
 
-use crate::config::BAR_HEIGHT;
+use crate::config::{BAR_HEIGHT, text_inverse_fg, text_fg};
+use crate::helper::dpi_helper;
 use crate::package::Package;
 
 pub struct SearchState { pub query: String }
@@ -59,7 +61,14 @@ pub fn draw_app_cell(
         let ty = iy + icon.height() as i32 + gap;
         // Light text on dark (large), darker on light (small)
         let col = if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x0A, 0x0A, 0x0A, 255) };
-        text.draw(win, tx, ty, col);
+
+        if large {
+            // "Hauch Breite" Text-Effekt für Large Mode
+            text.draw(win, tx, ty, col);
+            text.draw(win, tx + 1, ty, Color::rgba(255,255,255,70));
+        } else {
+            text.draw(win, tx, ty, col);
+        }
     }
 
     (x, y, cell_w, cell_h)

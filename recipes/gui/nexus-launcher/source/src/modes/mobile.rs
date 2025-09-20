@@ -2,11 +2,13 @@
 // Mobile start menu (fullscreen) using the shared ui::draw_app_cell.
 
 use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT, K_RIGHT};
-use orbfont::Font;
 use orbimage::ResizeType;
+use orbfont::Font;
 
 use crate::icons::CommonIcons;
 use crate::ui;
+use crate::helper::dpi_helper;
+use crate::config::{text_inverse_fg, load_crisp_font};
 
 #[cfg(target_os = "redox")]
 const UI_PATH: &str = "/ui";
@@ -60,7 +62,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
     ).expect("mobile menu window");
 
-    let font = Font::find(Some("Sans"), None, None).unwrap();
+    let font = load_crisp_font();
     let icons = CommonIcons::load(UI_PATH);
     let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
 
@@ -90,9 +92,14 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
 
         fill_round_rect(&mut window, sx, sy, sw as u32, sh as u32, 8, Color::rgba(255,255,255,26));
         let qtxt = if query.is_empty() { "Search apps…" } else { &query };
-        let qcol = if query.is_empty() { Color::rgba(255,255,255,255) } else { Color::rgba(255,255,255,255) };
-        let q = font.render(qtxt, 14.0);
-        q.draw(&mut window, sx + 10, sy + (sh - q.height() as i32)/2, qcol);
+        let qcol = text_inverse_fg(); // Mobile ist immer Large Mode (weiß)
+        let q = font.render(qtxt, dpi_helper::font_size(14.0).round());
+        let text_x = sx + 10;
+        let text_y = sy + (sh - q.height() as i32)/2;
+
+        // "Hauch Breite" Text-Effekt für Mobile (immer Large Mode)
+        q.draw(&mut window, text_x, text_y, qcol);
+        q.draw(&mut window, text_x + 1, text_y, Color::rgba(255,255,255,70));
 
         search_rect = (sx, sy, sw, sh);
 
@@ -191,10 +198,11 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
         let user_y = window.height() as i32 - user_img.height() as i32 - margin;
         user_img.draw(&mut window, user_x, user_y);
 
-        let name_text = font.render(&username, 16.0);
+        let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
+        let name_text = font.render(&username, dpi_helper::font_size(16.0).round());
         let name_x = user_x + user_img.width() as i32 + 8;
         let name_y = user_y + (user_img.height() as i32 - name_text.height() as i32) / 2;
-        name_text.draw(&mut window, name_x, name_y, Color::rgba(0xFF, 0xFF, 0xFF, 255));
+        name_text.draw(&mut window, name_x, name_y, text_inverse_fg());
 
         // Page dots
         if page_count > 1 {
