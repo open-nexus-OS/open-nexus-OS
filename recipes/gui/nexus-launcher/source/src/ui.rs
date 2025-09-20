@@ -63,9 +63,10 @@ pub fn draw_app_cell(
         let col = if large { Color::rgba(0xFF, 0xFF, 0xFF, 255) } else { Color::rgba(0x0A, 0x0A, 0x0A, 255) };
 
         if large {
-            // "Hauch Breite" Text-Effekt für Large Mode
+            // TODO: fix for this workaround
+            // Triple Layer for sharper text
             text.draw(win, tx, ty, col);
-            text.draw(win, tx + 1, ty, Color::rgba(255,255,255,70));
+            text.draw(win, tx, ty, col);
         } else {
             text.draw(win, tx, ty, col);
         }

@@ -160,7 +160,7 @@ pub fn show_desktop_menu(
         if large {
             // "Hauch Breite" Text-Effekt für Large Mode
             text.draw(&mut window, text_x, text_y, qcol);
-            text.draw(&mut window, text_x + 1, text_y, Color::rgba(255,255,255,70));
+            text.draw(&mut window, text_x, text_y, qcol);
         } else {
             text.draw(&mut window, text_x, text_y, qcol);
         }
@@ -301,7 +301,7 @@ pub fn show_desktop_menu(
         if large {
             // "Hauch Breite" Text-Effekt für Large Mode
             name_text.draw(&mut window, name_x, name_y, name_col);
-            name_text.draw(&mut window, name_x + 1, name_y, Color::rgba(255,255,255,70));
+            name_text.draw(&mut window, name_x, name_y, name_col);
         } else {
             name_text.draw(&mut window, name_x, name_y, name_col);
         }
