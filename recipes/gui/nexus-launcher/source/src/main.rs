@@ -600,10 +600,23 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
     // Monotonic timer (adjust path if needed)
     let mut time_file = File::open("/scheme/time/4")?;
 
+    // Initialize timer with current time + 1 second
+    let mut time_buf = [0_u8; core::mem::size_of::<TimeSpec>()];
+    match libredox::data::timespec_from_mut_bytes(&mut time_buf) {
+        time => {
+            time.tv_sec += 1;
+            time.tv_nsec = 0;
+        }
+    }
+    time_file.write(&time_buf)?;
+
     event_queue.subscribe(time_file.as_raw_fd() as usize, Event::Time,   event::EventFlags::READ)?;
     event_queue.subscribe(bar.window.as_raw_fd()      as usize, Event::Bar,     event::EventFlags::READ)?;
     event_queue.subscribe(actionbar_win.as_raw_fd()   as usize, Event::ActBar,  event::EventFlags::READ)?;
     event_queue.subscribe(panels_win.as_raw_fd()      as usize, Event::Panels,  event::EventFlags::READ)?;
+
+    debug!("Event-Subscription: Time={}, Bar={}, ActBar={}, Panels={}",
+           time_file.as_raw_fd(), bar.window.as_raw_fd(), actionbar_win.as_raw_fd(), panels_win.as_raw_fd());
 
     let mut mouse_x = -1;
     let mut mouse_y = -1;
