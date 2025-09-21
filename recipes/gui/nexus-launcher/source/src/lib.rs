@@ -28,3 +28,4 @@ pub use utils::dpi_helper::get_dpi_scale;
 pub fn dpi_scale() -> f32 {
     utils::dpi_helper::get_dpi_scale()
 }
+

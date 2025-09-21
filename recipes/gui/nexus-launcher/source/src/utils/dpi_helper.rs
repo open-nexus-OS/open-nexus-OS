@@ -47,6 +47,16 @@ pub fn font_size(base_size: f32) -> f32 {
     base_size * dpi_scale
 }
 
+/// Legacy icon size function without parameter (uses default base size)
+pub fn icon_size_legacy() -> i32 {
+    icon_size(32.0) // Default base size
+}
+
+/// Legacy font size function without parameter (uses default base size)
+pub fn font_size_legacy() -> f32 {
+    font_size(12.0) // Default base size
+}
+
 /// Calculate any size with DPI scaling
 pub fn scale_size(size: f32) -> f32 {
     let dpi_scale = get_dpi_scale();

@@ -7,9 +7,9 @@ use orbclient::Renderer;
 use crate::services::package_service::{IconSource, Package};
 
 #[cfg(target_os = "redox")]
-static UI_PATH: &'static str = "/ui";
+pub static UI_PATH: &'static str = "/ui";
 #[cfg(not(target_os = "redox"))]
-static UI_PATH: &'static str = "ui";
+pub static UI_PATH: &'static str = "ui";
 
 /// Discover and load all available packages
 pub fn get_packages() -> Vec<Package> {
@@ -133,7 +133,7 @@ pub fn load_start_icon() -> orbimage::Image {
 }
 
 /// Load PNG icon with fallback
-fn load_png<P: AsRef<Path>>(path: P, target: u32) -> orbimage::Image {
+pub fn load_png<P: AsRef<Path>>(path: P, target: u32) -> orbimage::Image {
     use orbimage::Image;
     let icon = Image::from_path(path).unwrap_or(Image::default());
     size_icon(icon, target)

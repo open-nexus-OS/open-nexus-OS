@@ -19,7 +19,7 @@ pub fn chooser_width() -> u32 {
 }
 
 /// Get icon size for small icons
-fn icon_small_size() -> i32 {
+pub fn icon_small_size() -> i32 {
     (icon_size() as f32 * ICON_SMALL_SCALE).round() as i32
 }
 
