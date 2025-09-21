@@ -8,7 +8,7 @@ use orbimage::ResizeType;
 use orbfont::Font;
 
 use crate::config;
-use crate::services::icon_service::CommonIcons;
+use crate::ui::icons::CommonIcons;
 use crate::config::settings::BAR_HEIGHT;
 use crate::config::colors::{
     menu_surface_lg_paint, menu_surface_sm_paint, text_fg, text_inverse_fg, load_crisp_font,
@@ -73,7 +73,7 @@ fn point_in(p: (i32, i32), r: (i32, i32, i32, i32)) -> bool {
 pub fn show_desktop_menu(
     screen_w: u32,
     screen_h: u32,
-    pkgs: &mut [crate::package::Package],
+    pkgs: &mut [crate::services::package_service::Package],
 ) -> DesktopMenuResult {
     let mut large = crate::config::settings::desktop_large();
 

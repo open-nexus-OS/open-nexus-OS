@@ -36,7 +36,7 @@ use orbclient::{EventOption, Renderer, Window, WindowFlag};
 use orbfont::Font;
 use orbimage::Image;
 
-use nexus_launcher::package::{IconSource, Package};
+use nexus_launcher::services::package_service::{IconSource, Package};
 use nexus_launcher::config::colors::{
     bar_activity_marker_paint, bar_highlight_paint, bar_paint, load_crisp_font, text_highlight_paint, text_paint,
 };

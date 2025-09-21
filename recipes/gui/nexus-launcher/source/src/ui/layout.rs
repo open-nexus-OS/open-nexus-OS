@@ -4,7 +4,7 @@ use orbclient::{Renderer, Window};
 use orbfont::Font;
 
 use crate::config::settings::BAR_HEIGHT;
-use crate::package::Package;
+use crate::services::package_service::Package;
 use crate::ui::components::draw_app_cell;
 
 pub struct SearchState { pub query: String }

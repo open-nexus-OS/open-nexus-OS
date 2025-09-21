@@ -1,3 +1,3 @@
 // services/mod.rs - Services and data management
 
-pub mod icon_service;
+pub mod package_service;

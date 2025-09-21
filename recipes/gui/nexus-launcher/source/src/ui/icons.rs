@@ -14,8 +14,8 @@ pub struct CommonIcons {
     pub settings_lg: Image,
     pub search_sm: Image,
     pub search_lg: Image,
-    pub resize_sm: Image, // shows “bigger” in small menu (action = expand)
-    pub resize_lg: Image, // shows “smaller” in large menu (action = shrink)
+    pub resize_sm: Image, // shows "bigger" in small menu (action = expand)
+    pub resize_lg: Image, // shows "smaller" in large menu (action = shrink)
     pub user: Image,
 }
 

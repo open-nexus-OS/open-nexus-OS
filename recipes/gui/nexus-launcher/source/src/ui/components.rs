@@ -6,7 +6,7 @@ use orbimage::Image;
 
 use crate::config::colors::{text_inverse_fg, text_fg};
 use crate::utils::dpi_helper;
-use crate::package::Package;
+use crate::services::package_service::Package;
 
 /// Canonical app cell renderer used everywhere.
 /// - `icon_px`: desired icon side length (before DPI scaling)

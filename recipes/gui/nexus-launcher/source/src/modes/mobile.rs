@@ -7,7 +7,7 @@ use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT,
 use orbimage::ResizeType;
 use orbfont::Font;
 
-use crate::services::icon_service::CommonIcons;
+use crate::ui::icons::CommonIcons;
 use crate::ui::layout;
 use crate::utils::dpi_helper;
 use crate::config::colors::{text_inverse_fg, load_crisp_font};
@@ -59,7 +59,7 @@ fn point_in(p: (i32, i32), r: (i32, i32, i32, i32)) -> bool {
     x >= rx && x < rx + rw && y >= ry && y < ry + rh
 }
 
-pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package::Package]) -> MobileMenuResult {
+pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::services::package_service::Package]) -> MobileMenuResult {
     // Respect top ActionBar inset, and leave room for bottom launcher bar
     let top_inset = crate::config::settings::top_inset();
     let y = top_inset as i32;

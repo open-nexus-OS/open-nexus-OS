@@ -10,7 +10,6 @@ pub mod core;
 
 // Existing modules (keep as-is for now)
 pub mod modes;
-pub mod package;
 
 // Re-export commonly used items for compatibility
 pub use config::settings::{Mode, set_mode, mode};
@@ -21,8 +20,8 @@ pub use config::settings::{BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE};
 
 pub use ui::layout::{SearchState, GridLayout, compute_grid, grid_iter_and_hit};
 pub use ui::components::draw_app_cell;
-pub use package::{IconSource, Package};
-pub use services::icon_service::CommonIcons;
+pub use ui::icons::CommonIcons;
+pub use services::package_service::{IconSource, Package};
 pub use utils::dpi_helper::get_dpi_scale;
 
 // Re-export dpi_scale function for compatibility
