@@ -4,7 +4,7 @@
 
 use orbclient::{Color, Renderer};
 use libnexus::themes::THEME;
-use crate::ui::layout::dp_to_px;
+use libnexus::ui::layout::conversion::dp_to_px;
 use crate::ui::state::ActionBarState;
 
 pub fn render<R: Renderer>(state: &mut ActionBarState, win: &mut R, screen_w: u32, screen_h: u32) {
@@ -15,7 +15,7 @@ pub fn render<R: Renderer>(state: &mut ActionBarState, win: &mut R, screen_w: u3
         .max(240);
 
     // Slide progress 0..1
-    let t = state.tl_notifications.value;
+    let t = state.tl_notifications.value();
     let x = (-(w_px as i32) + (t * w_px as f32) as i32).min(0);
 
     // Top offset: below the bar

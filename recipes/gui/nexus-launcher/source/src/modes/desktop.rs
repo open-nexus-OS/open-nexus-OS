@@ -8,14 +8,15 @@ use orbimage::ResizeType;
 use orbfont::Font;
 
 use crate::config;
-use crate::icons::CommonIcons;
-use crate::config::{
-    BAR_HEIGHT, menu_surface_lg_paint, menu_surface_sm_paint, text_fg, text_inverse_fg, load_crisp_font,
+use crate::services::icon_service::CommonIcons;
+use crate::config::settings::BAR_HEIGHT;
+use crate::config::colors::{
+    menu_surface_lg_paint, menu_surface_sm_paint, text_fg, text_inverse_fg, load_crisp_font,
 };
-use crate::helper::dpi_helper;
+use crate::utils::dpi_helper;
 use libnexus::themes::Paint;
 
-use crate::ui; // shared draw_app_cell
+use crate::ui::layout; // shared draw_app_cell
 
 #[cfg(target_os = "redox")]
 const UI_PATH: &str = "/ui";
@@ -74,10 +75,10 @@ pub fn show_desktop_menu(
     screen_h: u32,
     pkgs: &mut [crate::package::Package],
 ) -> DesktopMenuResult {
-    let mut large = config::desktop_large();
+    let mut large = crate::config::settings::desktop_large();
 
     // Respect ActionBar top inset in large mode
-    let top_inset = crate::config::top_inset() as i32;
+    let top_inset = crate::config::settings::top_inset() as i32;
 
     let (mut win_x, mut win_y, mut win_w, mut win_h) = if large {
         // Large overlay: below top bar, above bottom bar
@@ -85,7 +86,7 @@ pub fn show_desktop_menu(
             0,
             top_inset,
             screen_w,
-            screen_h.saturating_sub(BAR_HEIGHT + crate::config::top_inset())
+            screen_h.saturating_sub(BAR_HEIGHT + crate::config::settings::top_inset())
         )
     } else {
         // Small panel: centered above bottom bar (unchanged)
@@ -281,7 +282,7 @@ pub fn show_desktop_menu(
                 fill_round_rect(&mut window, cx, cy, cell_w as u32, cell_h as u32, 8, veil);
             }
 
-            let rect = ui::draw_app_cell(
+            let rect = crate::ui::components::draw_app_cell(
                 &mut window,
                 &font,
                 &mut pkgs[*idx],
@@ -476,11 +477,11 @@ pub fn show_desktop_menu(
             if point_in(mouse_pos, toggle_hit) {
                 // Toggle small/large, reset paging and icon caches, and reapply geometry
                 large = !large;
-                config::set_desktop_large(large);
+                crate::config::settings::set_desktop_large(large);
 
-                let top_inset = crate::config::top_inset() as i32;
+                let top_inset = crate::config::settings::top_inset() as i32;
                 (win_x, win_y, win_w, win_h) = if large {
-                    (0, top_inset, screen_w, screen_h.saturating_sub(BAR_HEIGHT + crate::config::top_inset()))
+                    (0, top_inset, screen_w, screen_h.saturating_sub(BAR_HEIGHT + crate::config::settings::top_inset()))
                 } else {
                     let w = (screen_w as f32 * 0.46) as u32;
                     let h = (screen_h as f32 * 0.42) as u32;

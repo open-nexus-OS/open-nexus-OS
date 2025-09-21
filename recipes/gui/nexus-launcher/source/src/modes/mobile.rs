@@ -7,10 +7,11 @@ use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT,
 use orbimage::ResizeType;
 use orbfont::Font;
 
-use crate::icons::CommonIcons;
-use crate::ui;
-use crate::helper::dpi_helper;
-use crate::config::{text_inverse_fg, load_crisp_font, BAR_HEIGHT};
+use crate::services::icon_service::CommonIcons;
+use crate::ui::layout;
+use crate::utils::dpi_helper;
+use crate::config::colors::{text_inverse_fg, load_crisp_font};
+use crate::config::settings::BAR_HEIGHT;
 
 #[cfg(target_os = "redox")]
 const UI_PATH: &str = "/ui";
@@ -60,7 +61,7 @@ fn point_in(p: (i32, i32), r: (i32, i32, i32, i32)) -> bool {
 
 pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package::Package]) -> MobileMenuResult {
     // Respect top ActionBar inset, and leave room for bottom launcher bar
-    let top_inset = crate::config::top_inset();
+    let top_inset = crate::config::settings::top_inset();
     let y = top_inset as i32;
     let h = screen_h.saturating_sub(top_inset + BAR_HEIGHT);
 
@@ -163,7 +164,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::package
                 fill_round_rect(&mut window, cx, cy, cell_w as u32, cell_h as u32, 10, Color::rgba(255,255,255,26));
             }
 
-            let rect = ui::draw_app_cell(
+            let rect = crate::ui::components::draw_app_cell(
                 &mut window, &font, &mut pkgs[*idx],
                 cx, cy, cell_w, cell_h,
                 icon_side, true, true, // large=true for mobile

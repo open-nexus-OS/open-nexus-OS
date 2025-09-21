@@ -4,7 +4,7 @@
 
 use orbclient::{Color, Renderer};
 use libnexus::themes::THEME;
-use crate::ui::layout::dp_to_px;
+use libnexus::ui::layout::conversion::dp_to_px;
 use crate::ui::state::ActionBarState;
 
 pub fn render<R: Renderer>(state: &mut ActionBarState, win: &mut R, screen_w: u32, screen_h: u32) {
@@ -15,7 +15,7 @@ pub fn render<R: Renderer>(state: &mut ActionBarState, win: &mut R, screen_w: u3
         .max(260);
 
     // Slide progress 0..1
-    let t = state.tl_control.value;
+    let t = state.tl_control.value();
     let x = (screen_w as i32 - (t * w_px as f32) as i32).max((screen_w as i32) - (w_px as i32));
 
     let y = state.bar_h_px as i32;
@@ -34,7 +34,7 @@ pub fn render<R: Renderer>(state: &mut ActionBarState, win: &mut R, screen_w: u3
     let cell_h = cell_w; // square buttons
 
     // Example two buttons: "Mobile Mode" and "Dark Mode"
-    let mut draw_cell = |col: i32, row: i32, label: &str, active: bool| {
+    let mut draw_cell = |col: i32, row: i32, _label: &str, active: bool| {
         let cx = x + pad + col * (cell_w + gap);
         let cy = y + pad + row * (cell_h + gap);
         let bg = if active { Color::rgba(0, 180, 90, 120) } else { Color::rgba(255,255,255,34) };

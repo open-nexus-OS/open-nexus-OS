@@ -10,20 +10,31 @@ pub struct Button {
     pub hover: bool,
     pub icon_id: String,
     icon_cached: Option<Image>,
+    cached_size: u32, // Track cached icon size to avoid reloading
 }
 
 impl Button {
     pub fn new(icon_id: String) -> Self {
-        Self { rect: (0,0,0,0), pressed: false, hover: false, icon_id, icon_cached: None }
+        Self {
+            rect: (0,0,0,0),
+            pressed: false,
+            hover: false,
+            icon_id,
+            icon_cached: None,
+            cached_size: 0
+        }
     }
 
     pub fn set_rect(&mut self, r: (i32,i32,i32,i32)) { self.rect = r; }
 
     fn load_icon(&mut self, size_px: u32) {
-        // (Re)load every frame size change is overkill, but okay for now; you can cache by key.
-        self.icon_cached = THEME
-            .load_icon_sized(&self.icon_id, IconVariant::Auto, Some((size_px, size_px)))
-            .or(Some(Image::default()));
+        // Only reload icon if size changed or not cached
+        if self.cached_size != size_px || self.icon_cached.is_none() {
+            self.icon_cached = THEME
+                .load_icon_sized(&self.icon_id, IconVariant::Auto, Some((size_px, size_px)))
+                .or(Some(Image::default()));
+            self.cached_size = size_px;
+        }
     }
 
     pub fn hit(&self, x: i32, y: i32) -> bool {

@@ -2,14 +2,10 @@
 //! Colors and icon names are injected; we resolve paints via libnexus THEME.
 
 use orbclient::Color;
-use libnexus::themes::{THEME, Paint, Acrylic};
+use libnexus::themes::{THEME, Paint};
+use libnexus::Easing;
 
-/// Easing modes kept simple for now.
-#[derive(Copy, Clone, Debug)]
-pub enum Easing {
-    CubicOut,
-    Linear,
-}
+// Easing is now imported from libnexus
 
 /// Public configuration the launcher passes in.
 /// All sizes are logical **dp**; conversion to px happens in layout.
@@ -39,7 +35,7 @@ impl Default for Config {
         Self {
             height_dp: 35,
             reduced_motion: false,
-            anim_duration_ms: 180,
+            anim_duration_ms: 250,
             easing: Easing::CubicOut,
 
             icon_notifications: "notifications.button".into(),

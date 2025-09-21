@@ -4,9 +4,9 @@ pub mod config;
 pub mod ui;
 pub mod panels;
 
-use orbclient::{Event, Renderer};
+use orbclient::{Event as OrbEvent, Renderer};
 
-use ui::layout::Insets;
+use libnexus::{Insets, AnimationManager};
 use ui::state::ActionBarState;
 
 /// High-level wrapper the launcher owns.
@@ -21,8 +21,8 @@ impl ActionBar {
     }
 
     /// Insets the window manager should reserve (top bar in px).
-    pub fn required_insets(&self, screen_w: u32, _screen_h: u32, dpi: f32) -> Insets {
-        ui::layout::required_insets(&self.state, screen_w, dpi)
+    pub fn required_insets(&self, _screen_w: u32, _screen_h: u32, dpi: f32) -> Insets {
+        libnexus::ui::layout::required_insets(self.state.cfg.height_dp, dpi)
     }
 
     /// Advance animations by `dt_ms` milliseconds.
@@ -30,9 +30,14 @@ impl ActionBar {
         self.state.update(dt_ms);
     }
 
+    /// Check if any animation is currently running.
+    pub fn is_animating(&self) -> bool {
+        self.state.is_animating()
+    }
+
     /// Route a single input event into the bar and (if open) panels.
     /// Returns an optional message for the host launcher (e.g. DismissPanels).
-    pub fn handle_event(&mut self, ev: &Event) -> Option<ActionBarMsg> {
+    pub fn handle_event(&mut self, ev: &OrbEvent) -> Option<ActionBarMsg> {
         self.state.handle_event(ev)
     }
 
@@ -56,6 +61,11 @@ impl ActionBar {
     /// Close all panels (e.g. when ESC is pressed by the launcher).
     pub fn dismiss_panels(&mut self) {
         self.state.dismiss_panels();
+    }
+
+    /// Set the AnimationManager for 60fps animations.
+    pub fn set_animation_manager(&mut self, manager: &mut AnimationManager) {
+        self.state.set_animation_manager(manager);
     }
 }
 

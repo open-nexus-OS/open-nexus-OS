@@ -36,26 +36,32 @@ use orbclient::{EventOption, Renderer, Window, WindowFlag};
 use orbfont::Font;
 use orbimage::Image;
 
-use nexus_launcher::package::{IconSource, Package};
-use nexus_launcher::config::colors::{
+use package::{IconSource, Package};
+use config::{
     bar_activity_marker_paint, bar_highlight_paint, bar_paint, load_crisp_font, text_highlight_paint, text_paint,
+    BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE,
 };
-use nexus_launcher::config::settings::{BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, Mode, mode, set_top_inset};
-use nexus_launcher::utils::dpi_helper;
-use nexus_launcher::modes::desktop::{show_desktop_menu, DesktopMenuResult};
-use nexus_launcher::modes::mobile::{show_mobile_menu, MobileMenuResult};
+use crate::helper::dpi_helper;
 
 use nexus_actionbar::{ActionBar, ActionBarMsg, Config as ActionBarConfig};
 use libnexus::themes::{IconVariant, THEME};
 use libnexus::RedoxAnimationTimer;
 
-// Modules are now declared in lib.rs
+pub mod modes {
+    pub mod desktop;
+    pub mod mobile;
+}
+mod package;
+mod icons;
+mod helper {
+    pub mod dpi_helper;
+}
 
 static SCALE: AtomicIsize = AtomicIsize::new(1);
 
 /// Global UI scale factor from DPI helper
 pub fn dpi_scale() -> f32 {
-    nexus_launcher::utils::dpi_helper::get_dpi_scale()
+    helper::dpi_helper::get_dpi_scale()
 }
 
 fn chooser_width() -> u32 {
@@ -371,16 +377,16 @@ impl Bar {
 
         // Delegate to new desktop/mobile menus when no category is given
         if category_opt.is_none() {
-            match mode() {
-                Mode::Desktop => {
-                    match show_desktop_menu(self.width, self.height, &mut self.packages) {
-                        DesktopMenuResult::Launch(exec) => return Some(exec),
+            match crate::config::mode() {
+                crate::config::Mode::Desktop => {
+                    match crate::modes::desktop::show_desktop_menu(self.width, self.height, &mut self.packages) {
+                        crate::modes::desktop::DesktopMenuResult::Launch(exec) => return Some(exec),
                         _ => return None,
                     }
                 }
-                Mode::Mobile => {
-                    match show_mobile_menu(self.width, self.height, &mut self.packages) {
-                        MobileMenuResult::Launch(exec) => return Some(exec),
+                crate::config::Mode::Mobile => {
+                    match crate::modes::mobile::show_mobile_menu(self.width, self.height, &mut self.packages) {
+                        crate::modes::mobile::MobileMenuResult::Launch(exec) => return Some(exec),
                         _ => return None,
                     }
                 }
@@ -561,7 +567,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
     debug!("RedoxAnimationTimer started successfully");
 
     // Publish the top inset globally so menus can respect it
-    set_top_inset(insets.top);
+    crate::config::set_top_inset(insets.top);
 
     // Z-Buffer-System für Window-Hierarchie (Orbital-ähnlich)
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -811,7 +817,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                                 ActionBarMsg::DismissPanels => { /* handled by visibility policy */ }
                                                 ActionBarMsg::RequestInsetUpdate(new_insets) => {
                                                     actionbar_window.set_size(bar.width, new_insets.top);
-                                                    set_top_inset(new_insets.top);
+                                                    crate::config::set_top_inset(new_insets.top);
                                                 }
                                             }
                                         }
@@ -827,7 +833,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                         ActionBarMsg::DismissPanels => { /* handled by visibility policy */ }
                                         ActionBarMsg::RequestInsetUpdate(new_insets) => {
                                             actionbar_window.set_size(bar.width, new_insets.top);
-                                            set_top_inset(new_insets.top);
+                                            crate::config::set_top_inset(new_insets.top);
                                         }
                                     }
                                 }
@@ -879,7 +885,7 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             // Keep ActionBar & panels in sync, and update global top inset
                             let dpi = dpi_scale();
                             let insets = actionbar.required_insets(screen_event.width, screen_event.height, dpi);
-                            set_top_inset(insets.top);
+                            crate::config::set_top_inset(insets.top);
 
                             if let Some(w) = windows.get_mut(&actionbar_id) {
                                 w.set_pos(0, 0);
@@ -970,24 +976,24 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                         panels_visible = false;
                                     }
 
-                                    match mode() {
-                                        Mode::Desktop => {
-                                            match show_desktop_menu(bar.width, bar.height, &mut bar.packages) {
-                                                DesktopMenuResult::Launch(exec) => {
+                                    match crate::config::mode() {
+                                        crate::config::Mode::Desktop => {
+                                            match crate::modes::desktop::show_desktop_menu(bar.width, bar.height, &mut bar.packages) {
+                                                crate::modes::desktop::DesktopMenuResult::Launch(exec) => {
                                                     if !exec.trim().is_empty() { bar.spawn(exec); }
                                                 }
-                                                DesktopMenuResult::Logout => {
+                                                crate::modes::desktop::DesktopMenuResult::Logout => {
                                                     break 'events;
                                                 }
                                                 _ => {}
                                             }
                                         }
-                                        Mode::Mobile => {
-                                            match show_mobile_menu(bar.width, bar.height, &mut bar.packages) {
-                                                 MobileMenuResult::Launch(exec) => {
+                                        crate::config::Mode::Mobile => {
+                                            match crate::modes::mobile::show_mobile_menu(bar.width, bar.height, &mut bar.packages) {
+                                                crate::modes::mobile::MobileMenuResult::Launch(exec) => {
                                                     if !exec.trim().is_empty() { bar.spawn(exec); }
                                                 }
-                                                 MobileMenuResult::Logout => {
+                                                crate::modes::mobile::MobileMenuResult::Logout => {
                                                     break 'events;
                                                 }
                                                 _ => {}
