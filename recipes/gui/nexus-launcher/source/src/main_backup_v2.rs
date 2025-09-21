@@ -32,12 +32,9 @@ use std::time::{Duration, Instant};
 
 // Simplified event handling - no complex event system needed
 
-use orbclient::{EventOption, Renderer, Window, WindowFlag, K_ESC};
+use orbclient::{EventOption, Renderer, Window, WindowFlag};
 use orbfont::Font;
 use orbimage::Image;
-
-// Import modular handlers
-use nexus_launcher::ui::chooser_handler;
 
 use nexus_launcher::services::package_service::{IconSource, Package};
 use nexus_launcher::config::colors::{
@@ -370,17 +367,22 @@ impl Bar {
 
     /// Legacy small category chooser kept for nested categories
     fn start_window(&mut self, category_opt: Option<&String>) -> Option<String> {
-        match mode() {
-            Mode::Desktop => {
-                match show_desktop_menu(self.width, self.height, &mut self.packages) {
-                    DesktopMenuResult::Launch(exec) => return Some(exec),
-                    _ => return None,
+        use orbclient::{EventOption, Window, WindowFlag, K_ESC};
+
+        // Delegate to new desktop/mobile menus when no category is given
+        if category_opt.is_none() {
+            match mode() {
+                Mode::Desktop => {
+                    match show_desktop_menu(self.width, self.height, &mut self.packages) {
+                        DesktopMenuResult::Launch(exec) => return Some(exec),
+                        _ => return None,
+                    }
                 }
-            }
-            Mode::Mobile => {
-                match show_mobile_menu(self.width, self.height, &mut self.packages) {
-                    MobileMenuResult::Launch(exec) => return Some(exec),
-                    _ => return None,
+                Mode::Mobile => {
+                    match show_mobile_menu(self.width, self.height, &mut self.packages) {
+                        MobileMenuResult::Launch(exec) => return Some(exec),
+                        _ => return None,
+                    }
                 }
             }
         }
@@ -536,8 +538,7 @@ fn wait(status: &mut i32) -> io::Result<usize> {
     })
 }
 
-// bar_main moved to ui/bar_handler.rs
-fn bar_main_original(width: u32, height: u32) -> io::Result<()> {
+fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut bar = Bar::new(width, height);
 
     // --- ActionBar: create top bar window + overlay panels window ---
@@ -1056,7 +1057,85 @@ fn bar_main_original(width: u32, height: u32) -> io::Result<()> {
     Ok(())
 }
 
-// chooser_main moved to ui/chooser_handler.rs
+fn chooser_main(paths: env::Args) {
+    for ref path in paths.skip(1) {
+        let mut packages = get_packages();
+
+        packages.retain(|package| -> bool {
+            for accept in package.accepts.iter() {
+                if (accept.starts_with('*') && path.ends_with(&accept[1..]))
+                    || (accept.ends_with('*') && path.starts_with(&accept[..accept.len() - 1]))
+                {
+                    return true;
+                }
+            }
+            false
+        });
+
+        if packages.len() > 1 {
+            let mut window = Window::new(
+                -1,
+                -1,
+                chooser_width(),
+                packages.len() as u32 * icon_small_size() as u32,
+                path,
+            )
+            .expect("launcher: failed to open window");
+            let font = load_crisp_font();
+
+            let mut selected = -1;
+            let mut mouse_y = 0;
+            let mut mouse_left = false;
+            let mut last_mouse_left = false;
+
+            draw_chooser(&mut window, &font, &mut packages, selected);
+            'choosing: loop {
+                for event in window.events() {
+                    let redraw = match event.to_option() {
+                        EventOption::Mouse(mouse_event) => { mouse_y = mouse_event.y; true }
+                        EventOption::Button(button_event) => { mouse_left = button_event.left; true }
+                        EventOption::Quit(_) => break 'choosing,
+                        _ => false,
+                    };
+
+                    if redraw {
+                        let mut now_selected = -1;
+
+                        let mut y = 0;
+                        for (i, _package) in packages.iter().enumerate() {
+                            if mouse_y >= y && mouse_y < y + icon_size() {
+                                now_selected = i as i32;
+                            }
+                            y += icon_small_size();
+                        }
+
+                        if now_selected != selected {
+                            selected = now_selected;
+                            draw_chooser(&mut window, &font, &mut packages, selected);
+                        }
+
+                        if !mouse_left && last_mouse_left {
+                            let mut y = 0;
+                            for package in packages.iter() {
+                                if mouse_y >= y && mouse_y < y + icon_small_size() {
+                                    spawn_exec(&package.exec, Some(&path));
+                                    break 'choosing;
+                                }
+                                y += icon_small_size();
+                            }
+                        }
+
+                        last_mouse_left = mouse_left;
+                    }
+                }
+            }
+        } else if let Some(package) = packages.get(0) {
+            spawn_exec(&package.exec, Some(&path));
+        } else {
+            error!("no application found for '{}'", path);
+        }
+    }
+}
 
 fn start_logging() {
     if let Err(e) = RedoxLogger::new()
@@ -1080,11 +1159,9 @@ fn main() -> Result<(), String> {
     SCALE.store((height as isize / 1600) + 1, Ordering::Relaxed);
     let paths = env::args();
     if paths.len() > 1 {
-        // Use modular chooser handler
-        chooser_handler::chooser_main(paths);
+        chooser_main(paths);
     } else {
-        // Use original bar_main for now (modular version in progress)
-        bar_main_original(width, height).map_err(|e| e.to_string())?;
+        bar_main(width, height).map_err(|e| e.to_string())?;
     }
 
     Ok(())
