@@ -1,5 +1,5 @@
 // src/ui/bar_handler.rs
-// Bottom taskbar logic - refactored for modularity
+// Bottom taskbar logic - extracted from main.rs for modularity
 
 use std::io::{self, ErrorKind, Read, Write};
 use std::fs::File;
@@ -24,23 +24,23 @@ use libredox::call::waitpid;
 use libredox::data::TimeSpec;
 use libc;
 
+use nexus_actionbar::{ActionBar, ActionBarMsg, Config as ActionBarConfig};
+use libnexus::RedoxAnimationTimer;
 use event::{user_data, EventQueue, Event, EventFlags};
 
 use crate::dpi_scale;
-use crate::config::settings::{BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, Mode, mode, set_top_inset};
+use crate::config::settings::{Mode, mode, set_top_inset, BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE};
 use crate::config::colors::{bar_paint, bar_highlight_paint, bar_activity_marker_paint};
 use crate::config::colors::{text_paint, text_highlight_paint, text_inverse_fg, text_fg};
 use crate::config::colors::load_crisp_font;
 use crate::ui::layout::{SearchState, GridLayout, compute_grid, grid_iter_and_hit};
 use crate::ui::components::draw_app_cell;
 use crate::ui::icons::CommonIcons;
-use crate::ui::actionbar_handler::ActionBarHandler;
-use crate::ui::menu_handler::{MenuHandler, MenuResult};
-use crate::modes::desktop::{show_desktop_menu, DesktopMenuResult};
-use crate::modes::mobile::{show_mobile_menu, MobileMenuResult};
 use crate::services::package_service::{IconSource, Package};
 use crate::services::process_manager::{wait, reap_all_zombies};
 use crate::types::state::{SCALE, LauncherState, WindowState};
+use crate::modes::desktop::{show_desktop_menu, DesktopMenuResult};
+use crate::modes::mobile::{show_mobile_menu, MobileMenuResult};
 
 use log::{debug, error, info};
 
@@ -371,41 +371,77 @@ impl Bar {
             None => error!("failed to parse {}", exec),
         }
     }
-
-    /// Remove finished child processes
-    fn reap_children(&mut self) {
-        let mut i = 0;
-        while i < self.children.len() {
-            let remove = match self.children[i].1.try_wait() {
-                Ok(None) => false,
-                Ok(Some(status)) => {
-                    info!("{} ({}) exited with {}", self.children[i].0, self.children[i].1.id(), status);
-                    true
-                }
-                Err(err) => {
-                    error!("failed to wait for {} ({}): {}", self.children[i].0, self.children[i].1.id(), err);
-                    true
-                }
-            };
-            if remove {
-                self.children.remove(i);
-            } else {
-                i += 1;
-            }
-        }
-    }
 }
 
 /// Main bar function - extracted from main.rs for modularity
 pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut bar = Bar::new(width, height);
 
-    // --- Initialize handlers ---
-    let mut actionbar_handler = ActionBarHandler::new(width, height);
-    let mut menu_handler = MenuHandler::new();
+    // --- ActionBar: create top bar window + overlay panels window ---
+    let dpi = dpi_scale();
+    let mut actionbar = ActionBar::new(ActionBarConfig::default());
+    let insets = actionbar.required_insets(width, height, dpi);
 
-    // Initialize ActionBar rendering
-    actionbar_handler.initialize(width);
+    // --- RedoxAnimationTimer: 30fps animation system ---
+    let mut animation_timer = RedoxAnimationTimer::new();
+    debug!("Starting RedoxAnimationTimer...");
+
+    // Setze Callback für Animation-Updates
+    animation_timer.set_callback(|| {
+        debug!("RedoxAnimationTimer callback - Animation frame update");
+        // Animation-Updates werden in Event::Time verarbeitet
+        // Hier nur Debug-Ausgabe
+    });
+
+    animation_timer.start(); // Start 30fps timer
+    debug!("RedoxAnimationTimer started successfully");
+
+    // Publish the top inset globally so menus can respect it
+    set_top_inset(insets.top);
+
+    // Z-Buffer-System für Window-Hierarchie (Orbital-ähnlich)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    enum WindowZOrder {
+        Back = 0,
+        Normal = 1,
+        Front = 2,
+        AlwaysOnTop = 3,
+    }
+
+    // Z-Buffer für Window-Management
+    let mut zbuffer: Vec<(usize, WindowZOrder, usize)> = Vec::new();
+    let mut windows: std::collections::BTreeMap<usize, Window> = std::collections::BTreeMap::new();
+    let mut next_window_id = 1usize;
+
+    // Top action bar window (always at top)
+    let actionbar_id = next_window_id;
+    next_window_id += 1;
+    let mut actionbar_win = Window::new_flags(
+        0, 0, width, insets.top,
+        "NexusActionBar",
+        &[WindowFlag::Async, WindowFlag::Borderless],
+    ).expect("actionbar: failed to open window");
+
+    // ActionBar in Z-Buffer einfügen (höchste Priorität)
+    zbuffer.push((actionbar_id, WindowZOrder::AlwaysOnTop, 0));
+    windows.insert(actionbar_id, actionbar_win);
+
+    // Panels overlay window (drawn above normal windows)
+    let panels_id = next_window_id;
+    next_window_id += 1;
+    let mut panels_win = Window::new_flags(
+        0, 0, width, height,
+        "NexusPanels",
+        &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
+    ).expect("actionbar panels: failed to open window");
+
+    // Keep the panels window off-screen & tiny until needed
+    panels_win.set_pos(-10_000, -10_000);
+    panels_win.set_size(1, 1);
+
+    // Panels in Z-Buffer einfügen (höchste Priorität nach ActionBar)
+    zbuffer.push((panels_id, WindowZOrder::AlwaysOnTop, 1));
+    windows.insert(panels_id, panels_win);
 
     // Wallpaper/background
     match Command::new("nexus-background").spawn() {
@@ -413,8 +449,19 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
         Err(err) => error!("failed to launch nexus-background: {}", err),
     }
 
+    // Initial rendering of ActionBar so it appears immediately
+    if let Some(actionbar_window) = windows.get_mut(&actionbar_id) {
+        actionbar_window.set(orbclient::Color::rgba(0, 0, 0, 0));
+        actionbar.render_bar(actionbar_window, 0, bar.width);
+        actionbar_window.sync();
+    }
 
-    // Event system setup
+    // Panels overlay visibility state (with short fade-out hold)
+    const PANEL_FADEOUT_HOLD_MS: u64 = 240;
+    let mut panels_visible = false;
+    let mut panels_fadeout_deadline: Option<Instant> = None;
+
+    // Event::Panels wird komplett blockiert - keine Rate-Limiting nötig
 
     user_data! {
         enum Event { Time, Bar, ActBar, Panels }
@@ -439,16 +486,12 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
     event_queue.subscribe(time_file.as_raw_fd() as usize, Event::Time,   event::EventFlags::READ)?;
     event_queue.subscribe(bar.window.as_raw_fd()      as usize, Event::Bar,     event::EventFlags::READ)?;
 
-    // Subscribe to ActionBar events
-    let actionbar_fd = actionbar_handler.get_actionbar_fd();
-    let panels_fd = actionbar_handler.get_panels_fd();
+    // ActionBar und Panels aus Z-Buffer-System abrufen
+    let actionbar_fd = windows.get(&actionbar_id).unwrap().as_raw_fd();
+    let panels_fd = windows.get(&panels_id).unwrap().as_raw_fd();
 
-    if actionbar_fd >= 0 {
-        event_queue.subscribe(actionbar_fd as usize, Event::ActBar, event::EventFlags::READ)?;
-    }
-    if panels_fd >= 0 {
-        event_queue.subscribe(panels_fd as usize, Event::Panels, event::EventFlags::READ)?;
-    }
+    event_queue.subscribe(actionbar_fd as usize, Event::ActBar,  event::EventFlags::READ)?;
+    event_queue.subscribe(panels_fd as usize, Event::Panels,  event::EventFlags::READ)?;
 
     debug!("Event-Subscription: Time={}, Bar={}, ActBar={}, Panels={}",
            time_file.as_raw_fd(), bar.window.as_raw_fd(), actionbar_fd, panels_fd);
@@ -457,6 +500,12 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut mouse_y = -1;
     let mut mouse_left = false;
     let mut last_mouse_left = false;
+
+    // Z-Buffer sortieren (höchste Priorität zuerst)
+    zbuffer.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Hit-Testing-Funktion für Mouse-Events (Orbital-ähnlich)
+    // Wird direkt in Event-Handlern verwendet, um Borrow-Checker-Probleme zu vermeiden
 
     // UNIFIED EVENT-LOOP-ARCHITEKTUR
     // Einheitliches Event-System für alle Komponenten
@@ -475,7 +524,21 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                 if time_file.read(&mut time_buf)? < mem::size_of::<TimeSpec>() { continue; }
 
                 // Reap exited children
-                bar.reap_children();
+                let mut i = 0;
+                while i < bar.children.len() {
+                    let remove = match bar.children[i].1.try_wait() {
+                        Ok(None) => false,
+                        Ok(Some(status)) => {
+                            info!("{} ({}) exited with {}", bar.children[i].0, bar.children[i].1.id(), status);
+                            true
+                        }
+                        Err(err) => {
+                            error!("failed to wait for {} ({}): {}", bar.children[i].0, bar.children[i].1.id(), err);
+                            true
+                        }
+                    };
+                    if remove { bar.children.remove(i); } else { i += 1; }
+                }
 
                 loop {
                     let mut status = 0;
@@ -487,8 +550,49 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                 bar.update_time();
                 bar.draw();
 
-                // Handle ActionBar timer events
-                actionbar_handler.handle_timer_event(bar.width, bar.height);
+                // Update ActionBar (Animation und State-Validation)
+                actionbar.update(0);
+
+                // Render ActionBar
+                if let Some(actionbar_window) = windows.get_mut(&actionbar_id) {
+                    actionbar_window.set(orbclient::Color::rgba(0, 0, 0, 0));
+                    actionbar.render_bar(actionbar_window, 0, bar.width);
+                    actionbar_window.sync();
+                }
+
+                // Panels overlay visibility with fade-out grace
+                let now = Instant::now();
+                let any_animation_running = actionbar.is_animating();
+                let want_visible = if actionbar.any_panel_open() || any_animation_running {
+                    panels_fadeout_deadline = None;
+                    true
+                } else {
+                    if panels_fadeout_deadline.is_none() {
+                        panels_fadeout_deadline = Some(now + Duration::from_millis(PANEL_FADEOUT_HOLD_MS));
+                    }
+                    panels_fadeout_deadline.unwrap() > now
+                };
+
+                if want_visible && !panels_visible {
+                    if let Some(panels_window) = windows.get_mut(&panels_id) {
+                        panels_window.set_pos(0, 0);
+                        panels_window.set_size(bar.width, bar.height);
+                    }
+                    panels_visible = true;
+                } else if !want_visible && panels_visible {
+                    if let Some(panels_window) = windows.get_mut(&panels_id) {
+                        panels_window.set_pos(-10_000, -10_000);
+                        panels_window.set_size(1, 1);
+                    }
+                    panels_visible = false;
+                }
+
+                // Render overlay panels (if visible)
+                if let Some(panels_window) = windows.get_mut(&panels_id) {
+                    panels_window.set(orbclient::Color::rgba(0, 0, 0, 0));
+                    actionbar.render_panels(panels_window, bar.width, bar.height);
+                    panels_window.sync();
+                }
 
                 // Re-arm timer
                 match libredox::data::timespec_from_mut_bytes(&mut time_buf) {
@@ -500,10 +604,75 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                 time_file.write(&time_buf)?;
             }
             Event::ActBar => {
-                // Handle ActionBar events via ActionBarHandler
-                if let Some(msg) = actionbar_handler.handle_actionbar_event(bar.width, bar.height) {
-                    debug!("ActionBar message from handler: {:?}", msg);
-                    // Handle any messages from ActionBar if needed
+                // ActionBar-Events über Z-Buffer-System verarbeiten
+                debug!("Event::ActBar - Processing ActionBar events via Z-Buffer");
+                if let Some(actionbar_window) = windows.get_mut(&actionbar_id) {
+                    let mut event_count = 0;
+                    for ev_win in actionbar_window.events() {
+                        event_count += 1;
+                        debug!("ActionBar window event #{}: {:?}", event_count, ev_win);
+
+                        // Mouse-Events über Hit-Testing verarbeiten
+                        let ev_option = ev_win.to_option();
+                        match ev_option {
+                            orbclient::EventOption::Mouse(mouse_ev) => {
+                                mouse_x = mouse_ev.x;
+                                mouse_y = mouse_ev.y;
+                                debug!("Mouse event at ({}, {})", mouse_x, mouse_y);
+                                // Hit-Testing direkt hier implementieren
+                                debug!("Hit-Testing: Mouse at ({}, {})", mouse_x, mouse_y);
+
+                                // Prüfe ob Mouse innerhalb des ActionBar-Windows ist
+                                if mouse_x >= 0 && mouse_y >= 0 &&
+                                   mouse_x < actionbar_window.width() as i32 && mouse_y < actionbar_window.height() as i32 {
+                                    debug!("Hit-Testing: ActionBar hit at ({}, {})", mouse_x, mouse_y);
+                                    // ActionBar-Event verarbeiten
+                                }
+                            }
+                            orbclient::EventOption::Button(button_ev) => {
+                                mouse_left = button_ev.left;
+                                if button_ev.left && !last_mouse_left {
+                                    debug!("Mouse click at ({}, {})", mouse_x, mouse_y);
+                                    // Hit-Testing direkt hier implementieren
+                                    debug!("Hit-Testing: Mouse click at ({}, {})", mouse_x, mouse_y);
+
+                                    // Prüfe ob Mouse innerhalb des ActionBar-Windows ist
+                                    if mouse_x >= 0 && mouse_y >= 0 &&
+                                       mouse_x < actionbar_window.width() as i32 && mouse_y < actionbar_window.height() as i32 {
+                                        debug!("Hit-Testing: ActionBar hit - processing click event");
+                                        // ActionBar-Event verarbeiten
+                                        if let Some(msg) = actionbar.handle_event(&ev_win) {
+                                            debug!("ActionBar message: {:?}", msg);
+                                            match msg {
+                                                ActionBarMsg::DismissPanels => { /* handled by visibility policy */ }
+                                                ActionBarMsg::RequestInsetUpdate(new_insets) => {
+                                                    actionbar_window.set_size(bar.width, new_insets.top);
+                                                    set_top_inset(new_insets.top);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                last_mouse_left = button_ev.left;
+                            }
+                            _ => {
+                                // Andere Events direkt an ActionBar weiterleiten
+                                if let Some(msg) = actionbar.handle_event(&ev_win) {
+                                    debug!("ActionBar message: {:?}", msg);
+                                    match msg {
+                                        ActionBarMsg::DismissPanels => { /* handled by visibility policy */ }
+                                        ActionBarMsg::RequestInsetUpdate(new_insets) => {
+                                            actionbar_window.set_size(bar.width, new_insets.top);
+                                            set_top_inset(new_insets.top);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if event_count == 0 {
+                        debug!("ActionBar window: NO EVENTS received");
+                    }
                 }
             }
             Event::Bar => {
@@ -529,7 +698,7 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                     let redraw = match event.to_option() {
                         EventOption::Mouse(mouse_event) => { mouse_x = mouse_event.x; mouse_y = mouse_event.y; true }
                         EventOption::Button(button_event) => {
-                            if button_event.left { menu_handler.reset_suppress_on_click(); }
+                            if button_event.left { bar.suppress_start_open = false; }
                             mouse_left = button_event.left;
                             true
                         }
@@ -543,8 +712,41 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             bar.selected_window.set_pos(0, screen_event.height as i32);
                             bar.selected_window.set_size(screen_event.width, (font_size_legacy() + 8.0) as u32);
 
-                            // Handle ActionBar resize
-                            actionbar_handler.handle_screen_resize(screen_event.width, screen_event.height);
+                            // Keep ActionBar & panels in sync, and update global top inset
+                            let dpi = dpi_scale();
+                            let insets = actionbar.required_insets(screen_event.width, screen_event.height, dpi);
+                            set_top_inset(insets.top);
+
+                            if let Some(w) = windows.get_mut(&actionbar_id) {
+                                w.set_pos(0, 0);
+                                w.set_size(screen_event.width, insets.top);
+                            }
+
+                            // Apply current overlay visibility policy on resize
+                            let now = Instant::now();
+                            let want_visible = if actionbar.any_panel_open() {
+                                panels_fadeout_deadline = None;
+                                true
+                            } else {
+                                if panels_fadeout_deadline.is_none() {
+                                    panels_fadeout_deadline = Some(now + Duration::from_millis(PANEL_FADEOUT_HOLD_MS));
+                                }
+                                panels_fadeout_deadline.unwrap() > now
+                            };
+
+                            if want_visible && !panels_visible {
+                                if let Some(w) = windows.get_mut(&panels_id) {
+                                    w.set_pos(0, 0);
+                                    w.set_size(screen_event.width, screen_event.height);
+                                }
+                                panels_visible = true;
+                            } else if !want_visible && panels_visible {
+                                if let Some(w) = windows.get_mut(&panels_id) {
+                                    w.set_pos(-10_000, -10_000);
+                                    w.set_size(1, 1);
+                                }
+                                panels_visible = false;
+                            }
                             true
                         }
                         EventOption::Hover(hover_event) => {
@@ -589,18 +791,48 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
 
                             // Start button slot
                             if i == bar.selected {
-                                // Dismiss ActionBar panels when opening Start menu
-                                actionbar_handler.dismiss_panels();
+                                if bar.start_menu_open {
+                                    bar.suppress_start_open = true;
+                                } else if !bar.suppress_start_open {
+                                    bar.start_menu_open = true;
 
-                                // Handle start menu via MenuHandler
-                                match menu_handler.handle_start_menu_click(bar.width, bar.height, &mut bar.packages) {
-                                    MenuResult::Launch(exec) => {
-                                        if !exec.trim().is_empty() { bar.spawn(exec); }
+                                    // Ensure panels overlay is out of the way while Start menu is open
+                                    panels_fadeout_deadline = None;
+                                    if panels_visible {
+                                        if let Some(panels_window) = windows.get_mut(&panels_id) {
+                                            panels_window.set_pos(-10_000, -10_000);
+                                            panels_window.set_size(1, 1);
+                                        }
+                                        panels_visible = false;
                                     }
-                                    MenuResult::Logout => {
-                                        break 'events;
+
+                                    match mode() {
+                                        Mode::Desktop => {
+                                            match show_desktop_menu(bar.width, bar.height, &mut bar.packages) {
+                                                DesktopMenuResult::Launch(exec) => {
+                                                    if !exec.trim().is_empty() { bar.spawn(exec); }
+                                                }
+                                                DesktopMenuResult::Logout => {
+                                                    break 'events;
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        Mode::Mobile => {
+                                            match show_mobile_menu(bar.width, bar.height, &mut bar.packages) {
+                                                 MobileMenuResult::Launch(exec) => {
+                                                    if !exec.trim().is_empty() { bar.spawn(exec); }
+                                                }
+                                                 MobileMenuResult::Logout => {
+                                                    break 'events;
+                                                }
+                                                _ => {}
+                                            }
+                                        }
                                     }
-                                    MenuResult::None => {}
+
+                                    bar.start_menu_open = false;
+                                    bar.suppress_start_open = true;
                                 }
                             }
                             i += 1;
@@ -636,8 +868,9 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
         }
     }
 
-    // Cleanup handlers
-    actionbar_handler.cleanup();
+    // Stop animation timer to prevent resource leak
+    debug!("Stopping RedoxAnimationTimer...");
+    animation_timer.stop();
 
     debug!("Launcher exiting, killing {} children", bar.children.len());
     for (exec, child) in bar.children.iter_mut() {

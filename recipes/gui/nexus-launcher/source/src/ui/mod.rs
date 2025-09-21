@@ -5,7 +5,8 @@ pub mod layout;
 pub mod icons;
 pub mod chooser_handler;
 pub mod bar_handler;
-pub mod bar_core;
+pub mod actionbar_handler;
+pub mod menu_handler;
 
 // Re-export main functions for easy access
 pub use chooser_handler::chooser_main;

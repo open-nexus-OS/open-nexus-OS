@@ -700,6 +700,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-actionbar"
+version = "0.1.0"
+dependencies = [
+ "libnexus",
+ "log",
+ "orbclient",
+ "orbimage",
+]
+
+[[package]]
 name = "nexus-launcher"
 version = "0.1.0"
 dependencies = [
@@ -710,6 +720,7 @@ dependencies = [
  "libnexus",
  "libredox",
  "log",
+ "nexus-actionbar",
  "orbclient",
  "orbfont",
  "orbimage",
