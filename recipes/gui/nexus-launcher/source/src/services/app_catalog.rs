@@ -1,34 +1,37 @@
-// src/services/package_manager.rs
-// Package discovery and management logic
+// src/services/app_catalog.rs
+// Discovery of applications and simple filtering for file-open scenarios.
+// Also provides category organization and a start-button icon helper.
+// This consolidates what you had in package_manager.rs.
 
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use orbimage::{Image, ResizeType};
 use orbclient::Renderer;
-use crate::services::package_service::{IconSource, Package};
+use libnexus::themes::{THEME, IconVariant};
+
+use crate::services::package_service::{Package, IconSource};
+use crate::config::settings::{BAR_HEIGHT, ICON_SCALE};
 
 #[cfg(target_os = "redox")]
-pub static UI_PATH: &'static str = "/ui";
+pub const UI_PATH: &str = "/ui";
 #[cfg(not(target_os = "redox"))]
-pub static UI_PATH: &'static str = "ui";
+pub const UI_PATH: &str = "ui";
 
-/// Discover and load all available packages
+/// Discover and load all available packages (Redox /ui/apps + XDG .desktop)
 pub fn get_packages() -> Vec<Package> {
     let mut packages: Vec<Package> = Vec::new();
 
-    // Read Redox /ui/apps
+    // 1) Redox /ui/apps
     if let Ok(read_dir) = Path::new(&format!("{}/apps/", UI_PATH)).read_dir() {
         for entry_res in read_dir {
-            let entry = match entry_res {
-                Ok(x) => x,
-                Err(_) => continue,
-            };
-            if entry.file_type().expect("failed to get file_type").is_file() {
+            let Ok(entry) = entry_res else { continue; };
+            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 packages.push(Package::from_path(&entry.path().display().to_string()));
             }
         }
     }
 
-    // Read XDG .desktop applications (if available)
+    // 2) XDG .desktop applications (if available)
     if let Ok(xdg_dirs) = xdg::BaseDirectories::new() {
         for path in xdg_dirs.find_data_files("applications") {
             if let Ok(read_dir) = path.read_dir() {
@@ -43,16 +46,22 @@ pub fn get_packages() -> Vec<Package> {
         }
     }
 
+    // Finalize
+    packages.retain(|p| !p.exec.trim().is_empty());
     packages.sort_by(|a, b| a.name.cmp(&b.name));
     packages
 }
 
-/// Organize packages by category
-pub fn organize_packages_by_category(all_packages: Vec<Package>) -> (Vec<Package>, BTreeMap<String, Vec<Package>>, Vec<Package>) {
+/// Organize packages into root (no category), map<category, vec>, and start-menu entries.
+/// This mirrors your package_manager.rs logic so the bar can source it directly.
+pub fn organize_packages_by_category(
+    all_packages: Vec<Package>
+) -> (Vec<Package>, std::collections::BTreeMap<String, Vec<Package>>, Vec<Package>) {
+    use std::collections::BTreeMap;
+
     let mut root_packages = Vec::new();
     let mut category_packages = BTreeMap::<String, Vec<Package>>::new();
-    
-    // Split packages by category
+
     for package in all_packages {
         if package.categories.is_empty() {
             root_packages.push(package);
@@ -71,7 +80,7 @@ pub fn organize_packages_by_category(all_packages: Vec<Package>) -> (Vec<Package
     root_packages.sort_by(|a, b| a.id.cmp(&b.id));
     root_packages.retain(|p| !p.exec.trim().is_empty());
 
-    // Create start menu packages (categories + system actions)
+    // Build start menu entries (categories + system actions)
     let mut start_packages = Vec::new();
 
     // Category launchers in start menu — use logical icon ids (theme-managed)
@@ -85,6 +94,7 @@ pub fn organize_packages_by_category(all_packages: Vec<Package>) -> (Vec<Package
             package
         });
 
+        // Back item for nested UI
         packages.push({
             let mut package = Package::new();
             package.name = "Go back".to_string();
@@ -95,7 +105,7 @@ pub fn organize_packages_by_category(all_packages: Vec<Package>) -> (Vec<Package
         });
     }
 
-    // System actions
+    // System action: Logout
     start_packages.push({
         let mut package = Package::new();
         package.name = "Logout".to_string();
@@ -108,47 +118,39 @@ pub fn organize_packages_by_category(all_packages: Vec<Package>) -> (Vec<Package
     (root_packages, category_packages, start_packages)
 }
 
-/// Filter packages that can handle a specific file path
+/// Filter packages that can handle a specific file path (simple wildcard support)
 pub fn filter_packages_for_path(packages: &[Package], path: &str) -> Vec<Package> {
     packages.iter()
         .filter(|package| {
             package.accepts.iter().any(|accept| {
                 (accept.starts_with('*') && path.ends_with(&accept[1..]))
-                    || (accept.ends_with('*') && path.starts_with(&accept[..accept.len() - 1]))
+                    || (accept.ends_with('*') && path.starts_with(&accept[..accept.len().saturating_sub(1)]))
             })
         })
         .cloned()
         .collect()
 }
 
-/// Load start icon for the taskbar
-pub fn load_start_icon() -> orbimage::Image {
-    use orbimage::Image;
-    use libnexus::themes::{IconVariant, THEME};
-    
-    // Start icon on the bar (theme-managed, fallback PNG)
+/// Load the Start icon for the taskbar using theme first, PNG fallback second.
+pub fn load_start_icon() -> Image {
     THEME
         .load_icon_sized("system/start", IconVariant::Auto, None)
         .unwrap_or_else(|| load_png(format!("{}/icons/places/start-here.png", UI_PATH), icon_size() as u32))
 }
 
-/// Load PNG icon with fallback
-pub fn load_png<P: AsRef<Path>>(path: P, target: u32) -> orbimage::Image {
-    use orbimage::Image;
+/// PNG loader + sizing (legacy fallback)
+pub fn load_png<P: AsRef<Path>>(path: P, target: u32) -> Image {
     let icon = Image::from_path(path).unwrap_or(Image::default());
     size_icon(icon, target)
 }
 
-/// Resize icon to target size
-fn size_icon(icon: orbimage::Image, target: u32) -> orbimage::Image {
-    if icon.width() == target && icon.height() == target {
-        return icon;
-    }
-    icon.resize(target, target, orbimage::ResizeType::Lanczos3).unwrap()
+/// Resize an icon to the target square size.
+pub fn size_icon(icon: Image, target: u32) -> Image {
+    if icon.width() == target && icon.height() == target { return icon; }
+    icon.resize(target, target, ResizeType::Lanczos3).unwrap()
 }
 
-/// Get icon size for taskbar
+/// Base icon size for the taskbar (BAR_HEIGHT * ICON_SCALE).
 fn icon_size() -> i32 {
-    use crate::config::settings::{BAR_HEIGHT, ICON_SCALE};
     (BAR_HEIGHT as f32 * ICON_SCALE).round() as i32
 }

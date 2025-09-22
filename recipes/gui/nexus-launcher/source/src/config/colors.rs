@@ -1,14 +1,14 @@
-// config/colors.rs - Theme colors and paint functions
+// src/config/colors.rs
+// Theme paints (color + optional acrylic) exposed as small helpers.
+// All lookups go through libnexus::themes::THEME, which reads /ui/nexus.toml
+// and resolves colors from /ui/themes/<light|dark>/colors.toml.
 
 use orbclient::Color;
 use libnexus::themes::{THEME, Paint, Acrylic};
 use orbfont::Font;
 
 // -------- UI THEME --------
-// Theme paints (color + acrylic) loaded from nexus-assets via libnexus
-// Fallback values match colors.toml for consistency
 
-// Bar colors (no acrylic needed)
 pub fn bar_paint() -> Paint {
     THEME.paint("menu_bar_bg", Paint {
         color: Color::rgba(0xFF, 0xFF, 0xFF, 191),
@@ -59,9 +59,9 @@ pub fn text_fg() -> Color {
 }
 
 // -------- FONT LOADING --------
-/// Load font with fallback strategy to avoid font loading errors
+// Keep this here so imports like `config::colors::load_crisp_font` work.
 pub fn load_crisp_font() -> Font {
-    // Try explicit SemiBold weight first, fallback to Regular, then default
+    // Try explicit SemiBold first, then Regular, then any Sans, then any fallback.
     Font::find(Some("Sans"), Some("SemiBold"), None)
         .or_else(|_| Font::find(Some("Sans"), Some("Regular"), None))
         .or_else(|_| Font::find(Some("Sans"), None, None))
@@ -69,7 +69,8 @@ pub fn load_crisp_font() -> Font {
         .unwrap_or_else(|_| Font::find(Some("Sans"), None, None).unwrap())
 }
 
-// Menu surface colors with acrylic effect
+// -------- Menu surface paints with acrylic --------
+
 pub fn menu_surface_sm_paint() -> Paint {
     THEME.paint("menu_surface_sm_bg", Paint {
         color: Color::rgba(255, 255, 255, 128),

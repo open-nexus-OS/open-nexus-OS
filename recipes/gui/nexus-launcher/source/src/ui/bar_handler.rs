@@ -1,52 +1,76 @@
 // src/ui/bar_handler.rs
-// Bottom taskbar logic - refactored for modularity
+// Bottom taskbar logic — fixed event subscriptions and modularized services integration.
+// Immediate toggle behavior (no animations), ActionBar + Start menu working again.
 
 use std::io::{self, ErrorKind, Read, Write};
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
 use std::process::{Child, Command};
-use std::time::{Duration, Instant};
-use std::{env, mem};
+use std::{mem};
+use log::{debug, error, info};
 
-use crate::utils::dpi_helper::{icon_size_legacy, font_size_legacy};
-use crate::utils::dpi_helper as dpi_helper;
-use crate::services::package_manager::{get_packages, load_png, UI_PATH};
-use crate::services::process_manager::exec_to_command;
-use crate::ui::chooser_handler::{chooser_width, icon_small_size, draw_chooser};
-use libnexus::{THEME, IconVariant};
+use orbclient::{EventOption, Renderer, Window, WindowFlag};
+use orbfont::Font;
+use orbimage::Image;
+
+use event::{user_data, EventQueue};
+use libredox::data::TimeSpec;
 use libredox::flag;
 
-use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC};
-use orbclient::{ScreenEvent, ButtonEvent};
-use orbimage::Image;
-use orbfont::Font;
-use libredox::call::waitpid;
-use libredox::data::TimeSpec;
-use libc;
-
-use event::{user_data, EventQueue, Event, EventFlags};
-
 use crate::dpi_scale;
-use crate::config::settings::{BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, Mode, mode, set_top_inset};
-use crate::config::colors::{bar_paint, bar_highlight_paint, bar_activity_marker_paint};
-use crate::config::colors::{text_paint, text_highlight_paint, text_inverse_fg, text_fg};
-use crate::config::colors::load_crisp_font;
-use crate::ui::layout::{SearchState, GridLayout, compute_grid, grid_iter_and_hit};
-use crate::ui::components::draw_app_cell;
-use crate::ui::icons::CommonIcons;
-use crate::ui::actionbar_handler::ActionBarHandler;
+use crate::config::colors::{
+    bar_paint, bar_highlight_paint, bar_activity_marker_paint,
+    text_paint, text_highlight_paint, load_crisp_font,
+};
+use crate::config::settings::{BAR_HEIGHT, ICON_SCALE, ICON_SMALL_SCALE, Mode, mode};
+use crate::utils::dpi_helper as dpi_helper;
 use crate::ui::menu_handler::{MenuHandler, MenuResult};
 use crate::modes::desktop::{show_desktop_menu, DesktopMenuResult};
 use crate::modes::mobile::{show_mobile_menu, MobileMenuResult};
+use crate::services::process_manager::{exec_to_command, wait};
+use crate::services::app_catalog::{
+    get_packages, organize_packages_by_category, load_start_icon,
+};
 use crate::services::package_service::{IconSource, Package};
-use crate::services::process_manager::{wait, reap_all_zombies};
-use crate::types::state::{SCALE, LauncherState, WindowState};
-
-use log::{debug, error, info};
+use crate::ui::actionbar_handler::ActionBarHandler;
 
 use std::collections::BTreeMap;
 
-/// Bar structure - extracted from main.rs
+/// Convenience: bar icon sizes (derived from settings)
+fn icon_size() -> i32 { (BAR_HEIGHT as f32 * ICON_SCALE).round() as i32 }
+fn icon_small_size() -> i32 { (icon_size() as f32 * ICON_SMALL_SCALE).round() as i32 }
+fn font_size() -> i32 { (icon_size() as f32 * 0.5).round() as i32 }
+
+/// Simple chooser list (legacy) – used in category fallback
+fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, selected: i32) {
+    let w = window.width();
+    window.set(bar_paint().color);
+
+    let dpi = dpi_scale();
+    let target_icon = icon_small_size().max(20) as u32;
+
+    let mut y = 0;
+    for (i, package) in packages.iter_mut().enumerate() {
+        if i as i32 == selected {
+            window.rect(0, y, w, target_icon as u32, bar_highlight_paint().color);
+        }
+
+        let img = package.get_icon_sized(target_icon, dpi, false);
+        img.draw(window, 0, y);
+
+        font.render(&package.name, dpi_helper::font_size(font_size() as f32).round()).draw(
+            window,
+            target_icon as i32 + 8,
+            y + 8,
+            if i as i32 == selected { text_highlight_paint().color } else { text_paint().color },
+        );
+
+        y += target_icon as i32;
+    }
+
+    window.sync();
+}
+
 struct Bar {
     children: Vec<(String, Child)>,
     packages: Vec<Package>,
@@ -60,71 +84,16 @@ struct Bar {
     selected: i32,
     selected_window: Window,
     time: String,
-    start_menu_open: bool,
-    suppress_start_open: bool,
 }
 
 impl Bar {
     fn new(width: u32, height: u32) -> Bar {
-        let all_packages = get_packages();
+        // Load & organize packages using the catalog service
+        let all = get_packages();
+        let (root_packages, category_packages, start_packages) = organize_packages_by_category(all);
 
-        // Split packages by category
-        let mut root_packages = Vec::new();
-        let mut category_packages = BTreeMap::<String, Vec<Package>>::new();
-        for package in all_packages {
-            if package.categories.is_empty() {
-                root_packages.push(package);
-            } else {
-                for category in package.categories.iter() {
-                    match category_packages.get_mut(category) {
-                        Some(vec) => vec.push(package.clone()),
-                        None => {
-                            category_packages.insert(category.clone(), vec![package.clone()]);
-                        }
-                    }
-                }
-            }
-        }
-
-        root_packages.sort_by(|a, b| a.id.cmp(&b.id));
-        root_packages.retain(|p| !p.exec.trim().is_empty());
-
-        let mut start_packages = Vec::new();
-
-        // Category launchers in start menu — use logical icon ids (theme-managed)
-        for (category, packages) in category_packages.iter_mut() {
-            start_packages.push({
-                let mut package = Package::new();
-                package.name = category.to_string();
-                package.icon.source = IconSource::Name("mimetypes/inode-directory".into());
-                package.icon_small.source = IconSource::Name("mimetypes/inode-directory".into());
-                package.exec = format!("category={}", category);
-                package
-            });
-
-            packages.push({
-                let mut package = Package::new();
-                package.name = "Go back".to_string();
-                package.icon.source = IconSource::Name("mimetypes/inode-directory".into());
-                package.icon_small.source = IconSource::Name("mimetypes/inode-directory".into());
-                package.exec = "exit".to_string();
-                package
-            });
-        }
-
-        start_packages.push({
-            let mut package = Package::new();
-            package.name = "Logout".to_string();
-            package.icon.source = IconSource::Name("actions/system-log-out".into());
-            package.icon_small.source = IconSource::Name("actions/system-log-out".into());
-            package.exec = "exit".to_string();
-            package
-        });
-
-        // Start icon on the bar (theme-managed, fallback PNG)
-        let start = THEME
-            .load_icon_sized("system/start", IconVariant::Auto, None)
-            .unwrap_or_else(|| load_png(format!("{}/icons/places/start-here.png", UI_PATH), icon_size_legacy() as u32));
+        // Start icon via theme (with PNG fallback handled inside)
+        let start = load_start_icon();
 
         Bar {
             children: Vec::new(),
@@ -140,38 +109,25 @@ impl Bar {
                 height as i32 - BAR_HEIGHT as i32,
                 width,
                 BAR_HEIGHT,
-                "",
-                &[
-                    WindowFlag::Async,
-                    WindowFlag::Borderless,
-                    WindowFlag::Transparent,
-                ],
-            )
-            .expect("launcher: failed to open window"),
+                "NexusLauncherBar",
+                &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
+            ).expect("launcher: failed to open bar window"),
             selected: -1,
             selected_window: Window::new_flags(
                 0,
                 height as i32,
                 width,
-                (font_size_legacy() + 8.0) as u32,
-                "",
-                &[
-                    WindowFlag::Async,
-                    WindowFlag::Borderless,
-                    WindowFlag::Transparent,
-                ],
-            )
-            .expect("launcher: failed to open selected window"),
+                (font_size() + 8) as u32,
+                "NexusLauncherTip",
+                &[WindowFlag::Async, WindowFlag::Borderless, WindowFlag::Transparent],
+            ).expect("launcher: failed to open tip window"),
             time: String::new(),
-            start_menu_open: false,
-            suppress_start_open: false,
         }
     }
 
     fn update_time(&mut self) {
         let time = libredox::call::clock_gettime(flag::CLOCK_REALTIME)
             .expect("launcher: failed to read time");
-
         let ts = time.tv_sec;
         let s = ts % 86400;
         let h = s / 3600;
@@ -192,12 +148,11 @@ impl Bar {
         let mut x = (self.width as i32 - total_w) / 2;
         let mut i = 0i32;
 
-        // Start icon slot (index 0)
+        // Start icon
         {
             if i == self.selected {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
             }
-
             let y = (bar_h_i - self.start.height() as i32) / 2;
             let ix = x + (slot - self.start.width() as i32) / 2;
             self.start.draw(&mut self.window, ix, y);
@@ -206,15 +161,15 @@ impl Bar {
             i += 1;
         }
 
-        // App slots
+        // App icons
         let dpi = dpi_scale();
-        let target_icon = icon_size_legacy() as u32;
+        let target_icon = icon_size() as u32;
         for package in self.packages.iter_mut() {
             if i == self.selected {
                 self.window.rect(x, 0, slot as u32, bar_h_u, bar_highlight_paint().color);
 
                 self.selected_window.set(orbclient::Color::rgba(0, 0, 0, 0));
-                let text = self.font.render(&package.name, dpi_helper::font_size(font_size_legacy()).round());
+                let text = self.font.render(&package.name, dpi_helper::font_size(font_size() as f32).round());
                 self.selected_window
                     .rect(x, 0, text.width() + 8, text.height() + 8, bar_paint().color);
                 text.draw(&mut self.selected_window, x + 4, 4, text_highlight_paint().color);
@@ -243,7 +198,7 @@ impl Bar {
         }
 
         // Clock (right)
-        let text = self.font.render(&self.time, dpi_helper::font_size(font_size_legacy() * 2.0).round());
+        let text = self.font.render(&self.time, dpi_helper::font_size((font_size() * 2) as f32).round());
         let tx = self.width as i32 - text.width() as i32 - 8;
         let ty = (bar_h_i - text.height() as i32) / 2;
         text.draw(&mut self.window, tx, ty, text_highlight_paint().color);
@@ -251,29 +206,23 @@ impl Bar {
         self.window.sync();
     }
 
-    /// Legacy small category chooser kept for nested categories
-    fn start_window(&mut self, category_opt: Option<&String>) -> Option<String> {
-        use orbclient::{EventOption, Window, WindowFlag, K_ESC};
-
-        // Delegate to new desktop/mobile menus when no category is given
+    /// Legacy small category chooser if needed
+    fn start_window_legacy(&mut self, category_opt: Option<&String>) -> Option<String> {
+        // Delegate to new menus when no category given
         if category_opt.is_none() {
             match mode() {
-                Mode::Desktop => {
-                    match show_desktop_menu(self.width, self.height, &mut self.packages) {
-                        DesktopMenuResult::Launch(exec) => return Some(exec),
-                        _ => return None,
-                    }
-                }
-                Mode::Mobile => {
-                    match show_mobile_menu(self.width, self.height, &mut self.packages) {
-                        MobileMenuResult::Launch(exec) => return Some(exec),
-                        _ => return None,
-                    }
+                Mode::Desktop => match show_desktop_menu(self.width, self.height, &mut self.packages) {
+                    DesktopMenuResult::Launch(exec) => return Some(exec),
+                    _ => return None,
+                },
+                Mode::Mobile  => match show_mobile_menu(self.width, self.height, &mut self.packages) {
+                    MobileMenuResult::Launch(exec) => return Some(exec),
+                    _ => return None,
                 }
             }
         }
 
-        // Small category chooser (legacy)
+        // Small chooser (fallback)
         let packages = match category_opt {
             Some(category) => self.category_packages.get_mut(category)?,
             None => &mut self.start_packages,
@@ -285,8 +234,8 @@ impl Bar {
         let start_h = packages.len() as u32 * target;
         let mut start_window = Window::new_flags(
             0,
-            self.height as i32 - icon_size_legacy() - start_h as i32,
-            chooser_width(),
+            self.height as i32 - icon_size() - start_h as i32,
+            200,
             start_h,
             "Start",
             &[WindowFlag::Borderless, WindowFlag::Transparent],
@@ -303,11 +252,11 @@ impl Bar {
             let mut y = 0;
             for (i, p) in packages.iter_mut().enumerate() {
                 if i as i32 == selected {
-                    start_window.rect(0, y, chooser_width(), target, bar_highlight_paint().color);
+                    start_window.rect(0, y, 200, target, bar_highlight_paint().color);
                 }
                 let img = p.get_icon_sized(target, dpi, false);
                 img.draw(&mut start_window, 0, y);
-                let text = self.font.render(&p.name, dpi_helper::font_size(font_size_legacy()).round());
+                let text = self.font.render(&p.name, dpi_helper::font_size(font_size() as f32).round());
                 text.draw(&mut start_window, target as i32 + 8, y + 8, text_paint().color);
                 y += target as i32;
             }
@@ -319,9 +268,7 @@ impl Bar {
                 let redraw = match event.to_option() {
                     EventOption::Mouse(mouse_event) => { mouse_y = mouse_event.y; true }
                     EventOption::Button(button_event) => { mouse_left = button_event.left; true }
-                    EventOption::Key(key_event) if key_event.scancode == K_ESC => break 'start_choosing,
-                    EventOption::Focus(focus_event) => { if !focus_event.focused { break 'start_choosing; } false }
-                    EventOption::Quit(_) => break 'start_choosing,
+                    EventOption::Quit(_) => break 'start_choosing None,
                     _ => false,
                 };
 
@@ -355,8 +302,6 @@ impl Bar {
                 }
             }
         }
-
-        None
     }
 
     fn spawn(&mut self, exec: String) {
@@ -371,191 +316,139 @@ impl Bar {
             None => error!("failed to parse {}", exec),
         }
     }
-
-    /// Remove finished child processes
-    fn reap_children(&mut self) {
-        let mut i = 0;
-        while i < self.children.len() {
-            let remove = match self.children[i].1.try_wait() {
-                Ok(None) => false,
-                Ok(Some(status)) => {
-                    info!("{} ({}) exited with {}", self.children[i].0, self.children[i].1.id(), status);
-                    true
-                }
-                Err(err) => {
-                    error!("failed to wait for {} ({}): {}", self.children[i].0, self.children[i].1.id(), err);
-                    true
-                }
-            };
-            if remove {
-                self.children.remove(i);
-            } else {
-                i += 1;
-            }
-        }
-    }
 }
 
-/// Main bar function - extracted from main.rs for modularity
 pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut bar = Bar::new(width, height);
 
-    // --- Initialize handlers ---
-    let mut actionbar_handler = ActionBarHandler::new(width, height);
-    let mut menu_handler = MenuHandler::new();
-
-    // Initialize ActionBar rendering
-    actionbar_handler.initialize(width);
-
-    // Wallpaper/background
+    // Start background
     match Command::new("nexus-background").spawn() {
         Ok(child) => bar.children.push(("nexus-background".to_string(), child)),
         Err(err) => error!("failed to launch nexus-background: {}", err),
     }
 
+    // ActionBar handler (top bar + panels), immediate toggle
+    let mut actionbar = ActionBarHandler::new(width, height);
+    actionbar.initialize(width);
 
-    // Event system setup
+    // --- Event system setup ---
+    user_data! { enum Ev { Time, Bar, ActBar, Panels } }
+    let queue = EventQueue::<Ev>::new().expect("launcher: failed to create event queue");
 
-    user_data! {
-        enum Event { Time, Bar, ActBar, Panels }
-    }
-    let event_queue = EventQueue::<Event>::new().expect("launcher: failed to create event queue");
-
-    let mut event_count = 0u32;
-
-    // Monotonic timer (adjust path if needed)
+    // Timer FD
     let mut time_file = File::open("/scheme/time/4")?;
-
-    // Initialize timer with current time + 1 second
     let mut time_buf = [0_u8; core::mem::size_of::<TimeSpec>()];
-    match libredox::data::timespec_from_mut_bytes(&mut time_buf) {
-        time => {
-            time.tv_sec += 1;
-            time.tv_nsec = 0;
-        }
+    if let time = libredox::data::timespec_from_mut_bytes(&mut time_buf) {
+        time.tv_sec += 1;
+        time.tv_nsec = 0;
     }
     time_file.write(&time_buf)?;
 
-    event_queue.subscribe(time_file.as_raw_fd() as usize, Event::Time,   event::EventFlags::READ)?;
-    event_queue.subscribe(bar.window.as_raw_fd()      as usize, Event::Bar,     event::EventFlags::READ)?;
+    // Subscribe: timer + bar window + actionbar + panels
+    queue.subscribe(time_file.as_raw_fd() as usize, Ev::Time, event::EventFlags::READ)?;
+    queue.subscribe(bar.window.as_raw_fd() as usize, Ev::Bar, event::EventFlags::READ)?;
 
-    // Subscribe to ActionBar events
-    let actionbar_fd = actionbar_handler.get_actionbar_fd();
-    let panels_fd = actionbar_handler.get_panels_fd();
-
+    let actionbar_fd = actionbar.get_actionbar_fd();
     if actionbar_fd >= 0 {
-        event_queue.subscribe(actionbar_fd as usize, Event::ActBar, event::EventFlags::READ)?;
+        queue.subscribe(actionbar_fd as usize, Ev::ActBar, event::EventFlags::READ)?;
     }
+    let panels_fd = actionbar.get_panels_fd();
     if panels_fd >= 0 {
-        event_queue.subscribe(panels_fd as usize, Event::Panels, event::EventFlags::READ)?;
+        queue.subscribe(panels_fd as usize, Ev::Panels, event::EventFlags::READ)?;
     }
-
-    debug!("Event-Subscription: Time={}, Bar={}, ActBar={}, Panels={}",
-           time_file.as_raw_fd(), bar.window.as_raw_fd(), actionbar_fd, panels_fd);
 
     let mut mouse_x = -1;
     let mut mouse_y = -1;
     let mut mouse_left = false;
     let mut last_mouse_left = false;
 
-    // UNIFIED EVENT-LOOP-ARCHITEKTUR
-    // Einheitliches Event-System für alle Komponenten
-    // Event::Panels wird komplett blockiert (verursacht 1000+ Events/Sekunde)
+    let mut menu = MenuHandler::new();
 
-    'events: for ev in event_queue.map(|e| e.expect("launcher: failed to get next event")) {
-        event_count += 1;
-        debug!("Unified-Event-Loop: Processing event: {:?} (count: {})", ev.user_data, event_count);
-
-        // Process events by type
-        match ev.user_data {
-            Event::Time => {
-                // Handle timer events
-                debug!("Event::Time - Timer event received!");
-                let mut time_buf = [0_u8; core::mem::size_of::<TimeSpec>()];
+    'events: for evt in queue.map(|e| e.expect("next event")) {
+        match evt.user_data {
+            Ev::Time => {
+                // Prime next tick first to avoid missing edges on errors
                 if time_file.read(&mut time_buf)? < mem::size_of::<TimeSpec>() { continue; }
+                if let time = libredox::data::timespec_from_mut_bytes(&mut time_buf) {
+                    time.tv_sec += 1;
+                    time.tv_nsec = 0;
+                }
+                time_file.write(&time_buf)?;
 
-                // Reap exited children
-                bar.reap_children();
-
+                // Reap children (non-blocking)
+                // (keine lokale Liste hier – Bar::spawn reaps via try_wait in draw loop wäre auch ok)
+                let mut status = 0;
                 loop {
-                    let mut status = 0;
                     let pid = wait(&mut status)?;
                     if pid == 0 { break; }
                 }
 
-                // Update bottom bar clock & repaint
+                // Update & redraw bar clock
                 bar.update_time();
                 bar.draw();
 
-                // Handle ActionBar timer events
-                actionbar_handler.handle_timer_event(bar.width, bar.height);
+                // Keep ActionBar panels visibility in sync (immediate)
+                actionbar.render_now(bar.width, bar.height);
+            }
 
-                // Re-arm timer
-                match libredox::data::timespec_from_mut_bytes(&mut time_buf) {
-                    time => {
-                        time.tv_sec += 1;
-                        time.tv_nsec = 0;
-                    }
-                }
-                time_file.write(&time_buf)?;
+            Ev::ActBar => {
+                // Process ActionBar window events
+                actionbar.process_events(bar.width, bar.height);
             }
-            Event::ActBar => {
-                // Handle ActionBar events via ActionBarHandler
-                if let Some(msg) = actionbar_handler.handle_actionbar_event(bar.width, bar.height) {
-                    debug!("ActionBar message from handler: {:?}", msg);
-                    // Handle any messages from ActionBar if needed
-                }
+
+            Ev::Panels => {
+                // Panels usually don't need heavy event handling; we let ActionBar handler process if any.
+                actionbar.process_events(bar.width, bar.height);
             }
-            Event::Bar => {
-                // Handle bar events
-                debug!("Event::Bar - Processing bar events");
-                for event in bar.window.events() {
-                    // Handle Super+key combos
-                    if event.code >= 0x1000_0000 {
-                        let mut super_event = event;
-                        super_event.code -= 0x1000_0000;
-                        match super_event.to_option() {
-                            EventOption::Key(key_event) => match key_event.scancode {
-                                orbclient::K_B if key_event.pressed => { bar.spawn("netsurf-fb".to_string()); }
-                                orbclient::K_F if key_event.pressed => { bar.spawn("cosmic-files".to_string()); }
-                                orbclient::K_T if key_event.pressed => { bar.spawn("cosmic-term".to_string()); }
-                                _ => (),
-                            },
-                            _ => (),
+
+            Ev::Bar => {
+                for ev in bar.window.events() {
+                    // Handle Super+Hotkeys (unchanged)
+                    if ev.code >= 0x1000_0000 {
+                        let mut s_ev = ev;
+                        s_ev.code -= 0x1000_0000;
+                        if let EventOption::Key(k) = s_ev.to_option() {
+                            if k.pressed {
+                                match k.scancode {
+                                    orbclient::K_B => bar.spawn("netsurf-fb".to_string()),
+                                    orbclient::K_F => bar.spawn("cosmic-files".to_string()),
+                                    orbclient::K_T => bar.spawn("cosmic-term".to_string()),
+                                    _ => {}
+                                }
+                            }
                         }
                         continue;
                     }
 
-                    let redraw = match event.to_option() {
-                        EventOption::Mouse(mouse_event) => { mouse_x = mouse_event.x; mouse_y = mouse_event.y; true }
-                        EventOption::Button(button_event) => {
-                            if button_event.left { menu_handler.reset_suppress_on_click(); }
-                            mouse_left = button_event.left;
-                            true
+                    let redraw = match ev.to_option() {
+                        EventOption::Mouse(m) => { mouse_x = m.x; mouse_y = m.y; true }
+                        EventOption::Button(b) => {
+                            if b.left { menu.reset_suppress_on_click(); }
+                            mouse_left = b.left; true
                         }
-                        EventOption::Screen(screen_event) => {
-                            // Resize bottom bar windows
-                            bar.width = screen_event.width;
-                            bar.height = screen_event.height;
-                            bar.window.set_pos(0, screen_event.height as i32 - icon_size_legacy());
-                            bar.window.set_size(screen_event.width, icon_size_legacy() as u32);
+                        EventOption::Screen(s) => {
+                            // Resize bar windows
+                            bar.width  = s.width;
+                            bar.height = s.height;
+                            bar.window.set_pos(0, s.height as i32 - icon_size());
+                            bar.window.set_size(s.width, icon_size() as u32);
                             bar.selected = -2; // force redraw
-                            bar.selected_window.set_pos(0, screen_event.height as i32);
-                            bar.selected_window.set_size(screen_event.width, (font_size_legacy() + 8.0) as u32);
+                            bar.selected_window.set_pos(0, s.height as i32);
+                            bar.selected_window.set_size(s.width, (font_size() + 8) as u32);
 
-                            // Handle ActionBar resize
-                            actionbar_handler.handle_screen_resize(screen_event.width, screen_event.height);
+                            // Resize ActionBar (top inset handled inside)
+                            actionbar.handle_screen_resize(s.width, s.height);
                             true
                         }
-                        EventOption::Hover(hover_event) => {
-                            if hover_event.entered { false } else { mouse_x = -1; mouse_y = -1; true }
+                        EventOption::Hover(h) => {
+                            if h.entered { false } else { mouse_x = -1; mouse_y = -1; true }
                         }
                         EventOption::Quit(_) => break 'events,
                         _ => false,
                     };
 
                     if redraw {
-                        // Hit-testing for slots
+                        // Slot hit-testing
                         let mut now_selected = -1;
                         {
                             let slot  = bar.window.height() as i32;
@@ -565,11 +458,11 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             let y = 0;
                             let mut i = 0;
 
-                            // Start slot
+                            // Start
                             if mouse_y >= y && mouse_x >= x && mouse_x < x + slot { now_selected = i; }
                             x += slot; i += 1;
 
-                            // App slots
+                            // Apps
                             for _ in bar.packages.iter() {
                                 if mouse_y >= y && mouse_x >= x && mouse_x < x + slot { now_selected = i; }
                                 x += slot; i += 1;
@@ -583,24 +476,20 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                             bar.draw();
                         }
 
-                        // Mouse button release logic
+                        // Release edge: clicks
                         if !mouse_left && last_mouse_left {
                             let mut i = 0;
 
                             // Start button slot
                             if i == bar.selected {
-                                // Dismiss ActionBar panels when opening Start menu
-                                actionbar_handler.dismiss_panels();
+                                // Dismiss ActionBar panels first
+                                actionbar.dismiss_panels();
 
-                                // Handle start menu via MenuHandler
-                                match menu_handler.handle_start_menu_click(bar.width, bar.height, &mut bar.packages) {
-                                    MenuResult::Launch(exec) => {
-                                        if !exec.trim().is_empty() { bar.spawn(exec); }
-                                    }
-                                    MenuResult::Logout => {
-                                        break 'events;
-                                    }
-                                    MenuResult::None => {}
+                                // Start menu handling (desktop/mobile)
+                                match menu.handle_start_menu_click(bar.width, bar.height, &mut bar.packages) {
+                                    MenuResult::Launch(exec) => { if !exec.trim().is_empty() { bar.spawn(exec); } }
+                                    MenuResult::Logout       => break 'events,
+                                    MenuResult::None         => {}
                                 }
                             }
                             i += 1;
@@ -623,39 +512,18 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
                     }
                 }
             }
-            Event::Panels => {
-                // Block Event::Panels completely to prevent spam
-                debug!("Event::Panels - BLOCKED! Ignoring completely");
-                continue;
-            }
-        }
-
-        // Simple event counter for debugging
-        if event_count % 100 == 0 {
-            debug!("Processed {} events", event_count);
         }
     }
 
-    // Cleanup handlers
-    actionbar_handler.cleanup();
-
-    debug!("Launcher exiting, killing {} children", bar.children.len());
+    // Cleanup children
     for (exec, child) in bar.children.iter_mut() {
         let pid = child.id();
         match child.kill() {
-            Ok(()) => debug!("Successfully killed child: {}", pid),
+            Ok(()) => debug!("killed child: {}", pid),
             Err(err) => error!("failed to kill {} ({}): {}", exec, pid, err),
         }
-        match child.wait() {
-            Ok(status) => info!("{} ({}) exited with {}", exec, pid, status),
-            Err(err) => error!("failed to wait for {} ({}): {}", exec, pid, err),
-        }
+        let _ = child.wait();
     }
-
-    // Reap leftover zombies
-    debug!("Launcher exiting, reaping all zombie processes");
-    let mut status = 0;
-    while wait(&mut status).is_ok() {}
 
     Ok(())
 }

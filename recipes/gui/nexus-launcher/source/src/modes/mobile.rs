@@ -1,55 +1,22 @@
-// src/mobile.rs
-// Mobile start menu (fullscreen-ish) using the shared ui::draw_app_cell.
-// Respects top ActionBar inset and bottom launcher bar, so both bars remain visible.
-// Close-on-focus-loss is intentionally kept.
+// src/modes/mobile.rs
+// Mobile start menu with acrylic background via background_service.
+// Respects top ActionBar inset and bottom launcher bar.
 
 use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC, K_LEFT, K_RIGHT};
 use orbimage::ResizeType;
 use orbfont::Font;
 
 use crate::ui::icons::CommonIcons;
-use crate::ui::layout;
+use crate::ui::components;
 use crate::utils::dpi_helper;
-use crate::config::colors::{text_inverse_fg, load_crisp_font};
+use crate::config::colors::{text_inverse_fg, load_crisp_font, menu_surface_lg_paint};
 use crate::config::settings::BAR_HEIGHT;
-
-#[cfg(target_os = "redox")]
-const UI_PATH: &str = "/ui";
-#[cfg(not(target_os = "redox"))]
-const UI_PATH: &str = "ui";
+use crate::services::background_service::render_acrylic_panel;
 
 pub enum MobileMenuResult {
     None,
     Launch(String),
     Logout,
-}
-
-fn fill_round_rect(win: &mut Window, x: i32, y: i32, w: u32, h: u32, r: i32, color: Color) {
-    let w_i = w as i32;
-    let h_i = h as i32;
-    if r <= 0 || w < (2 * r as u32) || h < (2 * r as u32) {
-        win.rect(x, y, w, h, color);
-        return;
-    }
-    for yi in 0..h_i {
-        let dy = if yi < r {
-            r - 1 - yi
-        } else if yi >= h_i - r {
-            yi - (h_i - r)
-        } else {
-            -1
-        };
-        let (sx, ex) = if dy >= 0 {
-            let dx = ((r * r - dy * dy) as f32).sqrt().floor() as i32;
-            (x + r - dx, x + w_i - r + dx)
-        } else {
-            (x, x + w_i)
-        };
-        let line_w = (ex - sx).max(0) as u32;
-        if line_w > 0 {
-            win.rect(sx, y + yi, line_w, 1, color);
-        }
-    }
 }
 
 #[inline]
@@ -60,7 +27,7 @@ fn point_in(p: (i32, i32), r: (i32, i32, i32, i32)) -> bool {
 }
 
 pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::services::package_service::Package]) -> MobileMenuResult {
-    // Respect top ActionBar inset, and leave room for bottom launcher bar
+    // Respect ActionBar top inset, and leave room for bottom launcher bar
     let top_inset = crate::config::settings::top_inset();
     let y = top_inset as i32;
     let h = screen_h.saturating_sub(top_inset + BAR_HEIGHT);
@@ -71,7 +38,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
     ).expect("mobile menu window");
 
     let font = load_crisp_font();
-    let icons = CommonIcons::load(UI_PATH);
+    let icons = CommonIcons::load("ui");
     let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
 
     let mut query = String::new();
@@ -88,8 +55,11 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
     let mut search_rect: (i32,i32,i32,i32);
 
     'ev: loop {
-        // Dark overlay
-        window.set(Color::rgba(0, 0, 0, 80));
+        // Dark acrylic overlay on whole mobile menu area
+        let window_width = window.width();
+        let window_height = window.height();
+        let paint = menu_surface_lg_paint();
+        render_acrylic_panel(&mut window, 0, 0, window_width, window_height, paint);
 
         // Search bar
         let pad = 16i32;
@@ -105,10 +75,8 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
         let text_x = sx + 10;
         let text_y = sy + (sh - q.height() as i32)/2;
 
-        // Slight “bold-ish” effect on dark background
         q.draw(&mut window, text_x, text_y, qcol);
         q.draw(&mut window, text_x + 1, text_y, Color::rgba(255,255,255,70));
-
         search_rect = (sx, sy, sw, sh);
 
         // Filter
@@ -126,7 +94,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
         let content_y = sy + sh + 16;
         let content_w = window.width() as i32 - pad*2;
 
-        let bottom_reserve = 72i32; // room for dots & bottom controls (still above launcher bar)
+        let bottom_reserve = 72i32; // room for dots & bottom controls
         let content_h = (window.height() as i32 - bottom_reserve) - content_y;
 
         let landscape = window.width() > window.height();
@@ -142,7 +110,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
 
         let per_page = cols * rows;
         let page_count = if per_page == 0 { 1 } else { ((indices.len() + per_page - 1) / per_page).max(1) };
-        if page >= page_count { page = page_count - 1; }
+        let mut page = page.min(page_count - 1);
 
         // Visible slice
         let start = page * per_page;
@@ -164,7 +132,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
                 fill_round_rect(&mut window, cx, cy, cell_w as u32, cell_h as u32, 10, Color::rgba(255,255,255,26));
             }
 
-            let rect = crate::ui::components::draw_app_cell(
+            let rect = components::draw_app_cell(
                 &mut window, &font, &mut pkgs[*idx],
                 cx, cy, cell_w, cell_h,
                 icon_side, true, true, // large=true for mobile
@@ -248,7 +216,6 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
                 }
                 EventOption::Mouse(m)  => { mouse_pos = (m.x, m.y); }
                 EventOption::Button(b) => { mouse_down = b.left; }
-                // Keep close-on-focus-loss behavior as requested
                 EventOption::Focus(f)  => { if !f.focused { break 'ev; } }
                 EventOption::Quit(_)   => break 'ev,
                 _ => {}
@@ -263,13 +230,10 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
                 for (rect, idx) in &cells {
                     if point_in(mouse_pos, *rect) {
                         let exec = pkgs[*idx].exec.clone();
-                        if !exec.trim().is_empty() {
-                            return MobileMenuResult::Launch(exec);
-                        }
+                        if !exec.trim().is_empty() { return MobileMenuResult::Launch(exec); }
                     }
                 }
-                // Background click closes menu
-                break 'ev;
+                break 'ev; // background tap closes
             }
         }
 
@@ -277,4 +241,32 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
     }
 
     MobileMenuResult::None
+}
+
+fn fill_round_rect(win: &mut Window, x: i32, y: i32, w: u32, h: u32, r: i32, color: Color) {
+    let w_i = w as i32;
+    let h_i = h as i32;
+    if r <= 0 || w < (2 * r as u32) || h < (2 * r as u32) {
+        win.rect(x, y, w, h, color);
+        return;
+    }
+    for yi in 0..h_i {
+        let dy = if yi < r {
+            r - 1 - yi
+        } else if yi >= h_i - r {
+            yi - (h_i - r)
+        } else {
+            -1
+        };
+        let (sx, ex) = if dy >= 0 {
+            let dx = ((r * r - dy * dy) as f32).sqrt().floor() as i32;
+            (x + r - dx, x + w_i - r + dx)
+        } else {
+            (x, x + w_i)
+        };
+        let line_w = (ex - sx).max(0) as u32;
+        if line_w > 0 {
+            win.rect(sx, y + yi, line_w, 1, color);
+        }
+    }
 }
