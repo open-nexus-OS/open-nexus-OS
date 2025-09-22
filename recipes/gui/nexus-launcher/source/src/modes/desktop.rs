@@ -91,11 +91,11 @@ pub fn show_desktop_menu(
         if large {
             let paint = menu_surface_lg_paint();
             // full window area is acrylic
-            render_acrylic_panel(&mut window, 0, 0, window_width, window_height, paint);
+            render_acrylic_panel(&mut window, 0, 0, window_width, window_height, paint, 0);
         } else {
             let paint = menu_surface_sm_paint();
             // small panel area (full window size already matches the panel)
-            render_acrylic_panel(&mut window, 0, 0, window_width, window_height, paint);
+            render_acrylic_panel(&mut window, 0, 0, window_width, window_height, paint, 10);
         }
 
         // Toggle icon (top-right)

@@ -59,7 +59,7 @@ pub fn show_mobile_menu(screen_w: u32, screen_h: u32, pkgs: &mut [crate::service
         let window_width = window.width();
         let window_height = window.height();
         let paint = menu_surface_lg_paint();
-        render_acrylic_panel(&mut window, 0, 0, window_width, window_height, paint);
+        render_acrylic_panel(&mut window, 0, 0, window_width, window_height, paint, 0);
 
         // Search bar
         let pad = 16i32;
