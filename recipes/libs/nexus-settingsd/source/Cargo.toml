@@ -1,0 +1,35 @@
+[package]
+name = "nexus-settingsd"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[features]
+# Default works everywhere (incl. Redox): no socket, clients poll the file mtime.
+default = ["persist"]
+persist = []
+# Enable Unix domain socket IPC (Linux/macOS/BSD). Likely not available on Redox.
+ipc_unix = []
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+thiserror = "1.0"
+dirs-next = "2.0"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+log = "0.4"
+once_cell = "1.19"
+
+# Only pulled when compiling with ipc_unix feature
+[target.'cfg(unix)'.dependencies]
+tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "net", "io-util", "time"], optional = true }
+
+[lib]
+name = "nexus_settingsd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nexus-settingsd"
+path = "src/bin/nexus-settingsd.rs"

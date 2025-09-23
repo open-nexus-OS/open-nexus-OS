@@ -1,13 +1,16 @@
-// themes/manager.rs — main theme manager: loads nexus.toml, resolves icons/backgrounds/colors, caches rendered assets.
+// themes/manager.rs — main theme manager: loads nexus.toml, resolves icons/backgrounds/colors,
+// caches rendered assets, and can switch between Light/Dark at runtime.
+
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
+use std::sync::atomic::{AtomicU8, Ordering};
+#[cfg(not(feature = "svg"))]
+use std::sync::atomic::AtomicBool;
 use toml;
 use log::{warn, error};
-#[cfg(not(feature = "svg"))]
-use std::sync::atomic::{AtomicBool};
 
 use orbclient::Color;
 use orbimage::Image;
@@ -20,9 +23,14 @@ use crate::themes::svg_icons::IconVariant;
 #[cfg(not(feature = "svg"))]
 static SVG_FEATURE_MISSING_WARNED: AtomicBool = AtomicBool::new(false);
 
-/// Light/Dark selection from `nexus.toml`
+/// Theme selector used across icon/color resolution
 #[derive(Copy, Clone, Debug)]
 pub enum ThemeId { Light, Dark }
+
+impl ThemeId {
+    #[inline] fn as_u8(self) -> u8 { match self { ThemeId::Light => 0, ThemeId::Dark => 1 } }
+    #[inline] fn from_u8(v: u8) -> Self { if v == 1 { ThemeId::Dark } else { ThemeId::Light } }
+}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ThemeSection {
@@ -54,17 +62,23 @@ fn collect_icon_ids(
     }
 }
 
-/// Main entry point: resolves icons/backgrounds/colors and caches rendered assets.
+/// Thread-safe theme manager:
+/// - Current ThemeId stored in AtomicU8
+/// - Paints and legacy color map behind RwLock (hot-swappable)
+/// - Icon and background caches behind Mutex
 pub struct ThemeManager {
-    theme: ThemeId,
+    theme: AtomicU8, // 0 = Light, 1 = Dark
+
     /// logical name -> relative icon path (e.g. "actions/system-shut-down")
     icons: BTreeMap<String, String>,
     /// background name -> relative path (e.g. "backgrounds/login")
     backgrounds: BTreeMap<String, String>,
+
     /// legacy color map (flat Color, no acrylic), derived from paints
-    pub(crate) colors_legacy: BTreeMap<String, Color>,
+    pub(crate) colors_legacy: RwLock<BTreeMap<String, Color>>,
     /// new paint map (Color + optional Acrylic)
-    paints: BTreeMap<String, Paint>,
+    paints: RwLock<BTreeMap<String, Paint>>,
+
     /// in-process cache for icons
     cache: Mutex<BTreeMap<(String, IconVariant, Option<(u32,u32)>), Image>>,
     /// in-process cache for backgrounds
@@ -72,11 +86,18 @@ pub struct ThemeManager {
 }
 
 impl ThemeManager {
-    /// Get the current theme ID
+    /// Current ThemeId (lock-free)
+    #[inline]
     pub fn theme_id(&self) -> ThemeId {
-        self.theme
+        ThemeId::from_u8(self.theme.load(Ordering::Relaxed))
     }
 
+    #[inline]
+    fn set_theme_id(&self, id: ThemeId) {
+        self.theme.store(id.as_u8(), Ordering::Relaxed);
+    }
+
+    /// Build icon candidates for a given logical id and variant.
     fn candidates_for(&self, id: &str, variant: IconVariant) -> Vec<String> {
         let rel: String = if let Some(s) = self.icons.get(id) {
             s.clone()
@@ -85,9 +106,10 @@ impl ThemeManager {
         } else {
             id.to_string()
         };
-        crate::themes::svg_icons::icon_candidates(&rel, self.theme, variant)
+        crate::themes::svg_icons::icon_candidates(&rel, self.theme_id(), variant)
     }
 
+    /// Load an icon, possibly SVG-rendered, with an optional target size.
     pub fn load_icon_sized(
         &self,
         id: &str,
@@ -95,16 +117,13 @@ impl ThemeManager {
         size: Option<(u32, u32)>,
     ) -> Option<Image> {
         let key = (id.to_string(), variant, size);
-        //println!("🔍 libnexus::load_icon_sized: id={}, variant={:?}, size={:?}, key={:?}", id, variant, size, key);
 
-        // Cache lookup (enabled)
+        // Cache lookup
         if let Some(img) = self.cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
-            //println!("✅ libnexus::cache_hit: returning cached image {}x{} for key {:?}", img.width(), img.height(), key);
             return Some(img);
         }
 
-        //println!("🔄 libnexus::cache_miss: loading new icon");
-
+        let theme_now = self.theme_id();
         let candidates = self.candidates_for(id, variant);
         if candidates.is_empty() {
             error!("no icon candidates for id={id} variant={variant:?}");
@@ -119,7 +138,7 @@ impl ThemeManager {
                     match std::fs::read(path) {
                         Ok(svg_bytes) => {
                             match crate::themes::svg_icons::render_svg_to_image_with_theme(
-                                &svg_bytes, self.theme, size
+                                &svg_bytes, theme_now, size
                             ) {
                                 Some(img) => {
                                     let _ = self.cache.lock().map(|mut c| c.insert(key.clone(), img.clone()));
@@ -161,7 +180,6 @@ impl ThemeManager {
             }
         }
 
-        // log error
         error!(
             "icon NOT FOUND: id={id} variant={variant:?} size={size:?}\n  tried:\n    - {}",
             candidates.join("\n    - ")
@@ -170,13 +188,18 @@ impl ThemeManager {
     }
 
     /// Compatibility wrapper as before: without size argument.
+    #[inline]
     pub fn load_icon(&self, id: &str, variant: IconVariant) -> Option<Image> {
         self.load_icon_sized(id, variant, None)
     }
 
     /// Compatibility wrapper for named colors (legacy fallback).
     pub fn color(&self, name: &str, fallback: Color) -> Color {
-        self.colors_legacy.get(name).copied().unwrap_or(fallback)
+        self.colors_legacy
+            .read()
+            .ok()
+            .and_then(|m| m.get(name).copied())
+            .unwrap_or(fallback)
     }
 
     /// Load a themed background (JPG/JPEG), first try theme-specific, then global.
@@ -194,9 +217,9 @@ impl ThemeManager {
             .cloned()
             .unwrap_or_else(|| format!("backgrounds/{}", name));
 
-        let theme_name = match self.theme {
+        let theme_name = match self.theme_id() {
             ThemeId::Light => "light",
-            ThemeId::Dark => "dark",
+            ThemeId::Dark  => "dark",
         };
 
         // Priority: themes → global; only .jpg/.jpeg
@@ -219,7 +242,7 @@ impl ThemeManager {
         None
     }
 
-    /// Optional: fast Diagnose, which candidates *exist*.
+    /// Optional: quick diagnose which candidates exist
     pub fn debug_icon_candidates(&self, id: &str, variant: IconVariant) {
         let cands = self.candidates_for(id, variant);
         if cands.is_empty() {
@@ -233,9 +256,63 @@ impl ThemeManager {
     }
 }
 
+/// Load paints (colors + optional acrylic) for a given theme.
+/// Returns (paints, legacy_colors) ready to swap into the manager.
+fn load_paints_for(theme: ThemeId) -> (BTreeMap<String, Paint>, BTreeMap<String, Color>) {
+    let mut paints: BTreeMap<String, Paint> = BTreeMap::new();
+    let mut colors_legacy: BTreeMap<String, Color> = BTreeMap::new();
+
+    let theme_name = match theme { ThemeId::Light => "light", ThemeId::Dark => "dark" };
+    let colors_path = format!("/ui/themes/{}/colors.toml", theme_name);
+
+    if let Ok(txt) = fs::read_to_string(&colors_path) {
+        match toml::from_str::<ThemeColorsToml>(&txt) {
+            Ok(doc) => {
+                // Defaults for acrylic if not specified per key
+                let def = doc.defaults.acrylic.unwrap_or_default();
+                let d_enabled   = def.enabled.unwrap_or(false);
+                let d_downscale = def.downscale.unwrap_or(4);
+                let d_tint      = def.tint
+                    .as_deref()
+                    .and_then(|s| hex_to_color(s))
+                    .unwrap_or(Color::rgba(255,255,255,0));
+                let d_noise     = def.noise_alpha.unwrap_or(0);
+
+                for (name, entry) in doc.colors {
+                    let (color, acrylic) = match entry {
+                        ColorEntry::Array(v) => (to_color(&v), None),
+                        ColorEntry::Hex(h)   => (hex_to_color(&h).unwrap_or(Color::rgba(255,255,255,255)), None),
+                        ColorEntry::Table(t) => {
+                            let color = t.rgba
+                                .as_ref().map(|v| to_color(v))
+                                .or_else(|| t.hex.as_deref().and_then(|s| hex_to_color(s)))
+                                .unwrap_or(Color::rgba(255,255,255,255));
+                            let acrylic = t.acrylic.as_ref().and_then(|a| {
+                                let enabled = a.enabled.unwrap_or(d_enabled);
+                                if !enabled { return None; }
+                                Some(Acrylic {
+                                    downscale:   a.downscale.unwrap_or(d_downscale),
+                                    tint:        a.tint.as_deref().and_then(|s| hex_to_color(s)).unwrap_or(d_tint),
+                                    noise_alpha: a.noise_alpha.unwrap_or(d_noise),
+                                })
+                            });
+                            (color, acrylic)
+                        }
+                    };
+                    paints.insert(name.clone(), Paint { color, acrylic });
+                    colors_legacy.insert(name, color);
+                }
+            }
+            Err(e) => warn!("failed to parse colors.toml: {e}"),
+        }
+    }
+
+    (paints, colors_legacy)
+}
+
 impl ThemeManager {
-    /// Loads configuration and builds the manager (excerpt relevant section).
-    /// If you already have the function: just insert the marked alias block.
+    /// Loads configuration and builds the manager (icons, backgrounds, and initial paints).
+    /// Keep the 'icons.' alias block so keys under [icons] can be referenced without the prefix.
     pub fn load_from(path: &str) -> Self {
         // 1) Read + parse nexus.toml
         let txt = fs::read_to_string(path).unwrap_or_default();
@@ -252,7 +329,7 @@ impl ThemeManager {
         };
 
         // 3) Collect icon mappings from all tables (icons, system, places, ...)
-        //    + auch Root-Level-Stringkeys berücksichtigen (robuster)
+        //    + robustly handle root-level string keys
         let mut icons: BTreeMap<String, String> = BTreeMap::new();
         for (table_name, value) in parsed.tables.iter() {
             match value {
@@ -262,7 +339,7 @@ impl ThemeManager {
             }
         }
 
-        // --- Alias ‘icons.’ -> ‘’ (keys under [icons] can also be used without prefix) ---
+        // --- Alias ‘icons.’ -> ‘’ (allow keys under [icons] without prefix) ---
         {
             let mut extra = Vec::new();
             for (k, v) in icons.iter() {
@@ -274,7 +351,7 @@ impl ThemeManager {
                 icons.insert(k, v);
             }
         }
-        // --- End Alias-Block ---
+        // --- End alias block ---
 
         // 4) Backgrounds table (optional)
         let mut backgrounds: BTreeMap<String, String> = BTreeMap::new();
@@ -286,88 +363,64 @@ impl ThemeManager {
             }
         }
 
-        // 5) Colors: try to load paints (color + optional acrylic) from colors.toml
-        let mut paints: BTreeMap<String, Paint> = BTreeMap::new();
-        let mut colors_legacy: BTreeMap<String, Color> = BTreeMap::new();
-        let theme_name = match theme { ThemeId::Light => "light", ThemeId::Dark => "dark" };
-        let colors_path = format!("/ui/themes/{}/colors.toml", theme_name);
-        if let Ok(txt) = fs::read_to_string(&colors_path) {
-            match toml::from_str::<ThemeColorsToml>(&txt) {
-                Ok(doc) => {
-                    // Defaults for acrylic if not specified per key
-                    let def = doc.defaults.acrylic.unwrap_or_default();
-                    let d_enabled    = def.enabled.unwrap_or(false);
-                    let d_downscale  = def.downscale.unwrap_or(4);
-                    let d_tint       = def.tint
-                        .as_deref()
-                        .and_then(|s| hex_to_color(s))
-                        .unwrap_or(Color::rgba(255,255,255,0));
-                    let d_noise      = def.noise_alpha.unwrap_or(0);
-
-                    for (name, entry) in doc.colors {
-                        let (color, acrylic) = match entry {
-                            ColorEntry::Array(v) => (to_color(&v), None),
-                            ColorEntry::Hex(h)   => (hex_to_color(&h).unwrap_or(Color::rgba(255,255,255,255)), None),
-                            ColorEntry::Table(t) => {
-                                let color = t.rgba
-                                    .as_ref().map(|v| to_color(v))
-                                    .or_else(|| t.hex.as_deref().and_then(|s| hex_to_color(s)))
-                                    .unwrap_or(Color::rgba(255,255,255,255));
-                                let acrylic = t.acrylic.as_ref().and_then(|a| {
-                                    let enabled = a.enabled.unwrap_or(d_enabled);
-                                    if !enabled { return None; }
-                                    Some(Acrylic {
-                                        downscale:   a.downscale.unwrap_or(d_downscale),
-                                        tint:        a.tint.as_deref().and_then(|s| hex_to_color(s)).unwrap_or(d_tint),
-                                        noise_alpha: a.noise_alpha.unwrap_or(d_noise),
-                                    })
-                                });
-                                (color, acrylic)
-                            }
-                        };
-                        paints.insert(name.clone(), Paint { color, acrylic });
-                        colors_legacy.insert(name, color);
-                    }
-                }
-                Err(e) => {
-                    warn!("failed to parse colors.toml: {e}");
-                }
-            }
-        }
+        // 5) Colors/Paints for the initial theme
+        let (paints, colors_legacy) = load_paints_for(theme);
 
         // 6) Build manager
-        let manager = ThemeManager {
-            theme,
+        ThemeManager {
+            theme: AtomicU8::new(theme.as_u8()),
             icons,
             backgrounds,
-            colors_legacy,
-            paints,
+            colors_legacy: RwLock::new(colors_legacy),
+            paints: RwLock::new(paints),
             cache: Mutex::new(BTreeMap::new()),
             bg_cache: Mutex::new(BTreeMap::new()),
-        };
-
-
-        manager
+        }
     }
-}
 
-impl ThemeManager {
     /// Get a full paint (color + optional acrylic). Falls back to provided `fallback`.
     pub fn paint(&self, name: &str, fallback: Paint) -> Paint {
-        if let Some(p) = self.paints.get(name) {
-            *p
+        if let Some(p) = self.paints.read().ok().and_then(|m| m.get(name).copied()) {
+            p
+        } else if let Some(color) = self.colors_legacy.read().ok().and_then(|m| m.get(name).copied()) {
+            Paint { color, acrylic: fallback.acrylic }
         } else {
-            if let Some(color) = self.colors_legacy.get(name) {
-                Paint { color: *color, acrylic: fallback.acrylic }
-            } else {
-                Paint { color: fallback.color, acrylic: fallback.acrylic }
-            }
+            Paint { color: fallback.color, acrylic: fallback.acrylic }
         }
     }
 
     /// Convenience: just the acrylic part (if present).
     pub fn acrylic(&self, name: &str) -> Option<Acrylic> {
-        self.paints.get(name).and_then(|p| p.acrylic)
+        self.paints
+            .read()
+            .ok()
+            .and_then(|m| m.get(name).copied())
+            .and_then(|p| p.acrylic)
+    }
+
+    /// Runtime theme switch:
+    /// - updates current ThemeId
+    /// - reloads paints/colors from /ui/themes/<light|dark>/colors.toml
+    /// - clears icon & background caches to force re-render with new palette
+    pub fn switch_theme(&self, id: ThemeId) {
+        self.set_theme_id(id);
+
+        // Reload palettes
+        let (new_paints, new_colors) = load_paints_for(id);
+        if let Ok(mut p) = self.paints.write() {
+            *p = new_paints;
+        } else {
+            warn!("ThemeManager: paints RwLock poisoned; keeping previous paints");
+        }
+        if let Ok(mut c) = self.colors_legacy.write() {
+            *c = new_colors;
+        } else {
+            warn!("ThemeManager: colors_legacy RwLock poisoned; keeping previous colors");
+        }
+
+        // Flush caches so subsequent lookups re-render with the new theme
+        if let Ok(mut ic) = self.cache.lock() { ic.clear(); }
+        if let Ok(mut bg) = self.bg_cache.lock() { bg.clear(); }
     }
 }
 

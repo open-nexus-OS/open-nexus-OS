@@ -17,6 +17,9 @@ use event::{user_data, EventQueue};
 use libredox::data::TimeSpec;
 use libredox::flag;
 
+use crate::ui::bar_msg;
+use super::bar_msg::{apply_initial_settings, handle_bar_msg};
+
 use crate::dpi_scale;
 use crate::config::colors::{
     bar_paint, bar_highlight_paint, bar_activity_marker_paint,
@@ -320,6 +323,7 @@ impl Bar {
 
 pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut bar = Bar::new(width, height);
+    apply_initial_settings();
 
     // Start background
     match Command::new("nexus-background").spawn() {
@@ -393,12 +397,16 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
 
             Ev::ActBar => {
                 // Process ActionBar window events
-                actionbar.process_events(bar.width, bar.height);
+                if let Some(msg) = actionbar.process_events(bar.width, bar.height) {
+                    handle_bar_msg(msg);
+                }
             }
 
             Ev::Panels => {
                 // Panels usually don't need heavy event handling; we let ActionBar handler process if any.
-                actionbar.process_events(bar.width, bar.height);
+                if let Some(msg) = actionbar.process_events(bar.width, bar.height) {
+                    handle_bar_msg(msg);
+                }
             }
 
             Ev::Bar => {

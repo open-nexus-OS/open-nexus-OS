@@ -13,4 +13,4 @@ crate-type = ["rlib"]
 orbclient = "0.3"
 orbimage = "0.1"
 log = "0.4"
-libnexus = { path = "../../../libs/libnexus/source", default-features = false, features = ["svg"] }
+libnexus = { path = "../../libnexus/source" }

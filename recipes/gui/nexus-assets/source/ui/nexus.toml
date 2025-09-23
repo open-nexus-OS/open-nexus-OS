@@ -45,6 +45,9 @@ notifications.mails = "status/mails"
 notifications.chats = "status/messages"
 notifications.calls = "status/calls"
 controlcenter.button = "actions/control-center"
+controlcenter.dark = "actions/moon"
+controlcenter.light = "actions/sun"
+controcenter.mode = "actions/mobile-desktop"
 files.copy = "actions/copy"
 files.delete = "actions/delete"
 files.move = "actions/move"
@@ -123,7 +126,7 @@ menu_bar_icon_bg_hover  = { rgba = [255,255,255,26] } # 10%
 menu_bar_devider        = { rgba = [255,255,255,89] } # 35%
 
 # Panels/COntrolcenter+Notifications
-actionbar_bg            = { rgba = [255,255,255,89], acrylic = { enabled = true, blur_px = 16 } } # 10%
+actionbar_bg            = { rgba = [255,255,255,89], acrylic = { enabled = true, blur_px = 16 } } # 35%
 panel_bg                = { rgba = [255,255,255,26], acrylic = { enabled = true, blur_px = 16 } } # 10%
 button_hover_veil       = { rgba = [0,0,0,26], acrylic = { enabled = true, blur_px = 16 } } # 10%
 

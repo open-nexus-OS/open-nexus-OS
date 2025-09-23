@@ -20,3 +20,4 @@ shlex = "1"
 xdg = "2"
 libnexus = { path = "../../../libs/libnexus/source", default-features = false, features = ["svg"] }
 nexus-actionbar = { path = "../../../libs/nexus-actionbar/source" }
+nexus-settingsd = { path = "../../../libs/nexus-settingsd/source", default-features = true } # Polling client

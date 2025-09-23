@@ -263,21 +263,26 @@ impl ActionBarHandler {
 
     /// Compatibility shim used by bar_handler: poll both actionbar and panels windows,
     /// feed events into the actionbar widget, fast-forward, then paint everything.
-    pub fn process_events(&mut self, width: u32, height: u32) {
+    pub fn process_events(&mut self, width: u32, height: u32) -> Option<ActionBarMsg> {
+        let mut last_msg: Option<ActionBarMsg> = None;
         self.screen_w = width;
         self.screen_h = height;
 
         // Drain events from the actionbar window
         if let Some(actionbar_window) = self.window_state.get_window_mut(self.actionbar_id) {
             for ev in actionbar_window.events() {
-                let _ = self.actionbar.handle_event(&ev);
+                if let Some(msg) = self.actionbar.handle_event(&ev) {
+                    last_msg = Some(msg);
+                }
             }
         }
 
         // Drain events from the panels overlay window (click outside to dismiss, etc.)
         if let Some(panels_window) = self.window_state.get_window_mut(self.panels_id) {
             for ev in panels_window.events() {
-                let _ = self.actionbar.handle_event(&ev);
+                if let Some(msg) = self.actionbar.handle_event(&ev) {
+                    last_msg = Some(msg);
+                }
             }
         }
 
@@ -291,6 +296,8 @@ impl ActionBarHandler {
         }
 
         self.update_panel_visibility(width, height);
+
+        last_msg
     }
 
     pub fn cleanup(&mut self) {}
