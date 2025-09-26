@@ -98,3 +98,5 @@ mod tests {
         assert_eq!(easing.apply(1.5), 1.0);
     }
 }
+
+

@@ -166,3 +166,5 @@ pub fn render_acrylic_panel<R: Renderer>(
     // No acrylic or no backdrop → rounded color fill only
     fill_round_rect(win, x, y, w, h, radius, paint.color);
 }
+
+

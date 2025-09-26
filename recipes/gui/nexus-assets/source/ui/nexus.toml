@@ -137,7 +137,7 @@ notification_pill_lower1_bg = { rgba = [255,255,255,178], acrylic = { enabled = 
 # Control Center
 control_center_group_bg         = { rgba = [255,255,255,128], acrylic = { enabled = true} } # 50%
 control_center_item_bg_active   = { rgba = [255,255,255,191], acrylic = { enabled = true} } # 75%
-control_center_item_fg_muted    = { rgba = [0,0,0,51], acrylic = { enabled = true} } # 20%
+control_center_item_bg_muted    = { rgba = [0,0,0,51], acrylic = { enabled = true} } # 20%
 
 # Inputs
 input_bg                = { rgba = [255,255,255,128] } # 50%

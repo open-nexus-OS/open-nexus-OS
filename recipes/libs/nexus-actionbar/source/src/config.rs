@@ -60,8 +60,8 @@ impl Default for Config {
             button_hover_veil: None,
             panel_bg: None,
 
-            notifications_width_dp: 360,
-            control_center_width_dp: 420,
+            notifications_width_dp: 350,
+            control_center_width_dp: 350,
 
             // Default: Desktop keeps space for a ~54dp bottom bar; Mobile is fullscreen.
             bottom_gap_desktop_dp: 54,
@@ -111,8 +111,8 @@ pub fn control_center_item_bg_active_paint() -> Paint {
     })
 }
 
-pub fn control_center_item_fg_muted_paint() -> Paint {
-    THEME.paint("control_center_item_fg_muted", Paint {
+pub fn control_center_item_bg_muted_paint() -> Paint {
+    THEME.paint("control_center_item_bg_muted", Paint {
         color: Color::rgba(0, 0, 0, 51),
         acrylic: None
     })

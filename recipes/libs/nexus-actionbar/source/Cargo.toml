@@ -12,5 +12,6 @@ crate-type = ["rlib"]
 [dependencies]
 orbclient = "0.3"
 orbimage = "0.1"
+orbfont = "0.1"
 log = "0.4"
 libnexus = { path = "../../libnexus/source" }

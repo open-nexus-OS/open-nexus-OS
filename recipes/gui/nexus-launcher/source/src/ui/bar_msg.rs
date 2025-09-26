@@ -25,8 +25,14 @@ pub fn apply_initial_settings() {
     log::debug!("Launcher init: ui={:?}, theme={:?}", ui_mode, theme_mode);
 }
 
+pub enum AppliedMsg {
+    None,
+    ModeChanged,
+    ThemeChanged,
+}
+
 /// Handle a single message coming back from the ActionBar.
-pub fn handle_bar_msg(msg: ActionBarMsg) {
+pub fn handle_bar_msg(msg: ActionBarMsg)-> AppliedMsg {
     match msg {
         ActionBarMsg::RequestSetMode(mode) => {
             let sys = match mode {
@@ -41,6 +47,7 @@ pub fn handle_bar_msg(msg: ActionBarMsg) {
             };
             app_settings::set_mode(app);
             log::debug!("Launcher: UI mode -> {:?}", sys);
+            AppliedMsg::ModeChanged
         }
 
         ActionBarMsg::RequestSetTheme(theme) => {
@@ -55,14 +62,17 @@ pub fn handle_bar_msg(msg: ActionBarMsg) {
                 SysThemeMode::Dark  => THEME.switch_theme(ThemeId::Dark),
             }
             log::debug!("Launcher: theme -> {:?}", sys);
+            AppliedMsg::ThemeChanged
         }
 
         ActionBarMsg::RequestInsetUpdate(insets) => {
             crate::config::settings::set_top_inset(insets.top);
+            AppliedMsg::None
         }
 
         ActionBarMsg::DismissPanels => {
             // no-op for now; ActionBar managed
+            AppliedMsg::None
         }
     }
 }

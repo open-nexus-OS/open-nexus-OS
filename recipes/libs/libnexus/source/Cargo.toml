@@ -19,6 +19,8 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 orbclient = "0.3"
 orbimage  = "0.1"
+orbfont   = "0.1"   # ← add this
+
 resvg     = { version = "0.43", optional = true, default-features = false, features = ["text"] }
 usvg      = { version = "0.43", optional = true, default-features = false, features = ["text"] }
 tiny-skia = { version = "0.11", optional = true }

@@ -398,14 +398,50 @@ pub fn bar_main(width: u32, height: u32) -> io::Result<()> {
             Ev::ActBar => {
                 // Process ActionBar window events
                 if let Some(msg) = actionbar.process_events(bar.width, bar.height) {
-                    handle_bar_msg(msg);
+                    match handle_bar_msg(msg) {
+                    crate::ui::bar_msg::AppliedMsg::ModeChanged => {
+                    // Reposition/hide bottom bar according to current mode
+                    match crate::config::settings::mode() {
+                    crate::config::settings::Mode::Mobile => {
+                    // Hide desktop bar in Mobile (or adjust as you see fit)
+                    bar.window.set_pos(0, bar.height as i32); // off-screen
+                    bar.selected_window.set_pos(0, bar.height as i32);
+                                }
+                                crate::config::settings::Mode::Desktop => {
+                    // Show desktop bar at bottom
+                                    bar.window.set_pos(0, bar.height as i32 - icon_size());
+                                    bar.selected_window.set_pos(0, bar.height as i32);
+                                }
+                            }
+                            // Repaint + refresh panels (bottom gap changes)
+                            bar.draw();
+                            actionbar.render_now(bar.width, bar.height);
+                        }
+                        _ => { /* no-op */ }
+                    }
                 }
             }
 
             Ev::Panels => {
                 // Panels usually don't need heavy event handling; we let ActionBar handler process if any.
                 if let Some(msg) = actionbar.process_events(bar.width, bar.height) {
-                    handle_bar_msg(msg);
+                    match handle_bar_msg(msg) {
+                    crate::ui::bar_msg::AppliedMsg::ModeChanged => {
+                    match crate::config::settings::mode() {
+                    crate::config::settings::Mode::Mobile => {
+                                    bar.window.set_pos(0, bar.height as i32);
+                                    bar.selected_window.set_pos(0, bar.height as i32);
+                                }
+                    crate::config::settings::Mode::Desktop => {
+                                    bar.window.set_pos(0, bar.height as i32 - icon_size());
+                                    bar.selected_window.set_pos(0, bar.height as i32);
+                                }
+                            }
+                            bar.draw();
+                            actionbar.render_now(bar.width, bar.height);
+                        }
+                    _ => { /* no-op */ }
+                    }
                 }
             }
 
