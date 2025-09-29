@@ -15,6 +15,7 @@ use log::{warn, error};
 use orbclient::Color;
 use orbimage::Image;
 
+use crate::backgrounds::{self, BackgroundMode};
 use crate::themes::colors::{
     Acrylic, Paint, ThemeColorsToml, ColorEntry, to_color, hex_to_color
 };
@@ -210,6 +211,12 @@ impl ThemeManager {
             return Some(img);
         }
 
+        if let Some((w, h)) = size {
+            if w == 0 || h == 0 {
+                return None;
+            }
+        }
+
         // Relative path from nexus.toml, e.g. "backgrounds/login"
         let rel = self
             .backgrounds
@@ -233,7 +240,14 @@ impl ThemeManager {
         for p in candidates {
             if let Ok(mut img) = Image::from_path(&p) {
                 if let Some((w, h)) = size {
-                    img = crate::themes::svg_icons::scale_nearest(&img, w, h);
+                    match backgrounds::scale_for_mode(&img, BackgroundMode::Fill, (w, h)) {
+                        Some(processed) => {
+                            img = processed;
+                        }
+                        None => {
+                            continue;
+                        }
+                    }
                 }
                 let _ = self.bg_cache.lock().map(|mut c| c.insert(key.clone(), img.clone()));
                 return Some(img);
