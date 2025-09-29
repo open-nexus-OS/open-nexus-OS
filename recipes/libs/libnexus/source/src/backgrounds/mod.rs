@@ -1,4 +1,5 @@
 use orbimage::{Image, ResizeType};
+use orbclient::{Color, Renderer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackgroundMode {
@@ -74,5 +75,25 @@ pub fn scale_for_mode(image: &Image, mode: BackgroundMode, target: (u32, u32)) -
     let crop_w = scaled_w.min(target_w);
     let crop_h = scaled_h.min(target_h);
 
-    Some(scaled.roi(crop_x, crop_y, crop_w, crop_h))
+    // If we need to crop, create a new image and copy the relevant portion
+    if crop_x > 0 || crop_y > 0 || crop_w < scaled_w || crop_h < scaled_h {
+        let data: Vec<Color> = vec![Color::rgb(0, 0, 0); (crop_w * crop_h) as usize];
+        let mut result = Image::from_data(crop_w, crop_h, data.into_boxed_slice()).unwrap();
+        for y in 0..crop_h {
+            for x in 0..crop_w {
+                let src_x = crop_x + x;
+                let src_y = crop_y + y;
+                if src_x < scaled_w && src_y < scaled_h {
+                    let src_pixel_index = (src_y * scaled_w + src_x) as usize;
+                    let target_pixel_index = (y * crop_w + x) as usize;
+                    if src_pixel_index < scaled.data().len() && target_pixel_index < result.data().len() {
+                        result.data_mut()[target_pixel_index] = scaled.data()[src_pixel_index];
+                    }
+                }
+            }
+        }
+        Some(result)
+    } else {
+        Some(scaled)
+    }
 }

@@ -13,4 +13,4 @@ dirs = "5.0.0"
 # Wichtig: UNBEDINGT un-conditional (nicht target-spezifisch)
 redox_event = "0.4.1"
 libredox    = { version = "0.1.3", default-features = false, features = ["std", "call"] }
-libnexus    = { path = "../../libs/libnexus/source" }
+libnexus    = { path = "../../../libs/libnexus/source" }
