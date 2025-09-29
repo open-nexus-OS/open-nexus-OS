@@ -20,6 +20,7 @@ use redox_log::{OutputBuilder, RedoxLogger};
 use redox_users::{All, AllUsers, Config};
 use libredox::flag;
 use libnexus::{THEME, IconVariant};
+use libnexus::backgrounds::{BackgroundMode, scale_for_mode};
 
 // -------- UI THEME --------
 // Theme colors loaded from nexus-assets via libnexus
@@ -85,29 +86,6 @@ fn snap_icon_size(px: u32) -> u32 {
     best
 }
 
-#[derive(Clone, Copy)]
-enum BackgroundMode {
-    /// Do not resize the image, just center it
-    Center,
-    /// Resize the image to the display size
-    Fill,
-    /// Resize the image - keeping its aspect ratio, and fit it to the display with blank space
-    Scale,
-    /// Resize the image - keeping its aspect ratio, and crop to remove all blank space
-    Zoom,
-}
-
-impl BackgroundMode {
-    fn from_str(string: &str) -> BackgroundMode {
-        match string {
-            "fill" => BackgroundMode::Fill,
-            "scale" => BackgroundMode::Scale,
-            "zoom" => BackgroundMode::Zoom,
-            _ => BackgroundMode::Center,
-        }
-    }
-}
-
 // Simple rectangle for hit testing
 #[derive(Clone, Copy, Debug)]
 struct Rect { pub x: i32, pub y: i32, pub w: u32, pub h: u32 }
@@ -160,53 +138,12 @@ impl CachedBackground {
         }
     }
 
-    fn get_scaled(&mut self, width: u32, height: u32) -> &Image {
+    fn get_scaled(&mut self, width: u32, height: u32) -> Option<&Image> {
         if self.last_size != (width, height) || self.scaled.is_none() {
-            let scaled = self.original.resize(width, height, orbimage::ResizeType::Lanczos3).unwrap();
-            self.scaled = Some(scaled);
+            self.scaled = scale_for_mode(&self.original, BackgroundMode::Fill, (width, height));
             self.last_size = (width, height);
         }
-        self.scaled.as_ref().unwrap()
-    }
-}
-
-fn find_scale(
-    image: &Image,
-    mode: BackgroundMode,
-    display_width: u32,
-    display_height: u32,
-) -> (u32, u32) {
-    match mode {
-        BackgroundMode::Center => (image.width(), image.height()),
-        BackgroundMode::Fill => (display_width, display_height),
-        BackgroundMode::Scale => {
-            let d_w = display_width as f64;
-            let d_h = display_height as f64;
-            let i_w = image.width() as f64;
-            let i_h = image.height() as f64;
-
-            let scale = if d_w / d_h > i_w / i_h {
-                d_h / i_h
-            } else {
-                d_w / i_w
-            };
-
-            ((i_w * scale) as u32, (i_h * scale) as u32)
-        }
-        BackgroundMode::Zoom => {
-            let d_w = display_width as f64;
-            let d_h = display_height as f64;
-            let i_w = image.width() as f64;
-            let i_h = image.height() as f64;
-
-            let scale = if d_w / d_h < i_w / i_h {
-                d_h / i_h
-            } else {
-                d_w / i_w
-            };
-
-            ((i_w * scale) as u32, (i_h * scale) as u32)
-        }
+        self.scaled.as_ref()
     }
 }
 
@@ -323,8 +260,11 @@ fn login_window(launcher_cmd: &str, launcher_args: &[String]) -> Result<Option<C
 
         if redraw_needed {
             // 1) Draw cached background scaled to the current window size
-            let bg_image = bg_cache.get_scaled(window.width(), window.height());
-            bg_image.draw(&mut window, 0, 0);
+            if let Some(bg_image) = bg_cache.get_scaled(window.width(), window.height()) {
+                bg_image.draw(&mut window, 0, 0);
+            } else {
+                window.set(Color::rgb(0, 0, 0));
+            }
 
             // 2) Draw UI content for current state
             let y_actions = window.height() as i32 - slot_h - ACTIONS_BOTTOM_PADDING;

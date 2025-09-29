@@ -5,6 +5,7 @@ extern crate log;
 extern crate orbclient;
 extern crate orbimage;
 extern crate redox_log;
+extern crate libnexus;
 
 use libredox::flag;
 use log::error;
@@ -17,6 +18,7 @@ use std::{
 
 use orbclient::{Color, EventOption, Renderer, Window, WindowFlag};
 use orbimage::Image;
+use libnexus::backgrounds::{BackgroundMode, scale_for_mode};
 use redox_log::{OutputBuilder, RedoxLogger};
 
 use event::RawEventQueue;
@@ -28,66 +30,12 @@ struct DisplayRect {
     pub height: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
-enum BackgroundMode {
-    /// Do not resize the image, just center it
-    Center,
-    /// Resize the image to the display size
-    Fill,
-    /// Resize the image - keeping its aspect ratio, and fit it to the display with blank space
-    Scale,
-    /// Resize the image - keeping its aspect ratio, and crop to remove all blank space
-    Zoom,
-}
-
-impl BackgroundMode {
-    fn from_str(string: &str) -> BackgroundMode {
-        match string {
-            "center" => BackgroundMode::Center,
-            "fill" => BackgroundMode::Fill,
-            "scale" => BackgroundMode::Scale,
-            _ => BackgroundMode::Zoom,
-        }
-    }
-}
-
-fn find_scale(
-    image: &Image,
-    mode: BackgroundMode,
-    display_width: u32,
-    display_height: u32,
-) -> (u32, u32) {
-    match mode {
-        BackgroundMode::Center => (image.width(), image.height()),
-        BackgroundMode::Fill => (display_width, display_height),
-        BackgroundMode::Scale => {
-            let d_w = display_width as f64;
-            let d_h = display_height as f64;
-            let i_w = image.width() as f64;
-            let i_h = image.height() as f64;
-
-            let scale = if d_w / d_h > i_w / i_h {
-                d_h / i_h
-            } else {
-                d_w / i_w
-            };
-
-            ((i_w * scale) as u32, (i_h * scale) as u32)
-        }
-        BackgroundMode::Zoom => {
-            let d_w = display_width as f64;
-            let d_h = display_height as f64;
-            let i_w = image.width() as f64;
-            let i_h = image.height() as f64;
-
-            let scale = if d_w / d_h < i_w / i_h {
-                d_h / i_h
-            } else {
-                d_w / i_w
-            };
-
-            ((i_w * scale) as u32, (i_h * scale) as u32)
-        }
+fn parse_mode(string: &str) -> BackgroundMode {
+    match string {
+        "center" => BackgroundMode::Center,
+        "fill" => BackgroundMode::Fill,
+        "scale" => BackgroundMode::Scale,
+        _ => BackgroundMode::Zoom,
     }
 }
 
@@ -205,7 +153,7 @@ fn main() {
         None => find_background(),
     };
 
-    let mode = BackgroundMode::from_str(&args.next().unwrap_or_default());
+    let mode = parse_mode(&args.next().unwrap_or_default());
 
     let event_queue = RawEventQueue::new().expect("background: failed to create event queue");
 
@@ -261,35 +209,17 @@ fn main() {
                     }
                 };
 
-                let (width, height) = find_scale(&image, mode, w, h);
-
-                let scaled_image = if width == image.width() && height == image.height() {
-                    image
-                } else {
-                    image
-                        .resize(width, height, orbimage::ResizeType::Lanczos3)
-                        .unwrap()
-                };
-
-                let (crop_x, crop_w) = if width > w {
-                    ((width - w) / 2, w)
-                } else {
-                    (0, width)
-                };
-
-                let (crop_y, crop_h) = if height > h {
-                    ((height - h) / 2, h)
-                } else {
-                    (0, height)
+                let Some(scaled_image) = scale_for_mode(&image, mode, (w, h)) else {
+                    window.set(Color::rgb(0, 0, 0));
+                    window.sync();
+                    return;
                 };
 
                 window.set(Color::rgb(0, 0, 0));
 
-                let x = (w as i32 - crop_w as i32) / 2;
-                let y = (h as i32 - crop_h as i32) / 2;
-                scaled_image
-                    .roi(crop_x, crop_y, crop_w, crop_h)
-                    .draw(&mut window, x, y);
+                let x = (w as i32 - scaled_image.width() as i32) / 2;
+                let y = (h as i32 - scaled_image.height() as i32) / 2;
+                scaled_image.draw(&mut window, x, y);
 
                 window.sync();
             }
