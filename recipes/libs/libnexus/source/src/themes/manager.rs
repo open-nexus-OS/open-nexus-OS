@@ -167,7 +167,20 @@ impl ThemeManager {
             } else {
                 // ---- Raster branch (optional) ----
                 match Image::from_path(path) {
-                    Ok(mut img) => {
+                    Ok(img_file) => {
+                        let owned = match Image::from_data(
+                            img_file.width(),
+                            img_file.height(),
+                            img_file.data().to_vec().into(),
+                        ) {
+                            Ok(image) => image,
+                            Err(_) => {
+                                warn!("failed to materialize raster icon into owned buffer: id={id} path={path}");
+                                continue;
+                            }
+                        };
+
+                        let mut img = owned;
                         if let Some((w, h)) = size {
                             img = crate::themes::svg_icons::scale_nearest(&img, w, h);
                         }
@@ -238,7 +251,20 @@ impl ThemeManager {
         ];
 
         for p in candidates {
-            if let Ok(mut img) = Image::from_path(&p) {
+            if let Ok(img_file) = Image::from_path(&p) {
+                let owned = match Image::from_data(
+                    img_file.width(),
+                    img_file.height(),
+                    img_file.data().to_vec().into(),
+                ) {
+                    Ok(image) => image,
+                    Err(_) => {
+                        warn!("failed to materialize background into owned buffer: name={name} path={p}");
+                        continue;
+                    }
+                };
+
+                let mut img = owned;
                 if let Some((w, h)) = size {
                     match backgrounds::scale_for_mode(&img, BackgroundMode::Fill, (w, h)) {
                         Some(processed) => {
