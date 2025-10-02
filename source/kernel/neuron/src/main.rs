@@ -7,7 +7,7 @@ use core::panic::PanicInfo;
 const UART0: usize = 0x1000_0000;
 const UART_THR: usize = 0x00; // transmit holding register
 const UART_LSR: usize = 0x05; // line status register
-const LSR_THRE: u8 = 1 << 5;  // transmitter holding register empty
+const LSR_THRE: u8 = 1 << 5; // transmitter holding register empty
 
 #[inline(always)]
 fn mmio8(off: usize) -> *mut u8 {
@@ -47,7 +47,9 @@ pub extern "C" fn _start() -> ! {
     // Park all HARTs the same way (we don’t rely on a single boot hart yet)
     uart_write("=== NEURON (open-nexus-os) ===\n");
     loop {
-        unsafe { core::arch::asm!("wfi"); }
+        unsafe {
+            core::arch::asm!("wfi");
+        }
     }
 }
 
@@ -55,6 +57,8 @@ pub extern "C" fn _start() -> ! {
 fn panic(_info: &PanicInfo) -> ! {
     uart_write("panic\n");
     loop {
-        unsafe { core::arch::asm!("wfi"); }
+        unsafe {
+            core::arch::asm!("wfi");
+        }
     }
 }
