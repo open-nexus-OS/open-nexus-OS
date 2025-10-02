@@ -1,0 +1,87 @@
+{
+    // Editor settings
+    "editor.tabSize": 4,
+    "editor.rulers": [120],
+    "editor.renderWhitespace": "trailing",
+    "editor.suggestSelection": "first",
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    // Explorer
+    "explorer.compactFolders": false,
+    "explorer.confirmDragAndDrop": false,
+    "explorer.confirmDelete": false,
+    "explorer.copyRelativePathSeparator": "/",
+    // Files
+    "files.autoSave": "onFocusChange",
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "files.trimTrailingWhitespace": true,
+    // workbench
+    "workbench.editorAssociations": {
+        "*.md": "vscode.markdown.preview.editor",
+        "*.svg": "svgPreviewer.customEditor"
+    },
+    // Git
+    "git.enableSmartCommit": true,
+    "git.autofetch": true,
+    "git.confirmSync": false,
+    "git.openRepositoryInParentFolders": "always",
+    // Markdown
+    "markdown.validate.enabled": true,
+    "[markdown]": {
+        "files.trimTrailingWhitespace": false,
+        "editor.formatOnSave": false,
+        "editor.defaultFormatter": "yzhang.markdown-all-in-one",
+        "editor.wordWrap": "wordWrapColumn",
+        "editor.wordWrapColumn": 80
+    },
+    // Different languages
+    "[toml]": {
+        "editor.wordWrap": "wordWrapColumn",
+        "editor.wordWrapColumn": 80
+    },
+    // BetterComments
+    "better-comments.tags": [
+        {
+            "tag": "XXX",
+            "color": "#F8C471"
+        },
+        {
+            "tag": "WARN",
+            "color": "#FF6961"
+        },
+        {
+            "tag": "NOTE",
+            "color": "#3498DB"
+        },
+        {
+            "tag": "TODO",
+            "color": "#77C3EC"
+        }
+    ],
+    // other extensions
+    "vsintellicode.modify.editor.suggestSelection": "automaticallyOverrodeDefaultValue",
+    "codesnap.showWindowControls": false,
+    "codesnap.shutterAction": "copy",
+    "Workspace_Formatter.excludePattern": [
+        "**/build",
+        "**/.*",
+        "**/.vscode",
+        "**/html"
+    ],
+    "svg.preview.autoOpen": true,
+    "remote.WSL.fileWatcher.polling": true,
+    "errorLens.delay": 1000,
+    "errorLens.enabledDiagnosticLevels": ["error", "warning"],
+    "errorLens.enabled": false,
+    // Rust
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+    "redhat.telemetry.enabled": false,
+    "workbench.editor.empty.hint": "hidden",
+    // "rust-analyzer.linkedProjects": [
+    //   "${workspaceFolder}/../Cargo.toml"
+    // ],
+    "rust-analyzer.check.command": "check",
+    "debug.allowBreakpointsEverywhere": true
+}

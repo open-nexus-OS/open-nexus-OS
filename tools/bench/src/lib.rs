@@ -1,5 +1,5 @@
 pub fn spin(count: u64) -> u64 {
-    let mut acc = 0;
+    let mut acc: u64 = 0;
     for i in 0..count {
         acc = acc.wrapping_add(i);
     }

@@ -5,7 +5,11 @@ struct BusStub;
 
 impl Bus for BusStub {
     fn read(&self, addr: usize) -> u32 {
-        if addr == 0 { 0 } else { 1 }
+        if addr == 0 {
+            0
+        } else {
+            1
+        }
     }
 
     fn write(&self, _addr: usize, _value: u32) {}

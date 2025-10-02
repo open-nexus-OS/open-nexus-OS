@@ -22,7 +22,9 @@ pub fn render_frame(width: usize, height: usize) -> Vec<u32> {
 }
 
 pub fn frame_checksum() -> u32 {
-    render_frame(8, 8).iter().fold(0u32, |acc, value| acc.wrapping_add(*value))
+    render_frame(8, 8)
+        .iter()
+        .fold(0u32, |acc, value| acc.wrapping_add(*value))
 }
 
 pub fn run() {
@@ -42,6 +44,12 @@ mod tests {
 
     #[test]
     fn checksum_matches() {
-        assert_eq!(frame_checksum(), render_frame(8, 8).iter().copied().fold(0, u32::wrapping_add));
+        assert_eq!(
+            frame_checksum(),
+            render_frame(8, 8)
+                .iter()
+                .copied()
+                .fold(0, u32::wrapping_add)
+        );
     }
 }

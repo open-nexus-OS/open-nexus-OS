@@ -30,8 +30,8 @@ mod tests {
     impl Bus for MockBus {
         fn read(&self, addr: usize) -> u32 {
             match addr {
-                0 => 0x89AB,
-                4 => 0xCDEF,
+                0 => 0x0000_0000, // low 32 bits
+                4 => 0x0000_0001, // high 32 bits
                 _ => 0,
             }
         }
@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn capacity_combines_high_low() {
         let blk = VirtioBlk::new(MockBus);
-        assert_eq!(blk.capacity(), 0xCDEF_89AB);
+        assert_eq!(blk.capacity(), 1u64 << 32);
     }
 
     #[test]

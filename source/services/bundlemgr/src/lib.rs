@@ -51,7 +51,10 @@ fn install(path: &str) -> String {
     let header = MsgHeader::new(1, 0, 0);
     let ability = infer_ability(path);
     if ability_ipc::Service::register(&AbilityProxy, &ability) {
-        format!("bundle installed: {path} with header {:?}", header.serialize())
+        format!(
+            "bundle installed: {path} with header {:?}",
+            header.serialize()
+        )
     } else {
         "ability registration failed".to_string()
     }
@@ -62,7 +65,10 @@ fn verify_signature(path: &str) -> bool {
 }
 
 fn infer_ability(path: &str) -> String {
-    path.split('/').last().unwrap_or("bundle").replace(".nxb", "")
+    path.split('/')
+        .last()
+        .unwrap_or("bundle")
+        .replace(".nxb", "")
 }
 
 pub fn run() {

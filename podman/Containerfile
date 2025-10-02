@@ -18,20 +18,22 @@ RUN apt-get update \
         qemu-system-riscv64 \
         gdb \
         mold \
+        libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u ${UID} ${USER}
-USER ${USER}
 WORKDIR /workspace
 
 ENV RUSTUP_HOME=/home/${USER}/.rustup
 ENV CARGO_HOME=/home/${USER}/.cargo
 ENV PATH=${CARGO_HOME}/bin:${PATH}
 
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain 1.75.0
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable
 RUN rustup toolchain install nightly-2024-02-01 --profile minimal
-RUN rustup target add riscv64imac-unknown-none-elf --toolchain 1.75.0
+RUN rustup target add riscv64imac-unknown-none-elf --toolchain stable
 RUN cargo install cargo-deny cargo-udeps cargo-nextest cargo-fuzz
+RUN chmod -R a+rx /home/${USER}/.rustup /home/${USER}/.cargo && \
+    ln -sf /home/${USER}/.cargo/bin/* /usr/local/bin/
 
 COPY podman/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]

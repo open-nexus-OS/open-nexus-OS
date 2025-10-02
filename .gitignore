@@ -1,9 +1,15 @@
-/build/
+# Build artifacts
 /target/
-**/target/
-**/*.png
-**/*.svg
+/**/target/
+/build/
+
+# Rust toolchains & caches (anywhere)
+**/.rustup/
+**/.cargo/
+
+# Images/logs
 *.img
 *.iso
+*.nxb
 *.log
-**/Cargo.lock
+build/*.log

@@ -24,6 +24,6 @@ mod tests {
 
     #[test]
     fn provides_hint() {
-        assert!(execute(&["focus" ]).contains("focus"));
+        assert!(execute(&["focus"]).contains("focus"));
     }
 }

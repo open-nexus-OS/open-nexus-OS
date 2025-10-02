@@ -31,7 +31,9 @@ impl<T> SpinLock<T> {
         }
         SpinLockGuard { lock: self }
     }
+}
 
+impl<T: ?Sized> SpinLock<T> {
     fn unlock(&self) {
         self.flag.store(false, Ordering::Release);
     }

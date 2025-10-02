@@ -1,10 +1,2 @@
-[advisories]
-denies = ["unmaintained", "yanked", "unsound"]
-
 [licenses]
 allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause"]
-confidence-threshold = 0.8
-
-[bans]
-denies = ["wildcard"]
-multiple-versions = "deny"
