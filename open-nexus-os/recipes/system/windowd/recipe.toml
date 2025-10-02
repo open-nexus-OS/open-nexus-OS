@@ -1,0 +1,27 @@
+[package]
+name = "windowd"
+version = "0.1.0"
+kind = "service"
+
+[source]
+type = "path"
+path = "../../../source/services/windowd"
+
+[deps]
+requires = []
+
+[build]
+features = []
+
+[run]
+cmd = "windowd"
+
+[tests]
+host = true
+qemu = ["smoke"]
+
+[policy]
+caps = ["window.manage"]
+
+[semver]
+api_guard = true

@@ -1,0 +1,27 @@
+[package]
+name = "launcher"
+version = "0.1.0"
+kind = "app"
+
+[source]
+type = "path"
+path = "../../../source/apps/launcher"
+
+[deps]
+requires = ["windowd", "bundlemgr"]
+
+[build]
+features = []
+
+[run]
+cmd = "launcher"
+
+[tests]
+host = true
+qemu = ["smoke"]
+
+[policy]
+caps = ["window.launch", "ability.start"]
+
+[semver]
+api_guard = true

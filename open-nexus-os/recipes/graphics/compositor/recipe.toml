@@ -1,0 +1,27 @@
+[package]
+name = "compositor"
+version = "0.1.0"
+kind = "service"
+
+[source]
+type = "path"
+path = "../../../source/services/compositor"
+
+[deps]
+requires = ["windowd"]
+
+[build]
+features = []
+
+[run]
+cmd = "compositor"
+
+[tests]
+host = true
+qemu = ["smoke"]
+
+[policy]
+caps = ["graphics.compose"]
+
+[semver]
+api_guard = true

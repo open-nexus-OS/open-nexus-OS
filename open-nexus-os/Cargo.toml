@@ -1,0 +1,48 @@
+[workspace]
+members = [
+    "source/kernel/neuron",
+    "source/libs/nexus-abi",
+    "source/libs/nexus-idl",
+    "source/libs/nexus-hal",
+    "source/libs/nexus-alloc",
+    "source/libs/nexus-sync",
+    "source/libs/nexus-sched",
+    "source/libs/nexus-sel",
+    "source/services/abilitymgr",
+    "source/services/samgr",
+    "source/services/bundlemgr",
+    "source/services/resourcemgr",
+    "source/services/windowd",
+    "source/services/compositor",
+    "source/services/systemui",
+    "source/services/powermgr",
+    "source/services/batterymgr",
+    "source/services/thermalmgr",
+    "source/services/notificationd",
+    "source/services/searchd",
+    "source/services/locationd",
+    "source/services/identity",
+    "source/services/dsoftbus",
+    "source/services/dist-data",
+    "source/services/dist-scheduler",
+    "source/services/time-sync",
+    "source/services/logd",
+    "source/services/settingsd",
+    "source/services/clipboard",
+    "source/services/ime",
+    "source/services/accessibilityd",
+    "source/services/media",
+    "source/apps/launcher",
+    "source/drivers/net/virtio",
+    "source/drivers/storage/virtio-blk",
+    "source/drivers/console/virtio",
+    "tools/qemu-run",
+    "tools/api-diff",
+    "tools/pkgr",
+    "tools/bench"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
