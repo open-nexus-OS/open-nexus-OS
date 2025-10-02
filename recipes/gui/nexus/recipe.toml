@@ -1,7 +1,0 @@
-[build]
-template = "cargo"
-
-[package]
-dependencies = [
-    "nexus-assets"
-]

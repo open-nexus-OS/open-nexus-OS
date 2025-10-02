@@ -1,0 +1,37 @@
+FROM debian:stable-slim
+
+ARG USER=builder
+ARG UID=1000
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        build-essential \
+        pkg-config \
+        git \
+        python3 \
+        python3-pip \
+        qemu-system-misc \
+        qemu-system-riscv64 \
+        gdb \
+        mold \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u ${UID} ${USER}
+USER ${USER}
+WORKDIR /workspace
+
+ENV RUSTUP_HOME=/home/${USER}/.rustup
+ENV CARGO_HOME=/home/${USER}/.cargo
+ENV PATH=${CARGO_HOME}/bin:${PATH}
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain 1.75.0
+RUN rustup toolchain install nightly-2024-02-01 --profile minimal
+RUN rustup target add riscv64imac-unknown-none-elf --toolchain 1.75.0
+RUN cargo install cargo-deny cargo-udeps cargo-nextest cargo-fuzz
+
+COPY podman/entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]

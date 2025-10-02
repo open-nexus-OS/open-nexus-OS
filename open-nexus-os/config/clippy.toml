@@ -1,0 +1,5 @@
+deny-warnings = true
+warn = ["clippy::pedantic"]
+allow = ["clippy::module_name_repetitions"]
+[[msrv]]
+msrv = "1.75"

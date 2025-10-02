@@ -1,0 +1,27 @@
+[package]
+name = "dsoftbus"
+version = "0.1.0"
+kind = "service"
+
+[source]
+type = "path"
+path = "../../../source/services/dsoftbus"
+
+[deps]
+requires = ["identity"]
+
+[build]
+features = []
+
+[run]
+cmd = "dsoftbus"
+
+[tests]
+host = true
+qemu = ["smoke"]
+
+[policy]
+caps = ["distributed.bus"]
+
+[semver]
+api_guard = true

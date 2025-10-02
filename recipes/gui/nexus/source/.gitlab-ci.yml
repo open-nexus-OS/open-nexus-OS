@@ -1,5 +1,0 @@
-image: "redoxos/redoxer:latest"
-
-test:redox:
-  script:
-  - redoxer test --verbose

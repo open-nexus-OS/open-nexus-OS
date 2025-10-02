@@ -1,5 +1,0 @@
-[build]
-template = "custom"
-script = """
-cp -rv "${COOKBOOK_SOURCE}/"* "${COOKBOOK_STAGE}/"
-"""

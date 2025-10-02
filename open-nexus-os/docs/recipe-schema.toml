@@ -1,0 +1,29 @@
+# Canonical recipe schema for Nexus build recipes.
+[package]
+# name = "component"
+# version = "0.1.0"
+# kind = "service|app|driver|framework"
+
+[source]
+# type = "path|git|crate|data"
+# path = "../../source/..." # when type = "path"
+
+[deps]
+# requires = ["dependency-name"]
+
+[build]
+# features = []
+# script = ""
+
+[run]
+# cmd = "binary --args"
+
+[tests]
+# host = true
+# qemu = ["smoke"]
+
+[policy]
+# caps = ["capability"]
+
+[semver]
+# api_guard = true
