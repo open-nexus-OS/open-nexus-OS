@@ -89,6 +89,7 @@ COMMANDS:
   debug:       "cd ~/open-nexus-os && DEBUG=1 make run"            # QEMU with GDB stub
   pull:        "cd ~/open-nexus-os && make pull"                   # sync recipe sources from recipe.toml
   clean:       "cd ~/open-nexus-os && make clean"
+  initial-setup:        "cd ~/open-nexus-os && make initial-setup" # installs cargo fmt, clippy and deny
 
 # QUICK DEBUG HINTS
 # ==============================================================================
