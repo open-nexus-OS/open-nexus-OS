@@ -3,7 +3,7 @@
 
 //! Early boot routines for the NEURON microkernel.
 
-use crate::{arch::riscv, kmain};
+use crate::kmain;
 
 #[cfg(not(test))]
 extern "C" {
@@ -19,20 +19,21 @@ pub extern "C" fn _start() -> ! {
         zero_bss();
         init_traps();
     }
+    crate::init_heap();
     kmain::kmain()
 }
 
 unsafe fn zero_bss() {
     #[cfg(not(test))]
     {
-        riscv::clear_bss(core::ptr::addr_of_mut!(__bss_start), core::ptr::addr_of_mut!(__bss_end));
+        crate::arch::riscv::clear_bss(core::ptr::addr_of_mut!(__bss_start), core::ptr::addr_of_mut!(__bss_end));
     }
 }
 
 unsafe fn init_traps() {
     #[cfg(not(test))]
     {
-        riscv::configure_traps(__trap_vector as usize);
-        riscv::enable_timer_interrupts();
+        crate::arch::riscv::configure_traps(__trap_vector as usize);
+        crate::arch::riscv::enable_timer_interrupts();
     }
 }

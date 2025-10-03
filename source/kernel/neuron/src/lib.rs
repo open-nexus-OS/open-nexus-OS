@@ -2,18 +2,47 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
-#![forbid(unsafe_op_in_unsafe_fn)]
 #![deny(warnings)]
-
-//! NEURON microkernel crate.
-//!
-//! The crate bundles architecture specific early boot code, a tiny
-//! hardware abstraction layer for the RISC-V `virt` machine and core
-//! kernel subsystems such as scheduling, capability handling and the
-//! syscall dispatcher.  All modules are intentionally compact and
-//! thoroughly documented to make host-first testing feasible.
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;
+
+use core::ptr::addr_of_mut;
+use linked_list_allocator::LockedHeap;
+
+// Global allocator
+
+const HEAP_SIZE: usize = 1024 * 1024;
+
+#[cfg_attr(not(test), link_section = ".bss.heap")]
+static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
+
+#[global_allocator]
+static ALLOC: LockedHeap = LockedHeap::empty();
+
+pub fn init_heap() {
+    // SAFETY: single-threaded early boot; we only pass a raw pointer + length.
+    unsafe {
+        let start: *mut u8 = addr_of_mut!(HEAP) as *mut u8;
+        ALLOC.lock().init(start, HEAP_SIZE);
+    }
+}
+
+
+// Panic handler
+
+#[cfg(not(test))]
+mod __panic {
+    use core::panic::PanicInfo;
+    #[panic_handler]
+    fn panic(_info: &PanicInfo) -> ! {
+        loop {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+// Modules
 
 pub mod arch;
 pub mod boot;
@@ -27,8 +56,11 @@ pub mod syscall;
 pub mod trap;
 pub mod uart;
 
-/// Kernel banner printed during boot on the first UART.
+// Constants
+
 pub const BANNER: &str = "NEURON";
+
+// Tests
 
 #[cfg(test)]
 mod tests {

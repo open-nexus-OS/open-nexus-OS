@@ -3,10 +3,7 @@
 
 //! Trap handling primitives.
 
-use crate::{
-    arch::riscv,
-    syscall::{self, api, Args, Error as SysError, SyscallTable},
-};
+use crate::syscall::{api, Args, Error as SysError, SyscallTable};
 
 /// Saved register state for an S-mode trap.
 #[derive(Default)]
@@ -42,6 +39,6 @@ fn encode_error(err: SysError) -> usize {
 #[no_mangle]
 extern "C" fn __trap_vector() -> ! {
     loop {
-        riscv::wait_for_interrupt();
+        crate::arch::riscv::wait_for_interrupt();
     }
 }

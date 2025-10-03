@@ -3,13 +3,17 @@
 
 //! Capability table implementation.
 
-use alloc::vec::Vec;
+extern crate alloc;
+
+use alloc::vec;      
+use alloc::vec::Vec; 
 use bitflags::bitflags;
 use core::fmt;
 
 use crate::ipc::EndpointId;
 
 bitflags! {
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     /// Rights associated with a capability handle.
     pub struct Rights: u32 {
         const SEND = 1 << 0;

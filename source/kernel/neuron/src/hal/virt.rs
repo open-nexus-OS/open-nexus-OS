@@ -80,11 +80,15 @@ impl Uart for VirtUart {
 
 impl Mmio for VirtUart {
     unsafe fn write32(&self, offset: usize, value: u32) {
-        write_volatile((UART0_BASE + offset) as *mut u32, value);
+        unsafe {
+            write_volatile((UART0_BASE + offset) as *mut u32, value);
+        }
     }
 
     unsafe fn read32(&self, offset: usize) -> u32 {
-        read_volatile((UART0_BASE + offset) as *const u32)
+        unsafe {
+            read_volatile((UART0_BASE + offset) as *const u32)
+        }
     }
 }
 

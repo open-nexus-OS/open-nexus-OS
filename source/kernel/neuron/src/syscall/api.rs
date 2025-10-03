@@ -3,6 +3,8 @@
 
 //! Syscall handlers exposed to the dispatcher.
 
+extern crate alloc;
+
 use alloc::vec::Vec;
 
 use crate::{

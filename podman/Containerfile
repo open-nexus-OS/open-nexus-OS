@@ -29,7 +29,7 @@ ENV CARGO_HOME=/home/${USER}/.cargo
 ENV PATH=${CARGO_HOME}/bin:${PATH}
 
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable
-RUN rustup toolchain install nightly-2024-02-01 --profile minimal
+RUN rustup toolchain install nightly-2025-01-15 --profile minimal
 RUN rustup target add riscv64imac-unknown-none-elf --toolchain stable
 RUN cargo install cargo-deny cargo-udeps cargo-nextest cargo-fuzz
 RUN chmod -R a+rx /home/${USER}/.rustup /home/${USER}/.cargo && \

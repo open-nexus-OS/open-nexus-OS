@@ -3,7 +3,9 @@
 
 //! Virtual memory primitives for Sv39.
 
-use alloc::vec::Vec;
+extern crate alloc;
+use alloc::vec;      
+use alloc::vec::Vec; 
 use bitflags::bitflags;
 
 /// Size of a page in bytes.
@@ -12,6 +14,7 @@ pub const PAGE_SIZE: usize = 4096;
 const PT_ENTRIES: usize = 512;
 
 bitflags! {
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     /// Flags stored in an Sv39 PTE.
     pub struct PageFlags: usize {
         const VALID = 1 << 0;

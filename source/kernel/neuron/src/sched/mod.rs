@@ -3,6 +3,8 @@
 
 //! Minimal scheduler used during NEURON bring-up.
 
+extern crate alloc;
+
 use alloc::collections::VecDeque;
 
 /// Task identifier handed out by the scheduler.
