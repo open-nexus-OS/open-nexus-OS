@@ -1,0 +1,7 @@
+deny = [
+    "clippy::unwrap_used",
+    "clippy::expect_used",
+    "clippy::todo",
+    "clippy::unimplemented",
+    "clippy::panic"
+]

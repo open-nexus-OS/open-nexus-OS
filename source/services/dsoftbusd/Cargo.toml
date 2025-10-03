@@ -1,0 +1,9 @@
+[package]
+name = "dsoftbusd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+dsoftbus = { path = "../../../userspace/dsoftbus", default-features = false, features = ["backend-os"] }
+

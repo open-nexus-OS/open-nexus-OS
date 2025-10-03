@@ -10,13 +10,16 @@
 
 #![deny(clippy::all, missing_docs)]
 
-use std::fmt;
-
 #[cfg(all(feature = "backend-host", feature = "backend-os"))]
-compile_error!("userspace-samgr supports exactly one backend feature at a time");
+compile_error!("Choose exactly one backend feature.");
 
-#[cfg(all(not(feature = "backend-host"), not(feature = "backend-os")))]
-compile_error!("enable either the `backend-host` or `backend-os` feature");
+#[cfg(not(any(feature = "backend-host", feature = "backend-os")))]
+compile_error!("Select a backend feature.");
+
+pub mod cli;
+pub use cli::{execute, help, run};
+
+use std::fmt;
 
 #[cfg(feature = "backend-host")]
 use parking_lot::Mutex;

@@ -19,4 +19,7 @@ test:
 
 miri:
     cargo miri setup
-    cargo miri test -p userspace-samgr -p userspace-bundlemgr
+    cargo miri test -p samgr -p bundlemgr
+
+arch-check:
+    cargo run -p arch-check

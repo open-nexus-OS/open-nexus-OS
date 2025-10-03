@@ -1,0 +1,9 @@
+[package]
+name = "samgrd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+samgr = { path = "../../../userspace/samgr", default-features = false, features = ["backend-os"] }
+

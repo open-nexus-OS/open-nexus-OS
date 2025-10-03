@@ -1,3 +1,6 @@
+//! Settings daemon entry point: delegates to the userspace library.
+
 fn main() {
-    settingsd::run();
+    settings::run();
+    println!("settingsd: ready");
 }

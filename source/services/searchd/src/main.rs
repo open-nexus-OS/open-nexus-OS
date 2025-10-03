@@ -1,3 +1,6 @@
+//! Search daemon entry point.
+
 fn main() {
-    searchd::run();
+    search::run();
+    println!("searchd: ready");
 }
