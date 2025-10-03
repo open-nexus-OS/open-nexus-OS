@@ -1,9 +1,14 @@
 [package]
-name = "userspace-bundlemgr"
+name = "bundlemgr"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
+
+[features]
+default = ["backend-host"]
+backend-host = []
+backend-os = []
 
 [dependencies]
 semver = "1"

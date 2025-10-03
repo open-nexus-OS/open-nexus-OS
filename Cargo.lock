@@ -68,8 +68,9 @@ checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 name = "bundlemgr"
 version = "0.1.0"
 dependencies = [
- "nexus-abi",
- "nexus-idl",
+ "semver",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -407,7 +408,7 @@ name = "nexus-sync"
 version = "0.1.0"
 
 [[package]]
-name = "notificationd"
+name = "notifd"
 version = "0.1.0"
 
 [[package]]
@@ -539,7 +540,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
-name = "resourcemgr"
+name = "resmgr"
 version = "0.1.0"
 
 [[package]]

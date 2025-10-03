@@ -5,7 +5,7 @@ kind = "service"
 
 [source]
 type = "path"
-path = "../../../source/services/dsoftbus"
+path = "../../../source/services/dsoftbusd"
 
 [deps]
 requires = ["identity"]

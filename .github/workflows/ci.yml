@@ -17,13 +17,15 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Architecture guard
+        run: cargo run -p arch-check
       - name: Unit & property tests
         run: cargo nextest run --workspace
       - name: Miri (host-eligible crates)
         run: |
           rustup component add miri
           cargo miri setup
-          cargo miri test -p userspace-samgr -p userspace-bundlemgr
+          cargo miri test -p samgr -p bundlemgr
       - name: QEMU selftest
         run: just test-os
       - name: Upload logs on failure

@@ -3,7 +3,7 @@
 
 # Bundle Manager Manifest Schema
 
-The bundle manager crate (`userspace-bundlemgr`) parses application manifests
+The bundle manager crate (`bundlemgr`) parses application manifests
 stored as TOML documents. The host-first implementation focuses on validating
 schema correctness and surfacing actionable diagnostics to developers.
 

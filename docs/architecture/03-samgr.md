@@ -3,7 +3,7 @@
 
 # Service Manager (samgr) Host Backend
 
-The userspace service manager crate (`userspace-samgr`) provides a host-first
+The userspace service manager crate (`samgr`) provides a host-first
 implementation of the service registry used by NEURON. The default
 `backend-host` feature exposes an in-memory registry with the following API:
 
