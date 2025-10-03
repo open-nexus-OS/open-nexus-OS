@@ -8,6 +8,9 @@ extern crate alloc;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
+#[cfg(feature = "failpoints")]
+use core::sync::atomic::{AtomicBool, Ordering};
+
 pub mod header;
 
 use header::MessageHeader;
@@ -24,6 +27,8 @@ pub enum IpcError {
     QueueFull,
     /// Queue is empty.
     QueueEmpty,
+    /// Permission denied for the requested operation.
+    PermissionDenied,
 }
 
 /// Representation of an endpoint queue.
@@ -72,6 +77,9 @@ pub struct Router {
     endpoints: Vec<Endpoint>,
 }
 
+#[cfg(feature = "failpoints")]
+static DENY_NEXT_SEND: AtomicBool = AtomicBool::new(false);
+
 impl Router {
     /// Creates a router with space for `count` endpoints.
     pub fn new(count: usize) -> Self {
@@ -84,6 +92,10 @@ impl Router {
 
     /// Sends `msg` to the endpoint referenced by `id`.
     pub fn send(&mut self, id: EndpointId, msg: Message) -> Result<(), IpcError> {
+        #[cfg(feature = "failpoints")]
+        if DENY_NEXT_SEND.swap(false, Ordering::SeqCst) {
+            return Err(IpcError::PermissionDenied);
+        }
         self.endpoints
             .get_mut(id as usize)
             .ok_or(IpcError::NoSuchEndpoint)?
@@ -96,6 +108,17 @@ impl Router {
             .get_mut(id as usize)
             .ok_or(IpcError::NoSuchEndpoint)?
             .pop()
+    }
+}
+
+#[cfg(feature = "failpoints")]
+pub mod failpoints {
+    use super::DENY_NEXT_SEND;
+    use core::sync::atomic::Ordering;
+
+    /// Forces the next `send` invocation to error with [`IpcError::PermissionDenied`].
+    pub fn deny_next_send() {
+        DENY_NEXT_SEND.store(true, Ordering::SeqCst);
     }
 }
 

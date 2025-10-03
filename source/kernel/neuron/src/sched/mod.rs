@@ -7,6 +7,8 @@ extern crate alloc;
 
 use alloc::collections::VecDeque;
 
+use crate::determinism;
+
 /// Task identifier handed out by the scheduler.
 pub type TaskId = u32;
 
@@ -27,19 +29,16 @@ struct Task {
 }
 
 /// Round-robin scheduler with simple QoS based ordering.
-#[derive(Default)]
 pub struct Scheduler {
     queues: [VecDeque<Task>; 4],
     current: Option<Task>,
+    timeslice_ns: u64,
 }
 
 impl Scheduler {
     /// Creates an empty scheduler.
     pub fn new() -> Self {
-        Self {
-            queues: Default::default(),
-            current: None,
-        }
+        Self { queues: Default::default(), current: None, timeslice_ns: determinism::fixed_tick_ns() }
     }
 
     /// Enqueues a task with the provided QoS class.
@@ -70,6 +69,17 @@ impl Scheduler {
             QosClass::PerfBurst => &mut self.queues[3],
         }
     }
+
+    /// Returns the configured deterministic time slice for each task.
+    pub fn timeslice_ns(&self) -> u64 {
+        self.timeslice_ns
+    }
+}
+
+impl Default for Scheduler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -85,5 +95,11 @@ mod tests {
         assert_eq!(sched.schedule_next(), Some(3));
         assert_eq!(sched.schedule_next(), Some(2));
         assert_eq!(sched.schedule_next(), Some(1));
+    }
+
+    #[test]
+    fn deterministic_timeslice() {
+        let sched = Scheduler::new();
+        assert_eq!(sched.timeslice_ns(), crate::determinism::fixed_tick_ns());
     }
 }

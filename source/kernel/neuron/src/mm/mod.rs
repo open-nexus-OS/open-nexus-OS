@@ -8,6 +8,9 @@ use alloc::vec;
 use alloc::vec::Vec; 
 use bitflags::bitflags;
 
+#[cfg(feature = "failpoints")]
+use core::sync::atomic::{AtomicBool, Ordering};
+
 /// Size of a page in bytes.
 pub const PAGE_SIZE: usize = 4096;
 /// Number of entries per Sv39 page table.
@@ -35,6 +38,12 @@ pub enum MapError {
     Unaligned,
     /// Mapping would exceed the tracked region.
     OutOfRange,
+    /// Mapping lacks permissions to proceed.
+    PermissionDenied,
+    /// Mapping overlaps an existing entry.
+    Overlap,
+    /// Provided flags are not suitable for installing a mapping.
+    InvalidFlags,
 }
 
 /// Simple Sv39 page table used for bootstrap tasks.
@@ -42,6 +51,9 @@ pub enum MapError {
 pub struct PageTable {
     entries: Vec<usize>,
 }
+
+#[cfg(feature = "failpoints")]
+static DENY_NEXT_MAP: AtomicBool = AtomicBool::new(false);
 
 impl PageTable {
     /// Creates an empty page table with all entries zeroed.
@@ -54,9 +66,19 @@ impl PageTable {
         if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {
             return Err(MapError::Unaligned);
         }
-        let index = (va / PAGE_SIZE) % PT_ENTRIES;
+        if !flags.contains(PageFlags::VALID) {
+            return Err(MapError::InvalidFlags);
+        }
+        let index = va / PAGE_SIZE;
         if index >= self.entries.len() {
             return Err(MapError::OutOfRange);
+        }
+        if self.entries[index] != 0 {
+            return Err(MapError::Overlap);
+        }
+        #[cfg(feature = "failpoints")]
+        if DENY_NEXT_MAP.swap(false, Ordering::SeqCst) {
+            return Err(MapError::PermissionDenied);
         }
         self.entries[index] = pa | flags.bits();
         Ok(())
@@ -67,7 +89,7 @@ impl PageTable {
         if va % PAGE_SIZE != 0 {
             return None;
         }
-        let index = (va / PAGE_SIZE) % PT_ENTRIES;
+        let index = va / PAGE_SIZE;
         self.entries.get(index).copied().filter(|entry| *entry != 0)
     }
 
@@ -76,3 +98,17 @@ impl PageTable {
         self.entries.as_ptr() as usize / PAGE_SIZE
     }
 }
+
+#[cfg(feature = "failpoints")]
+pub mod failpoints {
+    use super::DENY_NEXT_MAP;
+    use core::sync::atomic::Ordering;
+
+    /// Forces the next `map` invocation to return [`MapError::PermissionDenied`].
+    pub fn deny_next_map() {
+        DENY_NEXT_MAP.store(true, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests;

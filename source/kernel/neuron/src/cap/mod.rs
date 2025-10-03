@@ -101,3 +101,6 @@ impl CapTable {
         Ok(Capability { kind: base.kind, rights })
     }
 }
+
+#[cfg(test)]
+mod tests_prop;

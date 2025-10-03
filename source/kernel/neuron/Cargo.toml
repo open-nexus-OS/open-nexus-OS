@@ -5,6 +5,10 @@ edition = "2021"
 license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
+[features]
+default = ["failpoints"]
+failpoints = []
+
 [lib]
 crate-type = ["rlib", "staticlib"]
 
@@ -19,3 +23,4 @@ linked_list_allocator = { version = "0.10.5", default-features = false, features
 
 [dev-dependencies]
 static_assertions = "1"
+proptest = "1.3"

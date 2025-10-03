@@ -29,29 +29,20 @@ pub fn init_heap() {
 }
 
 
-// Panic handler
-
-#[cfg(not(test))]
-mod __panic {
-    use core::panic::PanicInfo;
-    #[panic_handler]
-    fn panic(_info: &PanicInfo) -> ! {
-        loop {
-            core::hint::spin_loop();
-        }
-    }
-}
-
 // Modules
 
 pub mod arch;
 pub mod boot;
 pub mod cap;
+pub mod determinism;
 pub mod hal;
 pub mod ipc;
 pub mod kmain;
 pub mod mm;
+#[cfg(not(test))]
+mod panic;
 pub mod sched;
+pub mod selftest;
 pub mod syscall;
 pub mod trap;
 pub mod uart;

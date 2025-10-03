@@ -12,10 +12,14 @@ if [ ! -f "$KERNEL_ELF" ]; then
   (cd "$ROOT" && cargo build -p neuron --target "$TARGET")
 fi
 
-exec qemu-system-riscv64 \
-  -machine virt \
-  -cpu rv64 \
-  -m 256M \
-  -nographic \
-  -kernel "$KERNEL_ELF" \
+COMMON_ARGS=(
+  -machine virt
+  -cpu rv64
+  -m 256M
+  -smp "${SMP:-1}"
+  -nographic
+  -kernel "$KERNEL_ELF"
   -bios default
+)
+
+exec qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@"
