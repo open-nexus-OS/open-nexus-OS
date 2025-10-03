@@ -1,0 +1,19 @@
+[package]
+name = "userspace-samgr"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[features]
+default = ["backend-host"]
+backend-host = ["parking_lot"]
+backend-os = []
+
+[dependencies]
+parking_lot = { version = "0.12", optional = true }
+thiserror = "1"
+
+[dev-dependencies]
+proptest = "1.3"
+

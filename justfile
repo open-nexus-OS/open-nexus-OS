@@ -8,8 +8,15 @@ default: test
 build-kernel:
 cargo build -p neuron --target riscv64imac-unknown-none-elf
 
-qemu:
-scripts/run-qemu-rv64.sh
+qemu *args:
+    scripts/run-qemu-rv64.sh {{args}}
+
+test-os:
+    scripts/qemu-test.sh
 
 test:
-cargo test -p neuron
+    cargo test -p neuron
+
+miri:
+    cargo miri setup
+    cargo miri test -p userspace-samgr -p userspace-bundlemgr

@@ -3,7 +3,7 @@
 
 //! Early boot routines for the NEURON microkernel.
 
-use crate::kmain;
+use crate::{kmain, uart};
 
 #[cfg(not(test))]
 extern "C" {
@@ -17,7 +17,9 @@ extern "C" {
 pub extern "C" fn _start() -> ! {
     unsafe {
         zero_bss();
+        uart::write_line("boot: ok");
         init_traps();
+        uart::write_line("traps: ok");
     }
     crate::init_heap();
     kmain::kmain()

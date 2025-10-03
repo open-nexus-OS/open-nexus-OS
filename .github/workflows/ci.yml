@@ -1,0 +1,36 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64imac-unknown-none-elf
+          components: clippy,rustfmt
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-misc
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Unit & property tests
+        run: cargo nextest run --workspace
+      - name: Miri (host-eligible crates)
+        run: |
+          rustup component add miri
+          cargo miri setup
+          cargo miri test -p userspace-samgr -p userspace-bundlemgr
+      - name: QEMU selftest
+        run: just test-os
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-logs
+          path: |
+            uart.log
+            qemu.log

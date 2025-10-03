@@ -32,6 +32,8 @@ members = [
     "source/services/ime",
     "source/services/accessibilityd",
     "source/services/media",
+    "userspace/samgr",
+    "userspace/bundlemgr",
     "source/apps/launcher",
     "source/drivers/net/virtio",
     "source/drivers/storage/virtio-blk",

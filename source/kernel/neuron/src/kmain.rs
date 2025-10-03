@@ -3,6 +3,8 @@
 
 //! Kernel main routine responsible for subsystem bring-up.
 
+use alloc::vec::Vec;
+
 use crate::{
     arch::riscv,
     cap::{CapTable, Capability, CapabilityKind, Rights},
@@ -10,6 +12,7 @@ use crate::{
     ipc::{self, header::MessageHeader},
     mm::PageTable,
     sched::{QosClass, Scheduler},
+    selftest,
     syscall::{self, api, SyscallTable},
     uart,
     BANNER,
@@ -62,7 +65,9 @@ impl KernelState {
     fn exercise_ipc(&mut self) {
         // Send a bootstrap message to prove IPC wiring works before tasks run.
         let header = MessageHeader::new(0, 0, 0x100, 0, 0);
-        let _ = self.ipc.send(0, ipc::Message::new(header, alloc::vec::Vec::new()));
+        if self.ipc.send(0, ipc::Message::new(header, Vec::new())).is_ok() {
+            let _ = self.ipc.recv(0);
+        }
     }
 
     fn idle_loop(&mut self) -> ! {
@@ -86,6 +91,17 @@ impl KernelState {
 pub fn kmain() -> ! {
     let mut kernel = KernelState::new();
     kernel.banner();
+    uart::write_line("sys: ok");
     kernel.exercise_ipc();
+    {
+        let mut ctx = selftest::Context {
+            hal: &kernel.hal,
+            router: &mut kernel.ipc,
+            address_space: &mut kernel.address_space,
+            caps: &mut kernel.caps,
+            scheduler: &mut kernel.scheduler,
+        };
+        selftest::entry(&mut ctx);
+    }
     kernel.idle_loop()
 }
