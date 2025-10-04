@@ -6,7 +6,7 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [features]
-default = ["backend-host"]
+default = []
 backend-host = []
 backend-os = []
 

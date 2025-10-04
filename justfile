@@ -5,10 +5,18 @@ set shell := ["/usr/bin/env", "bash", "-c"]
 
 default: test
 
+# Build the transitional kernel binary (panic handler in main.rs)
 build-kernel:
-cargo build -p neuron --target riscv64imac-unknown-none-elf
+    cargo build -p neuron --features panic_handler --target riscv64imac-unknown-none-elf --bin neuron
+
+# Build only the kernel library with its own panic handler (no binary)
+build-kernel-lib:
+    cargo build -p neuron --lib --features panic_handler --target riscv64imac-unknown-none-elf
+ 
 
 qemu *args:
+    # ensure the binary is built before launching
+    just build-kernel
     scripts/run-qemu-rv64.sh {{args}}
 
 test-os:
@@ -16,10 +24,11 @@ test-os:
 
 test:
     cargo test -p neuron
+    cargo test -p samgr -p bundlemgr --features backend-host
 
 miri:
     cargo miri setup
-    cargo miri test -p samgr -p bundlemgr
+    cargo miri test -p samgr -p bundlemgr --features backend-host
 
 arch-check:
     cargo run -p arch-check

@@ -51,7 +51,7 @@ fn install<R: AbilityRegistrar>(path: &str, registrar: &R) -> String {
 
 /// Verifies whether the bundle was signed.
 fn verify_signature(path: &str) -> bool {
-    path.contains("signed")
+    path.ends_with("-signed.nxb")
 }
 
 /// Derives the ability name from the bundle path.

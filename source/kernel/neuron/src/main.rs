@@ -9,6 +9,7 @@
 #![deny(warnings)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+#[cfg_attr(test, allow(unused_extern_crates))]
 extern crate alloc;
 
 // Import the neuron library

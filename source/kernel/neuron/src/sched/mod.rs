@@ -49,16 +49,20 @@ impl Scheduler {
 
     /// Picks the next runnable task.
     pub fn schedule_next(&mut self) -> Option<TaskId> {
-        if let Some(task) = self.current.take() {
-            self.enqueue(task.id, task.qos);
-        }
-        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle] {
-            if let Some(task) = self.queue_for(class).pop_front() {
+        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle] {            if let Some(task) = self.queue_for(class).pop_front() {
                 self.current = Some(task.clone());
                 return Some(task.id);
             }
         }
+        self.current = None;
         None
+    }
+
+    /// Re-enqueue the currently running task (call on timeslice/yield).
+    pub fn yield_current(&mut self) {
+        if let Some(task) = self.current.take() {
+            self.enqueue(task.id, task.qos);
+        }
     }
 
     fn queue_for(&mut self, qos: QosClass) -> &mut VecDeque<Task> {

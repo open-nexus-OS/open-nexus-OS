@@ -19,7 +19,7 @@ pub fn report_failure(message: &str) -> ! {
 }
 
 #[cold]
-fn report_failure_fmt(args: core::fmt::Arguments<'_>) -> ! {
+pub fn report_failure_fmt(args: core::fmt::Arguments<'_>) -> ! {
     use core::fmt::Write;
 
     let mut buffer = alloc::string::String::new();
@@ -85,10 +85,11 @@ macro_rules! st_expect_err {
                 }
             }
             Ok(value) => {
+                let ty = core::any::type_name_of_val(&value);
                 $crate::selftest::assert::report_failure_fmt(format_args!(
-                    "expected Err({}), got Ok({:?})",
+                    "expected Err({}), got Ok(<{}>)",
                     stringify!($pat $(if $guard)?),
-                    value
+                    ty
                 ));
             }
         }

@@ -1,6 +1,6 @@
 use std::fs;
 
-use userspace_bundlemgr::{Error, Manifest};
+use bundlemgr::{Error, Manifest};
 
 fn manifest_path(name: &str) -> String {
     format!("{}/tests/manifests/{}", env!("CARGO_MANIFEST_DIR"), name)

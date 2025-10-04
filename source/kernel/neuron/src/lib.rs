@@ -17,7 +17,7 @@ const HEAP_SIZE: usize = 1024 * 1024;
 #[cfg_attr(not(test), link_section = ".bss.heap")]
 static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
-#[global_allocator]
+#[cfg_attr(all(not(test), target_os = "none"), global_allocator)]
 static ALLOC: LockedHeap = LockedHeap::empty();
 
 pub fn init_heap() {
@@ -39,13 +39,14 @@ pub mod hal;
 pub mod ipc;
 pub mod kmain;
 pub mod mm;
-#[cfg(not(test))]
-mod panic;
 pub mod sched;
 pub mod selftest;
 pub mod syscall;
 pub mod trap;
 pub mod uart;
+// compile the kernel panic handler automatically for no_std targets (OS = "none")
+#[cfg(all(not(test), target_os = "none"))]
+mod panic;
 
 // Constants
 

@@ -52,7 +52,7 @@ pub fn record(frame: &TrapFrame) {
 
 /// Returns the most recently recorded trap frame if available.
 pub fn last_trap() -> Option<TrapFrame> {
-    LAST_TRAP.lock().copied()
+    *LAST_TRAP.lock()
 }
 
 /// Determines whether the given `scause` represents an interrupt.
@@ -92,7 +92,7 @@ pub fn describe_cause(scause: usize) -> &'static str {
 }
 
 /// Formats the trap registers for diagnostics.
-pub fn fmt_trap(frame: &TrapFrame, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub fn fmt_trap<W: Write>(frame: &TrapFrame, f: &mut W) -> fmt::Result {
     writeln!(f, " sepc=0x{:016x}", frame.sepc)?;
     writeln!(f, " scause=0x{:016x} ({})", frame.scause, describe_cause(frame.scause))?;
     writeln!(f, " stval=0x{:016x}", frame.stval)?;

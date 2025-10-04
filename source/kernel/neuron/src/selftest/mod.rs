@@ -10,7 +10,7 @@ use alloc::vec;
 use crate::{
     cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
     determinism,
-    hal::virt::VirtMachine,
+    hal::{virt::VirtMachine, Timer as _},
     ipc::{self, header::MessageHeader, IpcError, Message, Router},
     mm::{self, MapError, PageFlags, PageTable, PAGE_SIZE},
     sched::{QosClass, Scheduler},

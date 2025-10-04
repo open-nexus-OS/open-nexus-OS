@@ -12,7 +12,7 @@
 
 use semver::Version;
 use thiserror::Error;
-use toml::Value;
+use toml::{self, Value};
 
 const KNOWN_KEYS: &[&str] = &["name", "version", "abilities", "caps", "min_sdk"];
 
@@ -33,7 +33,12 @@ pub enum Error {
     InvalidRoot,
     /// A field contained a malformed value.
     #[error("invalid field `{field}`: {reason}")]
-    InvalidField { field: &'static str, reason: String },
+    InvalidField {
+        /// Name of the offending field.
+        field: &'static str,
+        /// Human-readable reason for the failure.
+        reason: String,
+    },
 }
 
 /// Parsed manifest contents used by bundle manager host tests.
@@ -56,10 +61,8 @@ pub struct Manifest {
 impl Manifest {
     /// Parses a manifest from a UTF-8 TOML string.
     pub fn parse_str(input: &str) -> Result<Self> {
-        let value: Value = input.parse().map_err(|err| Error::Toml(err.to_string()))?;
-        let table = value
-            .as_table()
-            .ok_or(Error::InvalidRoot)?;
+        let value: Value = toml::from_str(input).map_err(|err| Error::Toml(err.to_string()))?;
+        let table: &toml::Table = value.as_table().ok_or(Error::InvalidRoot)?;
 
         let mut warnings = Vec::new();
         for key in table.keys() {
@@ -92,12 +95,11 @@ impl Manifest {
     }
 }
 
-fn parse_version(table: &toml::map::Map<String, Value>, field: &'static str) -> Result<Version> {
-    let raw = require_string(table, field)?;
+fn parse_version(table: &toml::Table, field: &'static str) -> Result<Version> {    let raw = require_string(table, field)?;
     Version::parse(raw.trim()).map_err(|err| Error::InvalidField { field, reason: err.to_string() })
 }
 
-fn require_string(table: &toml::map::Map<String, Value>, field: &'static str) -> Result<String> {
+fn require_string(table: &toml::Table, field: &'static str) -> Result<String> {    
     match table.get(field) {
         Some(Value::String(value)) => Ok(value.clone()),
         Some(_) => Err(Error::InvalidField { field, reason: "expected string".into() }),
@@ -105,7 +107,7 @@ fn require_string(table: &toml::map::Map<String, Value>, field: &'static str) ->
     }
 }
 
-fn require_string_array(table: &toml::map::Map<String, Value>, field: &'static str) -> Result<Vec<String>> {
+fn require_string_array(table: &toml::Table, field: &'static str) -> Result<Vec<String>> {    
     let raw = table.get(field).ok_or(Error::MissingField(field))?;
     let array = raw
         .as_array()

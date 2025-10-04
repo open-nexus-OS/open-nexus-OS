@@ -36,7 +36,7 @@ descending) in `a0`:
 NEURON exchanges messages using a fixed 16 byte header declared in
 `ipc::header::MessageHeader`:
 
-```
+```text
 +-------+-------+------+--------+-----+
 | src:u32 | dst:u32 | ty:u16 | flags:u16 | len:u32 |
 +-------+-------+------+--------+-----+
@@ -47,13 +47,13 @@ bytes when the message is created.
 
 ## Capability Invariants
 
-* Every capability belongs to exactly one task-local table.
-* Derivation intersects rights with the parent capability. Rights can
+- Every capability belongs to exactly one task-local table.
+- Derivation intersects rights with the parent capability. Rights can
   never be escalated.
-* Endpoint capabilities must contain the `SEND` or `RECV` right to
+- Endpoint capabilities must contain the `SEND` or `RECV` right to
   access queues. VMO capabilities require the `MAP` right to install
   mappings.
-* Capability slots are pre-sized per task (32 entries for the bootstrap
+- Capability slots are pre-sized per task (32 entries for the bootstrap
   task).
 
 ## Scheduler Overview
@@ -71,8 +71,8 @@ implementations used by the kernel.
 
 ## Testing Strategy
 
-* Host-based unit tests validate message header layout, scheduler
+- Host-based unit tests validate message header layout, scheduler
   ordering and syscall send/recv semantics using the in-memory router.
-* `just qemu` (backed by `scripts/run-qemu-rv64.sh`) launches
+- `just qemu` (backed by `scripts/run-qemu-rv64.sh`) launches
   `qemu-system-riscv64` with the freshly built kernel archive to confirm
   the boot banner and trap setup execute without crashing.

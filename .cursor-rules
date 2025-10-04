@@ -90,6 +90,9 @@ COMMANDS:
   pull:        "cd ~/open-nexus-os && make pull"                   # sync recipe sources from recipe.toml
   clean:       "cd ~/open-nexus-os && make clean"
   initial-setup:        "cd ~/open-nexus-os && make initial-setup" # installs cargo fmt, clippy and deny
+  workspace-test: "cd ~/open-nexus-os && cargo test --workspace # Tests entire workspace
+  memory-safety-test: "cd /home/jenning/open-nexus-OS && cargo test -p samgr -p bundlemgr --features backend-host" # Memory-Safety Test for userspace packages
+  qemu-integration: "cd ~/open-nexus-os && scripts/qemu-test.sh" # Qemu Test
 
 # QUICK DEBUG HINTS
 # ==============================================================================

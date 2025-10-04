@@ -3,32 +3,32 @@
 
 //! Unified panic handler emitting deterministic diagnostics over UART.
 
-use core::{fmt::Write, panic::PanicInfo};
+use core::{fmt, fmt::Write, panic::PanicInfo};
 
 use crate::{trap, uart::KernelUart};
 
 /// Emits a panic message including source location and the last trap frame.
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     let mut uart = KernelUart::lock();
-    match (info.location(), info.message()) {
-        (Some(location), Some(message)) => {
-            let _ = writeln!(uart, "PANIC {}:{}: {message}", location.file(), location.line());
-        }
-        (Some(location), None) => {
-            let _ = writeln!(uart, "PANIC {}:{}", location.file(), location.line());
-        }
-        (None, Some(message)) => {
-            let _ = writeln!(uart, "PANIC: {message}");
-        }
-        (None, None) => {
-            let _ = writeln!(uart, "PANIC");
-        }
+    let msg = info.message(); // PanicMessage implements Display
+    if let Some(location) = info.location() {
+        let _ = writeln!(uart, "PANIC {}:{}: {}", location.file(), location.line(), msg);
+    } else {
+        let _ = writeln!(uart, "PANIC: {}", msg);
     }
 
     if let Some(frame) = trap::last_trap() {
         let _ = writeln!(uart, "PANIC: trap context:");
-        let _ = trap::fmt_trap(&frame, &mut uart);
+        // Adapter: fmt_trap erwartet Formatter; wir geben über Display-Wrapper auf UART aus.
+        struct TrapFmt<'a>(&'a trap::TrapFrame);
+        impl fmt::Display for TrapFmt<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                trap::fmt_trap(self.0, f)
+            }
+        }
+        let _ = writeln!(uart, "{}", TrapFmt(&frame));
     }
 
     drop(uart);

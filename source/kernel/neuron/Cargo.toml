@@ -8,6 +8,8 @@ authors = ["Open Nexus OS Contributors"]
 [features]
 default = ["failpoints"]
 failpoints = []
+# opt-in panic handler for no_std kernel images
+panic_handler = []
 
 [lib]
 crate-type = ["rlib", "staticlib"]
