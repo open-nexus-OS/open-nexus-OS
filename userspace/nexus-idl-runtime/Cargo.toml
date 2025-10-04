@@ -1,0 +1,15 @@
+[package]
+name = "nexus-idl-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+default = ["capnp"]
+capnp = ["dep:capnp", "dep:capnpc"]
+
+[dependencies]
+capnp = { version = "0.19", optional = true }
+
+[build-dependencies]
+capnpc = { version = "0.19", optional = true }

@@ -3,7 +3,7 @@
 
 //! Early boot routines for the NEURON microkernel.
 
-use crate::{kmain, uart};
+use crate::uart;
 
 #[cfg(not(test))]
 extern "C" {
@@ -12,17 +12,19 @@ extern "C" {
     fn __trap_vector();
 }
 
-/// Kernel entry point invoked by the linker script.
-#[cfg_attr(not(test), no_mangle)]
-pub extern "C" fn _start() -> ! {
-    unsafe {
-        zero_bss();
-        uart::write_line("boot: ok");
-        init_traps();
-        uart::write_line("traps: ok");
-    }
+/// Perform the machine initialisation required before the kernel can run.
+///
+/// # Safety
+///
+/// This must only be invoked once on the boot CPU before any Rust code that
+/// relies on initialised memory or traps executes. Callers must ensure the
+/// stack is valid and interrupts are masked until setup completes.
+pub unsafe fn early_boot_init() {
+    zero_bss();
+    uart::write_line("boot: ok");
+    init_traps();
+    uart::write_line("traps: ok");
     crate::init_heap();
-    kmain::kmain()
 }
 
 unsafe fn zero_bss() {

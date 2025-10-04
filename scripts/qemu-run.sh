@@ -6,7 +6,7 @@ MACHINE="virt"
 SMP="-smp 4"
 MEM="-m 512M"
 SERIAL="-serial mon:stdio"
-KERNEL_IMAGE=${1:-target/riscv64imac-unknown-none-elf/debug/neuron}
+KERNEL_IMAGE=${1:-target/riscv64imac-unknown-none-elf/release/neuron-boot}
 
 if [ "${DEBUG:-0}" = "1" ]; then
   GDB_FLAGS="-s -S"

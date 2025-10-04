@@ -34,16 +34,16 @@ ifeq ($(MODE),container)
 		  echo "[1/2] host build (exclude kernel)"; \
 		  mkdir -p "$$RUSTUP_HOME" "$$CARGO_HOME"; \
 		  rustup default stable; \
-		  $(CARGO_BIN) build --workspace --exclude neuron && \
+                  $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot && \
 		  echo "[2/2] cross build kernel (riscv)"; \
 		  rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal; \
 		  rustup component add rust-src --toolchain "$(NIGHTLY)"; \
-		  $(CARGO_BIN) +$(NIGHTLY) build \
-		    -Z build-std=core,alloc -Z build-std-features=panic_immediate_abort \
-		    --target riscv64imac-unknown-none-elf -p neuron'
+                  $(CARGO_BIN) +$(NIGHTLY) build \
+                    -Z build-std=core,alloc -Z build-std-features=panic_immediate_abort \
+                    --target riscv64imac-unknown-none-elf -p neuron-boot --release'
 else
 	@echo "==> Building workspace on host"
-	@cargo build --workspace
+        @cargo build --workspace --exclude neuron --exclude neuron-boot
 endif
 
 test:

@@ -1,6 +1,10 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! NEURON kernel library – binary entry points live in the dedicated
+//! `neuron-boot` crate. This library exposes the kernel initialisation
+//! routines and runtime used by the boot wrapper.
+
 #![cfg_attr(not(test), no_std)]
 #![deny(warnings)]
 #![forbid(unsafe_op_in_unsafe_fn)]
@@ -51,6 +55,23 @@ mod panic;
 // Constants
 
 pub const BANNER: &str = "NEURON";
+
+/// Perform the low-level machine initialisation required before jumping into
+/// the core kernel logic.
+///
+/// # Safety
+///
+/// Must be invoked exactly once on the boot CPU before any other kernel code
+/// runs. Callers must ensure the stack is valid and interrupts are masked.
+pub unsafe fn early_boot_init() {
+    boot::early_boot_init();
+}
+
+/// Entry point for the kernel runtime. Assumes early boot setup was performed
+/// and never returns.
+pub fn kmain() -> ! {
+    kmain::kmain()
+}
 
 // Tests
 
