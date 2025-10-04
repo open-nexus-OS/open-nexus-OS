@@ -6,10 +6,10 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
-KERNEL_ELF=$ROOT/target/$TARGET/debug/libneuron.a
+KERNEL_ELF=$ROOT/target/$TARGET/release/neuron-boot
 
 if [ ! -f "$KERNEL_ELF" ]; then
-  (cd "$ROOT" && cargo build -p neuron --target "$TARGET")
+  (cd "$ROOT" && cargo build -p neuron-boot --target "$TARGET" --release)
 fi
 
 COMMON_ARGS=(

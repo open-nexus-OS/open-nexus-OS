@@ -8,3 +8,4 @@ license = "Apache-2.0"
 bundlemgr = { path = "../../../userspace/bundlemgr", default-features = false, features = ["backend-os"] }
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-idl = { path = "../../libs/nexus-idl" }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }

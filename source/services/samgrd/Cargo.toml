@@ -9,6 +9,7 @@ backend-host = ["thiserror"]
 backend-os = []
 
 [dependencies]
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 samgr = { path = "../../../userspace/samgr", default-features = false, features = ["backend-os"] }
 thiserror = { version = "1", optional = true }
 

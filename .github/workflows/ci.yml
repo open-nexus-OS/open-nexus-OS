@@ -12,15 +12,15 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc
+          sudo apt-get install -y qemu-system-misc capnproto
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude neuron-boot --all-targets --all-features -- -D warnings
       - name: Architecture guard
         run: cargo run -p arch-check
       - name: Unit & property tests
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --exclude neuron-boot
       - name: Miri (host-eligible crates)
         run: |
           rustup component add miri

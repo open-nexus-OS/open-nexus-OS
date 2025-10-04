@@ -1,0 +1,13 @@
+[package]
+name = "neuron-boot"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+neuron = { path = "../neuron" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

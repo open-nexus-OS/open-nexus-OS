@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "source/kernel/neuron-boot",
     "source/kernel/neuron",
     "source/libs/*",
     "source/services/*",

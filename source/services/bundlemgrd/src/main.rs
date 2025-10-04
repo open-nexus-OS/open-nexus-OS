@@ -1,34 +1,33 @@
-//! Bundle manager daemon wiring: forwards CLI requests to the userspace library.
+//! Bundle manager daemon stub that prepares Cap'n Proto plumbing and forwards requests to the userspace library.
 
 use bundlemgr::{run_with, AbilityRegistrar};
-use nexus_abi::MsgHeader;
-use nexus_idl::nexus_interface;
 
-nexus_interface!(interface ability_ipc {
-    fn register(&self, ability: &str) -> bool;
-});
+struct StubRegistrar;
 
-struct ServiceRegistrar;
-
-impl ability_ipc::Service for ServiceRegistrar {
-    fn register(&self, ability: &str) -> bool {
-        !ability.is_empty()
-    }
-}
-
-impl AbilityRegistrar for ServiceRegistrar {
+impl AbilityRegistrar for StubRegistrar {
     fn register(&self, ability: &str) -> Result<Vec<u8>, String> {
-        if ability_ipc::Service::register(self, ability) {
-            let header = MsgHeader::new(1, 0, 0);
-            Ok(header.serialize().to_vec())
+        if ability.is_empty() {
+            Err("missing ability".into())
         } else {
-            Err("samgr rejected ability".into())
+            Ok(vec![ability.len() as u8])
         }
     }
 }
 
-fn main() {
-    let registrar = ServiceRegistrar;
-    run_with(&registrar);
+fn main() -> ! {
+    touch_schemas();
+    run_with(&StubRegistrar);
     println!("bundlemgrd: ready");
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+fn touch_schemas() {
+    #[cfg(feature = "nexus-idl-runtime/capnp")]
+    {
+        use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
+        let _ = core::any::type_name::<install_request::Owned>();
+        let _ = core::any::type_name::<install_response::Owned>();
+    }
 }

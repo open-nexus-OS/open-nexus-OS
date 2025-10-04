@@ -14,10 +14,6 @@ panic_handler = []
 [lib]
 crate-type = ["rlib", "staticlib"]
 
-[[bin]]
-name = "neuron"
-path = "src/main.rs"
-
 [dependencies]
 bitflags = { version = "2", default-features = false }
 spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex"] }

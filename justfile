@@ -5,9 +5,9 @@ set shell := ["/usr/bin/env", "bash", "-c"]
 
 default: test
 
-# Build the transitional kernel binary (panic handler in main.rs)
+# Build the bootable NEURON binary crate
 build-kernel:
-    cargo build -p neuron --features panic_handler --target riscv64imac-unknown-none-elf --bin neuron
+    cargo build -p neuron-boot --target riscv64imac-unknown-none-elf --release
 
 # Build only the kernel library with its own panic handler (no binary)
 build-kernel-lib:
