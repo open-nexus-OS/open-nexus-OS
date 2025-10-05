@@ -5,3 +5,5 @@ rls/
 *.o
 .vscode/
 .editorconfig
+qemu.log
+uart.log
