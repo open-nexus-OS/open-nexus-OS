@@ -2,7 +2,7 @@
 
 A Nexus Bundle is a tar archive with the following layout:
 
-```
+```text
 /manifest/bundle.toml
 /code/<target>/app.bin
 /res/**
@@ -14,7 +14,7 @@ Manifests follow TOML syntax and describe abilities, capabilities, and entry poi
 
 Example manifest for the launcher:
 
-```
+```toml
 [package]
 name = "launcher"
 version = "0.1.0"
