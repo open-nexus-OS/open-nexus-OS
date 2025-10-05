@@ -1,0 +1,21 @@
+# Apache-2.0 licensed workspace manifest for Open Nexus OS
+[workspace]
+members = [
+    "kernel/neuron",
+    "kernel/neuron-boot",
+]
+resolver = "2"
+
+default-members = ["kernel/neuron-boot"]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "Open Nexus OS workspace"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
