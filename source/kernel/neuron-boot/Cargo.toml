@@ -11,3 +11,10 @@ neuron = { path = "../neuron" }
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
+
+[[bin]]
+name = "neuron-boot"
+path = "src/main.rs"
+test = false
+bench = false
+doctest = false

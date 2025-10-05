@@ -19,13 +19,17 @@ extern "C" {
 /// This must only be invoked once on the boot CPU before any Rust code that
 /// relies on initialised memory or traps executes. Callers must ensure the
 /// stack is valid and interrupts are masked until setup completes.
-pub unsafe fn early_boot_init() {
-    zero_bss();
+pub fn early_boot_init() {
+    // SAFETY: called once during early boot, before interrupts/threads.
+    unsafe { zero_bss(); }
     uart::write_line("boot: ok");
-    init_traps();
+    // SAFETY: privileged context, trap vector install once.
+    unsafe { init_traps(); }
     uart::write_line("traps: ok");
     crate::init_heap();
 }
+
+
 
 unsafe fn zero_bss() {
     #[cfg(not(test))]

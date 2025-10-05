@@ -9,7 +9,7 @@ fn main() -> ! {
 }
 
 fn touch_schemas() {
-    #[cfg(feature = "nexus-idl-runtime/capnp")]
+    #[cfg(feature = "idl-capnp")]
     {
         use nexus_idl_runtime::samgr_capnp::{register_request, resolve_request};
         let _ = core::any::type_name::<register_request::Owned>();

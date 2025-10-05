@@ -21,6 +21,10 @@
             pkgs.qemu
             pkgs.pkg-config
             pkgs.gnumake
+            pkgs.capnproto           # provides `capnp` for Cap’n Proto codegen
+            pkgs.flatbuffers         # provides `flatc` (for dein Hybrid-Setup)
+            pkgs.mold                # (optional) faster linker; matches Dockerfile
+            pkgs.lld                 # (optional) lld on host
           ];
           RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
         };
