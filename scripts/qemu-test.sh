@@ -7,22 +7,39 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 UART_LOG=${UART_LOG:-uart.log}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
-TARGET=${TARGET:-riscv64imac-unknown-none-elf}
+RUN_TIMEOUT=${RUN_TIMEOUT:-30s}
+RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
+QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
+UART_LOG_MAX=${UART_LOG_MAX:-10485760}
+
+# Continuous QEMU tracing can easily balloon into tens of gigabytes; trim the
+# tail post-run to keep CI artifacts and local logs manageable.
+trim_log() {
+  local file=$1 max=$2
+  if [[ -f "$file" ]]; then
+    local sz
+    sz=$(wc -c <"$file" || echo 0)
+    if [[ "$sz" -gt "$max" ]]; then
+      echo "[info] Trimming $file from ${sz} bytes to last $max bytes" >&2
+      tail -c "$max" "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
+    fi
+  fi
+}
 
 rm -f "$UART_LOG" "$QEMU_LOG"
 
-QEMU_ARGS=(-d int,mmu,unimp -D "$QEMU_LOG")
+QEMU_EXTRA_ARGS=()
 if [[ "${DEBUG_QEMU:-0}" == "1" ]]; then
-  QEMU_ARGS+=(-S -gdb tcp:localhost:1234)
+  QEMU_EXTRA_ARGS+=(-S -gdb tcp:localhost:1234)
 fi
 
-# Build the kernel first so QEMU has an image to boot.
-if [[ ! -f "$ROOT/target/$TARGET/debug/libneuron.a" ]]; then
-  (cd "$ROOT" && cargo build -p neuron --target "$TARGET")
-fi
-
-# Run QEMU and tee the UART output to a log file for post-processing.
-"$ROOT/scripts/run-qemu-rv64.sh" "${QEMU_ARGS[@]}" | tee "$UART_LOG"
+RUN_TIMEOUT="$RUN_TIMEOUT" \
+RUN_UNTIL_MARKER="$RUN_UNTIL_MARKER" \
+QEMU_LOG="$QEMU_LOG" \
+UART_LOG="$UART_LOG" \
+QEMU_LOG_MAX="$QEMU_LOG_MAX" \
+UART_LOG_MAX="$UART_LOG_MAX" \
+"$ROOT/scripts/run-qemu-rv64.sh" "${QEMU_EXTRA_ARGS[@]}"
 
 # Verify expected boot markers are present in the UART log.
 required_markers=(
@@ -45,5 +62,8 @@ for marker in "${required_markers[@]}"; do
     exit 1
   fi
 done
+
+trim_log "$QEMU_LOG" "$QEMU_LOG_MAX"
+trim_log "$UART_LOG" "$UART_LOG_MAX"
 
 echo "QEMU selftest completed successfully." >&2

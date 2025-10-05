@@ -24,11 +24,11 @@ All unit, contract, and headless UI tests execute on the host before any QEMU sm
 make run
 ```
 
-This boots the NEURON kernel inside QEMU (riscv64 virt). Set `DEBUG=1` to enable a GDB stub for debugging.
+This boots the NEURON kernel inside QEMU (riscv64 virt). Runs are wrapped with `timeout(1)` (default `RUN_TIMEOUT=30s`) and capture both diagnostics (`qemu.log`) and UART output (`uart.log`). Set `RUN_UNTIL_MARKER=1` for early exit on success markers or adjust `QEMU_LOG_MAX` / `UART_LOG_MAX` to retain a larger tail of each log. Set `DEBUG=1` to enable a GDB stub for debugging.
 
 ## Documentation
 
-Design notes and RFC templates live under [`docs/rfcs`](docs/rfcs/README.md). Submit proposals there before landing substantial architectural changes.
+Start with the project overview in [`docs/overview.md`](docs/overview.md) and the testing guide in [`docs/testing/index.md`](docs/testing/index.md). Design notes and RFC templates live under [`docs/rfcs`](docs/rfcs/README.md). Submit proposals there before landing substantial architectural changes.
 
 ## Continuous Integration
 

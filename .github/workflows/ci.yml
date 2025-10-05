@@ -27,7 +27,7 @@ jobs:
           cargo miri setup
           cargo miri test -p samgr -p bundlemgr
       - name: QEMU selftest
-        run: just test-os
+        run: RUN_TIMEOUT=45s just test-os
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

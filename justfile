@@ -17,7 +17,7 @@ build-kernel-lib:
 qemu *args:
     # ensure the binary is built before launching
     just build-kernel
-    scripts/run-qemu-rv64.sh {{args}}
+    RUN_TIMEOUT=${RUN_TIMEOUT:-30s} scripts/run-qemu-rv64.sh {{args}}
 
 test-os:
     scripts/qemu-test.sh
