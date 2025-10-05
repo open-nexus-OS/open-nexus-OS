@@ -68,7 +68,7 @@ endif
 
 run:
 	@echo "==> Launching NEURON kernel under QEMU"
-	@./scripts/qemu-run.sh
+	@RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh
 
 pull:
 	@echo "==> Refreshing recipe sources"

@@ -1,11 +1,9 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! NEURON kernel library – binary entry points live in the dedicated
-//! `neuron-boot` crate. This library exposes the kernel initialisation
-//! routines and runtime used by the boot wrapper.
+//! NEURON kernel library – no binary entry here.
 
-#![cfg_attr(not(test), no_std)]
+#![no_std]
 #![deny(warnings)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
@@ -24,7 +22,7 @@ static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 #[cfg_attr(all(not(test), target_os = "none"), global_allocator)]
 static ALLOC: LockedHeap = LockedHeap::empty();
 
-pub fn init_heap() {
+fn init_heap() {
     // SAFETY: single-threaded early boot; we only pass a raw pointer + length.
     unsafe {
         let start: *mut u8 = addr_of_mut!(HEAP) as *mut u8;
@@ -35,26 +33,26 @@ pub fn init_heap() {
 
 // Modules
 
-pub mod arch;
-pub mod boot;
-pub mod cap;
-pub mod determinism;
-pub mod hal;
-pub mod ipc;
-pub mod kmain;
-pub mod mm;
-pub mod sched;
-pub mod selftest;
-pub mod syscall;
-pub mod trap;
-pub mod uart;
+mod arch;
+mod boot;
+mod cap;
+mod determinism;
+mod hal;
+mod ipc;
+mod kmain;
+mod mm;
+mod sched;
+mod selftest;
+mod syscall;
+mod trap;
+mod uart;
 // compile the kernel panic handler automatically for no_std targets (OS = "none")
 #[cfg(all(not(test), target_os = "none"))]
 mod panic;
 
 // Constants
 
-pub const BANNER: &str = "NEURON";
+const BANNER: &str = "NEURON";
 
 /// Perform the low-level machine initialisation required before jumping into
 /// the core kernel logic.
