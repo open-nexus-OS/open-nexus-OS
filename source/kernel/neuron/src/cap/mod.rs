@@ -31,7 +31,6 @@ pub enum CapabilityKind {
     /// Virtual memory object.
     Vmo { base: usize, len: usize },
     /// Interrupt binding.
-    #[allow(dead_code)]
     Irq(u32),
 }
 
@@ -69,7 +68,9 @@ pub struct CapTable {
 impl CapTable {
     /// Creates an empty table sized for `slots` entries.
     pub fn with_capacity(slots: usize) -> Self {
-        Self { slots: vec![None; slots] }
+        Self {
+            slots: vec![None; slots],
+        }
     }
 
     /// Convenience constructor for the bootstrap task.
@@ -99,7 +100,10 @@ impl CapTable {
         if !base.rights.contains(rights) {
             return Err(CapError::PermissionDenied);
         }
-        Ok(Capability { kind: base.kind, rights })
+        Ok(Capability {
+            kind: base.kind,
+            rights,
+        })
     }
 }
 

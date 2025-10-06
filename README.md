@@ -17,6 +17,7 @@ make test
 ```
 
 All unit, contract, and headless UI tests execute on the host before any QEMU smoke testing.
+Host integration coverage lives in [`tests/e2e`](tests/e2e/) and can be exercised with `cargo test -p nexus-e2e`.
 
 ## Run
 

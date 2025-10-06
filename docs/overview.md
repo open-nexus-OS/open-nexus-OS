@@ -2,6 +2,13 @@
 
 This document summarises the purpose of each top-level directory in the Open Nexus OS tree. It focuses on how to find code and supporting assets rather than low-level architecture.
 
+## Where to start
+
+* [Kernel runtime (`source/kernel/neuron`)](../source/kernel/neuron/): reusable scheduler, IPC, and trap handling logic exercised via host-first unit tests.
+* [Services (`source/services`)](../source/services/): thin Cap'n Proto adapters such as `samgrd` and `bundlemgrd` that translate IPC into userspace library calls.
+* [Userspace libraries (`userspace`)](../userspace/): host-native crates like `samgr` and `bundlemgr` containing all business rules, property tests, and Miri coverage.
+* [Host E2E tests (`tests/e2e`)](../tests/e2e/): in-process loopback integration exercising real IDL handlers without QEMU.
+
 ## `kernel/`
 The workspace definitions and target configuration for the NEURON kernel live here. The kernel runtime itself is split between the reusable library crate (`source/kernel/neuron`) and the `neuron-boot` binary wrapper that provides the minimal `_start` entry point. No IDL parsing or userspace policy code lives in this layer.
 

@@ -9,7 +9,8 @@ members = [
     "source/drivers/net/virtio",
     "source/drivers/storage/virtio-blk",
     "source/drivers/console/virtio",
-    "tools/*"
+    "tools/*",
+    "tests/e2e"
 ]
 resolver = "2"
 

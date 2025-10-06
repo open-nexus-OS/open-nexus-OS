@@ -22,16 +22,19 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - Daemons are thin IPC adapters that translate requests into calls to userspace libraries. They must avoid `unwrap`/`expect` in favour of rich error types.
 - Provide IDL round-trip and contract tests using the local runner tools. Keep business logic in the userspace crates so daemons stay lean.
 
+### End-to-end coverage matrix
+
+| Layer | Scope | Command | Notes |
+| --- | --- | --- | --- |
+| Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Waits for `samgrd: ready`, `bundlemgrd: ready`, and `SELFTEST: end` before truncating logs. |
+
 ## Workflow checklist
-1. Expand or add tests in the relevant userspace library. Run `cargo test --workspace` until green.
-2. For eligible crates (pure Rust, host compatible), run Miri: `cargo miri test -p <crate>`.
-3. Update or record Golden Vectors when wire formats or IDL definitions change. Bump SemVer if the change is breaking.
-4. Touching the kernel? Update or add selftests so they print distinct UART markers, and keep complicated logic in host-side shims where possible.
-5. Rebuild the Podman development container to ensure parity with CI:
-   - `podman build -t open-nexus-os-dev -f podman/Containerfile`
-   - Enter the container and confirm the toolchain/targets match CI.
-6. Execute full workspace tests both locally and inside the container: `cargo test --workspace`.
-7. Finish with OS-level smoke/E2E coverage: `just test-os` (uses QEMU with timeouts and UART assertions). For manual boot loops, run `just qemu`.
+1. Extend userspace tests first and run `cargo test --workspace` until green.
+2. Execute Miri for host-compatible crates: `cargo miri test -p <crate>`.
+3. Refresh Golden Vectors (IDL frames, ABI structs) and bump SemVer when contracts change.
+4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
+5. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
 
 ## Environment parity & prerequisites
 - Toolchain pinned via `rust-toolchain.toml`; install the listed version before building.
@@ -42,6 +45,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 ## House rules
 - No `unwrap`/`expect` in daemons; propagate errors with context.
 - Userspace crates must keep `#![forbid(unsafe_code)]` enabled and pass Clippy’s denied lints.
+- No blanket `#[allow(dead_code)]` or `#[allow(unused)]`. Use the `tools/deadcode-scan.sh` guard, gate WIP APIs behind features, or add time-boxed entries to `config/deadcode.allow`.
 - CI enforces architecture guards, UART markers, and formatting; keep commits green locally before pushing.
 
 ## Troubleshooting tips

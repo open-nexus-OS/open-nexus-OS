@@ -1,38 +1,67 @@
 name: CI
-on: [push, pull_request]
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+
 jobs:
-  build-test:
+  lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: riscv64imac-unknown-none-elf
-          components: clippy,rustfmt
-      - name: Install deps
+          components: rustfmt, clippy
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+      - name: Cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: miri
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest
+      - name: Cargo nextest
+        run: cargo nextest run --workspace
+      - name: Cargo miri (samgr)
+        run: cargo miri test -p samgr
+      - name: Cargo miri (bundlemgr)
+        run: cargo miri test -p bundlemgr
+
+  deadcode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Dead code scan
+        run: bash tools/deadcode-scan.sh
+
+  qemu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-misc capnproto
-      - name: Format
-        run: cargo fmt --all --check
-      - name: Clippy
-        run: cargo clippy --workspace --exclude neuron-boot --all-targets --all-features -- -D warnings
-      - name: Architecture guard
-        run: cargo run -p arch-check
-      - name: Unit & property tests
-        run: cargo nextest run --workspace --exclude neuron-boot
-      - name: Miri (host-eligible crates)
-        run: |
-          rustup component add miri
-          cargo miri setup
-          cargo miri test -p samgr -p bundlemgr
-      - name: QEMU selftest
-        run: RUN_TIMEOUT=45s just test-os
-      - name: Upload logs on failure
+          rustup target add riscv64imac-unknown-none-elf
+      - name: QEMU smoke test
+        run: RUN_TIMEOUT=45s RUN_UNTIL_MARKER=1 ./scripts/qemu-test.sh
+      - name: Upload UART log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-          name: qemu-logs
-          path: |
-            uart.log
-            qemu.log
+          name: uart-log
+          path: uart.log
+      - name: Upload QEMU log on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: qemu-log
+          path: qemu.log

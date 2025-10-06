@@ -35,7 +35,8 @@ impl KernelUart {
     fn write_raw(&self, offset: usize, value: u8) {
         let addr = (self.base + offset) as *mut u8;
         unsafe {
-            while core::ptr::read_volatile((self.base + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+            while core::ptr::read_volatile((self.base + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {
+            }
             core::ptr::write_volatile(addr, value);
         }
     }
@@ -54,7 +55,6 @@ impl Write for KernelUart {
 }
 
 /// Writes the provided string via the global UART.
-#[allow(dead_code)]
 pub fn write_str(message: &str) {
     let mut uart = KernelUart::lock();
     let _ = uart.write_str(message);
@@ -62,6 +62,6 @@ pub fn write_str(message: &str) {
 
 /// Writes a line terminated by `\n` to the UART.
 pub fn write_line(message: &str) {
-    let mut uart = KernelUart::lock();
-    let _ = writeln!(uart, "{message}");
+    write_str(message);
+    write_str("\n");
 }

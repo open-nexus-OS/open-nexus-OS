@@ -47,6 +47,8 @@ required_markers=(
   "boot: ok"
   "traps: ok"
   "sys: ok"
+  "samgrd: ready"
+  "bundlemgrd: ready"
   "SELFTEST: begin"
   "SELFTEST: time ok"
   "SELFTEST: ipc ok"
