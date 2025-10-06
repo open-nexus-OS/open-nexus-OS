@@ -38,7 +38,11 @@ pub struct Scheduler {
 impl Scheduler {
     /// Creates an empty scheduler.
     pub fn new() -> Self {
-        Self { queues: Default::default(), current: None, timeslice_ns: determinism::fixed_tick_ns() }
+        Self {
+            queues: Default::default(),
+            current: None,
+            timeslice_ns: determinism::fixed_tick_ns(),
+        }
     }
 
     /// Enqueues a task with the provided QoS class.
@@ -49,7 +53,13 @@ impl Scheduler {
 
     /// Picks the next runnable task.
     pub fn schedule_next(&mut self) -> Option<TaskId> {
-        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle] {            if let Some(task) = self.queue_for(class).pop_front() {
+        for class in [
+            QosClass::PerfBurst,
+            QosClass::Interactive,
+            QosClass::Normal,
+            QosClass::Idle,
+        ] {
+            if let Some(task) = self.queue_for(class).pop_front() {
                 self.current = Some(task.clone());
                 return Some(task.id);
             }
@@ -59,7 +69,6 @@ impl Scheduler {
     }
 
     /// Re-enqueue the currently running task (call on timeslice/yield).
-    #[allow(dead_code)]
     pub fn yield_current(&mut self) {
         if let Some(task) = self.current.take() {
             self.enqueue(task.id, task.qos);
@@ -106,5 +115,14 @@ mod tests {
     fn deterministic_timeslice() {
         let sched = Scheduler::new();
         assert_eq!(sched.timeslice_ns(), crate::determinism::fixed_tick_ns());
+    }
+
+    #[test]
+    fn yield_requeues_current_task() {
+        let mut sched = Scheduler::new();
+        sched.enqueue(1, QosClass::Normal);
+        assert_eq!(sched.schedule_next(), Some(1));
+        sched.yield_current();
+        assert_eq!(sched.schedule_next(), Some(1));
     }
 }

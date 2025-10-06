@@ -1,0 +1,11 @@
+[package]
+name = "nexus-e2e"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+capnp = "0.19"
+nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
+samgrd = { path = "../../source/services/samgrd", default-features = false, features = ["backend-host", "idl-capnp"] }
+bundlemgrd = { path = "../../source/services/bundlemgrd", default-features = false, features = ["backend-host", "idl-capnp"] }

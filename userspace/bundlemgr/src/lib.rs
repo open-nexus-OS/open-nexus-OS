@@ -8,9 +8,12 @@ compile_error!("Enable only one of `backend-host` or `backend-os`.");
 
 pub mod cli;
 pub mod manifest;
+pub mod service;
 
 pub use cli::{execute, help, run_with, AbilityRegistrar};
 /// Bundle manifest error type.
 pub use manifest::Error;
 /// Bundle manifest model and parser.
 pub use manifest::Manifest;
+/// Service facade used by daemons and host tests.
+pub use service::{InstallRequest, InstalledBundle, Service, ServiceError};

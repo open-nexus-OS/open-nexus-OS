@@ -7,54 +7,48 @@ use core::ptr::{read_volatile, write_volatile};
 
 use crate::arch::riscv;
 
-use super::{IrqCtl, Mmio, Timer, Tlb, Uart};
+use super::{IrqCtl, Timer, Tlb, Uart};
 
-#[allow(dead_code)]
 const UART0_BASE: usize = 0x1000_0000;
-#[allow(dead_code)]
 const UART_TX: usize = 0x0;
-#[allow(dead_code)]
 const UART_LSR: usize = 0x5;
-#[allow(dead_code)]
 const LSR_TX_IDLE: u8 = 1 << 5;
 
 /// Collection of HAL devices for the virt machine.
 pub struct VirtMachine {
     timer: VirtTimer,
-    #[allow(dead_code)]
     uart: VirtUart,
-    #[allow(dead_code)]
     tlb: VirtTlb,
-    #[allow(dead_code)]
     irq: VirtIrq,
 }
 
 impl VirtMachine {
     /// Constructs the HAL facade.
     pub const fn new() -> Self {
-        Self { timer: VirtTimer, uart: VirtUart, tlb: VirtTlb, irq: VirtIrq }
+        Self {
+            timer: VirtTimer,
+            uart: VirtUart,
+            tlb: VirtTlb,
+            irq: VirtIrq,
+        }
     }
 
     /// Returns a reference to the timer implementation.
-    #[allow(dead_code)]
     pub const fn timer(&self) -> &VirtTimer {
         &self.timer
     }
 
     /// Returns a reference to the UART implementation.
-    #[allow(dead_code)]
     pub const fn uart(&self) -> &VirtUart {
         &self.uart
     }
 
     /// Returns a reference to the TLB helper.
-    #[allow(dead_code)]
     pub const fn tlb(&self) -> &VirtTlb {
         &self.tlb
     }
 
     /// Returns a reference to the IRQ controller helper.
-    #[allow(dead_code)]
     pub const fn irq(&self) -> &VirtIrq {
         &self.irq
     }
@@ -85,20 +79,6 @@ impl Uart for VirtUart {
         unsafe {
             while read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
             write_volatile((UART0_BASE + UART_TX) as *mut u8, byte);
-        }
-    }
-}
-
-impl Mmio for VirtUart {
-    unsafe fn write32(&self, offset: usize, value: u32) {
-        unsafe {
-            write_volatile((UART0_BASE + offset) as *mut u32, value);
-        }
-    }
-
-    unsafe fn read32(&self, offset: usize) -> u32 {
-        unsafe {
-            read_volatile((UART0_BASE + offset) as *const u32)
         }
     }
 }

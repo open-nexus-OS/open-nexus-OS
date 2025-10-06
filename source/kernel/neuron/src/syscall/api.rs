@@ -15,7 +15,10 @@ use crate::{
     sched::Scheduler,
 };
 
-use super::{Args, Error, SysResult, SyscallTable, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_YIELD};
+use super::{
+    Args, Error, SysResult, SyscallTable, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
+    SYSCALL_YIELD,
+};
 
 /// Execution context shared across syscalls.
 pub struct Context<'a> {
@@ -36,11 +39,18 @@ impl<'a> Context<'a> {
         address_space: &'a mut PageTable,
         timer: &'a dyn Timer,
     ) -> Self {
-        Self { scheduler, caps, router, address_space, timer, last_message: None }
+        Self {
+            scheduler,
+            caps,
+            router,
+            address_space,
+            timer,
+            last_message: None,
+        }
     }
 
     /// Returns the last received message header for inspection.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn last_message(&self) -> Option<&ipc::Message> {
         self.last_message.as_ref()
     }
@@ -75,7 +85,8 @@ fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     };
     let header = MessageHeader::new(slot as u32, endpoint, ty, flags, len);
     let payload = Vec::new();
-    ctx.router.send(endpoint, ipc::Message::new(header, payload))?;
+    ctx.router
+        .send(endpoint, ipc::Message::new(header, payload))?;
     Ok(len as usize)
 }
 
@@ -103,7 +114,9 @@ fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             if pa < base || pa >= base + len {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
-            ctx.address_space.map(va, pa, flags).map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+            ctx.address_space
+                .map(va, pa, flags)
+                .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
             Ok(0)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
@@ -122,16 +135,32 @@ mod tests {
     fn send_recv_roundtrip() {
         let mut scheduler = Scheduler::new();
         let mut caps = CapTable::new();
-        let _ = caps.set(0, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV });
+        let _ = caps.set(
+            0,
+            Capability {
+                kind: CapabilityKind::Endpoint(0),
+                rights: Rights::SEND | Rights::RECV,
+            },
+        );
         let mut router = ipc::Router::new(1);
         let mut aspace = PageTable::new();
         let timer = crate::hal::virt::VirtMachine::new();
-        let mut ctx = Context::new(&mut scheduler, &mut caps, &mut router, &mut aspace, timer.timer());
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut caps,
+            &mut router,
+            &mut aspace,
+            timer.timer(),
+        );
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
-        table.dispatch(SYSCALL_SEND, &mut ctx, &Args::new([0, 1, 0, 0, 0, 0])).unwrap();
-        let len = table.dispatch(SYSCALL_RECV, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0])).unwrap();
+        table
+            .dispatch(SYSCALL_SEND, &mut ctx, &Args::new([0, 1, 0, 0, 0, 0]))
+            .unwrap();
+        let len = table
+            .dispatch(SYSCALL_RECV, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0]))
+            .unwrap();
         assert_eq!(len, 0);
         assert!(ctx.last_message().is_some());
     }

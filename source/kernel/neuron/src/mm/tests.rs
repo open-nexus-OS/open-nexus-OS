@@ -8,14 +8,20 @@ use super::{MapError, PageFlags, PageTable, PAGE_SIZE};
 #[test]
 fn rejects_unaligned_addresses() {
     let mut table = PageTable::new();
-    assert_eq!(table.map(1, PAGE_SIZE, PageFlags::VALID), Err(MapError::Unaligned));
+    assert_eq!(
+        table.map(1, PAGE_SIZE, PageFlags::VALID),
+        Err(MapError::Unaligned)
+    );
     assert_eq!(table.map(0, 1, PageFlags::VALID), Err(MapError::Unaligned));
 }
 
 #[test]
 fn rejects_invalid_flags() {
     let mut table = PageTable::new();
-    assert_eq!(table.map(0, 0, PageFlags::empty()), Err(MapError::InvalidFlags));
+    assert_eq!(
+        table.map(0, 0, PageFlags::empty()),
+        Err(MapError::InvalidFlags)
+    );
 }
 
 #[test]
@@ -32,7 +38,30 @@ fn detects_overlap() {
 fn out_of_range_rejected() {
     let mut table = PageTable::new();
     assert_eq!(
-        table.map(PAGE_SIZE * 1024, PAGE_SIZE * 2, PageFlags::VALID | PageFlags::READ),
+        table.map(
+            PAGE_SIZE * 1024,
+            PAGE_SIZE * 2,
+            PageFlags::VALID | PageFlags::READ
+        ),
         Err(MapError::OutOfRange)
     );
+}
+
+#[test]
+fn lookup_observes_mapping() {
+    let mut table = PageTable::new();
+    table
+        .map(0, PAGE_SIZE, PageFlags::VALID | PageFlags::READ)
+        .unwrap();
+    assert_eq!(
+        table.lookup(0),
+        Some(PAGE_SIZE | (PageFlags::VALID | PageFlags::READ).bits())
+    );
+    assert_eq!(table.lookup(PAGE_SIZE), None);
+}
+
+#[test]
+fn root_ppn_reports_base_page() {
+    let table = PageTable::new();
+    assert_ne!(table.root_ppn(), 0);
 }

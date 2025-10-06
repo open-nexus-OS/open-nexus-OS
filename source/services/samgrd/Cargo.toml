@@ -5,12 +5,12 @@ edition = "2021"
 license = "Apache-2.0"
 
 [features]
-backend-host = ["thiserror"]
-backend-os = []
-idl-capnp = ["nexus-idl-runtime/capnp"]
-default = []
+default = ["backend-os", "idl-capnp"]
+backend-host = ["samgr/backend-host"]
+backend-os = ["samgr/backend-os"]
+idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 
 [dependencies]
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-samgr = { path = "../../../userspace/samgr", default-features = false, features = ["backend-os"] }
-thiserror = { version = "1", optional = true }
+samgr = { path = "../../../userspace/samgr", default-features = false }
+capnp = { version = "0.19", optional = true }

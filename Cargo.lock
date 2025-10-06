@@ -144,8 +144,7 @@ name = "bundlemgrd"
 version = "0.1.0"
 dependencies = [
  "bundlemgr",
- "nexus-abi",
- "nexus-idl",
+ "capnp",
  "nexus-idl-runtime",
 ]
 
@@ -618,6 +617,16 @@ name = "nexus-alloc"
 version = "0.1.0"
 
 [[package]]
+name = "nexus-e2e"
+version = "0.1.0"
+dependencies = [
+ "bundlemgrd",
+ "capnp",
+ "nexus-idl-runtime",
+ "samgrd",
+]
+
+[[package]]
 name = "nexus-hal"
 version = "0.1.0"
 
@@ -978,9 +987,9 @@ dependencies = [
 name = "samgrd"
 version = "0.1.0"
 dependencies = [
+ "capnp",
  "nexus-idl-runtime",
  "samgr",
- "thiserror",
 ]
 
 [[package]]

@@ -1,18 +1,12 @@
-//! Thin SAMGR daemon: decodes Cap'n Proto requests, forwards to userspace `samgr` lib, replies encoded.
+//! Thin SAMGR daemon entrypoint: wires transports to the shared server logic.
 
 fn main() -> ! {
-    touch_schemas();
+    samgrd::touch_schemas();
     println!("samgrd: ready");
+    if let Err(err) = samgrd::run_default() {
+        eprintln!("samgrd: {err}");
+    }
     loop {
         core::hint::spin_loop();
-    }
-}
-
-fn touch_schemas() {
-    #[cfg(feature = "idl-capnp")]
-    {
-        use nexus_idl_runtime::samgr_capnp::{register_request, resolve_request};
-        let _ = core::any::type_name::<register_request::Owned>();
-        let _ = core::any::type_name::<resolve_request::Owned>();
     }
 }

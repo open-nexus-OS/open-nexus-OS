@@ -1,7 +1,12 @@
+warn = [
+    "dead_code",
+]
+
 deny = [
+    "unused_must_use",
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::todo",
     "clippy::unimplemented",
-    "clippy::panic"
+    "clippy::panic",
 ]

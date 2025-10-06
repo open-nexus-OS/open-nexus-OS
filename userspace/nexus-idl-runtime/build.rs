@@ -1,7 +1,7 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{ffi::OsStr, fs, path::PathBuf};
+use std::{env, ffi::OsStr, fs, io, path::Path, path::PathBuf};
 
 /// Build script:
 /// - Scans `tools/nexus-idl/schemas` for all `.capnp` files
@@ -9,8 +9,8 @@ use std::{ffi::OsStr, fs, path::PathBuf};
 /// - Emits proper `rerun-if-changed` hints so Cargo rebuilds when schemas change
 fn main() {
     // Resolve the schema directory relative to this crate (robust in workspaces/CI).
-    let schemas: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tools/nexus-idl/schemas");
+    let schemas: PathBuf =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/nexus-idl/schemas");
 
     // If no schema directory exists, there's nothing to generate. Keep the build green.
     if !schemas.exists() {
@@ -30,22 +30,61 @@ fn main() {
         }
     }
 
-    // Generate Rust code for all `.capnp` files in the schema directory.
-    // `capnpc` writes to Cargo's OUT_DIR by default; `src_prefix` preserves include paths.
-    let mut cmd = capnpc::CompilerCommand::new();
-    cmd.src_prefix(&schemas);
+    if let Err(err) = generate_with_capnpc(&schemas) {
+        if err.contains("Failed to execute `capnp --version`") {
+            if let Err(copy_err) = fallback_to_manual() {
+                panic!(
+                    "capnp compile failed: {err}; manual fallback failed: {copy_err}\n\
+                     Hint: install `capnp` (>= 0.5.2). On Debian/Ubuntu: `apt-get install capnproto`."
+                );
+            }
+        } else {
+            panic!(
+                "capnp compile failed: {err}\n\
+                 Hint: install `capnp` (>= 0.5.2). On Debian/Ubuntu: `apt-get install capnproto`."
+            );
+        }
+    }
+}
 
-    for entry in fs::read_dir(&schemas).expect("read schemas dir") {
+fn generate_with_capnpc(schemas: &Path) -> Result<(), String> {
+    let mut cmd = capnpc::CompilerCommand::new();
+    cmd.src_prefix(schemas);
+
+    for entry in fs::read_dir(schemas).expect("read schemas dir") {
         let path = entry.expect("dirent").path();
         if path.extension() == Some(OsStr::new("capnp")) {
             cmd.file(&path);
         }
     }
 
-    if let Err(e) = cmd.run() {
-        panic!(
-            "capnp compile failed: {e}\n\
-             Hint: install `capnp` (>= 0.5.2). On Debian/Ubuntu: `apt-get install capnproto`."
-        );
+    cmd.run().map_err(|err| err.to_string())
+}
+
+fn fallback_to_manual() -> Result<(), io::Error> {
+    let manual_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/manual");
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR available"));
+
+    if !manual_dir.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("manual schemas missing at {}", manual_dir.display()),
+        ));
     }
+
+    println!(
+        "cargo:warning=nexus-idl-runtime: capnp compiler unavailable, using bundled manual bindings"
+    );
+    println!("cargo:rerun-if-changed={}", manual_dir.display());
+
+    for entry in fs::read_dir(&manual_dir)? {
+        let path = entry?.path();
+        if path.extension() == Some(OsStr::new("rs")) {
+            println!("cargo:rerun-if-changed={}", path.display());
+            let target = out_dir.join(path.file_name().expect("manual file name"));
+            fs::copy(&path, &target)?;
+        }
+    }
+
+    Ok(())
 }

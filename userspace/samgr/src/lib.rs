@@ -8,6 +8,7 @@
 //! `backend-os` feature is available for future syscall wiring and currently
 //! returns [`Error::Unsupported`] for all operations.
 
+#![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]
 
 #[cfg(all(feature = "backend-host", feature = "backend-os"))]

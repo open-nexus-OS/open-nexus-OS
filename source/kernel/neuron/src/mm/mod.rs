@@ -58,7 +58,9 @@ static DENY_NEXT_MAP: AtomicBool = AtomicBool::new(false);
 impl PageTable {
     /// Creates an empty page table with all entries zeroed.
     pub fn new() -> Self {
-        Self { entries: vec![0; PT_ENTRIES] }
+        Self {
+            entries: vec![0; PT_ENTRIES],
+        }
     }
 
     /// Maps `pa` at virtual address `va` with the provided flags.
@@ -85,7 +87,6 @@ impl PageTable {
     }
 
     /// Returns the stored entry for `va` if present.
-    #[allow(dead_code)]
     pub fn lookup(&self, va: usize) -> Option<usize> {
         if va % PAGE_SIZE != 0 {
             return None;
@@ -95,7 +96,6 @@ impl PageTable {
     }
 
     /// Returns the physical address of the page table suitable for SATP.
-    #[allow(dead_code)]
     pub fn root_ppn(&self) -> usize {
         self.entries.as_ptr() as usize / PAGE_SIZE
     }
