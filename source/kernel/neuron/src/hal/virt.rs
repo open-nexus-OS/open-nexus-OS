@@ -9,16 +9,23 @@ use crate::arch::riscv;
 
 use super::{IrqCtl, Mmio, Timer, Tlb, Uart};
 
+#[allow(dead_code)]
 const UART0_BASE: usize = 0x1000_0000;
+#[allow(dead_code)]
 const UART_TX: usize = 0x0;
+#[allow(dead_code)]
 const UART_LSR: usize = 0x5;
+#[allow(dead_code)]
 const LSR_TX_IDLE: u8 = 1 << 5;
 
 /// Collection of HAL devices for the virt machine.
 pub struct VirtMachine {
     timer: VirtTimer,
+    #[allow(dead_code)]
     uart: VirtUart,
+    #[allow(dead_code)]
     tlb: VirtTlb,
+    #[allow(dead_code)]
     irq: VirtIrq,
 }
 
@@ -29,21 +36,25 @@ impl VirtMachine {
     }
 
     /// Returns a reference to the timer implementation.
+    #[allow(dead_code)]
     pub const fn timer(&self) -> &VirtTimer {
         &self.timer
     }
 
     /// Returns a reference to the UART implementation.
+    #[allow(dead_code)]
     pub const fn uart(&self) -> &VirtUart {
         &self.uart
     }
 
     /// Returns a reference to the TLB helper.
+    #[allow(dead_code)]
     pub const fn tlb(&self) -> &VirtTlb {
         &self.tlb
     }
 
     /// Returns a reference to the IRQ controller helper.
+    #[allow(dead_code)]
     pub const fn irq(&self) -> &VirtIrq {
         &self.irq
     }

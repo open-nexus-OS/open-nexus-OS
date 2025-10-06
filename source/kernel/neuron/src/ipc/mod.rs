@@ -125,6 +125,7 @@ pub mod failpoints {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn loopback_roundtrip() {

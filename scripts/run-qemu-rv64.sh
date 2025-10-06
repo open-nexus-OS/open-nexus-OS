@@ -71,9 +71,10 @@ rm -f "$QEMU_LOG" "$UART_LOG"
 COMMON_ARGS=(
   -machine virt
   -cpu rv64
-  -m 256M
+  -m 265M
   -smp "${SMP:-1}"
   -nographic
+  -serial mon:stdio
   -kernel "$KERNEL_ELF"
   -bios default
   -d int,mmu,unimp
@@ -83,14 +84,14 @@ COMMON_ARGS=(
 status=0
 if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
   set +e
-  timeout "$RUN_TIMEOUT" stdbuf -oL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+  timeout --foreground "$RUN_TIMEOUT" stdbuf -oL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
     | tee >(monitor_uart) \
     | tee "$UART_LOG"
   status=${PIPESTATUS[0]}
   set -e
 else
   set +e
-  timeout "$RUN_TIMEOUT" stdbuf -oL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+  timeout --foreground "$RUN_TIMEOUT" stdbuf -oL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
     | tee "$UART_LOG"
   status=${PIPESTATUS[0]}
   set -e

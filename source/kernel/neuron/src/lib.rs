@@ -3,7 +3,7 @@
 
 //! NEURON kernel library – no binary entry here.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![deny(warnings)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 

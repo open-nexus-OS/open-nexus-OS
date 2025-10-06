@@ -3,16 +3,18 @@
 
 set shell := ["/usr/bin/env", "bash", "-c"]
 
+toolchain := "nightly-2025-01-15"
+
 default: test
 
 # Build the bootable NEURON binary crate
 build-kernel:
-    cargo build -p neuron-boot --target riscv64imac-unknown-none-elf --release
+    cargo +{{toolchain}} build -p neuron-boot --target riscv64imac-unknown-none-elf --release
 
 # Build only the kernel library with its own panic handler (no binary)
 build-kernel-lib:
-    cargo build -p neuron --lib --features panic_handler --target riscv64imac-unknown-none-elf
- 
+    cargo +{{toolchain}} build -p neuron --lib --features panic_handler --target riscv64imac-unknown-none-elf
+
 
 qemu *args:
     # ensure the binary is built before launching

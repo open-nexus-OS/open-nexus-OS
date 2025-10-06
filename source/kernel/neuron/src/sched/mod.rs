@@ -59,6 +59,7 @@ impl Scheduler {
     }
 
     /// Re-enqueue the currently running task (call on timeslice/yield).
+    #[allow(dead_code)]
     pub fn yield_current(&mut self) {
         if let Some(task) = self.current.take() {
             self.enqueue(task.id, task.qos);

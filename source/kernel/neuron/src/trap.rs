@@ -51,6 +51,7 @@ pub fn record(frame: &TrapFrame) {
 }
 
 /// Returns the most recently recorded trap frame if available.
+#[allow(dead_code)]
 pub fn last_trap() -> Option<TrapFrame> {
     *LAST_TRAP.lock()
 }
@@ -92,6 +93,7 @@ pub fn describe_cause(scause: usize) -> &'static str {
 }
 
 /// Formats the trap registers for diagnostics.
+#[allow(dead_code)]
 pub fn fmt_trap<W: Write>(frame: &TrapFrame, f: &mut W) -> fmt::Result {
     writeln!(f, " sepc=0x{:016x}", frame.sepc)?;
     writeln!(f, " scause=0x{:016x} ({})", frame.scause, describe_cause(frame.scause))?;

@@ -9,13 +9,16 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg_attr(not(test), allow(dead_code))]
 const DEFAULT_SEED: u64 = 0x6e6575726f6e; // ASCII "neuron"
 const DEFAULT_TICK_NS: u64 = 1_000_000; // 1 ms slice
 
+#[cfg_attr(not(test), allow(dead_code))]
 static SEED: AtomicU64 = AtomicU64::new(DEFAULT_SEED);
 static FIXED_TICK_NS: AtomicU64 = AtomicU64::new(DEFAULT_TICK_NS);
 
 /// Returns the deterministic seed for pseudo random number generators.
+#[cfg_attr(not(test), allow(dead_code))]
 #[inline]
 pub fn seed() -> u64 {
     SEED.load(Ordering::Relaxed)
@@ -25,6 +28,7 @@ pub fn seed() -> u64 {
 ///
 /// This is primarily used by unit tests to exercise different execution
 /// paths while still allowing reproducible runs.
+#[cfg_attr(not(test), allow(dead_code))]
 #[inline]
 pub fn set_seed(value: u64) {
     SEED.store(value, Ordering::Relaxed);
@@ -37,6 +41,7 @@ pub fn fixed_tick_ns() -> u64 {
 }
 
 /// Overrides the fixed timer quantum in nanoseconds.
+#[cfg_attr(not(test), allow(dead_code))]
 #[inline]
 pub fn set_fixed_tick_ns(value: u64) {
     FIXED_TICK_NS.store(value, Ordering::Relaxed);

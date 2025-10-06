@@ -14,12 +14,14 @@ pub trait Timer {
 }
 
 /// UART abstraction used for kernel logging.
+#[allow(dead_code)]
 pub trait Uart {
     /// Writes a single byte to the UART.
     fn write_byte(&self, byte: u8);
 }
 
 /// Minimal MMIO accessor.
+#[allow(dead_code)]
 pub trait Mmio {
     /// Writes a 32-bit value to the device.
     unsafe fn write32(&self, offset: usize, value: u32);
@@ -28,6 +30,7 @@ pub trait Mmio {
 }
 
 /// Interrupt controller primitive.
+#[allow(dead_code)]
 pub trait IrqCtl {
     /// Enables the interrupt line.
     fn enable(&self, irq: usize);
@@ -36,12 +39,14 @@ pub trait IrqCtl {
 }
 
 /// TLB management operations.
+#[allow(dead_code)]
 pub trait Tlb {
     /// Flushes the entire translation cache.
     fn flush_all(&self);
 }
 
 /// Page table backing store abstraction.
+#[allow(dead_code)]
 pub trait PageTable {
     /// Returns the SATP value representing the root page table.
     fn satp(&self) -> usize;

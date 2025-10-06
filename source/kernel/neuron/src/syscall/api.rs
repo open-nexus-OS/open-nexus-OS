@@ -40,6 +40,7 @@ impl<'a> Context<'a> {
     }
 
     /// Returns the last received message header for inspection.
+    #[allow(dead_code)]
     pub fn last_message(&self) -> Option<&ipc::Message> {
         self.last_message.as_ref()
     }

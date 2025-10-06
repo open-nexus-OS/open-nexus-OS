@@ -6,6 +6,7 @@
 //! The implementation follows the Sv39 privileged specification and is
 //! written such that host builds can still exercise high level logic via
 //! the lightweight `#[cfg(not(target_arch = "riscv64"))]` stubs.
+#![cfg_attr(any(test, not(target_arch = "riscv64")), allow(dead_code))]
 
 /// Clears the `.bss` region defined by the linker.
 #[inline]

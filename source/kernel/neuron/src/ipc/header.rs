@@ -25,6 +25,7 @@ impl MessageHeader {
     }
 
     /// Serialises the header to a little-endian byte array suitable for golden vector comparisons.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn to_le_bytes(&self) -> [u8; 16] {
         let mut bytes = [0u8; 16];
         bytes[0..4].copy_from_slice(&self.src.to_le_bytes());
@@ -36,6 +37,7 @@ impl MessageHeader {
     }
 
     /// Deserialises a little-endian byte array into a [`MessageHeader`].
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn from_le_bytes(bytes: [u8; 16]) -> Self {
         let src = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
         let dst = u32::from_le_bytes(bytes[4..8].try_into().unwrap());

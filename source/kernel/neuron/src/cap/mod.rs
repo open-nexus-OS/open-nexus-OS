@@ -5,8 +5,8 @@
 
 extern crate alloc;
 
-use alloc::vec;      
-use alloc::vec::Vec; 
+use alloc::vec;
+use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::fmt;
 
@@ -31,6 +31,7 @@ pub enum CapabilityKind {
     /// Virtual memory object.
     Vmo { base: usize, len: usize },
     /// Interrupt binding.
+    #[allow(dead_code)]
     Irq(u32),
 }
 

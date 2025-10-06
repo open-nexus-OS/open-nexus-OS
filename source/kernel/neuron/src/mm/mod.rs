@@ -4,8 +4,8 @@
 //! Virtual memory primitives for Sv39.
 
 extern crate alloc;
-use alloc::vec;      
-use alloc::vec::Vec; 
+use alloc::vec;
+use alloc::vec::Vec;
 use bitflags::bitflags;
 
 #[cfg(feature = "failpoints")]
@@ -85,6 +85,7 @@ impl PageTable {
     }
 
     /// Returns the stored entry for `va` if present.
+    #[allow(dead_code)]
     pub fn lookup(&self, va: usize) -> Option<usize> {
         if va % PAGE_SIZE != 0 {
             return None;
@@ -94,6 +95,7 @@ impl PageTable {
     }
 
     /// Returns the physical address of the page table suitable for SATP.
+    #[allow(dead_code)]
     pub fn root_ppn(&self) -> usize {
         self.entries.as_ptr() as usize / PAGE_SIZE
     }
