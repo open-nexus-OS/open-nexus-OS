@@ -8,6 +8,8 @@ use std::fmt;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
+use nexus_ipc::{self, Wait};
+
 use bundlemgr::{service::InstallRequest as DomainInstallRequest, Service, ServiceError};
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
@@ -25,7 +27,7 @@ use capnp::message::{Builder, HeapAllocator, ReaderOptions};
 use capnp::serialize;
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::bundlemgr_capnp::{
-    InstallError, install_request, install_response, query_request, query_response,
+    install_request, install_response, query_request, query_response, InstallError,
 };
 
 const OPCODE_INSTALL: u8 = 1;
@@ -87,6 +89,71 @@ impl From<&str> for TransportError {
     }
 }
 
+impl From<nexus_ipc::IpcError> for TransportError {
+    fn from(err: nexus_ipc::IpcError) -> Self {
+        match err {
+            nexus_ipc::IpcError::Disconnected => Self::Closed,
+            nexus_ipc::IpcError::Unsupported => Self::Unsupported,
+            nexus_ipc::IpcError::WouldBlock | nexus_ipc::IpcError::Timeout => {
+                Self::Other("operation timed out".to_string())
+            }
+            nexus_ipc::IpcError::Kernel(inner) => {
+                Self::Other(format!("kernel ipc error: {inner:?}"))
+            }
+        }
+    }
+}
+
+/// Notifies init that the bundle manager daemon is ready to serve requests.
+pub struct ReadyNotifier(Box<dyn FnOnce() + Send>);
+
+impl ReadyNotifier {
+    /// Creates a new notifier from a closure.
+    pub fn new<F>(func: F) -> Self
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        Self(Box::new(func))
+    }
+
+    /// Signals readiness.
+    pub fn notify(self) {
+        (self.0)();
+    }
+}
+
+/// IPC transport adapter backed by [`nexus-ipc`].
+pub struct IpcTransport<T> {
+    server: T,
+}
+
+impl<T> IpcTransport<T> {
+    /// Wraps the provided server instance.
+    pub fn new(server: T) -> Self {
+        Self { server }
+    }
+}
+
+impl<T> Transport for IpcTransport<T>
+where
+    T: nexus_ipc::Server + Send,
+{
+    type Error = nexus_ipc::IpcError;
+
+    fn recv(&mut self) -> Result<Option<Vec<u8>>, Self::Error> {
+        match self.server.recv(Wait::Blocking) {
+            Ok(frame) => Ok(Some(frame)),
+            Err(nexus_ipc::IpcError::Disconnected) => Ok(None),
+            Err(nexus_ipc::IpcError::WouldBlock | nexus_ipc::IpcError::Timeout) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn send(&mut self, frame: &[u8]) -> Result<(), Self::Error> {
+        self.server.send(frame, Wait::Blocking)
+    }
+}
+
 /// Errors returned by the server.
 #[derive(Debug)]
 pub enum ServerError {
@@ -138,14 +205,26 @@ impl ArtifactStore {
 
     /// Inserts artifact bytes associated with `handle`.
     pub fn insert(&self, handle: u32, bytes: Vec<u8>) {
-        let mut guard = self.inner.lock().expect("artifact store mutex poisoned");
-        guard.insert(handle, bytes);
+        match self.inner.lock() {
+            Ok(mut guard) => {
+                guard.insert(handle, bytes);
+            }
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.insert(handle, bytes);
+            }
+        }
     }
 
     /// Removes and returns artifact bytes for `handle` if they exist.
     pub fn take(&self, handle: u32) -> Option<Vec<u8>> {
-        let mut guard = self.inner.lock().expect("artifact store mutex poisoned");
-        guard.remove(&handle)
+        match self.inner.lock() {
+            Ok(mut guard) => guard.remove(&handle),
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.remove(&handle)
+            }
+        }
     }
 }
 
@@ -326,9 +405,45 @@ fn map_install_error(error: &ServiceError) -> InstallError {
     }
 }
 
-/// Executes the server using the default system transport (not yet implemented).
+/// Executes the server using the default system transport and a fresh artifact store.
 pub fn run_default() -> Result<(), ServerError> {
-    Err(ServerError::Transport(TransportError::Unsupported))
+    service_main_loop(ReadyNotifier::new(|| ()), ArtifactStore::new())
+}
+
+/// Runs the server using the default IPC transport and artifact store.
+pub fn service_main_loop(
+    notifier: ReadyNotifier,
+    artifacts: ArtifactStore,
+) -> Result<(), ServerError> {
+    #[cfg(nexus_env = "host")]
+    {
+        let (client, server) = nexus_ipc::loopback_channel();
+        let _client_guard = client;
+        let mut transport = IpcTransport::new(server);
+        notifier.notify();
+        println!("bundlemgrd: ready");
+        run_with_transport(&mut transport, artifacts)
+    }
+
+    #[cfg(nexus_env = "os")]
+    {
+        let server = nexus_ipc::KernelServer::new()
+            .map_err(|err| ServerError::Transport(TransportError::from(err)))?;
+        let mut transport = IpcTransport::new(server);
+        notifier.notify();
+        println!("bundlemgrd: ready");
+        run_with_transport(&mut transport, artifacts)
+    }
+}
+
+/// Creates a loopback transport pair for host-side tests.
+#[cfg(nexus_env = "host")]
+pub fn loopback_transport() -> (
+    nexus_ipc::LoopbackClient,
+    IpcTransport<nexus_ipc::LoopbackServer>,
+) {
+    let (client, server) = nexus_ipc::loopback_channel();
+    (client, IpcTransport::new(server))
 }
 
 /// Touches Cap'n Proto schemas to keep generated code linked.

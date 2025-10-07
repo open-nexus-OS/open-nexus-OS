@@ -2,8 +2,7 @@
 
 fn main() -> ! {
     samgrd::touch_schemas();
-    println!("samgrd: ready");
-    if let Err(err) = samgrd::run_default() {
+    if let Err(err) = samgrd::service_main_loop(samgrd::ReadyNotifier::new(|| ())) {
         eprintln!("samgrd: {err}");
     }
     loop {

@@ -1,15 +1,17 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg(nexus_env = "host")]
+
 use std::io::Cursor;
 use std::thread;
 
 use bundlemgrd::ArtifactStore;
 use capnp::message::Builder;
 use capnp::serialize;
-use nexus_e2e::{bundle_loopback, samgr_loopback};
+use nexus_e2e::{bundle_loopback, call, samgr_loopback};
 use nexus_idl_runtime::bundlemgr_capnp::{
-    InstallError, install_request, install_response, query_request, query_response,
+    install_request, install_response, query_request, query_response, InstallError,
 };
 use nexus_idl_runtime::samgr_capnp::{
     register_request, register_response, resolve_request, resolve_response,
@@ -34,11 +36,11 @@ fn samgr_register_resolve_roundtrip() {
     let handle = thread::spawn(move || samgrd::run_with_transport(&mut server).unwrap());
 
     let register = build_register_frame("shell", 7);
-    let response = client.call(register);
+    let response = call(&client, register);
     assert_register_ok(&response);
 
     let resolve = build_resolve_frame("shell");
-    let response = client.call(resolve);
+    let response = call(&client, resolve);
     let (found, endpoint) = parse_resolve(&response);
     assert!(found, "service should be resolved");
     assert_eq!(endpoint, 7);
@@ -60,13 +62,13 @@ fn bundle_install_query_roundtrip() {
         thread::spawn(move || bundlemgrd::run_with_transport(&mut server, store_clone).unwrap());
 
     let install = build_install_frame("launcher", 42, len);
-    let response = client.call(install);
+    let response = call(&client, install);
     let (ok, err) = parse_install(&response);
     assert!(ok, "install should succeed");
     assert_eq!(err, InstallError::None);
 
     let query = build_query_frame("launcher");
-    let response = client.call(query);
+    let response = call(&client, query);
     let (installed, version) = parse_query(&response);
     assert!(installed, "bundle should be installed");
     assert_eq!(version, "1.0.0");
@@ -88,7 +90,7 @@ fn bundle_install_invalid_signature() {
         thread::spawn(move || bundlemgrd::run_with_transport(&mut server, store_clone).unwrap());
 
     let install = build_install_frame("launcher", 7, len);
-    let response = client.call(install);
+    let response = call(&client, install);
     let (ok, err) = parse_install(&response);
     assert!(!ok, "install should fail");
     assert_eq!(err, InstallError::Eacces);
@@ -175,7 +177,10 @@ fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     let response = message
         .get_root::<install_response::Reader<'_>>()
         .expect("install response root");
-    (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
+    (
+        response.get_ok(),
+        response.get_err().unwrap_or(InstallError::Einval),
+    )
 }
 
 fn parse_query(frame: &[u8]) -> (bool, String) {

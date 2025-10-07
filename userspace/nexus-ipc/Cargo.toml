@@ -1,0 +1,11 @@
+[package]
+name = "nexus-ipc"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[dependencies]
+nexus-abi = { path = "../../source/libs/nexus-abi" }
+parking_lot = "0.12"
+thiserror = "1"
