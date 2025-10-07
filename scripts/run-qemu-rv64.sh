@@ -14,6 +14,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 KERNEL_ELF=$ROOT/target/$TARGET/release/neuron-boot
+KERNEL_BIN=$ROOT/target/$TARGET/release/neuron-boot.bin
 RUN_TIMEOUT=${RUN_TIMEOUT:-30s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-0}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
@@ -66,20 +67,33 @@ if [[ ! -f "$KERNEL_ELF" ]]; then
   (cd "$ROOT" && cargo build -p neuron-boot --target "$TARGET" --release)
 fi
 
+if [[ ! -f "$KERNEL_BIN" || "$KERNEL_BIN" -ot "$KERNEL_ELF" ]]; then
+  # Use Rust's llvm-objcopy (works with all targets)
+  OBJCOPY=$(find ~/.rustup/toolchains -name llvm-objcopy -type f 2>/dev/null | head -1)
+  if [[ -z "$OBJCOPY" ]]; then
+    echo "[error] llvm-objcopy not found. Install llvm-tools: rustup component add llvm-tools" >&2
+    exit 1
+  fi
+  "$OBJCOPY" -O binary "$KERNEL_ELF" "$KERNEL_BIN"
+fi
+
 rm -f "$QEMU_LOG" "$UART_LOG"
 
 COMMON_ARGS=(
-  -machine virt
-  -cpu rv64
+  -machine virt,aclint=on
+  -cpu max
   -m 265M
   -smp "${SMP:-1}"
   -nographic
   -serial mon:stdio
-  -kernel "$KERNEL_ELF"
   -bios default
-  -d int,mmu,unimp
-  -D "$QEMU_LOG"
+  -kernel "$KERNEL_BIN"
 )
+
+# Enable heavy QEMU tracing only when explicitly requested
+if [[ "${QEMU_TRACE:-0}" == "1" ]]; then
+  COMMON_ARGS+=( -d int,mmu,unimp -D "$QEMU_LOG" )
+fi
 
 status=0
 if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then

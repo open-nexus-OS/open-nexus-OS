@@ -39,7 +39,13 @@ impl Scheduler {
     /// Creates an empty scheduler.
     pub fn new() -> Self {
         Self {
-            queues: Default::default(),
+            // Preallocate minimal capacity to avoid first enqueue allocation cost
+            queues: [
+                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(1),
+            ],
             current: None,
             timeslice_ns: determinism::fixed_tick_ns(),
         }

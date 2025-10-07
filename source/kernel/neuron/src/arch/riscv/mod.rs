@@ -29,33 +29,7 @@ pub fn clear_bss(start: *mut u8, end: *mut u8) {
     }
 }
 
-/// Installs the trap vector address for supervisor mode.
-#[inline]
-pub fn configure_traps(trap_vector: usize) {
-    #[cfg(target_arch = "riscv64")]
-    unsafe {
-        core::arch::asm!("csrw stvec, {0}", in(reg) trap_vector, options(nostack, preserves_flags));
-    }
-    #[cfg(not(target_arch = "riscv64"))]
-    {
-        let _ = trap_vector;
-    }
-}
-
-/// Enables supervisor timer interrupts.
-#[inline]
-pub fn enable_timer_interrupts() {
-    #[cfg(target_arch = "riscv64")]
-    unsafe {
-        const STIE: usize = 1 << 5;
-        core::arch::asm!(
-            "csrr t0, sie", "ori t0, t0, {stie}", "csrw sie, t0",
-            stie = const STIE,
-            out("t0") _,
-            options(nostack)
-        );
-    }
-}
+// Legacy trap/timer functions removed - now handled in trap.rs with SBI
 
 /// Reads the timer CSR (nsec on virt is based on a 10 MHz counter).
 #[inline]

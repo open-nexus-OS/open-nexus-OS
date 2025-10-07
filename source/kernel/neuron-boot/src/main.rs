@@ -8,12 +8,45 @@
 #![no_main]
 
 use neuron::kmain;
+core::arch::global_asm!(
+    r#"
+    .section .text._start, "ax", @progbits
+    .globl _start
+    .align 4
+_start:
+    la   sp, __bss_end
+    li   t0, 0x4000
+    add  sp, sp, t0
+    j    start_rust
+"#
+);
 
-#[export_name = "_start"]
-pub extern "C" fn start() -> ! {
+#[inline]
+fn uart_write_line(msg: &str) {
+    const UART0_BASE: usize = 0x1000_0000;
+    const UART_TX: usize = 0x0;
+    const UART_LSR: usize = 0x5;
+    const LSR_TX_IDLE: u8 = 1 << 5;
+    unsafe {
+        for &b in msg.as_bytes() {
+            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+            core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b);
+            if b == b'\n' {
+                while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+                core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\r');
+            }
+        }
+        while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+        core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\n');
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn start_rust() -> ! {
     // SAFETY: Early boot runs before the Rust runtime. The kernel guarantees
     // that only a single core executes this path, so calling the raw
     // initialisation routine is sound here.
     unsafe { neuron::early_boot_init() };
+    uart_write_line("W0: calling kmain");
     kmain()
 }

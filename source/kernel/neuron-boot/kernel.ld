@@ -2,8 +2,8 @@ ENTRY(_start)
 
 SECTIONS
 {
-  /*  Low memory base for -kernel with -bios default (OpenSBI relocates) */
- . = 0x00010000;
+  /*  Standard RISC-V kernel load address (2MB after firmware @ 0x80000000) */
+  . = 0x80200000;
 
   .text : ALIGN(8) {
     KEEP(*(.text._start))
@@ -19,6 +19,7 @@ SECTIONS
     *(.bss .bss.*)
     *(COMMON)
     /* important: Heap lies in .bss.heap */
+    . = ALIGN(64);
     *(.bss.heap)
     __bss_end = .;
   }

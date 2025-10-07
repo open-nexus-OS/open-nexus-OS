@@ -10,6 +10,7 @@ default = ["failpoints"]
 failpoints = []
 # opt-in panic handler for no_std kernel images
 panic_handler = []
+boot_timing = []
 
 [lib]
 crate-type = ["rlib", "staticlib"]
@@ -17,7 +18,11 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 bitflags = { version = "2", default-features = false }
 spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex"] }
-linked_list_allocator = { version = "0.10.5", default-features = false, features = ["use_spin"] }
+linked_list_allocator = { version = "0.10.5", default-features = false }
+riscv = { version = "0.11", default-features = false }
+
+[target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
+sbi-rt = { version = "0.0.2", default-features = false }
 
 [dev-dependencies]
 static_assertions = "1"

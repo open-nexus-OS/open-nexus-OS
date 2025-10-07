@@ -15,7 +15,6 @@ use crate::{
     selftest,
     syscall::{self, api, SyscallTable},
     uart,
-    BANNER,
 };
 
 /// Aggregated kernel state initialised during boot.
@@ -48,18 +47,33 @@ impl KernelState {
         let mut syscalls = SyscallTable::new();
         api::install_handlers(&mut syscalls);
 
+        let router = ipc::Router::new(4);
+
+        let address_space = PageTable::new();
+
+        let hal = VirtMachine::new();
+
         Self {
-            hal: VirtMachine::new(),
+            hal,
             scheduler,
             caps,
-            ipc: ipc::Router::new(4),
-            address_space: PageTable::new(),
+            ipc: router,
+            address_space,
             syscalls,
         }
     }
 
     fn banner(&self) {
-        uart::write_line(BANNER);
+        uart::write_line(
+"
+
+ _ __   ___ _   _ _ __ ___  _ __
+| '_ \\ / _ \\ | | | '__/ _ \\| '_ \\
+| | | |  __/ |_| | | | (_) | | | |
+|_| |_|\\___|\\__,_|_|  \\___/|_| |_|
+
+                                  ");
+        uart::write_line("neuron vers. 0.1.0 - One OS. Many Devices.");
     }
 
     fn exercise_ipc(&mut self) {
@@ -80,7 +94,7 @@ impl KernelState {
                 self.hal.timer(),
             );
             let mut frame = crate::trap::TrapFrame::default();
-            frame.a[7] = syscall::SYSCALL_YIELD;
+            frame.x[17] = syscall::SYSCALL_YIELD; // a7 = x17
             crate::trap::handle_ecall(&mut frame, &self.syscalls, &mut ctx);
             riscv::wait_for_interrupt();
         }
@@ -89,10 +103,30 @@ impl KernelState {
 
 /// Kernel main invoked after boot assembly completed.
 pub fn kmain() -> ! {
+    uart::write_line("C: entering kmain");
+    #[cfg(feature = "boot_timing")]
+    let t0 = crate::arch::riscv::read_time();
     let mut kernel = KernelState::new();
+    #[cfg(feature = "boot_timing")]
+    {
+        let t1 = crate::arch::riscv::read_time();
+        let delta = (t1 - t0) as u64;
+        use core::fmt::Write as _;
+        let mut u = crate::uart::KernelUart::lock();
+        let _ = write!(u, "T:init={}\n", delta);
+    }
+    uart::write_line("D: after KernelState::new");
     kernel.banner();
-    uart::write_line("sys: ok");
+    // reduce IO noise during timing runs
+    // SAFETY: trap vector installed; first tick armed; enable S-mode timer interrupts after init
+    unsafe { crate::trap::enable_timer_interrupts(); }
+    uart::write_line("T: enabled timer interrupts");
+    uart::write_line("F: before exercise_ipc");
     kernel.exercise_ipc();
+    uart::write_line("G: after exercise_ipc");
+    uart::write_line("H: before selftest");
+    #[cfg(feature = "boot_timing")]
+    let t2 = crate::arch::riscv::read_time();
     {
         let mut ctx = selftest::Context {
             hal: &kernel.hal,
@@ -103,5 +137,14 @@ pub fn kmain() -> ! {
         };
         selftest::entry(&mut ctx);
     }
+    #[cfg(feature = "boot_timing")]
+    {
+        let t3 = crate::arch::riscv::read_time();
+        let delta = (t3 - t2) as u64;
+        use core::fmt::Write as _;
+        let mut u = crate::uart::KernelUart::lock();
+        let _ = write!(u, "T:selftest={}\n", delta);
+    }
+    uart::write_line("I: after selftest");
     kernel.idle_loop()
 }

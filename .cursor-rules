@@ -96,6 +96,14 @@ COMMANDS:
   initial-setup:    "cd ~/open-nexus-os && make initial-setup"          # installs cargo fmt, clippy and deny
   build-container:  "podman build --no-cache -t open-nexus-os:dev -f podman/Containerfile ."  # container-rebuild (Podman)
 
+  test-kernel:          "cargo test -p neuron"
+  userspace-unit-test:  "env RUSTFLAGS='--cfg nexus_env="host"' cargo test -p samgr -p bundlemgr"
+  e2e-integration-test: "d /home/jenning/open-nexus-OS && env RUSTFLAGS='--cfg nexus_env="host"' cargo build -p nexus-e2e --tests 2>&1"
+  miri-mem-samgr:       "d /home/jenning/open-nexus-OS && env MIRIFLAGS='--cfg nexus_env="host"' cargo +nightly miri test -p samgr 2>&1"
+  miri-mem-bundlegr:    "d /home/jenning/open-nexus-OS && env MIRIFLAGS='--cfg nexus_env="host"' cargo +nightly miri test -p bundlemgr --lib 2>&1 "
+  service-deamons:      "d /home/jenning/open-nexus-OS && echo "=== SERVICE DAEMONS (nexus_env=os) ===" && RUSTFLAGS='--cfg nexus_env="os"' cargo build -p samgrd -p bundlemgrd --quiet 2>&1 && echo "✅ samgrd and bundlemgrd compiled successfully""
+  all-tests:            "cd /home/jenning/open-nexus-OS && echo "=== COMPLETE TEST SUITE ===" && echo "" && echo "1. Kernel tests (neuron):" && cargo test -p neuron --quiet 2>&1 | grep "test result" && echo "" && echo "2. Userspace tests (samgr, bundlemgr):" && env RUSTFLAGS='--cfg nexus_env="host"' cargo test -p samgr -p bundlemgr --quiet 2>&1 | grep "test result" && echo "" && echo "3. E2E tests:" && env RUSTFLAGS='--cfg nexus_env="host"' cargo test -p nexus-e2e --quiet 2>&1 | grep "test result" && echo "" && echo "4. Architecture check:" && cargo run -p arch-check --quiet 2>&1"
+
 # QUICK DEBUG HINTS
 # ==============================================================================
 # - Boot success: serial output should show "=== NEURON (open-nexus-os) ==="
