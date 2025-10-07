@@ -12,6 +12,7 @@ idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 samgr = { path = "../../../userspace/samgr" }
 capnp = { version = "0.19", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc" }
 
 [[bin]]
 name = "samgrd"

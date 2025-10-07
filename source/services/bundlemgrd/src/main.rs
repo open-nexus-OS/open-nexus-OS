@@ -2,8 +2,10 @@
 
 fn main() -> ! {
     bundlemgrd::touch_schemas();
-    println!("bundlemgrd: ready");
-    if let Err(err) = bundlemgrd::run_default() {
+    let artifacts = bundlemgrd::ArtifactStore::new();
+    if let Err(err) =
+        bundlemgrd::service_main_loop(bundlemgrd::ReadyNotifier::new(|| ()), artifacts)
+    {
         eprintln!("bundlemgrd: {err}");
     }
     loop {

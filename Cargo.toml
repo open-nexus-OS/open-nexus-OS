@@ -4,6 +4,7 @@ members = [
     "source/kernel/neuron",
     "source/libs/*",
     "source/services/*",
+    "source/init/*",
     "userspace/*",
     "source/apps/launcher",
     "source/drivers/net/virtio",

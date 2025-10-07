@@ -146,6 +146,7 @@ dependencies = [
  "bundlemgr",
  "capnp",
  "nexus-idl-runtime",
+ "nexus-ipc",
 ]
 
 [[package]]
@@ -661,6 +662,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-init"
+version = "0.1.0"
+dependencies = [
+ "bundlemgrd",
+ "samgrd",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
+name = "nexus-ipc"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "parking_lot",
+ "thiserror",
+]
+
+[[package]]
 name = "nexus-sched"
 version = "0.1.0"
 
@@ -1010,6 +1032,7 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "nexus-idl-runtime",
+ "nexus-ipc",
  "samgr",
 ]
 
