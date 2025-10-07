@@ -6,4 +6,3 @@ license = "Apache-2.0"
 
 [dependencies]
 identity = { path = "../../../userspace/identity" }
-
