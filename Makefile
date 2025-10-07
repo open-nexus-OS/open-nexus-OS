@@ -31,10 +31,11 @@ ifeq ($(MODE),container)
 		-e PATH=/workspace/.cargo/bin:/home/builder/.cargo/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 		$(CONTAINER_TAG) \
 		sh -lc '\
-		  echo "[1/2] host build (exclude kernel)"; \
+		  echo "[1/2] host+os userspace build"; \
 		  mkdir -p "$$RUSTUP_HOME" "$$CARGO_HOME"; \
 		  rustup default stable; \
-                  $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot && \
+		  RUSTFLAGS="--cfg nexus_env=\"host\"" $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd && \
+		  RUSTFLAGS="--cfg nexus_env=\"os\"" $(CARGO_BIN) build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd && \
 		  echo "[2/2] cross build kernel (riscv)"; \
 		  rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal; \
 		  rustup component add rust-src --toolchain "$(NIGHTLY)"; \
@@ -43,7 +44,8 @@ ifeq ($(MODE),container)
                     --target riscv64imac-unknown-none-elf -p neuron-boot --release'
 else
 	@echo "==> Building workspace on host"
-        @cargo build --workspace --exclude neuron --exclude neuron-boot
+	@RUSTFLAGS='--cfg nexus_env="host"' cargo build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd
+	@RUSTFLAGS='--cfg nexus_env="os"' cargo build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd
 endif
 
 test:

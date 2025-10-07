@@ -5,11 +5,6 @@ edition = "2021"
 license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
-[features]
-default = []
-backend-host = []
-backend-os = []
-
 [dependencies]
 semver = "1"
 toml = "0.8"

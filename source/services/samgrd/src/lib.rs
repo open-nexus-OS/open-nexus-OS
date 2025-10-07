@@ -9,11 +9,11 @@ use std::io::Cursor;
 
 use samgr::{Endpoint, Registry, ServiceHandle};
 
-#[cfg(all(feature = "backend-host", feature = "backend-os"))]
-compile_error!("Enable only one of `backend-host` or `backend-os`.");
+#[cfg(all(nexus_env = "host", nexus_env = "os"))]
+compile_error!("nexus_env: both 'host' and 'os' set");
 
-#[cfg(not(any(feature = "backend-host", feature = "backend-os")))]
-compile_error!("Select a backend feature for samgrd.");
+#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
+compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
 #[cfg(not(feature = "idl-capnp"))]
 compile_error!("Enable the `idl-capnp` feature to build samgrd handlers.");
@@ -162,6 +162,8 @@ impl Server {
         let name = request
             .get_name()
             .map_err(|err| ServerError::Decode(format!("register name: {err}")))?
+            .to_str()
+            .map_err(|err| ServerError::Decode(format!("register name utf8: {err}")))?
             .to_string();
         let endpoint_id = request.get_endpoint();
         let endpoint = Endpoint::new(endpoint_id.to_string());
@@ -187,6 +189,8 @@ impl Server {
         let name = request
             .get_name()
             .map_err(|err| ServerError::Decode(format!("resolve name: {err}")))?
+            .to_str()
+            .map_err(|err| ServerError::Decode(format!("resolve name utf8: {err}")))?
             .to_string();
         let mut response = Builder::new_default();
         let mut builder = response.init_root::<resolve_response::Builder<'_>>();

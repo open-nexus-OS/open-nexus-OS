@@ -5,5 +5,5 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-settings = { path = "../../../userspace/settings", default-features = false, features = ["backend-os"] }
+settings = { path = "../../../userspace/settings" }
 

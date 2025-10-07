@@ -47,7 +47,7 @@ workflow performs the following steps on an Ubuntu runner:
 2. Install QEMU (`qemu-system-misc`).
 3. Run `cargo fmt --all --check` and `cargo clippy --all-targets --all-features -D warnings`.
 4. Execute `cargo nextest run --workspace` for fast unit and property tests.
-5. Run Miri on host-first crates via `cargo miri test -p samgr -p bundlemgr`.
+5. Run Miri on host-first crates via `env RUSTFLAGS='--cfg nexus_env="host"' cargo miri test -p samgr -p bundlemgr`.
 6. Launch `just test-os`, which delegates to the QEMU harness described above.
 
 On failure the CI workflow uploads `uart.log` and `qemu.log` artifacts to aid

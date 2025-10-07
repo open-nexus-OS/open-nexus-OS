@@ -4,11 +4,11 @@
 
 use std::sync::Mutex;
 
-#[cfg(all(feature = "backend-host", feature = "backend-os"))]
-compile_error!("Choose exactly one backend feature.");
+#[cfg(all(nexus_env = "host", nexus_env = "os"))]
+compile_error!("nexus_env: both 'host' and 'os' set");
 
-#[cfg(not(any(feature = "backend-host", feature = "backend-os")))]
-compile_error!("Select a backend feature.");
+#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
+compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
 static CLIPBOARD: Mutex<Option<String>> = Mutex::new(None);
 

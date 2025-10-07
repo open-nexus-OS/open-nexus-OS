@@ -37,12 +37,11 @@ pub mod register_request {
     }
 
     impl<'a> Reader<'a> {
-        pub fn get_name(&self) -> Result<&'a str> {
-            self.reader
-                .get_pointer_field(0)
-                .get_text(None)?
-                .to_str()
-                .map_err(|err| capnp::Error::failed(err.to_string()))
+        pub fn get_name(self) -> Result<::capnp::text::Reader<'a>> {
+            ::capnp::traits::FromPointerReader::get_from_pointer(
+                &self.reader.get_pointer_field(0),
+                None,
+            )
         }
 
         pub fn get_endpoint(&self) -> u32 {
@@ -174,12 +173,11 @@ pub mod resolve_request {
     }
 
     impl<'a> Reader<'a> {
-        pub fn get_name(&self) -> Result<&'a str> {
-            self.reader
-                .get_pointer_field(0)
-                .get_text(None)?
-                .to_str()
-                .map_err(|err| capnp::Error::failed(err.to_string()))
+        pub fn get_name(self) -> Result<::capnp::text::Reader<'a>> {
+            ::capnp::traits::FromPointerReader::get_from_pointer(
+                &self.reader.get_pointer_field(0),
+                None,
+            )
         }
     }
 

@@ -7,5 +7,5 @@ publish = false
 [dependencies]
 capnp = "0.19"
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
-samgrd = { path = "../../source/services/samgrd", default-features = false, features = ["backend-host", "idl-capnp"] }
-bundlemgrd = { path = "../../source/services/bundlemgrd", default-features = false, features = ["backend-host", "idl-capnp"] }
+samgrd = { path = "../../source/services/samgrd", features = ["idl-capnp"] }
+bundlemgrd = { path = "../../source/services/bundlemgrd", features = ["idl-capnp"] }

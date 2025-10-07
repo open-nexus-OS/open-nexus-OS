@@ -2,9 +2,12 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-// Feature validation: ensure exactly one backend is selected
-#[cfg(all(feature = "backend-host", feature = "backend-os"))]
-compile_error!("Enable only one of `backend-host` or `backend-os`.");
+// Environment validation: ensure exactly one backend is selected
+#[cfg(all(nexus_env = "host", nexus_env = "os"))]
+compile_error!("nexus_env: both 'host' and 'os' set");
+
+#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
+compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
 pub mod cli;
 pub mod manifest;

@@ -2,13 +2,13 @@
 
 The Open Nexus workspace enforces a host-first development workflow. Domain
 logic lives in `userspace/<crate>` libraries that expose safe, testable APIs
-behind mutually exclusive `backend-host` and `backend-os` features. Each
-`userspace` crate must compile with exactly one backend selected and forbids all
-unsafe code.
+behind mutually exclusive `nexus_env="host"` and `nexus_env="os"` configurations.
+Each `userspace` crate must compile with exactly one environment selected via
+`RUSTFLAGS='--cfg nexus_env="..."'` and forbids all unsafe code.
 
 Daemons under `source/services/<name>d` are thin adapters. They register with
 `samgr`, expose IDL bindings, and forward requests into the corresponding
-userspace crate compiled with the `backend-os` feature.
+userspace crate compiled with `nexus_env="os"`.
 
 The `tools/arch-check` utility fails CI when a userspace crate depends on the
 kernel, HAL, samgrd, nexus-abi, or any crate under `source/services/`. This

@@ -5,5 +5,5 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-notif = { path = "../../../userspace/notif", default-features = false, features = ["backend-os"] }
+notif = { path = "../../../userspace/notif" }
 

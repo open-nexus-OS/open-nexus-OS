@@ -26,11 +26,11 @@ test-os:
 
 test:
     cargo test -p neuron
-    cargo test -p samgr -p bundlemgr --features backend-host
+    env RUSTFLAGS='--cfg nexus_env="host"' cargo test -p samgr -p bundlemgr
 
 miri:
     cargo miri setup
-    cargo miri test -p samgr -p bundlemgr --features backend-host
+    env MIRIFLAGS='--cfg nexus_env="host"' cargo miri test -p samgr -p bundlemgr
 
 arch-check:
     cargo run -p arch-check

@@ -5,12 +5,12 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 use crate::manifest::Manifest;
 use semver::Version;
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 use std::collections::HashMap;
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 use std::sync::Mutex;
 use thiserror::Error;
 
@@ -60,9 +60,9 @@ pub struct Service {
 }
 
 enum Backend {
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     Host(HostBackend),
-    #[cfg(feature = "backend-os")]
+    #[cfg(nexus_env = "os")]
     Os,
 }
 
@@ -86,52 +86,52 @@ impl Service {
 }
 
 impl Backend {
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     fn new() -> Self {
         Self::Host(HostBackend::default())
     }
 
-    #[cfg(feature = "backend-os")]
+    #[cfg(nexus_env = "os")]
     fn new() -> Self {
         Self::Os
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     fn install(&self, request: InstallRequest<'_>) -> Result<InstalledBundle, ServiceError> {
         match self {
             Backend::Host(host) => host.install(request),
-            #[cfg(feature = "backend-os")]
+            #[cfg(nexus_env = "os")]
             Backend::Os => Err(ServiceError::Unsupported),
         }
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     fn query(&self, name: &str) -> Result<Option<InstalledBundle>, ServiceError> {
         match self {
             Backend::Host(host) => host.query(name),
-            #[cfg(feature = "backend-os")]
+            #[cfg(nexus_env = "os")]
             Backend::Os => Err(ServiceError::Unsupported),
         }
     }
 
-    #[cfg(feature = "backend-os")]
+    #[cfg(nexus_env = "os")]
     fn install(&self, _request: InstallRequest<'_>) -> Result<InstalledBundle, ServiceError> {
         Err(ServiceError::Unsupported)
     }
 
-    #[cfg(feature = "backend-os")]
+    #[cfg(nexus_env = "os")]
     fn query(&self, _name: &str) -> Result<Option<InstalledBundle>, ServiceError> {
         Err(ServiceError::Unsupported)
     }
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 #[derive(Default)]
 struct HostBackend {
     bundles: Mutex<HashMap<String, InstalledBundle>>,
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 impl HostBackend {
     fn install(&self, request: InstallRequest<'_>) -> Result<InstalledBundle, ServiceError> {
         if !verify_signature(request.manifest) {
@@ -161,12 +161,12 @@ impl HostBackend {
     }
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 fn parse_manifest(input: &str) -> Result<Manifest, ServiceError> {
     Manifest::parse_str(input).map_err(ServiceError::from)
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 fn verify_signature(input: &str) -> bool {
     input.contains("signature = \"valid\"")
 }
@@ -175,7 +175,7 @@ fn verify_signature(input: &str) -> bool {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     const MANIFEST: &str = r#"
 name = "launcher"
 version = "1.0.0"
@@ -185,7 +185,7 @@ min_sdk = "0.1.0"
 signature = "valid"
 "#;
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     #[test]
     fn install_success() {
         let service = Service::new();
@@ -201,7 +201,7 @@ signature = "valid"
         assert_eq!(query.unwrap(), record);
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     #[test]
     fn install_duplicate_rejected() {
         let service = Service::new();
@@ -220,7 +220,7 @@ signature = "valid"
         assert_eq!(err, ServiceError::AlreadyInstalled);
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     #[test]
     fn invalid_signature_rejected() {
         let service = Service::new();
@@ -234,7 +234,7 @@ signature = "valid"
         assert_eq!(err, ServiceError::InvalidSignature);
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     #[test]
     fn mismatched_name_rejected() {
         let service = Service::new();
@@ -247,7 +247,7 @@ signature = "valid"
         assert!(matches!(err, ServiceError::Manifest(_)));
     }
 
-    #[cfg(not(feature = "backend-host"))]
+    #[cfg(nexus_env = "os")]
     #[test]
     fn backend_unavailable() {
         let service = Service::new();

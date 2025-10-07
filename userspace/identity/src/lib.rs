@@ -2,11 +2,11 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(all(feature = "backend-host", feature = "backend-os"))]
-compile_error!("Choose exactly one backend feature.");
+#[cfg(all(nexus_env = "host", nexus_env = "os"))]
+compile_error!("nexus_env: both 'host' and 'os' set");
 
-#[cfg(not(any(feature = "backend-host", feature = "backend-os")))]
-compile_error!("Select a backend feature.");
+#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
+compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
 /// Returns the CLI usage string for the identity service.
 pub fn help() -> &'static str {

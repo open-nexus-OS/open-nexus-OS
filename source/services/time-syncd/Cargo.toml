@@ -5,5 +5,5 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-"time-sync" = { path = "../../../userspace/time_sync", default-features = false, features = ["backend-os"] }
+"time-sync" = { path = "../../../userspace/time_sync" }
 

@@ -5,5 +5,5 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-search = { path = "../../../userspace/search", default-features = false, features = ["backend-os"] }
+search = { path = "../../../userspace/search" }
 

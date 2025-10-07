@@ -9,7 +9,7 @@ use capnp::message::Builder;
 use capnp::serialize;
 use nexus_e2e::{bundle_loopback, samgr_loopback};
 use nexus_idl_runtime::bundlemgr_capnp::{
-    install_error, install_request, install_response, query_request, query_response,
+    InstallError, install_request, install_response, query_request, query_response,
 };
 use nexus_idl_runtime::samgr_capnp::{
     register_request, register_response, resolve_request, resolve_response,
@@ -63,7 +63,7 @@ fn bundle_install_query_roundtrip() {
     let response = client.call(install);
     let (ok, err) = parse_install(&response);
     assert!(ok, "install should succeed");
-    assert_eq!(err, install_error::Type::None);
+    assert_eq!(err, InstallError::None);
 
     let query = build_query_frame("launcher");
     let response = client.call(query);
@@ -91,7 +91,7 @@ fn bundle_install_invalid_signature() {
     let response = client.call(install);
     let (ok, err) = parse_install(&response);
     assert!(!ok, "install should fail");
-    assert_eq!(err, install_error::Type::Eacces);
+    assert_eq!(err, InstallError::Eacces);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -167,7 +167,7 @@ fn parse_resolve(frame: &[u8]) -> (bool, u32) {
     (response.get_found(), response.get_endpoint())
 }
 
-fn parse_install(frame: &[u8]) -> (bool, install_error::Type) {
+fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     assert_eq!(frame.first(), Some(&BUNDLE_OPCODE_INSTALL));
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
@@ -175,7 +175,7 @@ fn parse_install(frame: &[u8]) -> (bool, install_error::Type) {
     let response = message
         .get_root::<install_response::Reader<'_>>()
         .expect("install response root");
-    (response.get_ok(), response.get_err())
+    (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
 }
 
 fn parse_query(frame: &[u8]) -> (bool, String) {
@@ -186,7 +186,12 @@ fn parse_query(frame: &[u8]) -> (bool, String) {
     let response = message
         .get_root::<query_response::Reader<'_>>()
         .expect("query response root");
-    let version = response.get_version().unwrap_or("").to_string();
+    let version = response
+        .get_version()
+        .ok()
+        .and_then(|r| r.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     (response.get_installed(), version)
 }
 

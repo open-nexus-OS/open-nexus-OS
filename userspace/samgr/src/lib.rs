@@ -3,28 +3,28 @@
 
 //! Userspace service manager facade used by host-first tests.
 //!
-//! The `backend-host` feature provides an in-memory registry suitable for
-//! exercising restart and heartbeat semantics without the kernel. A placeholder
-//! `backend-os` feature is available for future syscall wiring and currently
-//! returns [`Error::Unsupported`] for all operations.
+//! When compiled with `nexus_env="host"` (via RUSTFLAGS), this crate provides
+//! an in-memory registry suitable for exercising restart and heartbeat semantics
+//! without the kernel. The `nexus_env="os"` configuration is a placeholder for
+//! future syscall wiring and currently returns [`Error::Unsupported`] for all operations.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]
 
-#[cfg(all(feature = "backend-host", feature = "backend-os"))]
-compile_error!("Choose exactly one backend feature.");
+#[cfg(all(nexus_env = "host", nexus_env = "os"))]
+compile_error!("nexus_env: both 'host' and 'os' set");
 
-#[cfg(not(any(feature = "backend-host", feature = "backend-os")))]
-compile_error!("Select a backend feature.");
+#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
+compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
 pub mod cli;
 pub use cli::{execute, help, run};
 
 use std::fmt;
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 use parking_lot::Mutex;
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 use std::{
     collections::HashMap,
     time::Instant,
@@ -43,7 +43,7 @@ pub enum Error {
     #[error("service not found")]
     NotFound,
     /// A handle refers to an outdated generation after a restart.
-    #[error("stale service handle")] 
+    #[error("stale service handle")]
     StaleHandle,
     /// Backend is not implemented for this build configuration.
     #[error("operation unsupported for this backend")]
@@ -119,18 +119,18 @@ impl ServiceHandle {
 
 /// Primary entry point for interacting with the service manager backend.
 pub struct Registry {
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     host: HostRegistry,
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 impl Default for Registry {
     fn default() -> Self {
         Self { host: HostRegistry::default() }
     }
 }
 
-#[cfg(feature = "backend-os")]
+#[cfg(nexus_env = "os")]
 impl Default for Registry {
     fn default() -> Self {
         Self {}
@@ -144,7 +144,7 @@ impl Registry {
     }
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 impl Registry {
     /// Registers a service if it is currently unknown.
     pub fn register(&self, name: impl Into<String>, endpoint: Endpoint) -> Result<ServiceHandle> {
@@ -167,7 +167,7 @@ impl Registry {
     }
 }
 
-#[cfg(feature = "backend-os")]
+#[cfg(nexus_env = "os")]
 impl Registry {
     /// Registers a service; currently unsupported.
     pub fn register(&self, _name: impl Into<String>, _endpoint: Endpoint) -> Result<ServiceHandle> {
@@ -190,20 +190,20 @@ impl Registry {
     }
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 #[derive(Default)]
 struct HostRegistry {
     services: Mutex<HashMap<String, ServiceRecord>>,
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 struct ServiceRecord {
     endpoint: Endpoint,
     generation: Generation,
     last_heartbeat: Instant,
 }
 
-#[cfg(feature = "backend-host")]
+#[cfg(nexus_env = "host")]
 impl HostRegistry {
     fn register(&self, name: String, endpoint: Endpoint) -> Result<ServiceHandle> {
         let mut services = self.services.lock();

@@ -5,12 +5,14 @@ edition = "2021"
 license = "Apache-2.0"
 
 [features]
-default = ["backend-os", "idl-capnp"]
-backend-host = ["bundlemgr/backend-host"]
-backend-os = ["bundlemgr/backend-os"]
+default = ["idl-capnp"]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 
 [dependencies]
-bundlemgr = { path = "../../../userspace/bundlemgr", default-features = false }
+bundlemgr = { path = "../../../userspace/bundlemgr" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 capnp = { version = "0.19", optional = true }
+
+[[bin]]
+name = "bundlemgrd"
+path = "src/main.rs"

@@ -15,7 +15,9 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 ### Userspace libraries (`userspace/`)
 - All crates compile with `#![forbid(unsafe_code)]` and are structured to run on the host toolchain.
-- Favour `cargo test --workspace`, `proptest`, and `cargo miri test` (e.g. `cargo miri test -p samgr`).
+- Userspace crates use `#[cfg(nexus_env = "host")]` for in-memory test backends and `#[cfg(nexus_env = "os")]` for syscall stubs.
+- The default build environment is `nexus_env="host"` (set via `.cargo/config.toml`).
+- Favour `cargo test --workspace`, `proptest`, and `cargo miri test` (e.g. `env MIRIFLAGS='--cfg nexus_env="host"' cargo miri test -p samgr`).
 - Golden vectors (IDL definitions, ABI structures) live here and drive service contract expectations.
 
 ### Services and daemons (`source/services/*d`)

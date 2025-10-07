@@ -24,26 +24,26 @@ const QUERY_RESPONSE_SIZE: StructSize = StructSize {
     pointers: 1,
 };
 
-pub mod install_error {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Type {
-        None = 0,
-        Eacces = 1,
-        Einval = 2,
-        Ebusy = 3,
-        Enoent = 4,
-    }
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallError {
+    None = 0,
+    Eacces = 1,
+    Einval = 2,
+    Ebusy = 3,
+    Enoent = 4,
+}
 
-    impl Type {
-        pub fn from_u16(value: u16) -> Option<Self> {
-            match value {
-                0 => Some(Self::None),
-                1 => Some(Self::Eacces),
-                2 => Some(Self::Einval),
-                3 => Some(Self::Ebusy),
-                4 => Some(Self::Enoent),
-                _ => None,
-            }
+impl ::core::convert::TryFrom<u16> for InstallError {
+    type Error = u16;
+    fn try_from(value: u16) -> ::core::result::Result<Self, u16> {
+        match value {
+            0 => Ok(Self::None),
+            1 => Ok(Self::Eacces),
+            2 => Ok(Self::Einval),
+            3 => Ok(Self::Ebusy),
+            4 => Ok(Self::Enoent),
+            _ => Err(value),
         }
     }
 }
@@ -57,12 +57,11 @@ pub mod install_request {
     }
 
     impl<'a> Reader<'a> {
-        pub fn get_name(&self) -> Result<&'a str> {
-            self.reader
-                .get_pointer_field(0)
-                .get_text(None)?
-                .to_str()
-                .map_err(|err| capnp::Error::failed(err.to_string()))
+        pub fn get_name(self) -> Result<::capnp::text::Reader<'a>> {
+            ::capnp::traits::FromPointerReader::get_from_pointer(
+                &self.reader.get_pointer_field(0),
+                None,
+            )
         }
 
         pub fn get_bytes_len(&self) -> u32 {
@@ -133,7 +132,7 @@ pub mod install_request {
 }
 
 pub mod install_response {
-    use super::{install_error, *};
+    use super::*;
 
     #[derive(Clone, Copy)]
     pub struct Reader<'a> {
@@ -145,9 +144,9 @@ pub mod install_response {
             self.reader.get_bool_field(0)
         }
 
-        pub fn get_err(&self) -> install_error::Type {
+        pub fn get_err(self) -> ::core::result::Result<InstallError, ::capnp::NotInSchema> {
             let raw = self.reader.get_data_field::<u16>(1);
-            install_error::Type::from_u16(raw).unwrap_or(install_error::Type::Einval)
+            InstallError::try_from(raw).map_err(|_| ::capnp::NotInSchema(raw))
         }
     }
 
@@ -175,7 +174,7 @@ pub mod install_response {
             self.builder.set_bool_field(0, value);
         }
 
-        pub fn set_err(&mut self, value: install_error::Type) {
+        pub fn set_err(&mut self, value: InstallError) {
             self.builder.set_data_field::<u16>(1, value as u16);
         }
     }
@@ -211,12 +210,11 @@ pub mod query_request {
     }
 
     impl<'a> Reader<'a> {
-        pub fn get_name(&self) -> Result<&'a str> {
-            self.reader
-                .get_pointer_field(0)
-                .get_text(None)?
-                .to_str()
-                .map_err(|err| capnp::Error::failed(err.to_string()))
+        pub fn get_name(self) -> Result<::capnp::text::Reader<'a>> {
+            ::capnp::traits::FromPointerReader::get_from_pointer(
+                &self.reader.get_pointer_field(0),
+                None,
+            )
         }
     }
 
@@ -283,12 +281,11 @@ pub mod query_response {
             self.reader.get_bool_field(0)
         }
 
-        pub fn get_version(&self) -> Result<&'a str> {
-            self.reader
-                .get_pointer_field(0)
-                .get_text(None)?
-                .to_str()
-                .map_err(|err| capnp::Error::failed(err.to_string()))
+        pub fn get_version(self) -> Result<::capnp::text::Reader<'a>> {
+            ::capnp::traits::FromPointerReader::get_from_pointer(
+                &self.reader.get_pointer_field(0),
+                None,
+            )
         }
     }
 

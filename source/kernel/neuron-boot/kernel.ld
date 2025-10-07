@@ -2,8 +2,8 @@ ENTRY(_start)
 
 SECTIONS
 {
-  /*  OpenSBI must fit to "Next Address" */
-  . = 0x00010000;
+  /*  Low memory base for -kernel with -bios default (OpenSBI relocates) */
+ . = 0x00010000;
 
   .text : ALIGN(8) {
     KEEP(*(.text._start))

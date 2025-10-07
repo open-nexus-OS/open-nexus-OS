@@ -82,18 +82,19 @@ CAUTION_ITEMS:
 # All commands assume the project root is at ~/open-nexus-os.
 
 COMMANDS:
-  build:       "cd ~/open-nexus-os && make build"                  # container-based (Podman)
-  build_host:  "cd ~/open-nexus-os && MODE=host make build"        # native host build where possible
-  test:        "cd ~/open-nexus-os && make test"                   # host-first: nextest + headless UI
-  run:         "cd ~/open-nexus-os && make run"                    # QEMU 'virt' SMP, serial banner
-  debug:       "cd ~/open-nexus-os && DEBUG=1 make run"            # QEMU with GDB stub
-  pull:        "cd ~/open-nexus-os && make pull"                   # sync recipe sources from recipe.toml
-  clean:       "cd ~/open-nexus-os && make clean"
-  initial-setup:        "cd ~/open-nexus-os && make initial-setup" # installs cargo fmt, clippy and deny
-  workspace-test: "cd ~/open-nexus-os && cargo test --workspace # Tests entire workspace
-  memory-safety-test: "cd /home/jenning/open-nexus-OS && cargo test -p samgr -p bundlemgr --features backend-host" # Memory-Safety Test for userspace packages
-  qemu-integration: "cd ~/open-nexus-os && scripts/qemu-test.sh" # Qemu Test
-  build-container:       "podman build --no-cache -t open-nexus-os:dev -f podman/Containerfile ."                  # container-rebuild (Podman)
+  build:            "cd ~/open-nexus-os && make build"                  # container-based (Podman)
+  build_host:       "cd ~/open-nexus-os && MODE=host make build"        # native host build where possible
+  test:             "cd ~/open-nexus-os && just test"                   # host-first: neuron + userspace with nexus_env="host"
+  test-os:          "cd ~/open-nexus-os && just test-os"                # QEMU integration (scripts/qemu-test.sh)
+  miri:             "cd ~/open-nexus-os && just miri"                   # Miri memory-safety tests for userspace
+  run:              "cd ~/open-nexus-os && make run"                    # QEMU 'virt' SMP, serial banner
+  debug:            "cd ~/open-nexus-os && DEBUG=1 make run"            # QEMU with GDB stub
+  build-kernel:     "cd ~/open-nexus-os && just build-kernel"           # Cross-compile kernel binary for RISC-V
+  arch-check:       "cd ~/open-nexus-os && just arch-check"             # Verify userspace/kernel separation
+  pull:             "cd ~/open-nexus-os && make pull"                   # sync recipe sources from recipe.toml
+  clean:            "cd ~/open-nexus-os && make clean"
+  initial-setup:    "cd ~/open-nexus-os && make initial-setup"          # installs cargo fmt, clippy and deny
+  build-container:  "podman build --no-cache -t open-nexus-os:dev -f podman/Containerfile ."  # container-rebuild (Podman)
 
 # QUICK DEBUG HINTS
 # ==============================================================================

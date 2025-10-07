@@ -4,8 +4,3 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
-
-[features]
-default = []
-backend-host = []
-backend-os = []

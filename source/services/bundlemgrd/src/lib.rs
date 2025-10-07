@@ -10,11 +10,11 @@ use std::sync::{Arc, Mutex};
 
 use bundlemgr::{service::InstallRequest as DomainInstallRequest, Service, ServiceError};
 
-#[cfg(all(feature = "backend-host", feature = "backend-os"))]
-compile_error!("Enable only one of `backend-host` or `backend-os`.");
+#[cfg(all(nexus_env = "host", nexus_env = "os"))]
+compile_error!("nexus_env: both 'host' and 'os' set");
 
-#[cfg(not(any(feature = "backend-host", feature = "backend-os")))]
-compile_error!("Select a backend feature for bundlemgrd.");
+#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
+compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
 #[cfg(not(feature = "idl-capnp"))]
 compile_error!("Enable the `idl-capnp` feature to build bundlemgrd handlers.");
@@ -25,7 +25,7 @@ use capnp::message::{Builder, HeapAllocator, ReaderOptions};
 use capnp::serialize;
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::bundlemgr_capnp::{
-    install_error, install_request, install_response, query_request, query_response,
+    InstallError, install_request, install_response, query_request, query_response,
 };
 
 const OPCODE_INSTALL: u8 = 1;
@@ -180,6 +180,8 @@ impl Server {
         let name = request
             .get_name()
             .map_err(|err| ServerError::Decode(format!("install name: {err}")))?
+            .to_str()
+            .map_err(|err| ServerError::Decode(format!("install name utf8: {err}")))?
             .to_string();
         let expected_len = request.get_bytes_len() as usize;
         let handle = request.get_vmo_handle();
@@ -190,14 +192,14 @@ impl Server {
             Some(bytes) => bytes,
             None => {
                 builder.set_ok(false);
-                builder.set_err(install_error::Type::Enoent);
+                builder.set_err(InstallError::Enoent);
                 return Self::encode_response(OPCODE_INSTALL, &response);
             }
         };
 
         if bytes.len() != expected_len {
             builder.set_ok(false);
-            builder.set_err(install_error::Type::Einval);
+            builder.set_err(InstallError::Einval);
             return Self::encode_response(OPCODE_INSTALL, &response);
         }
 
@@ -205,7 +207,7 @@ impl Server {
             Ok(value) => value,
             Err(_) => {
                 builder.set_ok(false);
-                builder.set_err(install_error::Type::Einval);
+                builder.set_err(InstallError::Einval);
                 return Self::encode_response(OPCODE_INSTALL, &response);
             }
         };
@@ -216,7 +218,7 @@ impl Server {
         }) {
             Ok(_) => {
                 builder.set_ok(true);
-                builder.set_err(install_error::Type::None);
+                builder.set_err(InstallError::None);
             }
             Err(err) => {
                 builder.set_ok(false);
@@ -238,6 +240,8 @@ impl Server {
         let name = request
             .get_name()
             .map_err(|err| ServerError::Decode(format!("query name: {err}")))?
+            .to_str()
+            .map_err(|err| ServerError::Decode(format!("query name utf8: {err}")))?
             .to_string();
 
         let mut response = Builder::new_default();
@@ -313,12 +317,12 @@ pub fn serve_with_components<T: Transport>(
 }
 
 #[cfg(feature = "idl-capnp")]
-fn map_install_error(error: &ServiceError) -> install_error::Type {
+fn map_install_error(error: &ServiceError) -> InstallError {
     match error {
-        ServiceError::AlreadyInstalled => install_error::Type::Ebusy,
-        ServiceError::InvalidSignature => install_error::Type::Eacces,
-        ServiceError::Manifest(_) => install_error::Type::Einval,
-        ServiceError::Unsupported => install_error::Type::Einval,
+        ServiceError::AlreadyInstalled => InstallError::Ebusy,
+        ServiceError::InvalidSignature => InstallError::Eacces,
+        ServiceError::Manifest(_) => InstallError::Einval,
+        ServiceError::Unsupported => InstallError::Einval,
     }
 }
 
