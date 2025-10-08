@@ -3,8 +3,12 @@
 
 By submitting this contribution, I confirm that:
 
-## License Agreement
+I have read and agree to the terms of the Open-Nexus-OS Contributor License Agreement. See [CLA.md](./CLA.md).
+
+## Project License
 - [ ] I agree to license my contribution under the **Apache License, Version 2.0**
+
+## Grant of Patent License
 - [ ] I grant a patent license as defined in Section 3 of the Apache License, Version 2.0
 
 ## Original Work
@@ -13,6 +17,8 @@ By submitting this contribution, I confirm that:
 
 ## Additional Confirmations
 - [ ] I confirm that my contribution does not violate any third-party rights
+
+## No Additional Terms
 - [ ] I agree not to impose any additional restrictions beyond those of the Apache License, Version 2.0
 
 ## Contribution Type
@@ -23,4 +29,5 @@ By submitting this contribution, I confirm that:
 ---
 
 **Name:** _____________________  
+**Email:** _____________________  
 **Date:** _____________________
