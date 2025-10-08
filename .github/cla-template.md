@@ -1,12 +1,26 @@
-<!-- CLA Template für spätere Änderungen -->
-# Open-Nexus-OS CLA v1.0
+<!-- CLA Template for Contributors -->
+# Open-Nexus-OS Contributor License Agreement (CLA)
 
-**Ich bestätige, dass mein Beitrag:**
-- [ ] Unter der GPL-3.0 (Hauptprojekt) bzw. Apache-2.0 (Redox-Komponenten) lizenziert ist
-- [ ] Mein eigenes Werk darstellt
-- [ ] Rechte Dritter nicht verletzt
+By submitting this contribution, I confirm that:
 
-**Beitragstyp:**
+## License Agreement
+- [ ] I agree to license my contribution under the **Apache License, Version 2.0**
+- [ ] I grant a patent license as defined in Section 3 of the Apache License, Version 2.0
+
+## Original Work
+- [ ] This contribution is my original creation, or
+- [ ] I have the appropriate rights to submit this contribution under the Apache License, Version 2.0
+
+## Additional Confirmations
+- [ ] I confirm that my contribution does not violate any third-party rights
+- [ ] I agree not to impose any additional restrictions beyond those of the Apache License, Version 2.0
+
+## Contribution Type
 - [ ] Code
-- [ ] Dokumentation
-- [ ] Sonstiges: _____
+- [ ] Documentation
+- [ ] Other: _____
+
+---
+
+**Name:** _____________________  
+**Date:** _____________________
