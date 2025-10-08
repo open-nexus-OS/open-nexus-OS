@@ -19,7 +19,8 @@ PROTECTED_ITEMS:
   - "scripts/"                        # build/run/check scripts
   - "podman/"                         # Containerfile and entrypoints
   - "docs/rfcs/"                      # design decisions (RFC process applies)
-  - "source/kernel/neuron/"           # microkernel (explicit approval required)
+  - "source/kernel/**"                # entire kernel tree (explicit approval required)
+  - "source/libs/**"                  # all core libraries (explicit approval required)
   - "recipes/meta/"                   # image meta packages (desktop/mobile/minimal)
   - "third-party/"                    # external patches/notices
   - "vendor/"                         # vendored code (if populated)
@@ -30,6 +31,7 @@ PROTECTED_ITEMS:
 # 2) Before any change: explain WHY it’s needed, WHAT the impact is, and HOW it will be tested.
 # 3) Wait for explicit "yes"/"proceed" confirmation before changing anything.
 # 4) Reading/analysis is allowed; writing is not.
+# 5) Do NOT run automated formatting/rewrites in PROTECTED_ITEMS; propose minimal diffs and ask first.
 
 # SAFE TO MODIFY
 # ==============================================================================
@@ -37,10 +39,6 @@ PROTECTED_ITEMS:
 
 SAFE_TO_MODIFY:
   - "source/services/**"              # user/system services (host-first testable)
-  - "source/drivers/**"               # userspace drivers (nexus-hal traits)
-  - "source/libs/nexus-alloc/**"
-  - "source/libs/nexus-sync/**"
-  - "source/libs/nexus-sched/**"
   - "recipes/**/recipe.toml"          # recipe configs (not meta images)
   - "**/*.md"                         # documentation
   - "docs/**"                         # guides/handbook (excluding rfcs/)
@@ -55,6 +53,7 @@ CAUTION_ITEMS:
   - "source/libs/nexus-idl/**"        # IDL/proxy/stub generator
   - "source/libs/nexus-hal/**"        # hardware abstractions (driver contracts)
   - "source/libs/nexus-sel/**"        # policy/entitlements
+  - "source/drivers/**"               # userspace drivers (hardware-facing; contract sensitive)
   - "source/services/abilitymgr/**"
   - "source/services/samgr/**"
   - "source/services/bundlemgr/**"

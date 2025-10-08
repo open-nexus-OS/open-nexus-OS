@@ -12,11 +12,26 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Cargo fmt
-        run: cargo +stable fmt --all -- --check
+      - name: Install nightly rustfmt
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-01-15
+          components: rustfmt
+      - name: Cargo fmt (host, stable)
+        run: |
+          set -e
+          pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name' | grep -v -E '^(neuron|neuron-boot)$')
+          for p in $pkgs; do
+            echo "fmt stable -> $p"
+            cargo +stable fmt -p "$p" -- --check
+          done
+      - name: Cargo fmt (kernel, nightly)
+        run: cargo +nightly-2025-01-15 fmt -p neuron -p neuron-boot -- --check
       - name: Cargo clippy
         run: cargo +stable clippy --workspace --exclude neuron --exclude neuron-boot --all-targets -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code
 
@@ -61,17 +76,24 @@ jobs:
     needs: host-tests
     runs-on: ubuntu-latest
     env:
-      RUSTUP_TOOLCHAIN: nightly
+      RUSTUP_TOOLCHAIN: nightly-2025-01-15
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc capnproto
-      - name: Install Rust (nightly) with RISC-V target
+          sudo apt-get install -y \
+            qemu-system-misc \
+            qemu-system-riscv64 \
+            capnproto \
+            gdb \
+            mold
+      - name: Install Rust (nightly) with RISC-V target + llvm-tools
         uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2025-01-15
           targets: riscv64imac-unknown-none-elf
+          components: llvm-tools-preview
       - name: QEMU kernel selftests
         env:
           RUN_UNTIL_MARKER: "1"
