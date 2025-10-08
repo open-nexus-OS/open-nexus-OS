@@ -1,6 +1,10 @@
 [build]
-# Default: Host environment for tests and development
-rustflags = ["--cfg", "nexus_env=\"host\""]
+# Allow custom cfg used across the workspace to avoid `unexpected_cfgs` warnings
+# and default to host environment for tests and development
+rustflags = [
+    "--check-cfg=cfg(nexus_env, values(\"host\",\"os\"))",
+    "--cfg", "nexus_env=\"host\"",
+]
 rustdocflags = ["--cfg", "nexus_env=\"host\""]
 
 # RISC-V kernel target (no nexus_env needed for kernel)

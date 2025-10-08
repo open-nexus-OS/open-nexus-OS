@@ -147,7 +147,7 @@ pub const DEFAULT_TICK_CYCLES: u64 = 100_000;
 #[inline]
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn timer_arm(delta_cycles: u64) {
-    let now = register::time::read() as u64;
+    let now = riscv::register::time::read() as u64;
     sbi::set_timer(now.wrapping_add(delta_cycles));
 }
 
@@ -159,8 +159,11 @@ pub fn timer_arm(_delta_cycles: u64) {}
 pub unsafe fn install_trap_vector() {
     // SAFETY: must be called early and exactly once per hart; SSCRATCH becomes well-defined.
     unsafe {
-        register::sscratch::write(0);
-        stvec::write(__trap_vector as usize, stvec::TrapMode::Direct);
+        riscv::register::sscratch::write(0);
+        riscv::register::stvec::write(
+            __trap_vector as usize,
+            riscv::register::mtvec::TrapMode::Direct,
+        );
     }
 }
 

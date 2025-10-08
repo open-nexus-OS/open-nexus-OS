@@ -4,7 +4,7 @@
 #![forbid(unsafe_code)]
 
 #[cfg(nexus_env = "host")]
-use nexus_ipc::{LoopbackClient, LoopbackServer, Wait};
+use nexus_ipc::{Client, LoopbackClient, LoopbackServer, Wait};
 
 /// Client helper that sends a request frame and waits for the reply.
 #[cfg(nexus_env = "host")]

@@ -635,6 +635,7 @@ dependencies = [
  "bundlemgrd",
  "capnp",
  "nexus-idl-runtime",
+ "nexus-ipc",
  "samgrd",
 ]
 

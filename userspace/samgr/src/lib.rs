@@ -247,7 +247,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     #[test]
     fn register_and_resolve_roundtrip() {
         let registry = Registry::new();
@@ -258,7 +258,7 @@ mod tests {
         registry.heartbeat(&resolved).expect("heartbeat ok");
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     #[test]
     fn duplicate_registration_rejected() {
         let registry = Registry::new();
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(err, Error::Duplicate);
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     #[test]
     fn restart_invalidates_old_handle() {
         let registry = Registry::new();
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(err, Error::StaleHandle);
     }
 
-    #[cfg(feature = "backend-host")]
+    #[cfg(nexus_env = "host")]
     proptest! {
         #[test]
         fn restart_sequence_updates_generation(endpoints in proptest::collection::vec("[a-z0-9]{3,8}", 1..6)) {
