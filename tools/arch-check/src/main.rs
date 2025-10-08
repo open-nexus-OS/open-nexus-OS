@@ -22,7 +22,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and_then(Value::as_array)
         .ok_or("metadata missing workspace members")?;
 
-    let banned_names: HashSet<&str> = ["nexus-abi", "samgrd", "kernel"].into_iter().collect();
+    // Allowlist: `nexus-abi` is a shared ABI crate used by both userland and kernel.
+    let banned_names: HashSet<&str> = ["samgrd", "kernel"].into_iter().collect();
     let mut banned: HashSet<String> = packages
         .iter()
         .filter(|(_, info)| info.manifest_path.contains("/source/services/"))

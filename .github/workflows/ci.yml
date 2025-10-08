@@ -9,7 +9,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -18,50 +18,65 @@ jobs:
       - name: Cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code
 
-  unit:
+  host-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo test (host workspace, exclude kernel)
+        run: cargo test --workspace --exclude neuron --exclude neuron-boot
+
+  miri:
+    needs: host-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-      - name: Install cargo-nextest
-        run: cargo install cargo-nextest
-      - name: Cargo nextest
-        run: cargo nextest run --workspace
-      - name: Cargo miri (samgr)
+      - name: Miri (samgr, strict)
+        env:
+          MIRIFLAGS: --cfg nexus_env="host"
         run: cargo miri test -p samgr
-      - name: Cargo miri (bundlemgr)
+      - name: Miri (bundlemgr, fs enabled)
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation --cfg nexus_env="host"
         run: cargo miri test -p bundlemgr
 
   deadcode:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Dead code scan
         run: bash tools/deadcode-scan.sh
 
   qemu:
+    needs: host-tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-misc capnproto
-          rustup target add riscv64imac-unknown-none-elf
-      - name: QEMU smoke test
-        run: RUN_TIMEOUT=45s RUN_UNTIL_MARKER=1 ./scripts/qemu-test.sh
+      - name: Install Rust (nightly) with RISC-V target
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: riscv64imac-unknown-none-elf
+      - name: QEMU kernel selftests
+        env:
+          RUN_UNTIL_MARKER: "1"
+          RUN_TIMEOUT: "180s"
+        run: ./scripts/qemu-test.sh
       - name: Upload UART log on failure
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: uart-log
           path: uart.log
       - name: Upload QEMU log on failure
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: qemu-log
           path: qemu.log

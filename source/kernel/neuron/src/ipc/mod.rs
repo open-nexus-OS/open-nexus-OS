@@ -92,22 +92,40 @@ impl Router {
 
     /// Sends `msg` to the endpoint referenced by `id`.
     pub fn send(&mut self, id: EndpointId, msg: Message) -> Result<(), IpcError> {
+        crate::uart::write_line("IPC: send enter");
         #[cfg(feature = "failpoints")]
         if DENY_NEXT_SEND.swap(false, Ordering::SeqCst) {
             return Err(IpcError::PermissionDenied);
         }
-        self.endpoints
+        let res = self.endpoints
             .get_mut(id as usize)
             .ok_or(IpcError::NoSuchEndpoint)?
-            .push(msg)
+            .push(msg);
+        match res {
+            Ok(()) => crate::uart::write_line("IPC: send ok"),
+            Err(IpcError::QueueFull) => crate::uart::write_line("IPC: send queue full"),
+            Err(IpcError::NoSuchEndpoint) => crate::uart::write_line("IPC: send no such endpoint"),
+            Err(IpcError::QueueEmpty) => crate::uart::write_line("IPC: send queue empty (unexpected)"),
+            Err(IpcError::PermissionDenied) => crate::uart::write_line("IPC: send permission denied"),
+        }
+        res
     }
 
     /// Receives the next message from the endpoint `id`.
     pub fn recv(&mut self, id: EndpointId) -> Result<Message, IpcError> {
-        self.endpoints
+        crate::uart::write_line("IPC: recv enter");
+        let res = self.endpoints
             .get_mut(id as usize)
             .ok_or(IpcError::NoSuchEndpoint)?
-            .pop()
+            .pop();
+        match &res {
+            Ok(_) => crate::uart::write_line("IPC: recv ok"),
+            Err(IpcError::QueueEmpty) => crate::uart::write_line("IPC: recv empty"),
+            Err(IpcError::NoSuchEndpoint) => crate::uart::write_line("IPC: recv no such endpoint"),
+            Err(IpcError::QueueFull) => crate::uart::write_line("IPC: recv queue full (unexpected)"),
+            Err(IpcError::PermissionDenied) => crate::uart::write_line("IPC: recv permission denied (unexpected)"),
+        }
+        res
     }
 }
 

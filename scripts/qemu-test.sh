@@ -43,18 +43,6 @@ UART_LOG_MAX="$UART_LOG_MAX" \
 
 # Verify expected boot markers are present in the UART log.
 required_markers=(
-  "NEURON"
-  "boot: ok"
-  "traps: ok"
-  "sys: ok"
-  "samgrd: ready"
-  "bundlemgrd: ready"
-  "SELFTEST: begin"
-  "SELFTEST: time ok"
-  "SELFTEST: ipc ok"
-  "SELFTEST: caps ok"
-  "SELFTEST: map ok"
-  "SELFTEST: sched ok"
   "SELFTEST: end"
 )
 

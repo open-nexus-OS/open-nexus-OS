@@ -211,8 +211,28 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         if emulate_hpm_csr(frame, inst) {
             return;
         }
+        // Fallthrough to diagnostics with valid inst
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(
+                u,
+                "EXC: scause=0x{:x} sepc=0x{:x} inst=0x{:08x}\n",
+                frame.scause, frame.sepc, inst
+            );
+        }
+    } else {
+        // For non-IllegalInstruction, avoid reading instruction (could fault again)
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(
+                u,
+                "EXC: scause=0x{:x} sepc=0x{:x}\n",
+                frame.scause, frame.sepc
+            );
+        }
     }
-
     // Park the hart for diagnostics (do not reboot; LAST_TRAP can be read).
     record(frame);
     loop { riscv::asm::wfi(); }

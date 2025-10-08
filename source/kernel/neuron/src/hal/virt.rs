@@ -6,6 +6,8 @@
 use core::ptr::{read_volatile, write_volatile};
 
 use crate::arch::riscv;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use sbi_rt as sbi;
 
 use super::{IrqCtl, Timer, Tlb, Uart};
 
@@ -67,7 +69,15 @@ impl Timer for VirtTimer {
     fn set_wakeup(&self, deadline: u64) {
         const TICK_NS: u64 = 100;
         let ticks = deadline / TICK_NS;
-        riscv::set_timer(ticks);
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            // Program mtimer via SBI for S-mode compatibility
+            sbi::set_timer(ticks);
+        }
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        {
+            let _ = ticks;
+        }
     }
 }
 

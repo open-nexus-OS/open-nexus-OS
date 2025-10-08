@@ -48,6 +48,7 @@ pub fn read_time() -> u64 {
 
 /// Programs the CLINT timer compare register.
 #[inline]
+#[allow(dead_code)]
 pub fn set_timer(deadline: u64) {
     #[cfg(target_arch = "riscv64")]
     unsafe {

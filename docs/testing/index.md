@@ -29,7 +29,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Layer | Scope | Command | Notes |
 | --- | --- | --- | --- |
 | Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Waits for `samgrd: ready`, `bundlemgrd: ready`, and `SELFTEST: end` before truncating logs. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Waits for `SELFTEST: end` (and optionally service ready markers) before truncating logs. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -53,5 +53,5 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 ## Troubleshooting tips
 - QEMU runs are bounded by the `RUN_TIMEOUT` environment variable (default `30s`). Increase it only when debugging: `RUN_TIMEOUT=120s just qemu`.
 - Logs are trimmed post-run. Override caps with `QEMU_LOG_MAX` or `UART_LOG_MAX` if you need to preserve more context.
-- Enable marker-driven early exit for faster loops by setting `RUN_UNTIL_MARKER=1` (already defaulted in `just test-os`). Logs appear as `qemu.log` (diagnostics) and `uart.log` (console output) in the working directory.
+- Enable marker-driven early exit for faster loops by setting `RUN_UNTIL_MARKER=1` (already defaulted in `just test-os`). Logs appear as `qemu.log` (diagnostics) and `uart.log` (console output) in the working directory. Set `QEMU_TRACE=1` and optionally `QEMU_TRACE_FLAGS=in_asm,int,mmu,unimp` to capture detailed traces while debugging.
 - For stubborn host/container mismatches, rebuild the Podman image and ensure the same targets are installed inside and outside the container.

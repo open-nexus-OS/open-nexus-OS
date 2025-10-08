@@ -5,22 +5,22 @@
 
 use core::{fmt, fmt::Write, panic::PanicInfo};
 
-use crate::{trap, uart::KernelUart};
+use crate::{trap, uart};
 
 /// Emits a panic message including source location and the last trap frame.
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    let mut uart = KernelUart::lock();
+    let mut w = uart::raw_writer();
     let msg = info.message(); // PanicMessage implements Display
     if let Some(location) = info.location() {
-        let _ = writeln!(uart, "PANIC {}:{}: {}", location.file(), location.line(), msg);
+        let _ = writeln!(w, "PANIC {}:{}: {}", location.file(), location.line(), msg);
     } else {
-        let _ = writeln!(uart, "PANIC: {}", msg);
+        let _ = writeln!(w, "PANIC: {}", msg);
     }
 
     if let Some(frame) = trap::last_trap() {
-        let _ = writeln!(uart, "PANIC: trap context:");
+        let _ = writeln!(w, "PANIC: trap context:");
         // Adapter: fmt_trap erwartet Formatter; wir geben über Display-Wrapper auf UART aus.
         struct TrapFmt<'a>(&'a trap::TrapFrame);
         impl fmt::Display for TrapFmt<'_> {
@@ -28,10 +28,10 @@ fn panic(info: &PanicInfo) -> ! {
                 trap::fmt_trap(self.0, f)
             }
         }
-        let _ = writeln!(uart, "{}", TrapFmt(&frame));
+        let _ = writeln!(w, "{}", TrapFmt(&frame));
     }
 
-    drop(uart);
+    drop(w);
 
     loop {
         crate::arch::riscv::wait_for_interrupt();

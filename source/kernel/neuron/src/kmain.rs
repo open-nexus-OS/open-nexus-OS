@@ -124,7 +124,18 @@ pub fn kmain() -> ! {
     uart::write_line("F: before exercise_ipc");
     kernel.exercise_ipc();
     uart::write_line("G: after exercise_ipc");
-    uart::write_line("H: before selftest");
+    {
+        use core::fmt::Write as _;
+        let mut w = crate::uart::raw_writer();
+        let _ = write!(w, "H: before selftest\n");
+    }
+    // Quick sanity for OpenSBI environment
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        use core::fmt::Write as _;
+        let mut w = crate::uart::raw_writer();
+        let _ = write!(w, "ENV: sbi present\n");
+    }
     #[cfg(feature = "boot_timing")]
     let t2 = crate::arch::riscv::read_time();
     {

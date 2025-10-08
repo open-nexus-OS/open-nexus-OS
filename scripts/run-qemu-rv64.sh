@@ -86,13 +86,15 @@ COMMON_ARGS=(
   -smp "${SMP:-1}"
   -nographic
   -serial mon:stdio
+  -icount 1,sleep=on
   -bios default
   -kernel "$KERNEL_BIN"
 )
 
 # Enable heavy QEMU tracing only when explicitly requested
 if [[ "${QEMU_TRACE:-0}" == "1" ]]; then
-  COMMON_ARGS+=( -d int,mmu,unimp -D "$QEMU_LOG" )
+  TRACE_FLAGS=${QEMU_TRACE_FLAGS:-int,mmu,unimp}
+  COMMON_ARGS+=( -d "$TRACE_FLAGS" -D "$QEMU_LOG" )
 fi
 
 status=0

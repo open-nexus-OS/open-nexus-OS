@@ -10,6 +10,7 @@ pub trait Timer {
     /// Returns the current time in nanoseconds.
     fn now(&self) -> u64;
     /// Programs the next wake-up time in nanoseconds.
+    #[allow(dead_code)]
     fn set_wakeup(&self, deadline: u64);
 }
 

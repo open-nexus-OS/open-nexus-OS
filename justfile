@@ -5,7 +5,31 @@ set shell := ["/usr/bin/env", "bash", "-c"]
 
 toolchain := "nightly-2025-01-15"
 
-default: test
+# Common flags (suppress unexpected_cfgs and set nexus_env)
+host_rustflags := "--check-cfg=cfg(nexus_env, values(\"host\",\"os\")) --cfg nexus_env=\"host\""
+os_rustflags   := "--check-cfg=cfg(nexus_env, values(\"host\",\"os\")) --cfg nexus_env=\"os\""
+
+default: help
+
+# -----------------------------------------------------------------------------
+# Help & Task Catalog
+# -----------------------------------------------------------------------------
+help:
+    @echo "Open Nexus OS - common tasks:\n"
+    @echo "[Developers: Host]"
+    @echo "  just test-host           # run host test suite (exclude kernel)"
+    @echo "  just test-e2e            # run host E2E tests"
+    @echo "  just miri-strict         # miri (no FS/network) for samgr,bundlemgr"
+    @echo "  just miri-fs             # miri with FS isolation disabled"
+    @echo
+    @echo "[Kernel Developers]"
+    @echo "  just build-kernel        # cross-compile kernel (riscv)"
+    @echo "  just test-os             # run kernel selftests in QEMU"
+    @echo "  just qemu                # boot kernel in QEMU (manual)"
+    @echo
+    @echo "[Project Maintainers]"
+    @echo "  just arch-check          # userspace/kernel layering guard"
+    @echo "  just test-all            # host tests + arch-check + kernel selftests"
 
 # Build the bootable NEURON binary crate
 build-kernel:
@@ -24,13 +48,44 @@ qemu *args:
 test-os:
     scripts/qemu-test.sh
 
-test:
-    cargo test -p neuron
-    env RUSTFLAGS='--cfg nexus_env="host"' cargo test -p samgr -p bundlemgr
+# -----------------------------------------------------------------------------
+# Host test suites
+# -----------------------------------------------------------------------------
 
-miri:
-    cargo miri setup
-    env MIRIFLAGS='--cfg nexus_env="host"' cargo miri test -p samgr -p bundlemgr
+test-host:
+    @echo "==> Running host test suite (exclude kernel)"
+    @env RUSTFLAGS='{{host_rustflags}}' cargo test --workspace --exclude neuron --exclude neuron-boot
+
+test-e2e:
+    @echo "==> Running host E2E tests"
+    @env RUSTFLAGS='{{host_rustflags}}' cargo test -p nexus-e2e
+
+# Back-compat alias
+test:
+    just test-host
+
+# -----------------------------------------------------------------------------
+# Miri (memory model)
+# -----------------------------------------------------------------------------
+
+miri-strict:
+    @RUSTUP_TOOLCHAIN={{toolchain}} cargo miri setup
+    @env MIRIFLAGS='--cfg nexus_env="host"' RUSTUP_TOOLCHAIN={{toolchain}} cargo miri test -p samgr -p bundlemgr
+
+miri-fs:
+    @RUSTUP_TOOLCHAIN={{toolchain}} cargo miri setup
+    @env MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"' RUSTUP_TOOLCHAIN={{toolchain}} cargo miri test -p bundlemgr
 
 arch-check:
     cargo run -p arch-check
+
+# -----------------------------------------------------------------------------
+# Aggregates
+# -----------------------------------------------------------------------------
+
+test-all:
+    just test-host
+    just test-e2e
+    just arch-check
+    just build-kernel
+    just test-os

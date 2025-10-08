@@ -42,6 +42,32 @@ impl KernelUart {
     }
 }
 
+// Raw, lock-free UART emission for trap/panic contexts where the mutex may already be held.
+#[inline]
+fn write_raw_mmio(offset: usize, value: u8) {
+    let addr = (UART0_BASE + offset) as *mut u8;
+    unsafe {
+        while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+        core::ptr::write_volatile(addr, value);
+    }
+}
+
+pub struct RawUart;
+
+impl Write for RawUart {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for &byte in s.as_bytes() {
+            if byte == b'\n' {
+                write_raw_mmio(UART_TX, b'\r');
+            }
+            write_raw_mmio(UART_TX, byte);
+        }
+        Ok(())
+    }
+}
+
+pub fn raw_writer() -> RawUart { RawUart }
+
 impl Write for KernelUart {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for &byte in s.as_bytes() {

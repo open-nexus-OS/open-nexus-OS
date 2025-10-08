@@ -65,6 +65,8 @@ impl PageTable {
 
     /// Maps `pa` at virtual address `va` with the provided flags.
     pub fn map(&mut self, va: usize, pa: usize, flags: PageFlags) -> Result<(), MapError> {
+        // Debug markers to diagnose overlap path during selftest
+        crate::uart::write_line("MM: map enter");
         if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {
             return Err(MapError::Unaligned);
         }
@@ -72,10 +74,12 @@ impl PageTable {
             return Err(MapError::InvalidFlags);
         }
         let index = va / PAGE_SIZE;
+        crate::uart::write_line("MM: map after index calc");
         if index >= self.entries.len() {
             return Err(MapError::OutOfRange);
         }
         if self.entries[index] != 0 {
+            crate::uart::write_line("MM: overlap hit");
             return Err(MapError::Overlap);
         }
         #[cfg(feature = "failpoints")]
@@ -83,6 +87,7 @@ impl PageTable {
             return Err(MapError::PermissionDenied);
         }
         self.entries[index] = pa | flags.bits();
+        crate::uart::write_line("MM: map installed");
         Ok(())
     }
 
