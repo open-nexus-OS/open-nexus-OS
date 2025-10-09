@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["*"]
+    branches: ["**"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   lint:
