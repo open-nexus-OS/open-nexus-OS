@@ -66,17 +66,17 @@ jobs:
     needs: host-tests
     runs-on: ubuntu-latest
     env:
-      RUSTUP_TOOLCHAIN: nightly-2024-02-01
+      RUSTUP_TOOLCHAIN: nightly-2025-01-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2024-02-01
+          toolchain: nightly-2025-01-15
           components: miri
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y capnproto
       - name: Miri setup
-        run: cargo +nightly-2024-02-01 miri setup
+        run: cargo +nightly-2025-01-15 miri setup
       - name: Miri (identity, strict)
         env:
           # Ensure no inherited check-cfg leaks in; set only stable cfg and clear encoded flags
