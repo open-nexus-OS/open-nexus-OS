@@ -16,7 +16,7 @@ use std::process::ExitCode;
 use serde::Deserialize;
 use thiserror::Error;
 
-const CORE_SERVICES: [&str; 2] = ["samgrd", "bundlemgrd"];
+const CORE_SERVICES: [&str; 3] = ["samgrd", "bundlemgrd", "selftest-client"];
 
 fn main() -> ExitCode {
     match run() {

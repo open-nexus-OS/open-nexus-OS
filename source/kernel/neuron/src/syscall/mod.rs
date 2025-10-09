@@ -39,6 +39,8 @@ pub const SYSCALL_NSEC: usize = 1;
 pub const SYSCALL_SEND: usize = 2;
 pub const SYSCALL_RECV: usize = 3;
 pub const SYSCALL_MAP: usize = 4;
+pub const SYSCALL_VMO_CREATE: usize = 5;
+pub const SYSCALL_VMO_WRITE: usize = 6;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

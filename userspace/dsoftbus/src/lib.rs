@@ -227,3 +227,79 @@ mod os;
 #[cfg(nexus_env = "os")]
 pub use os::{OsAuthenticator, OsDiscovery, OsSession, OsStream};
 
+/// Starts the DSoftBus-lite daemon loop.
+///
+/// Host builds bind a TCP listener, announce the local node via the in-process
+/// registry, then accept authenticated sessions and drain their streams. The
+/// OS backend is a placeholder until the kernel transport is available.
+pub fn run() {
+    #[cfg(nexus_env = "host")]
+    host_run();
+
+    #[cfg(nexus_env = "os")]
+    os_run();
+}
+
+#[cfg(nexus_env = "host")]
+fn host_run() {
+    use std::env;
+    use std::thread;
+
+    let identity = Identity::generate().expect("generate identity");
+
+    // Choose a listening port. Allow override via DSOFTBUS_PORT for integration.
+    let port: u16 = env::var("DSOFTBUS_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(34_567);
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+
+    let authenticator = HostAuthenticator::bind(addr, identity.clone())
+        .expect("bind host authenticator");
+    let discovery = HostDiscovery::new();
+
+    // Announce a minimal service set; higher layers may expand this later.
+    let services = vec!["samgrd".to_string(), "bundlemgrd".to_string()];
+    let announcement = Announcement::new(
+        identity.device_id().clone(),
+        services,
+        port,
+        authenticator.local_noise_public(),
+    );
+    discovery
+        .announce(announcement)
+        .expect("announce local node");
+
+    // Print readiness marker once the listener and discovery are active.
+    println!("dsoftbusd: ready");
+
+    // Accept authenticated sessions and drain their streams in dedicated threads.
+    loop {
+        match authenticator.accept() {
+            Ok(session) => match session.into_stream() {
+                Ok(mut stream) => {
+                    thread::spawn(move || {
+                        while let Ok(frame) = stream.recv() {
+                            if frame.is_none() {
+                                break;
+                            }
+                        }
+                    });
+                }
+                Err(err) => eprintln!("[dsoftbus] stream negotiation failed: {err}"),
+            },
+            Err(err) => {
+                eprintln!("[dsoftbus] accept failed: {err}");
+                // Back off briefly on transient failures.
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+}
+
+#[cfg(nexus_env = "os")]
+fn os_run() {
+    // Placeholder until kernel networking exists. Keep the symbol to satisfy
+    // callers while making the limitation explicit at runtime.
+    panic!("dsoftbus OS backend not implemented: pending kernel transport");
+}

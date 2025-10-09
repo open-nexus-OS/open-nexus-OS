@@ -7,8 +7,7 @@ pub fn execute(args: &[&str]) -> String {
         return help().to_string();
     }
     if let Some(token) = args.first() {
-        let status = dsoftbus::execute(&["--status", token]);
-        return format!("dist-data sync via {status}");
+        return format!("dist-data sync via dsoftbus:{token}");
     }
     "dist-data awaiting token".to_string()
 }

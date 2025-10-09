@@ -3,10 +3,10 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use capnp::message::{Builder, ReaderOptions};
 use capnp::serialize;
-use capnp::Word;
 use ed25519_dalek::{Signature, VerifyingKey};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -183,8 +183,7 @@ fn parse_signature(bytes: &[u8]) -> Result<Signature, AuthError> {
     let array: [u8; 64] = bytes
         .try_into()
         .map_err(|_| AuthError::Identity("invalid signature length".into()))?;
-    Signature::from_bytes(&array)
-        .map_err(|err| AuthError::Identity(format!("signature: {err}")))
+    Ok(Signature::from_bytes(&array))
 }
 
 fn decrypt_payload(state: &mut TransportState, frame: &[u8]) -> Result<Vec<u8>, StreamError> {
@@ -211,8 +210,12 @@ where
 {
     let mut message = Builder::new_default();
     build(&mut message);
-    capnp::serialize::write_message_to_words(&message)
-        .map(|words| capnp::Word::words_to_bytes(&words).to_vec())
+    serialize::write_message(&mut Vec::new(), &message)
+        .map(|_| {
+            let mut buf = Vec::new();
+            serialize::write_message(&mut buf, &message).unwrap();
+            buf
+        })
         .map_err(|err| AuthError::Protocol(err.to_string()))
 }
 
@@ -220,21 +223,19 @@ fn deserialize_connect_request(bytes: &[u8]) -> Result<String, AuthError> {
     let mut cursor = std::io::Cursor::new(bytes);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| AuthError::Protocol(err.to_string()))?;
-    let reader = message
-        .get_root::<connect_request::Reader<'_>>()
+    let reader: connect_request::Reader<'_> = message
+        .get_root()
         .map_err(|err| AuthError::Protocol(err.to_string()))?;
-    Ok(reader
-        .get_device_id()
-        .map_err(|err| AuthError::Protocol(err.to_string()))?
-        .to_string())
+    let txt = reader.get_device_id().map_err(|err| AuthError::Protocol(err.to_string()))?;
+    Ok(txt.to_str().map_err(|e| AuthError::Protocol(e.to_string()))?.to_string())
 }
 
 fn deserialize_frame(bytes: &[u8]) -> Result<FramePayload, StreamError> {
     let mut cursor = std::io::Cursor::new(bytes);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| StreamError::Protocol(err.to_string()))?;
-    let reader = message
-        .get_root::<frame::Reader<'_>>()
+    let reader: frame::Reader<'_> = message
+        .get_root()
         .map_err(|err| StreamError::Protocol(err.to_string()))?;
     let payload = reader
         .get_bytes()
@@ -253,17 +254,18 @@ fn serialize_frame(channel: u32, payload: &[u8]) -> Result<Vec<u8>, StreamError>
         frame.set_chan(channel);
         frame.set_bytes(payload);
     }
-    capnp::serialize::write_message_to_words(&message)
-        .map(|words| capnp::Word::words_to_bytes(&words).to_vec())
-        .map_err(|err| StreamError::Protocol(err.to_string()))
+    let mut buf = Vec::new();
+    serialize::write_message(&mut buf, &message).map_err(|err| StreamError::Protocol(err.to_string()))?;
+    Ok(buf)
 }
 
 fn send_connect_response(stream: &mut TcpStream, state: &mut TransportState, ok: bool) -> Result<(), AuthError> {
     let bytes = serialize_message(|message| {
-        let mut response = message.init_root::<connect_response::Builder<'_>>();
+        let mut response: connect_response::Builder<'_> = message.init_root();
         response.set_ok(ok);
     })?;
     let encrypted = encrypt_payload(state, &bytes).map_err(|err| AuthError::Protocol(err.to_string()))?;
+    eprintln!("[dsoftbus] server: sending encrypted connect_response len={}", encrypted.len());
     write_frame(stream, &encrypted)?;
     Ok(())
 }
@@ -274,7 +276,7 @@ fn send_connect_request(
     device_id: &DeviceId,
 ) -> Result<(), AuthError> {
     let bytes = serialize_message(|message| {
-        let mut request = message.init_root::<connect_request::Builder<'_>>();
+        let mut request: connect_request::Builder<'_> = message.init_root();
         request.set_device_id(device_id.as_str());
     })?;
     let encrypted = encrypt_payload(state, &bytes).map_err(|err| AuthError::Protocol(err.to_string()))?;
@@ -284,18 +286,20 @@ fn send_connect_request(
 
 fn receive_connect_response(stream: &mut TcpStream, state: &mut TransportState) -> Result<bool, AuthError> {
     let frame = read_frame(stream)?;
+    eprintln!("[dsoftbus] client: received encrypted connect_response len={}", frame.len());
     let bytes = decrypt_payload(state, &frame).map_err(|err| AuthError::Protocol(err.to_string()))?;
     let mut cursor = std::io::Cursor::new(bytes);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| AuthError::Protocol(err.to_string()))?;
-    let reader = message
-        .get_root::<connect_response::Reader<'_>>()
+    let reader: connect_response::Reader<'_> = message
+        .get_root()
         .map_err(|err| AuthError::Protocol(err.to_string()))?;
     Ok(reader.get_ok())
 }
 
 fn receive_connect_request(stream: &mut TcpStream, state: &mut TransportState) -> Result<String, AuthError> {
     let frame = read_frame(stream)?;
+    eprintln!("[dsoftbus] server: received encrypted connect_request len={}", frame.len());
     let bytes = decrypt_payload(state, &frame).map_err(|err| AuthError::Protocol(err.to_string()))?;
     deserialize_connect_request(&bytes)
 }
@@ -312,9 +316,10 @@ fn validate_proof(
     }
 
     let signature = parse_signature(&proof.signature)?;
+    use ed25519_dalek::Verifier;
     verifying_key
         .verify(
-            proof_message(expected_role, expected_static).as_slice(),
+            &proof_message(expected_role, expected_static),
             &signature,
         )
         .map_err(|err| AuthError::Identity(format!("signature verify failed: {err}")))?;
@@ -361,6 +366,7 @@ fn handshake_accept(
     stream: &mut TcpStream,
 ) -> Result<(TransportState, DeviceId), AuthError> {
     let mut state = build_responder(noise_secret)?;
+    eprintln!("[dsoftbus] accept: waiting for msg1");
 
     // message 1
     let message1 = read_frame(stream)?;
@@ -368,15 +374,19 @@ fn handshake_accept(
     state
         .read_message(&message1, &mut scratch)
         .map_err(|err| AuthError::Noise(err.to_string()))?;
+    eprintln!("[dsoftbus] accept: got msg1");
 
     // message 2 with server proof
     let message = proof_message(HandshakeRole::Server, noise_public);
     let signature = identity.sign(&message);
     let proof = HandshakeProof::new(identity.device_id(), &identity.verifying_key(), &signature);
+    eprintln!("[dsoftbus] accept: sending msg2 (server proof)");
     let response = write_handshake_proof(&mut state, &proof)?;
     write_frame(stream, &response)?;
+    eprintln!("[dsoftbus] accept: sent msg2");
 
     // message 3 with client proof
+    eprintln!("[dsoftbus] accept: waiting for msg3");
     let message3 = read_frame(stream)?;
     let proof = read_handshake_proof(&mut state, &message3)?;
 
@@ -386,6 +396,7 @@ fn handshake_accept(
     let transport = state
         .into_transport_mode()
         .map_err(|err| AuthError::Noise(err.to_string()))?;
+    eprintln!("[dsoftbus] accept: transport established for {}", device_id.as_str());
     Ok((transport, device_id))
 }
 
@@ -400,13 +411,16 @@ fn handshake_connect(
 
     // message 1
     let mut message1 = vec![0u8; MAX_MESSAGE];
+    eprintln!("[dsoftbus] connect: sending msg1");
     let len = state
         .write_message(&[], &mut message1)
         .map_err(|err| AuthError::Noise(err.to_string()))?;
     message1.truncate(len);
     write_frame(stream, &message1)?;
+    eprintln!("[dsoftbus] connect: sent msg1");
 
     // message 2
+    eprintln!("[dsoftbus] connect: waiting for msg2");
     let message2 = read_frame(stream)?;
     let proof = read_handshake_proof(&mut state, &message2)?;
     let remote_static = ensure_remote_static(&state)?;
@@ -420,12 +434,15 @@ fn handshake_connect(
     let message = proof_message(HandshakeRole::Client, noise_public);
     let signature = identity.sign(&message);
     let proof = HandshakeProof::new(identity.device_id(), &identity.verifying_key(), &signature);
+    eprintln!("[dsoftbus] connect: sending msg3 (client proof)");
     let final_message = write_handshake_proof(&mut state, &proof)?;
     write_frame(stream, &final_message)?;
+    eprintln!("[dsoftbus] connect: sent msg3");
 
     let transport = state
         .into_transport_mode()
         .map_err(|err| AuthError::Noise(err.to_string()))?;
+    eprintln!("[dsoftbus] connect: transport established for {}", device_id.as_str());
 
     Ok((transport, device_id))
 }
@@ -484,6 +501,8 @@ impl crate::Authenticator for HostAuthenticator {
     fn accept(&self) -> Result<Self::Session, AuthError> {
         let (mut stream, _) = self.listener.accept()?;
         stream.set_nodelay(true)?;
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
         let (mut transport, device_id) =
             handshake_accept(&self.identity, &self.noise_secret, &self.noise_public, &mut stream)?;
 
@@ -505,6 +524,8 @@ impl crate::Authenticator for HostAuthenticator {
         let addr = SocketAddr::from(([127, 0, 0, 1], announcement.port()));
         let mut stream = TcpStream::connect(addr)?;
         stream.set_nodelay(true)?;
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
         let (mut transport, device_id) = handshake_connect(
             &self.identity,
             &self.noise_secret,
@@ -512,7 +533,9 @@ impl crate::Authenticator for HostAuthenticator {
             announcement,
             &mut stream,
         )?;
+        eprintln!("[dsoftbus] connect: sending connect_request");
         send_connect_request(&mut stream, &mut transport, self.identity.device_id())?;
+        eprintln!("[dsoftbus] connect: waiting for connect_response");
         let ok = receive_connect_response(&mut stream, &mut transport)?;
         if !ok {
             return Err(AuthError::Identity("connection rejected".into()));
@@ -564,10 +587,9 @@ impl Stream for HostStream {
         match try_read_frame(&mut self.stream).map_err(StreamError::from)? {
             Some(frame) => {
                 let bytes = decrypt_payload(&mut self.transport, &frame)?;
-                deserialize_frame(&bytes)
+                deserialize_frame(&bytes).map(Some)
             }
             None => Ok(None),
         }
     }
 }
-

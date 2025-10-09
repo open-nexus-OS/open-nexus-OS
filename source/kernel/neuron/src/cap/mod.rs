@@ -86,6 +86,19 @@ impl CapTable {
             .map(|entry| *entry = Some(cap))
     }
 
+    /// Allocates the first free slot and inserts `cap`, returning the slot index.
+    pub fn allocate(&mut self, cap: Capability) -> Result<usize, CapError> {
+        for (index, entry) in self.slots.iter_mut().enumerate() {
+            if entry.is_none() {
+                *entry = Some(cap);
+                return Ok(index);
+            }
+        }
+        // Grow the table by one when no free slot is available.
+        self.slots.push(Some(cap));
+        Ok(self.slots.len() - 1)
+    }
+
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
         self.slots

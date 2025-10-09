@@ -22,12 +22,15 @@ fn remote_roundtrip_and_negative_handshake() {
     let port_a = random_port();
     let node_a = Node::start(port_a, vec!["samgrd".into()]).unwrap();
 
+    eprintln!("[remote_e2e] waiting for node B announcement");
     let mut announcements = node_a.watch().expect("watch registry");
     let remote = announcements
         .find(|ann| ann.device_id() == &node_b.device_id())
         .expect("discover node b");
+    eprintln!("[remote_e2e] discovered node B at port {}", remote.port());
 
     // Positive resolve path
+    eprintln!("[remote_e2e] connecting to node B");
     let connection = node_a.connect(&remote).expect("connect to node b");
     assert!(connection
         .resolve("bundlemgrd")

@@ -17,11 +17,11 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use capnp::message::{Builder, ReaderOptions};
 use capnp::serialize;
-use dsoftbus::{Announcement, Authenticator, FramePayload, HostAuthenticator, HostDiscovery, HostStream};
+use dsoftbus::{Announcement, Authenticator, Discovery, FramePayload, HostAuthenticator, HostDiscovery, HostStream, Session, Stream};
 use identity::{DeviceId, Identity};
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response, query_request, query_response};
 use nexus_idl_runtime::samgr_capnp::{register_request, register_response, resolve_request, resolve_response};
-use nexus_ipc::{LoopbackClient, Wait};
+use nexus_ipc::{Client, LoopbackClient, Wait};
 use parking_lot::Mutex;
 use rand::Rng;
 use samgr::Registry;
@@ -57,9 +57,9 @@ pub struct Node {
     samgr_client: Arc<LoopbackClient>,
     bundle_client: Arc<LoopbackClient>,
     artifact_store: ArtifactStore,
-    accept_thread: JoinHandle<()>,
-    samgr_thread: JoinHandle<()>,
-    bundle_thread: JoinHandle<()>,
+    accept_thread: Option<JoinHandle<()>>,
+    samgr_thread: Option<JoinHandle<()>>,
+    bundle_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
     listen_addr: SocketAddr,
 }
@@ -84,7 +84,7 @@ impl Node {
             .context("announce local node")?;
 
         // samgrd loopback transport and server thread
-        let (samgr_client, mut samgr_server) = samgrd::loopback_transport();
+        let (samgr_client, samgr_server) = samgrd::loopback_transport();
         let registry = Registry::new();
         let samgr_thread = thread::spawn(move || {
             let mut transport = samgr_server;
@@ -95,7 +95,7 @@ impl Node {
         let samgr_client = Arc::new(samgr_client);
 
         // bundlemgrd loopback transport and server thread
-        let (bundle_client, mut bundle_server) = bundlemgrd::loopback_transport();
+        let (bundle_client, bundle_server) = bundlemgrd::loopback_transport();
         let artifacts = ArtifactStore::new();
         let artifact_clone = artifacts.clone();
         let bundle_thread = thread::spawn(move || {
@@ -142,9 +142,9 @@ impl Node {
             samgr_client,
             bundle_client,
             artifact_store: artifacts,
-            accept_thread,
-            samgr_thread,
-            bundle_thread,
+            accept_thread: Some(accept_thread),
+            samgr_thread: Some(samgr_thread),
+            bundle_thread: Some(bundle_thread),
             shutdown,
             listen_addr,
         })
@@ -175,8 +175,10 @@ impl Node {
     /// Registers a local service name with the SAMGR daemon.
     pub fn register_service(&self, name: &str, endpoint: u32) -> Result<()> {
         let frame = build_samgr_register(name, endpoint)?;
+        eprintln!("[remote_e2e] samgr.register sending frame len={} (name={}, ep={})", frame.len(), name, endpoint);
         let response = forward_ipc(&self.samgr_client, frame)
             .map_err(|err| anyhow!(err.to_string()))?;
+        eprintln!("[remote_e2e] samgr.register got response len={}", response.len());
         if !parse_samgr_register(&response)? {
             return Err(anyhow!("samgr register rejected"));
         }
@@ -199,9 +201,10 @@ impl Drop for Node {
         self.shutdown.store(true, Ordering::SeqCst);
         // Wake the blocking accept call by connecting once to the listener.
         let _ = TcpStream::connect(self.listen_addr);
-        let _ = self.accept_thread.join();
-        let _ = self.samgr_thread.join();
-        let _ = self.bundle_thread.join();
+        if let Some(h) = self.accept_thread.take() { let _ = h.join(); }
+        // Allow daemon threads to terminate on process exit; do not block test teardown.
+        let _ = self.samgr_thread.take();
+        let _ = self.bundle_thread.take();
     }
 }
 
@@ -215,13 +218,17 @@ fn handle_session(
         match stream.recv() {
             Ok(Some(FramePayload { channel, bytes })) => match channel {
                 CHAN_SAMGR => {
+                    eprintln!("[remote_e2e] server: CHAN_SAMGR recv len={}", bytes.len());
                     let response = forward_ipc(&samgr, bytes).map_err(|err| HarnessError::Forward(err.to_string()))?;
+                    eprintln!("[remote_e2e] server: CHAN_SAMGR rsp len={}", response.len());
                     stream
                         .send(CHAN_SAMGR, &response)
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
                 }
                 CHAN_BUNDLEMGR => {
+                    eprintln!("[remote_e2e] server: CHAN_BUNDLEMGR recv len={}", bytes.len());
                     let response = forward_ipc(&bundle, bytes).map_err(|err| HarnessError::Forward(err.to_string()))?;
+                    eprintln!("[remote_e2e] server: CHAN_BUNDLEMGR rsp len={}", response.len());
                     stream
                         .send(CHAN_BUNDLEMGR, &response)
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
@@ -232,6 +239,7 @@ fn handle_session(
                     }
                     let handle = u32::from_be_bytes(bytes[0..4].try_into().expect("slice length checked"));
                     let payload = bytes[4..].to_vec();
+                    eprintln!("[remote_e2e] server: CHAN_ARTIFACT handle={} len={}", handle, payload.len());
                     artifacts.insert(handle, payload);
                     stream
                         .send(CHAN_ARTIFACT, &[])
@@ -249,12 +257,15 @@ fn handle_session(
 }
 
 fn forward_ipc(client: &LoopbackClient, frame: Vec<u8>) -> Result<Vec<u8>, HarnessError> {
+    eprintln!("[remote_e2e] forward_ipc tx len={}", frame.len());
     client
         .send(&frame, Wait::Blocking)
         .map_err(|err| HarnessError::Forward(err.to_string()))?;
-    client
+    let rsp = client
         .recv(Wait::Blocking)
-        .map_err(|err| HarnessError::Forward(err.to_string()))
+        .map_err(|err| HarnessError::Forward(err.to_string()))?;
+    eprintln!("[remote_e2e] forward_ipc rx len={}", rsp.len());
+    Ok(rsp)
 }
 
 fn build_samgr_register(name: &str, endpoint: u32) -> Result<Vec<u8>> {
@@ -264,10 +275,11 @@ fn build_samgr_register(name: &str, endpoint: u32) -> Result<Vec<u8>> {
         request.set_name(name);
         request.set_endpoint(endpoint);
     }
-    let words = serialize::write_message_to_words(&message).map_err(|err| anyhow!(err.to_string()))?;
-    let mut frame = Vec::with_capacity(1 + words.len() * 8);
+    let mut buf = Vec::new();
+    serialize::write_message(&mut buf, &message).map_err(|err| anyhow!(err.to_string()))?;
+    let mut frame = Vec::with_capacity(1 + buf.len());
     frame.push(OPCODE_REGISTER);
-    frame.extend_from_slice(capnp::Word::words_to_bytes(&words));
+    frame.extend_from_slice(&buf);
     Ok(frame)
 }
 
@@ -277,15 +289,18 @@ fn build_samgr_resolve(name: &str) -> Result<Vec<u8>> {
         let mut request = message.init_root::<resolve_request::Builder<'_>>();
         request.set_name(name);
     }
-    let words = serialize::write_message_to_words(&message).map_err(|err| anyhow!(err.to_string()))?;
-    let mut frame = Vec::with_capacity(1 + words.len() * 8);
+    let mut buf = Vec::new();
+    serialize::write_message(&mut buf, &message).map_err(|err| anyhow!(err.to_string()))?;
+    let mut frame = Vec::with_capacity(1 + buf.len());
     frame.push(OPCODE_RESOLVE);
-    frame.extend_from_slice(capnp::Word::words_to_bytes(&words));
+    frame.extend_from_slice(&buf);
     Ok(frame)
 }
 
 fn parse_samgr_register(bytes: &[u8]) -> Result<bool> {
-    let mut cursor = std::io::Cursor::new(bytes);
+    eprintln!("[remote_e2e] parse_samgr_register bytes len={}", bytes.len());
+    if bytes.is_empty() { return Err(anyhow!("empty register response")); }
+    let mut cursor = std::io::Cursor::new(&bytes[1..]);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new()).map_err(|err| anyhow!(err.to_string()))?;
     let response = message
         .get_root::<register_response::Reader<'_>>()
@@ -294,7 +309,8 @@ fn parse_samgr_register(bytes: &[u8]) -> Result<bool> {
 }
 
 fn parse_samgr_resolve(bytes: &[u8]) -> Result<bool> {
-    let mut cursor = std::io::Cursor::new(bytes);
+    if bytes.is_empty() { return Err(anyhow!("empty resolve response")); }
+    let mut cursor = std::io::Cursor::new(&bytes[1..]);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new()).map_err(|err| anyhow!(err.to_string()))?;
     let response = message
         .get_root::<resolve_response::Reader<'_>>()
@@ -310,15 +326,17 @@ fn build_bundle_install(name: &str, len: u32, handle: u32) -> Result<Vec<u8>> {
         request.set_bytes_len(len);
         request.set_vmo_handle(handle);
     }
-    let words = serialize::write_message_to_words(&message).map_err(|err| anyhow!(err.to_string()))?;
-    let mut frame = Vec::with_capacity(1 + words.len() * 8);
+    let mut buf = Vec::new();
+    serialize::write_message(&mut buf, &message).map_err(|err| anyhow!(err.to_string()))?;
+    let mut frame = Vec::with_capacity(1 + buf.len());
     frame.push(OPCODE_INSTALL);
-    frame.extend_from_slice(capnp::Word::words_to_bytes(&words));
+    frame.extend_from_slice(&buf);
     Ok(frame)
 }
 
 fn parse_bundle_install(bytes: &[u8]) -> Result<bool> {
-    let mut cursor = std::io::Cursor::new(bytes);
+    if bytes.is_empty() { return Err(anyhow!("empty install response")); }
+    let mut cursor = std::io::Cursor::new(&bytes[1..]);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new()).map_err(|err| anyhow!(err.to_string()))?;
     let response = message
         .get_root::<install_response::Reader<'_>>()
@@ -332,26 +350,29 @@ fn build_bundle_query(name: &str) -> Result<Vec<u8>> {
         let mut request = message.init_root::<query_request::Builder<'_>>();
         request.set_name(name);
     }
-    let words = serialize::write_message_to_words(&message).map_err(|err| anyhow!(err.to_string()))?;
-    let mut frame = Vec::with_capacity(1 + words.len() * 8);
+    let mut buf = Vec::new();
+    serialize::write_message(&mut buf, &message).map_err(|err| anyhow!(err.to_string()))?;
+    let mut frame = Vec::with_capacity(1 + buf.len());
     frame.push(OPCODE_QUERY);
-    frame.extend_from_slice(capnp::Word::words_to_bytes(&words));
+    frame.extend_from_slice(&buf);
     Ok(frame)
 }
 
 fn parse_bundle_query(bytes: &[u8]) -> Result<Option<String>> {
-    let mut cursor = std::io::Cursor::new(bytes);
+    if bytes.is_empty() { return Err(anyhow!("empty query response")); }
+    let mut cursor = std::io::Cursor::new(&bytes[1..]);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new()).map_err(|err| anyhow!(err.to_string()))?;
     let response = message
         .get_root::<query_response::Reader<'_>>()
         .map_err(|err| anyhow!(err.to_string()))?;
     if response.get_installed() {
-        Ok(Some(
-            response
-                .get_version()
-                .map_err(|err| anyhow!(err.to_string()))?
-                .to_string(),
-        ))
+        let ver = response
+            .get_version()
+            .map_err(|err| anyhow!(err.to_string()))?
+            .to_str()
+            .map_err(|e| anyhow!(e.to_string()))?
+            .to_string();
+        Ok(Some(ver))
     } else {
         Ok(None)
     }
@@ -373,6 +394,7 @@ impl RemoteConnection {
     pub fn resolve(&self, service: &str) -> Result<bool> {
         let request = build_samgr_resolve(service)?;
         let mut stream = self.stream.lock();
+        eprintln!("[remote_e2e] client: resolve tx len={} service={}", request.len(), service);
         stream
             .send(CHAN_SAMGR, &request)
             .map_err(|err| anyhow!(err.to_string()))?;
@@ -383,6 +405,7 @@ impl RemoteConnection {
         if response.channel != CHAN_SAMGR {
             return Err(anyhow!("unexpected channel {}", response.channel));
         }
+        eprintln!("[remote_e2e] client: resolve rx len={}", response.bytes.len());
         parse_samgr_resolve(&response.bytes)
     }
 
@@ -392,6 +415,7 @@ impl RemoteConnection {
         payload.extend_from_slice(&handle.to_be_bytes());
         payload.extend_from_slice(bytes);
         let mut stream = self.stream.lock();
+        eprintln!("[remote_e2e] client: artifact tx handle={} len={}", handle, bytes.len());
         stream
             .send(CHAN_ARTIFACT, &payload)
             .map_err(|err| anyhow!(err.to_string()))?;
@@ -402,6 +426,7 @@ impl RemoteConnection {
         if response.channel != CHAN_ARTIFACT {
             return Err(anyhow!("artifact ack on unexpected channel"));
         }
+        eprintln!("[remote_e2e] client: artifact ack len={}", response.bytes.len());
         Ok(())
     }
 
@@ -409,6 +434,7 @@ impl RemoteConnection {
     pub fn install_bundle(&self, name: &str, handle: u32, expected_len: u32) -> Result<bool> {
         let request = build_bundle_install(name, expected_len, handle)?;
         let mut stream = self.stream.lock();
+        eprintln!("[remote_e2e] client: install tx len={} name={} handle={} bytes={} ", request.len(), name, handle, expected_len);
         stream
             .send(CHAN_BUNDLEMGR, &request)
             .map_err(|err| anyhow!(err.to_string()))?;
@@ -419,6 +445,7 @@ impl RemoteConnection {
         if response.channel != CHAN_BUNDLEMGR {
             return Err(anyhow!("install response on unexpected channel"));
         }
+        eprintln!("[remote_e2e] client: install rx len={}", response.bytes.len());
         parse_bundle_install(&response.bytes)
     }
 
@@ -426,6 +453,7 @@ impl RemoteConnection {
     pub fn query_bundle(&self, name: &str) -> Result<Option<String>> {
         let request = build_bundle_query(name)?;
         let mut stream = self.stream.lock();
+        eprintln!("[remote_e2e] client: query tx len={} name={}", request.len(), name);
         stream
             .send(CHAN_BUNDLEMGR, &request)
             .map_err(|err| anyhow!(err.to_string()))?;
@@ -436,6 +464,7 @@ impl RemoteConnection {
         if response.channel != CHAN_BUNDLEMGR {
             return Err(anyhow!("query response on unexpected channel"));
         }
+        eprintln!("[remote_e2e] client: query rx len={}", response.bytes.len());
         parse_bundle_query(&response.bytes)
     }
 }

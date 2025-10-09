@@ -179,7 +179,7 @@ impl IdentityService {
         let data = request
             .get_payload()
             .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let signature: Signature = self.identity.sign(data.as_slice());
+        let signature: Signature = self.identity.sign(data);
 
         let mut response = Builder::new_default();
         {
@@ -209,17 +209,14 @@ impl IdentityService {
             .map_err(|err| ServerError::Decode(err.to_string()))?;
 
         let signature_bytes: [u8; 64] = signature_bytes
-            .as_slice()
             .try_into()
             .map_err(|_| {
                 ServerError::Identity(IdentityError::Deserialize(
                     "invalid signature length".into(),
                 ))
             })?;
-        let signature = Signature::from_bytes(&signature_bytes)
-            .map_err(|err| ServerError::Identity(IdentityError::Crypto(err.to_string())))?;
+        let signature = Signature::from_bytes(&signature_bytes);
         let verifying_key_slice: [u8; 32] = verifying_key_bytes
-            .as_slice()
             .try_into()
             .map_err(|_| {
                 ServerError::Identity(IdentityError::Deserialize(
@@ -229,11 +226,7 @@ impl IdentityService {
         let verifying_key = VerifyingKey::from_bytes(&verifying_key_slice)
             .map_err(|err| ServerError::Identity(IdentityError::Crypto(err.to_string())))?;
 
-        let valid = Identity::verify_with_key(
-            &verifying_key,
-            message_bytes.as_slice(),
-            &signature,
-        );
+        let valid = Identity::verify_with_key(&verifying_key, message_bytes, &signature);
 
         let mut response = Builder::new_default();
         {
@@ -314,6 +307,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
         let mut transport = IpcTransport::new(server);
         notifier.notify();
         println!("identityd: ready");
+        // Best-effort registration with samgr (no-op on host without a shared client).
+        let _ = try_register_with_samgr();
         serve(&mut transport, identity)
     }
 
@@ -324,6 +319,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
         let mut transport = IpcTransport::new(server);
         notifier.notify();
         println!("identityd: ready");
+        // Attempt to register with samgr on OS builds once IPC is wired. Ignore failures.
+        let _ = try_register_with_samgr();
         serve(&mut transport, identity)
     }
 }
@@ -334,10 +331,12 @@ where
 {
     let service = IdentityService::new(identity);
     loop {
-        match transport.recv()? {
+        match transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
             Some(frame) => {
                 let response = service.handle_frame(&frame)?;
-                transport.send(&response)?;
+                transport
+                    .send(&response)
+                    .map_err(|err| ServerError::Transport(err.into()))?;
             }
             None => return Ok(()),
         }
@@ -364,6 +363,13 @@ pub fn touch_schemas() {
         let _ = core::any::type_name::<verify_request::Reader<'static>>();
         let _ = core::any::type_name::<verify_response::Reader<'static>>();
     }
+}
+
+/// Attempts to register the daemon with `samgr` if a client is available.
+fn try_register_with_samgr() -> Result<(), String> {
+    // Placeholder: once a shared IPC client is available, send a register frame
+    // to `samgrd` using the standard nexus-ipc client path. For now return Ok.
+    Ok(())
 }
 
 #[cfg(test)]

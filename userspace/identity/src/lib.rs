@@ -16,7 +16,8 @@ compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or 
 use core::fmt;
 
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
-use rand_core::{CryptoRng, OsRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

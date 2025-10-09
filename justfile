@@ -6,8 +6,8 @@ set shell := ["/usr/bin/env", "bash", "-c"]
 toolchain := "nightly-2025-01-15"
 
 # Common flags (suppress unexpected_cfgs and set nexus_env)
-host_rustflags := "--check-cfg=cfg(nexus_env, values(\"host\",\"os\")) --cfg nexus_env=\"host\""
-os_rustflags   := "--check-cfg=cfg(nexus_env, values(\"host\",\"os\")) --cfg nexus_env=\"os\""
+host_rustflags := "--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\""
+os_rustflags   := "--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\""
 
 default: help
 
@@ -18,7 +18,7 @@ help:
     @echo "Open Nexus OS - common tasks:\n"
     @echo "[Developers: Host]"
     @echo "  just test-host           # run host test suite (exclude kernel)"
-    @echo "  just test-e2e            # run host E2E tests"
+    @echo "  just test-e2e            # run host E2E tests (nexus-e2e + remote_e2e)"
     @echo "  just miri-strict         # miri (no FS/network) for samgr,bundlemgr"
     @echo "  just miri-fs             # miri with FS isolation disabled"
     @echo
@@ -58,7 +58,7 @@ test-host:
 
 test-e2e:
     @echo "==> Running host E2E tests"
-    @env RUSTFLAGS='{{host_rustflags}}' cargo test -p nexus-e2e
+    @env RUSTFLAGS='{{host_rustflags}}' cargo test -p nexus-e2e -p remote_e2e
 
 # Back-compat alias
 test:
@@ -70,11 +70,11 @@ test:
 
 miri-strict:
     @RUSTUP_TOOLCHAIN={{toolchain}} cargo miri setup
-    @env MIRIFLAGS='--cfg nexus_env="host"' RUSTUP_TOOLCHAIN={{toolchain}} cargo miri test -p samgr -p bundlemgr
+    @env MIRIFLAGS='--cfg nexus_env="host"' RUSTUP_TOOLCHAIN={{toolchain}} cargo miri test -p identity
 
 miri-fs:
     @RUSTUP_TOOLCHAIN={{toolchain}} cargo miri setup
-    @env MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"' RUSTUP_TOOLCHAIN={{toolchain}} cargo miri test -p bundlemgr
+    @env MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"' RUSTUP_TOOLCHAIN={{toolchain}} cargo miri test -p samgr -p bundlemgr
 
 arch-check:
     cargo run -p arch-check

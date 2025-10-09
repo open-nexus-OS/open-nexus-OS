@@ -21,6 +21,11 @@ pub mod cli;
 pub use cli::{execute, help, run};
 
 use std::fmt;
+/// Minimal remote routing hook implemented by DSoftBus-lite.
+pub trait RemoteRouter {
+    /// Returns true if the remote node at `device_id` can route `service`.
+    fn resolve_remote(&self, device_id: &str, service: &str) -> bool;
+}
 
 #[cfg(nexus_env = "host")]
 use parking_lot::Mutex;
@@ -121,12 +126,15 @@ impl ServiceHandle {
 pub struct Registry {
     #[cfg(nexus_env = "host")]
     host: HostRegistry,
+    /// Optional remote resolver that can be used when a device id is specified.
+    #[cfg(nexus_env = "host")]
+    remote: Option<Box<dyn RemoteRouter + Send + Sync>>,
 }
 
 #[cfg(nexus_env = "host")]
 impl Default for Registry {
     fn default() -> Self {
-        Self { host: HostRegistry::default() }
+        Self { host: HostRegistry::default(), remote: None }
     }
 }
 
@@ -142,6 +150,13 @@ impl Registry {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Installs a remote router used to resolve services by device id.
+    #[cfg(nexus_env = "host")]
+    pub fn with_remote_router(mut self, router: Box<dyn RemoteRouter + Send + Sync>) -> Self {
+        self.remote = Some(router);
+        self
+    }
 }
 
 #[cfg(nexus_env = "host")]
@@ -153,6 +168,18 @@ impl Registry {
 
     /// Resolves the latest endpoint for the service `name`.
     pub fn resolve(&self, name: &str) -> Result<ServiceHandle> {
+        // Support a minimal routing convention: "device_id:service". If a
+        // remote router is present, attempt a remote resolution first.
+        if let Some((device, service)) = name.split_once(":") {
+            if let Some(router) = &self.remote {
+                if router.resolve_remote(device, service) {
+                    // Indicate a routed endpoint through a synthetic address.
+                    let endpoint = Endpoint::new(format!("dsoftbus://{device}/{service}"));
+                    return Ok(ServiceHandle::new(service.to_string(), endpoint, Generation::first()));
+                }
+            }
+            return Err(Error::NotFound);
+        }
         self.host.resolve(name)
     }
 
@@ -283,7 +310,10 @@ mod tests {
         assert_eq!(err, Error::StaleHandle);
     }
 
-    #[cfg(nexus_env = "host")]
+    // Under Miri, proptest is very slow and uses OS APIs (cwd). Provide a
+    // lightweight deterministic variant and keep the property test for normal runs.
+
+    #[cfg(all(nexus_env = "host", not(miri)))]
     proptest! {
         #[test]
         fn restart_sequence_updates_generation(endpoints in proptest::collection::vec("[a-z0-9]{3,8}", 1..6)) {
@@ -302,5 +332,19 @@ mod tests {
             prop_assert_eq!(resolved.endpoint, last_endpoint);
             prop_assert_eq!(resolved.generation, handle.generation);
         }
+    }
+
+    #[cfg(all(nexus_env = "host", miri))]
+    #[test]
+    fn restart_sequence_updates_generation_miri_smoke() {
+        let registry = Registry::new();
+        let mut handle = registry.register("svc", Endpoint::new("a1")).unwrap();
+        for ep in ["b2","c3","d4"] {
+            let next = registry.restart("svc", Endpoint::new(ep)).unwrap();
+            assert!(next.generation.value() > handle.generation.value());
+            handle = next;
+        }
+        let resolved = registry.resolve("svc").unwrap();
+        assert_eq!(resolved.generation.value(), handle.generation.value());
     }
 }

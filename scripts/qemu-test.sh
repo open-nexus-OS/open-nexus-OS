@@ -41,17 +41,47 @@ QEMU_LOG_MAX="$QEMU_LOG_MAX" \
 UART_LOG_MAX="$UART_LOG_MAX" \
 "$ROOT/scripts/run-qemu-rv64.sh" "${QEMU_EXTRA_ARGS[@]}"
 
-# Verify expected boot markers are present in the UART log.
-required_markers=(
-  "SELFTEST: end"
-)
+# Verify markers. If init markers are present, enforce strict order; otherwise
+# accept a kernel-only run with the selftest success marker.
+if grep -Fq "init: start" "$UART_LOG"; then
+  expected_sequence=(
+    "NEURON"
+    "init: start"
+    "samgrd: ready"
+    "bundlemgrd: ready"
+    "init: ready"
+  )
 
-for marker in "${required_markers[@]}"; do
-  if ! grep -Fq "$marker" "$UART_LOG"; then
-    echo "Missing UART marker: $marker" >&2
+  missing=0
+  for marker in "${expected_sequence[@]}"; do
+    if ! grep -Fq "$marker" "$UART_LOG"; then
+      echo "Missing UART marker: $marker" >&2
+      missing=1
+    fi
+  done
+  if [[ "$missing" -ne 0 ]]; then
     exit 1
   fi
-done
+
+  prev=-1
+  for marker in "${expected_sequence[@]}"; do
+    line=$(grep -Fn "$marker" "$UART_LOG" | head -n1 | cut -d: -f1)
+    if [[ -z "$line" ]]; then
+      echo "Marker not found for ordering check: $marker" >&2
+      exit 1
+    fi
+    if [[ "$prev" -ne -1 && "$line" -le "$prev" ]]; then
+      echo "Marker out of order: $marker (line $line)" >&2
+      exit 1
+    fi
+    prev=$line
+  done
+else
+  if ! grep -Fq "SELFTEST: end" "$UART_LOG"; then
+    echo "Missing UART marker: SELFTEST: end" >&2
+    exit 1
+  fi
+fi
 
 trim_log "$QEMU_LOG" "$QEMU_LOG_MAX"
 trim_log "$UART_LOG" "$UART_LOG_MAX"

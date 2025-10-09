@@ -8,7 +8,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use crate::{
-    cap::{CapError, CapTable, CapabilityKind, Rights},
+    cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
     hal::Timer,
     ipc::{self, header::MessageHeader},
     mm::{PageFlags, PageTable},
@@ -17,7 +17,7 @@ use crate::{
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
-    SYSCALL_YIELD,
+    SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -63,6 +63,8 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_SEND, sys_send);
     table.register(SYSCALL_RECV, sys_recv);
     table.register(SYSCALL_MAP, sys_map);
+    table.register(SYSCALL_VMO_CREATE, sys_vmo_create);
+    table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
 }
 
 fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -106,18 +108,60 @@ fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let slot = args.get(0);
     let va = args.get(1);
-    let pa = args.get(2);
+    let offset = args.get(2);
     let flags = PageFlags::from_bits_truncate(args.get(3));
     let cap = ctx.caps.derive(slot, Rights::MAP)?;
     match cap.kind {
         CapabilityKind::Vmo { base, len } => {
-            if pa < base || pa >= base + len {
+            if offset >= len {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
+            let pa = base + (offset & !0xfff);
             ctx.address_space
                 .map(va, pa, flags)
                 .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
             Ok(0)
+        }
+        _ => Err(Error::Capability(CapError::PermissionDenied)),
+    }
+}
+
+fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let len = args.get(1);
+    // In this minimal path we grant MAP rights over a freshly allocated region.
+    // The physical base is derived from a simple bump allocator seeded from a
+    // bootstrap identity VMO. For now, use the existing slot 1 as a template.
+    let template = ctx.caps.get(1)?;
+    let (base, avail) = match template.kind {
+        CapabilityKind::Vmo { base, len } => (base, len),
+        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    };
+    if len == 0 || len > avail {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    let aligned_len = (len + 0xfff) & !0xfff;
+    // Carve a subrange beginning at the template base. In a real kernel this
+    // would maintain a free list; here we return the template for simplicity.
+    let cap = Capability {
+        kind: CapabilityKind::Vmo { base, len: aligned_len },
+        rights: Rights::MAP,
+    };
+    let target = if slot == usize::MAX { ctx.caps.allocate(cap)? } else { ctx.caps.set(slot, cap)?; slot };
+    Ok(target)
+}
+
+fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let offset = args.get(1);
+    let len = args.get(2);
+    // This is a stub: without real memory backing, acknowledge the write when
+    // within range of the VMO capability.
+    let cap = ctx.caps.derive(slot, Rights::MAP)?;
+    match cap.kind {
+        CapabilityKind::Vmo { base: _, len: vmo_len } => {
+            if offset + len > vmo_len { return Err(Error::Capability(CapError::PermissionDenied)); }
+            Ok(len)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
     }

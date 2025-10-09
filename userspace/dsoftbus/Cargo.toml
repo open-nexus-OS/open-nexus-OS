@@ -6,7 +6,7 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [dependencies]
-capnp = "0.18"
+capnp = "0.19"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 identity = { path = "../identity" }
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }

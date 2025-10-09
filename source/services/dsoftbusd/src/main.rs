@@ -2,5 +2,4 @@
 
 fn main() {
     dsoftbus::run();
-    println!("dsoftbusd: ready");
 }

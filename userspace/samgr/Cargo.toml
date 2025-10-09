@@ -8,6 +8,7 @@ authors = ["Open Nexus OS Contributors"]
 [dependencies]
 parking_lot = "0.12"
 thiserror = "1"
+identity = { path = "../identity" }
 
 [dev-dependencies]
 proptest = "1.3"

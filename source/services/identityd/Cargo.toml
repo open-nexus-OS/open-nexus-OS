@@ -13,3 +13,4 @@ identity = { path = "../../../userspace/identity" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 capnp = { version = "0.19", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc" }
+ed25519-dalek = "2"

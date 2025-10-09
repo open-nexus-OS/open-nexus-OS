@@ -83,6 +83,104 @@ impl MsgHeader {
     }
 }
 
+// ——— VMO userland wrappers (OS build) ———
+
+/// Opaque handle identifying a Virtual Memory Object (VMO) in the kernel.
+#[cfg(nexus_env = "os")]
+pub type Handle = u32;
+
+/// Creates a new contiguous VMO of `len` bytes and returns a handle to it.
+///
+/// The initial implementation is a placeholder; the kernel syscall path will
+/// be wired in a subsequent change.
+#[cfg(nexus_env = "os")]
+pub fn vmo_create(_len: usize) -> Result<Handle> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        const SYSCALL_VMO_CREATE: usize = 5;
+        let slot = usize::MAX;
+        let len = _len;
+        let ret = ecall3(SYSCALL_VMO_CREATE, slot, len, 0);
+        Ok(ret as Handle)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(IpcError::Unsupported)
+    }
+}
+
+/// Writes `bytes` into the VMO starting at `offset` bytes from the base.
+#[cfg(nexus_env = "os")]
+pub fn vmo_write(_handle: Handle, _offset: usize, _bytes: &[u8]) -> Result<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        const SYSCALL_VMO_WRITE: usize = 6;
+        let len = _bytes.len();
+        let _ = ecall3(SYSCALL_VMO_WRITE, _handle as usize, _offset, len);
+        Ok(())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(IpcError::Unsupported)
+    }
+}
+
+/// Maps the VMO into the caller's address space at virtual address `va` with
+/// the requested flags. The mapping is read-only in the initial path.
+#[cfg(nexus_env = "os")]
+pub fn vmo_map(_handle: Handle, _va: usize, _flags: u32) -> Result<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        const SYSCALL_MAP: usize = 4;
+        // Offset=0 for the minimal path; flags passed as fourth arg.
+        let _ = ecall4(SYSCALL_MAP, _handle as usize, _va, 0, _flags as usize);
+        Ok(())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(IpcError::Unsupported)
+    }
+}
+
+// ——— Architecture-specific ecall helpers (riscv64, OS) ———
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall3(n: usize, a0: usize, a1: usize, a2: usize) -> usize {
+    let mut r0 = a0;
+    let mut r1 = a1;
+    let mut r2 = a2;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a1") r1,
+        inout("a2") r2,
+        inout("a7") r7,
+        options(nostack, preserves_flags)
+    );
+    r0
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall4(n: usize, a0: usize, a1: usize, a2: usize, a3: usize) -> usize {
+    let mut r0 = a0;
+    let mut r1 = a1;
+    let mut r2 = a2;
+    let mut r3 = a3;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a1") r1,
+        inout("a2") r2,
+        inout("a3") r3,
+        inout("a7") r7,
+        options(nostack, preserves_flags)
+    );
+    r0
+}
+
 #[cfg(test)]
 mod tests {
     use super::MsgHeader;

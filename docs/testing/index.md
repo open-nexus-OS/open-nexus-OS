@@ -28,16 +28,42 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 | Layer | Scope | Command | Notes |
 | --- | --- | --- | --- |
-| Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
-| Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Waits for `SELFTEST: end` (and optionally service ready markers) before truncating logs. |
+| Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` or `just test-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
+| Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `NEURON` → `init: start` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready`. Detects `SELFTEST: end` when present and trims logs post-run. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.
-2. Execute Miri for host-compatible crates: `cargo miri test -p <crate>`.
+2. Execute Miri for host-compatible crates.
 3. Refresh Golden Vectors (IDL frames, ABI structs) and bump SemVer when contracts change.
 4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
 5. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
+
+### Just targets
+
+- Host unit/property: `just test-host`
+- Host E2E: `just test-e2e` (runs `nexus-e2e` and `remote_e2e`)
+- QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
+
+### Miri tiers
+
+- Strict (no IO): run on crates without filesystem/network access.
+  - Example: `just miri-strict` (uses `MIRIFLAGS='--cfg nexus_env="host"'`).
+- FS-enabled: for crates that legitimately touch the filesystem or env.
+  - Example: `just miri-fs` (uses `MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"'`).
+- Under `#[cfg(miri)]`, keep property tests lightweight (lower case count, disable persistence) to avoid long runtimes.
+
+## OS-E2E marker sequence and VMO split
+
+The OS smoke path emits a deterministic sequence of UART markers that the runner validates in order:
+
+1. `NEURON` – kernel banner
+2. `init: start` – init process begins bootstrapping services
+3. `samgrd: ready` – service manager daemon ready
+4. `bundlemgrd: ready` – bundle manager daemon ready
+5. `init: ready` – init completed baseline bring-up
+
+Cap'n Proto remains a userland concern. Large payloads (e.g. bundle artifacts) are transferred via VMO handles on the OS; on the host these handles are emulated by staging bytes in the bundle manager's artifact store before issuing control-plane requests.
 
 ## Remote E2E harness
 
@@ -48,7 +74,7 @@ traffic over the encrypted stream. Each node hosts real `samgrd` and
 the shared `userspace/identity` crate. Artifact transfers are staged over a
 dedicated DSoftBus channel before issuing the install request, mirroring the VMO
 hand-off the OS build will use later. Execute the tests with
-`cargo test -p remote_e2e`—they finish in a few seconds and require no QEMU.
+`cargo test -p remote_e2e`—they finish in a few seconds and require no QEMU. (Note: the DSoftBus OS backend is stubbed until kernel networking is available.)
 
 ## Environment parity & prerequisites
 - Toolchain pinned via `rust-toolchain.toml`; install the listed version before building.
