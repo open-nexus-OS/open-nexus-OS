@@ -16,7 +16,7 @@ use std::process::ExitCode;
 use serde::Deserialize;
 use thiserror::Error;
 
-const CORE_SERVICES: [&str; 3] = ["samgrd", "bundlemgrd", "selftest-client"];
+const CORE_SERVICES: [&str; 4] = ["keystored", "policyd", "samgrd", "bundlemgrd"];
 
 fn main() -> ExitCode {
     match run() {
@@ -41,7 +41,7 @@ fn run() -> Result<(), InitError> {
             .ok_or_else(|| InitError::MissingService(name.to_string()))?;
         let handle = runtime::spawn_service(&config)?;
         handle.wait_ready()?;
-        println!("init: {name} up");
+        println!("{name}: up");
         handles.push(handle);
     }
 
@@ -225,10 +225,24 @@ mod runtime {
     mod service_registry {
         use super::{ReadySender, ServiceConfig, ServiceStatus};
         use crate::InitError;
+        use keystored;
+        use policyd;
 
         pub fn launch(service: ServiceConfig, ready: ReadySender) {
             let ServiceConfig { name, entry } = service;
             match entry.as_str() {
+                "keystored" => {
+                    let ready_clone = ready.clone();
+                    keystored::daemon_main(move || {
+                        let _ = ready_clone.send(ServiceStatus::Ready);
+                    });
+                }
+                "policyd" => {
+                    let ready_clone = ready.clone();
+                    policyd::daemon_main(move || {
+                        let _ = ready_clone.send(ServiceStatus::Ready);
+                    });
+                }
                 "samgrd" => {
                     let ready_clone = ready.clone();
                     let notifier = samgrd::ReadyNotifier::new(move || {
