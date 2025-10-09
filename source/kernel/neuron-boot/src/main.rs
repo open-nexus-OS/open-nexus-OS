@@ -29,10 +29,14 @@ fn uart_write_line(msg: &str) {
     const LSR_TX_IDLE: u8 = 1 << 5;
     unsafe {
         for &b in msg.as_bytes() {
-            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0
+            {
+            }
             core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b);
             if b == b'\n' {
-                while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+                while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE
+                    == 0
+                {}
                 core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\r');
             }
         }

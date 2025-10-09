@@ -66,7 +66,9 @@ impl Write for RawUart {
     }
 }
 
-pub fn raw_writer() -> RawUart { RawUart }
+pub fn raw_writer() -> RawUart {
+    RawUart
+}
 
 impl Write for KernelUart {
     fn write_str(&mut self, s: &str) -> fmt::Result {

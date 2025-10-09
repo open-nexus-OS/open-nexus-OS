@@ -63,10 +63,7 @@ struct ServiceConfig {
 
 impl ServiceConfig {
     fn new<N: Into<String>, E: Into<String>>(name: N, entry: E) -> Self {
-        Self {
-            name: name.into(),
-            entry: entry.into(),
-        }
+        Self { name: name.into(), entry: entry.into() }
     }
 }
 
@@ -78,27 +75,19 @@ impl ServiceCatalog {
     fn load(path: &Path) -> Result<Self, InitError> {
         let mut services = HashMap::new();
         if path.is_dir() {
-            for entry in fs::read_dir(path).map_err(|source| InitError::Io {
-                path: path.to_path_buf(),
-                source,
-            })? {
-                let entry = entry.map_err(|source| InitError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                })?;
+            for entry in fs::read_dir(path)
+                .map_err(|source| InitError::Io { path: path.to_path_buf(), source })?
+            {
+                let entry =
+                    entry.map_err(|source| InitError::Io { path: path.to_path_buf(), source })?;
                 let file_path = entry.path();
                 if file_path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
                     continue;
                 }
-                let raw = fs::read_to_string(&file_path).map_err(|source| InitError::Io {
-                    path: file_path.clone(),
-                    source,
-                })?;
-                let recipe: RawService =
-                    toml::from_str(&raw).map_err(|source| InitError::Parse {
-                        path: file_path.clone(),
-                        source,
-                    })?;
+                let raw = fs::read_to_string(&file_path)
+                    .map_err(|source| InitError::Io { path: file_path.clone(), source })?;
+                let recipe: RawService = toml::from_str(&raw)
+                    .map_err(|source| InitError::Parse { path: file_path.clone(), source })?;
                 let name = recipe.name.ok_or_else(|| InitError::InvalidRecipe {
                     path: file_path.clone(),
                     reason: "missing name".into(),
@@ -115,9 +104,7 @@ impl ServiceCatalog {
 
     fn ensure_core_defaults(&mut self) {
         for name in CORE_SERVICES {
-            self.services
-                .entry(name.to_string())
-                .or_insert_with(|| ServiceConfig::new(name, name));
+            self.services.entry(name.to_string()).or_insert_with(|| ServiceConfig::new(name, name));
         }
     }
 
@@ -224,15 +211,8 @@ mod runtime {
         let join = thread::Builder::new()
             .name(format!("svc-{}", &name))
             .spawn(move || service_registry::launch(service, tx))
-            .map_err(|source| InitError::Spawn {
-                name: name.clone(),
-                source,
-            })?;
-        Ok(ServiceHandle {
-            name,
-            ready: rx,
-            join,
-        })
+            .map_err(|source| InitError::Spawn { name: name.clone(), source })?;
+        Ok(ServiceHandle { name, ready: rx, join })
     }
 
     pub fn idle(handles: Vec<ServiceHandle>) -> ! {
@@ -277,10 +257,8 @@ mod runtime {
                     }
                 }
                 other => {
-                    let err = InitError::UnsupportedEntry {
-                        service: name,
-                        entry: other.to_string(),
-                    };
+                    let err =
+                        InitError::UnsupportedEntry { service: name, entry: other.to_string() };
                     let _ = ready.send(ServiceStatus::Failed(err));
                 }
             }

@@ -8,10 +8,7 @@ fn help() -> &'static str {
 }
 
 fn pack(path: &Path) -> io::Result<PathBuf> {
-    let bundle_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("bundle");
+    let bundle_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("bundle");
     let output = path.with_file_name(format!("{bundle_name}.nxb"));
     let mut file = File::create(&output)?;
     writeln!(file, "NEXUS-BUNDLE {}", bundle_name)?;
@@ -34,7 +31,10 @@ fn main() {
 
     match command.as_str() {
         "pack" => {
-            let path = args.next().expect("missing path");
+            let Some(path) = args.next() else {
+                eprintln!("missing path");
+                std::process::exit(1);
+            };
             match pack(Path::new(&path)) {
                 Ok(bundle) => println!("packed {:?}", bundle),
                 Err(err) => {
@@ -44,7 +44,10 @@ fn main() {
             }
         }
         "sign" => {
-            let path = args.next().expect("missing bundle");
+            let Some(path) = args.next() else {
+                eprintln!("missing bundle");
+                std::process::exit(1);
+            };
             match sign(Path::new(&path)) {
                 Ok(sig) => println!("signed {:?}", sig),
                 Err(err) => {

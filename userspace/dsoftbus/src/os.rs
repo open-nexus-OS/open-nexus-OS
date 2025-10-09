@@ -8,7 +8,9 @@ use std::net::SocketAddr;
 
 use identity::Identity;
 
-use crate::{Announcement, AuthError, Discovery, DiscoveryError, Session, SessionError, Stream, StreamError};
+use crate::{
+    Announcement, AuthError, Discovery, DiscoveryError, Session, SessionError, Stream, StreamError,
+};
 
 /// Placeholder discovery backend for the OS configuration.
 pub struct OsDiscovery;
@@ -79,4 +81,3 @@ impl Stream for OsStream {
         todo!("OS stream recv pending kernel transport integration")
     }
 }
-

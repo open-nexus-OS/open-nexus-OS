@@ -13,7 +13,7 @@ pub fn help() -> &'static str {
 
 /// Executes the bundle manager CLI using the provided registrar backend.
 pub fn execute<R: AbilityRegistrar>(args: &[&str], registrar: &R) -> String {
-    if args.is_empty() || args.iter().any(|arg| *arg == "--help") {
+    if args.is_empty() || args.contains(&"--help") {
         return help().to_string();
     }
 
@@ -41,10 +41,9 @@ fn install<R: AbilityRegistrar>(path: &str, registrar: &R) -> String {
     }
     let ability = infer_ability(path);
     match registrar.register(&ability) {
-        Ok(serialized_header) => format!(
-            "bundle installed: {path} with header {:?}",
-            serialized_header
-        ),
+        Ok(serialized_header) => {
+            format!("bundle installed: {path} with header {:?}", serialized_header)
+        }
         Err(err) => format!("ability registration failed: {err}"),
     }
 }
@@ -56,11 +55,7 @@ fn verify_signature(path: &str) -> bool {
 
 /// Derives the ability name from the bundle path.
 fn infer_ability(path: &str) -> String {
-    path
-        .rsplit('/')
-        .next()
-        .unwrap_or("bundle")
-        .replace(".nxb", "")
+    path.rsplit('/').next().unwrap_or("bundle").replace(".nxb", "")
 }
 
 /// Runs the CLI using arguments from `std::env::args`.

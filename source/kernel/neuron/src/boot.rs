@@ -20,7 +20,9 @@ extern "C" {
 /// stack is valid and interrupts are masked until setup completes.
 pub fn early_boot_init() {
     // SAFETY: called once during early boot, before interrupts/threads.
-    unsafe { zero_bss(); }
+    unsafe {
+        zero_bss();
+    }
     uart::write_line("boot: ok");
 
     // SAFETY: privileged context, trap vector install once.
@@ -37,11 +39,12 @@ pub fn early_boot_init() {
     uart::write_line("boot: returning to wrapper");
 }
 
-
-
 unsafe fn zero_bss() {
     #[cfg(not(test))]
     {
-        crate::arch::riscv::clear_bss(core::ptr::addr_of_mut!(__bss_start), core::ptr::addr_of_mut!(__bss_end));
+        crate::arch::riscv::clear_bss(
+            core::ptr::addr_of_mut!(__bss_start),
+            core::ptr::addr_of_mut!(__bss_end),
+        );
     }
 }

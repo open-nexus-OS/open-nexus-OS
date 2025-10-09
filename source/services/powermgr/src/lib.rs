@@ -3,10 +3,10 @@ pub fn help() -> &'static str {
 }
 
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         help().to_string()
     } else {
-        "power manager standing by".to_string()
+        "powermgr policy standing by".to_string()
     }
 }
 

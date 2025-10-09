@@ -3,10 +3,10 @@ pub fn help() -> &'static str {
 }
 
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         return help().to_string();
     }
-    if args.iter().any(|arg| *arg == "--boot-animation") {
+    if args.contains(&"--boot-animation") {
         return "systemui playing boot animation".to_string();
     }
     "systemui ready".to_string()
@@ -23,9 +23,7 @@ pub fn compose_frame() -> Vec<u32> {
 }
 
 pub fn checksum() -> u32 {
-    compose_frame()
-        .iter()
-        .fold(0_u32, |acc, value| acc.wrapping_add(*value))
+    compose_frame().iter().fold(0_u32, |acc, value| acc.wrapping_add(*value))
 }
 
 pub fn run() {

@@ -5,21 +5,25 @@
 #![forbid(unsafe_code)]
 
 #[cfg(feature = "capnp")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub mod samgr_capnp {
     include!(concat!(env!("OUT_DIR"), "/samgr_capnp.rs"));
 }
 
 #[cfg(feature = "capnp")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub mod bundlemgr_capnp {
     include!(concat!(env!("OUT_DIR"), "/bundlemgr_capnp.rs"));
 }
 
 #[cfg(feature = "capnp")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub mod identity_capnp {
     include!(concat!(env!("OUT_DIR"), "/identity_capnp.rs"));
 }
 
 #[cfg(feature = "capnp")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub mod dsoftbus_capnp {
     include!(concat!(env!("OUT_DIR"), "/dsoftbus_capnp.rs"));
 }

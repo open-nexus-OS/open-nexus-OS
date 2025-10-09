@@ -69,9 +69,7 @@ enum Backend {
 impl Service {
     /// Creates a service using the selected backend.
     pub fn new() -> Self {
-        Self {
-            backend: Backend::new(),
-        }
+        Self { backend: Backend::new() }
     }
 
     /// Installs a bundle described by `request`.
@@ -82,6 +80,12 @@ impl Service {
     /// Queries an installed bundle by name.
     pub fn query(&self, name: &str) -> Result<Option<InstalledBundle>, ServiceError> {
         self.backend.query(name)
+    }
+}
+
+impl Default for Service {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -141,22 +145,18 @@ impl HostBackend {
         if manifest.name != request.name {
             return Err(ServiceError::Manifest("name mismatch".into()));
         }
-
-        let mut bundles = self.bundles.lock().expect("mutex poisoned");
+        let mut bundles = self.bundles.lock().map_err(|_| ServiceError::Unsupported)?;
         if bundles.contains_key(request.name) {
             return Err(ServiceError::AlreadyInstalled);
         }
 
-        let record = InstalledBundle {
-            name: manifest.name,
-            version: manifest.version,
-        };
+        let record = InstalledBundle { name: manifest.name, version: manifest.version };
         bundles.insert(record.name.clone(), record.clone());
         Ok(record)
     }
 
     fn query(&self, name: &str) -> Result<Option<InstalledBundle>, ServiceError> {
-        let bundles = self.bundles.lock().expect("mutex poisoned");
+        let bundles = self.bundles.lock().map_err(|_| ServiceError::Unsupported)?;
         Ok(bundles.get(name).cloned())
     }
 }
@@ -190,10 +190,7 @@ signature = "valid"
     fn install_success() {
         let service = Service::new();
         let record = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: MANIFEST,
-            })
+            .install(InstallRequest { name: "launcher", manifest: MANIFEST })
             .expect("install succeeds");
         assert_eq!(record.name, "launcher");
         assert_eq!(record.version, Version::new(1, 0, 0));
@@ -205,18 +202,9 @@ signature = "valid"
     #[test]
     fn install_duplicate_rejected() {
         let service = Service::new();
-        service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: MANIFEST,
-            })
-            .unwrap();
-        let err = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: MANIFEST,
-            })
-            .unwrap_err();
+        service.install(InstallRequest { name: "launcher", manifest: MANIFEST }).unwrap();
+        let err =
+            service.install(InstallRequest { name: "launcher", manifest: MANIFEST }).unwrap_err();
         assert_eq!(err, ServiceError::AlreadyInstalled);
     }
 
@@ -225,12 +213,8 @@ signature = "valid"
     fn invalid_signature_rejected() {
         let service = Service::new();
         let tampered = MANIFEST.replace("valid", "invalid");
-        let err = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: &tampered,
-            })
-            .unwrap_err();
+        let err =
+            service.install(InstallRequest { name: "launcher", manifest: &tampered }).unwrap_err();
         assert_eq!(err, ServiceError::InvalidSignature);
     }
 
@@ -238,12 +222,8 @@ signature = "valid"
     #[test]
     fn mismatched_name_rejected() {
         let service = Service::new();
-        let err = service
-            .install(InstallRequest {
-                name: "other",
-                manifest: MANIFEST,
-            })
-            .unwrap_err();
+        let err =
+            service.install(InstallRequest { name: "other", manifest: MANIFEST }).unwrap_err();
         assert!(matches!(err, ServiceError::Manifest(_)));
     }
 
@@ -252,10 +232,7 @@ signature = "valid"
     fn backend_unavailable() {
         let service = Service::new();
         let err = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: "name = \"launcher\"",
-            })
+            .install(InstallRequest { name: "launcher", manifest: "name = \"launcher\"" })
             .unwrap_err();
         assert_eq!(err, ServiceError::Unsupported);
     }

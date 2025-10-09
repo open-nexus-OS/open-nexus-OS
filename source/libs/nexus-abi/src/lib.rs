@@ -7,8 +7,6 @@
 
 //! Shared ABI definitions exposed to userland crates.
 
-use core::convert::TryInto;
-
 /// Result type returned by ABI helpers.
 pub type Result<T> = core::result::Result<T, IpcError>;
 
@@ -62,11 +60,11 @@ impl MsgHeader {
 
     /// Deserialises a little-endian byte array into a header.
     pub fn from_le_bytes(bytes: [u8; 16]) -> Self {
-        let src = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-        let dst = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
-        let ty = u16::from_le_bytes(bytes[8..10].try_into().unwrap());
-        let flags = u16::from_le_bytes(bytes[10..12].try_into().unwrap());
-        let len = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
+        let src = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let dst = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let ty = u16::from_le_bytes([bytes[8], bytes[9]]);
+        let flags = u16::from_le_bytes([bytes[10], bytes[11]]);
+        let len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
         Self { src, dst, ty, flags, len }
     }
 }

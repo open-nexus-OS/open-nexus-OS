@@ -15,7 +15,7 @@ pub fn help() -> &'static str {
 
 /// Executes the search CLI command.
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         help().to_string()
     } else {
         "search daemon indexing".to_string()

@@ -27,18 +27,13 @@ pub struct LoopbackClient {
 
 impl LoopbackClient {
     fn new(request_tx: Sender<Vec<u8>>, response_rx: Mutex<Receiver<Vec<u8>>>) -> Self {
-        Self {
-            request_tx,
-            response_rx,
-        }
+        Self { request_tx, response_rx }
     }
 }
 
 impl Client for LoopbackClient {
     fn send(&self, frame: &[u8], _wait: Wait) -> Result<()> {
-        self.request_tx
-            .send(frame.to_vec())
-            .map_err(|_| IpcError::Disconnected)
+        self.request_tx.send(frame.to_vec()).map_err(|_| IpcError::Disconnected)
     }
 
     fn recv(&self, wait: Wait) -> Result<Vec<u8>> {
@@ -73,10 +68,7 @@ pub struct LoopbackServer {
 
 impl LoopbackServer {
     fn new(request_rx: Mutex<Receiver<Vec<u8>>>, response_tx: Sender<Vec<u8>>) -> Self {
-        Self {
-            request_rx,
-            response_tx,
-        }
+        Self { request_rx, response_tx }
     }
 }
 
@@ -105,9 +97,7 @@ impl Server for LoopbackServer {
     }
 
     fn send(&self, frame: &[u8], _wait: Wait) -> Result<()> {
-        self.response_tx
-            .send(frame.to_vec())
-            .map_err(|_| IpcError::Disconnected)
+        self.response_tx.send(frame.to_vec()).map_err(|_| IpcError::Disconnected)
     }
 }
 
@@ -126,9 +116,7 @@ mod tests {
     #[test]
     fn recv_timeout() {
         let (client, _server) = loopback_channel();
-        let err = client
-            .recv(Wait::Timeout(Duration::from_millis(10)))
-            .unwrap_err();
+        let err = client.recv(Wait::Timeout(Duration::from_millis(10))).unwrap_err();
         assert_eq!(err, IpcError::Timeout);
     }
 }

@@ -21,7 +21,8 @@ fn parse_valid_manifest() {
 
 #[test]
 fn missing_fields_error() {
-    let data = fs::read_to_string(manifest_path("invalid_missing_fields.toml")).expect("read manifest");
+    let data =
+        fs::read_to_string(manifest_path("invalid_missing_fields.toml")).expect("read manifest");
     let err = Manifest::parse_str(&data).expect_err("expected failure");
     assert_eq!(err, Error::MissingField("abilities"));
 }

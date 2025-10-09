@@ -19,7 +19,8 @@ impl<T> SpinLock<T> {
     }
 
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        while self.flag.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while self.flag.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err()
+        {
             core::hint::spin_loop();
         }
         SpinLockGuard { lock: self }

@@ -81,12 +81,18 @@ impl Manifest {
         let version = parse_version(table, "version")?;
         let abilities = require_string_array(table, "abilities")?;
         if abilities.is_empty() {
-            return Err(Error::InvalidField { field: "abilities", reason: "must contain at least one entry".into() });
+            return Err(Error::InvalidField {
+                field: "abilities",
+                reason: "must contain at least one entry".into(),
+            });
         }
 
         let capabilities = require_string_array(table, "caps")?;
         if capabilities.iter().any(|cap| cap.trim().is_empty()) {
-            return Err(Error::InvalidField { field: "caps", reason: "entries must not be empty".into() });
+            return Err(Error::InvalidField {
+                field: "caps",
+                reason: "entries must not be empty".into(),
+            });
         }
 
         let min_sdk = parse_version(table, "min_sdk")?;
@@ -95,11 +101,12 @@ impl Manifest {
     }
 }
 
-fn parse_version(table: &toml::Table, field: &'static str) -> Result<Version> {    let raw = require_string(table, field)?;
+fn parse_version(table: &toml::Table, field: &'static str) -> Result<Version> {
+    let raw = require_string(table, field)?;
     Version::parse(raw.trim()).map_err(|err| Error::InvalidField { field, reason: err.to_string() })
 }
 
-fn require_string(table: &toml::Table, field: &'static str) -> Result<String> {    
+fn require_string(table: &toml::Table, field: &'static str) -> Result<String> {
     match table.get(field) {
         Some(Value::String(value)) => Ok(value.clone()),
         Some(_) => Err(Error::InvalidField { field, reason: "expected string".into() }),
@@ -107,7 +114,7 @@ fn require_string(table: &toml::Table, field: &'static str) -> Result<String> {
     }
 }
 
-fn require_string_array(table: &toml::Table, field: &'static str) -> Result<Vec<String>> {    
+fn require_string_array(table: &toml::Table, field: &'static str) -> Result<Vec<String>> {
     let raw = table.get(field).ok_or(Error::MissingField(field))?;
     let array = raw
         .as_array()
@@ -117,7 +124,10 @@ fn require_string_array(table: &toml::Table, field: &'static str) -> Result<Vec<
     for item in array {
         let value = item
             .as_str()
-            .ok_or_else(|| Error::InvalidField { field, reason: "expected array of strings".into() })?
+            .ok_or_else(|| Error::InvalidField {
+                field,
+                reason: "expected array of strings".into(),
+            })?
             .trim();
         if value.is_empty() {
             return Err(Error::InvalidField { field, reason: "entries must not be empty".into() });

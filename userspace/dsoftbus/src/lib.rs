@@ -33,13 +33,13 @@ pub struct Announcement {
 
 impl Announcement {
     /// Creates a new announcement for the provided device.
-    pub fn new(device_id: DeviceId, services: Vec<String>, port: u16, noise_static: [u8; 32]) -> Self {
-        Self {
-            device_id,
-            services,
-            port,
-            noise_static,
-        }
+    pub fn new(
+        device_id: DeviceId,
+        services: Vec<String>,
+        port: u16,
+        noise_static: [u8; 32],
+    ) -> Self {
+        Self { device_id, services, port, noise_static }
     }
 
     /// Returns the announced device id.
@@ -245,17 +245,20 @@ fn host_run() {
     use std::env;
     use std::thread;
 
-    let identity = Identity::generate().expect("generate identity");
+    let identity = match Identity::generate() {
+        Ok(id) => id,
+        Err(e) => panic!("identity generation failed: {e}"),
+    };
 
     // Choose a listening port. Allow override via DSOFTBUS_PORT for integration.
-    let port: u16 = env::var("DSOFTBUS_PORT")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(34_567);
+    let port: u16 =
+        env::var("DSOFTBUS_PORT").ok().and_then(|s| s.parse::<u16>().ok()).unwrap_or(34_567);
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let authenticator = HostAuthenticator::bind(addr, identity.clone())
-        .expect("bind host authenticator");
+    let authenticator = match HostAuthenticator::bind(addr, identity.clone()) {
+        Ok(a) => a,
+        Err(e) => panic!("bind host authenticator: {e}"),
+    };
     let discovery = HostDiscovery::new();
 
     // Announce a minimal service set; higher layers may expand this later.
@@ -266,9 +269,10 @@ fn host_run() {
         port,
         authenticator.local_noise_public(),
     );
-    discovery
-        .announce(announcement)
-        .expect("announce local node");
+    match discovery.announce(announcement) {
+        Ok(()) => {}
+        Err(e) => panic!("announce local node: {e}"),
+    }
 
     // Print readiness marker once the listener and discovery are active.
     println!("dsoftbusd: ready");

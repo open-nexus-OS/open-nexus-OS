@@ -39,14 +39,7 @@ impl<'a> Context<'a> {
         address_space: &'a mut PageTable,
         timer: &'a dyn Timer,
     ) -> Self {
-        Self {
-            scheduler,
-            caps,
-            router,
-            address_space,
-            timer,
-            last_message: None,
-        }
+        Self { scheduler, caps, router, address_space, timer, last_message: None }
     }
 
     /// Returns the last received message header for inspection.
@@ -87,8 +80,7 @@ fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     };
     let header = MessageHeader::new(slot as u32, endpoint, ty, flags, len);
     let payload = Vec::new();
-    ctx.router
-        .send(endpoint, ipc::Message::new(header, payload))?;
+    ctx.router.send(endpoint, ipc::Message::new(header, payload))?;
     Ok(len as usize)
 }
 
@@ -143,11 +135,14 @@ fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let aligned_len = (len + 0xfff) & !0xfff;
     // Carve a subrange beginning at the template base. In a real kernel this
     // would maintain a free list; here we return the template for simplicity.
-    let cap = Capability {
-        kind: CapabilityKind::Vmo { base, len: aligned_len },
-        rights: Rights::MAP,
+    let cap =
+        Capability { kind: CapabilityKind::Vmo { base, len: aligned_len }, rights: Rights::MAP };
+    let target = if slot == usize::MAX {
+        ctx.caps.allocate(cap)?
+    } else {
+        ctx.caps.set(slot, cap)?;
+        slot
     };
-    let target = if slot == usize::MAX { ctx.caps.allocate(cap)? } else { ctx.caps.set(slot, cap)?; slot };
     Ok(target)
 }
 
@@ -160,7 +155,9 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let cap = ctx.caps.derive(slot, Rights::MAP)?;
     match cap.kind {
         CapabilityKind::Vmo { base: _, len: vmo_len } => {
-            if offset + len > vmo_len { return Err(Error::Capability(CapError::PermissionDenied)); }
+            if offset + len > vmo_len {
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
             Ok(len)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
@@ -181,30 +178,18 @@ mod tests {
         let mut caps = CapTable::new();
         let _ = caps.set(
             0,
-            Capability {
-                kind: CapabilityKind::Endpoint(0),
-                rights: Rights::SEND | Rights::RECV,
-            },
+            Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
         );
         let mut router = ipc::Router::new(1);
         let mut aspace = PageTable::new();
         let timer = crate::hal::virt::VirtMachine::new();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut caps,
-            &mut router,
-            &mut aspace,
-            timer.timer(),
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut caps, &mut router, &mut aspace, timer.timer());
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
-        table
-            .dispatch(SYSCALL_SEND, &mut ctx, &Args::new([0, 1, 0, 0, 0, 0]))
-            .unwrap();
-        let len = table
-            .dispatch(SYSCALL_RECV, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0]))
-            .unwrap();
+        table.dispatch(SYSCALL_SEND, &mut ctx, &Args::new([0, 1, 0, 0, 0, 0])).unwrap();
+        let len = table.dispatch(SYSCALL_RECV, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0])).unwrap();
         assert_eq!(len, 0);
         assert!(ctx.last_message().is_some());
     }

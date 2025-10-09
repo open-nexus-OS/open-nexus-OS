@@ -15,7 +15,7 @@ pub fn help() -> &'static str {
 
 /// Executes the CLI request, returning a human-readable status.
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         help().to_string()
     } else {
         "notification dispatcher listening".to_string()

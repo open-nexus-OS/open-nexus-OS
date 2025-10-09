@@ -19,7 +19,7 @@ pub fn help() -> &'static str {
 
 /// Executes the clipboard CLI and returns a response string.
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         return help().to_string();
     }
     if let Some(pos) = args.iter().position(|arg| *arg == "--set") {

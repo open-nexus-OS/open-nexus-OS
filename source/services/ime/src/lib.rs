@@ -7,7 +7,7 @@ pub fn transform(input: &str) -> String {
 }
 
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         return help().to_string();
     }
     if let Some(text) = args.first() {

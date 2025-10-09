@@ -58,9 +58,7 @@ static DENY_NEXT_MAP: AtomicBool = AtomicBool::new(false);
 impl PageTable {
     /// Creates an empty page table with all entries zeroed.
     pub fn new() -> Self {
-        Self {
-            entries: vec![0; PT_ENTRIES],
-        }
+        Self { entries: vec![0; PT_ENTRIES] }
     }
 
     /// Maps `pa` at virtual address `va` with the provided flags.

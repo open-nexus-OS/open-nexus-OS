@@ -202,10 +202,7 @@ struct Server {
 
 impl Server {
     fn new(registry: Registry) -> Self {
-        Self {
-            registry,
-            handles: HashMap::new(),
-        }
+        Self { registry, handles: HashMap::new() }
     }
 
     #[cfg(feature = "idl-capnp")]
@@ -236,9 +233,7 @@ impl Server {
         let endpoint = Endpoint::new(endpoint_id.to_string());
         let result = self.registry.register(name, endpoint);
         let mut response = Builder::new_default();
-        response
-            .init_root::<register_response::Builder<'_>>()
-            .set_ok(result.is_ok());
+        response.init_root::<register_response::Builder<'_>>().set_ok(result.is_ok());
         if let Ok(handle) = result {
             self.handles.insert(endpoint_id, handle);
         }
@@ -296,9 +291,7 @@ impl Server {
             .ok_or(ServerError::UnknownEndpoint(endpoint_id))?;
         self.registry.heartbeat(&handle)?;
         let mut response = Builder::new_default();
-        response
-            .init_root::<heartbeat::Builder<'_>>()
-            .set_endpoint(endpoint_id);
+        response.init_root::<heartbeat::Builder<'_>>().set_endpoint(endpoint_id);
         Self::encode_response(OPCODE_HEARTBEAT, &response)
     }
 
@@ -330,24 +323,14 @@ pub fn serve_with_registry<T: Transport>(
     registry: Registry,
 ) -> Result<(), ServerError> {
     let mut server = Server::new(registry);
-    loop {
-        let frame = match transport
-            .recv()
-            .map_err(|err| ServerError::Transport(err.into()))?
-        {
-            Some(frame) => frame,
-            None => break,
-        };
+    while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
         }
-        let (opcode, payload) = frame
-            .split_first()
-            .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+        let (opcode, payload) =
+            frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
         let response = server.handle_frame(*opcode, payload)?;
-        transport
-            .send(&response)
-            .map_err(|err| ServerError::Transport(err.into()))?;
+        transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
     }
     Ok(())
 }
@@ -382,10 +365,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }

@@ -152,9 +152,8 @@ fn assert_register_ok(frame: &[u8]) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read register response");
-    let response = message
-        .get_root::<register_response::Reader<'_>>()
-        .expect("register response root");
+    let response =
+        message.get_root::<register_response::Reader<'_>>().expect("register response root");
     assert!(response.get_ok(), "register should succeed");
 }
 
@@ -163,9 +162,8 @@ fn parse_resolve(frame: &[u8]) -> (bool, u32) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read resolve response");
-    let response = message
-        .get_root::<resolve_response::Reader<'_>>()
-        .expect("resolve response root");
+    let response =
+        message.get_root::<resolve_response::Reader<'_>>().expect("resolve response root");
     (response.get_found(), response.get_endpoint())
 }
 
@@ -174,13 +172,9 @@ fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read install response");
-    let response = message
-        .get_root::<install_response::Reader<'_>>()
-        .expect("install response root");
-    (
-        response.get_ok(),
-        response.get_err().unwrap_or(InstallError::Einval),
-    )
+    let response =
+        message.get_root::<install_response::Reader<'_>>().expect("install response root");
+    (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
 }
 
 fn parse_query(frame: &[u8]) -> (bool, String) {
@@ -188,15 +182,9 @@ fn parse_query(frame: &[u8]) -> (bool, String) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read query response");
-    let response = message
-        .get_root::<query_response::Reader<'_>>()
-        .expect("query response root");
-    let version = response
-        .get_version()
-        .ok()
-        .and_then(|r| r.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+    let response = message.get_root::<query_response::Reader<'_>>().expect("query response root");
+    let version =
+        response.get_version().ok().and_then(|r| r.to_str().ok()).unwrap_or("").to_string();
     (response.get_installed(), version)
 }
 

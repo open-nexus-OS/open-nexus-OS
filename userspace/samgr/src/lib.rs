@@ -30,10 +30,7 @@ pub trait RemoteRouter {
 #[cfg(nexus_env = "host")]
 use parking_lot::Mutex;
 #[cfg(nexus_env = "host")]
-use std::{
-    collections::HashMap,
-    time::Instant,
-};
+use std::{collections::HashMap, time::Instant};
 
 /// Result alias for service manager operations.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -123,6 +120,7 @@ impl ServiceHandle {
 }
 
 /// Primary entry point for interacting with the service manager backend.
+#[derive(Default)]
 pub struct Registry {
     #[cfg(nexus_env = "host")]
     host: HostRegistry,
@@ -131,19 +129,9 @@ pub struct Registry {
     remote: Option<Box<dyn RemoteRouter + Send + Sync>>,
 }
 
-#[cfg(nexus_env = "host")]
-impl Default for Registry {
-    fn default() -> Self {
-        Self { host: HostRegistry::default(), remote: None }
-    }
-}
+// (Default for Registry is derived when host backend is enabled)
 
-#[cfg(nexus_env = "os")]
-impl Default for Registry {
-    fn default() -> Self {
-        Self {}
-    }
-}
+// OS backend keeps Unsupported stubs; default is derived only for host builds
 
 impl Registry {
     /// Creates a new registry using the selected backend.
@@ -175,7 +163,11 @@ impl Registry {
                 if router.resolve_remote(device, service) {
                     // Indicate a routed endpoint through a synthetic address.
                     let endpoint = Endpoint::new(format!("dsoftbus://{device}/{service}"));
-                    return Ok(ServiceHandle::new(service.to_string(), endpoint, Generation::first()));
+                    return Ok(ServiceHandle::new(
+                        service.to_string(),
+                        endpoint,
+                        Generation::first(),
+                    ));
                 }
             }
             return Err(Error::NotFound);
@@ -238,7 +230,11 @@ impl HostRegistry {
             return Err(Error::Duplicate);
         }
         let generation = Generation::first();
-        let record = ServiceRecord { endpoint: endpoint.clone(), generation, last_heartbeat: Instant::now() };
+        let record = ServiceRecord {
+            endpoint: endpoint.clone(),
+            generation,
+            last_heartbeat: Instant::now(),
+        };
         services.insert(name.clone(), record);
         Ok(ServiceHandle::new(name, endpoint, generation))
     }
@@ -278,8 +274,8 @@ mod tests {
     #[test]
     fn register_and_resolve_roundtrip() {
         let registry = Registry::new();
-        let handle = registry.register("samgr", Endpoint::from("ipc://samgr"))
-            .expect("register succeeds");
+        let handle =
+            registry.register("samgr", Endpoint::from("ipc://samgr")).expect("register succeeds");
         let resolved = registry.resolve("samgr").expect("resolve succeeds");
         assert_eq!(handle, resolved);
         registry.heartbeat(&resolved).expect("heartbeat ok");
@@ -289,9 +285,9 @@ mod tests {
     #[test]
     fn duplicate_registration_rejected() {
         let registry = Registry::new();
-        registry.register("samgr", Endpoint::from("ipc://samgr"))
-            .expect("initial register");
-        let err = registry.register("samgr", Endpoint::from("ipc://samgr2"))
+        registry.register("samgr", Endpoint::from("ipc://samgr")).expect("initial register");
+        let err = registry
+            .register("samgr", Endpoint::from("ipc://samgr2"))
             .expect_err("duplicate rejected");
         assert_eq!(err, Error::Duplicate);
     }
@@ -300,10 +296,9 @@ mod tests {
     #[test]
     fn restart_invalidates_old_handle() {
         let registry = Registry::new();
-        let handle = registry.register("samgr", Endpoint::from("ipc://samgr"))
-            .expect("register");
-        let restarted = registry.restart("samgr", Endpoint::from("ipc://samgr-new"))
-            .expect("restart");
+        let handle = registry.register("samgr", Endpoint::from("ipc://samgr")).expect("register");
+        let restarted =
+            registry.restart("samgr", Endpoint::from("ipc://samgr-new")).expect("restart");
         assert!(restarted.generation.value() > handle.generation.value());
         assert_eq!(registry.resolve("samgr").unwrap(), restarted);
         let err = registry.heartbeat(&handle).expect_err("old handle rejected");
@@ -339,7 +334,7 @@ mod tests {
     fn restart_sequence_updates_generation_miri_smoke() {
         let registry = Registry::new();
         let mut handle = registry.register("svc", Endpoint::new("a1")).unwrap();
-        for ep in ["b2","c3","d4"] {
+        for ep in ["b2", "c3", "d4"] {
             let next = registry.restart("svc", Endpoint::new(ep)).unwrap();
             assert!(next.generation.value() > handle.generation.value());
             handle = next;

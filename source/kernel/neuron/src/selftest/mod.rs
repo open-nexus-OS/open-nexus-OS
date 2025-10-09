@@ -76,9 +76,7 @@ fn test_ipc(ctx: &mut Context<'_>) {
     let zero = Message::new(MessageHeader::new(0, 0, 1, 0, 0), vec![]);
     uart::write_line("SELFTEST: ipc step0-pre: msg created");
     uart::write_line("SELFTEST: ipc step0-pre: calling send(ep0)");
-    ctx.router
-        .send(0, zero)
-        .expect("bootstrap endpoint must exist");
+    ctx.router.send(0, zero).expect("bootstrap endpoint must exist");
     uart::write_line("SELFTEST: ipc step0a: sent to ep0");
     uart::write_line("SELFTEST: ipc step0b: recv begin");
     let zero_recv = ctx.router.recv(0).expect("message available");
@@ -93,15 +91,11 @@ fn test_ipc(ctx: &mut Context<'_>) {
     let max_recv = ctx.router.recv(0).expect("max recv");
     uart::write_line("SELFTEST: ipc step1b: recv max ok");
     st_expect_eq!(max_recv.payload.len(), 4096usize);
-    st_assert!(
-        max_recv.payload.iter().all(|&b| b == 0xA5),
-        "payload integrity"
-    );
+    st_assert!(max_recv.payload.iter().all(|&b| b == 0xA5), "payload integrity");
 
     uart::write_line("SELFTEST: ipc step2: expect NoSuchEndpoint on id 4");
     st_expect_err!(
-        ctx.router
-            .send(4, Message::new(MessageHeader::new(0, 4, 3, 0, 0), vec![])),
+        ctx.router.send(4, Message::new(MessageHeader::new(0, 4, 3, 0, 0), vec![])),
         IpcError::NoSuchEndpoint
     );
 
@@ -113,8 +107,7 @@ fn test_ipc(ctx: &mut Context<'_>) {
         uart::write_line("SELFTEST: ipc step4: expect PermissionDenied via failpoint");
         ipc::failpoints::deny_next_send();
         st_expect_err!(
-            ctx.router
-                .send(0, Message::new(MessageHeader::new(0, 0, 4, 0, 0), vec![])),
+            ctx.router.send(0, Message::new(MessageHeader::new(0, 0, 4, 0, 0), vec![])),
             IpcError::PermissionDenied
         );
     }
@@ -138,19 +131,14 @@ fn test_caps(ctx: &mut Context<'_>) {
     st_expect_err!(ctx.caps.get(999), CapError::InvalidSlot);
 
     uart::write_line("SELFTEST: caps step4: install and verify endpoint cap in slot 2");
-    let new_cap = Capability {
-        kind: CapabilityKind::Endpoint(2),
-        rights: Rights::SEND | Rights::RECV,
-    };
+    let new_cap =
+        Capability { kind: CapabilityKind::Endpoint(2), rights: Rights::SEND | Rights::RECV };
     ctx.caps.set(2, new_cap).expect("install new capability");
     let fetched = ctx.caps.get(2).expect("fetch newly installed cap");
     st_expect_eq!(fetched.kind, CapabilityKind::Endpoint(2));
 
     uart::write_line("SELFTEST: caps step5: install and read back IRQ cap");
-    let irq_cap = Capability {
-        kind: CapabilityKind::Irq(5),
-        rights: Rights::MANAGE,
-    };
+    let irq_cap = Capability { kind: CapabilityKind::Irq(5), rights: Rights::MANAGE };
     ctx.caps.set(3, irq_cap).expect("install irq cap");
     match ctx.caps.get(3).expect("fetch irq cap").kind {
         CapabilityKind::Irq(line) => st_expect_eq!(line, 5u32),
@@ -172,10 +160,7 @@ fn test_map(ctx: &mut Context<'_>) {
     let _root = ctx.address_space.root_ppn();
 
     uart::write_line("SELFTEST: map step1: expect Unaligned");
-    st_expect_err!(
-        ctx.address_space.map(1, PAGE_SIZE, flags),
-        MapError::Unaligned
-    );
+    st_expect_err!(ctx.address_space.map(1, PAGE_SIZE, flags), MapError::Unaligned);
 
     #[cfg(feature = "failpoints")]
     {
@@ -189,17 +174,11 @@ fn test_map(ctx: &mut Context<'_>) {
 
     uart::write_line("SELFTEST: map step3: expect Overlap and OutOfRange");
     uart::write_line("SELFTEST: map step3a: assert Overlap");
-    st_expect_err!(
-        ctx.address_space.map(0, PAGE_SIZE, flags),
-        MapError::Overlap
-    );
+    st_expect_err!(ctx.address_space.map(0, PAGE_SIZE, flags), MapError::Overlap);
     uart::write_line("SELFTEST: map step3a ok");
     // Removed yield to avoid reliance on timer interrupt delivery during CI
     uart::write_line("SELFTEST: map step3b: assert OutOfRange");
-    st_expect_err!(
-        ctx.address_space.map(PAGE_SIZE * 2048, 0, flags),
-        MapError::OutOfRange
-    );
+    st_expect_err!(ctx.address_space.map(PAGE_SIZE * 2048, 0, flags), MapError::OutOfRange);
     uart::write_line("SELFTEST: map step3b ok");
     // Removed yield to avoid reliance on timer interrupt delivery during CI
     uart::write_line("SELFTEST: map ok");
@@ -252,8 +231,5 @@ fn test_trap_helpers() {
     crate::trap::fmt_trap(&recorded, &mut buffer).expect("format trap");
     st_assert!(!buffer.is_empty(), "trap formatting produced output");
     let interrupt_code = (usize::MAX - (usize::MAX >> 1)) | 1;
-    st_assert!(
-        crate::trap::is_interrupt(interrupt_code),
-        "interrupt bit detected"
-    );
+    st_assert!(crate::trap::is_interrupt(interrupt_code), "interrupt bit detected");
 }

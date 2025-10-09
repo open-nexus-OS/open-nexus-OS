@@ -15,7 +15,7 @@ pub fn help() -> &'static str {
 
 /// Executes the CLI logic and returns a descriptive message.
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         return help().to_string();
     }
     if let Some(offset) = args.first() {

@@ -14,19 +14,18 @@ fn main() {
 
     // If no schema directory exists, there's nothing to generate. Keep the build green.
     if !schemas.exists() {
-        println!(
-            "cargo:warning=nexus-idl-runtime: no schemas at {}",
-            schemas.display()
-        );
+        println!("cargo:warning=nexus-idl-runtime: no schemas at {}", schemas.display());
         return;
     }
 
     // Re-run the build script if the directory or any schema file changes.
     println!("cargo:rerun-if-changed={}", schemas.display());
-    for entry in fs::read_dir(&schemas).expect("read schemas dir") {
-        let path = entry.expect("dirent").path();
-        if path.extension() == Some(OsStr::new("capnp")) {
-            println!("cargo:rerun-if-changed={}", path.display());
+    if let Ok(entries) = fs::read_dir(&schemas) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension() == Some(OsStr::new("capnp")) {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
         }
     }
 
@@ -51,8 +50,9 @@ fn generate_with_capnpc(schemas: &Path) -> Result<(), String> {
     let mut cmd = capnpc::CompilerCommand::new();
     cmd.src_prefix(schemas);
 
-    for entry in fs::read_dir(schemas).expect("read schemas dir") {
-        let path = entry.expect("dirent").path();
+    let entries = fs::read_dir(schemas).map_err(|err| err.to_string())?;
+    for entry in entries {
+        let path = entry.map_err(|err| err.to_string())?.path();
         if path.extension() == Some(OsStr::new("capnp")) {
             cmd.file(&path);
         }
@@ -63,7 +63,7 @@ fn generate_with_capnpc(schemas: &Path) -> Result<(), String> {
 
 fn fallback_to_manual() -> Result<(), io::Error> {
     let manual_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/manual");
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR available"));
+    let out_dir = PathBuf::from(env::var("OUT_DIR").map_err(io::Error::other)?);
 
     if !manual_dir.exists() {
         return Err(io::Error::new(
@@ -81,7 +81,13 @@ fn fallback_to_manual() -> Result<(), io::Error> {
         let path = entry?.path();
         if path.extension() == Some(OsStr::new("rs")) {
             println!("cargo:rerun-if-changed={}", path.display());
-            let target = out_dir.join(path.file_name().expect("manual file name"));
+            let Some(file_name) = path.file_name() else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "manual file without name",
+                ));
+            };
+            let target = out_dir.join(file_name);
             fs::copy(&path, &target)?;
         }
     }

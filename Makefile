@@ -34,18 +34,18 @@ ifeq ($(MODE),container)
 		  echo "[1/2] host+os userspace build"; \
 		  mkdir -p "$$RUSTUP_HOME" "$$CARGO_HOME"; \
 		  rustup default stable; \
-		  RUSTFLAGS="--cfg nexus_env=\"host\"" $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd && \
-		  RUSTFLAGS="--cfg nexus_env=\"os\"" $(CARGO_BIN) build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd && \
+		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd && \
+		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd && \
 		  echo "[2/2] cross build kernel (riscv)"; \
 		  rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal; \
 		  rustup component add rust-src --toolchain "$(NIGHTLY)"; \
-                  $(CARGO_BIN) +$(NIGHTLY) build \
-                    -Z build-std=core,alloc -Z build-std-features=panic_immediate_abort \
-                    --target riscv64imac-unknown-none-elf -p neuron-boot --release'
+		  rustup target add riscv64imac-unknown-none-elf --toolchain "$(NIGHTLY)"; \
+		                  $(CARGO_BIN) +$(NIGHTLY) build \
+		                    --target riscv64imac-unknown-none-elf -p neuron-boot --release'
 else
 	@echo "==> Building workspace on host"
-	@RUSTFLAGS='--cfg nexus_env="host"' cargo build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd
-	@RUSTFLAGS='--cfg nexus_env="os"' cargo build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd
+	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"' cargo build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd
+	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd
 endif
 
 test:
@@ -70,6 +70,9 @@ endif
 
 run:
 	@echo "==> Launching NEURON kernel under QEMU"
+	@rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal
+	@rustup component add rust-src --toolchain "$(NIGHTLY)" >/dev/null 2>&1 || true
+	@$(CARGO_BIN) +$(NIGHTLY) build --target riscv64imac-unknown-none-elf -p neuron-boot --release
 	@RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh
 
 pull:

@@ -38,7 +38,10 @@ impl KernelState {
         // Slot 1: identity VMO for bootstrap mappings
         let _ = caps.set(
             1,
-            Capability { kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 }, rights: Rights::MAP },
+            Capability {
+                kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 },
+                rights: Rights::MAP,
+            },
         );
 
         let mut scheduler = Scheduler::new();
@@ -53,26 +56,20 @@ impl KernelState {
 
         let hal = VirtMachine::new();
 
-        Self {
-            hal,
-            scheduler,
-            caps,
-            ipc: router,
-            address_space,
-            syscalls,
-        }
+        Self { hal, scheduler, caps, ipc: router, address_space, syscalls }
     }
 
     fn banner(&self) {
         uart::write_line(
-"
+            "
 
  _ __   ___ _   _ _ __ ___  _ __
 | '_ \\ / _ \\ | | | '__/ _ \\| '_ \\
 | | | |  __/ |_| | | | (_) | | | |
 |_| |_|\\___|\\__,_|_|  \\___/|_| |_|
 
-                                  ");
+                                  ",
+        );
         uart::write_line("neuron vers. 0.1.0 - One OS. Many Devices.");
     }
 
@@ -119,7 +116,9 @@ pub fn kmain() -> ! {
     kernel.banner();
     // reduce IO noise during timing runs
     // SAFETY: trap vector installed; first tick armed; enable S-mode timer interrupts after init
-    unsafe { crate::trap::enable_timer_interrupts(); }
+    unsafe {
+        crate::trap::enable_timer_interrupts();
+    }
     uart::write_line("T: enabled timer interrupts");
     uart::write_line("F: before exercise_ipc");
     kernel.exercise_ipc();

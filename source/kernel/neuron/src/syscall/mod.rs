@@ -94,7 +94,12 @@ impl SyscallTable {
     }
 
     /// Executes the handler referenced by `number`.
-    pub fn dispatch(&self, number: usize, ctx: &mut api::Context<'_>, args: &Args) -> SysResult<usize> {
+    pub fn dispatch(
+        &self,
+        number: usize,
+        ctx: &mut api::Context<'_>,
+        args: &Args,
+    ) -> SysResult<usize> {
         self.handlers
             .get(number)
             .and_then(|entry| *entry)

@@ -59,12 +59,8 @@ impl Scheduler {
 
     /// Picks the next runnable task.
     pub fn schedule_next(&mut self) -> Option<TaskId> {
-        for class in [
-            QosClass::PerfBurst,
-            QosClass::Interactive,
-            QosClass::Normal,
-            QosClass::Idle,
-        ] {
+        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
+        {
             if let Some(task) = self.queue_for(class).pop_front() {
                 self.current = Some(task.clone());
                 return Some(task.id);

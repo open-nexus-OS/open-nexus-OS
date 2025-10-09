@@ -68,9 +68,7 @@ pub struct CapTable {
 impl CapTable {
     /// Creates an empty table sized for `slots` entries.
     pub fn with_capacity(slots: usize) -> Self {
-        Self {
-            slots: vec![None; slots],
-        }
+        Self { slots: vec![None; slots] }
     }
 
     /// Convenience constructor for the bootstrap task.
@@ -80,10 +78,7 @@ impl CapTable {
 
     /// Inserts or overwrites a slot.
     pub fn set(&mut self, slot: usize, cap: Capability) -> Result<(), CapError> {
-        self.slots
-            .get_mut(slot)
-            .ok_or(CapError::InvalidSlot)
-            .map(|entry| *entry = Some(cap))
+        self.slots.get_mut(slot).ok_or(CapError::InvalidSlot).map(|entry| *entry = Some(cap))
     }
 
     /// Allocates the first free slot and inserts `cap`, returning the slot index.
@@ -101,10 +96,7 @@ impl CapTable {
 
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
-        self.slots
-            .get(slot)
-            .and_then(|entry| *entry)
-            .ok_or(CapError::InvalidSlot)
+        self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)
     }
 
     /// Derives a new capability with intersected rights.
@@ -113,10 +105,7 @@ impl CapTable {
         if !base.rights.contains(rights) {
             return Err(CapError::PermissionDenied);
         }
-        Ok(Capability {
-            kind: base.kind,
-            rights,
-        })
+        Ok(Capability { kind: base.kind, rights })
     }
 }
 

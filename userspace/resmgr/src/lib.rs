@@ -15,7 +15,7 @@ pub fn help() -> &'static str {
 
 /// Executes the CLI command and returns its message.
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         help().to_string()
     } else {
         "resource manager initialized".to_string()

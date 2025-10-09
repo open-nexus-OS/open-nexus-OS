@@ -7,9 +7,7 @@ use std::process::Command;
 use serde_json::Value;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let output = Command::new("cargo")
-        .args(["metadata", "--format-version", "1"])
-        .output()?;
+    let output = Command::new("cargo").args(["metadata", "--format-version", "1"]).output()?;
     if !output.status.success() {
         return Err(format!("cargo metadata failed: {}", output.status).into());
     }
@@ -38,9 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut violations = Vec::new();
     for member in workspace_members {
-        let id = member
-            .as_str()
-            .ok_or("workspace member entry must be a string")?;
+        let id = member.as_str().ok_or("workspace member entry must be a string")?;
         let Some(info) = packages.get(id) else {
             continue;
         };
@@ -122,7 +118,11 @@ fn build_dependency_graph(metadata: &Value) -> Result<DependencyGraph, Box<dyn E
     Ok(graph)
 }
 
-fn find_violation(start: &str, graph: &DependencyGraph, banned: &HashSet<String>) -> Option<Vec<String>> {
+fn find_violation(
+    start: &str,
+    graph: &DependencyGraph,
+    banned: &HashSet<String>,
+) -> Option<Vec<String>> {
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
     let mut parents = HashMap::new();

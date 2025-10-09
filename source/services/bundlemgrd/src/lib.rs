@@ -291,10 +291,7 @@ impl Server {
             }
         };
 
-        match self.service.install(DomainInstallRequest {
-            name: &name,
-            manifest,
-        }) {
+        match self.service.install(DomainInstallRequest { name: &name, manifest }) {
             Ok(_) => {
                 builder.set_ok(true);
                 builder.set_err(InstallError::None);
@@ -373,24 +370,14 @@ pub fn serve_with_components<T: Transport>(
     artifacts: ArtifactStore,
 ) -> Result<(), ServerError> {
     let mut server = Server::new(service, artifacts);
-    loop {
-        let frame = match transport
-            .recv()
-            .map_err(|err| ServerError::Transport(err.into()))?
-        {
-            Some(frame) => frame,
-            None => break,
-        };
+    while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
         }
-        let (opcode, payload) = frame
-            .split_first()
-            .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+        let (opcode, payload) =
+            frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
         let response = server.handle_frame(*opcode, payload)?;
-        transport
-            .send(&response)
-            .map_err(|err| ServerError::Transport(err.into()))?;
+        transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
     }
     Ok(())
 }
@@ -438,10 +425,8 @@ pub fn service_main_loop(
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }

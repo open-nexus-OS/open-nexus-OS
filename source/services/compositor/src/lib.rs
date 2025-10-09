@@ -3,7 +3,7 @@ pub fn help() -> &'static str {
 }
 
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         help().to_string()
     } else {
         "compositor ready".to_string()
@@ -20,9 +20,7 @@ pub fn compose() -> Vec<u32> {
 }
 
 pub fn checksum() -> u32 {
-    compose()
-        .iter()
-        .fold(0_u32, |acc, value| acc.wrapping_add(*value))
+    compose().iter().fold(0_u32, |acc, value| acc.wrapping_add(*value))
 }
 
 pub fn run() {

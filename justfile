@@ -19,6 +19,8 @@ help:
     @echo "[Developers: Host]"
     @echo "  just test-host           # run host test suite (exclude kernel)"
     @echo "  just test-e2e            # run host E2E tests (nexus-e2e + remote_e2e)"
+    @echo "  just fmt-check           # check formatting (stable + kernel on nightly)"
+    @echo "  just lint                # clippy (host cfg, exclude kernel)"
     @echo "  just miri-strict         # miri (no FS/network) for samgr,bundlemgr"
     @echo "  just miri-fs             # miri with FS isolation disabled"
     @echo
@@ -28,6 +30,8 @@ help:
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo
     @echo "[Project Maintainers]"
+    @echo "  just lint                # run clippy checks"
+    @echo "  just fmt-check           # verify rustfmt formatting"
     @echo "  just arch-check          # userspace/kernel layering guard"
     @echo "  just test-all            # host tests + arch-check + kernel selftests"
 
@@ -51,6 +55,17 @@ test-os:
 # -----------------------------------------------------------------------------
 # Host test suites
 # -----------------------------------------------------------------------------
+
+fmt-check:
+    @echo "==> rustfmt (stable)"
+    @cargo +stable fmt --all -- --config-path config/rustfmt.toml --check
+    @echo "==> rustfmt (kernel, nightly)"
+    @rustup component add --toolchain {{toolchain}} rustfmt >/dev/null 2>&1 || true
+    @cargo +{{toolchain}} fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml --check
+
+lint:
+    @echo "==> clippy (host cfg, exclude kernel)"
+    @env RUSTFLAGS='--cfg nexus_env="host"' cargo +stable clippy --workspace --exclude neuron --exclude neuron-boot -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code -A unexpected_cfgs
 
 test-host:
     @echo "==> Running host test suite (exclude kernel)"
@@ -84,6 +99,8 @@ arch-check:
 # -----------------------------------------------------------------------------
 
 test-all:
+    just fmt-check
+    just lint
     just test-host
     just test-e2e
     just arch-check

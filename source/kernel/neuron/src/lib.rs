@@ -26,7 +26,9 @@ struct SpinLockedHeap(Mutex<Heap>);
 unsafe impl GlobalAlloc for SpinLockedHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // SAFETY: allocate_first_fit is safe to call; caller guarantees layout validity per GlobalAlloc contract
-        self.0.lock().allocate_first_fit(layout)
+        self.0
+            .lock()
+            .allocate_first_fit(layout)
             .ok()
             .map_or(ptr::null_mut(), |allocation| allocation.as_ptr())
     }
@@ -60,7 +62,6 @@ fn init_heap() {
     }
     uart::write_line("B6: leaving init_heap");
 }
-
 
 // Modules
 

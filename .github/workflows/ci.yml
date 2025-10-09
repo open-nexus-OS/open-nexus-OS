@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["*"]
+    branches: ["**"]
   pull_request:
 
 jobs:
@@ -35,12 +35,13 @@ jobs:
       - name: Cargo clippy
         env:
           RUSTFLAGS: --cfg nexus_env="host"
-        run: cargo +stable clippy --workspace --exclude neuron --exclude neuron-boot -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code
+        run: cargo +stable clippy --workspace --exclude neuron --exclude neuron-boot -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code -A unexpected_cfgs
 
   host-tests:
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: stable
+      RUSTFLAGS: --cfg nexus_env="host"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -54,6 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: stable
+      RUSTFLAGS: --cfg nexus_env="host"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -83,13 +85,13 @@ jobs:
           RUSTFLAGS: -Z unstable-options --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
           CARGO_ENCODED_RUSTFLAGS: ""
           MIRIFLAGS: ""
-        run: cargo miri test -p identity
+        run: cargo +nightly-2025-01-15 miri test -p identity
       - name: Miri (samgr, bundlemgr, fs enabled)
         env:
           RUSTFLAGS: -Z unstable-options --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
           CARGO_ENCODED_RUSTFLAGS: ""
           MIRIFLAGS: -Zmiri-disable-isolation
-        run: cargo miri test -p samgr -p bundlemgr
+        run: cargo +nightly-2025-01-15 miri test -p samgr -p bundlemgr
 
   deadcode:
     runs-on: ubuntu-latest

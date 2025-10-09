@@ -7,7 +7,7 @@ pub fn help() -> &'static str {
 
 /// Executes the CLI using provided arguments.
 pub fn execute(args: &[&str]) -> String {
-    if args.iter().any(|arg| *arg == "--help") {
+    if args.contains(&"--help") {
         help().to_string()
     } else {
         "service ability manager ready".to_string()

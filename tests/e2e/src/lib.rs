@@ -9,8 +9,13 @@ use nexus_ipc::{Client, LoopbackClient, LoopbackServer, Wait};
 /// Client helper that sends a request frame and waits for the reply.
 #[cfg(nexus_env = "host")]
 pub fn call(client: &LoopbackClient, frame: Vec<u8>) -> Vec<u8> {
-    client.send(&frame, Wait::Blocking).expect("send frame");
-    client.recv(Wait::Blocking).expect("recv frame")
+    if let Err(err) = client.send(&frame, Wait::Blocking) {
+        panic!("send frame: {err}");
+    }
+    match client.recv(Wait::Blocking) {
+        Ok(bytes) => bytes,
+        Err(err) => panic!("recv frame: {err}"),
+    }
 }
 
 /// Creates a loopback transport pair for the SAMGR daemon.
