@@ -7,7 +7,7 @@ run-name: >
 on:
   push:
     branches:
-      - 'neuron-foundation/**'
+      - '**'
   pull_request:
     branches:
       - '**'
