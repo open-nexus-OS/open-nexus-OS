@@ -3,10 +3,10 @@ name: CI
 on:
   push:
     branches:
-      - '*'     # alle Branch-Namen (ohne Slash-Schachtelung nötig)
+      - 'neuron-foundations/**'     # alle Branch-Namen (ohne Slash-Schachtelung nötig)
   pull_request:
     branches:
-      - '*'
+      - '**'
   workflow_dispatch:
 
 
