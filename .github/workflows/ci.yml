@@ -79,10 +79,15 @@ jobs:
         run: cargo +nightly-2024-02-01 miri setup
       - name: Miri (identity, strict)
         env:
+          # Ensure no inherited check-cfg leaks in; set only stable cfg and clear encoded flags
+          RUSTFLAGS: --cfg nexus_env="host"
+          CARGO_ENCODED_RUSTFLAGS: ""
           MIRIFLAGS: --cfg nexus_env="host"
         run: cargo miri test -p identity
       - name: Miri (samgr, bundlemgr, fs enabled)
         env:
+          RUSTFLAGS: --cfg nexus_env="host"
+          CARGO_ENCODED_RUSTFLAGS: ""
           MIRIFLAGS: -Zmiri-disable-isolation --cfg nexus_env="host"
         run: cargo miri test -p samgr -p bundlemgr
 
