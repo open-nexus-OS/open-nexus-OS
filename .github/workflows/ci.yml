@@ -7,7 +7,7 @@ run-name: >
 on:
   push:
     branches:
-      - 'neuron-foundations/**'     # alle Branch-Namen (ohne Slash-Schachtelung nötig)
+      - 'neuron-foundation/**'
   pull_request:
     branches:
       - '**'
