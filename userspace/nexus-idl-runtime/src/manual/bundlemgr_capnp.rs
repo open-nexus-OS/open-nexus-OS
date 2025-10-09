@@ -32,6 +32,8 @@ pub enum InstallError {
     Einval = 2,
     Ebusy = 3,
     Enoent = 4,
+    InvalidSig = 5,
+    Unsigned = 6,
 }
 
 impl ::core::convert::TryFrom<u16> for InstallError {
@@ -43,6 +45,8 @@ impl ::core::convert::TryFrom<u16> for InstallError {
             2 => Ok(Self::Einval),
             3 => Ok(Self::Ebusy),
             4 => Ok(Self::Enoent),
+            5 => Ok(Self::InvalidSig),
+            6 => Ok(Self::Unsigned),
             _ => Err(value),
         }
     }

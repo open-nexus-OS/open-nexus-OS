@@ -1,4 +1,4 @@
-//! Bin wrapper for the keystored stub daemon entry point.
+//! Bin wrapper wiring keystored's daemon entry point.
 
 #[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
 compile_error!(
@@ -7,8 +7,7 @@ compile_error!(
 
 #[cfg(nexus_env = "host")]
 fn main() {
-    let notifier = keystored::ReadyNotifier::new(|| {});
-    let _ = keystored::service_main_loop(notifier);
+    keystored::daemon_main(|| {});
 }
 
 #[cfg(nexus_env = "os")]

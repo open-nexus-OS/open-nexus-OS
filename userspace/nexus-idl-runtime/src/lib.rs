@@ -18,6 +18,12 @@ pub mod bundlemgr_capnp {
 
 #[cfg(feature = "capnp")]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
+pub mod keystored_capnp {
+    include!(concat!(env!("OUT_DIR"), "/keystored_capnp.rs"));
+}
+
+#[cfg(feature = "capnp")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub mod identity_capnp {
     include!(concat!(env!("OUT_DIR"), "/identity_capnp.rs"));
 }

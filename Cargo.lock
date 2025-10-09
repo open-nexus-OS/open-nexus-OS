@@ -793,6 +793,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "keystore"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tempfile",
+]
+
+[[package]]
+name = "keystored"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "keystore",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "thiserror",
+]
+
+[[package]]
 name = "ime"
 version = "0.1.0"
 

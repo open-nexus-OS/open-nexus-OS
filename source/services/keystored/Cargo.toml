@@ -4,10 +4,16 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
-[lib]
-path = "src/lib.rs"
+[features]
+default = ["idl-capnp"]
+idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 
 [dependencies]
+keystore = { path = "../../../userspace/keystore" }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
+capnp = { version = "0.19", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc" }
+thiserror = "1"
 
 [[bin]]
 name = "keystored"

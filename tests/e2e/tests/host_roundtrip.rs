@@ -21,14 +21,22 @@ const SAMGR_OPCODE_REGISTER: u8 = 1;
 const SAMGR_OPCODE_RESOLVE: u8 = 2;
 const BUNDLE_OPCODE_INSTALL: u8 = 1;
 const BUNDLE_OPCODE_QUERY: u8 = 2;
-const VALID_MANIFEST: &str = r#"
-name = "launcher"
-version = "1.0.0"
-abilities = ["ui"]
-caps = ["gpu"]
-min_sdk = "0.1.0"
-signature = "valid"
-"#;
+const PUBLISHER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const SIG_HEX: &str =
+    "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
+const VALID_MANIFEST: &str = concat!(
+    "name = \"launcher\"\n",
+    "version = \"1.0.0\"\n",
+    "abilities = [\"ui\"]\n",
+    "caps = [\"gpu\"]\n",
+    "min_sdk = \"0.1.0\"\n",
+    "publisher = \"",
+    PUBLISHER,
+    "\"\n",
+    "sig = \"",
+    SIG_HEX,
+    "\"\n",
+);
 
 #[test]
 fn samgr_register_resolve_roundtrip() {
@@ -58,8 +66,9 @@ fn bundle_install_query_roundtrip() {
     store.insert(42, manifest);
     let store_clone = store.clone();
 
-    let handle =
-        thread::spawn(move || bundlemgrd::run_with_transport(&mut server, store_clone).unwrap());
+    let handle = thread::spawn(move || {
+        bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
+    });
 
     let install = build_install_frame("launcher", 42, len);
     let response = call(&client, install);
@@ -86,14 +95,15 @@ fn bundle_install_invalid_signature() {
     store.insert(7, manifest);
     let store_clone = store.clone();
 
-    let handle =
-        thread::spawn(move || bundlemgrd::run_with_transport(&mut server, store_clone).unwrap());
+    let handle = thread::spawn(move || {
+        bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
+    });
 
     let install = build_install_frame("launcher", 7, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
     assert!(!ok, "install should fail");
-    assert_eq!(err, InstallError::Eacces);
+    assert_eq!(err, InstallError::InvalidSig);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -193,5 +203,5 @@ fn valid_manifest() -> Vec<u8> {
 }
 
 fn invalid_manifest() -> Vec<u8> {
-    VALID_MANIFEST.replace("valid", "invalid").into_bytes()
+    VALID_MANIFEST.replace(SIG_HEX, "00").into_bytes()
 }
