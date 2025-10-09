@@ -27,15 +27,26 @@ impl ReadyNotifier {
     }
 }
 
+#[derive(Debug)]
+pub struct Error;
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "keystored error")
+    }
+}
+
+impl std::error::Error for Error {}
+
 /// Runs the daemon main loop.
-pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ()> {
+pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), Error> {
     let _ = try_register_with_samgr();
     notifier.notify();
     println!("keystored: ready");
     idle()
 }
 
-fn idle() -> Result<(), ()> {
+fn idle() -> Result<(), Error> {
     let tick = std::time::Duration::from_millis(100);
     loop {
         // TODO: Once IPC endpoint is assigned, block on recv with timeout and
@@ -46,7 +57,7 @@ fn idle() -> Result<(), ()> {
 }
 
 /// Best-effort registration with `samgr`. No-op if client not yet available.
-fn try_register_with_samgr() -> Result<(), ()> {
+fn try_register_with_samgr() -> Result<(), Error> {
     // Placeholder: wire to `samgr` client when available.
     Ok(())
 }

@@ -225,8 +225,6 @@ mod runtime {
     mod service_registry {
         use super::{ReadySender, ServiceConfig, ServiceStatus};
         use crate::InitError;
-        use keystored;
-        use policyd;
 
         pub fn launch(service: ServiceConfig, ready: ReadySender) {
             let ServiceConfig { name, entry } = service;
