@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 UART_LOG=${UART_LOG:-uart.log}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
-RUN_TIMEOUT=${RUN_TIMEOUT:-30s}
+RUN_TIMEOUT=${RUN_TIMEOUT:-45s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
@@ -47,6 +47,8 @@ if grep -Fq "init: start" "$UART_LOG"; then
   expected_sequence=(
     "NEURON"
     "init: start"
+    "keystored: ready"
+    "policyd: ready"
     "samgrd: ready"
     "bundlemgrd: ready"
     "init: ready"

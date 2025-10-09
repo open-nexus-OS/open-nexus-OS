@@ -30,7 +30,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | --- | --- | --- | --- |
 | Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` or `just test-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
 | Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `NEURON` → `init: start` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready`. Detects `SELFTEST: end` when present and trims logs post-run. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `NEURON` → `init: start` → `keystored: ready` → `policyd: ready` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready`. Detects `SELFTEST: end` when present and trims logs post-run. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -38,6 +38,13 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 3. Refresh Golden Vectors (IDL frames, ABI structs) and bump SemVer when contracts change.
 4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
 5. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
+
+## Scaffold sanity
+
+Use `tools/postflight-scaffold.sh` to confirm the scaffolded daemons are present
+and the UART marker sequence reaches `init: ready`. The helper keeps
+`RUN_UNTIL_MARKER=1` and enforces the readiness order while also verifying that
+log files remain within the configured caps.
 
 ### Just targets
 
@@ -59,9 +66,11 @@ The OS smoke path emits a deterministic sequence of UART markers that the runner
 
 1. `NEURON` – kernel banner
 2. `init: start` – init process begins bootstrapping services
-3. `samgrd: ready` – service manager daemon ready
-4. `bundlemgrd: ready` – bundle manager daemon ready
-5. `init: ready` – init completed baseline bring-up
+3. `keystored: ready` – key store stub ready
+4. `policyd: ready` – policy stub ready
+5. `samgrd: ready` – service manager daemon ready
+6. `bundlemgrd: ready` – bundle manager daemon ready
+7. `init: ready` – init completed baseline bring-up
 
 Cap'n Proto remains a userland concern. Large payloads (e.g. bundle artifacts) are transferred via VMO handles on the OS; on the host these handles are emulated by staging bytes in the bundle manager's artifact store before issuing control-plane requests.
 
@@ -89,7 +98,7 @@ hand-off the OS build will use later. Execute the tests with
 - CI enforces architecture guards, UART markers, and formatting; keep commits green locally before pushing.
 
 ## Troubleshooting tips
-- QEMU runs are bounded by the `RUN_TIMEOUT` environment variable (default `30s`). Increase it only when debugging: `RUN_TIMEOUT=120s just qemu`.
+- QEMU runs are bounded by the `RUN_TIMEOUT` environment variable (default `45s`). Increase it only when debugging: `RUN_TIMEOUT=120s just qemu`.
 - Logs are trimmed post-run. Override caps with `QEMU_LOG_MAX` or `UART_LOG_MAX` if you need to preserve more context.
 - Enable marker-driven early exit for faster loops by setting `RUN_UNTIL_MARKER=1` (already defaulted in `just test-os`). Logs appear as `qemu.log` (diagnostics) and `uart.log` (console output) in the working directory. Set `QEMU_TRACE=1` and optionally `QEMU_TRACE_FLAGS=in_asm,int,mmu,unimp` to capture detailed traces while debugging.
 - For stubborn host/container mismatches, rebuild the Podman image and ensure the same targets are installed inside and outside the container.
