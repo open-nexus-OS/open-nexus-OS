@@ -1,6 +1,14 @@
 name: CI
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches:
+      - '*'     # alle Branch-Namen (ohne Slash-Schachtelung nötig)
+  pull_request:
+    branches:
+      - '*'
+  workflow_dispatch:
+
 
 jobs:
   lint:
