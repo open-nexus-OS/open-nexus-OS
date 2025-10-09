@@ -8,6 +8,7 @@ GID := $(shell id -g)
 SELINUX_LABEL := $(shell command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && echo ":Z" || true)
 
 .PHONY: initial-setup build test run pull clean
+.PHONY: run-init-host test-init-host
 
 initial-setup:
 	@echo "==> Checking podman rootless support"
@@ -74,6 +75,14 @@ run:
 	@rustup component add rust-src --toolchain "$(NIGHTLY)" >/dev/null 2>&1 || true
 	@$(CARGO_BIN) +$(NIGHTLY) build --target riscv64imac-unknown-none-elf -p neuron-boot --release
 	@RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh
+
+run-init-host:
+	@echo "==> Running host nexus-init (will exit on init: ready)"
+	@RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/host-init-test.sh
+
+test-init-host:
+	@echo "==> Host init test"
+	@./scripts/host-init-test.sh
 
 pull:
 	@echo "==> Refreshing recipe sources"

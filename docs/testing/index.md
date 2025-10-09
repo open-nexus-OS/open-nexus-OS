@@ -29,8 +29,9 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Layer | Scope | Command | Notes |
 | --- | --- | --- | --- |
 | Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` or `just test-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
+| Host init smoke | Runs `nexus-init` on host, asserts real daemon readiness and `*: up` markers. | `just test-init` or `make test-init-host` | Exits early on `init: ready` and enforces ordered readiness. |
 | Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `NEURON` → `init: start` → `keystored: ready` → `policyd: ready` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready`. Detects `SELFTEST: end` when present and trims logs post-run. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `neuron vers.` → `init: start` → `keystored: ready` → `policyd: ready` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready`. Logs are trimmed post-run. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -41,10 +42,9 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 ## Scaffold sanity
 
-Use `tools/postflight-scaffold.sh` to confirm the scaffolded daemons are present
-and the UART marker sequence reaches `init: ready`. The helper keeps
-`RUN_UNTIL_MARKER=1` and enforces the readiness order while also verifying that
-log files remain within the configured caps.
+Run the QEMU smoke test to confirm the UART marker sequence reaches `init: ready`.
+Keep `RUN_UNTIL_MARKER=1` to exit early once markers are seen and ensure log caps
+are in effect.
 
 ### Just targets
 
@@ -64,7 +64,7 @@ log files remain within the configured caps.
 
 The OS smoke path emits a deterministic sequence of UART markers that the runner validates in order:
 
-1. `NEURON` – kernel banner
+1. `neuron vers.` – kernel banner
 2. `init: start` – init process begins bootstrapping services
 3. `keystored: ready` – key store stub ready
 4. `policyd: ready` – policy stub ready

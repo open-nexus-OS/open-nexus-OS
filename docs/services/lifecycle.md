@@ -15,3 +15,5 @@ the platform is under construction:
 Each stub emits a `*: ready` marker on the UART. `nexus-init` prints matching
 `*: up` confirmations as it observes readiness so the QEMU harness can enforce
 the order deterministically.
+
+The kernel banner marker to expect in logs is `neuron vers.` rather than `NEURON`.

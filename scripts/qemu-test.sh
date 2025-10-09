@@ -43,9 +43,9 @@ UART_LOG_MAX="$UART_LOG_MAX" \
 
 # Verify markers. If init markers are present, enforce strict order; otherwise
 # accept a kernel-only run with the selftest success marker.
-if grep -Fq "init: start" "$UART_LOG"; then
+if grep -aFq "init: start" "$UART_LOG"; then
   expected_sequence=(
-    "NEURON"
+    "neuron vers."
     "init: start"
     "keystored: ready"
     "policyd: ready"
@@ -56,7 +56,7 @@ if grep -Fq "init: start" "$UART_LOG"; then
 
   missing=0
   for marker in "${expected_sequence[@]}"; do
-    if ! grep -Fq "$marker" "$UART_LOG"; then
+    if ! grep -aFq "$marker" "$UART_LOG"; then
       echo "Missing UART marker: $marker" >&2
       missing=1
     fi
@@ -67,7 +67,7 @@ if grep -Fq "init: start" "$UART_LOG"; then
 
   prev=-1
   for marker in "${expected_sequence[@]}"; do
-    line=$(grep -Fn "$marker" "$UART_LOG" | head -n1 | cut -d: -f1)
+    line=$(grep -aFn "$marker" "$UART_LOG" | head -n1 | cut -d: -f1)
     if [[ -z "$line" ]]; then
       echo "Marker not found for ordering check: $marker" >&2
       exit 1
@@ -79,8 +79,13 @@ if grep -Fq "init: start" "$UART_LOG"; then
     prev=$line
   done
 else
-  if ! grep -Fq "SELFTEST: end" "$UART_LOG"; then
-    echo "Missing UART marker: SELFTEST: end" >&2
+  # Kernel-only mode: enforce banner and selftest completion
+  if ! grep -aFq "neuron vers." "$UART_LOG"; then
+    echo "Missing UART marker: neuron vers." >&2
+    exit 1
+  fi
+  if ! grep -aFq "I: after selftest" "$UART_LOG"; then
+    echo "Missing UART marker: I: after selftest" >&2
     exit 1
   fi
 fi
