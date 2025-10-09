@@ -14,6 +14,16 @@ pub mod bundlemgr_capnp {
     include!(concat!(env!("OUT_DIR"), "/bundlemgr_capnp.rs"));
 }
 
+#[cfg(feature = "capnp")]
+pub mod identity_capnp {
+    include!(concat!(env!("OUT_DIR"), "/identity_capnp.rs"));
+}
+
+#[cfg(feature = "capnp")]
+pub mod dsoftbus_capnp {
+    include!(concat!(env!("OUT_DIR"), "/dsoftbus_capnp.rs"));
+}
+
 /// Common error type for IDL encode/decode boundaries.
 #[derive(Debug)]
 pub enum IdlError {

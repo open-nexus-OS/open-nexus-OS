@@ -42,8 +42,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y capnproto
       - name: Cargo test (host workspace, exclude kernel)
         run: cargo +stable test --workspace --exclude neuron --exclude neuron-boot
+
+  remote-e2e:
+    needs: host-tests
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y capnproto
+      - name: Remote E2E tests
+        run: cargo +stable test -p remote_e2e
 
   miri:
     needs: host-tests

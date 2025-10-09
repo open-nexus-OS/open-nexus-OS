@@ -36,6 +36,11 @@ Runner and helper scripts (including the QEMU invocations, log management utilit
 ## `docs/`
 All project documentation—including this overview, testing guides, architecture notes, and RFCs—stays in this tree. Every new process or workflow should land documentation here.
 
+Key distributed-systems references:
+
+* [DSoftBus-lite overview](distributed/dsoftbus-lite.md)
+* [Identity and session security](security/identity-and-sessions.md)
+
 ## How to navigate
 * Kernel bring-up or architecture work begins in `source/kernel/neuron` (for reusable logic) and `source/kernel/neuron-boot` (for entry glue). Pair changes with updates to the runner scripts under `scripts/` when boot sequencing shifts.
 * Service work (daemons, IPC endpoints, bundle/service managers) typically touches `source/services/*d` for the adapter layer and the relevant crates in `userspace/` for core business logic and testing.
