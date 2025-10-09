@@ -44,6 +44,12 @@ pub struct InstalledBundle {
     pub name: String,
     /// Installed version.
     pub version: Version,
+    /// Anchor identifier of the publisher.
+    pub publisher: String,
+    /// Abilities exported by the bundle.
+    pub abilities: Vec<String>,
+    /// Capabilities required by the bundle.
+    pub capabilities: Vec<String>,
 }
 
 /// Parameters provided when installing a bundle.
@@ -138,9 +144,6 @@ struct HostBackend {
 #[cfg(nexus_env = "host")]
 impl HostBackend {
     fn install(&self, request: InstallRequest<'_>) -> Result<InstalledBundle, ServiceError> {
-        if !verify_signature(request.manifest) {
-            return Err(ServiceError::InvalidSignature);
-        }
         let manifest = parse_manifest(request.manifest)?;
         if manifest.name != request.name {
             return Err(ServiceError::Manifest("name mismatch".into()));
@@ -150,7 +153,13 @@ impl HostBackend {
             return Err(ServiceError::AlreadyInstalled);
         }
 
-        let record = InstalledBundle { name: manifest.name, version: manifest.version };
+        let record = InstalledBundle {
+            name: manifest.name.clone(),
+            version: manifest.version.clone(),
+            publisher: manifest.publisher.clone(),
+            abilities: manifest.abilities.clone(),
+            capabilities: manifest.capabilities.clone(),
+        };
         bundles.insert(record.name.clone(), record.clone());
         Ok(record)
     }
@@ -167,23 +176,25 @@ fn parse_manifest(input: &str) -> Result<Manifest, ServiceError> {
 }
 
 #[cfg(nexus_env = "host")]
-fn verify_signature(input: &str) -> bool {
-    input.contains("signature = \"valid\"")
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[cfg(nexus_env = "host")]
-    const MANIFEST: &str = r#"
-name = "launcher"
-version = "1.0.0"
-abilities = ["ui"]
-caps = ["gpu"]
-min_sdk = "0.1.0"
-signature = "valid"
-"#;
+    const PUBLISHER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    #[cfg(nexus_env = "host")]
+    const SIG_HEX: &str = "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
+    #[cfg(nexus_env = "host")]
+    const MANIFEST: &str = concat!(
+        "name = \"launcher\"\n",
+        "version = \"1.0.0\"\n",
+        "abilities = [\"ui\"]\n",
+        "caps = [\"gpu\"]\n",
+        "min_sdk = \"0.1.0\"\n",
+        "publisher = \"", PUBLISHER, "\"\n",
+        "sig = \"", SIG_HEX, "\"\n",
+    );
 
     #[cfg(nexus_env = "host")]
     #[test]
@@ -194,6 +205,9 @@ signature = "valid"
             .expect("install succeeds");
         assert_eq!(record.name, "launcher");
         assert_eq!(record.version, Version::new(1, 0, 0));
+        assert_eq!(record.publisher, PUBLISHER);
+        assert_eq!(record.capabilities, vec!["gpu".to_string()]);
+        assert_eq!(record.abilities, vec!["ui".to_string()]);
         let query = service.query("launcher").unwrap();
         assert_eq!(query.unwrap(), record);
     }
@@ -210,12 +224,12 @@ signature = "valid"
 
     #[cfg(nexus_env = "host")]
     #[test]
-    fn invalid_signature_rejected() {
+    fn invalid_signature_encoding_rejected() {
         let service = Service::new();
-        let tampered = MANIFEST.replace("valid", "invalid");
+        let tampered = MANIFEST.replace(SIG_HEX, "deadbeef");
         let err =
             service.install(InstallRequest { name: "launcher", manifest: &tampered }).unwrap_err();
-        assert_eq!(err, ServiceError::InvalidSignature);
+        assert!(matches!(err, ServiceError::Manifest(_)));
     }
 
     #[cfg(nexus_env = "host")]

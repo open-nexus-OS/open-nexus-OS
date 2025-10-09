@@ -9,3 +9,5 @@ authors = ["Open Nexus OS Contributors"]
 semver = "1"
 toml = "0.8"
 thiserror = "1"
+base64 = "0.22"
+hex = "0.4"

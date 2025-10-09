@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use nexus_ipc::{self, Wait};
 
-use bundlemgr::{service::InstallRequest as DomainInstallRequest, Service, ServiceError};
+use bundlemgr::{service::InstallRequest as DomainInstallRequest, Error as ManifestError, Manifest, Service, ServiceError};
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -29,9 +29,13 @@ use capnp::serialize;
 use nexus_idl_runtime::bundlemgr_capnp::{
     install_request, install_response, query_request, query_response, InstallError,
 };
+#[cfg(feature = "idl-capnp")]
+use nexus_idl_runtime::keystored_capnp::{verify_request, verify_response};
 
 const OPCODE_INSTALL: u8 = 1;
 const OPCODE_QUERY: u8 = 2;
+#[cfg(feature = "idl-capnp")]
+const KEYSTORE_OPCODE_VERIFY: u8 = 2;
 
 /// Trait implemented by transports that deliver frames to bundlemgrd.
 pub trait Transport {
@@ -228,14 +232,126 @@ impl ArtifactStore {
     }
 }
 
+#[cfg(feature = "idl-capnp")]
+pub trait KeystoreClient: Send + 'static {
+    fn verify(&self, anchor_id: &str, payload: &[u8], signature: &[u8])
+        -> Result<bool, KeystoreClientError>;
+}
+
+#[cfg(feature = "idl-capnp")]
+struct KeystoreIpc<C> {
+    client: C,
+}
+
+#[cfg(feature = "idl-capnp")]
+impl<C> KeystoreIpc<C> {
+    fn new(client: C) -> Self {
+        Self { client }
+    }
+}
+
+#[cfg(feature = "idl-capnp")]
+impl<C> KeystoreClient for KeystoreIpc<C>
+where
+    C: nexus_ipc::Client + Send,
+{
+    fn verify(&self, anchor_id: &str, payload: &[u8], signature: &[u8])
+        -> Result<bool, KeystoreClientError>
+    {
+        let mut message = Builder::new_default();
+        {
+            let mut request = message.init_root::<verify_request::Builder<'_>>();
+            request.set_anchor_id(anchor_id);
+            request.set_payload(payload);
+            request.set_signature(signature);
+        }
+        let mut buf = Vec::new();
+        serialize::write_message(&mut buf, &message).map_err(KeystoreClientError::Encode)?;
+        let mut frame = Vec::with_capacity(1 + buf.len());
+        frame.push(KEYSTORE_OPCODE_VERIFY);
+        frame.extend_from_slice(&buf);
+        self
+            .client
+            .send(&frame, Wait::Blocking)
+            .map_err(|err| KeystoreClientError::Transport(err.into()))?;
+        let response = self
+            .client
+            .recv(Wait::Blocking)
+            .map_err(|err| KeystoreClientError::Transport(err.into()))?;
+        let (opcode, payload) = response
+            .split_first()
+            .ok_or_else(|| KeystoreClientError::Protocol("empty frame".into()))?;
+        if *opcode != KEYSTORE_OPCODE_VERIFY {
+            return Err(KeystoreClientError::Protocol(format!("unexpected opcode {opcode}")));
+        }
+        let mut cursor = Cursor::new(payload);
+        let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+            .map_err(|err| KeystoreClientError::Decode(err.to_string()))?;
+        let response = message
+            .get_root::<verify_response::Reader<'_>>()
+            .map_err(|err| KeystoreClientError::Decode(err.to_string()))?;
+        Ok(response.get_ok())
+    }
+}
+
+#[cfg(feature = "idl-capnp")]
+#[derive(Debug)]
+enum KeystoreClientError {
+    Transport(TransportError),
+    Encode(capnp::Error),
+    Decode(String),
+    Protocol(String),
+}
+
+#[cfg(feature = "idl-capnp")]
+impl fmt::Display for KeystoreClientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport(err) => write!(f, "transport error: {err}"),
+            Self::Encode(err) => write!(f, "encode error: {err}"),
+            Self::Decode(msg) => write!(f, "decode error: {msg}"),
+            Self::Protocol(msg) => write!(f, "protocol error: {msg}"),
+        }
+    }
+}
+
+#[cfg(feature = "idl-capnp")]
+impl std::error::Error for KeystoreClientError {}
+
+#[cfg(feature = "idl-capnp")]
+pub struct KeystoreHandle(Box<dyn KeystoreClient>);
+
+#[cfg(feature = "idl-capnp")]
+impl KeystoreHandle {
+    #[cfg(nexus_env = "host")]
+    pub fn from_loopback(client: nexus_ipc::LoopbackClient) -> Self {
+        Self(Box::new(KeystoreIpc::new(client)))
+    }
+
+    #[cfg(nexus_env = "os")]
+    pub fn from_kernel(client: nexus_ipc::KernelClient) -> Self {
+        Self(Box::new(KeystoreIpc::new(client)))
+    }
+
+    fn into_client(self) -> Box<dyn KeystoreClient> {
+        self.0
+    }
+}
+
 struct Server {
     service: Service,
     artifacts: ArtifactStore,
+    #[cfg(feature = "idl-capnp")]
+    keystore: Option<Box<dyn KeystoreClient>>,
 }
 
 impl Server {
-    fn new(service: Service, artifacts: ArtifactStore) -> Self {
-        Self { service, artifacts }
+    fn new(
+        service: Service,
+        artifacts: ArtifactStore,
+        keystore: Option<Box<dyn KeystoreClient>>,
+    ) -> Self {
+        Self { service, artifacts, keystore }
     }
 
     #[cfg(feature = "idl-capnp")]
@@ -267,7 +383,7 @@ impl Server {
         let mut response = Builder::new_default();
         let mut builder = response.init_root::<install_response::Builder<'_>>();
 
-        let bytes = match self.artifacts.take(handle) {
+        let payload = match self.artifacts.take(handle) {
             Some(bytes) => bytes,
             None => {
                 builder.set_ok(false);
@@ -276,13 +392,13 @@ impl Server {
             }
         };
 
-        if bytes.len() != expected_len {
+        if payload.len() != expected_len {
             builder.set_ok(false);
             builder.set_err(InstallError::Einval);
             return Self::encode_response(OPCODE_INSTALL, &response);
         }
 
-        let manifest = match std::str::from_utf8(&bytes) {
+        let manifest_str = match std::str::from_utf8(&payload) {
             Ok(value) => value,
             Err(_) => {
                 builder.set_ok(false);
@@ -291,7 +407,32 @@ impl Server {
             }
         };
 
-        match self.service.install(DomainInstallRequest { name: &name, manifest }) {
+        let manifest = match Manifest::parse_str(manifest_str) {
+            Ok(manifest) => manifest,
+            Err(err) => {
+                builder.set_ok(false);
+                builder.set_err(map_manifest_error(&err));
+                return Self::encode_response(OPCODE_INSTALL, &response);
+            }
+        };
+
+        match self.verify_bundle_signature(&manifest.publisher, &payload, &manifest.signature) {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("bundlemgrd: invalid signature for {name}");
+                builder.set_ok(false);
+                builder.set_err(InstallError::InvalidSig);
+                return Self::encode_response(OPCODE_INSTALL, &response);
+            }
+            Err(err) => {
+                eprintln!("bundlemgrd: signature verify error: {err}");
+                builder.set_ok(false);
+                builder.set_err(InstallError::InvalidSig);
+                return Self::encode_response(OPCODE_INSTALL, &response);
+            }
+        }
+
+        match self.service.install(DomainInstallRequest { name: &name, manifest: manifest_str }) {
             Ok(_) => {
                 builder.set_ok(true);
                 builder.set_err(InstallError::None);
@@ -339,6 +480,20 @@ impl Server {
     }
 
     #[cfg(feature = "idl-capnp")]
+    fn verify_bundle_signature(
+        &self,
+        publisher: &str,
+        payload: &[u8],
+        signature: &[u8],
+    ) -> Result<bool, KeystoreClientError>
+    {
+        match &self.keystore {
+            Some(client) => client.verify(publisher, payload, signature),
+            None => Err(KeystoreClientError::Protocol("keystore unavailable".into())),
+        }
+    }
+
+    #[cfg(feature = "idl-capnp")]
     fn encode_response(
         opcode: u8,
         message: &Builder<HeapAllocator>,
@@ -357,9 +512,11 @@ impl Server {
 pub fn run_with_transport<T: Transport>(
     transport: &mut T,
     artifacts: ArtifactStore,
+    keystore: Option<KeystoreHandle>,
 ) -> Result<(), ServerError> {
     let service = Service::new();
-    serve_with_components(transport, service, artifacts)
+    let client = keystore.map(KeystoreHandle::into_client);
+    serve_with_components(transport, service, artifacts, client)
 }
 
 /// Serves requests using injected service and artifact store.
@@ -368,8 +525,9 @@ pub fn serve_with_components<T: Transport>(
     transport: &mut T,
     service: Service,
     artifacts: ArtifactStore,
+    keystore: Option<Box<dyn KeystoreClient>>,
 ) -> Result<(), ServerError> {
-    let mut server = Server::new(service, artifacts);
+    let mut server = Server::new(service, artifacts, keystore);
     while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
@@ -383,10 +541,26 @@ pub fn serve_with_components<T: Transport>(
 }
 
 #[cfg(feature = "idl-capnp")]
+fn map_manifest_error(error: &ManifestError) -> InstallError {
+    match error {
+        ManifestError::Toml(_) | ManifestError::InvalidRoot => InstallError::Einval,
+        ManifestError::MissingField(field) => match *field {
+            "publisher" | "sig" => InstallError::Unsigned,
+            _ => InstallError::Einval,
+        },
+        ManifestError::InvalidField { field, .. } => match *field {
+            "sig" => InstallError::InvalidSig,
+            "publisher" => InstallError::Einval,
+            _ => InstallError::Einval,
+        },
+    }
+}
+
+#[cfg(feature = "idl-capnp")]
 fn map_install_error(error: &ServiceError) -> InstallError {
     match error {
         ServiceError::AlreadyInstalled => InstallError::Ebusy,
-        ServiceError::InvalidSignature => InstallError::Eacces,
+        ServiceError::InvalidSignature => InstallError::InvalidSig,
         ServiceError::Manifest(_) => InstallError::Einval,
         ServiceError::Unsupported => InstallError::Einval,
     }
@@ -409,7 +583,7 @@ pub fn service_main_loop(
         let mut transport = IpcTransport::new(server);
         notifier.notify();
         println!("bundlemgrd: ready");
-        run_with_transport(&mut transport, artifacts)
+        run_with_transport(&mut transport, artifacts, None)
     }
 
     #[cfg(nexus_env = "os")]
@@ -419,7 +593,7 @@ pub fn service_main_loop(
         let mut transport = IpcTransport::new(server);
         notifier.notify();
         println!("bundlemgrd: ready");
-        run_with_transport(&mut transport, artifacts)
+        run_with_transport(&mut transport, artifacts, None)
     }
 }
 

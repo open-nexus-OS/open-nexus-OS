@@ -10,11 +10,12 @@
 
 #![deny(clippy::all, missing_docs)]
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use semver::Version;
 use thiserror::Error;
 use toml::{self, Value};
 
-const KNOWN_KEYS: &[&str] = &["name", "version", "abilities", "caps", "min_sdk"];
+const KNOWN_KEYS: &[&str] = &["name", "version", "abilities", "caps", "min_sdk", "publisher", "sig"];
 
 /// Result alias returned by the parser.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -54,6 +55,10 @@ pub struct Manifest {
     pub capabilities: Vec<String>,
     /// Minimum SDK version compatible with the bundle.
     pub min_sdk: Version,
+    /// Anchor identifier of the publisher (lowercase hex).
+    pub publisher: String,
+    /// Detached Ed25519 signature covering the bundle payload.
+    pub signature: Vec<u8>,
     /// Non-fatal warnings produced during parsing.
     pub warnings: Vec<String>,
 }
@@ -96,14 +101,70 @@ impl Manifest {
         }
 
         let min_sdk = parse_version(table, "min_sdk")?;
+        let publisher = parse_publisher(table)?;
+        let signature = parse_signature(table)?;
 
-        Ok(Self { name, version, abilities, capabilities, min_sdk, warnings })
+        Ok(Self {
+            name,
+            version,
+            abilities,
+            capabilities,
+            min_sdk,
+            publisher,
+            signature,
+            warnings,
+        })
     }
 }
 
 fn parse_version(table: &toml::Table, field: &'static str) -> Result<Version> {
     let raw = require_string(table, field)?;
     Version::parse(raw.trim()).map_err(|err| Error::InvalidField { field, reason: err.to_string() })
+}
+
+fn parse_publisher(table: &toml::Table) -> Result<String> {
+    let raw = require_string(table, "publisher")?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(Error::InvalidField { field: "publisher", reason: "must not be empty".into() });
+    }
+    if trimmed.len() != 32 || !trimmed.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(Error::InvalidField {
+            field: "publisher",
+            reason: "must be 32 hexadecimal characters".into(),
+        });
+    }
+    Ok(trimmed.to_ascii_lowercase())
+}
+
+fn parse_signature(table: &toml::Table) -> Result<Vec<u8>> {
+    let raw = require_string(table, "sig")?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(Error::InvalidField { field: "sig", reason: "must not be empty".into() });
+    }
+    decode_signature(trimmed).map_err(|reason| Error::InvalidField { field: "sig", reason })
+}
+
+fn decode_signature(input: &str) -> Result<Vec<u8>, String> {
+    let cleaned: String = input.chars().filter(|ch| !ch.is_ascii_whitespace()).collect();
+    if cleaned.len() % 2 == 0 {
+        if let Ok(bytes) = hex::decode(&cleaned) {
+            if bytes.len() == 64 {
+                return Ok(bytes);
+            }
+        }
+    }
+    match STANDARD.decode(cleaned.as_bytes()) {
+        Ok(bytes) => {
+            if bytes.len() == 64 {
+                Ok(bytes)
+            } else {
+                Err("expected 64-byte signature".into())
+            }
+        }
+        Err(err) => Err(format!("invalid signature encoding: {err}")),
+    }
 }
 
 fn require_string(table: &toml::Table, field: &'static str) -> Result<String> {
@@ -141,6 +202,23 @@ fn require_string_array(table: &toml::Table, field: &'static str) -> Result<Vec<
 mod tests {
     use super::*;
 
+    #[test]
+    fn parses_hex_signature() {
+        let manifest = format!("name = \"app\"\nversion = \"1.0.0\"\nabilities = [\"svc\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"0123456789abcdef0123456789abcdef\"\nsig = \"{}\"\n", "11".repeat(64));
+        let parsed = Manifest::parse_str(&manifest).unwrap();
+        assert_eq!(parsed.publisher, "0123456789abcdef0123456789abcdef");
+        assert_eq!(parsed.signature.len(), 64);
+    }
+
+    #[test]
+    fn parses_base64_signature() {
+        let bytes = vec![0x22; 64];
+        let sig_b64 = STANDARD.encode(&bytes);
+        let manifest = format!("name = \"app\"\nversion = \"1.0.0\"\nabilities = [\"svc\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"fedcba9876543210fedcba9876543210\"\nsig = \"{}\"\n", sig_b64);
+        let parsed = Manifest::parse_str(&manifest).unwrap();
+        assert_eq!(parsed.publisher, "fedcba9876543210fedcba9876543210");
+        assert_eq!(parsed.signature, bytes);
+    }
     #[test]
     fn rejects_empty_name() {
         let manifest = r#"
