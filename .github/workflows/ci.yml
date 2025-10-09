@@ -1,4 +1,8 @@
-name: CI
+run-name: >
+  CI • ${{ github.ref_name }} •
+  ${{ github.event_name == 'pull_request'
+      && format('PR #{0}: {1}', github.event.number, github.event.pull_request.title)
+      || github.event.head_commit.message }}
 
 on:
   push:
@@ -74,6 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: nightly-2025-01-15
+      RUSTFLAGS: --cfg nexus_env="host"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -84,17 +89,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y capnproto
       - name: Miri setup
         run: cargo +nightly-2025-01-15 miri setup
+      - name: Echo RUSTFLAGS
+        run: echo "$RUSTFLAGS"
       - name: Miri (identity, strict)
         env:
-          # Explicitly whitelist cfg for nightly rustc and set host cfg
-          RUSTFLAGS: -Z unstable-options --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
-          CARGO_ENCODED_RUSTFLAGS: ""
           MIRIFLAGS: ""
         run: cargo +nightly-2025-01-15 miri test -p identity
       - name: Miri (samgr, bundlemgr, fs enabled)
         env:
-          RUSTFLAGS: -Z unstable-options --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
-          CARGO_ENCODED_RUSTFLAGS: ""
           MIRIFLAGS: -Zmiri-disable-isolation
         run: cargo +nightly-2025-01-15 miri test -p samgr -p bundlemgr
 
