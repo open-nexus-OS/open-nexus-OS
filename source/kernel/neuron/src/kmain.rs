@@ -29,12 +29,15 @@ struct KernelState {
 
 impl KernelState {
     fn new() -> Self {
+        uart::write_line("KS: new enter");
         let mut caps = CapTable::new();
+        uart::write_line("KS: after CapTable::new");
         // Slot 0: bootstrap endpoint loopback
         let _ = caps.set(
             0,
             Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
         );
+        uart::write_line("KS: after caps.set ep0");
         // Slot 1: identity VMO for bootstrap mappings
         let _ = caps.set(
             1,
@@ -43,19 +46,28 @@ impl KernelState {
                 rights: Rights::MAP,
             },
         );
+        uart::write_line("KS: after caps.set vmo1");
 
         let mut scheduler = Scheduler::new();
+        uart::write_line("KS: after Scheduler::new");
         scheduler.enqueue(0, QosClass::Idle);
+        uart::write_line("KS: after scheduler.enqueue");
 
         let mut syscalls = SyscallTable::new();
+        uart::write_line("KS: after SyscallTable::new");
         api::install_handlers(&mut syscalls);
+        uart::write_line("KS: after install_handlers");
 
         let router = ipc::Router::new(4);
+        uart::write_line("KS: after Router::new");
 
         let address_space = PageTable::new();
+        uart::write_line("KS: after PageTable::new");
 
         let hal = VirtMachine::new();
+        uart::write_line("KS: after VirtMachine::new");
 
+        uart::write_line("KS: returning");
         Self { hal, scheduler, caps, ipc: router, address_space, syscalls }
     }
 
@@ -156,5 +168,9 @@ pub fn kmain() -> ! {
         let _ = write!(u, "T:selftest={}\n", delta);
     }
     uart::write_line("I: after selftest");
+
+    // End of kernel bring-up; user-mode services are responsible for
+    // emitting their own readiness markers.
+
     kernel.idle_loop()
 }

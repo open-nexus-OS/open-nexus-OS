@@ -233,15 +233,19 @@ mod runtime {
             match entry.as_str() {
                 "keystored" => {
                     let ready_clone = ready.clone();
-                    keystored::daemon_main(move || {
+                    let notifier = keystored::ReadyNotifier::new(move || {
                         let _ = ready_clone.send(ServiceStatus::Ready);
                     });
+                    // Stub service: report readiness and idle.
+                    let _ = keystored::service_main_loop(notifier);
                 }
                 "policyd" => {
                     let ready_clone = ready.clone();
-                    policyd::daemon_main(move || {
+                    let notifier = policyd::ReadyNotifier::new(move || {
                         let _ = ready_clone.send(ServiceStatus::Ready);
                     });
+                    // Stub service: report readiness and idle.
+                    let _ = policyd::service_main_loop(notifier);
                 }
                 "samgrd" => {
                     let ready_clone = ready.clone();

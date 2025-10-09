@@ -660,6 +660,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "execd"
+version = "0.1.0"
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -854,6 +858,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "keystored"
+version = "0.1.0"
+
+[[package]]
 name = "launcher"
 version = "0.1.0"
 
@@ -989,6 +997,8 @@ name = "nexus-init"
 version = "0.1.0"
 dependencies = [
  "bundlemgrd",
+ "keystored",
+ "policyd",
  "samgrd",
  "serde",
  "tempfile",
@@ -1134,6 +1144,10 @@ checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
 dependencies = [
  "plotters-backend",
 ]
+
+[[package]]
+name = "policyd"
+version = "0.1.0"
 
 [[package]]
 name = "poly1305"

@@ -40,7 +40,7 @@ monitor_uart() {
   local line
   while IFS= read -r line; do
     case "$line" in
-      *"SELFTEST: end"*|*"samgrd: ready"*|*"bundlemgrd: ready"*)
+      *"init: ready"*|*"I: after selftest"*)
         echo "[info] Success marker detected – stopping QEMU" >&2
         pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
         break
@@ -71,7 +71,7 @@ if [[ ! -f "$KERNEL_BIN" || "$KERNEL_BIN" -ot "$KERNEL_ELF" ]]; then
   # Use Rust's llvm-objcopy (works with all targets)
   OBJCOPY=$(find ~/.rustup/toolchains -name llvm-objcopy -type f 2>/dev/null | head -1)
   if [[ -z "$OBJCOPY" ]]; then
-    echo "[error] llvm-objcopy not found. Install llvm-tools: rustup component add llvm-tools" >&2
+    echo "[error] llvm-objcopy not found. Install llvm-tools: rustup component add llvm-tools-preview" >&2
     exit 1
   fi
   "$OBJCOPY" -O binary "$KERNEL_ELF" "$KERNEL_BIN"

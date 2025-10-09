@@ -28,6 +28,7 @@ help:
     @echo "  just build-kernel        # cross-compile kernel (riscv)"
     @echo "  just test-os             # run kernel selftests in QEMU"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
+    @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
     @echo
     @echo "[Project Maintainers]"
     @echo "  just lint                # run clippy checks"
@@ -51,6 +52,9 @@ qemu *args:
 
 test-os:
     scripts/qemu-test.sh
+
+test-init:
+    scripts/host-init-test.sh
 
 # -----------------------------------------------------------------------------
 # Host test suites
