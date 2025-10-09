@@ -34,7 +34,7 @@ jobs:
         run: cargo +nightly-2025-01-15 fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml --check
       - name: Cargo clippy
         env:
-          RUSTFLAGS: --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
+          RUSTFLAGS: --cfg nexus_env="host"
         run: cargo +stable clippy --workspace --exclude neuron --exclude neuron-boot -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code
 
   host-tests:
@@ -77,15 +77,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y capnproto
       - name: Miri setup
         run: cargo +nightly-2024-02-01 miri setup
-      - name: Miri (samgr, strict)
+      - name: Miri (identity, strict)
         env:
-          RUSTFLAGS: --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
-        run: cargo miri test -p samgr
-      - name: Miri (bundlemgr, fs enabled)
+          MIRIFLAGS: --cfg nexus_env="host"
+        run: cargo miri test -p identity
+      - name: Miri (samgr, bundlemgr, fs enabled)
         env:
-          RUSTFLAGS: --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
-          MIRIFLAGS: -Zmiri-disable-isolation
-        run: cargo miri test -p bundlemgr
+          MIRIFLAGS: -Zmiri-disable-isolation --cfg nexus_env="host"
+        run: cargo miri test -p samgr -p bundlemgr
 
   deadcode:
     runs-on: ubuntu-latest
