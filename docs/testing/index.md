@@ -29,6 +29,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Layer | Scope | Command | Notes |
 | --- | --- | --- | --- |
 | Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
+| Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
 | QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Waits for `SELFTEST: end` (and optionally service ready markers) before truncating logs. |
 
 ## Workflow checklist
@@ -37,6 +38,17 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 3. Refresh Golden Vectors (IDL frames, ABI structs) and bump SemVer when contracts change.
 4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
 5. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
+
+## Remote E2E harness
+
+The remote harness in `tests/remote_e2e` proves that two host nodes can discover
+each other, authenticate sessions using Noise XK, and forward Cap'n Proto
+traffic over the encrypted stream. Each node hosts real `samgrd` and
+`bundlemgrd` loops via in-process IPC, while the identity keys are derived using
+the shared `userspace/identity` crate. Artifact transfers are staged over a
+dedicated DSoftBus channel before issuing the install request, mirroring the VMO
+hand-off the OS build will use later. Execute the tests with
+`cargo test -p remote_e2e`—they finish in a few seconds and require no QEMU.
 
 ## Environment parity & prerequisites
 - Toolchain pinned via `rust-toolchain.toml`; install the listed version before building.

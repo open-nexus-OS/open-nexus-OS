@@ -11,7 +11,8 @@ members = [
     "source/drivers/storage/virtio-blk",
     "source/drivers/console/virtio",
     "tools/*",
-    "tests/e2e"
+    "tests/e2e",
+    "tests/remote_e2e"
 ]
 resolver = "2"
 

@@ -1,0 +1,27 @@
+[package]
+name = "remote_e2e"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "remote_e2e"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+capnp = "0.19"
+dsoftbus = { path = "../../userspace/dsoftbus" }
+identity = { path = "../../userspace/identity" }
+nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
+nexus-ipc = { path = "../../userspace/nexus-ipc" }
+samgr = { path = "../../userspace/samgr" }
+samgrd = { path = "../../source/services/samgrd", features = ["idl-capnp"] }
+bundlemgr = { path = "../../userspace/bundlemgr" }
+bundlemgrd = { path = "../../source/services/bundlemgrd", features = ["idl-capnp"] }
+parking_lot = "0.12"
+rand = "0.8"
+thiserror = "1"
+
+[dev-dependencies]
+tracing-subscriber = "0.3"
