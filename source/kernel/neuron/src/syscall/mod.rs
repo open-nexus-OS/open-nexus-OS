@@ -7,7 +7,7 @@ pub mod api;
 
 use core::fmt;
 
-use crate::{cap, ipc};
+use crate::{cap, ipc, task};
 
 /// Maximum number of syscalls supported by this increment.
 const MAX_SYSCALL: usize = 16;
@@ -41,6 +41,8 @@ pub const SYSCALL_RECV: usize = 3;
 pub const SYSCALL_MAP: usize = 4;
 pub const SYSCALL_VMO_CREATE: usize = 5;
 pub const SYSCALL_VMO_WRITE: usize = 6;
+pub const SYSCALL_SPAWN: usize = 7;
+pub const SYSCALL_CAP_TRANSFER: usize = 8;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +53,10 @@ pub enum Error {
     Capability(cap::CapError),
     /// IPC routing failed.
     Ipc(ipc::IpcError),
+    /// Spawn operation failed.
+    Spawn(task::SpawnError),
+    /// Capability transfer failed.
+    Transfer(task::TransferError),
 }
 
 impl From<cap::CapError> for Error {
@@ -62,6 +68,18 @@ impl From<cap::CapError> for Error {
 impl From<ipc::IpcError> for Error {
     fn from(value: ipc::IpcError) -> Self {
         Self::Ipc(value)
+    }
+}
+
+impl From<task::SpawnError> for Error {
+    fn from(value: task::SpawnError) -> Self {
+        Self::Spawn(value)
+    }
+}
+
+impl From<task::TransferError> for Error {
+    fn from(value: task::TransferError) -> Self {
+        Self::Transfer(value)
     }
 }
 
