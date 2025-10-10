@@ -545,10 +545,16 @@ impl Server {
                     builder.set_installed(true);
                     let version = bundle.version.to_string();
                     builder.set_version(&version);
+                    let mut caps =
+                        builder.reborrow().init_required_caps(bundle.capabilities.len() as u32);
+                    for (idx, cap) in bundle.capabilities.iter().enumerate() {
+                        caps.set(idx as u32, cap);
+                    }
                 }
                 None => {
                     builder.set_installed(false);
                     builder.set_version("");
+                    builder.reborrow().init_required_caps(0);
                 }
             }
         }

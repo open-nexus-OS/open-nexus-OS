@@ -21,7 +21,7 @@ const QUERY_REQUEST_SIZE: StructSize = StructSize {
 };
 const QUERY_RESPONSE_SIZE: StructSize = StructSize {
     data: 1,
-    pointers: 1,
+    pointers: 2,
 };
 
 #[repr(u16)]
@@ -291,6 +291,13 @@ pub mod query_response {
                 None,
             )
         }
+
+        pub fn get_required_caps(self) -> Result<::capnp::text_list::Reader<'a>> {
+            ::capnp::traits::FromPointerReader::get_from_pointer(
+                &self.reader.get_pointer_field(1),
+                None,
+            )
+        }
     }
 
     impl<'a> From<StructReader<'a>> for Reader<'a> {
@@ -322,6 +329,13 @@ pub mod query_response {
                 .reborrow()
                 .get_pointer_field(0)
                 .set_text(value.into());
+        }
+
+        pub fn init_required_caps(&mut self, size: u32) -> ::capnp::text_list::Builder<'a> {
+            self.builder
+                .reborrow()
+                .get_pointer_field(1)
+                .init_text_list(size)
         }
     }
 

@@ -34,6 +34,18 @@ pub mod dsoftbus_capnp {
     include!(concat!(env!("OUT_DIR"), "/dsoftbus_capnp.rs"));
 }
 
+#[cfg(feature = "capnp")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+pub mod policyd_capnp {
+    include!(concat!(env!("OUT_DIR"), "/policyd_capnp.rs"));
+}
+
+#[cfg(feature = "capnp")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+pub mod execd_capnp {
+    include!(concat!(env!("OUT_DIR"), "/execd_capnp.rs"));
+}
+
 /// Common error type for IDL encode/decode boundaries.
 #[derive(Debug)]
 pub enum IdlError {

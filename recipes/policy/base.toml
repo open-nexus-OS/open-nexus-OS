@@ -1,0 +1,7 @@
+[allow]
+samgrd = ["ipc.core", "time.read"]
+bundlemgrd = ["fs.read", "fs.verify", "ipc.core"]
+keystored = ["crypto.sign", "crypto.verify", "ipc.core"]
+execd = ["proc.spawn", "ipc.core", "fs.read"]
+"nexus-init" = ["proc.spawn", "ipc.core", "fs.read"]
+"demo.testsvc" = []

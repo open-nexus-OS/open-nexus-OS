@@ -7,11 +7,13 @@ members = [
     "source/init/*",
     "userspace/*",
     "source/apps/launcher",
+    "source/apps/selftest-client",
     "source/drivers/net/virtio",
     "source/drivers/storage/virtio-blk",
     "source/drivers/console/virtio",
     "tools/*",
     "tests/e2e",
+    "tests/e2e_policy",
     "tests/remote_e2e"
 ]
 resolver = "2"

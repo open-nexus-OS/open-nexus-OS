@@ -7,8 +7,7 @@ compile_error!(
 
 #[cfg(nexus_env = "host")]
 fn main() {
-    let notifier = execd::ReadyNotifier::new(|| {});
-    let _ = execd::service_main_loop(notifier);
+    execd::daemon_main(|| {});
 }
 
 #[cfg(nexus_env = "os")]

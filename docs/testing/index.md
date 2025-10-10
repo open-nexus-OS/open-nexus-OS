@@ -31,7 +31,8 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` or `just test-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
 | Host init smoke | Runs `nexus-init` on host, asserts real daemon readiness and `*: up` markers. | `just test-init` or `make test-init-host` | Exits early on `init: ready` and enforces ordered readiness. |
 | Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `neuron vers.` → `init: start` → `keystored: ready` → `policyd: ready` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready`. Logs are trimmed post-run. |
+| Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `neuron vers.` → `init: start` → `keystored: ready` → `policyd: ready` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready` → `SELFTEST: policy allow ok` → `SELFTEST: policy deny ok`. Logs are trimmed post-run. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -71,6 +72,21 @@ The OS smoke path emits a deterministic sequence of UART markers that the runner
 5. `samgrd: ready` – service manager daemon ready
 6. `bundlemgrd: ready` – bundle manager daemon ready
 7. `init: ready` – init completed baseline bring-up
+8. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
+9. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
+
+## Policy E2E notes
+
+- Host coverage lives in `tests/e2e_policy/`. The crate spins up loopback
+  instances of `policyd`, `bundlemgrd`, and `execd`, installs two manifests, and
+  asserts both the allow and deny responses along with the returned missing
+  capabilities.
+- The OS run mirrors this by loading policies at boot and printing
+  `SELFTEST: policy allow ok` / `SELFTEST: policy deny ok` markers from
+  `selftest-client` once the simulated policy checks succeed.
+- Policies are stored under `recipes/policy/`. Merge order is lexical; later
+  files override earlier definitions. For development overrides drop a
+  `local-*.toml` file so it sorts after `base.toml`.
 
 Cap'n Proto remains a userland concern. Large payloads (e.g. bundle artifacts) are transferred via VMO handles on the OS; on the host these handles are emulated by staging bytes in the bundle manager's artifact store before issuing control-plane requests.
 
