@@ -78,6 +78,13 @@ if grep -aFq "init: start" "$UART_LOG"; then
     fi
     prev=$line
   done
+
+  for policy_marker in "SELFTEST: policy allow ok" "SELFTEST: policy deny ok"; do
+    if ! grep -aFq "$policy_marker" "$UART_LOG"; then
+      echo "Missing UART marker: $policy_marker" >&2
+      exit 1
+    fi
+  done
 else
   # Kernel-only mode: enforce banner and selftest completion
   if ! grep -aFq "neuron vers." "$UART_LOG"; then

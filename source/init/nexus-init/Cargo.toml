@@ -12,6 +12,10 @@ samgrd = { path = "../../services/samgrd" }
 bundlemgrd = { path = "../../services/bundlemgrd" }
 keystored = { path = "../../services/keystored" }
 policyd = { path = "../../services/policyd" }
+execd = { path = "../../services/execd" }
+nexus-ipc = { path = "../../../userspace/nexus-ipc" }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
+capnp = { version = "0.19" }
 
 [dev-dependencies]
 tempfile = "3"

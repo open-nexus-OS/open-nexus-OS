@@ -73,9 +73,10 @@ fn bundle_install_query_roundtrip() {
 
     let query = build_query_frame("launcher");
     let response = call(&client, query);
-    let (installed, version) = parse_query(&response);
+    let (installed, version, caps) = parse_query(&response);
     assert!(installed, "bundle should be installed");
     assert_eq!(version, "1.0.0");
+    assert_eq!(caps, vec!["gpu".to_string()]);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -258,7 +259,7 @@ fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
 }
 
-fn parse_query(frame: &[u8]) -> (bool, String) {
+fn parse_query(frame: &[u8]) -> (bool, String, Vec<String>) {
     assert_eq!(frame.first(), Some(&BUNDLE_OPCODE_QUERY));
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
@@ -266,7 +267,17 @@ fn parse_query(frame: &[u8]) -> (bool, String) {
     let response = message.get_root::<query_response::Reader<'_>>().expect("query response root");
     let version =
         response.get_version().ok().and_then(|r| r.to_str().ok()).unwrap_or("").to_string();
-    (response.get_installed(), version)
+    let mut caps = Vec::new();
+    if let Ok(list) = response.get_required_caps() {
+        for idx in 0..list.len() {
+            if let Ok(cap) = list.get(idx) {
+                if let Ok(text) = cap.to_str() {
+                    caps.push(text.to_string());
+                }
+            }
+        }
+    }
+    (response.get_installed(), version, caps)
 }
 
 fn valid_manifest() -> Vec<u8> {

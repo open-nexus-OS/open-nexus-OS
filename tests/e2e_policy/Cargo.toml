@@ -1,0 +1,16 @@
+[package]
+name = "e2e_policy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+capnp = "0.19"
+nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
+nexus-ipc = { path = "../../userspace/nexus-ipc" }
+policyd = { path = "../../source/services/policyd", features = ["idl-capnp"] }
+bundlemgrd = { path = "../../source/services/bundlemgrd", features = ["idl-capnp"] }
+keystored = { path = "../../source/services/keystored", features = ["idl-capnp"] }
+samgrd = { path = "../../source/services/samgrd", features = ["idl-capnp"] }
+tempfile = "3"

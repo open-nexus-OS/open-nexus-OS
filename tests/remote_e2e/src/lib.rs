@@ -396,6 +396,16 @@ fn parse_bundle_query(bytes: &[u8]) -> Result<Option<String>> {
     let response =
         message.get_root::<query_response::Reader<'_>>().map_err(|err| anyhow!(err.to_string()))?;
     if response.get_installed() {
+        let caps = response
+            .get_required_caps()
+            .map_err(|err| anyhow!(err.to_string()))?;
+        for idx in 0..caps.len() {
+            let _ = caps
+                .get(idx)
+                .map_err(|err| anyhow!(err.to_string()))?
+                .to_str()
+                .map_err(|err| anyhow!(err.to_string()))?;
+        }
         let ver = response
             .get_version()
             .map_err(|err| anyhow!(err.to_string()))?
