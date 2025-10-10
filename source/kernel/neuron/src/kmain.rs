@@ -7,13 +7,14 @@ use alloc::vec::Vec;
 
 use crate::{
     arch::riscv,
-    cap::{CapTable, Capability, CapabilityKind, Rights},
+    cap::{Capability, CapabilityKind, Rights},
     hal::virt::VirtMachine,
     ipc::{self, header::MessageHeader},
     mm::PageTable,
     sched::{QosClass, Scheduler},
     selftest,
     syscall::{self, api, SyscallTable},
+    task::TaskTable,
     uart,
 };
 
@@ -21,7 +22,7 @@ use crate::{
 struct KernelState {
     hal: VirtMachine,
     scheduler: Scheduler,
-    caps: CapTable,
+    tasks: TaskTable,
     ipc: ipc::Router,
     address_space: PageTable,
     syscalls: SyscallTable,
@@ -30,24 +31,27 @@ struct KernelState {
 impl KernelState {
     fn new() -> Self {
         uart::write_line("KS: new enter");
-        let mut caps = CapTable::new();
-        uart::write_line("KS: after CapTable::new");
+        let mut tasks = TaskTable::new();
+        uart::write_line("KS: after TaskTable::new");
         // Slot 0: bootstrap endpoint loopback
-        let _ = caps.set(
-            0,
-            Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
-        );
-        uart::write_line("KS: after caps.set ep0");
-        // Slot 1: identity VMO for bootstrap mappings
-        let _ = caps.set(
-            1,
-            Capability {
-                kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 },
-                rights: Rights::MAP,
-            },
-        );
-        uart::write_line("KS: after caps.set vmo1");
-
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            let _ = caps.set(
+                0,
+                Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
+            );
+            uart::write_line("KS: after caps.set ep0");
+            // Slot 1: identity VMO for bootstrap mappings
+            let _ = caps.set(
+                1,
+                Capability {
+                    kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 },
+                    rights: Rights::MAP,
+                },
+            );
+            uart::write_line("KS: after caps.set vmo1");
+        }
+        uart::write_line("KS: after TaskTable bootstrap caps");
         let mut scheduler = Scheduler::new();
         uart::write_line("KS: after Scheduler::new");
         scheduler.enqueue(0, QosClass::Idle);
@@ -68,7 +72,7 @@ impl KernelState {
         uart::write_line("KS: after VirtMachine::new");
 
         uart::write_line("KS: returning");
-        Self { hal, scheduler, caps, ipc: router, address_space, syscalls }
+        Self { hal, scheduler, tasks, ipc: router, address_space, syscalls }
     }
 
     fn banner(&self) {
@@ -97,7 +101,7 @@ impl KernelState {
         loop {
             let mut ctx = api::Context::new(
                 &mut self.scheduler,
-                &mut self.caps,
+                &mut self.tasks,
                 &mut self.ipc,
                 &mut self.address_space,
                 self.hal.timer(),
@@ -154,7 +158,7 @@ pub fn kmain() -> ! {
             hal: &kernel.hal,
             router: &mut kernel.ipc,
             address_space: &mut kernel.address_space,
-            caps: &mut kernel.caps,
+            tasks: &mut kernel.tasks,
             scheduler: &mut kernel.scheduler,
         };
         selftest::entry(&mut ctx);

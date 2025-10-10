@@ -120,6 +120,8 @@ fn encode_error(err: SysError) -> usize {
         SysError::InvalidSyscall => usize::MAX,
         SysError::Capability(_) => usize::MAX - 1,
         SysError::Ipc(_) => usize::MAX - 2,
+        SysError::Spawn(_) => usize::MAX - 3,
+        SysError::Transfer(_) => usize::MAX - 4,
     }
 }
 

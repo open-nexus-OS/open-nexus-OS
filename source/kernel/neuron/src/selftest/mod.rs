@@ -6,25 +6,40 @@
 extern crate alloc;
 
 use alloc::vec;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::{
-    cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
+    cap::{CapError, Capability, CapabilityKind, Rights},
     determinism,
     hal::{virt::VirtMachine, IrqCtl, Timer as _, Tlb, Uart},
     ipc::{self, header::MessageHeader, IpcError, Message, Router},
     mm::{self, MapError, PageFlags, PageTable, PAGE_SIZE},
     sched::{QosClass, Scheduler},
+    task::TaskTable,
     uart,
+    BootstrapMsg,
 };
 
 pub mod assert;
+
+#[repr(align(16))]
+struct ChildStack([u8; 256]);
+
+static mut CHILD_STACK: ChildStack = ChildStack([0; 256]);
+static CHILD_RUNS: AtomicUsize = AtomicUsize::new(0);
+
+fn child_entry_stub() {
+    uart::write_line("KSELFTEST: child running");
+    CHILD_RUNS.fetch_add(1, Ordering::SeqCst);
+    CHILD_RUNS.fetch_add(1, Ordering::SeqCst);
+}
 
 /// Borrowed references to kernel subsystems used by selftests.
 pub struct Context<'a> {
     pub hal: &'a VirtMachine,
     pub router: &'a mut Router,
     pub address_space: &'a mut PageTable,
-    pub caps: &'a mut CapTable,
+    pub tasks: &'a mut TaskTable,
     pub scheduler: &'a mut Scheduler,
 }
 
@@ -40,6 +55,7 @@ pub fn entry(ctx: &mut Context<'_>) {
     test_map(ctx);
     uart::write_line("SELFTEST: map ok");
     test_sched(ctx);
+    test_spawn(ctx);
     uart::write_line("SELFTEST: end");
 }
 
@@ -117,30 +133,31 @@ fn test_caps(ctx: &mut Context<'_>) {
     use crate::{st_assert, st_expect_eq, st_expect_err};
 
     uart::write_line("SELFTEST: caps step0: bootstrap cap rights");
-    let loopback = ctx.caps.get(0).expect("bootstrap cap");
+    let caps = ctx.tasks.current_caps_mut();
+    let loopback = caps.get(0).expect("bootstrap cap");
     st_assert!(loopback.rights.contains(Rights::SEND));
     st_assert!(loopback.rights.contains(Rights::RECV));
 
     uart::write_line("SELFTEST: caps step1: derive SEND right");
-    let derived = ctx.caps.derive(0, Rights::SEND).expect("derive send right");
+    let derived = caps.derive(0, Rights::SEND).expect("derive send right");
     st_expect_eq!(derived.rights, Rights::SEND);
 
     uart::write_line("SELFTEST: caps step2: expect PermissionDenied for MAP derivation");
-    st_expect_err!(ctx.caps.derive(0, Rights::MAP), CapError::PermissionDenied);
+    st_expect_err!(caps.derive(0, Rights::MAP), CapError::PermissionDenied);
     uart::write_line("SELFTEST: caps step3: expect InvalidSlot for get(999)");
-    st_expect_err!(ctx.caps.get(999), CapError::InvalidSlot);
+    st_expect_err!(caps.get(999), CapError::InvalidSlot);
 
     uart::write_line("SELFTEST: caps step4: install and verify endpoint cap in slot 2");
     let new_cap =
         Capability { kind: CapabilityKind::Endpoint(2), rights: Rights::SEND | Rights::RECV };
-    ctx.caps.set(2, new_cap).expect("install new capability");
-    let fetched = ctx.caps.get(2).expect("fetch newly installed cap");
+    caps.set(2, new_cap).expect("install new capability");
+    let fetched = caps.get(2).expect("fetch newly installed cap");
     st_expect_eq!(fetched.kind, CapabilityKind::Endpoint(2));
 
     uart::write_line("SELFTEST: caps step5: install and read back IRQ cap");
     let irq_cap = Capability { kind: CapabilityKind::Irq(5), rights: Rights::MANAGE };
-    ctx.caps.set(3, irq_cap).expect("install irq cap");
-    match ctx.caps.get(3).expect("fetch irq cap").kind {
+    caps.set(3, irq_cap).expect("install irq cap");
+    match caps.get(3).expect("fetch irq cap").kind {
         CapabilityKind::Irq(line) => st_expect_eq!(line, 5u32),
         other => panic!("unexpected capability: {other:?}"),
     }
@@ -211,6 +228,48 @@ fn test_sched(ctx: &mut Context<'_>) {
     st_expect_eq!(sched.schedule_next(), Some(4));
     uart::write_line("SELFTEST: sched step1e ok (yield -> 4)");
     uart::write_line("SELFTEST: sched ok");
+}
+
+fn test_spawn(ctx: &mut Context<'_>) {
+    use crate::{st_assert, st_expect_eq};
+
+    uart::write_line("SELFTEST: spawn begin");
+    CHILD_RUNS.store(0, Ordering::SeqCst);
+    let entry = child_entry_stub as usize as u64;
+    let stack_top = unsafe {
+        // SAFETY: exclusive access during selftest; stack lives for program duration.
+        let base = CHILD_STACK.0.as_ptr() as usize;
+        base + CHILD_STACK.0.len()
+    } as u64;
+
+    let parent = ctx.tasks.current_pid();
+    let child = ctx
+        .tasks
+        .spawn(parent, entry, stack_top, 0, 0, ctx.scheduler, ctx.router)
+        .expect("spawn child task");
+    st_assert!(child != parent, "child pid differs from parent");
+
+    let bootstrap = ctx.router.recv(0).expect("bootstrap message enqueued");
+    st_expect_eq!(
+        bootstrap.payload.len(),
+        core::mem::size_of::<BootstrapMsg>(),
+    );
+    let cap = ctx
+        .tasks
+        .caps_of(child)
+        .expect("child task present")
+        .get(0)
+        .expect("bootstrap capability copied");
+    st_expect_eq!(cap.kind, CapabilityKind::Endpoint(0));
+
+    st_expect_eq!(CHILD_RUNS.load(Ordering::SeqCst), 0usize);
+    // SAFETY: entry points to a Rust function with C ABI-compatible signature.
+    unsafe {
+        let func: fn() = core::mem::transmute(entry as usize);
+        func();
+    }
+    st_expect_eq!(CHILD_RUNS.load(Ordering::SeqCst), 2usize);
+    uart::write_line("KSELFTEST: spawn ok");
 }
 
 #[allow(dead_code)]

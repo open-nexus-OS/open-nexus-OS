@@ -66,6 +66,7 @@ fn init_heap() {
 // Modules
 
 mod arch;
+mod bootstrap;
 mod boot;
 mod cap;
 mod determinism;
@@ -76,8 +77,12 @@ mod mm;
 mod sched;
 mod selftest;
 mod syscall;
+mod task;
 mod trap;
 mod uart;
+
+pub use bootstrap::BootstrapMsg;
+pub use task::{Pid, TaskTable, TransferError};
 // compile the kernel panic handler automatically for no_std targets (OS = "none")
 #[cfg(all(not(test), target_os = "none"))]
 mod panic;
