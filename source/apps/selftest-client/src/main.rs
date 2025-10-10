@@ -25,7 +25,9 @@ fn run() -> anyhow::Result<()> {
 
     let policy = PolicyDoc::load_dir(Path::new("recipes/policy"))?;
     let allowed_caps = ["ipc.core", "time.read"];
-    policy.check(&allowed_caps, "samgrd")?;
+    if let Err(err) = policy.check(&allowed_caps, "samgrd") {
+        anyhow::bail!("unexpected policy deny for samgrd: {err}");
+    }
     println!("SELFTEST: policy allow ok");
 
     let denied_caps = ["net.client"];

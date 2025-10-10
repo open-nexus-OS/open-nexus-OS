@@ -613,6 +613,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "e2e_policy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bundlemgrd",
+ "capnp",
+ "keystored",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "policyd",
+ "samgrd",
+ "tempfile",
+]
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -674,6 +689,12 @@ dependencies = [
 [[package]]
 name = "execd"
 version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "thiserror",
+]
 
 [[package]]
 name = "fastrand"
@@ -1037,7 +1058,11 @@ name = "nexus-init"
 version = "0.1.0"
 dependencies = [
  "bundlemgrd",
+ "capnp",
+ "execd",
  "keystored",
+ "nexus-idl-runtime",
+ "nexus-ipc",
  "policyd",
  "samgrd",
  "serde",
@@ -1186,8 +1211,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "policy"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tempfile",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "policyd"
 version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "policy",
+ "thiserror",
+]
 
 [[package]]
 name = "poly1305"
@@ -1563,6 +1605,14 @@ name = "searchd"
 version = "0.1.0"
 dependencies = [
  "search",
+]
+
+[[package]]
+name = "selftest-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "policy",
 ]
 
 [[package]]

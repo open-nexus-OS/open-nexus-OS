@@ -6,4 +6,4 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-policy = { path = "../../userspace/policy" }
+policy = { path = "../../../userspace/policy" }

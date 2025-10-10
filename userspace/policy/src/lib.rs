@@ -60,9 +60,7 @@ impl PolicyDoc {
         let allowed_caps = self.allow.get(&subject_key);
         let mut missing = Vec::new();
         for cap in required.iter().map(|cap| canonical(cap)) {
-            let is_allowed = allowed_caps
-                .map(|caps| caps.contains(&cap))
-                .unwrap_or(false);
+            let is_allowed = allowed_caps.map(|caps| caps.contains(&cap)).unwrap_or(false);
             if !is_allowed {
                 missing.push(cap);
             }
@@ -79,14 +77,10 @@ impl PolicyDoc {
             return Err(Error::MissingDir(dir.to_path_buf()));
         }
         let mut entries = Vec::new();
-        for entry in fs::read_dir(dir).map_err(|source| Error::Read {
-            path: dir.to_path_buf(),
-            source,
-        })? {
-            let entry = entry.map_err(|source| Error::Read {
-                path: dir.to_path_buf(),
-                source,
-            })?;
+        for entry in
+            fs::read_dir(dir).map_err(|source| Error::Read { path: dir.to_path_buf(), source })?
+        {
+            let entry = entry.map_err(|source| Error::Read { path: dir.to_path_buf(), source })?;
             entries.push(entry.path());
         }
         entries.sort();
@@ -96,14 +90,10 @@ impl PolicyDoc {
             if !path.is_file() || path.extension().and_then(|s| s.to_str()) != Some("toml") {
                 continue;
             }
-            let data = fs::read_to_string(&path).map_err(|source| Error::Read {
-                path: path.clone(),
-                source,
-            })?;
-            let parsed: RawPolicy = toml::from_str(&data).map_err(|source| Error::Parse {
-                path: path.clone(),
-                source,
-            })?;
+            let data = fs::read_to_string(&path)
+                .map_err(|source| Error::Read { path: path.clone(), source })?;
+            let parsed: RawPolicy = toml::from_str(&data)
+                .map_err(|source| Error::Parse { path: path.clone(), source })?;
             doc.merge(parsed);
         }
         Ok(doc)

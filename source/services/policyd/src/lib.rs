@@ -204,13 +204,11 @@ impl PolicyService {
         #[cfg(feature = "idl-capnp")]
         {
             let mut cursor = Cursor::new(payload);
-            let message =
-                serialize::read_message(&mut cursor, ReaderOptions::new()).map_err(|err| {
-                    ServerError::Decode(format!("failed to read request: {err}"))
-                })?;
-            let reader = message
-                .get_root::<check_request::Reader<'_>>()
-                .map_err(|err| ServerError::Decode(format!("failed to read request root: {err}")))?;
+            let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+                .map_err(|err| ServerError::Decode(format!("failed to read request: {err}")))?;
+            let reader = message.get_root::<check_request::Reader<'_>>().map_err(|err| {
+                ServerError::Decode(format!("failed to read request root: {err}"))
+            })?;
 
             let subject = reader
                 .get_subject()
@@ -276,7 +274,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
         let (client, server) = nexus_ipc::loopback_channel();
         let _client_guard = client;
         let mut transport = IpcTransport::new(server);
-        return run_with_transport_ready(&mut transport, notifier);
+        run_with_transport_ready(&mut transport, notifier)
     }
 
     #[cfg(nexus_env = "os")]
@@ -284,7 +282,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
         let server = nexus_ipc::KernelServer::new()
             .map_err(|err| ServerError::Transport(TransportError::from(err)))?;
         let mut transport = IpcTransport::new(server);
-        return run_with_transport_ready(&mut transport, notifier);
+        run_with_transport_ready(&mut transport, notifier)
     }
 }
 
@@ -313,15 +311,10 @@ where
     T: Transport,
 {
     loop {
-        match transport
-            .recv()
-            .map_err(|err| ServerError::Transport(err.into()))?
-        {
+        match transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
             Some(frame) => {
                 let response = service.handle_frame(&frame)?;
-                transport
-                    .send(&response)
-                    .map_err(|err| ServerError::Transport(err.into()))?;
+                transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
             }
             None => return Ok(()),
         }
@@ -384,7 +377,8 @@ pub fn daemon_main<R: FnOnce() + Send + 'static>(notify: R) -> ! {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -397,4 +391,3 @@ pub fn touch_schemas() {
         let _ = core::any::type_name::<check_response::Reader<'static>>();
     }
 }
-

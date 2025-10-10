@@ -21,8 +21,6 @@ use capnp::message::{Builder, HeapAllocator, ReaderOptions};
 #[cfg(nexus_env = "host")]
 use capnp::serialize;
 #[cfg(nexus_env = "host")]
-use std::io::Cursor;
-#[cfg(nexus_env = "host")]
 use nexus_idl_runtime::bundlemgr_capnp::{query_request, query_response};
 #[cfg(nexus_env = "host")]
 use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
@@ -30,6 +28,8 @@ use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
 use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
 #[cfg(nexus_env = "host")]
 use nexus_ipc::{Client, Wait};
+#[cfg(nexus_env = "host")]
+use std::io::Cursor;
 
 const CORE_SERVICES: [&str; 5] = ["keystored", "policyd", "samgrd", "bundlemgrd", "execd"];
 
@@ -74,29 +74,21 @@ fn run() -> Result<(), InitError> {
     }
 
     #[cfg(nexus_env = "host")]
-    let bundle_client = service_clients
-        .remove("bundlemgrd")
-        .map(BundleManagerClient::new);
+    let bundle_client = service_clients.remove("bundlemgrd").map(BundleManagerClient::new);
     #[cfg(nexus_env = "host")]
-    let policy_client = service_clients
-        .remove("policyd")
-        .map(PolicyClient::new);
+    let policy_client = service_clients.remove("policyd").map(PolicyClient::new);
     #[cfg(nexus_env = "host")]
-    let exec_client = service_clients
-        .remove("execd")
-        .map(ExecClient::new);
+    let exec_client = service_clients.remove("execd").map(ExecClient::new);
 
     #[cfg(nexus_env = "host")]
     {
         let bundle_client = bundle_client
             .as_ref()
             .ok_or_else(|| service_error("bundlemgrd", "client unavailable"))?;
-        let policy_client = policy_client
-            .as_ref()
-            .ok_or_else(|| service_error("policyd", "client unavailable"))?;
-        let exec_client = exec_client
-            .as_ref()
-            .ok_or_else(|| service_error("execd", "client unavailable"))?;
+        let policy_client =
+            policy_client.as_ref().ok_or_else(|| service_error("policyd", "client unavailable"))?;
+        let exec_client =
+            exec_client.as_ref().ok_or_else(|| service_error("execd", "client unavailable"))?;
 
         for name in catalog.non_core_names() {
             enforce_and_launch(&name, bundle_client, policy_client, exec_client)?;
@@ -299,12 +291,12 @@ impl PolicyClient {
                 .map_err(|err| service_error("policyd", format!("missing read: {err}")))?;
             let mut missing = Vec::with_capacity(missing_reader.len() as usize);
             for idx in 0..missing_reader.len() {
-                let cap = missing_reader
-                    .get(idx)
-                    .map_err(|err| service_error("policyd", format!("missing[{idx}] read: {err}")))?;
-                let text = cap
-                    .to_str()
-                    .map_err(|err| service_error("policyd", format!("missing[{idx}] utf8: {err}")))?;
+                let cap = missing_reader.get(idx).map_err(|err| {
+                    service_error("policyd", format!("missing[{idx}] read: {err}"))
+                })?;
+                let text = cap.to_str().map_err(|err| {
+                    service_error("policyd", format!("missing[{idx}] utf8: {err}"))
+                })?;
                 missing.push(text.to_string());
             }
             Ok(PolicyOutcome::Denied(missing))
@@ -338,9 +330,8 @@ impl ExecClient {
             .client
             .recv(Wait::Blocking)
             .map_err(|err| service_error("execd", format!("recv exec: {err}")))?;
-        let (opcode, payload) = response
-            .split_first()
-            .ok_or_else(|| service_error("execd", "empty exec response"))?;
+        let (opcode, payload) =
+            response.split_first().ok_or_else(|| service_error("execd", "empty exec response"))?;
         if *opcode != EXEC_OPCODE_EXEC {
             return Err(service_error("execd", format!("unexpected opcode {opcode}")));
         }
@@ -353,12 +344,8 @@ impl ExecClient {
         if reader.get_ok() {
             Ok(())
         } else {
-            let detail = reader
-                .get_message()
-                .ok()
-                .and_then(|m| m.to_str().ok())
-                .unwrap_or("")
-                .to_string();
+            let detail =
+                reader.get_message().ok().and_then(|m| m.to_str().ok()).unwrap_or("").to_string();
             Err(service_error("execd", detail))
         }
     }
@@ -393,10 +380,7 @@ fn enforce_and_launch(
 }
 
 #[cfg(nexus_env = "host")]
-fn encode_frame(
-    opcode: u8,
-    message: &Builder<HeapAllocator>,
-) -> Result<Vec<u8>, capnp::Error> {
+fn encode_frame(opcode: u8, message: &Builder<HeapAllocator>) -> Result<Vec<u8>, capnp::Error> {
     let mut payload = Vec::new();
     serialize::write_message(&mut payload, message)?;
     let mut frame = Vec::with_capacity(1 + payload.len());
@@ -504,10 +488,6 @@ mod runtime {
         pub fn take_endpoint(&mut self) -> Option<ServiceClient> {
             self.endpoint.take()
         }
-
-        pub fn name(&self) -> &str {
-            &self.name
-        }
     }
 
     pub enum ServiceStatus {
@@ -539,9 +519,6 @@ mod runtime {
         use super::{ReadySender, ServiceConfig, ServiceStatus};
         use crate::InitError;
 
-        #[cfg(nexus_env = "host")]
-        use nexus_ipc;
-
         pub fn launch(service: ServiceConfig, ready: ReadySender) {
             let ServiceConfig { name, entry } = service;
             match entry.as_str() {
@@ -564,7 +541,8 @@ mod runtime {
                         let notifier = policyd::ReadyNotifier::new(move || {
                             let _ = ready_clone.send(ServiceStatus::Ready(Some(client)));
                         });
-                        if let Err(err) = policyd::run_with_transport_ready(&mut transport, notifier)
+                        if let Err(err) =
+                            policyd::run_with_transport_ready(&mut transport, notifier)
                         {
                             let detail = err.to_string();
                             let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
@@ -607,22 +585,21 @@ mod runtime {
                         let (keystore_client, keystore_server) = nexus_ipc::loopback_channel();
                         std::thread::spawn(move || {
                             let mut ks_transport = keystored::IpcTransport::new(keystore_server);
-                            let _ = keystored::run_with_transport_default_anchors(&mut ks_transport);
+                            let _ =
+                                keystored::run_with_transport_default_anchors(&mut ks_transport);
                         });
                         let mut transport = bundlemgrd::IpcTransport::new(bundle_server);
-                        let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(
-                            keystore_client,
-                        ));
+                        let keystore =
+                            Some(bundlemgrd::KeystoreHandle::from_loopback(keystore_client));
                         let notifier = bundlemgrd::ReadyNotifier::new(move || {
                             println!("bundlemgrd: ready");
-                            let _ = ready_clone
-                                .send(ServiceStatus::Ready(Some(bundle_client)));
+                            let _ = ready_clone.send(ServiceStatus::Ready(Some(bundle_client)));
                         });
-                        if let Err(err) = bundlemgrd::run_with_transport(
-                            &mut transport,
-                            artifacts,
-                            keystore,
-                        ) {
+                        // Emit readiness before entering the service loop
+                        notifier.notify();
+                        if let Err(err) =
+                            bundlemgrd::run_with_transport(&mut transport, artifacts, keystore)
+                        {
                             let detail = err.to_string();
                             let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
                                 service: service_name,
@@ -658,7 +635,8 @@ mod runtime {
                         let notifier = execd::ReadyNotifier::new(move || {
                             let _ = ready_clone.send(ServiceStatus::Ready(Some(client)));
                         });
-                        if let Err(err) = execd::run_with_transport_ready(&mut transport, notifier) {
+                        if let Err(err) = execd::run_with_transport_ready(&mut transport, notifier)
+                        {
                             let detail = err.to_string();
                             let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
                                 service: service_name,
