@@ -88,6 +88,10 @@ else
     echo "Missing UART marker: I: after selftest" >&2
     exit 1
   fi
+  # Optional signed install markers (best-effort)
+  if grep -aFq "SELFTEST: signed install ok" "$UART_LOG"; then
+    echo "[info] Signed install selftest succeeded" >&2
+  fi
 fi
 
 trim_log "$QEMU_LOG" "$QEMU_LOG_MAX"

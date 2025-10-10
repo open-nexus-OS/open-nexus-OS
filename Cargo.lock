@@ -134,6 +134,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "base64ct"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -199,6 +205,8 @@ checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 name = "bundlemgr"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "hex",
  "semver",
  "thiserror",
  "toml",
@@ -210,8 +218,12 @@ version = "0.1.0"
 dependencies = [
  "bundlemgr",
  "capnp",
+ "hex",
+ "keystored",
+ "memchr",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "sha2",
 ]
 
 [[package]]
@@ -793,30 +805,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keystore"
-version = "0.1.0"
-dependencies = [
- "ed25519-dalek",
- "hex",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tempfile",
-]
-
-[[package]]
-name = "keystored"
-version = "0.1.0"
-dependencies = [
- "capnp",
- "keystore",
- "nexus-idl-runtime",
- "nexus-ipc",
- "thiserror",
-]
-
-[[package]]
 name = "ime"
 version = "0.1.0"
 
@@ -882,8 +870,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "keystore"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "keystored"
 version = "0.1.0"
+dependencies = [
+ "capnp",
+ "keystore",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "thiserror",
+]
 
 [[package]]
 name = "launcher"
@@ -988,9 +997,16 @@ version = "0.1.0"
 dependencies = [
  "bundlemgrd",
  "capnp",
+ "ed25519-dalek",
+ "hex",
+ "keystore",
+ "keystored",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "rand 0.8.5",
  "samgrd",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

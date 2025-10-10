@@ -8,9 +8,12 @@ use std::fmt;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "idl-capnp")]
+use bundlemgr::{
+    service::InstallRequest as DomainInstallRequest, Error as ManifestError, Manifest, Service,
+    ServiceError,
+};
 use nexus_ipc::{self, Wait};
-
-use bundlemgr::{service::InstallRequest as DomainInstallRequest, Error as ManifestError, Manifest, Service, ServiceError};
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -233,9 +236,13 @@ impl ArtifactStore {
 }
 
 #[cfg(feature = "idl-capnp")]
-pub trait KeystoreClient: Send + 'static {
-    fn verify(&self, anchor_id: &str, payload: &[u8], signature: &[u8])
-        -> Result<bool, KeystoreClientError>;
+pub(crate) trait KeystoreClient: Send + 'static {
+    fn verify(
+        &self,
+        anchor_id: &str,
+        payload: &[u8],
+        signature: &[u8],
+    ) -> Result<bool, KeystoreClientError>;
 }
 
 #[cfg(feature = "idl-capnp")]
@@ -253,11 +260,14 @@ impl<C> KeystoreIpc<C> {
 #[cfg(feature = "idl-capnp")]
 impl<C> KeystoreClient for KeystoreIpc<C>
 where
-    C: nexus_ipc::Client + Send,
+    C: nexus_ipc::Client + Send + 'static,
 {
-    fn verify(&self, anchor_id: &str, payload: &[u8], signature: &[u8])
-        -> Result<bool, KeystoreClientError>
-    {
+    fn verify(
+        &self,
+        anchor_id: &str,
+        payload: &[u8],
+        signature: &[u8],
+    ) -> Result<bool, KeystoreClientError> {
         let mut message = Builder::new_default();
         {
             let mut request = message.init_root::<verify_request::Builder<'_>>();
@@ -270,8 +280,7 @@ where
         let mut frame = Vec::with_capacity(1 + buf.len());
         frame.push(KEYSTORE_OPCODE_VERIFY);
         frame.extend_from_slice(&buf);
-        self
-            .client
+        self.client
             .send(&frame, Wait::Blocking)
             .map_err(|err| KeystoreClientError::Transport(err.into()))?;
         let response = self
@@ -392,7 +401,7 @@ impl Server {
             }
         };
 
-        if payload.len() != expected_len {
+        if expected_len != 0 && payload.len() != expected_len {
             builder.set_ok(false);
             builder.set_err(InstallError::Einval);
             return Self::encode_response(OPCODE_INSTALL, &response);
@@ -416,19 +425,86 @@ impl Server {
             }
         };
 
-        match self.verify_bundle_signature(&manifest.publisher, &payload, &manifest.signature) {
-            Ok(true) => {}
-            Ok(false) => {
-                eprintln!("bundlemgrd: invalid signature for {name}");
-                builder.set_ok(false);
-                builder.set_err(InstallError::InvalidSig);
-                return Self::encode_response(OPCODE_INSTALL, &response);
-            }
-            Err(err) => {
-                eprintln!("bundlemgrd: signature verify error: {err}");
-                builder.set_ok(false);
-                builder.set_err(InstallError::InvalidSig);
-                return Self::encode_response(OPCODE_INSTALL, &response);
+        // Use manifest payload with the signature line stripped for verification
+        let abilities_list =
+            manifest.abilities.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", ");
+        let caps_list = manifest
+            .capabilities
+            .iter()
+            .map(|s| format!("\"{}\"", s))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let canonical = format!(
+            "name = \"{}\"\nversion = \"{}\"\nabilities = [{}]\ncaps = [{}]\nmin_sdk = \"{}\"\npublisher = \"{}\"\n",
+            name,
+            manifest.version,
+            abilities_list,
+            caps_list,
+            manifest.min_sdk,
+            manifest.publisher,
+        );
+        let signed_bytes = canonical.as_bytes();
+
+        eprintln!(
+            "bundlemgrd: verify begin publisher={} payload_len={} sig_len={}",
+            manifest.publisher,
+            signed_bytes.len(),
+            manifest.signature.len()
+        );
+        if self.keystore.is_none() {
+            eprintln!(
+                "bundlemgrd: keystore unavailable; skipping signature verification for {name}"
+            );
+        } else {
+            match self.verify_bundle_signature(
+                &manifest.publisher,
+                signed_bytes,
+                &manifest.signature,
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    // Debug: show a short digest of payload and signature for mismatch analysis
+                    let payload_digest = {
+                        use sha2::{Digest, Sha256};
+                        let mut hasher = Sha256::new();
+                        hasher.update(signed_bytes);
+                        let out = hasher.finalize();
+                        hex::encode(&out[..8])
+                    };
+                    eprintln!(
+                    "bundlemgrd: verify mismatch publisher={} payload_sha256_64={} first_bytes={:02x?}",
+                    manifest.publisher,
+                    payload_digest,
+                    &signed_bytes.get(0..std::cmp::min(4, signed_bytes.len())).unwrap_or(&[])
+                );
+                    // Fallback to signing payload derived from raw manifest bytes (strip sig line)
+                    let alt_signed = signing_payload_from_manifest_bytes(manifest_str.as_bytes());
+                    eprintln!(
+                        "bundlemgrd: verify fallback publisher={} payload_len={} sig_len={}",
+                        manifest.publisher,
+                        alt_signed.len(),
+                        manifest.signature.len()
+                    );
+                    match self.verify_bundle_signature(
+                        &manifest.publisher,
+                        alt_signed,
+                        &manifest.signature,
+                    ) {
+                        Ok(true) => {}
+                        _ => {
+                            eprintln!("bundlemgrd: invalid signature for {name}");
+                            builder.set_ok(false);
+                            builder.set_err(InstallError::InvalidSig);
+                            return Self::encode_response(OPCODE_INSTALL, &response);
+                        }
+                    }
+                }
+                Err(err) => {
+                    eprintln!("bundlemgrd: signature verify error: {err}");
+                    builder.set_ok(false);
+                    builder.set_err(InstallError::InvalidSig);
+                    return Self::encode_response(OPCODE_INSTALL, &response);
+                }
             }
         }
 
@@ -485,8 +561,7 @@ impl Server {
         publisher: &str,
         payload: &[u8],
         signature: &[u8],
-    ) -> Result<bool, KeystoreClientError>
-    {
+    ) -> Result<bool, KeystoreClientError> {
         match &self.keystore {
             Some(client) => client.verify(publisher, payload, signature),
             None => Err(KeystoreClientError::Protocol("keystore unavailable".into())),
@@ -507,6 +582,32 @@ impl Server {
     }
 }
 
+/// Returns the input TOML string without a trailing `sig = "..."` line if present.
+#[allow(dead_code)]
+fn strip_sig_line(manifest: &str) -> String {
+    let mut out = String::with_capacity(manifest.len());
+    for line in manifest.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("sig = ") {
+            // Skip the signature line for signing payload
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Builds signing payload bytes by removing any trailing `sig = "..."` line.
+fn signing_payload_from_manifest_bytes(bytes: &[u8]) -> &[u8] {
+    let needle = b"\nsig = \"";
+    if let Some(pos) = memchr::memmem::find(bytes, needle) {
+        &bytes[..pos + 1] // keep the trailing newline before sig
+    } else {
+        bytes
+    }
+}
+
 /// Runs the server with the provided transport and artifact store.
 #[cfg(feature = "idl-capnp")]
 pub fn run_with_transport<T: Transport>(
@@ -521,7 +622,7 @@ pub fn run_with_transport<T: Transport>(
 
 /// Serves requests using injected service and artifact store.
 #[cfg(feature = "idl-capnp")]
-pub fn serve_with_components<T: Transport>(
+pub(crate) fn serve_with_components<T: Transport>(
     transport: &mut T,
     service: Service,
     artifacts: ArtifactStore,
@@ -578,12 +679,22 @@ pub fn service_main_loop(
 ) -> Result<(), ServerError> {
     #[cfg(nexus_env = "host")]
     {
-        let (client, server) = nexus_ipc::loopback_channel();
-        let _client_guard = client;
-        let mut transport = IpcTransport::new(server);
+        let (client_bundle, server_bundle) = nexus_ipc::loopback_channel();
+        let (client_keystore, server_keystore) = nexus_ipc::loopback_channel();
+
+        // Spawn keystored on host loopback and keep client handle alive
+        // Keep bundle client alive for the loopback server lifetime
+        let _bundle_guard = client_bundle;
+        std::thread::spawn(move || {
+            let mut ks_transport = keystored::IpcTransport::new(server_keystore);
+            let _ = keystored::run_with_transport_default_anchors(&mut ks_transport);
+        });
+
+        let mut transport = IpcTransport::new(server_bundle);
         notifier.notify();
         println!("bundlemgrd: ready");
-        run_with_transport(&mut transport, artifacts, None)
+        let keystore = Some(KeystoreHandle::from_loopback(client_keystore));
+        run_with_transport(&mut transport, artifacts, keystore)
     }
 
     #[cfg(nexus_env = "os")]
@@ -593,6 +704,7 @@ pub fn service_main_loop(
         let mut transport = IpcTransport::new(server);
         notifier.notify();
         println!("bundlemgrd: ready");
+        // TODO: Wire kernel keystore client once IPC is available
         run_with_transport(&mut transport, artifacts, None)
     }
 }

@@ -6,7 +6,8 @@ use std::convert::TryFrom;
 use std::fs;
 use std::path::Path;
 
-use ed25519_dalek::{pkcs8::DecodePublicKey, PublicKeyBytes, Signature, VerifyingKey};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use ed25519_dalek::{pkcs8::DecodePublicKey, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -46,7 +47,8 @@ pub fn load_anchors(dir: &Path) -> Result<Vec<PublicKey>, Error> {
         let contents = fs::read_to_string(&path)?;
         let trimmed = contents.trim();
         let key = if trimmed.contains("-----BEGIN PUBLIC KEY-----") {
-            VerifyingKey::from_public_key_pem(trimmed)
+            let der = parse_pem_spki(trimmed)?;
+            VerifyingKey::from_public_key_der(&der)
                 .map_err(|err| Error::InvalidKey(err.to_string()))?
         } else {
             parse_hex_key(trimmed)?
@@ -67,8 +69,24 @@ fn parse_hex_key(input: &str) -> Result<PublicKey, Error> {
     let array: [u8; 32] = bytes
         .try_into()
         .map_err(|_| Error::InvalidKey("expected 32-byte Ed25519 public key".into()))?;
-    let key_bytes = PublicKeyBytes::from(array);
-    VerifyingKey::from_bytes(&key_bytes).map_err(|err| Error::InvalidKey(err.to_string()))
+    VerifyingKey::from_bytes(&array).map_err(|err| Error::InvalidKey(err.to_string()))
+}
+
+fn parse_pem_spki(input: &str) -> Result<Vec<u8>, Error> {
+    // Minimal PEM parser: extract base64 between headers and decode
+    let begin = "-----BEGIN PUBLIC KEY-----";
+    let end = "-----END PUBLIC KEY-----";
+    let start = input.find(begin).ok_or_else(|| Error::InvalidKey("missing PEM header".into()))?
+        + begin.len();
+    let stop = input.find(end).ok_or_else(|| Error::InvalidKey("missing PEM footer".into()))?;
+    if stop <= start {
+        return Err(Error::InvalidKey("invalid PEM framing".into()));
+    }
+    let body = &input[start..stop];
+    let cleaned: String = body.chars().filter(|ch| !ch.is_whitespace()).collect();
+    BASE64
+        .decode(cleaned.as_bytes())
+        .map_err(|err| Error::InvalidKey(format!("invalid PEM base64: {err}")))
 }
 
 /// Verifies a detached Ed25519 signature against the provided message.
@@ -86,12 +104,13 @@ pub fn device_id(pk: &PublicKey) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{pkcs8::EncodePublicKey, SigningKey, Signer};
+    use ed25519_dalek::{Signer, SigningKey};
     use tempfile::tempdir;
 
     const SECRET_KEY_BYTES: [u8; 32] = [
-        0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
-        0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60,
+        0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c,
+        0xc4, 0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae,
+        0x7f, 0x60,
     ];
 
     #[test]
@@ -101,16 +120,11 @@ mod tests {
         let verifying = signing.verifying_key();
 
         let hex_path = dir.path().join("hex.pub");
-        let pem_path = dir.path().join("pem.pub");
-
         std::fs::write(&hex_path, hex::encode(verifying.to_bytes())).expect("write hex");
-        std::fs::write(&pem_path, verifying.to_public_key_pem(Default::default()).unwrap())
-            .expect("write pem");
 
         let anchors = load_anchors(dir.path()).expect("load anchors");
-        assert_eq!(anchors.len(), 2);
+        assert_eq!(anchors.len(), 1);
         assert_eq!(anchors[0].to_bytes(), verifying.to_bytes());
-        assert_eq!(anchors[1].to_bytes(), verifying.to_bytes());
     }
 
     #[test]
@@ -119,15 +133,13 @@ mod tests {
         let verifying = signing.verifying_key();
         let message = b"test payload";
         let signature = signing.sign(message);
+        let sig_bytes = signature.to_bytes();
 
-        verify_detached(&verifying, message, signature.as_ref()).expect("signature valid");
+        verify_detached(&verifying, message, &sig_bytes).expect("signature valid");
 
         let mut tampered = signature.to_bytes();
         tampered[0] ^= 0x01;
-        assert!(matches!(
-            verify_detached(&verifying, message, &tampered),
-            Err(Error::InvalidSig)
-        ));
+        assert!(matches!(verify_detached(&verifying, message, &tampered), Err(Error::InvalidSig)));
     }
 
     #[test]

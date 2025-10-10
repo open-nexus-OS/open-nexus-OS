@@ -15,7 +15,8 @@ use semver::Version;
 use thiserror::Error;
 use toml::{self, Value};
 
-const KNOWN_KEYS: &[&str] = &["name", "version", "abilities", "caps", "min_sdk", "publisher", "sig"];
+const KNOWN_KEYS: &[&str] =
+    &["name", "version", "abilities", "caps", "min_sdk", "publisher", "sig"];
 
 /// Result alias returned by the parser.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -104,16 +105,7 @@ impl Manifest {
         let publisher = parse_publisher(table)?;
         let signature = parse_signature(table)?;
 
-        Ok(Self {
-            name,
-            version,
-            abilities,
-            capabilities,
-            min_sdk,
-            publisher,
-            signature,
-            warnings,
-        })
+        Ok(Self { name, version, abilities, capabilities, min_sdk, publisher, signature, warnings })
     }
 }
 
@@ -146,9 +138,9 @@ fn parse_signature(table: &toml::Table) -> Result<Vec<u8>> {
     decode_signature(trimmed).map_err(|reason| Error::InvalidField { field: "sig", reason })
 }
 
-fn decode_signature(input: &str) -> Result<Vec<u8>, String> {
+fn decode_signature(input: &str) -> core::result::Result<Vec<u8>, String> {
     let cleaned: String = input.chars().filter(|ch| !ch.is_ascii_whitespace()).collect();
-    if cleaned.len() % 2 == 0 {
+    if cleaned.len() & 1 == 0 {
         if let Ok(bytes) = hex::decode(&cleaned) {
             if bytes.len() == 64 {
                 return Ok(bytes);
@@ -160,7 +152,7 @@ fn decode_signature(input: &str) -> Result<Vec<u8>, String> {
             if bytes.len() == 64 {
                 Ok(bytes)
             } else {
-                Err("expected 64-byte signature".into())
+                Err("expected 64-byte signature".to_string())
             }
         }
         Err(err) => Err(format!("invalid signature encoding: {err}")),

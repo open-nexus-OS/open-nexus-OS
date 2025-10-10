@@ -8,7 +8,8 @@ version = "1.0.0"
 abilities = ["ui"]
 caps = ["gpu"]
 min_sdk = "0.1.0"
-signature = "valid"
+publisher = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+sig = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 "#;
 
 #[test]

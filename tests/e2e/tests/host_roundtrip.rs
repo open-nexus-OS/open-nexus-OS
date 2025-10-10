@@ -9,10 +9,13 @@ use std::thread;
 use bundlemgrd::ArtifactStore;
 use capnp::message::Builder;
 use capnp::serialize;
+use nexus_ipc::Client;
+// use sha2::Digest;
 use nexus_e2e::{bundle_loopback, call, samgr_loopback};
 use nexus_idl_runtime::bundlemgr_capnp::{
     install_request, install_response, query_request, query_response, InstallError,
 };
+use nexus_idl_runtime::keystored_capnp::{device_id_request, device_id_response};
 use nexus_idl_runtime::samgr_capnp::{
     register_request, register_response, resolve_request, resolve_response,
 };
@@ -24,19 +27,12 @@ const BUNDLE_OPCODE_QUERY: u8 = 2;
 const PUBLISHER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SIG_HEX: &str =
     "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
-const VALID_MANIFEST: &str = concat!(
-    "name = \"launcher\"\n",
-    "version = \"1.0.0\"\n",
-    "abilities = [\"ui\"]\n",
-    "caps = [\"gpu\"]\n",
-    "min_sdk = \"0.1.0\"\n",
-    "publisher = \"",
-    PUBLISHER,
-    "\"\n",
-    "sig = \"",
-    SIG_HEX,
-    "\"\n",
-);
+fn valid_manifest_str() -> String {
+    format!(
+        "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\nsig = \"{}\"\n",
+        PUBLISHER, SIG_HEX
+    )
+}
 
 #[test]
 fn samgr_register_resolve_roundtrip() {
@@ -65,7 +61,6 @@ fn bundle_install_query_roundtrip() {
     let len = manifest.len() as u32;
     store.insert(42, manifest);
     let store_clone = store.clone();
-
     let handle = thread::spawn(move || {
         bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
     });
@@ -104,6 +99,82 @@ fn bundle_install_invalid_signature() {
     let (ok, err) = parse_install(&response);
     assert!(!ok, "install should fail");
     assert_eq!(err, InstallError::InvalidSig);
+
+    drop(client);
+    handle.join().expect("bundlemgrd thread exits cleanly");
+}
+
+#[test]
+fn bundle_install_signed_enforced_via_keystored() {
+    // Prepare a temporary anchors directory and point keystored at it
+    let tmp = tempfile::tempdir().expect("tempdir");
+    std::env::set_var("NEXUS_ANCHORS_DIR", tmp.path());
+
+    // Generate a new keypair and write public key as hex anchor
+    use ed25519_dalek::{Signer, SigningKey};
+    let sk = SigningKey::generate(&mut rand::rngs::OsRng);
+    let pk = sk.verifying_key();
+    let anchor_hex = hex::encode(pk.to_bytes());
+    std::fs::write(tmp.path().join("dev.publisher.pub"), &anchor_hex).expect("write anchor");
+    let publisher = keystore::device_id(&pk);
+
+    // Start bundlemgrd with a keystore loopback wired
+    let (client, mut server) = bundle_loopback();
+    let store = ArtifactStore::new();
+    let signed_payload = format!(
+        "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\n",
+        publisher
+    );
+    let sig = sk.sign(signed_payload.as_bytes());
+    let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
+    let len = manifest.len() as u32;
+    store.insert(77, manifest.into_bytes());
+    let store_clone = store.clone();
+
+    let handle = std::thread::spawn(move || {
+        // Spawn keystored loopback with default anchors dir (overridden via env)
+        let (ks_client, ks_server) = nexus_ipc::loopback_channel();
+        std::thread::spawn(move || {
+            let mut ks_transport = keystored::IpcTransport::new(ks_server);
+            keystored::run_with_transport_default_anchors(&mut ks_transport).unwrap();
+        });
+
+        // Obtain device id
+        let mut msg = capnp::message::Builder::new_default();
+        {
+            let _ = msg.init_root::<device_id_request::Builder<'_>>();
+        }
+        let mut buf = Vec::new();
+        capnp::serialize::write_message(&mut buf, &msg).unwrap();
+        let mut frame = Vec::with_capacity(1 + buf.len());
+        frame.push(3u8);
+        frame.extend_from_slice(&buf);
+        ks_client.send(&frame, nexus_ipc::Wait::Blocking).unwrap();
+        let resp = ks_client.recv(nexus_ipc::Wait::Blocking).unwrap();
+        let mut cur = std::io::Cursor::new(&resp[1..]);
+        let dev_msg =
+            capnp::serialize::read_message(&mut cur, capnp::message::ReaderOptions::new()).unwrap();
+        let dev = dev_msg.get_root::<device_id_response::Reader<'_>>().unwrap();
+        let id = dev.get_id().unwrap().to_str().unwrap().to_string();
+
+        // Build manifest by signing canonical content (no sig line) with keystore-provided id
+        let signed_payload = format!(
+            "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\n",
+            id
+        );
+        let sig = sk.sign(signed_payload.as_bytes());
+        let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
+        let len = manifest.len() as u32;
+        store_clone.insert(77, manifest.into_bytes());
+
+        let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(ks_client));
+        bundlemgrd::run_with_transport(&mut server, store_clone, keystore).unwrap()
+    });
+
+    let install = build_install_frame("launcher", 77, len);
+    let response = call(&client, install);
+    let (ok, err) = parse_install(&response);
+    assert!(ok, "install should succeed with valid signature, err={:?}", err);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -199,9 +270,9 @@ fn parse_query(frame: &[u8]) -> (bool, String) {
 }
 
 fn valid_manifest() -> Vec<u8> {
-    VALID_MANIFEST.as_bytes().to_vec()
+    valid_manifest_str().into_bytes()
 }
 
 fn invalid_manifest() -> Vec<u8> {
-    VALID_MANIFEST.replace(SIG_HEX, "00").into_bytes()
+    valid_manifest_str().replace(SIG_HEX, "00").into_bytes()
 }

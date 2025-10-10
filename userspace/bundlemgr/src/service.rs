@@ -176,7 +176,6 @@ fn parse_manifest(input: &str) -> Result<Manifest, ServiceError> {
 }
 
 #[cfg(nexus_env = "host")]
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,22 +185,21 @@ mod tests {
     #[cfg(nexus_env = "host")]
     const SIG_HEX: &str = "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
     #[cfg(nexus_env = "host")]
-    const MANIFEST: &str = concat!(
-        "name = \"launcher\"\n",
-        "version = \"1.0.0\"\n",
-        "abilities = [\"ui\"]\n",
-        "caps = [\"gpu\"]\n",
-        "min_sdk = \"0.1.0\"\n",
-        "publisher = \"", PUBLISHER, "\"\n",
-        "sig = \"", SIG_HEX, "\"\n",
-    );
+    fn manifest_str() -> String {
+        format!(
+            "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\nsig = \"{}\"\n",
+            PUBLISHER,
+            SIG_HEX
+        )
+    }
 
     #[cfg(nexus_env = "host")]
     #[test]
     fn install_success() {
         let service = Service::new();
+        let man = manifest_str();
         let record = service
-            .install(InstallRequest { name: "launcher", manifest: MANIFEST })
+            .install(InstallRequest { name: "launcher", manifest: &man })
             .expect("install succeeds");
         assert_eq!(record.name, "launcher");
         assert_eq!(record.version, Version::new(1, 0, 0));
@@ -216,9 +214,9 @@ mod tests {
     #[test]
     fn install_duplicate_rejected() {
         let service = Service::new();
-        service.install(InstallRequest { name: "launcher", manifest: MANIFEST }).unwrap();
-        let err =
-            service.install(InstallRequest { name: "launcher", manifest: MANIFEST }).unwrap_err();
+        let man = manifest_str();
+        service.install(InstallRequest { name: "launcher", manifest: &man }).unwrap();
+        let err = service.install(InstallRequest { name: "launcher", manifest: &man }).unwrap_err();
         assert_eq!(err, ServiceError::AlreadyInstalled);
     }
 
@@ -226,7 +224,7 @@ mod tests {
     #[test]
     fn invalid_signature_encoding_rejected() {
         let service = Service::new();
-        let tampered = MANIFEST.replace(SIG_HEX, "deadbeef");
+        let tampered = manifest_str().replace(SIG_HEX, "deadbeef");
         let err =
             service.install(InstallRequest { name: "launcher", manifest: &tampered }).unwrap_err();
         assert!(matches!(err, ServiceError::Manifest(_)));
@@ -236,8 +234,8 @@ mod tests {
     #[test]
     fn mismatched_name_rejected() {
         let service = Service::new();
-        let err =
-            service.install(InstallRequest { name: "other", manifest: MANIFEST }).unwrap_err();
+        let man = manifest_str();
+        let err = service.install(InstallRequest { name: "other", manifest: &man }).unwrap_err();
         assert!(matches!(err, ServiceError::Manifest(_)));
     }
 

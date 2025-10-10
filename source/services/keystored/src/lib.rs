@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
+use std::env;
 use std::fmt;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -15,7 +16,9 @@ use thiserror::Error;
 compile_error!("nexus_env: both 'host' and 'os' set");
 
 #[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
-compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '--cfg nexus_env=\"os\"'.");
+compile_error!(
+    "nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '--cfg nexus_env=\"os\"'."
+);
 
 #[cfg(not(feature = "idl-capnp"))]
 compile_error!("Enable the `idl-capnp` feature to build keystored handlers.");
@@ -25,9 +28,11 @@ use capnp::message::{Builder, HeapAllocator, ReaderOptions};
 #[cfg(feature = "idl-capnp")]
 use capnp::serialize;
 #[cfg(feature = "idl-capnp")]
+use capnp::serialize::OwnedSegments;
+#[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::keystored_capnp::{
-    device_id_request, device_id_response, get_anchors_request, get_anchors_response, verify_request,
-    verify_response,
+    device_id_request, device_id_response, get_anchors_request, get_anchors_response,
+    verify_request, verify_response,
 };
 
 const OPCODE_GET_ANCHORS: u8 = 1;
@@ -246,10 +251,12 @@ impl Server {
 
     #[cfg(feature = "idl-capnp")]
     fn handle_get_anchors(&self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
-        let _request: get_anchors_request::Reader<'_> = read_request(payload)?;
+        let message = read_message(payload)?;
+        let _request: get_anchors_request::Reader<'_> =
+            message.get_root().map_err(|err| ServerError::Decode(err.to_string()))?;
         let mut message = Builder::new_default();
         {
-            let mut response = message.init_root::<get_anchors_response::Builder<'_>>();
+            let response = message.init_root::<get_anchors_response::Builder<'_>>();
             let mut list = response.init_anchors(self.service.anchors().len() as u32);
             for (idx, id) in self.service.anchors().ids().iter().enumerate() {
                 list.set(idx as u32, id);
@@ -260,25 +267,30 @@ impl Server {
 
     #[cfg(feature = "idl-capnp")]
     fn handle_verify(&self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
-        let request: verify_request::Reader<'_> = read_request(payload)?;
+        let message = read_message(payload)?;
+        let request: verify_request::Reader<'_> =
+            message.get_root().map_err(|err| ServerError::Decode(err.to_string()))?;
         let anchor_id = request
             .get_anchor_id()
             .map_err(|err| ServerError::Decode(err.to_string()))?
             .to_str()
             .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let payload_reader = request
-            .get_payload()
-            .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let signature_reader = request
-            .get_signature()
-            .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let payload_bytes: Vec<u8> = payload_reader.into_iter().collect();
-        let signature_bytes: Vec<u8> = signature_reader.into_iter().collect();
+        let payload_reader =
+            request.get_payload().map_err(|err| ServerError::Decode(err.to_string()))?;
+        let signature_reader =
+            request.get_signature().map_err(|err| ServerError::Decode(err.to_string()))?;
+        let payload_bytes: Vec<u8> = payload_reader.to_vec();
+        let signature_bytes: Vec<u8> = signature_reader.to_vec();
 
-        let verified = self
-            .service
-            .anchors()
-            .get(anchor_id)
+        let anchor_opt = self.service.anchors().get(anchor_id);
+        eprintln!(
+            "keystored: verify publisher={} anchor_present={} payload_len={} sig_len={}",
+            anchor_id,
+            anchor_opt.is_some(),
+            payload_bytes.len(),
+            signature_bytes.len()
+        );
+        let verified = anchor_opt
             .map(|key| keystore::verify_detached(key, &payload_bytes, &signature_bytes).is_ok())
             .unwrap_or(false);
 
@@ -292,7 +304,9 @@ impl Server {
 
     #[cfg(feature = "idl-capnp")]
     fn handle_device_id(&self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
-        let _request: device_id_request::Reader<'_> = read_request(payload)?;
+        let message = read_message(payload)?;
+        let _request: device_id_request::Reader<'_> =
+            message.get_root().map_err(|err| ServerError::Decode(err.to_string()))?;
         let id = self.service.anchors().primary_id().unwrap_or("");
 
         let mut message = Builder::new_default();
@@ -305,15 +319,9 @@ impl Server {
 }
 
 #[cfg(feature = "idl-capnp")]
-fn read_request<'a, R>(payload: &'a [u8]) -> Result<R, ServerError>
-where
-    R: capnp::traits::FromPointerReader<'a>,
-{
+fn read_message(payload: &[u8]) -> Result<capnp::message::Reader<OwnedSegments>, ServerError> {
     let mut cursor = Cursor::new(payload);
-    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
-        .map_err(|err| ServerError::Decode(err.to_string()))?;
-    message
-        .get_root::<R>()
+    serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| ServerError::Decode(err.to_string()))
 }
 
@@ -328,6 +336,12 @@ fn encode_response(opcode: u8, message: &Builder<HeapAllocator>) -> Result<Vec<u
 }
 
 fn anchors_dir() -> PathBuf {
+    if let Some(dir) = env::var_os("NEXUS_ANCHORS_DIR") {
+        let path = PathBuf::from(dir);
+        if path.is_dir() {
+            return path;
+        }
+    }
     Path::new("recipes/keys").to_path_buf()
 }
 
@@ -340,15 +354,31 @@ fn load_anchor_store() -> Result<AnchorStore, ServerError> {
 
 /// Runs the server with the provided transport.
 #[cfg(feature = "idl-capnp")]
-pub fn run_with_transport<T: Transport>(transport: &mut T, anchors: AnchorStore) -> Result<(), ServerError> {
+pub(crate) fn run_with_transport<T: Transport>(
+    transport: &mut T,
+    anchors: AnchorStore,
+) -> Result<(), ServerError> {
+    let service = KeystoreService::new(anchors);
+    serve_with_components(transport, service)
+}
+
+/// Runs the server with the provided transport, loading anchors from the default directory.
+#[cfg(feature = "idl-capnp")]
+pub fn run_with_transport_default_anchors<T: Transport>(
+    transport: &mut T,
+) -> Result<(), ServerError> {
+    let anchors = load_anchor_store()?;
     let service = KeystoreService::new(anchors);
     serve_with_components(transport, service)
 }
 
 /// Serves requests using injected service components.
 #[cfg(feature = "idl-capnp")]
-pub fn serve_with_components<T: Transport>(transport: &mut T, service: KeystoreService) -> Result<(), ServerError> {
-    let mut server = Server::new(service);
+pub(crate) fn serve_with_components<T: Transport>(
+    transport: &mut T,
+    service: KeystoreService,
+) -> Result<(), ServerError> {
+    let server = Server::new(service);
     while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
@@ -356,9 +386,7 @@ pub fn serve_with_components<T: Transport>(transport: &mut T, service: KeystoreS
         let (opcode, payload) =
             frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
         let response = server.handle_frame(*opcode, payload)?;
-        transport
-            .send(&response)
-            .map_err(|err| ServerError::Transport(err.into()))?;
+        transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
     }
     Ok(())
 }
@@ -406,7 +434,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
 }
 
 /// Runs the daemon entry point until termination.
-pub fn daemon_main<R: FnOnce()>(notify: R) -> ! {
+pub fn daemon_main<R: FnOnce() + Send + 'static>(notify: R) -> ! {
     touch_schemas();
     if let Err(err) = service_main_loop(ReadyNotifier::new(notify)) {
         eprintln!("keystored: {err}");
@@ -418,8 +446,8 @@ pub fn daemon_main<R: FnOnce()>(notify: R) -> ! {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport(
-) -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }

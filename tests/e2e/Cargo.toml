@@ -10,3 +10,10 @@ nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
 nexus-ipc = { path = "../../userspace/nexus-ipc" }
 samgrd = { path = "../../source/services/samgrd", features = ["idl-capnp"] }
 bundlemgrd = { path = "../../source/services/bundlemgrd", features = ["idl-capnp"] }
+keystored = { path = "../../source/services/keystored", features = ["idl-capnp"] }
+keystore = { path = "../../userspace/keystore" }
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "pkcs8"] }
+tempfile = "3"
+hex = "0.4"
+rand = "0.8"
+sha2 = "0.10"

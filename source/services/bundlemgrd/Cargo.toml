@@ -13,6 +13,10 @@ bundlemgr = { path = "../../../userspace/bundlemgr" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 capnp = { version = "0.19", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc" }
+keystored = { path = "../keystored", features = ["idl-capnp"] }
+memchr = "2"
+sha2 = "0.10"
+hex = "0.4"
 
 [[bin]]
 name = "bundlemgrd"

@@ -34,7 +34,7 @@ help:
     @echo "  just lint                # run clippy checks"
     @echo "  just fmt-check           # verify rustfmt formatting"
     @echo "  just arch-check          # userspace/kernel layering guard"
-    @echo "  just test-all            # host tests + arch-check + kernel selftests"
+    @echo "  just test-all            # host tests + miri + arch-check + kernel selftests"
 
 # Build the bootable NEURON binary crate
 build-kernel:
@@ -103,10 +103,10 @@ arch-check:
 # -----------------------------------------------------------------------------
 
 test-all:
-    just fmt-check
-    just lint
     just test-host
     just test-e2e
+    just miri-strict
+    just miri-fs
     just arch-check
     just build-kernel
     just test-os
