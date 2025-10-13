@@ -9,9 +9,12 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 ## Testing layers
 ### Kernel (`source/kernel/neuron`)
-- `#![no_std]` runtime with selftests that emit UART markers such as `SELFTEST: begin` and `SELFTEST: end`.
-- Exercise hardware-adjacent code paths (traps, scheduler, IPC router). Golden vectors capture ABI and wire format expectations.
-- Use host shims for pure data structures that can be unit-tested outside QEMU; Miri is not applicable except for such extracted shims.
+- `#![no_std]` runtime with selftests that emit UART markers such as `SELFTEST: begin`, `SELFTEST: time ok`, `KSELFTEST: spawn ok`, and `SELFTEST: end`.
+- Exercise hardware-adjacent code paths (traps, scheduler, IPC router, spawn). Golden vectors capture ABI and wire format expectations.
+- Stage policy: OS early boot prints minimal raw UART only; selftests run on a private stack with canary guard, timer IRQs masked.
+- Feature flags:
+  - Default: `boot_banner`, `selftest_priv_stack`, `selftest_time`.
+  - Opt-in: `selftest_ipc`, `selftest_caps`, `selftest_sched`, `trap_symbols` (enables in-kernel symbolization on traps).
 
 ### Userspace libraries (`userspace/`)
 - All crates compile with `#![forbid(unsafe_code)]` and are structured to run on the host toolchain.
@@ -32,7 +35,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Host init smoke | Runs `nexus-init` on host, asserts real daemon readiness and `*: up` markers. | `just test-init` or `make test-init-host` | Exits early on `init: ready` and enforces ordered readiness. |
 | Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Enforces the following UART marker order: `neuron vers.` → `init: start` → `keystored: ready` → `policyd: ready` → `samgrd: ready` → `bundlemgrd: ready` → `init: ready` → `SELFTEST: policy allow ok` → `SELFTEST: policy deny ok`. Logs are trimmed post-run. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. Logs are trimmed; runner exits early on success markers. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.

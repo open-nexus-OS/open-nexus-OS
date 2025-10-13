@@ -14,6 +14,13 @@ The `tools/arch-check` utility fails CI when a userspace crate depends on the
 kernel, HAL, samgrd, nexus-abi, or any crate under `source/services/`. This
 preserves the separation between host-tested logic and system wiring.
 
+### Kernel bring-up guardrails (current increment)
+
+- Strict stage policy: early boot uses raw UART only, no heavy formatting/alloc before selftests.
+- Minimal `spawn`/`cap_transfer` implemented to exercise task control and rights derivation.
+- Selftests run on a private stack with canaries and masked timer IRQs; UART markers allow deterministic CI exit.
+- Optional trap symbolization (`trap_symbols`) prints nearest function for `sepc` without runtime cost when disabled.
+
 ## Control-plane IDL strategy
 
 Cap'n Proto schemas live exclusively in userspace under `tools/nexus-idl` with
