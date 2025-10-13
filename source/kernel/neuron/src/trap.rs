@@ -205,7 +205,8 @@ pub unsafe fn install_trap_vector() {
 pub unsafe fn install_trap_vector() {}
 
 /// Enable supervisor timer interrupts after arming the first timer.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+/// Gated behind `timer_irq` feature to avoid dead_code in default builds.
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
 pub unsafe fn enable_timer_interrupts() {
     use riscv::register::{sie, sstatus};
     // SAFETY: requires trap vector installed and first timer armed.
@@ -215,8 +216,22 @@ pub unsafe fn enable_timer_interrupts() {
     }
 }
 
-#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-pub unsafe fn enable_timer_interrupts() {}
+// No non-OS stub; avoid dead_code in host builds
+
+/// Disable supervisor timer interrupts.
+/// Gated behind `timer_irq` feature to avoid dead_code in default builds.
+#[cfg_attr(not(test), inline)]
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
+pub unsafe fn disable_timer_interrupts() {
+    use riscv::register::{sie, sstatus};
+    // SAFETY: caller must ensure trap vector is installed and interrupts are masked appropriately elsewhere when needed.
+    unsafe {
+        sstatus::clear_sie();
+        sie::clear_stimer();
+    }
+}
+
+// Intentionally no non-OS stub to avoid dead_code in host builds
 
 // ——— Rust trap handler called from assembly ———
 
@@ -242,6 +257,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
     if exc == ILLEGAL_INSTRUCTION {
         // Fetch the faulting instruction; CSR ops are 32-bit.
         let inst = unsafe { core::ptr::read_volatile(frame.sepc as *const u32) };
+        // Also read the lower 16 bits in case the fault was on a compressed instruction
+        let inst16 = unsafe { core::ptr::read_volatile(frame.sepc as *const u16) } as u32;
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         let stval_now = riscv::register::stval::read();
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -253,11 +270,44 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
+            // Check if sepc appears to be within executable text
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            extern "C" {
+                static __text_start: u8;
+                static __text_end: u8;
+            }
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            let exec_ok = {
+                let start = unsafe { &__text_start as *const u8 as usize };
+                let end = unsafe { &__text_end as *const u8 as usize };
+                frame.sepc >= start && frame.sepc < end
+            };
+            #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+            let exec_ok = true;
             let _ = write!(
                 u,
-                "EXC: scause=0x{:x} sepc=0x{:x} inst=0x{:08x} stval=0x{:x}\n",
-                frame.scause, frame.sepc, inst, stval_now
+                "EXC: scause=0x{:x} sepc=0x{:x} inst=0x{:08x} inst16=0x{:04x} stval=0x{:x} exec={}\n",
+                frame.scause, frame.sepc, inst, inst16, stval_now, if exec_ok { "Y" } else { "N" }
             );
+            if let Some((name, base)) = nearest_symbol(frame.sepc) {
+                let _ =
+                    write!(u, "EXC-S: {:016x} ~ {}+0x{:x}\n", frame.sepc, name, frame.sepc - base);
+            }
+            // Attempt to dump 16 bytes around sepc for debugging. Best-effort.
+            let base = frame.sepc & !0xf;
+            let mut bytes = [0u8; 16];
+            let mut i = 0;
+            while i < 16 {
+                // SAFETY: best-effort diagnostic read; may fault on some addresses.
+                let b = unsafe { core::ptr::read_volatile((base + i) as *const u8) };
+                bytes[i] = b;
+                i += 1;
+            }
+            let _ = write!(u, "EXC: bytes[@0x{:x}] =", base);
+            for b in &bytes {
+                let _ = write!(u, " {:02x}", *b);
+            }
+            let _ = write!(u, "\n");
         }
     } else {
         // For non-IllegalInstruction, avoid reading instruction (could fault again)
@@ -273,6 +323,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 "EXC: scause=0x{:x} sepc=0x{:x} stval=0x{:x}\n",
                 frame.scause, frame.sepc, stval_now
             );
+            let sp = frame.x[2];
+            let _ = write!(u, "EXC2: sp=0x{:x}\n", sp);
         }
     }
     // Park the hart for diagnostics (do not reboot; LAST_TRAP can be read).
@@ -306,5 +358,46 @@ mod tests {
         assert!(out.contains("sepc"));
         assert!(out.contains("scause"));
         assert!(out.contains("a0..a7"));
+    }
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "trap_symbols"))]
+#[allow(dead_code)]
+mod trap_symbols {
+    include!(concat!(env!("OUT_DIR"), "/trap_symbols.rs"));
+}
+#[cfg(not(all(target_arch = "riscv64", target_os = "none", feature = "trap_symbols")))]
+mod trap_symbols {
+    #[allow(dead_code)]
+    pub static TRAP_SYMBOLS: &[(usize, &str)] = &[];
+}
+
+fn nearest_symbol(addr: usize) -> Option<(&'static str, usize)> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        // Binary search in sorted table if present
+        let table = &trap_symbols::TRAP_SYMBOLS;
+        if table.is_empty() {
+            return None;
+        }
+        let mut lo = 0usize;
+        let mut hi = table.len();
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if table[mid].0 <= addr {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if lo == 0 {
+            return None;
+        }
+        let (base, name) = table[lo - 1];
+        Some((name, base))
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        None
     }
 }

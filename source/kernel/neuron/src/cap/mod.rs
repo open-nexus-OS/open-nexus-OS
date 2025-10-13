@@ -60,7 +60,7 @@ pub enum CapError {
 }
 
 /// Per-task capability table.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CapTable {
     slots: Vec<Option<Capability>>,
 }
@@ -73,7 +73,10 @@ impl CapTable {
 
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {
-        Self::with_capacity(32)
+        crate::uart::write_line("CAP: new enter");
+        let table = Self::with_capacity(32);
+        crate::uart::write_line("CAP: new exit");
+        table
     }
 
     /// Inserts or overwrites a slot.

@@ -14,9 +14,7 @@ core::arch::global_asm!(
     .globl _start
     .align 4
 _start:
-    la   sp, __bss_end
-    li   t0, 0x4000
-    add  sp, sp, t0
+    la   sp, __stack_top
     j    start_rust
 "#
 );
@@ -47,6 +45,7 @@ fn uart_write_line(msg: &str) {
 
 #[no_mangle]
 pub extern "C" fn start_rust() -> ! {
+    // Trimmed early diagnostics for stable, short logs.
     // SAFETY: Early boot runs before the Rust runtime. The kernel guarantees
     // that only a single core executes this path, so calling the raw
     // initialisation routine is sound here.

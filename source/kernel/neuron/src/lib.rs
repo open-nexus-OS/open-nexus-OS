@@ -66,8 +66,8 @@ fn init_heap() {
 // Modules
 
 mod arch;
-mod bootstrap;
 mod boot;
+mod bootstrap;
 mod cap;
 mod determinism;
 mod hal;

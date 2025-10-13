@@ -23,6 +23,7 @@ pub fn early_boot_init() {
     unsafe {
         zero_bss();
     }
+    // Stage-policy: no heavy diagnostics in early boot on OS path.
     uart::write_line("boot: ok");
 
     // SAFETY: privileged context, trap vector install once.

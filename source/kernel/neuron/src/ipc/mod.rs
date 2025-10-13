@@ -93,6 +93,12 @@ impl Router {
     /// Sends `msg` to the endpoint referenced by `id`.
     pub fn send(&mut self, id: EndpointId, msg: Message) -> Result<(), IpcError> {
         crate::uart::write_line("IPC: send enter");
+        {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "IPC-I: target={} len={}\n", id, msg.header.len);
+            let _ = write!(w, "IPC-SZ: endpoints={} id={}\n", self.endpoints.len(), id);
+        }
         #[cfg(feature = "failpoints")]
         if DENY_NEXT_SEND.swap(false, Ordering::SeqCst) {
             return Err(IpcError::PermissionDenied);
@@ -137,6 +143,7 @@ pub mod failpoints {
     use core::sync::atomic::Ordering;
 
     /// Forces the next `send` invocation to error with [`IpcError::PermissionDenied`].
+    #[allow(dead_code)]
     pub fn deny_next_send() {
         DENY_NEXT_SEND.store(true, Ordering::SeqCst);
     }

@@ -149,6 +149,7 @@ pub enum ServerError {
     Transport(TransportError),
     #[error("decode error: {0}")]
     Decode(String),
+    #[cfg(feature = "idl-capnp")]
     #[error("encode error: {0}")]
     Encode(#[from] capnp::Error),
 }

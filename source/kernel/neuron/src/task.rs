@@ -5,6 +5,7 @@
 
 extern crate alloc;
 
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
@@ -67,6 +68,7 @@ impl From<CapError> for TransferError {
 /// Minimal task control block.
 #[derive(Clone)]
 pub struct Task {
+    #[allow(dead_code)]
     pid: Pid,
     parent: Option<Pid>,
     frame: TrapFrame,
@@ -123,7 +125,10 @@ pub struct TaskTable {
 impl TaskTable {
     /// Creates a new table seeded with the bootstrap task (PID 0).
     pub fn new() -> Self {
-        Self { tasks: vec![Task::bootstrap()], current: 0 }
+        crate::uart::write_line("TT: new enter");
+        let table = Self { tasks: vec![Task::bootstrap()], current: 0 };
+        crate::uart::write_line("TT: new exit");
+        table
     }
 
     /// Returns the PID of the currently running task.
@@ -172,6 +177,7 @@ impl TaskTable {
     }
 
     /// Spawns a child task that temporarily shares its parent's address space.
+    #[inline(always)]
     pub fn spawn(
         &mut self,
         parent: Pid,
@@ -182,6 +188,31 @@ impl TaskTable {
         scheduler: &mut Scheduler,
         router: &mut Router,
     ) -> Result<Pid, SpawnError> {
+        // Keep the wrapper minimal to reduce prologue pressure; delegate to the helper.
+        self.spawn_inner(parent, entry_pc, stack_sp, asid, bootstrap_slot, scheduler, router)
+    }
+
+    /// Helper containing the actual spawn logic. Kept separate to allow a minimal wrapper.
+    #[inline(never)]
+    fn spawn_inner(
+        &mut self,
+        parent: Pid,
+        entry_pc: u64,
+        stack_sp: u64,
+        asid: u64,
+        bootstrap_slot: u32,
+        scheduler: &mut Scheduler,
+        router: &mut Router,
+    ) -> Result<Pid, SpawnError> {
+        {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(
+                w,
+                "SPAWN-I: start parent={} entry=0x{:x} sp=0x{:x}\n",
+                parent, entry_pc, stack_sp
+            );
+        }
         let parent_index = parent as usize;
         let parent_task = self.tasks.get(parent_index).ok_or(SpawnError::InvalidParent)?;
 
@@ -192,12 +223,45 @@ impl TaskTable {
             return Err(SpawnError::InvalidStackPointer);
         }
 
+        // Validate entry point lies within kernel text (RX) for OS selftest stage
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        unsafe {
+            extern "C" {
+                static __text_start: u8;
+                static __text_end: u8;
+            }
+            let start = &__text_start as *const u8 as usize;
+            let end = &__text_end as *const u8 as usize;
+            let pc = entry_pc as usize;
+            // Only enforce range if linker provided sane bounds
+            if end > start {
+                if pc < start || pc >= end || (pc & 0x1) != 0 {
+                    use core::fmt::Write as _;
+                    let mut w = crate::uart::raw_writer();
+                    let _ =
+                        write!(w, "SPAWN-E: pc=0x{:x} start=0x{:x} end=0x{:x}\n", pc, start, end);
+                    return Err(SpawnError::InvalidEntryPoint);
+                }
+            }
+        }
+        // Warn if stack is zero during bring-up (we allow 0 for MVP shared-AS test)
+        if stack_sp == 0 {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "SPAWN-W: stack sp=0 (MVP shared-AS)\n");
+        }
+
         let slot = bootstrap_slot as usize;
         let bootstrap_cap = parent_task.caps.get(slot)?;
         let endpoint = match bootstrap_cap.kind {
             CapabilityKind::Endpoint(id) => id,
             _ => return Err(SpawnError::BootstrapNotEndpoint),
         };
+        {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "SPAWN-I: bootstrap cap ok ep={} slot={}\n", endpoint, slot);
+        }
 
         let mut child_caps = CapTable::new();
         child_caps.set(slot, bootstrap_cap)?;
@@ -209,6 +273,11 @@ impl TaskTable {
         const SSTATUS_SPP: usize = 1 << 8;
         frame.sstatus &= !SSTATUS_SPP;
         frame.sstatus |= SSTATUS_SPIE;
+        {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "SPAWN-I: frame set sepc=0x{:x} sp=0x{:x}\n", frame.sepc, frame.x[2]);
+        }
 
         let pid = self.tasks.len() as Pid;
         let task = Task {
@@ -220,13 +289,28 @@ impl TaskTable {
             bootstrap_slot: Some(slot),
         };
         self.tasks.push(task);
+        {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "SPAWN-I: task created pid={}\n", pid);
+        }
 
         scheduler.enqueue(pid, QosClass::Normal);
+        {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "SPAWN-I: enqueued pid={} qos=normal\n", pid);
+        }
 
         let bootstrap = BootstrapMsg::default();
         let payload = bootstrap.to_le_bytes().to_vec();
         let len = payload.len() as u32;
         let header = MessageHeader::new(parent, endpoint, 0, 0, len);
+        {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "SPAWN: before send ep={} len={}\n", endpoint, len);
+        }
         router.send(endpoint, Message::new(header, payload))?;
 
         Ok(pid)
@@ -268,7 +352,10 @@ mod tests {
             let caps = table.bootstrap_mut().caps_mut();
             caps.set(
                 0,
-                Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
             )
             .unwrap();
         }

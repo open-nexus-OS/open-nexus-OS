@@ -6,11 +6,21 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [features]
-default = ["failpoints"]
+default = ["failpoints", "boot_banner", "selftest_priv_stack", "selftest_time", "selftest_full", "trap_symbols"]
 failpoints = []
 # opt-in panic handler for no_std kernel images
 panic_handler = []
 boot_timing = []
+timer_irq = []
+selftest_priv_stack = []
+boot_banner = []
+selftest_full = []
+selftest_time = []
+selftest_ipc = []
+selftest_caps = []
+selftest_sched = []
+selftest_map = []
+trap_symbols = []
 
 [lib]
 crate-type = ["rlib", "staticlib"]

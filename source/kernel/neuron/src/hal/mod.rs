@@ -17,6 +17,7 @@ pub trait Timer {
 /// UART abstraction used for kernel logging.
 pub trait Uart {
     /// Writes a single byte to the UART.
+    #[cfg_attr(all(target_arch = "riscv64", target_os = "none"), allow(dead_code))]
     fn write_byte(&self, byte: u8);
 }
 

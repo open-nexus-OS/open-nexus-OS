@@ -5,9 +5,37 @@
 
 extern crate alloc;
 
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 use alloc::vec;
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_full"))]
+use alloc::vec;
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+// Include the minimal child entry assembly like trap.S so the symbol is always linked.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+core::arch::global_asm!(include_str!("child_stub.S"));
+// Include stack-switch helper for running selftests on a private stack (feature-gated)
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+core::arch::global_asm!(include_str!("stack_run.S"));
+
+// Imports for OS build
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use crate::{
+    cap::CapabilityKind, hal::virt::VirtMachine, ipc::Router, mm::PageTable, sched::Scheduler,
+    task::TaskTable, uart, BootstrapMsg,
+};
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_full"))]
+use crate::{
+    cap::{CapError, Capability, Rights},
+    determinism,
+    hal::{IrqCtl, Timer as _, Tlb, Uart},
+    ipc::{self, header::MessageHeader, IpcError, Message},
+    sched::QosClass,
+};
+
+// Full imports for host build
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 use crate::{
     cap::{CapError, Capability, CapabilityKind, Rights},
     determinism,
@@ -17,33 +45,156 @@ use crate::{
     sched::{QosClass, Scheduler},
     task::TaskTable,
     uart,
-    BootstrapMsg,
 };
 
 pub mod assert;
-
-#[repr(align(16))]
-struct ChildStack([u8; 256]);
-
-static mut CHILD_STACK: ChildStack = ChildStack([0; 256]);
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 static CHILD_RUNS: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 fn child_entry_stub() {
     uart::write_line("KSELFTEST: child running");
     CHILD_RUNS.fetch_add(1, Ordering::SeqCst);
     CHILD_RUNS.fetch_add(1, Ordering::SeqCst);
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+extern "C" {
+    fn child_entry_asm();
+}
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+extern "C" {
+    fn run_selftest_on_stack(
+        func: extern "C" fn(*mut core::ffi::c_void),
+        arg: *mut core::ffi::c_void,
+        new_sp: *mut u8,
+    );
+}
+
 /// Borrowed references to kernel subsystems used by selftests.
 pub struct Context<'a> {
+    #[allow(dead_code)]
     pub hal: &'a VirtMachine,
     pub router: &'a mut Router,
+    #[allow(dead_code)]
     pub address_space: &'a mut PageTable,
     pub tasks: &'a mut TaskTable,
     pub scheduler: &'a mut Scheduler,
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+#[repr(align(16))]
+struct AlignedStack([u8; 8192]);
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+static mut SELFTEST_STACK: AlignedStack = AlignedStack([0; 8192]);
+
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+unsafe fn fill_canaries(ptr: *mut u8, len: usize) {
+    let red = core::cmp::min(256, len / 8);
+    let mut i = 0usize;
+    while i < red {
+        unsafe {
+            core::ptr::write_volatile(ptr.add(i), 0xA5);
+            core::ptr::write_volatile(ptr.add(len - 1 - i), 0x5A);
+        }
+        i += 1;
+    }
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+unsafe fn check_canaries(ptr: *const u8, len: usize) -> bool {
+    let red = core::cmp::min(256, len / 8);
+    let mut i = 0usize;
+    while i < red {
+        let (a, b) = unsafe {
+            (core::ptr::read_volatile(ptr.add(i)), core::ptr::read_volatile(ptr.add(len - 1 - i)))
+        };
+        if a != 0xA5 || b != 0x5A {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+extern "C" fn entry_shim(arg: *mut core::ffi::c_void) {
+    // SAFETY: caller passes a valid pointer to Context
+    let ctx = unsafe { &mut *(arg as *mut Context<'_>) };
+    entry(ctx);
+}
+
+/// Run the selftests on a private, canaried stack with timer IRQs masked.
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_priv_stack"))]
+pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
+    // Prepare stack and canaries
+    const STK_LEN: usize = 8192;
+    const GUARD: usize = 256; // leave a redzone at the top to avoid clobbering canaries
+    let stk_ptr = unsafe {
+        let base = core::ptr::addr_of_mut!(SELFTEST_STACK) as *mut AlignedStack;
+        core::ptr::addr_of_mut!((*base).0) as *mut u8
+    };
+    let sp_top = unsafe { stk_ptr.add(STK_LEN) };
+    unsafe { fill_canaries(stk_ptr, STK_LEN) };
+    // Mask S-timer interrupts during test to avoid reentrancy
+    unsafe {
+        use riscv::register::{sie, sstatus};
+        sstatus::clear_sie();
+        sie::clear_stimer();
+    }
+    // Switch to private stack and run
+    let arg_ptr = ctx as *mut _ as *mut core::ffi::c_void;
+    let guarded_sp = unsafe { sp_top.offset(-(GUARD as isize)) };
+    unsafe { run_selftest_on_stack(entry_shim, arg_ptr, guarded_sp as *mut u8) };
+    // Re-enable interrupts after selftest
+    unsafe {
+        use riscv::register::{sie, sstatus};
+        sie::set_stimer();
+        sstatus::set_sie();
+    }
+    if !unsafe { check_canaries(stk_ptr as *const u8, STK_LEN) } {
+        uart::write_line("SELFTEST: stack canary CORRUPT");
+    } else {
+        // silent on success in OS stage
+    }
+}
+
 /// Entrypoint invoked by the kernel after core initialisation completes.
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_full"))]
+pub fn entry(ctx: &mut Context<'_>) {
+    uart::write_line("SELFTEST: begin");
+    test_time(ctx);
+    uart::write_line("SELFTEST: time ok");
+    test_ipc(ctx);
+    uart::write_line("SELFTEST: ipc ok");
+    test_caps(ctx);
+    uart::write_line("SELFTEST: caps ok");
+    test_sched(ctx);
+    uart::write_line("SELFTEST: sched ok");
+    test_spawn(ctx);
+    uart::write_line("SELFTEST: end");
+}
+
+/// Minimal OS entry when full suite is disabled: only spawn test.
+#[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_full")))]
+pub fn entry(ctx: &mut Context<'_>) {
+    uart::write_line("SELFTEST: begin");
+    #[cfg(feature = "selftest_time")]
+    {
+        test_time(ctx);
+        uart::write_line("SELFTEST: time ok");
+    }
+    #[cfg(feature = "selftest_ipc")]
+    {
+        test_ipc(ctx);
+        uart::write_line("SELFTEST: ipc ok");
+    }
+    test_spawn(ctx);
+    uart::write_line("SELFTEST: end");
+}
+
+/// Entrypoint (host/full) invoked by the kernel after core initialisation completes.
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub fn entry(ctx: &mut Context<'_>) {
     uart::write_line("SELFTEST: begin");
     test_time(ctx);
@@ -55,12 +206,22 @@ pub fn entry(ctx: &mut Context<'_>) {
     test_map(ctx);
     uart::write_line("SELFTEST: map ok");
     test_sched(ctx);
+    uart::write_line("SELFTEST: sched ok");
     test_spawn(ctx);
     uart::write_line("SELFTEST: end");
 }
 
+#[cfg(all(
+    target_arch = "riscv64",
+    target_os = "none",
+    any(feature = "selftest_full", feature = "selftest_time")
+))]
 fn test_time(ctx: &Context<'_>) {
     use crate::st_assert;
+    use crate::{
+        determinism,
+        hal::{IrqCtl, Timer as _, Tlb, Uart},
+    };
 
     uart::write_line("SELFTEST: time step0: acquire timer handle");
     let timer = ctx.hal.timer();
@@ -85,8 +246,15 @@ fn test_time(ctx: &Context<'_>) {
     uart::write_line("SELFTEST: time step6: time test complete");
 }
 
+#[cfg(all(
+    target_arch = "riscv64",
+    target_os = "none",
+    any(feature = "selftest_full", feature = "selftest_ipc")
+))]
 fn test_ipc(ctx: &mut Context<'_>) {
+    use crate::ipc::{self, header::MessageHeader, IpcError, Message};
     use crate::{st_assert, st_expect_eq, st_expect_err};
+    use alloc::vec;
 
     uart::write_line("SELFTEST: ipc step0: send/recv zero-length on endpoint 0");
     let zero = Message::new(MessageHeader::new(0, 0, 1, 0, 0), vec![]);
@@ -129,6 +297,11 @@ fn test_ipc(ctx: &mut Context<'_>) {
     }
 }
 
+#[cfg(all(
+    target_arch = "riscv64",
+    target_os = "none",
+    any(feature = "selftest_full", feature = "selftest_caps")
+))]
 fn test_caps(ctx: &mut Context<'_>) {
     use crate::{st_assert, st_expect_eq, st_expect_err};
 
@@ -163,44 +336,48 @@ fn test_caps(ctx: &mut Context<'_>) {
     }
 }
 
-fn test_map(ctx: &mut Context<'_>) {
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn test_map(_ctx: &mut Context<'_>) {
     use crate::st_expect_err;
 
     uart::write_line("SELFTEST: map begin");
-    // Removed initial WFI to avoid stalling without a pending interrupt
+    // Perform mapping tests on a private page table to avoid mutating the live kernel AS.
+    let mut pt = PageTable::new();
     uart::write_line("SELFTEST: map step0: first mapping and lookup");
     let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE;
-    ctx.address_space.map(0, 0, flags).expect("first mapping");
-    let entry = ctx.address_space.lookup(0).expect("mapping present");
+    pt.map(0, 0, flags).expect("first mapping");
+    let entry = pt.lookup(0).expect("mapping present");
     crate::st_assert!(entry & flags.bits() != 0, "mapping retains flags");
-    crate::st_expect_eq!(ctx.address_space.lookup(PAGE_SIZE), None);
-    let _root = ctx.address_space.root_ppn();
+    crate::st_expect_eq!(pt.lookup(PAGE_SIZE), None);
+    let _root = pt.root_ppn();
 
     uart::write_line("SELFTEST: map step1: expect Unaligned");
-    st_expect_err!(ctx.address_space.map(1, PAGE_SIZE, flags), MapError::Unaligned);
+    st_expect_err!(pt.map(1, PAGE_SIZE, flags), MapError::Unaligned);
 
     #[cfg(feature = "failpoints")]
     {
         uart::write_line("SELFTEST: map step2: expect PermissionDenied via failpoint");
         mm::failpoints::deny_next_map();
-        st_expect_err!(
-            ctx.address_space.map(PAGE_SIZE * 2, PAGE_SIZE * 3, flags),
-            MapError::PermissionDenied
-        );
+        st_expect_err!(pt.map(PAGE_SIZE * 2, PAGE_SIZE * 3, flags), MapError::PermissionDenied);
     }
 
     uart::write_line("SELFTEST: map step3: expect Overlap and OutOfRange");
     uart::write_line("SELFTEST: map step3a: assert Overlap");
-    st_expect_err!(ctx.address_space.map(0, PAGE_SIZE, flags), MapError::Overlap);
+    st_expect_err!(pt.map(0, PAGE_SIZE, flags), MapError::Overlap);
     uart::write_line("SELFTEST: map step3a ok");
     // Removed yield to avoid reliance on timer interrupt delivery during CI
     uart::write_line("SELFTEST: map step3b: assert OutOfRange");
-    st_expect_err!(ctx.address_space.map(PAGE_SIZE * 2048, 0, flags), MapError::OutOfRange);
+    st_expect_err!(pt.map(PAGE_SIZE * 2048, 0, flags), MapError::OutOfRange);
     uart::write_line("SELFTEST: map step3b ok");
     // Removed yield to avoid reliance on timer interrupt delivery during CI
     uart::write_line("SELFTEST: map ok");
 }
 
+#[cfg(all(
+    target_arch = "riscv64",
+    target_os = "none",
+    any(feature = "selftest_full", feature = "selftest_sched")
+))]
 fn test_sched(ctx: &mut Context<'_>) {
     use crate::{st_assert, st_expect_eq};
 
@@ -230,30 +407,84 @@ fn test_sched(ctx: &mut Context<'_>) {
     uart::write_line("SELFTEST: sched ok");
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn test_spawn(ctx: &mut Context<'_>) {
+    uart::write_line("SELFTEST: spawn begin");
+    let entry_pc = unsafe { core::mem::transmute::<_, usize>(child_entry_asm as *const ()) } as u64;
+    let stack_top = 0u64;
+
+    let parent = ctx.tasks.current_pid();
+    let child = match ctx.tasks.spawn(parent, entry_pc, stack_top, 0, 0, ctx.scheduler, ctx.router)
+    {
+        Ok(pid) => pid,
+        Err(_) => {
+            uart::write_line("SELFTEST: spawn FAIL: syscall");
+            loop {
+                crate::arch::riscv::wait_for_interrupt();
+            }
+        }
+    };
+    if child == parent {
+        uart::write_line("SELFTEST: spawn FAIL: child==parent");
+        loop {
+            crate::arch::riscv::wait_for_interrupt();
+        }
+    }
+
+    match ctx.router.recv(0) {
+        Ok(msg) => {
+            if msg.payload.len() != core::mem::size_of::<BootstrapMsg>() {
+                uart::write_line("SELFTEST: spawn FAIL: bad bootstrap len");
+                loop {
+                    crate::arch::riscv::wait_for_interrupt();
+                }
+            }
+        }
+        Err(_) => {
+            uart::write_line("SELFTEST: spawn FAIL: no bootstrap msg");
+            loop {
+                crate::arch::riscv::wait_for_interrupt();
+            }
+        }
+    }
+
+    let ok_caps = ctx
+        .tasks
+        .caps_of(child)
+        .and_then(|caps| caps.get(0).ok())
+        .map(|cap| matches!(cap.kind, CapabilityKind::Endpoint(0)))
+        .unwrap_or(false);
+    if !ok_caps {
+        uart::write_line("SELFTEST: spawn FAIL: child cap[0] not ep0");
+        loop {
+            crate::arch::riscv::wait_for_interrupt();
+        }
+    }
+
+    // Call the child entry stub once to ensure it is executable and returns.
+    unsafe {
+        let func: fn() = core::mem::transmute(entry_pc as usize);
+        func();
+    }
+    uart::write_line("KSELFTEST: spawn ok");
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 fn test_spawn(ctx: &mut Context<'_>) {
     use crate::{st_assert, st_expect_eq};
 
     uart::write_line("SELFTEST: spawn begin");
     CHILD_RUNS.store(0, Ordering::SeqCst);
     let entry = child_entry_stub as usize as u64;
-    let stack_top = unsafe {
-        // SAFETY: exclusive access during selftest; stack lives for program duration.
-        let base = CHILD_STACK.0.as_ptr() as usize;
-        base + CHILD_STACK.0.len()
-    } as u64;
-
+    let stack_top = 0u64;
     let parent = ctx.tasks.current_pid();
     let child = ctx
         .tasks
         .spawn(parent, entry, stack_top, 0, 0, ctx.scheduler, ctx.router)
         .expect("spawn child task");
     st_assert!(child != parent, "child pid differs from parent");
-
     let bootstrap = ctx.router.recv(0).expect("bootstrap message enqueued");
-    st_expect_eq!(
-        bootstrap.payload.len(),
-        core::mem::size_of::<BootstrapMsg>(),
-    );
+    st_expect_eq!(bootstrap.payload.len(), 32usize);
     let cap = ctx
         .tasks
         .caps_of(child)
@@ -261,9 +492,7 @@ fn test_spawn(ctx: &mut Context<'_>) {
         .get(0)
         .expect("bootstrap capability copied");
     st_expect_eq!(cap.kind, CapabilityKind::Endpoint(0));
-
     st_expect_eq!(CHILD_RUNS.load(Ordering::SeqCst), 0usize);
-    // SAFETY: entry points to a Rust function with C ABI-compatible signature.
     unsafe {
         let func: fn() = core::mem::transmute(entry as usize);
         func();

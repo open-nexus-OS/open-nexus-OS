@@ -9,6 +9,7 @@ use crate::{
     arch::riscv,
     cap::{Capability, CapabilityKind, Rights},
     hal::virt::VirtMachine,
+    hal::{IrqCtl, Tlb},
     ipc::{self, header::MessageHeader},
     mm::PageTable,
     sched::{QosClass, Scheduler},
@@ -17,6 +18,8 @@ use crate::{
     task::TaskTable,
     uart,
 };
+
+// (no private selftest stack; kernel stack is provisioned by linker)
 
 /// Aggregated kernel state initialised during boot.
 struct KernelState {
@@ -38,7 +41,10 @@ impl KernelState {
             let caps = tasks.bootstrap_mut().caps_mut();
             let _ = caps.set(
                 0,
-                Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
             );
             uart::write_line("KS: after caps.set ep0");
             // Slot 1: identity VMO for bootstrap mappings
@@ -62,7 +68,7 @@ impl KernelState {
         api::install_handlers(&mut syscalls);
         uart::write_line("KS: after install_handlers");
 
-        let router = ipc::Router::new(4);
+        let router = ipc::Router::new(8);
         uart::write_line("KS: after Router::new");
 
         let address_space = PageTable::new();
@@ -75,6 +81,7 @@ impl KernelState {
         Self { hal, scheduler, tasks, ipc: router, address_space, syscalls }
     }
 
+    #[allow(dead_code)]
     fn banner(&self) {
         uart::write_line(
             "
@@ -89,6 +96,7 @@ impl KernelState {
         uart::write_line("neuron vers. 0.1.0 - One OS. Many Devices.");
     }
 
+    #[allow(dead_code)]
     fn exercise_ipc(&mut self) {
         // Send a bootstrap message to prove IPC wiring works before tasks run.
         let header = MessageHeader::new(0, 0, 0x100, 0, 0);
@@ -120,6 +128,12 @@ pub fn kmain() -> ! {
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
     let mut kernel = KernelState::new();
+    // Touch HAL traits to satisfy imports
+    let uart_dev = kernel.hal.uart();
+    let _: &dyn crate::hal::Uart = uart_dev;
+    kernel.hal.tlb().flush_all();
+    kernel.hal.irq().disable(0);
+    kernel.hal.irq().enable(0);
     #[cfg(feature = "boot_timing")]
     {
         let t1 = crate::arch::riscv::read_time();
@@ -128,28 +142,18 @@ pub fn kmain() -> ! {
         let mut u = crate::uart::KernelUart::lock();
         let _ = write!(u, "T:init={}\n", delta);
     }
-    uart::write_line("D: after KernelState::new");
+    // Minimal IO only
+    #[cfg(feature = "boot_banner")]
     kernel.banner();
-    // reduce IO noise during timing runs
-    // SAFETY: trap vector installed; first tick armed; enable S-mode timer interrupts after init
-    unsafe {
-        crate::trap::enable_timer_interrupts();
-    }
-    uart::write_line("T: enabled timer interrupts");
-    uart::write_line("F: before exercise_ipc");
-    kernel.exercise_ipc();
-    uart::write_line("G: after exercise_ipc");
-    {
-        use core::fmt::Write as _;
-        let mut w = crate::uart::raw_writer();
-        let _ = write!(w, "H: before selftest\n");
-    }
+    // Keep timer interrupts disabled during selftest to avoid preemption/trap stack usage
+    // Keep UART usage minimal before selftests
+    // kernel.exercise_ipc();
+    uart::write_line("H: before selftest");
+    // (no pointer debug formatting in OS stage policy)
     // Quick sanity for OpenSBI environment
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        use core::fmt::Write as _;
-        let mut w = crate::uart::raw_writer();
-        let _ = write!(w, "ENV: sbi present\n");
+        uart::write_line("ENV: sbi present");
     }
     #[cfg(feature = "boot_timing")]
     let t2 = crate::arch::riscv::read_time();
@@ -161,7 +165,17 @@ pub fn kmain() -> ! {
             tasks: &mut kernel.tasks,
             scheduler: &mut kernel.scheduler,
         };
+        crate::uart::write_line("H1: calling selftest.entry");
+        // Prefer private selftest stack on OS if enabled; applies to full suite and spawn-only
+        #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+        selftest::entry_on_private_stack(&mut ctx);
+        #[cfg(not(all(
+            feature = "selftest_priv_stack",
+            target_arch = "riscv64",
+            target_os = "none"
+        )))]
         selftest::entry(&mut ctx);
+        crate::uart::write_line("H2: returned from selftest");
     }
     #[cfg(feature = "boot_timing")]
     {

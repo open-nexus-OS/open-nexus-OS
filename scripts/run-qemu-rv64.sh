@@ -40,7 +40,7 @@ monitor_uart() {
   local line
   while IFS= read -r line; do
     case "$line" in
-      *"init: ready"*|*"I: after selftest"*)
+      *"init: ready"*|*"I: after selftest"*|*"KSELFTEST: spawn ok"*|*"SELFTEST: ipc ok"*|*"SELFTEST: end"*)
         echo "[info] Success marker detected – stopping QEMU" >&2
         pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
         break

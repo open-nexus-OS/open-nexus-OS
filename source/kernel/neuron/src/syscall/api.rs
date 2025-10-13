@@ -174,9 +174,15 @@ fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let asid = args.get(2) as u64;
     let bootstrap_slot = args.get(3) as u32;
     let parent = ctx.tasks.current_pid();
-    let pid = ctx
-        .tasks
-        .spawn(parent, entry_pc, stack_sp, asid, bootstrap_slot, ctx.scheduler, ctx.router)?;
+    let pid = ctx.tasks.spawn(
+        parent,
+        entry_pc,
+        stack_sp,
+        asid,
+        bootstrap_slot,
+        ctx.scheduler,
+        ctx.router,
+    )?;
     Ok(pid as usize)
 }
 
@@ -197,7 +203,9 @@ mod tests {
     use super::*;
     use crate::{
         cap::{Capability, CapabilityKind, Rights},
-        syscall::{Args, SyscallTable, SYSCALL_CAP_TRANSFER, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN},
+        syscall::{
+            Args, SyscallTable, SYSCALL_CAP_TRANSFER, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
+        },
         task::TaskTable,
         BootstrapMsg,
     };
@@ -210,7 +218,10 @@ mod tests {
             let caps = tasks.bootstrap_mut().caps_mut();
             let _ = caps.set(
                 0,
-                Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
             );
         }
         let mut router = ipc::Router::new(1);
@@ -235,7 +246,10 @@ mod tests {
             let caps = tasks.bootstrap_mut().caps_mut();
             caps.set(
                 0,
-                Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND | Rights::RECV },
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
             )
             .unwrap();
         }
@@ -248,11 +262,7 @@ mod tests {
         install_handlers(&mut table);
 
         let child = table
-            .dispatch(
-                SYSCALL_SPAWN,
-                &mut ctx,
-                &Args::new([0x1000, 0x2000, 0, 0, 0, 0]),
-            )
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0x2000, 0, 0, 0, 0]))
             .unwrap() as u32;
         assert_eq!(child, 1);
         let msg = ctx.router.recv(0).unwrap();
