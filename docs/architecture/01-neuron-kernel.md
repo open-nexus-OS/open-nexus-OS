@@ -18,22 +18,43 @@ surface for early user tasks.
 
 | Number | Symbol          | Description |
 | ------ | --------------- | ----------- |
-| 0      | `yield`         | Rotate the scheduler and return the next runnable task id. |
+| 0      | `yield`         | Rotate the scheduler and return the next runnable task id. Activates the target task's address space. |
 | 1      | `nsec`          | Return the monotonic time in nanoseconds derived from the `time` CSR. |
 | 2      | `send`          | Send an IPC message via an endpoint capability. |
 | 3      | `recv`          | Receive the next pending IPC message. |
-| 4      | `map`           | Map a page from a VMO capability into the caller address space. |
-| 7      | `spawn`         | Create a child task (MVP: shared address space). PC/SP set from args, seed cap table, enqueue `BootstrapMsg`. |
+| 4      | `map`           | Map a page from a VMO capability into the caller's active address space. |
+| 7      | `spawn`         | Create a child task. The child runs in a dedicated Sv39 address space (fresh by default) with a guarded stack. |
 | 8      | `cap_transfer`  | Duplicate/grant a capability to another task with a rights mask (subset-only). |
+| 9      | `as_create`     | Allocate a new Sv39 address space and return its opaque handle. |
+| 10     | `as_map`        | Map a VMO into a *target* address space identified by handle. Enforces W^X at the syscall boundary. |
 
-Errors are reported via negative sentinel values (`usize::MAX`
-descending) in `a0`:
+Errors follow the conventional POSIX encoding: handlers return
+`-errno` (two's complement) in `a0`. Key codes used by the current
+increment:
 
-- `usize::MAX`: invalid syscall number
-- `usize::MAX - 1`: capability lookup or rights failure
-- `usize::MAX - 2`: IPC routing error
-- `usize::MAX - 3`: spawn error
-- `usize::MAX - 4`: capability transfer error
+- `EPERM` for capability or W^X violations.
+- `EINVAL` for malformed arguments and IPC routing failures.
+- `ENOSPC` when the ASID allocator is exhausted.
+- `ENOSYS` for disabled/unsupported functionality.
+- `ENOMEM` when the guarded stack pool runs out of pages.
+
+## Address Space Model
+
+- Sv39 translation with three levels of page tables. Intermediate tables are allocated lazily as
+  mappings are installed via `AddressSpaceManager::map_page`.
+- The ASID allocator tracks 256 slots (ASID `0` is reserved for the kernel). Handles returned by
+  `SYS_AS_CREATE` wrap the internal slot index and remain opaque to callers.
+- Fresh address spaces are seeded with a kernel identity map (text as RX, data/BSS/stacks as RW)
+  together with basic MMIO windows (UART) so that context switches can safely toggle SATP.
+- Each address space maintains the set of owning tasks so the manager can reject destruction while
+  references remain. Activating a handle writes SATP and issues a global `sfence.vma`.
+
+## W^X Policy
+
+- Writable and executable user mappings are mutually exclusive. `SYS_AS_MAP` rejects requests that
+  combine `PROT_WRITE` and `PROT_EXEC` and returns `EPERM`.
+- The policy applies uniformly to mappings requested by the caller and those created by kernel
+  helpers (for example, guarded stacks installed during `spawn`).
 
 ## BootstrapMsg (child bootstrap payload)
 
@@ -53,20 +74,28 @@ pub struct BootstrapMsg {
 
 Golden layout tests assert size/padding correctness.
 
-## Spawn (MVP) semantics
+## Spawn semantics (dedicated address spaces)
 
-- Address space: shared with parent (temporary rule for bring-up).
-- Entry checks: `entry_pc` must lie within `__text_start..__text_end` and be aligned; otherwise `SpawnError::InvalidEntryPoint`.
-- Stack: `stack_sp == 0` permitted in MVP; dedicated stacks land in a later phase.
-- Cap table: child receives a copy of the parent's provided bootstrap endpoint into slot `0` (rights are intersected with the mask).
-- Bootstrap: kernel enqueues one IPC to endpoint `0` with a zeroed `BootstrapMsg` payload.
-- Trapframe: child resumes in S/U-mode at `entry_pc` with `sp = stack_sp`.
+- Default behaviour: a zero `as_handle` argument instructs the kernel to create a fresh Sv39
+  address space for the child. The kernel maps a four-page RW stack capped by an unmapped guard
+  page and activates the new AS during scheduling.
+- Custom handle: callers may bind the child to an existing address space by passing a non-zero
+  handle obtained via `SYS_AS_CREATE`. The caller is responsible for provisioning the stack in
+  that address space.
+- Entry checks: `entry_pc` must lie within `__text_start..__text_end` and be aligned; otherwise
+  `SpawnError::InvalidEntryPoint` is raised.
+- Cap table: the child receives a copy of the parent's provided bootstrap endpoint into slot `0`
+  (rights are intersected with the mask).
+- Bootstrap: the kernel enqueues one IPC to endpoint `0` with a zeroed `BootstrapMsg` payload.
+- Trapframe: the child resumes in S/U-mode at `entry_pc` with `sp` pointing at the guarded stack
+  top (or the caller-provided stack pointer when using a custom address space).
 
 ## Stage policy and selftests (OS path)
 
 - Early boot forbids heavy formatting/allocations; only raw UART writes until selftests run.
 - Selftests execute on a private, canaried stack; timer IRQs are masked during the run.
-- UART markers (subset): `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`.
+- UART markers (subset): `KSELFTEST: as create ok` → `KSELFTEST: as map ok` →
+  `KSELFTEST: child newas running` → `KSELFTEST: spawn newas ok` → `KSELFTEST: w^x enforced`.
 - Feature gates:
   - Default: `boot_banner`, `selftest_priv_stack`, `selftest_time`.
   - Optional: `selftest_ipc`, `selftest_caps`, `selftest_sched`, `trap_symbols`.

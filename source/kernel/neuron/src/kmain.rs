@@ -11,7 +11,7 @@ use crate::{
     hal::virt::VirtMachine,
     hal::{IrqCtl, Tlb},
     ipc::{self, header::MessageHeader},
-    mm::PageTable,
+    mm::{AddressSpaceManager, AsHandle},
     sched::{QosClass, Scheduler},
     selftest,
     syscall::{self, api, SyscallTable},
@@ -27,7 +27,8 @@ struct KernelState {
     scheduler: Scheduler,
     tasks: TaskTable,
     ipc: ipc::Router,
-    address_space: PageTable,
+    address_spaces: AddressSpaceManager,
+    kernel_as: AsHandle,
     syscalls: SyscallTable,
 }
 
@@ -71,14 +72,34 @@ impl KernelState {
         let router = ipc::Router::new(8);
         uart::write_line("KS: after Router::new");
 
-        let address_space = PageTable::new();
-        uart::write_line("KS: after PageTable::new");
+        let mut address_spaces = AddressSpaceManager::new();
+        let kernel_as = match address_spaces.create() {
+            Ok(handle) => handle,
+            Err(err) => {
+                use core::fmt::Write as _;
+                let mut w = crate::uart::raw_writer();
+                let _ = write!(w, "KS-E: as_create {:?}\n", err);
+                panic!("kernel address space create failed");
+            }
+        };
+        if let Err(err) = address_spaces.attach(kernel_as, 0) {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "KS-E: as_attach {:?}\n", err);
+        }
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+        if let Err(err) = address_spaces.activate(kernel_as) {
+            use core::fmt::Write as _;
+            let mut w = crate::uart::raw_writer();
+            let _ = write!(w, "KS-E: as_activate {:?}\n", err);
+        }
+        uart::write_line("KS: after AddressSpaceManager::new");
 
         let hal = VirtMachine::new();
         uart::write_line("KS: after VirtMachine::new");
 
         uart::write_line("KS: returning");
-        Self { hal, scheduler, tasks, ipc: router, address_space, syscalls }
+        Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls }
     }
 
     #[allow(dead_code)]
@@ -111,7 +132,7 @@ impl KernelState {
                 &mut self.scheduler,
                 &mut self.tasks,
                 &mut self.ipc,
-                &mut self.address_space,
+                &mut self.address_spaces,
                 self.hal.timer(),
             );
             let mut frame = crate::trap::TrapFrame::default();
@@ -161,7 +182,7 @@ pub fn kmain() -> ! {
         let mut ctx = selftest::Context {
             hal: &kernel.hal,
             router: &mut kernel.ipc,
-            address_space: &mut kernel.address_space,
+            address_spaces: &mut kernel.address_spaces,
             tasks: &mut kernel.tasks,
             scheduler: &mut kernel.scheduler,
         };
