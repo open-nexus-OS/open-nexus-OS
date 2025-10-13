@@ -5,8 +5,7 @@
 
 extern crate alloc;
 
-#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-use alloc::vec;
+// Host build does not need Vec in minimal selftests; avoid unused import under deny(warnings)
 #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_full"))]
 use alloc::vec;
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -34,17 +33,10 @@ use crate::{
     sched::QosClass,
 };
 
-// Full imports for host build
+// Minimal imports for host build (keep only types required in signatures)
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 use crate::{
-    cap::{CapError, Capability, CapabilityKind, Rights},
-    determinism,
-    hal::{virt::VirtMachine, IrqCtl, Timer as _, Tlb, Uart},
-    ipc::{self, header::MessageHeader, IpcError, Message, Router},
-    mm::{self, MapError, PageFlags, PageTable, PAGE_SIZE},
-    sched::{QosClass, Scheduler},
-    task::TaskTable,
-    uart,
+    hal::virt::VirtMachine, ipc::Router, mm::PageTable, sched::Scheduler, task::TaskTable, uart,
 };
 
 pub mod assert;
@@ -246,6 +238,22 @@ fn test_time(ctx: &Context<'_>) {
     uart::write_line("SELFTEST: time step6: time test complete");
 }
 
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn test_time(ctx: &Context<'_>) {
+    use crate::st_assert;
+    use crate::{determinism, hal::Timer as _, hal::Tlb};
+
+    uart::write_line("SELFTEST: time step0: acquire timer handle (host)");
+    let timer = ctx.hal.timer();
+    let start = timer.now();
+    let second = timer.now();
+    st_assert!(second >= start, "timer monotonic on host");
+    let _ = ctx.hal.uart();
+    ctx.hal.tlb().flush_all();
+    let _tick = determinism::fixed_tick_ns();
+    let _ = ctx.hal.irq();
+}
+
 #[cfg(all(
     target_arch = "riscv64",
     target_os = "none",
@@ -297,6 +305,20 @@ fn test_ipc(ctx: &mut Context<'_>) {
     }
 }
 
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn test_ipc(ctx: &mut Context<'_>) {
+    use crate::ipc::{header::MessageHeader, IpcError, Message};
+    use crate::{st_expect_eq, st_expect_err};
+    use alloc::vec;
+
+    uart::write_line("SELFTEST: ipc step0: send/recv zero-length on endpoint 0 (host)");
+    let zero = Message::new(MessageHeader::new(0, 0, 1, 0, 0), vec![]);
+    ctx.router.send(0, zero).expect("bootstrap endpoint must exist");
+    let zero_recv = ctx.router.recv(0).expect("message available");
+    st_expect_eq!(zero_recv.payload.len(), 0usize);
+    st_expect_err!(ctx.router.recv(0), IpcError::QueueEmpty);
+}
+
 #[cfg(all(
     target_arch = "riscv64",
     target_os = "none",
@@ -337,7 +359,32 @@ fn test_caps(ctx: &mut Context<'_>) {
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn test_caps(ctx: &mut Context<'_>) {
+    use crate::cap::{CapError, Capability, CapabilityKind, Rights};
+    use crate::{st_assert, st_expect_eq, st_expect_err};
+
+    uart::write_line("SELFTEST: caps step0: bootstrap cap rights (host)");
+    let caps = ctx.tasks.current_caps_mut();
+    let loopback = caps.get(0).expect("bootstrap cap");
+    st_assert!(loopback.rights.contains(Rights::SEND));
+    st_assert!(loopback.rights.contains(Rights::RECV));
+
+    let derived = caps.derive(0, Rights::SEND).expect("derive send right");
+    st_expect_eq!(derived.rights, Rights::SEND);
+
+    st_expect_err!(caps.derive(0, Rights::MAP), CapError::PermissionDenied);
+    st_expect_err!(caps.get(999), CapError::InvalidSlot);
+
+    let new_cap =
+        Capability { kind: CapabilityKind::Endpoint(2), rights: Rights::SEND | Rights::RECV };
+    caps.set(2, new_cap).expect("install new capability");
+    let fetched = caps.get(2).expect("fetch newly installed cap");
+    st_expect_eq!(fetched.kind, CapabilityKind::Endpoint(2));
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 fn test_map(_ctx: &mut Context<'_>) {
+    use crate::mm::{MapError, PageFlags, PageTable, PAGE_SIZE};
     use crate::st_expect_err;
 
     uart::write_line("SELFTEST: map begin");
@@ -357,7 +404,7 @@ fn test_map(_ctx: &mut Context<'_>) {
     #[cfg(feature = "failpoints")]
     {
         uart::write_line("SELFTEST: map step2: expect PermissionDenied via failpoint");
-        mm::failpoints::deny_next_map();
+        crate::mm::failpoints::deny_next_map();
         st_expect_err!(pt.map(PAGE_SIZE * 2, PAGE_SIZE * 3, flags), MapError::PermissionDenied);
     }
 
@@ -405,6 +452,22 @@ fn test_sched(ctx: &mut Context<'_>) {
     st_expect_eq!(sched.schedule_next(), Some(4));
     uart::write_line("SELFTEST: sched step1e ok (yield -> 4)");
     uart::write_line("SELFTEST: sched ok");
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn test_sched(ctx: &mut Context<'_>) {
+    use crate::determinism;
+    use crate::sched::{QosClass, Scheduler};
+    use crate::{st_assert, st_expect_eq};
+
+    uart::write_line("SELFTEST: sched step0: verify timeslice (host)");
+    st_expect_eq!(ctx.scheduler.timeslice_ns(), determinism::fixed_tick_ns());
+    let mut sched = Scheduler::new();
+    sched.enqueue(1, QosClass::Normal);
+    sched.enqueue(2, QosClass::Normal);
+    sched.enqueue(3, QosClass::PerfBurst);
+    let first = sched.schedule_next().expect("first");
+    st_assert!(first == 3 || first == 1 || first == 2, "some task scheduled");
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -471,6 +534,7 @@ pub(crate) fn test_spawn(ctx: &mut Context<'_>) {
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 fn test_spawn(ctx: &mut Context<'_>) {
+    use crate::cap::CapabilityKind;
     use crate::{st_assert, st_expect_eq};
 
     uart::write_line("SELFTEST: spawn begin");

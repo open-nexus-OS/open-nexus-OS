@@ -47,13 +47,7 @@ pub struct MsgHeader {
 impl MsgHeader {
     /// Creates a new header with the provided fields.
     pub const fn new(src: u32, dst: u32, ty: u16, flags: u16, len: u32) -> Self {
-        Self {
-            src,
-            dst,
-            ty,
-            flags,
-            len,
-        }
+        Self { src, dst, ty, flags, len }
     }
 
     /// Serialises the header to a little-endian byte array.
@@ -74,13 +68,7 @@ impl MsgHeader {
         let ty = u16::from_le_bytes([bytes[8], bytes[9]]);
         let flags = u16::from_le_bytes([bytes[10], bytes[11]]);
         let len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        Self {
-            src,
-            dst,
-            ty,
-            flags,
-            len,
-        }
+        Self { src, dst, ty, flags, len }
     }
 }
 
@@ -200,12 +188,7 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
         const SYSCALL_CAP_TRANSFER: usize = 8;
         let raw = unsafe {
             // SAFETY: forwards raw arguments expected by the kernel capability transfer ABI.
-            ecall3(
-                SYSCALL_CAP_TRANSFER,
-                dst_task as usize,
-                cap as usize,
-                rights.bits() as usize,
-            )
+            ecall3(SYSCALL_CAP_TRANSFER, dst_task as usize, cap as usize, rights.bits() as usize)
         };
         decode_syscall(raw).map(|slot| slot as Cap)
     }

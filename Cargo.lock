@@ -687,10 +687,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "exec-payloads"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+]
+
+[[package]]
 name = "execd"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "exec-payloads",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
  "thiserror",
@@ -1007,6 +1016,9 @@ dependencies = [
 [[package]]
 name = "nexus-abi"
 version = "0.1.0"
+dependencies = [
+ "bitflags",
+]
 
 [[package]]
 name = "nexus-alloc"
@@ -1612,6 +1624,7 @@ name = "selftest-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "execd",
  "policy",
 ]
 

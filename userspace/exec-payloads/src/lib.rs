@@ -31,7 +31,6 @@ pub struct BootstrapMsg {
 }
 
 /// Entry point invoked by the kernel once the child task is scheduled.
-#[no_mangle]
 pub extern "C" fn hello_child_entry(bootstrap: *const BootstrapMsg) -> ! {
     let _ = read_bootstrap_once(bootstrap);
     log_line("child: hello");

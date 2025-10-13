@@ -372,7 +372,7 @@ mod trap_symbols {
     pub static TRAP_SYMBOLS: &[(usize, &str)] = &[];
 }
 
-fn nearest_symbol(addr: usize) -> Option<(&'static str, usize)> {
+fn nearest_symbol(_addr: usize) -> Option<(&'static str, usize)> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         // Binary search in sorted table if present
@@ -384,7 +384,7 @@ fn nearest_symbol(addr: usize) -> Option<(&'static str, usize)> {
         let mut hi = table.len();
         while lo < hi {
             let mid = (lo + hi) / 2;
-            if table[mid].0 <= addr {
+            if table[mid].0 <= _addr {
                 lo = mid + 1;
             } else {
                 hi = mid;

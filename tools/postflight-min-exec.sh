@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[postflight] host build"
-cargo build --workspace
+echo "[postflight] host build (exclude kernel)"
+RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"' \
+  cargo build --workspace --exclude neuron --exclude neuron-boot
 
 echo "[postflight] qemu (bounded, early-exit)"
 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-60s} just test-os

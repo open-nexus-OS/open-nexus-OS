@@ -8,6 +8,7 @@
 #![no_main]
 
 use neuron::kmain;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 core::arch::global_asm!(
     r#"
     .section .text._start, "ax", @progbits
