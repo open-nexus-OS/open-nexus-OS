@@ -7,7 +7,7 @@ pub mod api;
 
 use core::fmt;
 
-use crate::{cap, ipc, task};
+use crate::{cap, ipc, mm, task};
 
 /// Maximum number of syscalls supported by this increment.
 const MAX_SYSCALL: usize = 16;
@@ -43,6 +43,8 @@ pub const SYSCALL_VMO_CREATE: usize = 5;
 pub const SYSCALL_VMO_WRITE: usize = 6;
 pub const SYSCALL_SPAWN: usize = 7;
 pub const SYSCALL_CAP_TRANSFER: usize = 8;
+pub const SYSCALL_AS_CREATE: usize = 9;
+pub const SYSCALL_AS_MAP: usize = 10;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +59,8 @@ pub enum Error {
     Spawn(task::SpawnError),
     /// Capability transfer failed.
     Transfer(task::TransferError),
+    /// Address-space manager reported an error.
+    AddressSpace(mm::AddressSpaceError),
 }
 
 impl From<cap::CapError> for Error {
@@ -80,6 +84,12 @@ impl From<task::SpawnError> for Error {
 impl From<task::TransferError> for Error {
     fn from(value: task::TransferError) -> Self {
         Self::Transfer(value)
+    }
+}
+
+impl From<mm::AddressSpaceError> for Error {
+    fn from(value: mm::AddressSpaceError) -> Self {
+        Self::AddressSpace(value)
     }
 }
 

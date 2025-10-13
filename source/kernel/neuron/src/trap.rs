@@ -11,7 +11,11 @@ extern crate alloc;
 use core::fmt::{self, Write};
 use spin::Mutex;
 
-use crate::syscall::{api, Args, Error as SysError, SyscallTable};
+use crate::{
+    mm::{AddressSpaceError, MapError},
+    syscall::{api, Args, Error as SysError, SyscallTable},
+    task,
+};
 
 #[cfg(test)]
 use alloc::string::String;
@@ -115,14 +119,48 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
     frame.sepc = frame.sepc.wrapping_add(4);
 }
 
+const EPERM: usize = 1;
+const ENOMEM: usize = 12;
+const EINVAL: usize = 22;
+const ENOSPC: usize = 28;
+const ENOSYS: usize = 38;
+
 fn encode_error(err: SysError) -> usize {
     match err {
-        SysError::InvalidSyscall => usize::MAX,
-        SysError::Capability(_) => usize::MAX - 1,
-        SysError::Ipc(_) => usize::MAX - 2,
-        SysError::Spawn(_) => usize::MAX - 3,
-        SysError::Transfer(_) => usize::MAX - 4,
+        SysError::InvalidSyscall => errno(ENOSYS),
+        SysError::Capability(_) => errno(EPERM),
+        SysError::Ipc(_) => errno(EINVAL),
+        SysError::Spawn(spawn) => spawn_errno(&spawn),
+        SysError::Transfer(_) => errno(EPERM),
+        SysError::AddressSpace(as_err) => address_space_errno(&as_err),
     }
+}
+
+fn spawn_errno(err: &task::SpawnError) -> usize {
+    use task::SpawnError::*;
+    match err {
+        InvalidParent | InvalidEntryPoint | InvalidStackPointer => errno(EINVAL),
+        BootstrapNotEndpoint => errno(EPERM),
+        Capability(_) => errno(EPERM),
+        Ipc(_) => errno(EINVAL),
+        AddressSpace(as_err) => address_space_errno(as_err),
+        StackExhausted => errno(ENOMEM),
+    }
+}
+
+fn address_space_errno(err: &AddressSpaceError) -> usize {
+    match err {
+        AddressSpaceError::InvalidHandle | AddressSpaceError::InvalidArgs => errno(EINVAL),
+        AddressSpaceError::AsidExhausted => errno(ENOSPC),
+        AddressSpaceError::InUse => errno(EPERM),
+        AddressSpaceError::Unsupported => errno(ENOSYS),
+        AddressSpaceError::Mapping(MapError::PermissionDenied) => errno(EPERM),
+        AddressSpaceError::Mapping(_) => errno(EINVAL),
+    }
+}
+
+const fn errno(code: usize) -> usize {
+    (-(code as isize)) as usize
 }
 
 pub fn record(frame: &TrapFrame) {

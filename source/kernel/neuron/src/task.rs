@@ -12,12 +12,60 @@ use crate::{
     bootstrap::BootstrapMsg,
     cap::{CapError, CapTable, CapabilityKind, Rights},
     ipc::{self, header::MessageHeader, Message, Router},
+    mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
     sched::{QosClass, Scheduler},
     trap::TrapFrame,
 };
+use spin::Mutex;
 
 /// Process identifier.
 pub type Pid = u32;
+
+const USER_STACK_TOP: usize = 0x4000_0000;
+const STACK_PAGES: usize = 4;
+const STACK_POOL_BASE: usize = 0x8000_0000 + 0x10_0000;
+const STACK_POOL_LIMIT: usize = 0x8000_0000 + 0x20_0000;
+
+struct StackPool {
+    cursor: usize,
+}
+
+impl StackPool {
+    const fn new() -> Self {
+        Self { cursor: STACK_POOL_LIMIT }
+    }
+
+    fn alloc(&mut self, pages: usize) -> Option<usize> {
+        let bytes = pages.checked_mul(PAGE_SIZE)?;
+        let next = self.cursor.checked_sub(bytes)?;
+        if next < STACK_POOL_BASE {
+            None
+        } else {
+            self.cursor = next;
+            Some(next)
+        }
+    }
+}
+
+static STACK_ALLOCATOR: Mutex<StackPool> = Mutex::new(StackPool::new());
+
+fn allocate_guarded_stack(
+    address_spaces: &mut AddressSpaceManager,
+    handle: AsHandle,
+) -> Result<usize, SpawnError> {
+    let phys_base = {
+        let mut pool = STACK_ALLOCATOR.lock();
+        pool.alloc(STACK_PAGES).ok_or(SpawnError::StackExhausted)?
+    };
+    let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
+    let guard_bottom = USER_STACK_TOP - (STACK_PAGES + 1) * PAGE_SIZE;
+    for page in 0..STACK_PAGES {
+        let page_va = guard_bottom + PAGE_SIZE + page * PAGE_SIZE;
+        let page_pa = phys_base + page * PAGE_SIZE;
+        address_spaces.map_page(handle, page_va, page_pa, flags)?;
+    }
+    Ok(USER_STACK_TOP)
+}
 
 /// Error returned when spawning a new task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +82,10 @@ pub enum SpawnError {
     Capability(CapError),
     /// IPC enqueue failed while delivering the bootstrap message.
     Ipc(ipc::IpcError),
+    /// Address-space operation failed.
+    AddressSpace(AddressSpaceError),
+    /// Stack allocator ran out of physical pages.
+    StackExhausted,
 }
 
 impl From<CapError> for SpawnError {
@@ -45,6 +97,12 @@ impl From<CapError> for SpawnError {
 impl From<ipc::IpcError> for SpawnError {
     fn from(value: ipc::IpcError) -> Self {
         Self::Ipc(value)
+    }
+}
+
+impl From<AddressSpaceError> for SpawnError {
+    fn from(value: AddressSpaceError) -> Self {
+        Self::AddressSpace(value)
     }
 }
 
@@ -73,8 +131,8 @@ pub struct Task {
     parent: Option<Pid>,
     frame: TrapFrame,
     caps: CapTable,
-    /// TODO(separate-as): currently all tasks share the parent's address space.
-    pub asid: u64,
+    /// Handle referencing the address space bound to this task.
+    pub address_space: Option<AsHandle>,
     bootstrap_slot: Option<usize>,
 }
 
@@ -85,7 +143,7 @@ impl Task {
             parent: None,
             frame: TrapFrame::default(),
             caps: CapTable::new(),
-            asid: 0,
+            address_space: None,
             bootstrap_slot: None,
         }
     }
@@ -108,6 +166,11 @@ impl Task {
     /// Returns the parent PID, if any.
     pub fn parent(&self) -> Option<Pid> {
         self.parent
+    }
+
+    /// Returns the address-space handle bound to this task, if any.
+    pub fn address_space(&self) -> Option<AsHandle> {
+        self.address_space
     }
 
     /// Returns the slot that seeded the bootstrap endpoint, if any.
@@ -156,6 +219,11 @@ impl TaskTable {
         &mut self.tasks[self.current as usize]
     }
 
+    /// Returns a shared reference to a task by PID.
+    pub fn task(&self, pid: Pid) -> Option<&Task> {
+        self.tasks.get(pid as usize)
+    }
+
     /// Returns the capability table of the current task.
     pub fn current_caps_mut(&mut self) -> &mut CapTable {
         self.current_task_mut().caps_mut()
@@ -183,13 +251,23 @@ impl TaskTable {
         parent: Pid,
         entry_pc: u64,
         stack_sp: u64,
-        asid: u64,
+        address_space: Option<AsHandle>,
         bootstrap_slot: u32,
         scheduler: &mut Scheduler,
         router: &mut Router,
+        address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
         // Keep the wrapper minimal to reduce prologue pressure; delegate to the helper.
-        self.spawn_inner(parent, entry_pc, stack_sp, asid, bootstrap_slot, scheduler, router)
+        self.spawn_inner(
+            parent,
+            entry_pc,
+            stack_sp,
+            address_space,
+            bootstrap_slot,
+            scheduler,
+            router,
+            address_spaces,
+        )
     }
 
     /// Helper containing the actual spawn logic. Kept separate to allow a minimal wrapper.
@@ -199,10 +277,11 @@ impl TaskTable {
         parent: Pid,
         entry_pc: u64,
         stack_sp: u64,
-        asid: u64,
+        address_space: Option<AsHandle>,
         bootstrap_slot: u32,
         scheduler: &mut Scheduler,
         router: &mut Router,
+        address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
         {
             use core::fmt::Write as _;
@@ -268,7 +347,18 @@ impl TaskTable {
 
         let mut frame = TrapFrame::default();
         frame.sepc = entry_pc as usize;
-        frame.x[2] = stack_sp as usize;
+        let (child_as, sp_value) = match address_space {
+            Some(handle) => {
+                let sp = if stack_sp == 0 { USER_STACK_TOP as u64 } else { stack_sp };
+                (handle, sp as usize)
+            }
+            None => {
+                let handle = address_spaces.create()?;
+                let top = allocate_guarded_stack(address_spaces, handle)?;
+                (handle, top)
+            }
+        };
+        frame.x[2] = sp_value;
         const SSTATUS_SPIE: usize = 1 << 5;
         const SSTATUS_SPP: usize = 1 << 8;
         frame.sstatus &= !SSTATUS_SPP;
@@ -285,10 +375,14 @@ impl TaskTable {
             parent: Some(parent),
             frame,
             caps: child_caps,
-            asid,
+            address_space: Some(child_as),
             bootstrap_slot: Some(slot),
         };
         self.tasks.push(task);
+        if let Err(err) = address_spaces.attach(child_as, pid) {
+            self.tasks.pop();
+            return Err(err.into());
+        }
         {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
@@ -336,6 +430,7 @@ mod tests {
     use super::*;
     use crate::cap::{CapError, Capability, CapabilityKind, Rights};
     use crate::ipc::Router;
+    use crate::mm::AddressSpaceManager;
     use crate::sched::Scheduler;
 
     #[test]
@@ -361,7 +456,13 @@ mod tests {
         }
         let mut scheduler = Scheduler::new();
         let mut router = Router::new(1);
-        let child = table.spawn(0, 0, 0, 0, 0, &mut scheduler, &mut router).unwrap();
+        let mut spaces = AddressSpaceManager::new();
+        let bootstrap_as = spaces.create().unwrap();
+        spaces.attach(bootstrap_as, 0).unwrap();
+        table.bootstrap_mut().address_space = Some(bootstrap_as);
+        let child = table
+            .spawn(0, 0, 0, None, 0, &mut scheduler, &mut router, &mut spaces)
+            .unwrap();
 
         let slot = table.transfer_cap(0, child, 0, Rights::RECV).unwrap();
         assert_ne!(slot, 0);

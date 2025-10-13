@@ -6,20 +6,21 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::cmp;
 
 use crate::{
     cap::{CapError, Capability, CapabilityKind, Rights},
     hal::Timer,
     ipc::{self, header::MessageHeader},
-    mm::{PageFlags, PageTable},
+    mm::{AddressSpaceError, AddressSpaceManager, AsHandle, MapError, PageFlags, PAGE_SIZE},
     sched::Scheduler,
     task,
 };
 
 use super::{
-    Args, Error, SysResult, SyscallTable, SYSCALL_CAP_TRANSFER, SYSCALL_MAP, SYSCALL_NSEC,
-    SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE,
-    SYSCALL_YIELD,
+    Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_TRANSFER,
+    SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_VMO_CREATE,
+    SYSCALL_VMO_WRITE, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -27,7 +28,7 @@ pub struct Context<'a> {
     pub scheduler: &'a mut Scheduler,
     pub tasks: &'a mut task::TaskTable,
     pub router: &'a mut ipc::Router,
-    pub address_space: &'a mut PageTable,
+    pub address_spaces: &'a mut AddressSpaceManager,
     pub timer: &'a dyn Timer,
     pub last_message: Option<ipc::Message>,
 }
@@ -38,10 +39,10 @@ impl<'a> Context<'a> {
         scheduler: &'a mut Scheduler,
         tasks: &'a mut task::TaskTable,
         router: &'a mut ipc::Router,
-        address_space: &'a mut PageTable,
+        address_spaces: &'a mut AddressSpaceManager,
         timer: &'a dyn Timer,
     ) -> Self {
-        Self { scheduler, tasks, router, address_space, timer, last_message: None }
+        Self { scheduler, tasks, router, address_spaces, timer, last_message: None }
     }
 
     /// Returns the last received message header for inspection.
@@ -62,10 +63,23 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
+    table.register(SYSCALL_AS_CREATE, sys_as_create);
+    table.register(SYSCALL_AS_MAP, sys_as_map);
 }
 
 fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
-    Ok(ctx.scheduler.schedule_next().unwrap_or_default() as usize)
+    ctx.scheduler.yield_current();
+    if let Some(next) = ctx.scheduler.schedule_next() {
+        ctx.tasks.set_current(next as task::Pid);
+        if let Some(task) = ctx.tasks.task(next as task::Pid) {
+            if let Some(handle) = task.address_space() {
+                ctx.address_spaces.activate(handle)?;
+            }
+        }
+        Ok(next as usize)
+    } else {
+        Ok(ctx.tasks.current_pid() as usize)
+    }
 }
 
 fn sys_nsec(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -113,9 +127,12 @@ fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
             let pa = base + (offset & !0xfff);
-            ctx.address_space
-                .map(va, pa, flags)
-                .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+            let handle = ctx
+                .tasks
+                .current_task()
+                .address_space()
+                .ok_or(AddressSpaceError::InvalidHandle)?;
+            ctx.address_spaces.map_page(handle, va, pa, flags)?;
             Ok(0)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
@@ -171,17 +188,19 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let entry_pc = args.get(0) as u64;
     let stack_sp = args.get(1) as u64;
-    let asid = args.get(2) as u64;
+    let raw_handle = args.get(2) as u32;
+    let address_space = AsHandle::from_raw(raw_handle);
     let bootstrap_slot = args.get(3) as u32;
     let parent = ctx.tasks.current_pid();
     let pid = ctx.tasks.spawn(
         parent,
         entry_pc,
         stack_sp,
-        asid,
+        address_space,
         bootstrap_slot,
         ctx.scheduler,
         ctx.router,
+        ctx.address_spaces,
     )?;
     Ok(pid as usize)
 }
@@ -198,11 +217,83 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     Ok(slot)
 }
 
+const PROT_READ: u32 = 1 << 0;
+const PROT_WRITE: u32 = 1 << 1;
+const PROT_EXEC: u32 = 1 << 2;
+
+const MAP_FLAG_USER: u32 = 1 << 0;
+
+fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    let handle = ctx.address_spaces.create()?;
+    Ok(handle.to_raw() as usize)
+}
+
+fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let raw_handle = args.get(0) as u32;
+    let vmo_slot = args.get(1);
+    let va = args.get(2);
+    let len = args.get(3) as u64;
+    let prot = args.get(4) as u32;
+    let map_flags = args.get(5) as u32;
+
+    let handle = AsHandle::from_raw(raw_handle).ok_or(AddressSpaceError::InvalidHandle)?;
+    if len == 0 || va % PAGE_SIZE != 0 || len % PAGE_SIZE as u64 != 0 {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    if prot & PROT_WRITE != 0 && prot & PROT_EXEC != 0 {
+        return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
+    }
+
+    let cap = ctx.tasks.current_caps_mut().derive(vmo_slot, Rights::MAP)?;
+    let (base, vmo_len) = match cap.kind {
+        CapabilityKind::Vmo { base, len } => (base, len as u64),
+        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    };
+
+    let map_bytes = cmp::min(len, vmo_len);
+    let aligned_bytes = map_bytes - (map_bytes % PAGE_SIZE as u64);
+    if aligned_bytes == 0 {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    let pages = (aligned_bytes / PAGE_SIZE as u64) as usize;
+    let span_bytes = pages
+        .checked_mul(PAGE_SIZE)
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+    va.checked_add(span_bytes).ok_or(AddressSpaceError::InvalidArgs)?;
+
+    let mut flags = PageFlags::VALID;
+    if prot & PROT_READ != 0 {
+        flags |= PageFlags::READ;
+    }
+    if prot & PROT_WRITE != 0 {
+        flags |= PageFlags::WRITE;
+    }
+    if prot & PROT_EXEC != 0 {
+        flags |= PageFlags::EXECUTE;
+    }
+    if map_flags & MAP_FLAG_USER != 0 {
+        flags |= PageFlags::USER;
+    }
+
+    for page in 0..pages {
+        let page_va = va
+            .checked_add(page * PAGE_SIZE)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let page_pa = base
+            .checked_add(page * PAGE_SIZE)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        ctx.address_spaces.map_page(handle, page_va, page_pa, flags)?;
+    }
+
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         cap::{Capability, CapabilityKind, Rights},
+        mm::AddressSpaceManager,
         syscall::{
             Args, SyscallTable, SYSCALL_CAP_TRANSFER, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
         },
@@ -225,10 +316,18 @@ mod tests {
             );
         }
         let mut router = ipc::Router::new(1);
-        let mut aspace = PageTable::new();
+        let mut as_manager = AddressSpaceManager::new();
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
         let timer = crate::hal::virt::VirtMachine::new();
-        let mut ctx =
-            Context::new(&mut scheduler, &mut tasks, &mut router, &mut aspace, timer.timer());
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            timer.timer(),
+        );
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -254,10 +353,18 @@ mod tests {
             .unwrap();
         }
         let mut router = ipc::Router::new(2);
-        let mut aspace = PageTable::new();
+        let mut as_manager = AddressSpaceManager::new();
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
         let timer = crate::hal::virt::VirtMachine::new();
-        let mut ctx =
-            Context::new(&mut scheduler, &mut tasks, &mut router, &mut aspace, timer.timer());
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            timer.timer(),
+        );
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
