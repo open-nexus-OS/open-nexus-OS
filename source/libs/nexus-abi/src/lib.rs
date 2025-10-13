@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
-#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+    forbid(unsafe_code)
+)]
 #![deny(clippy::all, missing_docs)]
 
 //! Shared ABI definitions exposed to userland crates.
@@ -44,7 +47,13 @@ pub struct MsgHeader {
 impl MsgHeader {
     /// Creates a new header with the provided fields.
     pub const fn new(src: u32, dst: u32, ty: u16, flags: u16, len: u32) -> Self {
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
     }
 
     /// Serialises the header to a little-endian byte array.
@@ -65,7 +74,144 @@ impl MsgHeader {
         let ty = u16::from_le_bytes([bytes[8], bytes[9]]);
         let flags = u16::from_le_bytes([bytes[10], bytes[11]]);
         let len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
+    }
+}
+
+// ——— Task and capability primitives (OS build) ———
+
+#[cfg(nexus_env = "os")]
+bitflags::bitflags! {
+    /// Rights mask accepted by capability-transfer syscalls.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct Rights: u32 {
+        /// Permit the holder to send messages through the endpoint.
+        const SEND = 1 << 0;
+        /// Permit the holder to receive messages from the endpoint.
+        const RECV = 1 << 1;
+        /// Permit the holder to map VMOs into its address space.
+        const MAP = 1 << 2;
+        /// Permit the holder to manage capabilities (reserved for kernel tests).
+        const MANAGE = 1 << 3;
+    }
+}
+
+/// Kernel task identifier returned from [`spawn`].
+#[cfg(nexus_env = "os")]
+pub type Pid = u32;
+
+/// Capability slot handle returned from [`cap_transfer`].
+#[cfg(nexus_env = "os")]
+pub type Cap = u32;
+
+/// Result returned by privileged syscalls that expose kernel operations.
+#[cfg(nexus_env = "os")]
+pub type SysResult<T> = core::result::Result<T, AbiError>;
+
+/// Errors surfaced when invoking privileged syscalls from userland.
+#[cfg(nexus_env = "os")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AbiError {
+    /// Syscall number is not implemented by the kernel build.
+    InvalidSyscall,
+    /// Kernel rejected the request due to missing rights or invalid slots.
+    CapabilityDenied,
+    /// Kernel-side IPC machinery reported a routing error.
+    IpcFailure,
+    /// Kernel rejected process creation.
+    SpawnFailed,
+    /// Kernel rejected capability transfer.
+    TransferFailed,
+    /// Operation unsupported on the current build target.
+    Unsupported,
+}
+
+#[cfg(nexus_env = "os")]
+impl AbiError {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    fn from_raw(value: usize) -> Option<Self> {
+        match value {
+            usize::MAX => Some(Self::InvalidSyscall),
+            val if val == usize::MAX - 1 => Some(Self::CapabilityDenied),
+            val if val == usize::MAX - 2 => Some(Self::IpcFailure),
+            val if val == usize::MAX - 3 => Some(Self::SpawnFailed),
+            val if val == usize::MAX - 4 => Some(Self::TransferFailed),
+            _ => None,
+        }
+    }
+}
+
+// ——— Syscall wrappers (OS build) ———
+
+/// Cooperative yield hint to the scheduler.
+#[cfg(nexus_env = "os")]
+pub fn yield_() -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_YIELD: usize = 0;
+        let raw = unsafe {
+            // SAFETY: performs a kernel ecall with no arguments; return value is decoded below.
+            ecall0(SYSCALL_YIELD)
+        };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Spawns a new task using the provided entry point, stack, and bootstrap endpoint.
+#[cfg(nexus_env = "os")]
+pub fn spawn(entry_pc: u64, stack_sp: u64, asid: u64, bootstrap_ep: u32) -> SysResult<Pid> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_SPAWN: usize = 7;
+        let raw = unsafe {
+            // SAFETY: the syscall interface expects raw register arguments and returns the new PID
+            // or a sentinel error code; all inputs are forwarded as provided by the caller.
+            ecall4(
+                SYSCALL_SPAWN,
+                entry_pc as usize,
+                stack_sp as usize,
+                asid as usize,
+                bootstrap_ep as usize,
+            )
+        };
+        decode_syscall(raw).map(|pid| pid as Pid)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Transfers a capability from the current task to `dst_task` with intersected `rights`.
+#[cfg(nexus_env = "os")]
+pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_CAP_TRANSFER: usize = 8;
+        let raw = unsafe {
+            // SAFETY: forwards raw arguments expected by the kernel capability transfer ABI.
+            ecall3(
+                SYSCALL_CAP_TRANSFER,
+                dst_task as usize,
+                cap as usize,
+                rights.bits() as usize,
+            )
+        };
+        decode_syscall(raw).map(|slot| slot as Cap)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
     }
 }
 
@@ -128,7 +274,29 @@ pub fn vmo_map(_handle: Handle, _va: usize, _flags: u32) -> Result<()> {
     }
 }
 
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn decode_syscall(value: usize) -> SysResult<usize> {
+    if let Some(err) = AbiError::from_raw(value) {
+        Err(err)
+    } else {
+        Ok(value)
+    }
+}
+
 // ——— Architecture-specific ecall helpers (riscv64, OS) ———
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall0(n: usize) -> usize {
+    let mut r7 = n;
+    let r0: usize;
+    core::arch::asm!(
+        "ecall",
+        inout("a7") r7,
+        lateout("a0") r0,
+        options(nostack, preserves_flags)
+    );
+    r0
+}
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 #[inline(always)]
 unsafe fn ecall3(n: usize, a0: usize, a1: usize, a2: usize) -> usize {

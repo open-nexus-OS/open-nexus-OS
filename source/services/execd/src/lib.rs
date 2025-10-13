@@ -8,8 +8,16 @@
 use std::fmt;
 use std::io::Cursor;
 
+#[cfg(nexus_env = "os")]
+use std::sync::OnceLock;
+
 use nexus_ipc::{self, Wait};
 use thiserror::Error;
+
+#[cfg(nexus_env = "os")]
+use exec_payloads::hello_child_entry;
+#[cfg(nexus_env = "os")]
+use nexus_abi::{self, AbiError, Rights};
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -30,6 +38,13 @@ use capnp::serialize;
 use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
 
 const OPCODE_EXEC: u8 = 1;
+
+#[cfg(nexus_env = "os")]
+const CHILD_STACK_LEN: usize = 4096;
+#[cfg(nexus_env = "os")]
+const BOOTSTRAP_SLOT: u32 = 0;
+#[cfg(nexus_env = "os")]
+static CHILD_STACK_BASE: OnceLock<usize> = OnceLock::new();
 
 /// Trait implemented by transports capable of delivering execution requests.
 pub trait Transport {
@@ -160,6 +175,19 @@ impl From<TransportError> for ServerError {
     }
 }
 
+/// Errors surfaced by the minimal exec path.
+#[derive(Debug, Error)]
+pub enum ExecError {
+    #[error("exec unsupported on this build")]
+    Unsupported,
+    #[cfg(nexus_env = "os")]
+    #[error("spawn syscall failed: {0:?}")]
+    Spawn(AbiError),
+    #[cfg(nexus_env = "os")]
+    #[error("capability transfer failed: {0:?}")]
+    CapTransfer(AbiError),
+}
+
 struct ExecService;
 
 impl ExecService {
@@ -194,12 +222,21 @@ impl ExecService {
                 .to_string();
 
             println!("execd: exec {name}");
+            let exec_result = self.exec_minimal(&name);
 
             let mut response = Builder::new_default();
             {
                 let mut builder = response.init_root::<exec_response::Builder<'_>>();
-                builder.set_ok(true);
-                builder.set_message("");
+                match exec_result {
+                    Ok(()) => {
+                        builder.set_ok(true);
+                        builder.set_message("");
+                    }
+                    Err(err) => {
+                        builder.set_ok(false);
+                        builder.set_message(&format!("{err}"));
+                    }
+                }
             }
 
             let mut body = Vec::new();
@@ -214,6 +251,19 @@ impl ExecService {
         {
             let _ = payload;
             Err(ServerError::Decode("capnp support disabled".to_string()))
+        }
+    }
+
+    fn exec_minimal(&self, subject: &str) -> Result<(), ExecError> {
+        #[cfg(nexus_env = "os")]
+        {
+            exec_minimal(subject)
+        }
+
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = subject;
+            Err(ExecError::Unsupported)
         }
     }
 }
@@ -235,6 +285,42 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
         let mut transport = IpcTransport::new(server);
         run_with_transport_ready(&mut transport, notifier)
     }
+}
+
+/// Executes the minimal bootstrap path for `subject` using the OS syscalls.
+pub fn exec_minimal(subject: &str) -> Result<(), ExecError> {
+    exec_minimal_impl(subject)
+}
+
+#[cfg(nexus_env = "os")]
+fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
+    println!("execd: exec_minimal {subject}");
+    let stack_top = child_stack_top();
+    let entry_pc = hello_child_entry as usize as u64;
+    let pid = nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT).map_err(ExecError::Spawn)?;
+    let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
+        .map_err(ExecError::CapTransfer)?;
+    println!("execd: spawn ok {pid}");
+    Ok(())
+}
+
+#[cfg(not(nexus_env = "os"))]
+fn exec_minimal_impl(_subject: &str) -> Result<(), ExecError> {
+    Err(ExecError::Unsupported)
+}
+
+#[cfg(nexus_env = "os")]
+fn child_stack_top() -> u64 {
+    // TEMP: child tasks still share the parent's address space. Carve-out a static stack
+    // until per-task allocators and address spaces are wired.
+    let base = *CHILD_STACK_BASE.get_or_init(|| {
+        let mut buf = Box::new([0u8; CHILD_STACK_LEN]);
+        let base = buf.as_mut_ptr() as usize;
+        Box::leak(buf);
+        base
+    });
+    let top = base + CHILD_STACK_LEN;
+    (top & !0xf) as u64
 }
 
 /// Runs the daemon using the provided transport and emits readiness markers.
@@ -261,10 +347,15 @@ where
     T: Transport,
 {
     loop {
-        match transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
+        match transport
+            .recv()
+            .map_err(|err| ServerError::Transport(err.into()))?
+        {
             Some(frame) => {
                 let response = service.handle_frame(&frame)?;
-                transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
+                transport
+                    .send(&response)
+                    .map_err(|err| ServerError::Transport(err.into()))?;
             }
             None => return Ok(()),
         }
@@ -284,8 +375,10 @@ pub fn daemon_main<R: FnOnce() + Send + 'static>(notify: R) -> ! {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
-{
+pub fn loopback_transport() -> (
+    nexus_ipc::LoopbackClient,
+    IpcTransport<nexus_ipc::LoopbackServer>,
+) {
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
