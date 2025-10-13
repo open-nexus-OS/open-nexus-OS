@@ -35,7 +35,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Host init smoke | Runs `nexus-init` on host, asserts real daemon readiness and `*: up` markers. | `just test-init` or `make test-init-host` | Exits early on `init: ready` and enforces ordered readiness. |
 | Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. Logs are trimmed; runner exits early on success markers. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. When services run, the harness waits for `execd: spawn ok`, `child: hello`, and `SELFTEST: e2e exec ok` before stopping. Logs are trimmed to keep artefacts small. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -46,9 +46,10 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 ## Scaffold sanity
 
-Run the QEMU smoke test to confirm the UART marker sequence reaches `init: ready`.
-Keep `RUN_UNTIL_MARKER=1` to exit early once markers are seen and ensure log caps
-are in effect.
+Run the QEMU smoke test to confirm the UART marker sequence reaches
+`SELFTEST: e2e exec ok`. Keep `RUN_UNTIL_MARKER=1` to exit early once markers are
+seen and ensure log caps are in effect. `just test-os` wraps
+`scripts/qemu-test.sh`, so the same command exercises the minimal exec path.
 
 ### Just targets
 
@@ -75,8 +76,12 @@ The OS smoke path emits a deterministic sequence of UART markers that the runner
 5. `samgrd: ready` – service manager daemon ready
 6. `bundlemgrd: ready` – bundle manager daemon ready
 7. `init: ready` – init completed baseline bring-up
-8. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
-9. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
+8. `execd: spawn ok` – minimal spawn syscall succeeded for the hello payload
+9. `child: hello` – spawned task started and yielded control back to the kernel
+10. `SELFTEST: e2e exec ok` – selftest client observed the minimal exec path end-to-end
+11. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
+12. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
+13. `SELFTEST: end` – concluding marker from the host-side selftest client
 
 ## Policy E2E notes
 

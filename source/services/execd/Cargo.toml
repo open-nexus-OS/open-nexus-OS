@@ -12,8 +12,10 @@ idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 path = "src/lib.rs"
 
 [dependencies]
+exec-payloads = { path = "../../../userspace/exec-payloads" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc" }
+nexus-abi = { path = "../../../source/libs/nexus-abi" }
 capnp = { version = "0.19", optional = true }
 thiserror = "1"
 
