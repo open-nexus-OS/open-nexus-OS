@@ -43,12 +43,16 @@ extern "C" {
 
 // ——— diagnostics ———
 
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
 static LAST_TRAP: Mutex<Option<TrapFrame>> = Mutex::new(None);
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
 static TRAP_DIAG_COUNT: Mutex<usize> = Mutex::new(0);
 
-// ——— minimal trap ring buffer (debug diagnostics) ———
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
 const TRAP_RING_LEN: usize = 64;
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
 static TRAP_RING: Mutex<[Option<TrapFrame>; TRAP_RING_LEN]> = Mutex::new([None; TRAP_RING_LEN]);
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
 static TRAP_RING_IDX: Mutex<usize> = Mutex::new(0);
 
 #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
@@ -273,16 +277,26 @@ const fn errno(code: usize) -> usize {
     (-(code as isize)) as usize
 }
 
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
 pub fn record(frame: &TrapFrame) {
     *LAST_TRAP.lock() = Some(*frame);
-    // Push into ring
     let mut idx = TRAP_RING_IDX.lock();
     let mut ring = TRAP_RING.lock();
     ring[*idx % TRAP_RING_LEN] = Some(*frame);
     *idx = (*idx + 1) % TRAP_RING_LEN;
 }
+
+#[cfg(not(any(debug_assertions, feature = "trap_ring")))]
+pub fn record(_frame: &TrapFrame) {}
+
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
 pub fn last_trap() -> Option<TrapFrame> {
     *LAST_TRAP.lock()
+}
+
+#[cfg(not(any(debug_assertions, feature = "trap_ring")))]
+pub fn last_trap() -> Option<TrapFrame> {
+    None
 }
 #[inline]
 pub fn is_interrupt(scause: usize) -> bool {
@@ -417,6 +431,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
     const ILLEGAL_INSTRUCTION: usize = 2;
     const ECALL_SMODE: usize = 9;
     let exc = frame.scause & (usize::MAX >> 1);
+    #[cfg(any(debug_assertions, feature = "trap_ring"))]
     if !is_interrupt(frame.scause) {
         let mut count = TRAP_DIAG_COUNT.lock();
         if *count < 8 {
@@ -433,6 +448,21 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 let _ = write!(u, "EXC: stval=0x{:x}\n", stval_now as u64);
             }
             *count += 1;
+        }
+    }
+    #[cfg(not(any(debug_assertions, feature = "trap_ring")))]
+    if !is_interrupt(frame.scause) {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = write!(u, "EXC: scause=0x{:x} sepc=0x{:x}\n", frame.scause as u64, frame.sepc as u64);
+        #[cfg(feature = "trap_symbols")]
+        if let Some((name, base)) = nearest_symbol(frame.sepc) {
+            let _ = write!(u, "EXC-S: {:016x} ~ {}+0x{:x}\n", frame.sepc, name, frame.sepc - base);
+        }
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            let stval_now = riscv::register::stval::read();
+            let _ = write!(u, "EXC: stval=0x{:x}\n", stval_now as u64);
         }
     }
     if exc == ECALL_SMODE {
@@ -606,6 +636,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 mod tests {
     use super::*;
     #[test]
+    #[cfg(any(debug_assertions, feature = "trap_ring"))]
     fn record_and_query_last_trap() {
         let mut frame = TrapFrame::default();
         frame.sepc = 0x1000;

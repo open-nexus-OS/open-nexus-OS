@@ -6,7 +6,7 @@
 extern crate alloc;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{ffi::c_void, sync::atomic::{AtomicUsize, Ordering}};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::{
@@ -39,6 +39,19 @@ use crate::{
 
 pub mod assert;
 
+#[cfg(feature = "selftest_verbose")]
+macro_rules! verbose {
+    ($($arg:tt)*) => {{
+        use core::fmt::Write as _;
+        let mut w = crate::uart::raw_writer();
+        let _ = write!(w, $($arg)*);
+    }};
+}
+#[cfg(not(feature = "selftest_verbose"))]
+macro_rules! verbose {
+    ($($arg:tt)*) => {{}};
+}
+
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 const CHILD_TEST_VA: usize = 0x4010_0000;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -51,6 +64,16 @@ static CHILD_HEARTBEAT: AtomicUsize = AtomicUsize::new(0);
 struct AlignedPage([u8; PAGE_SIZE]);
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 static mut CHILD_DATA_PAGE: AlignedPage = AlignedPage([0; PAGE_SIZE]);
+
+#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+const SELFTEST_STACK_PAGES: usize = 8;
+#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+const SELFTEST_STACK_BYTES: usize = SELFTEST_STACK_PAGES * PAGE_SIZE;
+#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+#[repr(align(4096))]
+#[link_section = ".bss.selftest_stack_body"]
+#[used]
+static mut SELFTEST_STACK: [u8; SELFTEST_STACK_BYTES] = [0; SELFTEST_STACK_BYTES];
 
 /// Borrowed references to kernel subsystems used by selftests.
 pub struct Context<'a> {
@@ -68,7 +91,7 @@ pub struct Context<'a> {
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 extern "C" fn child_new_as_entry() {
-    uart::write_line("KSELFTEST: child entry");
+    verbose!("KSELFTEST: child entry\n");
     let mut matched = true;
     for (index, byte) in CHILD_PATTERN.iter().enumerate() {
         let value = unsafe { core::ptr::read_volatile((CHILD_TEST_VA + index) as *const u8) };
@@ -78,7 +101,7 @@ extern "C" fn child_new_as_entry() {
         }
     }
     if matched {
-        uart::write_line("KSELFTEST: child newas running");
+        log_info!(target: "selftest", "KSELFTEST: child newas running");
         CHILD_HEARTBEAT.store(1, Ordering::SeqCst);
     } else {
         CHILD_HEARTBEAT.store(usize::MAX, Ordering::SeqCst);
@@ -143,7 +166,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             .dispatch(SYSCALL_AS_CREATE, &mut sys_ctx, &Args::new([0; 6]))
             .expect("as_create syscall");
         handle_raw = h;
-        uart::write_line("KSELFTEST: as create ok");
+        log_info!(target: "selftest", "KSELFTEST: as create ok");
 
         const PROT_READ: usize = 1 << 0;
         const MAP_FLAG_USER: usize = 1 << 0;
@@ -158,31 +181,20 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         table
             .dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &map_args)
             .expect("as_map syscall");
-        uart::write_line("KSELFTEST: as map ok");
+        log_info!(target: "selftest", "KSELFTEST: as map ok");
 
         let entry = child_new_as_entry as usize;
-        uart::write_line("KSELFTEST: before spawn");
+        verbose!("KSELFTEST: before spawn\n");
         let spawn_args = Args::new([entry, 0, handle_raw, 0, 0, 0]);
         child_pid = table
             .dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args)
             .expect("spawn syscall");
-        // Emit explicit raw marker first to catch any UART lock anomalies.
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KSELFTEST: after spawn (raw)\n");
-        }
+        verbose!("KSELFTEST: after spawn (raw)\n");
         // Force a couple of yields to exercise trap fastpath and encourage scheduling
         syscall_yield();
         syscall_yield();
-        // Emit line-based marker as well
-        uart::write_line("KSELFTEST: after spawn");
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KSELFTEST: after spawn\n");
-            let _ = write!(u, "KSELFTEST: child pid={}\n", child_pid);
-        }
+        verbose!("KSELFTEST: after spawn\n");
+        verbose!("KSELFTEST: child pid={}\n", child_pid);
         // Fail-fast window: child must signal Heartbeat within 64 yields
         let mut spins = 0;
         while CHILD_HEARTBEAT.load(Ordering::SeqCst) == 0 && spins < 64 {
@@ -190,16 +202,13 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             spins += 1;
         }
         if CHILD_HEARTBEAT.load(Ordering::SeqCst) == 0 {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
             let satp_now = {
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 { riscv::register::satp::read().bits() }
                 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
                 { 0 }
             };
-            let _ = write!(
-                u,
+            verbose!(
                 "KSELFTEST: FAIL no child progress pid={} satp=0x{:x}\n",
                 child_pid,
                 satp_now
@@ -207,39 +216,23 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             // Do not abort here; proceed to direct call_on_stack path to validate AS/mapping.
         }
         // For bring-up diagnostics, mark that control returned here.
-        uart::write_line("KSELFTEST: early return after spawn");
+        verbose!("KSELFTEST: early return after spawn\n");
         // sys_ctx and table drop here to release borrows on ctx.*
     }
 
     // Confirm we exited the syscall context block cleanly
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(u, "KSELFTEST: after sysctx block\n");
-    }
+    verbose!("KSELFTEST: after sysctx block\n");
 
     // Directly enter the child's address space and run the entry on its stack.
     {
         let pid = child_pid as Pid;
         if let Some(task) = ctx.tasks.task(pid) {
             if let Some(handle) = task.address_space() {
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "KSELFTEST: before as activate\n");
-                }
+                verbose!("KSELFTEST: before as activate\n");
                 let _ = ctx.address_spaces.activate(handle);
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "KSELFTEST: before set_sum\n");
-                }
+                verbose!("KSELFTEST: before set_sum\n");
                 unsafe { sstatus::set_sum(); }
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "KSELFTEST: after set_sum\n");
-                }
+                verbose!("KSELFTEST: after set_sum\n");
                 // Witness: SATP must match the child's address space SATP value
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 {
@@ -257,32 +250,25 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                         crate::selftest::assert::report_failure("witness: VA probe failed");
                     }
                 }
+                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                     let satp_now = riscv::register::satp::read().bits();
-                    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-                    let satp_now: usize = 0;
-                    let _ = write!(
-                        u,
+                    verbose!(
                         "KSELFTEST: pre child satp=0x{:x} sp=0x{:x} sepc=0x{:x}\n",
                         satp_now,
                         task.frame().x[2],
                         task.frame().sepc
                     );
                 }
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "KSELFTEST: before child call_on_stack\n");
-                }
+                #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+                verbose!(
+                    "KSELFTEST: pre child satp=0x0 sp=0x{:x} sepc=0x{:x}\n",
+                    task.frame().x[2],
+                    task.frame().sepc
+                );
+                verbose!("KSELFTEST: before child call_on_stack\n");
                 call_on_stack(child_new_as_entry, task.frame().x[2]);
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "KSELFTEST: after child call_on_stack\n");
-                }
+                verbose!("KSELFTEST: after child call_on_stack\n");
                 unsafe { sstatus::clear_sum(); }
                 if let Some(khandle) = ctx.tasks.bootstrap_mut().address_space {
                     let _ = ctx.address_spaces.activate(khandle);
@@ -319,7 +305,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             crate::selftest::assert::report_failure("selftest: no progress after spawn");
         }
     }
-    uart::write_line("KSELFTEST: spawn newas ok");
+    log_info!(target: "selftest", "KSELFTEST: spawn newas ok");
 
     // Recreate syscall context to test W^X enforcement.
     let mut table = SyscallTable::new();
@@ -340,10 +326,10 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
     ]);
     match table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &wx_args) {
         Err(SysError::AddressSpace(AddressSpaceError::Mapping(MapError::PermissionDenied))) => {
-            uart::write_line("KSELFTEST: w^x enforced");
+            log_info!(target: "selftest", "KSELFTEST: w^x enforced");
         }
         Err(_) | Ok(_) => {
-            uart::write_line("KSELFTEST: w^x NOT enforced");
+            log_error!(target: "selftest", "KSELFTEST: w^x NOT enforced");
         }
     }
 
@@ -353,11 +339,11 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(u, "KSELFTEST: call_on_stack enter sp=0x{:x} func=0x{:x}\n", new_sp, entry as usize);
-    }
+    verbose!(
+        "KSELFTEST: call_on_stack enter sp=0x{:x} func=0x{:x}\n",
+        new_sp,
+        entry as usize
+    );
     unsafe {
         core::arch::asm!(
             // Save current sp in t0, switch to child stack, call entry, restore sp
@@ -373,11 +359,7 @@ fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
             options(nostack)
         );
     }
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(u, "KSELFTEST: call_on_stack return\n");
-    }
+    verbose!("KSELFTEST: call_on_stack return\n");
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -388,10 +370,37 @@ pub fn entry(ctx: &mut Context<'_>) {
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub fn entry(_ctx: &mut Context<'_>) {
-    uart::write_line("SELFTEST: host build noop");
+    log_info!(target: "selftest", "SELFTEST: host build noop");
 }
 
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
+    unsafe extern "C" fn shim(arg: *mut c_void) {
+        let ctx_ptr = arg as *mut Context<'static>;
+        // SAFETY: entry_on_private_stack transmutes the lifetime only for the duration of this call.
+        unsafe {
+            entry(&mut *ctx_ptr);
+        }
+    }
+
+    extern "C" {
+        fn run_selftest_on_stack(
+            func: unsafe extern "C" fn(*mut c_void),
+            arg: *mut c_void,
+            new_sp: *mut u8,
+        );
+        static __selftest_stack_top: u8;
+    }
+
+    let top = unsafe { &__selftest_stack_top as *const u8 as usize };
+    let sp = top as *mut u8;
+    let raw_ctx: *mut Context<'static> = unsafe { core::mem::transmute(ctx as *mut Context<'_>) };
+    unsafe {
+        run_selftest_on_stack(shim, raw_ctx.cast::<c_void>(), sp);
+    }
+}
+
+#[cfg(not(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none")))]
 pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
     entry(ctx);
 }

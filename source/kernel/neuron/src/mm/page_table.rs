@@ -374,7 +374,7 @@ fn vpn_indices(va: usize) -> [usize; 3] {
     [vpn0, vpn1, vpn2]
 }
 
-fn is_canonical_sv39(va: usize) -> bool {
+pub const fn is_canonical_sv39(va: usize) -> bool {
     let sign = (va >> 38) & 1;
     let upper = va >> 39;
     if sign == 0 {

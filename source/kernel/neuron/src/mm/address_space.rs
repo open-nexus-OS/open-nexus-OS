@@ -74,20 +74,9 @@ pub struct AddressSpace {
 
 impl AddressSpace {
     fn new(asid: u16) -> Result<Self, MapError> {
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS: new enter asid=0x{:x}\n", asid);
-        }
         let mut page_table = PageTable::new();
         map_kernel_segments(&mut page_table)?;
-        let s = Self { page_table, asid, owners: BTreeSet::new() };
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS: new exit\n");
-        }
-        Ok(s)
+        Ok(Self { page_table, asid, owners: BTreeSet::new() })
     }
 
     /// Returns the hardware ASID backing this address space.
@@ -135,33 +124,13 @@ pub struct AddressSpaceManager {
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MGR: new enter\n");
-        }
         let mgr = Self { spaces: Vec::new(), asids: AsidAllocator::new() };
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MGR: new exit\n");
-        }
         mgr
     }
 
     /// Allocates a fresh address space and returns its handle.
     pub fn create(&mut self) -> Result<AsHandle, AddressSpaceError> {
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MGR: create enter\n");
-        }
         let asid = self.asids.allocate().ok_or(AddressSpaceError::AsidExhausted)?;
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MGR: asid=0x{:x}\n", asid);
-        }
         let space = match AddressSpace::new(asid) {
             Ok(space) => space,
             Err(err) => {
@@ -169,11 +138,6 @@ impl AddressSpaceManager {
                 return Err(AddressSpaceError::from(err));
             }
         };
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MGR: after AddressSpace::new\n");
-        }
         for (index, slot) in self.spaces.iter_mut().enumerate() {
             if slot.is_none() {
                 *slot = Some(space);
@@ -181,11 +145,6 @@ impl AddressSpaceManager {
             }
         }
         self.spaces.push(Some(space));
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MGR: create exit\n");
-        }
         Ok(AsHandle::from_index(self.spaces.len() - 1))
     }
 
@@ -212,21 +171,13 @@ impl AddressSpaceManager {
         #[cfg(feature = "selftest_no_satp")]
         let _ = &space; // silence unused when SATP switching is disabled
         #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
-        unsafe {
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "AS: before satp write val=0x{:x}\n", space.satp_value());
-            }
-            // Switch SATP to this address space and flush TLBs.
-            riscv::register::satp::write(space.satp_value());
-            core::arch::asm!("sfence.vma x0, x0", options(nostack));
-            #[cfg(feature = "bringup_identity")]
-            {
-                // After switching, set SP to a known-good stack inside the identity-mapped stack band
-                extern "C" { static __stack_top: u8; }
-                let sp_new = &__stack_top as *const u8 as usize - 64;
-                core::arch::asm!("mv sp, {ns}", ns = in(reg) sp_new, options(nostack));
+        {
+            ensure_rx_guard();
+            unsafe {
+                extern "C" {
+                    fn satp_switch_island(val: usize);
+                }
+                satp_switch_island(space.satp_value());
             }
         }
         #[cfg(debug_assertions)]
@@ -234,7 +185,7 @@ impl AddressSpaceManager {
             // Best-effort verify the active page table in debug builds.
             if let Err(_e) = space.page_table().verify() {
                 // Keep diagnostics minimal on OS path; emit marker only.
-                crate::uart::write_line("PT-VERIFY: violation after activate");
+                log_error!(target: "pt", "PT-VERIFY: violation after activate");
             }
         }
         Ok(())
@@ -243,15 +194,7 @@ impl AddressSpaceManager {
         #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "bringup_identity", not(feature = "selftest_no_satp")))]
     #[allow(dead_code)]
     pub fn activate_via_trampoline(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
-        let space = self.get(handle)?;
-        unsafe {
-            extern "C" { fn satp_switch_island(val: usize); }
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS: tramp call val=0x{:x}\n", space.satp_value());
-            satp_switch_island(space.satp_value());
-        }
-        Ok(())
+        self.activate(handle)
     }
 
     /// Records that `pid` references the provided address space.
@@ -313,9 +256,9 @@ impl AddressSpaceManager {
         #[cfg(debug_assertions)]
         {
             if let Err(ref _e) = res {
-                crate::uart::write_line("PT-VERIFY: map error");
+                log_error!(target: "pt", "PT-VERIFY: map error");
             } else if let Err(_e) = space.page_table().verify() {
-                crate::uart::write_line("PT-VERIFY: violation after map");
+                log_error!(target: "pt", "PT-VERIFY: violation after map");
             }
         }
         res
@@ -368,29 +311,14 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         static __bss_end: u8;
         static __stack_bottom: u8;
         static __stack_top: u8;
+        static __selftest_stack_base: u8;
+        static __selftest_stack_top: u8;
     }
 
     let text_start = align_down(unsafe { &__text_start as *const u8 as usize });
-    let mut text_end = align_up(unsafe { &__text_end as *const u8 as usize });
+    let text_end = align_up(unsafe { &__text_end as *const u8 as usize });
     if text_end <= text_start {
-        // Fallback: if linker symbols are not providing a usable range, map a minimal RX window
-        // to ensure we can execute immediately after SATP activation during bring-up.
-        let raw_stack_bottom = unsafe { &__stack_bottom as *const u8 as usize };
-        let stack_start = align_down(raw_stack_bottom);
-        let fallback_end = text_start
-            .checked_add(PAGE_SIZE * 64)
-            .unwrap_or(usize::MAX & !(PAGE_SIZE - 1));
-        text_end = core::cmp::min(fallback_end, stack_start);
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MAP: text fallback to [0x{:x}..0x{:x})\n", text_start, text_end);
-        }
-    }
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(u, "AS-MAP: before text 0x{:x}..0x{:x}\n", text_start, text_end);
+        return Err(MapError::OutOfRange);
     }
     map_identity_range(
         table,
@@ -398,191 +326,46 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         text_end,
         PageFlags::VALID | PageFlags::READ | PageFlags::EXECUTE | PageFlags::GLOBAL,
     )?;
-    // (Bring-up safety band removed to avoid overlaps; stack mapping below is sufficient.)
-    // Ensure instruction cache coherence after installing text mappings
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    unsafe {
-        core::arch::asm!("fence.i", options(nostack));
+    fence_i();
+
+    let data_start = text_end;
+    let data_end = align_up(unsafe { &__bss_end as *const u8 as usize });
+    map_identity_range(
+        table,
+        data_start,
+        data_end,
+        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+    )?;
+
+    let stack_start = align_down(unsafe { &__stack_bottom as *const u8 as usize });
+    let stack_end = align_up(unsafe { &__stack_top as *const u8 as usize });
+    if stack_end <= stack_start {
+        return Err(MapError::OutOfRange);
     }
-    // Bisect: return early to test whether text mapping path is safe.
-    #[cfg(feature = "as_map_bisect_text_only")]
-    {
-        return Ok(());
-    }
-    #[cfg(not(feature = "as_map_bisect_text_only"))]
-    {
-        // Ensure text is RX and data/bss are RW before switching SATP.
-        {
-            let mut addr = text_start;
-            while addr < text_end {
-                let _ = table.update_leaf_flags(addr, PageFlags::WRITE, PageFlags::EXECUTE);
-                addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
-            }
-        }
-        #[cfg(debug_assertions)]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let sample = table.lookup(text_start).unwrap_or(0) & 0xFF;
-            let _ = write!(u, "AS-MAP: text [0x{:x}..0x{:x}) flags=0x{:x}\n", text_start, text_end, sample);
-        }
+    map_kernel_stack(table, stack_start, stack_end)?;
 
-        let data_start = text_end;
-        let mut data_end = align_up(unsafe { &__bss_end as *const u8 as usize });
-        if data_end <= data_start {
-            data_end = data_start;
-        }
-        if data_end > data_start {
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "AS-MAP: before data 0x{:x}..0x{:x}\n", data_start, data_end);
-            }
-            map_identity_range(
-                table,
-                data_start,
-                data_end,
-                PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-            )?;
-            // Some early pages may be shared between text and data; if an entry already exists
-            // with EXECUTE, allow WRITE alongside for bring-up to avoid stalls post-switch.
-            {
-                let mut addr = data_start;
-                while addr < data_end {
-                    if let Some(pte) = table.lookup(addr) {
-                        let has_x = (pte & PageFlags::EXECUTE.bits()) != 0;
-                        if has_x {
-                            // UNSAFE: temporary RWX allowed for bring-up stability
-                            let _ = unsafe { table.set_leaf_flags_unchecked(addr, PageFlags::WRITE) };
-                        }
-                    }
-                    addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
-                }
-            }
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "AS-MAP: after data\n");
-            }
-            #[cfg(debug_assertions)]
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let sample = table.lookup(data_start).unwrap_or(0) & 0xFF;
-                let _ = write!(u, "AS-MAP: data [0x{:x}..0x{:x}) flags=0x{:x}\n", data_start, data_end, sample);
-            }
-        }
-
-        let mut stack_start = align_down(unsafe { &__stack_bottom as *const u8 as usize });
-        let stack_end = align_up(unsafe { &__stack_top as *const u8 as usize });
-        if stack_start < text_end {
-            stack_start = text_end;
-        }
-        if stack_end > stack_start {
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "AS-MAP: before stack 0x{:x}..0x{:x}\n", stack_start, stack_end);
-            }
-            #[cfg(feature = "bringup_identity")]
-            {
-                // Map stack band as RX then add WRITE unchecked to allow temporary RWX.
-                let mut addr = stack_start;
-                while addr < stack_end {
-                    table.map(
-                        addr,
-                        addr,
-                        PageFlags::VALID | PageFlags::READ | PageFlags::EXECUTE | PageFlags::GLOBAL,
-                    )?;
-                    let _ = unsafe { table.set_leaf_flags_unchecked(addr, PageFlags::WRITE) };
-                    addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
-                }
-            }
-            #[cfg(not(feature = "bringup_identity"))]
-            {
-                map_identity_range(
-                    table,
-                    stack_start,
-                    stack_end,
-                    PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-                )?;
-            }
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "AS-MAP: after stack\n");
-            }
-            #[cfg(debug_assertions)]
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let sample = table.lookup(stack_start).unwrap_or(0) & 0xFF;
-                let _ = write!(u, "AS-MAP: stack [0x{:x}..0x{:x}) flags=0x{:x}\n", stack_start, stack_end, sample);
-            }
-        }
-
-        const UART_BASE: usize = 0x1000_0000;
-        const UART_LEN: usize = 0x1000;
-        let uart_start = align_down(UART_BASE);
-        let uart_end = align_up(UART_BASE + UART_LEN);
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MAP: before uart 0x{:x}..0x{:x}\n", uart_start, uart_end);
-        }
+    let selftest_stack_start = align_down(unsafe { &__selftest_stack_base as *const u8 as usize });
+    let selftest_stack_end = align_up(unsafe { &__selftest_stack_top as *const u8 as usize });
+    if selftest_stack_end > selftest_stack_start {
         map_identity_range(
             table,
-            uart_start,
-            uart_end,
+            selftest_stack_start,
+            selftest_stack_end,
             PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
         )?;
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "AS-MAP: after uart\n");
-        }
-        #[cfg(debug_assertions)]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let sample = table.lookup(uart_start).unwrap_or(0) & 0xFF;
-            let _ = write!(u, "AS-MAP: uart [0x{:x}..0x{:x}) flags=0x{:x}\n", uart_start, uart_end, sample);
-        }
-
-        // Bring-up: ensure a conservative identity window for the kernel is present after SATP
-        // switch. We merge with any existing mappings to avoid overlaps. Enabled only when
-        // feature `bringup_identity` is active.
-        #[cfg(feature = "bringup_identity")]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let identity_start: usize = 0x8020_0000;
-            let identity_end: usize = 0x8028_0000; // 512 KiB window around early PCs/return
-            let _ = write!(u, "AS-MAP: bringup identity merge 0x{:x}..0x{:x}\n", identity_start, identity_end);
-            let mut addr = identity_start;
-            while addr < identity_end {
-                let mut need_map = true;
-                if let Some(_pte) = table.lookup(addr) {
-                    // Try to OR-in missing perms (WRITE) unchecked; if it fails, we'll map below
-                    if unsafe { table.set_leaf_flags_unchecked(addr, PageFlags::READ | PageFlags::WRITE | PageFlags::EXECUTE | PageFlags::GLOBAL) }.is_ok() {
-                        need_map = false;
-                    }
-                }
-                if need_map {
-                    // Map as RX first (respects W^X), then add WRITE unchecked to reach RWX
-                    let _ = table.map(
-                        addr,
-                        addr,
-                        PageFlags::VALID | PageFlags::READ | PageFlags::EXECUTE | PageFlags::GLOBAL,
-                    );
-                    let _ = unsafe { table.set_leaf_flags_unchecked(addr, PageFlags::WRITE) };
-                }
-                addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
-            }
-        }
-
-        return Ok(());
     }
+
+    const UART_BASE: usize = 0x1000_0000;
+    const UART_LEN: usize = 0x1000;
+    map_identity_range(
+        table,
+        align_down(UART_BASE),
+        align_up(UART_BASE + UART_LEN),
+        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+    )?;
+
+    log_info!(target: "mm", "map kernel segments ok");
+    Ok(())
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -590,7 +373,6 @@ fn map_kernel_segments(_table: &mut PageTable) -> Result<(), MapError> {
     Ok(())
 }
 
-#[allow(dead_code)]
 fn map_identity_range(
     table: &mut PageTable,
     start: usize,
@@ -608,12 +390,38 @@ fn map_identity_range(
     Ok(())
 }
 
-#[allow(dead_code)]
+fn map_kernel_stack(table: &mut PageTable, stack_start: usize, stack_end: usize) -> Result<(), MapError> {
+    if stack_end <= stack_start {
+        return Err(MapError::OutOfRange);
+    }
+    let guard = kernel_stack_guard_bytes();
+    let mapped_start = stack_start
+        .checked_add(guard)
+        .ok_or(MapError::OutOfRange)?;
+    if mapped_start >= stack_end {
+        return Err(MapError::OutOfRange);
+    }
+    map_identity_range(
+        table,
+        mapped_start,
+        stack_end,
+        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+    )
+}
+
+const fn kernel_stack_guard_bytes() -> usize {
+    STACK_GUARD_PAGES * PAGE_SIZE
+}
+
+#[cfg(any(debug_assertions, feature = "debug_stack_guards"))]
+const STACK_GUARD_PAGES: usize = 1;
+#[cfg(not(any(debug_assertions, feature = "debug_stack_guards")))]
+const STACK_GUARD_PAGES: usize = 0;
+
 const fn align_down(addr: usize) -> usize {
     addr & !(PAGE_SIZE - 1)
 }
 
-#[allow(dead_code)]
 fn align_up(addr: usize) -> usize {
     let rem = addr % PAGE_SIZE;
     if rem == 0 {
@@ -624,6 +432,36 @@ fn align_up(addr: usize) -> usize {
             .unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
     }
 }
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn fence_i() {
+    unsafe {
+        core::arch::asm!("fence.i", options(nostack));
+    }
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn fence_i() {}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn ensure_rx_guard() {
+    let pc = crate::arch::riscv::read_pc();
+    let mut zero = true;
+    let mut offset = 0usize;
+    while offset < 8 {
+        let byte = unsafe { core::ptr::read_volatile((pc + offset) as *const u8) };
+        if byte != 0 {
+            zero = false;
+        }
+        offset += 1;
+    }
+    if zero {
+        panic!("rx guard: zero fetch at pc=0x{:x}", pc);
+    }
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn ensure_rx_guard() {}
 
 #[cfg(test)]
 mod tests {

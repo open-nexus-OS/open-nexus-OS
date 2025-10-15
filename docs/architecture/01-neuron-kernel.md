@@ -46,8 +46,14 @@ increment:
   `SYS_AS_CREATE` wrap the internal slot index and remain opaque to callers.
 - Fresh address spaces are seeded with a kernel identity map using final-image linker symbols:
   `[__text_start..__text_end)` is mapped RX|GLOBAL, `[__text_end..__bss_end)` RW|GLOBAL, a
-  dedicated kernel stack RW|GLOBAL and the UART window RW|GLOBAL. GLOBAL keeps kernel pages visible
-  across ASID switches. A pre-switch RX-sanity guard verifies bytes at the current PC are non-zero.
+  dedicated kernel stack RW|GLOBAL with a bottom guard page left unmapped, a private selftest stack
+  bracketed by guards, and the UART window RW|GLOBAL. GLOBAL keeps kernel pages visible across
+  ASID switches.
+- Kernel mapping finishes by emitting a single `map kernel segments ok` UART marker once the linker
+  ranges have been installed. The SATP switch island performs an eight-byte RX-sanity sample around
+  the current PC (panicking on all-zero fetch windows) before writing SATP, switches stacks inside
+  the identity-mapped page, and prints `AS: post-satp OK` after the TLB fence to prove the return
+  path stayed within the island.
 - Each address space maintains the set of owning tasks so the manager can reject destruction while
   references remain. Activating a handle writes SATP and issues a global `sfence.vma`.
 
@@ -95,14 +101,25 @@ Golden layout tests assert size/padding correctness.
 ## Stage policy and selftests (OS path)
 
 - Early boot forbids heavy formatting/allocations; only raw UART writes until selftests run.
-- Selftests execute on a private, canaried stack; timer IRQs are masked during the run.
+- Selftests execute on a private, guarded stack (RW pages bracketed by unmapped guards); timer IRQs
+  are masked during the run.
 - UART markers (subset): `KSELFTEST: as create ok` → `KSELFTEST: as map ok` →
   `KSELFTEST: child newas running` → `KSELFTEST: spawn newas ok` → `KSELFTEST: w^x enforced`.
 - Bring-up diagnostics: illegal-instruction traps print `sepc/scause/stval` and instruction bytes;
   optional `trap_symbols` resolves `sepc` to `name+offset`. A post-SATP marker verifies return.
 - Feature gates:
   - Default: `boot_banner`, `selftest_priv_stack`, `selftest_time`.
-  - Optional: `selftest_ipc`, `selftest_caps`, `selftest_sched`, `trap_symbols`.
+  - Optional: `selftest_ipc`, `selftest_caps`, `selftest_sched`, `trap_symbols`, `trap_ring`,
+    `debug_stack_guards`.
+
+## Structured logging
+
+- Kernel diagnostics flow through lightweight log macros that annotate each line with a severity
+  and `target` module: `[INFO mm] map kernel segments ok`.
+- `ERROR`, `WARN`, and `INFO` logs are always emitted; `DEBUG`/`TRACE` only compile in debug builds
+  (`debug_assertions`) to avoid noise on production runs.
+- Required acceptance markers (e.g., `KSELFTEST: …`, `AS: post-satp OK`) remain intact as part of
+  the structured messages so CI can continue to grep for them.
 
 ## Trap symbolization (opt-in)
 

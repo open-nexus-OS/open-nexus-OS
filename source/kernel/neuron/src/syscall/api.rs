@@ -23,7 +23,7 @@ use crate::types::{VirtAddr, PageLen, SlotIndex};
 #[derive(Copy, Clone)]
 struct SpawnArgsTyped {
     entry_pc: VirtAddr,
-    stack_sp: VirtAddr,
+    stack_sp: Option<VirtAddr>,
     as_handle: Option<AsHandle>,
     bootstrap_slot: SlotIndex,
 }
@@ -31,10 +31,14 @@ struct SpawnArgsTyped {
 impl SpawnArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
-        let entry_pc = VirtAddr::page_aligned(args.get(0))
+        let entry_pc = VirtAddr::instr_aligned(args.get(0))
             .ok_or(AddressSpaceError::InvalidArgs)?;
-        let stack_sp = VirtAddr::page_aligned(args.get(1))
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let stack_raw = args.get(1);
+        let stack_sp = if stack_raw == 0 {
+            None
+        } else {
+            Some(VirtAddr::page_aligned(stack_raw).ok_or(AddressSpaceError::InvalidArgs)?)
+        };
         let raw_handle = args.get(2) as u32;
         let as_handle = AsHandle::from_raw(raw_handle);
         let bootstrap_slot = SlotIndex::decode(args.get(3));
@@ -43,8 +47,12 @@ impl SpawnArgsTyped {
 
     #[inline]
     fn check(&self) -> Result<(), Error> {
-        // Minimal additional checks: ensure stack is above entry for our tests (optional)
-        let _ = self.entry_pc.checked_add(PAGE_SIZE);
+        if self.as_handle.is_some() && self.stack_sp.is_none() {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        if self.as_handle.is_none() && self.stack_sp.is_some() {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
         Ok(())
     }
 }
@@ -134,11 +142,16 @@ impl MapArgsTyped {
             slot: SlotIndex::decode(args.get(0)),
             va: VirtAddr::page_aligned(args.get(1)).ok_or(AddressSpaceError::InvalidArgs)?,
             offset: args.get(2),
-            flags: PageFlags::from_bits_truncate(args.get(3)),
+            flags: PageFlags::from_bits(args.get(3)).ok_or(AddressSpaceError::InvalidArgs)?,
         })
     }
     #[inline]
-    fn check(&self) -> Result<(), Error> { Ok(()) }
+    fn check(&self) -> Result<(), Error> {
+        if self.flags.contains(PageFlags::WRITE) && self.flags.contains(PageFlags::EXECUTE) {
+            return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -361,31 +374,21 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 }
 
 fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    crate::uart::write_line("SSYS: enter");
     let typed = SpawnArgsTyped::decode(args)?;
-    typed.check()?; // Check phase
-    crate::uart::write_line("SSYS: before tasks.spawn");
-    // Stage-policy: avoid heavy formatting on OS-path
+    typed.check()?;
+
     let parent = ctx.tasks.current_pid();
     let pid = ctx.tasks.spawn(
         parent,
-        typed.entry_pc.raw() as u64,
-        typed.stack_sp.raw() as u64,
+        typed.entry_pc,
+        typed.stack_sp,
         typed.as_handle,
-        typed.bootstrap_slot.0 as u32,
+        typed.bootstrap_slot,
         ctx.scheduler,
         ctx.router,
         ctx.address_spaces,
     )?;
-    crate::uart::write_line("SSYS: after tasks.spawn");
-    crate::uart::write_line("SSYS: returning");
-    // Emit raw marker without formatting to avoid any possible fmt path issues.
-    {
-        use core::fmt::Write as _;
-        let mut w = crate::uart::raw_writer();
-        let _ = write!(w, "SSYS-I: spawn ok pid=\n");
-    }
-    crate::uart::write_line("SSYS: end");
+
     Ok(pid as usize)
 }
 
@@ -536,7 +539,7 @@ mod tests {
         install_handlers(&mut table);
 
         let child = table
-            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0x2000, 0, 0, 0, 0]))
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
             .unwrap() as u32;
         assert_eq!(child, 1);
         let msg = ctx.router.recv(0).unwrap();

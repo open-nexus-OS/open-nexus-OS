@@ -30,6 +30,17 @@ SECTIONS
     __bss_end = .;
   }
 
+  /* Private selftest stack with guard pages */
+  . = ALIGN(4096);
+  __selftest_stack_guard_lo = .;
+  . += 0x1000;
+  __selftest_stack_base = .;
+  KEEP(*(.bss.selftest_stack_body))
+  . = ALIGN(4096);
+  __selftest_stack_top = .;
+  __selftest_stack_guard_hi = __selftest_stack_top + 0x1000;
+  . = __selftest_stack_guard_hi;
+
   /* Dedicated kernel stack region (OS target) */
   . = ALIGN(16);
   __stack_bottom = .;

@@ -46,11 +46,17 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 .checked_add(layout.size())
                 .and_then(|s| s.checked_add(core::mem::size_of::<usize>()))
                 .unwrap_or(0);
-            if total_size == 0 { crate::uart::write_line("ALLOC: fail"); return ptr::null_mut(); }
+            if total_size == 0 {
+                log_error!("ALLOC: fail");
+                return ptr::null_mut();
+            }
             let full_layout = Layout::from_size_align(total_size, core::mem::align_of::<Header>()).unwrap();
             let mut alloc = self.0.lock();
             let base = match alloc.allocate_first_fit(full_layout) { Ok(b) => b.as_ptr(), Err(_) => ptr::null_mut() };
-            if base.is_null() { crate::uart::write_line("ALLOC: fail"); return base; }
+            if base.is_null() {
+                log_error!("ALLOC: fail");
+                return base;
+            }
             // Write header and tail canary
             let h = base as *mut Header;
             unsafe {
@@ -62,7 +68,6 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 ptr::write_volatile(tail, CANARY);
             }
             let user_ptr = unsafe { base.add(header_size) };
-            crate::uart::write_line("ALLOC: ok");
             user_ptr
         }
         #[cfg(not(debug_assertions))]
@@ -85,10 +90,16 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
             let base = unsafe { ptr.sub(header_size) };
             let h = base as *const Header;
             let (size, _align, canary) = unsafe { ((*h).size, (*h).align, (*h).canary) };
-            if canary != CANARY { crate::uart::write_line("HEAP: header canary corrupt"); panic!("heap header canary"); }
+            if canary != CANARY {
+                log_error!("HEAP: header canary corrupt");
+                panic!("heap header canary");
+            }
             let tail = base.wrapping_add(header_size + size) as *const usize;
             let tail_canary = unsafe { ptr::read_volatile(tail) };
-            if tail_canary != CANARY { crate::uart::write_line("HEAP: tail canary corrupt"); panic!("heap tail canary"); }
+            if tail_canary != CANARY {
+                log_error!("HEAP: tail canary corrupt");
+                panic!("heap tail canary");
+            }
             // Poison payload
             for off in 0..size { unsafe { ptr::write_volatile(ptr.add(off), 0xA5); } }
             // Free backing allocation with expanded layout
@@ -128,18 +139,12 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
 static ALLOC: SpinLockedHeap = SpinLockedHeap(HeapLock::new(Heap::empty()));
 
 fn init_heap() {
-    uart::write_line("B1: entering init_heap");
     // SAFETY: single-threaded early boot; we only pass a raw pointer + length.
     unsafe {
-        uart::write_line("B2: getting heap pointer");
         let start: *mut u8 = addr_of_mut!(HEAP.0) as *mut u8;
-        uart::write_line("B3: locking allocator");
         let mut alloc = ALLOC.0.lock();
-        uart::write_line("B4: calling init");
         alloc.init(start, HEAP_SIZE);
-        uart::write_line("B5: heap initialized");
     }
-    uart::write_line("B6: leaving init_heap");
 }
 
 // Modules
@@ -150,6 +155,8 @@ mod bootstrap;
 mod cap;
 mod determinism;
 mod hal;
+#[macro_use]
+mod log;
 mod liveness;
 mod ipc;
 mod kmain;
@@ -167,6 +174,7 @@ mod satp;
 
 pub use bootstrap::BootstrapMsg;
 pub use task::{Pid, TaskTable, TransferError};
+pub use log::Level as LogLevel;
 // compile the kernel panic handler automatically for no_std targets (OS = "none")
 #[cfg(all(not(test), target_os = "none"))]
 mod panic;
@@ -187,7 +195,6 @@ pub unsafe fn early_boot_init() {
 /// Entry point for the kernel runtime. Assumes early boot setup was performed
 /// and never returns.
 pub fn kmain() -> ! {
-    uart::write_line("K0: entering lib::kmain");
     kmain::kmain()
 }
 
