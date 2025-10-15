@@ -66,7 +66,7 @@ monitor_uart() {
           break
         fi
         ;;
-      *"EXC: scause="*|*"PANIC "*|*"SELFTEST: fail"*)
+      *"EXC: scause="*|*"PANIC "*|*"SELFTEST: fail"*|*"ILLEGAL"*|*"rx guard:"*)
         if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
           echo "[warn] Exception/Panic marker detected – stopping QEMU early for triage" >&2
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true

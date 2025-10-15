@@ -3,8 +3,6 @@
 
 //! Early boot routines for the NEURON microkernel.
 
-use crate::uart;
-
 #[cfg(not(test))]
 extern "C" {
     static mut __bss_start: u8;
@@ -24,7 +22,7 @@ pub fn early_boot_init() {
         zero_bss();
     }
     // Stage-policy: no heavy diagnostics in early boot on OS path.
-    uart::write_line("boot: ok");
+    log_info!(target: "boot", "boot: ok");
 
     // SAFETY: privileged context, trap vector install once.
     unsafe {
@@ -34,12 +32,12 @@ pub fn early_boot_init() {
         #[cfg(feature = "timer_irq")]
         crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
     }
-    uart::write_line("traps: ok");
+    log_info!(target: "boot", "traps: ok");
 
-    uart::write_line("A: before heap init");
+    log_debug!(target: "boot", "A: before heap init");
     crate::init_heap();
-    uart::write_line("B: after heap init");
-    uart::write_line("boot: returning to wrapper");
+    log_debug!(target: "boot", "B: after heap init");
+    log_info!(target: "boot", "boot: returning to wrapper");
 }
 
 unsafe fn zero_bss() {

@@ -47,7 +47,7 @@ pub fn check(deadline_ticks: u64) {
     }
     let now = read_time();
     if now.wrapping_sub(last) > deadline_ticks {
-        crate::uart::write_line("PANIC: watchdog: no progress");
+        log_error!(target: "watchdog", "PANIC: watchdog: no progress");
         panic!("watchdog: no progress");
     }
 }

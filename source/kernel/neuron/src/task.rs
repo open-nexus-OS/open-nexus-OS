@@ -12,6 +12,7 @@ use crate::{
     ipc::{self, Router},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
     sched::{QosClass, Scheduler},
+    types::{SlotIndex, VirtAddr},
     trap::TrapFrame,
 };
 use spin::Mutex;
@@ -50,34 +51,62 @@ static STACK_ALLOCATOR: Mutex<StackPool> = Mutex::new(StackPool::new());
 fn allocate_guarded_stack(
     address_spaces: &mut AddressSpaceManager,
     handle: AsHandle,
-) -> Result<usize, SpawnError> {
+) -> Result<VirtAddr, SpawnError> {
     let phys_base = {
         let mut pool = STACK_ALLOCATOR.lock();
         pool.alloc(STACK_PAGES).ok_or(SpawnError::StackExhausted)?
     };
     let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
     let guard_bottom = USER_STACK_TOP - (STACK_PAGES + 1) * PAGE_SIZE;
+    #[cfg(feature = "debug_uart")]
     {
         use core::fmt::Write as _;
         let mut u = crate::uart::raw_writer();
-        let _ = write!(u, "STACK: base=0x{:x} guard_bottom=0x{:x} pages={}\n", phys_base, guard_bottom, STACK_PAGES);
+        let _ = write!(
+            u,
+            "STACK: base=0x{:x} guard_bottom=0x{:x} pages={}\n",
+            phys_base,
+            guard_bottom,
+            STACK_PAGES
+        );
     }
     for page in 0..STACK_PAGES {
         let page_va = guard_bottom + PAGE_SIZE + page * PAGE_SIZE;
         let page_pa = phys_base + page * PAGE_SIZE;
+        address_spaces.map_page(handle, page_va, page_pa, flags)?;
+        #[cfg(feature = "debug_uart")]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
             let _ = write!(u, "STACK: map idx={} va=0x{:x} pa=0x{:x}\n", page, page_va, page_pa);
         }
-        address_spaces.map_page(handle, page_va, page_pa, flags)?;
     }
+    #[cfg(feature = "debug_uart")]
     {
         use core::fmt::Write as _;
         let mut u = crate::uart::raw_writer();
         let _ = write!(u, "STACK: top=0x{:x}\n", USER_STACK_TOP);
     }
-    Ok(USER_STACK_TOP)
+    VirtAddr::page_aligned(USER_STACK_TOP).ok_or(SpawnError::InvalidStackPointer)
+}
+
+fn ensure_entry_in_kernel_text(entry: VirtAddr) -> Result<(), SpawnError> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        extern "C" {
+            static __text_start: u8;
+            static __text_end: u8;
+        }
+        let start = unsafe { &__text_start as *const u8 as usize };
+        let end = unsafe { &__text_end as *const u8 as usize };
+        let pc = entry.raw();
+        if end <= start || pc < start || pc >= end {
+            return Err(SpawnError::InvalidEntryPoint);
+        }
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    let _ = entry;
+    Ok(())
 }
 
 /// Error returned when spawning a new task.
@@ -151,22 +180,7 @@ pub struct Task {
 
 impl Task {
     fn bootstrap() -> Self {
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TB: bootstrap enter\n");
-        }
         let caps = CapTable::new();
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TB: after caps new\n");
-        }
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TB: bootstrap after caps new\n");
-        }
         // Avoid Default impl to minimize any unexpected code paths during bring-up.
         let zero_frame = TrapFrame { x: [0; 32], sepc: 0, sstatus: 0, scause: 0, stval: 0 };
         let t = Self {
@@ -177,11 +191,6 @@ impl Task {
             address_space: None,
             bootstrap_slot: None,
         };
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TB: bootstrap exit\n");
-        }
         t
     }
 
@@ -225,35 +234,9 @@ pub struct TaskTable {
 impl TaskTable {
     /// Creates a new table seeded with the bootstrap task (PID 0).
     pub fn new() -> Self {
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TT: new enter\n");
-        }
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TT: before tasks vec\n");
-        }
         let mut tasks_vec: Vec<Task> = Vec::new();
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TT: after vec new\n");
-        }
         tasks_vec.push(Task::bootstrap());
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TT: after push bootstrap\n");
-        }
-        let table = Self { tasks: tasks_vec, current: 0 };
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "TT: new exit\n");
-        }
-        table
+        Self { tasks: tasks_vec, current: 0 }
     }
 
     /// Returns the PID of the currently running task.
@@ -311,17 +294,14 @@ impl TaskTable {
     pub fn spawn(
         &mut self,
         parent: Pid,
-        entry_pc: u64,
-        stack_sp: u64,
+        entry_pc: VirtAddr,
+        stack_sp: Option<VirtAddr>,
         address_space: Option<AsHandle>,
-        bootstrap_slot: u32,
+        bootstrap_slot: SlotIndex,
         scheduler: &mut Scheduler,
         _router: &mut Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
-        crate::uart::write_line("SPAWN-W: enter");
-        // Keep the wrapper minimal to reduce prologue pressure; delegate to the helper.
-        crate::uart::write_line("SPAWN-W: before inner");
         self.spawn_inner(
             parent,
             entry_pc,
@@ -339,102 +319,53 @@ impl TaskTable {
     fn spawn_inner(
         &mut self,
         parent: Pid,
-        entry_pc: u64,
-        stack_sp: u64,
+        entry_pc: VirtAddr,
+        stack_sp: Option<VirtAddr>,
         address_space: Option<AsHandle>,
-        bootstrap_slot: u32,
+        bootstrap_slot: SlotIndex,
         scheduler: &mut Scheduler,
         _router: &mut Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
-        crate::uart::write_line("SPAWN-I: enter");
-        crate::uart::write_line("SPAWN-I: start");
         let parent_index = parent as usize;
         let parent_task = self.tasks.get(parent_index).ok_or(SpawnError::InvalidParent)?;
-        crate::uart::write_line("SPAWN-I: got parent");
 
-        if entry_pc > usize::MAX as u64 {
-            return Err(SpawnError::InvalidEntryPoint);
-        }
-        if stack_sp > usize::MAX as u64 {
-            return Err(SpawnError::InvalidStackPointer);
-        }
+        ensure_entry_in_kernel_text(entry_pc)?;
 
-        // Validate entry point lies within kernel text (RX) for OS selftest stage
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        unsafe {
-            extern "C" {
-                static __text_start: u8;
-                static __text_end: u8;
-            }
-            let start = &__text_start as *const u8 as usize;
-            let end = &__text_end as *const u8 as usize;
-            let pc = entry_pc as usize;
-            // Only enforce range if linker provided sane bounds
-            if end > start {
-                if pc < start || pc >= end || (pc & 0x1) != 0 {
-                    crate::uart::write_line("SPAWN-E: invalid pc");
-                    return Err(SpawnError::InvalidEntryPoint);
-                }
-            }
-        }
-        crate::uart::write_line("SPAWN-I: pc ok");
-        // Warn if stack is zero during bring-up (we allow 0 for MVP shared-AS test)
-        if stack_sp == 0 {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "SPAWN-W: stack sp=0 (MVP shared-AS)\n");
-        }
-
-        let slot = bootstrap_slot as usize;
+        let slot = bootstrap_slot.0;
         let bootstrap_cap = parent_task.caps.get(slot)?;
-        let _endpoint = match bootstrap_cap.kind {
-            CapabilityKind::Endpoint(id) => id,
+        match bootstrap_cap.kind {
+            CapabilityKind::Endpoint(_) => {}
             _ => return Err(SpawnError::BootstrapNotEndpoint),
-        };
-        crate::uart::write_line("SPAWN-I: bootstrap cap ok");
+        }
 
         let mut child_caps = CapTable::new();
         child_caps.set(slot, bootstrap_cap)?;
-        crate::uart::write_line("SPAWN-D: child_caps set");
 
         let mut frame = TrapFrame::default();
-        crate::uart::write_line("SPAWN-D: frame defaulted");
-        frame.sepc = entry_pc as usize;
-        crate::uart::write_line("SPAWN-D: sepc set");
-        let (child_as, sp_value) = match address_space {
+        frame.sepc = entry_pc.raw();
+
+        let (child_as, stack_top) = match address_space {
             Some(handle) => {
-                // If caller didn't provide a stack, allocate a guarded stack in the provided AS.
-                crate::uart::write_line("SPAWN-I: before alloc stack");
-                let sp = if stack_sp == 0 {
-                    allocate_guarded_stack(address_spaces, handle)? as u64
-                } else {
-                    stack_sp
-                };
-                crate::uart::write_line("SPAWN-I: after alloc stack");
-                (handle, sp as usize)
+                let sp = stack_sp.ok_or(SpawnError::InvalidStackPointer)?;
+                (handle, sp)
             }
             None => {
+                if stack_sp.is_some() {
+                    return Err(SpawnError::InvalidStackPointer);
+                }
                 let handle = address_spaces.create()?;
-                crate::uart::write_line("SPAWN-I: created AS");
                 let top = allocate_guarded_stack(address_spaces, handle)?;
                 (handle, top)
             }
         };
-        crate::uart::write_line("SPAWN-D: after stack compute");
-        frame.x[2] = sp_value;
-        // Ensure returning from the child entry does not trap to address 0: loop at entry.
-        frame.x[1] = frame.sepc; // ra
+
+        frame.x[2] = stack_top.raw();
+        frame.x[1] = frame.sepc;
         const SSTATUS_SPIE: usize = 1 << 5;
         const SSTATUS_SPP: usize = 1 << 8;
         const SSTATUS_SUM: usize = 1 << 18;
-        // For kernel selftests, resume the child in S-mode (SPP=1) with interrupts enabled next.
-        frame.sstatus |= SSTATUS_SPP;
-        frame.sstatus |= SSTATUS_SPIE;
-        // Allow S-mode to access pages mapped with USER during selftests.
-        frame.sstatus |= SSTATUS_SUM;
-        crate::uart::write_line("SPAWN-D: after sstatus");
-        crate::uart::write_line("SPAWN-I: frame set");
+        frame.sstatus |= SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM;
 
         let pid = self.tasks.len() as Pid;
         let task = Task {
@@ -450,17 +381,8 @@ impl TaskTable {
             self.tasks.pop();
             return Err(err.into());
         }
-        crate::uart::write_line("SPAWN-I: task created");
 
-        // Give the freshly spawned child a short perf burst so it runs immediately
-        // on the next yield, allowing bootstrap to observe its markers.
         scheduler.enqueue(pid, QosClass::PerfBurst);
-        crate::uart::write_line("SPAWN-I: enqueued");
-
-        // Defer IPC bootstrap during bring-up to avoid interfering with
-        // address space activation and selftest flow. The message will be sent
-        // by userland loader in subsequent stages.
-        crate::uart::write_line("SPAWN: skip bootstrap send");
 
         Ok(pid)
     }
@@ -515,8 +437,9 @@ mod tests {
         let bootstrap_as = spaces.create().unwrap();
         spaces.attach(bootstrap_as, 0).unwrap();
         table.bootstrap_mut().address_space = Some(bootstrap_as);
+        let entry = VirtAddr::instr_aligned(0).unwrap();
         let child = table
-            .spawn(0, 0, 0, None, 0, &mut scheduler, &mut router, &mut spaces)
+            .spawn(0, entry, None, None, SlotIndex(0), &mut scheduler, &mut router, &mut spaces)
             .unwrap();
 
         let slot = table.transfer_cap(0, child, 0, Rights::RECV).unwrap();

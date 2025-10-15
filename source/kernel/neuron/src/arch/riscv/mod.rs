@@ -8,6 +8,25 @@
 //! the lightweight `#[cfg(not(target_arch = "riscv64"))]` stubs.
 #![cfg_attr(any(test, not(target_arch = "riscv64")), allow(dead_code))]
 
+/// Returns the current program counter.
+#[inline]
+pub fn read_pc() -> usize {
+    #[cfg(target_arch = "riscv64")]
+    unsafe {
+        let value: usize;
+        core::arch::asm!(
+            "auipc {tmp}, 0",
+            tmp = out(reg) value,
+            options(nomem, nostack, preserves_flags),
+        );
+        value
+    }
+    #[cfg(not(target_arch = "riscv64"))]
+    {
+        0
+    }
+}
+
 /// Clears the `.bss` region defined by the linker.
 #[inline]
 pub fn clear_bss(start: *mut u8, end: *mut u8) {

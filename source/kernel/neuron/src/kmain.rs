@@ -37,22 +37,13 @@ struct KernelState {
 
 impl KernelState {
     fn new() -> Self {
-        #[cfg(feature = "debug_uart")]
-        uart::write_line("KS: new enter");
-        // Print addresses of key functions for symbol hinting
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
             let cap_new: fn() -> crate::cap::CapTable = crate::cap::CapTable::new;
             let cap_wc: fn(usize) -> crate::cap::CapTable = crate::cap::CapTable::with_capacity;
-            let _ = write!(u, "ADDR: cap_new=0x{:x}\n", cap_new as usize);
-            let _ = write!(u, "ADDR: cap_with_capacity=0x{:x}\n", cap_wc as usize);
-            // RX-check: ensure first instruction words at beacon addresses are non-zero
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             unsafe {
                 let inst_new = core::ptr::read_volatile((cap_new as usize) as *const u32);
                 let inst_wc = core::ptr::read_volatile((cap_wc as usize) as *const u32);
-                let _ = write!(u, "RX-CHK: cap_new=0x{:08x} cap_wc=0x{:08x}\n", inst_new, inst_wc);
                 if inst_new == 0 || inst_wc == 0 {
                     panic!("RX-CHK: zero instruction at beacon");
                 }
@@ -62,11 +53,6 @@ impl KernelState {
         // complex code paths (like task/cap table initialisation) to ensure
         // the kernel text/data mappings are active in SATP.
         let mut address_spaces = AddressSpaceManager::new();
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after AddressSpaceManager::new\n");
-            let _ = write!(u, "KM: before as_create kernel_as\n");
-        }
         let kernel_as = match address_spaces.create() {
             Ok(handle) => handle,
             Err(err) => {
@@ -76,18 +62,10 @@ impl KernelState {
                 panic!("kernel address space create failed");
             }
         };
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after as_create kernel_as\n");
-        }
         if let Err(err) = address_spaces.attach(kernel_as, 0) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
             let _ = write!(w, "KS-E: as_attach {:?}\n", err);
-        }
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after as_attach to pid0\n");
         }
         // Activate kernel address space immediately to ensure deterministic
         // RX mapping for subsequent code paths.
@@ -105,24 +83,9 @@ impl KernelState {
             let _ = write!(w, "KS-E: as_activate {:?}\n", err);
             panic!("kernel address space activate failed");
         }
-        {
-            let mut u = crate::uart::raw_writer();
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            unsafe {
-                let satp_now: usize;
-                core::arch::asm!("csrr {out}, satp", out = out(reg) satp_now, options(nostack, preserves_flags));
-                let _ = write!(u, "KM: after kernel_as activate satp=0x{:x}\n", satp_now);
-            }
-            #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-            let _ = write!(u, "KM: after kernel_as activate\n");
-        }
 
         // Now proceed with task table and the rest of bring-up under the active SATP.
         let mut tasks = TaskTable::new();
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after TaskTable::new\n");
-        }
         // If an early trap occurred, print it once to aid bring-up debugging.
         if let Some(tf) = crate::trap::last_trap() {
             let mut u = crate::uart::raw_writer();
@@ -142,8 +105,6 @@ impl KernelState {
                     rights: Rights::SEND | Rights::RECV,
                 },
             );
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after caps.set ep0\n");
             // Slot 1: identity VMO for bootstrap mappings
             let _ = caps.set(
                 1,
@@ -152,66 +113,32 @@ impl KernelState {
                     rights: Rights::MAP,
                 },
             );
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after caps.set vmo1\n");
-        }
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after bootstrap caps\n");
         }
         // Bind kernel AS handle to bootstrap task
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut scheduler = Scheduler::new();
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after Scheduler::new\n");
-        }
         scheduler.enqueue(0, QosClass::Normal);
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after scheduler.enqueue\n");
-        }
 
         let mut syscalls = SyscallTable::new();
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after SyscallTable::new\n");
-        }
         api::install_handlers(&mut syscalls);
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after install_handlers\n");
-        }
 
         let router = ipc::Router::new(8);
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after Router::new\n");
-        }
 
         let hal = VirtMachine::new();
         #[cfg(feature = "debug_uart")]
-        uart::write_line("KS: after VirtMachine::new");
+        log_debug!(target: "kmain", "KS: after VirtMachine::new");
 
-        #[cfg(feature = "debug_uart")]
-        uart::write_line("KS: returning");
         Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls }
     }
 
     #[allow(dead_code)]
     fn banner(&self) {
-        uart::write_line(
-            "
-
- _ __   ___ _   _ _ __ ___  _ __
-| '_ \\ / _ \\ | | | '__/ _ \\| '_ \\
-| | | |  __/ |_| | | | (_) | | | |
-|_| |_|\\___|\\__,_|_|  \\___/|_| |_|
-
-                                  ",
-        );
-        uart::write_line("neuron vers. 0.1.0 - One OS. Many Devices.");
+        log_info!(target: "boot", " _ __   ___ _   _ _ __ ___  _ __");
+        log_info!(target: "boot", "| '_ \\\ / _ \\\ | | | '__/ _ \\| '_ \\");
+        log_info!(target: "boot", "| | | |  __/ |_| | | | (_) | | | |");
+        log_info!(target: "boot", "|_| |_|\\\\___|\\\\__,_|_|  \\\\___/|_| |_|");
+        log_info!(target: "boot", "neuron vers. 0.1.0 - One OS. Many Devices.");
     }
 
     #[allow(dead_code)]
@@ -259,8 +186,6 @@ impl KernelState {
 
 /// Kernel main invoked after boot assembly completed.
 pub fn kmain() -> ! {
-    #[cfg(feature = "debug_uart")]
-    uart::write_line("C: entering kmain");
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
     let mut kernel = KernelState::new();
@@ -281,18 +206,15 @@ pub fn kmain() -> ! {
     // Minimal IO only
     #[cfg(feature = "boot_banner")]
     kernel.banner();
-    uart::write_line("KM: after banner");
     // Keep timer interrupts disabled during selftest to avoid preemption/trap stack usage
     // Keep UART usage minimal before selftests
     // kernel.exercise_ipc();
-    #[cfg(feature = "debug_uart")]
-    uart::write_line("H: before selftest");
     // (no pointer debug formatting in OS stage policy)
     // Quick sanity for OpenSBI environment
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         #[cfg(feature = "debug_uart")]
-        uart::write_line("ENV: sbi present");
+        log_info!(target: "env", "ENV: sbi present");
     }
     #[cfg(feature = "boot_timing")]
     let t2 = crate::arch::riscv::read_time();
@@ -314,7 +236,6 @@ pub fn kmain() -> ! {
             tasks: &mut kernel.tasks,
             scheduler: &mut kernel.scheduler,
         };
-        uart::write_line("KM: before selftest.entry");
         // Gate: validate target PC and dump RA/SP before entering selftest
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
@@ -332,6 +253,7 @@ pub fn kmain() -> ! {
             let sp: usize;
             unsafe { core::arch::asm!("mv {o}, ra", o = out(reg) ra, options(nostack, preserves_flags)); }
             unsafe { core::arch::asm!("mv {o}, sp", o = out(reg) sp, options(nostack, preserves_flags)); }
+            #[cfg(feature = "debug_uart")]
             {
                 let mut u = crate::uart::raw_writer();
                 let _ = write!(u, "GATE: before selftest ra=0x{:x} sp=0x{:x} pc=0x{:x}\n", ra, sp, target_pc);
@@ -346,14 +268,6 @@ pub fn kmain() -> ! {
             target_os = "none"
         )))]
         selftest::entry(&mut ctx);
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "GATE: after selftest\n");
-        }
-        {
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "KM: after selftest.entry\n");
-        }
     }
     #[cfg(feature = "boot_timing")]
     {
@@ -363,9 +277,6 @@ pub fn kmain() -> ! {
         let mut u = crate::uart::KernelUart::lock();
         let _ = write!(u, "T:selftest={}\n", delta);
     }
-    #[cfg(feature = "debug_uart")]
-    uart::write_line("I: after selftest");
-
     // End of kernel bring-up; user-mode services are responsible for
     // emitting their own readiness markers.
 
