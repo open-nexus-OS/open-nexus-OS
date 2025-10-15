@@ -66,6 +66,20 @@ monitor_uart() {
           break
         fi
         ;;
+      *"EXC: scause="*|*"PANIC "*|*"SELFTEST: fail"*)
+        if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
+          echo "[warn] Exception/Panic marker detected – stopping QEMU early for triage" >&2
+          pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
+          break
+        fi
+        ;;
+      *"LOCKDEP:"*|*"PT-VERIFY:"*|*"HEAP: "*)
+        if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
+          echo "[warn] Kernel debug-hardening marker detected – stopping QEMU for triage" >&2
+          pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
+          break
+        fi
+        ;;
     esac
   done
 }
@@ -116,6 +130,11 @@ COMMON_ARGS=(
 if [[ "${QEMU_TRACE:-0}" == "1" ]]; then
   TRACE_FLAGS=${QEMU_TRACE_FLAGS:-int,mmu,unimp}
   COMMON_ARGS+=( -d "$TRACE_FLAGS" -D "$QEMU_LOG" )
+fi
+
+# Optional GDB stub for interactive debugging
+if [[ "${QEMU_GDB:-0}" == "1" ]]; then
+  COMMON_ARGS+=( -S -s -monitor none )
 fi
 
 status=0

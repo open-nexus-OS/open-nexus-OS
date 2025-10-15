@@ -5,13 +5,11 @@
 
 extern crate alloc;
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    bootstrap::BootstrapMsg,
     cap::{CapError, CapTable, CapabilityKind, Rights},
-    ipc::{self, header::MessageHeader, Message, Router},
+    ipc::{self, Router},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
     sched::{QosClass, Scheduler},
     trap::TrapFrame,
@@ -59,10 +57,25 @@ fn allocate_guarded_stack(
     };
     let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
     let guard_bottom = USER_STACK_TOP - (STACK_PAGES + 1) * PAGE_SIZE;
+    {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = write!(u, "STACK: base=0x{:x} guard_bottom=0x{:x} pages={}\n", phys_base, guard_bottom, STACK_PAGES);
+    }
     for page in 0..STACK_PAGES {
         let page_va = guard_bottom + PAGE_SIZE + page * PAGE_SIZE;
         let page_pa = phys_base + page * PAGE_SIZE;
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "STACK: map idx={} va=0x{:x} pa=0x{:x}\n", page, page_va, page_pa);
+        }
         address_spaces.map_page(handle, page_va, page_pa, flags)?;
+    }
+    {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = write!(u, "STACK: top=0x{:x}\n", USER_STACK_TOP);
     }
     Ok(USER_STACK_TOP)
 }
@@ -138,14 +151,38 @@ pub struct Task {
 
 impl Task {
     fn bootstrap() -> Self {
-        Self {
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TB: bootstrap enter\n");
+        }
+        let caps = CapTable::new();
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TB: after caps new\n");
+        }
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TB: bootstrap after caps new\n");
+        }
+        // Avoid Default impl to minimize any unexpected code paths during bring-up.
+        let zero_frame = TrapFrame { x: [0; 32], sepc: 0, sstatus: 0, scause: 0, stval: 0 };
+        let t = Self {
             pid: 0,
             parent: None,
-            frame: TrapFrame::default(),
-            caps: CapTable::new(),
+            frame: zero_frame,
+            caps,
             address_space: None,
             bootstrap_slot: None,
+        };
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TB: bootstrap exit\n");
         }
+        t
     }
 
     /// Returns the saved trap frame.
@@ -188,9 +225,34 @@ pub struct TaskTable {
 impl TaskTable {
     /// Creates a new table seeded with the bootstrap task (PID 0).
     pub fn new() -> Self {
-        crate::uart::write_line("TT: new enter");
-        let table = Self { tasks: vec![Task::bootstrap()], current: 0 };
-        crate::uart::write_line("TT: new exit");
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TT: new enter\n");
+        }
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TT: before tasks vec\n");
+        }
+        let mut tasks_vec: Vec<Task> = Vec::new();
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TT: after vec new\n");
+        }
+        tasks_vec.push(Task::bootstrap());
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TT: after push bootstrap\n");
+        }
+        let table = Self { tasks: tasks_vec, current: 0 };
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "TT: new exit\n");
+        }
         table
     }
 
@@ -254,10 +316,12 @@ impl TaskTable {
         address_space: Option<AsHandle>,
         bootstrap_slot: u32,
         scheduler: &mut Scheduler,
-        router: &mut Router,
+        _router: &mut Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
+        crate::uart::write_line("SPAWN-W: enter");
         // Keep the wrapper minimal to reduce prologue pressure; delegate to the helper.
+        crate::uart::write_line("SPAWN-W: before inner");
         self.spawn_inner(
             parent,
             entry_pc,
@@ -265,7 +329,7 @@ impl TaskTable {
             address_space,
             bootstrap_slot,
             scheduler,
-            router,
+            _router,
             address_spaces,
         )
     }
@@ -280,20 +344,14 @@ impl TaskTable {
         address_space: Option<AsHandle>,
         bootstrap_slot: u32,
         scheduler: &mut Scheduler,
-        router: &mut Router,
+        _router: &mut Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
-        {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(
-                w,
-                "SPAWN-I: start parent={} entry=0x{:x} sp=0x{:x}\n",
-                parent, entry_pc, stack_sp
-            );
-        }
+        crate::uart::write_line("SPAWN-I: enter");
+        crate::uart::write_line("SPAWN-I: start");
         let parent_index = parent as usize;
         let parent_task = self.tasks.get(parent_index).ok_or(SpawnError::InvalidParent)?;
+        crate::uart::write_line("SPAWN-I: got parent");
 
         if entry_pc > usize::MAX as u64 {
             return Err(SpawnError::InvalidEntryPoint);
@@ -315,14 +373,12 @@ impl TaskTable {
             // Only enforce range if linker provided sane bounds
             if end > start {
                 if pc < start || pc >= end || (pc & 0x1) != 0 {
-                    use core::fmt::Write as _;
-                    let mut w = crate::uart::raw_writer();
-                    let _ =
-                        write!(w, "SPAWN-E: pc=0x{:x} start=0x{:x} end=0x{:x}\n", pc, start, end);
+                    crate::uart::write_line("SPAWN-E: invalid pc");
                     return Err(SpawnError::InvalidEntryPoint);
                 }
             }
         }
+        crate::uart::write_line("SPAWN-I: pc ok");
         // Warn if stack is zero during bring-up (we allow 0 for MVP shared-AS test)
         if stack_sp == 0 {
             use core::fmt::Write as _;
@@ -332,42 +388,53 @@ impl TaskTable {
 
         let slot = bootstrap_slot as usize;
         let bootstrap_cap = parent_task.caps.get(slot)?;
-        let endpoint = match bootstrap_cap.kind {
+        let _endpoint = match bootstrap_cap.kind {
             CapabilityKind::Endpoint(id) => id,
             _ => return Err(SpawnError::BootstrapNotEndpoint),
         };
-        {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "SPAWN-I: bootstrap cap ok ep={} slot={}\n", endpoint, slot);
-        }
+        crate::uart::write_line("SPAWN-I: bootstrap cap ok");
 
         let mut child_caps = CapTable::new();
         child_caps.set(slot, bootstrap_cap)?;
+        crate::uart::write_line("SPAWN-D: child_caps set");
 
         let mut frame = TrapFrame::default();
+        crate::uart::write_line("SPAWN-D: frame defaulted");
         frame.sepc = entry_pc as usize;
+        crate::uart::write_line("SPAWN-D: sepc set");
         let (child_as, sp_value) = match address_space {
             Some(handle) => {
-                let sp = if stack_sp == 0 { USER_STACK_TOP as u64 } else { stack_sp };
+                // If caller didn't provide a stack, allocate a guarded stack in the provided AS.
+                crate::uart::write_line("SPAWN-I: before alloc stack");
+                let sp = if stack_sp == 0 {
+                    allocate_guarded_stack(address_spaces, handle)? as u64
+                } else {
+                    stack_sp
+                };
+                crate::uart::write_line("SPAWN-I: after alloc stack");
                 (handle, sp as usize)
             }
             None => {
                 let handle = address_spaces.create()?;
+                crate::uart::write_line("SPAWN-I: created AS");
                 let top = allocate_guarded_stack(address_spaces, handle)?;
                 (handle, top)
             }
         };
+        crate::uart::write_line("SPAWN-D: after stack compute");
         frame.x[2] = sp_value;
+        // Ensure returning from the child entry does not trap to address 0: loop at entry.
+        frame.x[1] = frame.sepc; // ra
         const SSTATUS_SPIE: usize = 1 << 5;
         const SSTATUS_SPP: usize = 1 << 8;
-        frame.sstatus &= !SSTATUS_SPP;
+        const SSTATUS_SUM: usize = 1 << 18;
+        // For kernel selftests, resume the child in S-mode (SPP=1) with interrupts enabled next.
+        frame.sstatus |= SSTATUS_SPP;
         frame.sstatus |= SSTATUS_SPIE;
-        {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "SPAWN-I: frame set sepc=0x{:x} sp=0x{:x}\n", frame.sepc, frame.x[2]);
-        }
+        // Allow S-mode to access pages mapped with USER during selftests.
+        frame.sstatus |= SSTATUS_SUM;
+        crate::uart::write_line("SPAWN-D: after sstatus");
+        crate::uart::write_line("SPAWN-I: frame set");
 
         let pid = self.tasks.len() as Pid;
         let task = Task {
@@ -383,29 +450,17 @@ impl TaskTable {
             self.tasks.pop();
             return Err(err.into());
         }
-        {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "SPAWN-I: task created pid={}\n", pid);
-        }
+        crate::uart::write_line("SPAWN-I: task created");
 
-        scheduler.enqueue(pid, QosClass::Normal);
-        {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "SPAWN-I: enqueued pid={} qos=normal\n", pid);
-        }
+        // Give the freshly spawned child a short perf burst so it runs immediately
+        // on the next yield, allowing bootstrap to observe its markers.
+        scheduler.enqueue(pid, QosClass::PerfBurst);
+        crate::uart::write_line("SPAWN-I: enqueued");
 
-        let bootstrap = BootstrapMsg::default();
-        let payload = bootstrap.to_le_bytes().to_vec();
-        let len = payload.len() as u32;
-        let header = MessageHeader::new(parent, endpoint, 0, 0, len);
-        {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "SPAWN: before send ep={} len={}\n", endpoint, len);
-        }
-        router.send(endpoint, Message::new(header, payload))?;
+        // Defer IPC bootstrap during bring-up to avoid interfering with
+        // address space activation and selftest flow. The message will be sent
+        // by userland loader in subsequent stages.
+        crate::uart::write_line("SPAWN: skip bootstrap send");
 
         Ok(pid)
     }

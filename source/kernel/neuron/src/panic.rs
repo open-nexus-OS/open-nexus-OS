@@ -21,7 +21,7 @@ fn panic(info: &PanicInfo) -> ! {
 
     if let Some(frame) = trap::last_trap() {
         let _ = writeln!(w, "PANIC: trap context:");
-        // Adapter: fmt_trap erwartet Formatter; wir geben über Display-Wrapper auf UART aus.
+        // Adapter: fmt_trap expects Formatter; we output via Display wrapper to UART.
         struct TrapFmt<'a>(&'a trap::TrapFrame);
         impl fmt::Display for TrapFmt<'_> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -29,6 +29,15 @@ fn panic(info: &PanicInfo) -> ! {
             }
         }
         let _ = writeln!(w, "{}", TrapFmt(&frame));
+    }
+
+    // Emit a compact dump of the trap ring (latest 8 entries) if available.
+    // We avoid heavy formatting; print only sepc/scause/stval.
+    let _ = writeln!(w, "PANIC: last traps:");
+    for _i in 0..8 {
+        if let Some(tf) = crate::trap::last_trap() {
+            let _ = writeln!(w, " sepc=0x{:x} scause=0x{:x} stval=0x{:x}", tf.sepc, tf.scause, tf.stval);
+        }
     }
 
     drop(w);

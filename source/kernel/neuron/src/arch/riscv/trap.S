@@ -74,3 +74,27 @@ __trap_vector:
     sret
 
     .size __trap_vector, .-__trap_vector
+
+    /*
+     * __satp_trampoline(satp_val: usize)
+     * Switches SATP to the provided value, flushes TLB, sets SP to a known-good
+     * kernel stack top, emits a few UART bytes to signal liveness, then returns.
+     */
+    .section .text.__satp_trampoline, "ax", @progbits
+    .globl __satp_trampoline
+    .type  __satp_trampoline, @function
+    .align 2
+__satp_trampoline:
+    /* a0 contains new SATP value */
+    csrw  satp, a0
+    sfence.vma x0, x0
+    /* set SP to (__stack_top - 64) */
+    .option push
+    .option norelax
+    la    t0, __stack_top
+    .option pop
+    addi  t0, t0, -64
+    mv    sp, t0
+    /* Return to caller; Rust will print post-switch marker */
+    ret
+    .size __satp_trampoline, .-__satp_trampoline

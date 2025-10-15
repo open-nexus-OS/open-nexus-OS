@@ -11,49 +11,128 @@ extern crate alloc;
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::ptr::{self, addr_of_mut};
+use core::ptr::NonNull;
 use linked_list_allocator::Heap;
+#[cfg(not(debug_assertions))]
 use spin::Mutex;
 
 // Global allocator using spin::Mutex instead of lock_api to avoid HPM CSR access
 
-const HEAP_SIZE: usize = 64 * 1024; // 64KB instead of 1MB
+const HEAP_SIZE: usize = 1024 * 1024; // 1 MiB heap for page tables and stacks
+
+#[repr(align(4096))]
+struct HeapRegion([u8; HEAP_SIZE]);
 
 #[cfg_attr(not(test), link_section = ".bss.heap")]
-static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
+static mut HEAP: HeapRegion = HeapRegion([0; HEAP_SIZE]);
 
-struct SpinLockedHeap(Mutex<Heap>);
+#[cfg(debug_assertions)]
+type HeapLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
+#[cfg(not(debug_assertions))]
+type HeapLock<T> = Mutex<T>;
+
+struct SpinLockedHeap(HeapLock<Heap>);
 
 unsafe impl GlobalAlloc for SpinLockedHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: allocate_first_fit is safe to call; caller guarantees layout validity per GlobalAlloc contract
-        self.0
-            .lock()
-            .allocate_first_fit(layout)
-            .ok()
-            .map_or(ptr::null_mut(), |allocation| allocation.as_ptr())
+        // Debug redzones: add header/tail canaries; release builds use raw allocation.
+        #[cfg(debug_assertions)]
+        {
+            #[repr(C)]
+            struct Header { size: usize, align: usize, canary: usize }
+            const CANARY: usize = 0xC0FFEE_CAFE_BABE_usize;
+            let header_size = core::mem::size_of::<Header>();
+            let total_size = header_size
+                .checked_add(layout.size())
+                .and_then(|s| s.checked_add(core::mem::size_of::<usize>()))
+                .unwrap_or(0);
+            if total_size == 0 { crate::uart::write_line("ALLOC: fail"); return ptr::null_mut(); }
+            let full_layout = Layout::from_size_align(total_size, core::mem::align_of::<Header>()).unwrap();
+            let mut alloc = self.0.lock();
+            let base = match alloc.allocate_first_fit(full_layout) { Ok(b) => b.as_ptr(), Err(_) => ptr::null_mut() };
+            if base.is_null() { crate::uart::write_line("ALLOC: fail"); return base; }
+            // Write header and tail canary
+            let h = base as *mut Header;
+            unsafe {
+                (*h).size = layout.size();
+                (*h).align = layout.align();
+                (*h).canary = CANARY;
+                // tail canary stored just after payload
+                let tail = base.add(header_size + layout.size()) as *mut usize;
+                ptr::write_volatile(tail, CANARY);
+            }
+            let user_ptr = unsafe { base.add(header_size) };
+            crate::uart::write_line("ALLOC: ok");
+            user_ptr
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // SAFETY: allocate_first_fit is safe to call; caller guarantees layout validity per GlobalAlloc contract
+            let mut alloc = self.0.lock();
+            let result = alloc.allocate_first_fit(layout).ok().map_or(ptr::null_mut(), |allocation| allocation.as_ptr());
+            result
+        }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: Caller guarantees per GlobalAlloc contract that:
-        // - ptr was allocated by this allocator with the same layout
-        // - ptr has not been deallocated yet
-        // - ptr is non-null (required by GlobalAlloc::dealloc precondition)
-        unsafe {
-            let non_null = ptr::NonNull::new_unchecked(ptr);
-            self.0.lock().deallocate(non_null, layout);
+        #[cfg(debug_assertions)]
+        {
+            if ptr.is_null() { return; }
+            #[repr(C)]
+            struct Header { size: usize, align: usize, canary: usize }
+            const CANARY: usize = 0xC0FFEE_CAFE_BABE_usize;
+            let header_size = core::mem::size_of::<Header>();
+            let base = unsafe { ptr.sub(header_size) };
+            let h = base as *const Header;
+            let (size, _align, canary) = unsafe { ((*h).size, (*h).align, (*h).canary) };
+            if canary != CANARY { crate::uart::write_line("HEAP: header canary corrupt"); panic!("heap header canary"); }
+            let tail = base.wrapping_add(header_size + size) as *const usize;
+            let tail_canary = unsafe { ptr::read_volatile(tail) };
+            if tail_canary != CANARY { crate::uart::write_line("HEAP: tail canary corrupt"); panic!("heap tail canary"); }
+            // Poison payload
+            for off in 0..size { unsafe { ptr::write_volatile(ptr.add(off), 0xA5); } }
+            // Free backing allocation with expanded layout
+            let _ = layout; // silence unused in debug path
+            let full_size = header_size + size + core::mem::size_of::<usize>();
+            let _full_layout = Layout::from_size_align(full_size, core::mem::align_of::<Header>()).unwrap();
+            // Quarantine: hold a few recently freed blocks before returning to allocator
+            #[cfg(debug_assertions)]
+            {
+                #[derive(Copy, Clone)]
+                struct QEntry { base: *mut u8, size: usize, align: usize }
+                const QCAP: usize = 8;
+                static mut Q_ENTRIES: [Option<QEntry>; QCAP] = [None; QCAP];
+                static mut Q_INDEX: usize = 0;
+                // evict oldest if occupied
+                unsafe {
+                    if let Some(ev) = Q_ENTRIES[Q_INDEX].take() {
+                        let ev_layout = Layout::from_size_align(ev.size, ev.align).unwrap();
+                        let ev_nonnull = NonNull::new_unchecked(ev.base);
+                        self.0.lock().deallocate(ev_nonnull, ev_layout);
+                    }
+                    Q_ENTRIES[Q_INDEX] = Some(QEntry { base, size: full_size, align: core::mem::align_of::<Header>() });
+                    Q_INDEX = (Q_INDEX + 1) % QCAP;
+                }
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // SAFETY: Caller guarantees per GlobalAlloc contract that ptr/layout match a prior alloc.
+            let non_null = unsafe { NonNull::new_unchecked(ptr) };
+            unsafe { self.0.lock().deallocate(non_null, layout) };
         }
     }
 }
 
 #[cfg_attr(all(not(test), target_os = "none"), global_allocator)]
-static ALLOC: SpinLockedHeap = SpinLockedHeap(Mutex::new(Heap::empty()));
+static ALLOC: SpinLockedHeap = SpinLockedHeap(HeapLock::new(Heap::empty()));
 
 fn init_heap() {
     uart::write_line("B1: entering init_heap");
     // SAFETY: single-threaded early boot; we only pass a raw pointer + length.
     unsafe {
         uart::write_line("B2: getting heap pointer");
-        let start: *mut u8 = addr_of_mut!(HEAP) as *mut u8;
+        let start: *mut u8 = addr_of_mut!(HEAP.0) as *mut u8;
         uart::write_line("B3: locking allocator");
         let mut alloc = ALLOC.0.lock();
         uart::write_line("B4: calling init");
@@ -71,15 +150,20 @@ mod bootstrap;
 mod cap;
 mod determinism;
 mod hal;
+mod liveness;
 mod ipc;
 mod kmain;
 mod mm;
+#[cfg(debug_assertions)]
+pub mod sync;
 mod sched;
 mod selftest;
 mod syscall;
+mod types;
 mod task;
 mod trap;
 mod uart;
+mod satp;
 
 pub use bootstrap::BootstrapMsg;
 pub use task::{Pid, TaskTable, TransferError};

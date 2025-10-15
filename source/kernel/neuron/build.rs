@@ -10,7 +10,8 @@ fn emit_symbol_table() {
     // Output dir for generated file
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = std::path::Path::new(&out_dir).join("trap_symbols.rs");
-    // If caller provided a pre-generated map, accept it; otherwise, skip (no hard dep on tools)
+    // Best-effort: if a map is provided and readable, generate entries; otherwise, emit empty table
+    let mut generated = false;
     if let Ok(map_file) = std::env::var("NEURON_SYMBOLS_MAP") {
         if let Ok(raw) = std::fs::read_to_string(map_file) {
             let mut entries = Vec::new();
@@ -32,8 +33,15 @@ fn emit_symbol_table() {
                 out.push_str(&format!("    (0x{:x}, \"{}\"),\n", addr, name));
             }
             out.push_str("];\n");
-            let _ = std::fs::write(out_path, out);
+            let _ = std::fs::write(&out_path, out);
+            generated = true;
         }
+    }
+    if !generated {
+        let _ = std::fs::write(
+            &out_path,
+            "#[allow(dead_code)]\npub static TRAP_SYMBOLS: &[(usize, &str)] = &[];\n",
+        );
     }
 }
 

@@ -44,8 +44,10 @@ increment:
   mappings are installed via `AddressSpaceManager::map_page`.
 - The ASID allocator tracks 256 slots (ASID `0` is reserved for the kernel). Handles returned by
   `SYS_AS_CREATE` wrap the internal slot index and remain opaque to callers.
-- Fresh address spaces are seeded with a kernel identity map (text as RX, data/BSS/stacks as RW)
-  together with basic MMIO windows (UART) so that context switches can safely toggle SATP.
+- Fresh address spaces are seeded with a kernel identity map using final-image linker symbols:
+  `[__text_start..__text_end)` is mapped RX|GLOBAL, `[__text_end..__bss_end)` RW|GLOBAL, a
+  dedicated kernel stack RW|GLOBAL and the UART window RW|GLOBAL. GLOBAL keeps kernel pages visible
+  across ASID switches. A pre-switch RX-sanity guard verifies bytes at the current PC are non-zero.
 - Each address space maintains the set of owning tasks so the manager can reject destruction while
   references remain. Activating a handle writes SATP and issues a global `sfence.vma`.
 
@@ -96,6 +98,8 @@ Golden layout tests assert size/padding correctness.
 - Selftests execute on a private, canaried stack; timer IRQs are masked during the run.
 - UART markers (subset): `KSELFTEST: as create ok` → `KSELFTEST: as map ok` →
   `KSELFTEST: child newas running` → `KSELFTEST: spawn newas ok` → `KSELFTEST: w^x enforced`.
+- Bring-up diagnostics: illegal-instruction traps print `sepc/scause/stval` and instruction bytes;
+  optional `trap_symbols` resolves `sepc` to `name+offset`. A post-SATP marker verifies return.
 - Feature gates:
   - Default: `boot_banner`, `selftest_priv_stack`, `selftest_time`.
   - Optional: `selftest_ipc`, `selftest_caps`, `selftest_sched`, `trap_symbols`.

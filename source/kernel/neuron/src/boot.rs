@@ -29,7 +29,9 @@ pub fn early_boot_init() {
     // SAFETY: privileged context, trap vector install once.
     unsafe {
         crate::trap::install_trap_vector();
-        // Arm first tick; enabling SIE is deferred to kmain for safer sequencing
+        // Arm first tick only when timer IRQs are enabled; default bring-up runs without timer
+        // preemption to simplify early sequencing.
+        #[cfg(feature = "timer_irq")]
         crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
     }
     uart::write_line("traps: ok");

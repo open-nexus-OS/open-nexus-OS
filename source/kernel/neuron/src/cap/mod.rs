@@ -5,7 +5,6 @@
 
 extern crate alloc;
 
-use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::fmt;
@@ -68,20 +67,49 @@ pub struct CapTable {
 impl CapTable {
     /// Creates an empty table sized for `slots` entries.
     pub fn with_capacity(slots: usize) -> Self {
-        Self { slots: vec![None; slots] }
+        let mut table: Vec<Option<Capability>> = Vec::with_capacity(slots);
+        for _ in 0..slots {
+            // Avoids potential libc/memset intrinsics on no_std target
+            table.push(None);
+        }
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "CAP: with_capacity slots={}\n", slots);
+        }
+        Self { slots: table }
     }
 
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {
-        crate::uart::write_line("CAP: new enter");
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "CAP: new enter\n");
+        }
         let table = Self::with_capacity(32);
-        crate::uart::write_line("CAP: new exit");
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "CAP: new exit\n");
+        }
         table
     }
 
     /// Inserts or overwrites a slot.
     pub fn set(&mut self, slot: usize, cap: Capability) -> Result<(), CapError> {
-        self.slots.get_mut(slot).ok_or(CapError::InvalidSlot).map(|entry| *entry = Some(cap))
+        if slot >= self.slots.len() {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "CAP-E: invalid slot {} (len={})\n", slot, self.slots.len());
+            return Err(CapError::InvalidSlot);
+        }
+        if let Some(entry) = self.slots.get_mut(slot) {
+            *entry = Some(cap);
+            Ok(())
+        } else {
+            Err(CapError::InvalidSlot)
+        }
     }
 
     /// Allocates the first free slot and inserts `cap`, returning the slot index.

@@ -49,9 +49,11 @@ qemu *args:
     # ensure the binary is built before launching
     just build-kernel
     RUN_TIMEOUT=${RUN_TIMEOUT:-30s} scripts/run-qemu-rv64.sh {{args}}
+    @echo "[hint] Set RUN_UNTIL_MARKER=1 to stop on success markers; set QEMU_TRACE=1 to enable tracing."
 
 test-os:
     scripts/qemu-test.sh
+    @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
 
 test-init:
     scripts/host-init-test.sh

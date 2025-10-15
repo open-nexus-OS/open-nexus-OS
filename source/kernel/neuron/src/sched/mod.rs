@@ -7,7 +7,7 @@ extern crate alloc;
 
 use alloc::collections::VecDeque;
 
-use crate::determinism;
+// use crate::determinism; // not needed after inlined guarded access
 
 /// Task identifier handed out by the scheduler.
 pub type TaskId = u32;
@@ -38,7 +38,19 @@ pub struct Scheduler {
 impl Scheduler {
     /// Creates an empty scheduler.
     pub fn new() -> Self {
-        Self {
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "SCHED: new enter\n");
+        }
+        // Read deterministic timeslice guarded and fall back to constant if needed
+        let ts = crate::determinism::fixed_tick_ns();
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "SCHED: timeslice={}\n", ts);
+        }
+        let s = Self {
             // Preallocate minimal capacity to avoid first enqueue allocation cost
             queues: [
                 VecDeque::with_capacity(1),
@@ -47,8 +59,14 @@ impl Scheduler {
                 VecDeque::with_capacity(1),
             ],
             current: None,
-            timeslice_ns: determinism::fixed_tick_ns(),
+            timeslice_ns: ts,
+        };
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "SCHED: new exit\n");
         }
+        s
     }
 
     /// Enqueues a task with the provided QoS class.
@@ -59,6 +77,7 @@ impl Scheduler {
 
     /// Picks the next runnable task.
     pub fn schedule_next(&mut self) -> Option<TaskId> {
+        crate::liveness::bump();
         for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
         {
             if let Some(task) = self.queue_for(class).pop_front() {

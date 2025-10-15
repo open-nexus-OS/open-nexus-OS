@@ -10,7 +10,7 @@ cargo clippy \
   --exclude neuron \
   -- -D warnings
 
-# Optional: lint kernel separat (nur wenn explizit gewünscht)
+# Optional: lint kernel separately (only if explicitly desired)
 #   KERNEL_LINT=1 NIGHTLY=nightly-2025-01-15 ./scripts/fmt-clippy-deny.sh
 if [ "${KERNEL_LINT:-0}" = "1" ]; then
   NIGHTLY="${NIGHTLY:-nightly-2025-01-15}"

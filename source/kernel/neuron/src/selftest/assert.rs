@@ -12,6 +12,7 @@ use crate::uart;
 /// Emits the failure message and panics, ensuring the panic handler prints
 /// diagnostic state afterwards.
 #[cold]
+#[allow(dead_code)]
 pub fn report_failure(message: &str) -> ! {
     let line = format!("SELFTEST: fail: {message}");
     uart::write_line(&line);
@@ -19,6 +20,7 @@ pub fn report_failure(message: &str) -> ! {
 }
 
 #[cold]
+#[allow(dead_code)]
 pub fn report_failure_fmt(args: core::fmt::Arguments<'_>) -> ! {
     use core::fmt::Write;
 

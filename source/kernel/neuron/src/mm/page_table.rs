@@ -56,6 +56,19 @@ impl PageTablePage {
     }
 }
 
+// Optional static root page for early bring-up to avoid allocator/intrinsics.
+// The PageTablePage type already carries 4096-byte alignment via #[repr(align(4096))].
+#[cfg(feature = "pt_static_root")]
+static mut PT_STATIC_ROOT: PageTablePage = PageTablePage::new();
+
+// Optional static pool of page-table pages for early bring-up to avoid heap usage.
+#[cfg(feature = "bringup_identity")]
+static mut PT_STATIC_POOL: [PageTablePage; 64] = [const { PageTablePage::new() }; 64];
+#[cfg(feature = "bringup_identity")]
+static mut PT_STATIC_POOL_NEXT: usize = 0;
+#[cfg(feature = "bringup_identity")]
+const PT_STATIC_POOL_CAP: usize = 64;
+
 /// Three-level Sv39 page table allocating intermediate levels on demand.
 pub struct PageTable {
     root: NonNull<PageTablePage>,
@@ -65,8 +78,19 @@ pub struct PageTable {
 impl PageTable {
     /// Creates an empty Sv39 page table with a fresh root page.
     pub fn new() -> Self {
-        let root = Self::alloc_page();
-        Self { root, owned: vec![root] }
+        #[cfg(feature = "pt_static_root")]
+        unsafe {
+            // SAFETY: The static page is uniquely used as the root for this instance in
+            // early bring-up; higher-level code must ensure single use or add a manager.
+            let ptr: *mut PageTablePage = core::ptr::addr_of_mut!(PT_STATIC_ROOT);
+            let root = NonNull::new_unchecked(ptr);
+            return Self { root, owned: vec![] };
+        }
+        #[cfg(not(feature = "pt_static_root"))]
+        {
+            let root = Self::alloc_page();
+            Self { root, owned: vec![root] }
+        }
     }
 
     /// Returns the physical page number of the root page suitable for SATP.
@@ -145,18 +169,198 @@ impl PageTable {
         Ok(())
     }
 
+    /// Updates the leaf flags at `va` by OR-ing with `set`.
+    /// Returns `OutOfRange` if no mapping exists at `va`.
+    pub fn set_leaf_flags(&mut self, va: usize, set: PageFlags) -> Result<(), MapError> {
+        if va % PAGE_SIZE != 0 || !is_canonical_sv39(va) {
+            return Err(MapError::OutOfRange);
+        }
+        let indices = vpn_indices(va);
+        let mut table = self.root;
+        for (level, index) in indices.iter().enumerate() {
+            let entry = unsafe { &mut (*table.as_ptr()).entries[*index] };
+            if *entry & PageFlags::VALID.bits() == 0 {
+                return Err(MapError::OutOfRange);
+            }
+            let is_leaf = *entry & LEAF_PERMS.bits() != 0;
+            if level == indices.len() - 1 {
+                if !is_leaf {
+                    return Err(MapError::OutOfRange);
+                }
+                let current_flags = *entry & 0x3FF; // low 10 bits are flags
+                let new_flags = current_flags | set.bits();
+                // Enforce W^X: do not permit WRITE+EXECUTE concurrently
+                let w = (new_flags & PageFlags::WRITE.bits()) != 0;
+                let x = (new_flags & PageFlags::EXECUTE.bits()) != 0;
+                if w && x {
+                    return Err(MapError::PermissionDenied);
+                }
+                let ppn_part = *entry & !0x3FF; // keep PPN bits intact
+                *entry = ppn_part | new_flags;
+                return Ok(());
+            }
+            if is_leaf {
+                return Err(MapError::OutOfRange);
+            }
+            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
+        }
+        Err(MapError::OutOfRange)
+    }
+
+    /// Updates the leaf flags at `va` by clearing `clear` and setting `set` bits.
+    pub fn update_leaf_flags(
+        &mut self,
+        va: usize,
+        clear: PageFlags,
+        set: PageFlags,
+    ) -> Result<(), MapError> {
+        if va % PAGE_SIZE != 0 || !is_canonical_sv39(va) {
+            return Err(MapError::OutOfRange);
+        }
+        let indices = vpn_indices(va);
+        let mut table = self.root;
+        for (level, index) in indices.iter().enumerate() {
+            let entry = unsafe { &mut (*table.as_ptr()).entries[*index] };
+            if *entry & PageFlags::VALID.bits() == 0 {
+                return Err(MapError::OutOfRange);
+            }
+            let is_leaf = *entry & LEAF_PERMS.bits() != 0;
+            if level == indices.len() - 1 {
+                if !is_leaf {
+                    return Err(MapError::OutOfRange);
+                }
+                let current_flags = *entry & 0x3FF;
+                let new_flags = (current_flags & !clear.bits()) | set.bits();
+                // Enforce W^X: do not permit WRITE+EXECUTE concurrently
+                let w = (new_flags & PageFlags::WRITE.bits()) != 0;
+                let x = (new_flags & PageFlags::EXECUTE.bits()) != 0;
+                if w && x {
+                    return Err(MapError::PermissionDenied);
+                }
+                let ppn_part = *entry & !0x3FF;
+                *entry = ppn_part | new_flags;
+                return Ok(());
+            }
+            if is_leaf {
+                return Err(MapError::OutOfRange);
+            }
+            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
+        }
+        Err(MapError::OutOfRange)
+    }
+
+    /// UNSAFE: Updates leaf flags at `va` by OR-ing with `set` bits without
+    /// enforcing W^X. Intended for early kernel bring-up when kernel stack and
+    /// text may overlap in the same page and we must temporarily allow RWX.
+    pub unsafe fn set_leaf_flags_unchecked(
+        &mut self,
+        va: usize,
+        set: PageFlags,
+    ) -> Result<(), MapError> {
+        if va % PAGE_SIZE != 0 || !is_canonical_sv39(va) {
+            return Err(MapError::OutOfRange);
+        }
+        let indices = vpn_indices(va);
+        let mut table = self.root;
+        for (level, index) in indices.iter().enumerate() {
+            let entry = unsafe { &mut (*table.as_ptr()).entries[*index] };
+            if *entry & PageFlags::VALID.bits() == 0 {
+                return Err(MapError::OutOfRange);
+            }
+            let is_leaf = *entry & LEAF_PERMS.bits() != 0;
+            if level == indices.len() - 1 {
+                if !is_leaf {
+                    return Err(MapError::OutOfRange);
+                }
+                let current_flags = *entry & 0x3FF;
+                let new_flags = current_flags | set.bits();
+                let ppn_part = *entry & !0x3FF;
+                *entry = ppn_part | new_flags;
+                return Ok(());
+            }
+            if is_leaf {
+                return Err(MapError::OutOfRange);
+            }
+            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
+        }
+        Err(MapError::OutOfRange)
+    }
+
     fn alloc_page() -> NonNull<PageTablePage> {
+        #[cfg(feature = "bringup_identity")]
+        unsafe {
+            if PT_STATIC_POOL_NEXT < PT_STATIC_POOL_CAP {
+                let idx = PT_STATIC_POOL_NEXT;
+                PT_STATIC_POOL_NEXT = PT_STATIC_POOL_NEXT + 1;
+                // Obtain base pointer to the first element without creating a shared ref
+                let base: *mut [PageTablePage; PT_STATIC_POOL_CAP] = core::ptr::addr_of_mut!(PT_STATIC_POOL);
+                let first: *mut PageTablePage = base as *mut PageTablePage;
+                let page_ptr: *mut PageTablePage = first.add(idx);
+                return NonNull::new_unchecked(page_ptr);
+            }
+        }
         let boxed = Box::new(PageTablePage::new());
-        // SAFETY: Box never yields a null pointer.
         unsafe { NonNull::new_unchecked(Box::into_raw(boxed)) }
+    }
+
+    /// Debug-only invariant checker for the Sv39 page table.
+    /// Verifies that:
+    /// - Non-leaf entries do not carry leaf permission bits
+    /// - Leaf entries are VALID and carry at least one of R/W/X
+    /// - W^X is enforced (never both WRITE and EXECUTE)
+    /// This is a best-effort walk that assumes the internal pointers
+    /// are well-formed; only compiled when debug assertions or the
+    /// `debug_pt_verify` feature is enabled.
+    #[cfg(debug_assertions)]
+    pub fn verify(&self) -> Result<(), &'static str> {
+        unsafe fn walk(page: *const PageTablePage) -> Result<(), &'static str> {
+            for i in 0..PT_ENTRIES {
+                let entry = unsafe { (*page).entries[i] };
+                if entry == 0 { continue; }
+                let valid = entry & PageFlags::VALID.bits() != 0;
+                if !valid {
+                    return Err("pt: nonzero but !VALID");
+                }
+                let is_leaf = entry & LEAF_PERMS.bits() != 0;
+                if is_leaf {
+                    let has_perm = entry & LEAF_PERMS.bits() != 0;
+                    if !has_perm { return Err("pt: leaf without perms"); }
+                    let w = entry & PageFlags::WRITE.bits() != 0;
+                    let x = entry & PageFlags::EXECUTE.bits() != 0;
+                    if w && x { return Err("pt: W^X violated"); }
+                } else {
+                    // Non-leaf must not carry any leaf perms
+                    if entry & LEAF_PERMS.bits() != 0 {
+                        return Err("pt: non-leaf has leaf perms");
+                    }
+                    let next = ((entry >> 10) << 12) as *const PageTablePage;
+                    // Recurse into the next level
+                    unsafe { walk(next)? };
+                }
+            }
+            Ok(())
+        }
+
+        unsafe { walk(self.root.as_ptr()) }
     }
 }
 
 impl Drop for PageTable {
     fn drop(&mut self) {
-        for page in self.owned.drain(..) {
-            // SAFETY: every pointer originates from `alloc_page` and is unique.
-            unsafe { drop(Box::from_raw(page.as_ptr())) };
+        #[cfg(not(feature = "bringup_identity"))]
+        {
+            for page in self.owned.drain(..) {
+                // SAFETY: every pointer originates from `alloc_page` and is unique.
+                unsafe { drop(Box::from_raw(page.as_ptr())) };
+            }
+        }
+        #[cfg(feature = "bringup_identity")]
+        {
+            // Skip freeing static pool pages during bring-up.
+            self.owned.clear();
         }
     }
 }
@@ -179,4 +383,3 @@ fn is_canonical_sv39(va: usize) -> bool {
         upper == usize::MAX >> 39
     }
 }
-

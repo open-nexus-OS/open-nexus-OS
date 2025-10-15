@@ -4,6 +4,7 @@
 //! Minimal UART support for boot diagnostics.
 
 use core::fmt::{self, Write};
+#[cfg(not(debug_assertions))]
 use spin::Mutex;
 
 /// Address of the first UART on the `virt` machine.
@@ -12,8 +13,18 @@ const UART_TX: usize = 0x0;
 const UART_LSR: usize = 0x5;
 const LSR_TX_IDLE: u8 = 1 << 5;
 
+#[cfg(debug_assertions)]
+type UartLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
+#[cfg(not(debug_assertions))]
+type UartLock<T> = Mutex<T>;
+
+#[cfg(debug_assertions)]
+type UartGuard<'a> = crate::sync::dbg_mutex::DbgMutexGuard<'a, KernelUart>;
+#[cfg(not(debug_assertions))]
+type UartGuard<'a> = spin::MutexGuard<'a, KernelUart>;
+
 /// Global UART writer used for boot logs.
-static UART0: Mutex<KernelUart> = Mutex::new(KernelUart::new(UART0_BASE));
+static UART0: UartLock<KernelUart> = UartLock::new(KernelUart::new(UART0_BASE));
 
 /// UART implementation capable of formatted writes.
 #[derive(Clone, Copy)]
@@ -28,9 +39,7 @@ impl KernelUart {
     }
 
     /// Returns a guard for the boot UART singleton.
-    pub fn lock() -> spin::MutexGuard<'static, KernelUart> {
-        UART0.lock()
-    }
+    pub fn lock() -> UartGuard<'static> { UART0.lock() }
 
     fn write_raw(&self, offset: usize, value: u8) {
         let addr = (self.base + offset) as *mut u8;

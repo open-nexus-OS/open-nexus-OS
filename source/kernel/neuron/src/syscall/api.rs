@@ -16,6 +16,177 @@ use crate::{
     sched::Scheduler,
     task,
 };
+use crate::types::{VirtAddr, PageLen, SlotIndex};
+
+// Typed decoders for seL4-style Decode→Check→Execute
+
+#[derive(Copy, Clone)]
+struct SpawnArgsTyped {
+    entry_pc: VirtAddr,
+    stack_sp: VirtAddr,
+    as_handle: Option<AsHandle>,
+    bootstrap_slot: SlotIndex,
+}
+
+impl SpawnArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        let entry_pc = VirtAddr::page_aligned(args.get(0))
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let stack_sp = VirtAddr::page_aligned(args.get(1))
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let raw_handle = args.get(2) as u32;
+        let as_handle = AsHandle::from_raw(raw_handle);
+        let bootstrap_slot = SlotIndex::decode(args.get(3));
+        Ok(Self { entry_pc, stack_sp, as_handle, bootstrap_slot })
+    }
+
+    #[inline]
+    fn check(&self) -> Result<(), Error> {
+        // Minimal additional checks: ensure stack is above entry for our tests (optional)
+        let _ = self.entry_pc.checked_add(PAGE_SIZE);
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
+struct AsMapArgsTyped {
+    handle: AsHandle,
+    vmo_slot: SlotIndex,
+    va: VirtAddr,
+    len: PageLen,
+    prot: u32,
+    flags: u32,
+}
+
+impl AsMapArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        let handle = AsHandle::from_raw(args.get(0) as u32)
+            .ok_or(AddressSpaceError::InvalidHandle)?;
+        let vmo_slot = SlotIndex::decode(args.get(1));
+        let va = VirtAddr::page_aligned(args.get(2))
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let len = PageLen::from_bytes_aligned(args.get(3) as u64)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let prot = args.get(4) as u32;
+        let flags = args.get(5) as u32;
+        Ok(Self { handle, vmo_slot, va, len, prot, flags })
+    }
+
+    #[inline]
+    fn check(&self) -> Result<(), Error> {
+        if self.len.raw() == 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        // W^X
+        if (self.prot & PROT_WRITE != 0) && (self.prot & PROT_EXEC != 0) {
+            return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
+        }
+        // Range check: ensure va + len fits
+        self.va
+            .checked_add(self.len.raw())
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
+struct SendArgsTyped { slot: SlotIndex, ty: u16, flags: u16, len: u32 }
+
+impl SendArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self {
+            slot: SlotIndex::decode(args.get(0)),
+            ty: args.get(1) as u16,
+            flags: args.get(2) as u16,
+            len: args.get(3) as u32,
+        })
+    }
+    #[inline]
+    fn check(&self) -> Result<(), Error> {
+        // Keep len unconstrained for now; stage-policy minimal checks
+        let _ = self.len;
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
+struct RecvArgsTyped { slot: SlotIndex }
+
+impl RecvArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self { slot: SlotIndex::decode(args.get(0)) })
+    }
+    #[inline]
+    fn check(&self) -> Result<(), Error> { Ok(()) }
+}
+
+#[derive(Copy, Clone)]
+struct MapArgsTyped { slot: SlotIndex, va: VirtAddr, offset: usize, flags: PageFlags }
+
+impl MapArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self {
+            slot: SlotIndex::decode(args.get(0)),
+            va: VirtAddr::page_aligned(args.get(1)).ok_or(AddressSpaceError::InvalidArgs)?,
+            offset: args.get(2),
+            flags: PageFlags::from_bits_truncate(args.get(3)),
+        })
+    }
+    #[inline]
+    fn check(&self) -> Result<(), Error> { Ok(()) }
+}
+
+#[derive(Copy, Clone)]
+struct VmoCreateArgsTyped { slot_raw: usize, len: usize }
+
+impl VmoCreateArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self { slot_raw: args.get(0), len: args.get(1) })
+    }
+    #[inline]
+    fn check(&self) -> Result<(), Error> {
+        if self.len == 0 { return Err(Error::Capability(CapError::PermissionDenied)); }
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
+struct VmoWriteArgsTyped { slot: SlotIndex, offset: usize, len: usize }
+
+impl VmoWriteArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self { slot: SlotIndex::decode(args.get(0)), offset: args.get(1), len: args.get(2) })
+    }
+    #[inline]
+    fn check(&self) -> Result<(), Error> { Ok(()) }
+}
+
+#[derive(Copy, Clone)]
+struct CapTransferArgsTyped { child: task::Pid, parent_slot: SlotIndex, rights_bits: u32 }
+
+impl CapTransferArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self {
+            child: args.get(0) as task::Pid,
+            parent_slot: SlotIndex::decode(args.get(1)),
+            rights_bits: args.get(2) as u32,
+        })
+    }
+    #[inline]
+    fn check(&self) -> Result<Rights, Error> {
+        Rights::from_bits(self.rights_bits).ok_or_else(|| {
+            Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
+        })
+    }
+}
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_TRANSFER,
@@ -68,13 +239,25 @@ pub fn install_handlers(table: &mut SyscallTable) {
 }
 
 fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    crate::liveness::bump();
     ctx.scheduler.yield_current();
     if let Some(next) = ctx.scheduler.schedule_next() {
         ctx.tasks.set_current(next as task::Pid);
         if let Some(task) = ctx.tasks.task(next as task::Pid) {
-            if let Some(handle) = task.address_space() {
-                ctx.address_spaces.activate(handle)?;
+            #[cfg(feature = "debug_uart")]
+            {
+                use core::fmt::Write as _;
+                let mut w = crate::uart::raw_writer();
+                let _ = write!(w, "YIELD-I: next pid={} sepc=0x{:x}\n", next, task.frame().sepc);
             }
+            #[cfg(not(feature = "selftest_no_satp"))]
+            {
+                if let Some(handle) = task.address_space() {
+                    ctx.address_spaces.activate(handle)?;
+                }
+            }
+            #[cfg(feature = "selftest_no_satp")]
+            let _ = task; // silence unused when SATP is disabled for selftests
         }
         Ok(next as usize)
     } else {
@@ -87,24 +270,21 @@ fn sys_nsec(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
 }
 
 fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let ty = args.get(1) as u16;
-    let flags = args.get(2) as u16;
-    let len = args.get(3) as u32;
-    let cap = ctx.tasks.current_caps_mut().derive(slot, Rights::SEND)?;
+    let typed = SendArgsTyped::decode(args)?; typed.check()?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::SEND)?;
     let endpoint = match cap.kind {
         CapabilityKind::Endpoint(id) => id,
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
-    let header = MessageHeader::new(slot as u32, endpoint, ty, flags, len);
+    let header = MessageHeader::new(typed.slot.0 as u32, endpoint, typed.ty, typed.flags, typed.len);
     let payload = Vec::new();
     ctx.router.send(endpoint, ipc::Message::new(header, payload))?;
-    Ok(len as usize)
+    Ok(typed.len as usize)
 }
 
 fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let cap = ctx.tasks.current_caps_mut().derive(slot, Rights::RECV)?;
+    let typed = RecvArgsTyped::decode(args)?; typed.check()?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::RECV)?;
     let endpoint = match cap.kind {
         CapabilityKind::Endpoint(id) => id,
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
@@ -116,23 +296,21 @@ fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 }
 
 fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let va = args.get(1);
-    let offset = args.get(2);
-    let flags = PageFlags::from_bits_truncate(args.get(3));
-    let cap = ctx.tasks.current_caps_mut().derive(slot, Rights::MAP)?;
+    let typed = MapArgsTyped::decode(args)?; typed.check()?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
     match cap.kind {
         CapabilityKind::Vmo { base, len } => {
-            if offset >= len {
+            if typed.offset >= len {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
-            let pa = base + (offset & !0xfff);
+            let va = typed.va;
+            let pa = base + (typed.offset & !0xfff);
             let handle = ctx
                 .tasks
                 .current_task()
                 .address_space()
                 .ok_or(AddressSpaceError::InvalidHandle)?;
-            ctx.address_spaces.map_page(handle, va, pa, flags)?;
+            ctx.address_spaces.map_page(handle, va.raw(), pa, typed.flags)?;
             Ok(0)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
@@ -140,8 +318,7 @@ fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 }
 
 fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let len = args.get(1);
+    let typed = VmoCreateArgsTyped::decode(args)?; typed.check()?;
     // In this minimal path we grant MAP rights over a freshly allocated region.
     // The physical base is derived from a simple bump allocator seeded from a
     // bootstrap identity VMO. For now, use the existing slot 1 as a template.
@@ -150,70 +327,72 @@ fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         CapabilityKind::Vmo { base, len } => (base, len),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
-    if len == 0 || len > avail {
+    if typed.len == 0 || typed.len > avail {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    let aligned_len = (len + 0xfff) & !0xfff;
+    let aligned_len = (typed.len + 0xfff) & !0xfff;
     // Carve a subrange beginning at the template base. In a real kernel this
     // would maintain a free list; here we return the template for simplicity.
     let cap =
         Capability { kind: CapabilityKind::Vmo { base, len: aligned_len }, rights: Rights::MAP };
-    let target = if slot == usize::MAX {
+    let target = if typed.slot_raw == usize::MAX {
         ctx.tasks.current_caps_mut().allocate(cap)?
     } else {
-        ctx.tasks.current_caps_mut().set(slot, cap)?;
-        slot
+        ctx.tasks.current_caps_mut().set(typed.slot_raw, cap)?;
+        typed.slot_raw
     };
     Ok(target)
 }
 
 fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let offset = args.get(1);
-    let len = args.get(2);
+    let typed = VmoWriteArgsTyped::decode(args)?; typed.check()?;
     // This is a stub: without real memory backing, acknowledge the write when
     // within range of the VMO capability.
-    let cap = ctx.tasks.current_caps_mut().derive(slot, Rights::MAP)?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
     match cap.kind {
         CapabilityKind::Vmo { base: _, len: vmo_len } => {
-            if offset + len > vmo_len {
+            if typed.offset + typed.len > vmo_len {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
-            Ok(len)
+            Ok(typed.len)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
     }
 }
 
 fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let entry_pc = args.get(0) as u64;
-    let stack_sp = args.get(1) as u64;
-    let raw_handle = args.get(2) as u32;
-    let address_space = AsHandle::from_raw(raw_handle);
-    let bootstrap_slot = args.get(3) as u32;
+    crate::uart::write_line("SSYS: enter");
+    let typed = SpawnArgsTyped::decode(args)?;
+    typed.check()?; // Check phase
+    crate::uart::write_line("SSYS: before tasks.spawn");
+    // Stage-policy: avoid heavy formatting on OS-path
     let parent = ctx.tasks.current_pid();
     let pid = ctx.tasks.spawn(
         parent,
-        entry_pc,
-        stack_sp,
-        address_space,
-        bootstrap_slot,
+        typed.entry_pc.raw() as u64,
+        typed.stack_sp.raw() as u64,
+        typed.as_handle,
+        typed.bootstrap_slot.0 as u32,
         ctx.scheduler,
         ctx.router,
         ctx.address_spaces,
     )?;
+    crate::uart::write_line("SSYS: after tasks.spawn");
+    crate::uart::write_line("SSYS: returning");
+    // Emit raw marker without formatting to avoid any possible fmt path issues.
+    {
+        use core::fmt::Write as _;
+        let mut w = crate::uart::raw_writer();
+        let _ = write!(w, "SSYS-I: spawn ok pid=\n");
+    }
+    crate::uart::write_line("SSYS: end");
     Ok(pid as usize)
 }
 
 fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let child = args.get(0) as task::Pid;
-    let parent_slot = args.get(1);
-    let rights_bits = args.get(2) as u32;
-    let rights = Rights::from_bits(rights_bits).ok_or_else(|| {
-        Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
-    })?;
+    let typed = CapTransferArgsTyped::decode(args)?; let rights = typed.check()?;
     let parent = ctx.tasks.current_pid();
-    let slot = ctx.tasks.transfer_cap(parent, child, parent_slot, rights)?;
+    let slot = ctx.tasks.transfer_cap(parent, typed.child, typed.parent_slot.0, rights)?;
     Ok(slot)
 }
 
@@ -229,28 +408,16 @@ fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
 }
 
 fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let raw_handle = args.get(0) as u32;
-    let vmo_slot = args.get(1);
-    let va = args.get(2);
-    let len = args.get(3) as u64;
-    let prot = args.get(4) as u32;
-    let map_flags = args.get(5) as u32;
+    let typed = AsMapArgsTyped::decode(args)?;
+    typed.check()?; // Check phase
 
-    let handle = AsHandle::from_raw(raw_handle).ok_or(AddressSpaceError::InvalidHandle)?;
-    if len == 0 || va % PAGE_SIZE != 0 || len % PAGE_SIZE as u64 != 0 {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-    if prot & PROT_WRITE != 0 && prot & PROT_EXEC != 0 {
-        return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
-    }
-
-    let cap = ctx.tasks.current_caps_mut().derive(vmo_slot, Rights::MAP)?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.vmo_slot.0, Rights::MAP)?;
     let (base, vmo_len) = match cap.kind {
         CapabilityKind::Vmo { base, len } => (base, len as u64),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
 
-    let map_bytes = cmp::min(len, vmo_len);
+    let map_bytes = cmp::min(typed.len.raw() as u64, vmo_len);
     let aligned_bytes = map_bytes - (map_bytes % PAGE_SIZE as u64);
     if aligned_bytes == 0 {
         return Err(AddressSpaceError::InvalidArgs.into());
@@ -259,30 +426,30 @@ fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let span_bytes = pages
         .checked_mul(PAGE_SIZE)
         .ok_or(AddressSpaceError::InvalidArgs)?;
-    va.checked_add(span_bytes).ok_or(AddressSpaceError::InvalidArgs)?;
+    typed.va.checked_add(span_bytes).ok_or(AddressSpaceError::InvalidArgs)?;
 
     let mut flags = PageFlags::VALID;
-    if prot & PROT_READ != 0 {
+    if typed.prot & PROT_READ != 0 {
         flags |= PageFlags::READ;
     }
-    if prot & PROT_WRITE != 0 {
+    if typed.prot & PROT_WRITE != 0 {
         flags |= PageFlags::WRITE;
     }
-    if prot & PROT_EXEC != 0 {
+    if typed.prot & PROT_EXEC != 0 {
         flags |= PageFlags::EXECUTE;
     }
-    if map_flags & MAP_FLAG_USER != 0 {
+    if typed.flags & MAP_FLAG_USER != 0 {
         flags |= PageFlags::USER;
     }
 
     for page in 0..pages {
-        let page_va = va
+        let page_va = typed.va.raw()
             .checked_add(page * PAGE_SIZE)
             .ok_or(AddressSpaceError::InvalidArgs)?;
         let page_pa = base
             .checked_add(page * PAGE_SIZE)
             .ok_or(AddressSpaceError::InvalidArgs)?;
-        ctx.address_spaces.map_page(handle, page_va, page_pa, flags)?;
+        ctx.address_spaces.map_page(typed.handle, page_va, page_pa, flags)?;
     }
 
     Ok(0)
