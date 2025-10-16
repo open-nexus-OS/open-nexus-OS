@@ -98,6 +98,10 @@ pub type Pid = u32;
 #[cfg(nexus_env = "os")]
 pub type Cap = u32;
 
+/// Handle to a kernel-managed address space returned by [`as_create`].
+#[cfg(nexus_env = "os")]
+pub type AsHandle = u64;
+
 /// Result returned by privileged syscalls that expose kernel operations.
 #[cfg(nexus_env = "os")]
 pub type SysResult<T> = core::result::Result<T, AbiError>;
@@ -173,6 +177,53 @@ pub fn spawn(entry_pc: u64, stack_sp: u64, asid: u64, bootstrap_ep: u32) -> SysR
             )
         };
         decode_syscall(raw).map(|pid| pid as Pid)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Creates a new empty address space and returns its handle.
+#[cfg(nexus_env = "os")]
+pub fn as_create() -> SysResult<AsHandle> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_AS_CREATE: usize = 9;
+        let raw = unsafe { ecall0(SYSCALL_AS_CREATE) };
+        decode_syscall(raw).map(|handle| handle as AsHandle)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Maps a VMO into the provided address space at `va` with the requested permissions.
+#[cfg(nexus_env = "os")]
+pub fn as_map(
+    as_handle: AsHandle,
+    vmo: Handle,
+    va: u64,
+    len: u64,
+    prot: u32,
+    flags: u32,
+) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_AS_MAP: usize = 10;
+        let raw = unsafe {
+            ecall6(
+                SYSCALL_AS_MAP,
+                as_handle as usize,
+                vmo as usize,
+                va as usize,
+                len as usize,
+                prot as usize,
+                flags as usize,
+            )
+        };
+        decode_syscall(raw).map(|_| ())
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
@@ -312,6 +363,38 @@ unsafe fn ecall4(n: usize, a0: usize, a1: usize, a2: usize, a3: usize) -> usize 
         inout("a1") r1,
         inout("a2") r2,
         inout("a3") r3,
+        inout("a7") r7,
+        options(nostack, preserves_flags)
+    );
+    r0
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall6(
+    n: usize,
+    a0: usize,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+) -> usize {
+    let mut r0 = a0;
+    let mut r1 = a1;
+    let mut r2 = a2;
+    let mut r3 = a3;
+    let mut r4 = a4;
+    let mut r5 = a5;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a1") r1,
+        inout("a2") r2,
+        inout("a3") r3,
+        inout("a4") r4,
+        inout("a5") r5,
         inout("a7") r7,
         options(nostack, preserves_flags)
     );

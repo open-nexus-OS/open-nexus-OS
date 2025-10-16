@@ -32,6 +32,13 @@ Service launch now flows through the policy gate:
 
 This pipeline applies to every non-core service defined under `recipes/services/`.
 
+### Planned bundlemgrd → execd handoff (v1.1)
+
+The next revision of the execution flow teaches `bundlemgrd` to vend an ELF
+image for a named service. The daemon will either hand back a read-only VMO or
+forward the raw bytes for `execd` to stage. `execd` will then reuse the vended
+handle when wiring the loader, avoiding today’s embedded-payload bootstrap.
+
 ## Minimal exec path (MVP)
 
 `execd` now exposes `exec_minimal(subject)` as a bootstrap-friendly path while
@@ -50,3 +57,25 @@ scheduled. `selftest-client` emits `SELFTEST: e2e exec ok` after invoking the
 new handler so the QEMU harness can assert the full sequence. The shared stack
 and address space are strictly temporary; per-task address spaces land in the
 next milestone.
+
+## Loader v1 (PT_LOAD only)
+
+The first loader revision lives in the `nexus-loader` crate. It consumes a
+RISC-V ELF64 image, validates the header, enforces W^X, and plans mappings for
+each `PT_LOAD` segment. On the OS build `execd::exec_elf_bytes` wires the plan
+as follows:
+
+1. Allocate a fresh address space with `as_create` and stage the bundle bytes in
+   a scratch VMO.
+2. Feed the ELF bytes through `nexus_loader::load_with` using the OS mapper. The
+   mapper aligns each segment, calls `as_map`, and preserves W^X semantics.
+3. `StackBuilder` provisions a private stack with a guard page, copies `argv`
+   and `env` tables, and reports the new stack pointer back.
+4. `execd` invokes `spawn(entry, sp, as_handle, bootstrap_slot)`, then seeds the
+   child with a send-only copy of slot `0`.
+
+The child receives a `BootstrapMsg` on slot `0` (kernel populated for now) and
+enters at the ELF entry point with its dedicated stack. QEMU smoke tests watch
+for the markers `execd: elf load ok`, `child: hello-elf`, and
+`SELFTEST: e2e exec-elf ok` to prove the path end-to-end. Later revisions will
+replace the embedded payload with bundlemgrd-delivered VMOs.

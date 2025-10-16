@@ -1,0 +1,11 @@
+[package]
+name = "nexus-loader"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[dependencies]
+goblin = { version = "0.8", default-features = false, features = ["elf64"] }
+thiserror = "1"
+bitflags = "2"

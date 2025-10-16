@@ -15,9 +15,13 @@ use nexus_ipc::{self, Wait};
 use thiserror::Error;
 
 #[cfg(nexus_env = "os")]
-use exec_payloads::hello_child_entry;
+use exec_payloads::{hello_child_entry, hello_elf::HELLO_ELF, BootstrapMsg};
 #[cfg(nexus_env = "os")]
-use nexus_abi::{self, AbiError, Rights};
+use nexus_abi::{self, AbiError, IpcError, Rights};
+#[cfg(nexus_env = "os")]
+use nexus_loader::{self, os_mapper::StackBuilder, Error as LoaderError};
+#[cfg(nexus_env = "os")]
+use nexus_loader::os_mapper::OsMapper;
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -45,6 +49,13 @@ const CHILD_STACK_LEN: usize = 4096;
 const BOOTSTRAP_SLOT: u32 = 0;
 #[cfg(nexus_env = "os")]
 static CHILD_STACK_BASE: OnceLock<usize> = OnceLock::new();
+
+#[cfg(nexus_env = "os")]
+const USER_STACK_TOP: u64 = 0x8000_0000;
+#[cfg(nexus_env = "os")]
+const USER_STACK_SIZE: u64 = 16 * 4096;
+#[cfg(nexus_env = "os")]
+const USER_STACK_GUARD: u64 = 4096;
 
 /// Trait implemented by transports capable of delivering execution requests.
 pub trait Transport {
@@ -186,6 +197,15 @@ pub enum ExecError {
     #[cfg(nexus_env = "os")]
     #[error("capability transfer failed: {0:?}")]
     CapTransfer(AbiError),
+    #[cfg(nexus_env = "os")]
+    #[error("address space syscall failed: {0:?}")]
+    AddressSpace(AbiError),
+    #[cfg(nexus_env = "os")]
+    #[error("vmo operation failed: {0:?}")]
+    Vmo(IpcError),
+    #[cfg(nexus_env = "os")]
+    #[error("loader error: {0}")]
+    Loader(LoaderError),
 }
 
 struct ExecService;
@@ -293,6 +313,58 @@ pub fn exec_minimal(subject: &str) -> Result<(), ExecError> {
 }
 
 #[cfg(nexus_env = "os")]
+pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<(), ExecError> {
+    if bytes.is_empty() {
+        return Err(ExecError::Unsupported);
+    }
+
+    let vmo_len = align_up_usize(bytes.len().max(1), 4096);
+    let bundle_vmo = nexus_abi::vmo_create(vmo_len).map_err(ExecError::Vmo)?;
+    nexus_abi::vmo_write(bundle_vmo, 0, bytes).map_err(ExecError::Vmo)?;
+
+    let as_handle = nexus_abi::as_create().map_err(ExecError::AddressSpace)?;
+    let mut mapper = OsMapper { as_handle, bundle_vmo };
+    let plan = nexus_loader::load_with(bytes, &mut mapper).map_err(ExecError::Loader)?;
+
+    let stack_builder = StackBuilder::new(USER_STACK_TOP, USER_STACK_SIZE, USER_STACK_GUARD)
+        .map_err(ExecError::Loader)?;
+    let stack = stack_builder.build(&mut mapper, argv, env).map_err(ExecError::Loader)?;
+
+    let pid = nexus_abi::spawn(plan.entry, stack.sp, as_handle, BOOTSTRAP_SLOT)
+        .map_err(ExecError::Spawn)?;
+    let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
+        .map_err(ExecError::CapTransfer)?;
+
+    let bootstrap = BootstrapMsg {
+        argc: argv.len() as u32,
+        argv_ptr: stack.argv_ptr,
+        env_ptr: stack.env_ptr,
+        cap_seed_ep: BOOTSTRAP_SLOT,
+        flags: 0,
+    };
+    let _ = bootstrap; // Reserved for the future IPC bootstrap once wired.
+
+    println!("execd: elf load ok");
+    println!("execd: spawned pid {pid}");
+    Ok(())
+}
+
+#[cfg(not(nexus_env = "os"))]
+pub fn exec_elf_bytes(_bytes: &[u8], _argv: &[&str], _env: &[&str]) -> Result<(), ExecError> {
+    Err(ExecError::Unsupported)
+}
+
+#[cfg(nexus_env = "os")]
+pub fn exec_hello_elf() -> Result<(), ExecError> {
+    exec_elf_bytes(HELLO_ELF, &["hello"], &["K=V"])
+}
+
+#[cfg(not(nexus_env = "os"))]
+pub fn exec_hello_elf() -> Result<(), ExecError> {
+    Err(ExecError::Unsupported)
+}
+
+#[cfg(nexus_env = "os")]
 fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
     println!("execd: exec_minimal {subject}");
     let stack_top = child_stack_top();
@@ -321,6 +393,11 @@ fn child_stack_top() -> u64 {
     });
     let top = base + CHILD_STACK_LEN;
     (top & !0xf) as u64
+}
+
+#[cfg(nexus_env = "os")]
+fn align_up_usize(value: usize, align: usize) -> usize {
+    (value + align - 1) & !(align - 1)
 }
 
 /// Runs the daemon using the provided transport and emits readiness markers.

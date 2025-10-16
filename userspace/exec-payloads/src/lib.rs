@@ -11,6 +11,9 @@
 //! Tiny collection of executable payloads used by execd while the ELF/NXB
 //! loaders are under construction.
 
+/// Embedded ELF images bundled with the OS build.
+pub mod hello_elf;
+
 use core::hint::spin_loop;
 
 /// Bootstrap message delivered to the child task after [`nexus_abi::spawn`]

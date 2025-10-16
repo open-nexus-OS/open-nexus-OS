@@ -40,6 +40,10 @@ fn run() -> anyhow::Result<()> {
         .map_err(|err| anyhow::anyhow!("exec_minimal failed: {err}"))?;
     println!("SELFTEST: e2e exec ok");
 
+    execd::exec_hello_elf()
+        .map_err(|err| anyhow::anyhow!("exec_hello_elf failed: {err}"))?;
+    println!("SELFTEST: e2e exec-elf ok");
+
     println!("SELFTEST: end");
     Ok(())
 }
