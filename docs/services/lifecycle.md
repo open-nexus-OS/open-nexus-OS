@@ -32,16 +32,31 @@ Service launch now flows through the policy gate:
 
 This pipeline applies to every non-core service defined under `recipes/services/`.
 
-### Planned bundlemgrd → execd integration (v1.1)
+### Loader v1.1 (service path)
 
-The initial loader work in v1 keeps `execd` focused on embedded payloads so we
-can validate the address-space plumbing without touching service IDL. The next
-increment extends `bundlemgrd` with an RPC that returns a read-only VMO handle
-for the requested bundle's ELF image (or, equivalently, provides the bytes via
-a shared buffer). `execd` will call the new method, receive the VMO, and hand it
-to the loader instead of relying on statically linked test assets. Capability
-policy and install/query semantics remain unchanged; only the data plane between
-`bundlemgrd` and `execd` grows a handoff for ELF bytes.
+The loader is now wired through the service pipeline. Once a bundle has been
+installed `execd::exec_elf` asks `bundlemgrd` for the payload bytes via the new
+`getPayload` opcode. The daemon looks up the bundle, resolves the staged
+`payload.elf`, and returns it to the caller. `execd` immediately creates a fresh
+address space with `as_create`, stages the ELF into a VMO, and feeds it to the
+loader:
+
+1. `bundlemgrd.getPayload` validates that the bundle is installed and streams
+   the stored `payload.elf` bytes back over IPC.
+2. `execd.exec_elf` writes the bytes into a staging VMO and calls
+   `nexus_loader::load_with`, which enforces ELF64/EM_RISCV/PT_LOAD constraints,
+   rejects W^X mappings, and orders segments strictly by virtual address.
+3. `OsMapper` translates loader protections into kernel flags, zero-fills the
+   `.bss` tail, and invokes `as_map` for each PT_LOAD segment.
+4. `StackBuilder` provisions a private stack (guard page + RW pages), builds the
+   argv/env string tables, and hands the stack pointer plus table addresses back
+   to the caller.
+5. `spawn` receives the entry PC, stack SP, and address-space handle. The child
+   prints `child: hello-elf` and yields, proving that the mapped payload ran.
+
+Both the loader and the Sv39 mapper deny write+execute pages. Misaligned
+segments, truncated data, and overflows are rejected before any syscalls land,
+so `execd` reports clear failures when a bundle is malformed.
 
 ## Loader v1 (PT_LOAD only)
 
@@ -71,8 +86,8 @@ misbehaving binaries are rejected before any syscalls are issued.
 
 ## Minimal exec path (MVP)
 
-`execd` now exposes `exec_minimal(subject)` as a bootstrap-friendly path while
-the real ELF/NXB loaders are being implemented. The handler:
+`execd` still exposes `exec_minimal(subject)` as a bootstrap-friendly path while
+the loader matures. The handler:
 
 1. carves a temporary, shared stack from a static buffer (the kernel still runs
    all tasks in a single address space at this stage),
@@ -82,8 +97,8 @@ the real ELF/NXB loaders are being implemented. The handler:
    `userspace/exec-payloads`, and
 4. logs `execd: spawn ok <pid>` once the kernel acknowledges the request.
 
-The child prints `child: hello` and yields forever, proving that the task was
+The child prints `child: hello-elf` and yields forever, proving that the task was
 scheduled. `selftest-client` emits `SELFTEST: e2e exec ok` after invoking the
-new handler so the QEMU harness can assert the full sequence. The shared stack
-and address space are strictly temporary; per-task address spaces land in the
-next milestone.
+handler so the QEMU harness can assert the full sequence. The shared stack and
+address space are strictly temporary; per-task address spaces land in the next
+milestone.

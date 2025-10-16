@@ -49,7 +49,7 @@ monitor_uart() {
       *"execd: spawn ok"*)
         saw_spawn=1
         ;;
-      *"child: hello"*)
+      *"child: hello-elf"*)
         saw_child=1
         ;;
       *"SELFTEST: e2e exec ok"*)

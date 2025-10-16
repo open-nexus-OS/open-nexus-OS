@@ -615,6 +615,7 @@ mod runtime {
                             let _ = ready_clone.send(ServiceStatus::Ready(None));
                         });
                         let artifacts = bundlemgrd::ArtifactStore::new();
+                        bundlemgrd::register_artifact_store(&artifacts);
                         if let Err(err) = bundlemgrd::service_main_loop(notifier, artifacts) {
                             let detail = err.to_string();
                             let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {

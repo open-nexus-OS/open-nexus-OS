@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+use core::convert::TryFrom;
 use std::fmt;
 use std::io::Cursor;
 
@@ -41,8 +42,12 @@ use capnp::message::{Builder, ReaderOptions};
 use capnp::serialize;
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
+#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
+use nexus_idl_runtime::bundlemgr_capnp::{get_payload_request, get_payload_response};
 
 const OPCODE_EXEC: u8 = 1;
+#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
+const BUNDLE_OPCODE_GET_PAYLOAD: u8 = 3;
 
 #[cfg(nexus_env = "os")]
 const CHILD_STACK_LEN: usize = 4096;
@@ -205,6 +210,12 @@ pub enum ExecError {
     #[error("VMO operation failed: {0:?}")]
     Vmo(nexus_abi::IpcError),
     #[cfg(nexus_env = "os")]
+    #[error("ipc error: {0:?}")]
+    Ipc(nexus_ipc::IpcError),
+    #[cfg(nexus_env = "os")]
+    #[error("bundle payload error: {0}")]
+    Payload(String),
+    #[cfg(nexus_env = "os")]
     #[error("loader error: {0}")]
     Loader(nexus_loader::Error),
     #[cfg(nexus_env = "os")]
@@ -318,6 +329,18 @@ pub fn exec_minimal(subject: &str) -> Result<(), ExecError> {
 
 #[cfg(nexus_env = "os")]
 pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<(), ExecError> {
+    let _ = run_loaded_elf(bytes, argv, env)?;
+    Ok(())
+}
+
+#[cfg(nexus_env = "os")]
+pub fn exec_hello_elf() -> Result<(), ExecError> {
+    let _ = run_loaded_elf(HELLO_ELF, &["hello-elf"], &["K=V"])?;
+    Ok(())
+}
+
+#[cfg(nexus_env = "os")]
+fn run_loaded_elf(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<nexus_abi::Pid, ExecError> {
     let plan_info = nexus_loader::parse_elf64_riscv(bytes).map_err(ExecError::Loader)?;
     let vmo_len = compute_vmo_len(&plan_info, bytes.len())?;
     let vmo_len_usize = usize::try_from(vmo_len).map_err(|_| ExecError::ImageTooLarge)?;
@@ -345,13 +368,63 @@ pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<(), E
     let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
         .map_err(ExecError::CapTransfer)?;
 
-    println!("execd: elf load ok");
+    println!("execd: elf load ok {pid}");
+    Ok(pid)
+}
+
+#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
+fn request_bundle_payload(name: &str) -> Result<Vec<u8>, ExecError> {
+    let client = nexus_ipc::KernelClient::new().map_err(ExecError::Ipc)?;
+
+    let mut message = Builder::new_default();
+    {
+        let mut request = message.init_root::<get_payload_request::Builder<'_>>();
+        request.set_name(name);
+    }
+
+    let mut body = Vec::new();
+    serialize::write_message(&mut body, &message)
+        .map_err(|err| ExecError::Payload(format!("encode payload request: {err}")))?;
+
+    let mut frame = Vec::with_capacity(1 + body.len());
+    frame.push(BUNDLE_OPCODE_GET_PAYLOAD);
+    frame.extend_from_slice(&body);
+    client.send(&frame, Wait::Blocking).map_err(ExecError::Ipc)?;
+
+    let response = client.recv(Wait::Blocking).map_err(ExecError::Ipc)?;
+    let (opcode, payload) = response
+        .split_first()
+        .ok_or_else(|| ExecError::Payload("empty get_payload response".into()))?;
+    if *opcode != BUNDLE_OPCODE_GET_PAYLOAD {
+        return Err(ExecError::Payload(format!("unexpected opcode {opcode}")));
+    }
+
+    let mut cursor = Cursor::new(payload);
+    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+        .map_err(|err| ExecError::Payload(format!("decode get_payload: {err}")))?;
+    let reader = message
+        .get_root::<get_payload_response::Reader<'_>>()
+        .map_err(|err| ExecError::Payload(format!("get_payload root: {err}")))?;
+    if !reader.get_ok() {
+        return Err(ExecError::Payload(format!("bundle {name} payload unavailable")));
+    }
+    let bytes = reader
+        .get_bytes()
+        .map_err(|err| ExecError::Payload(format!("payload bytes: {err}")))?;
+    Ok(bytes.to_vec())
+}
+
+#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
+pub fn exec_elf(bundle: &str, argv: &[&str], env: &[&str]) -> Result<(), ExecError> {
+    println!("execd: exec {bundle}");
+    let payload = request_bundle_payload(bundle)?;
+    let _ = run_loaded_elf(&payload, argv, env)?;
     Ok(())
 }
 
-#[cfg(nexus_env = "os")]
-pub fn exec_hello_elf() -> Result<(), ExecError> {
-    exec_elf_bytes(HELLO_ELF, &["hello-elf"], &["K=V"])
+#[cfg(all(not(feature = "idl-capnp"), nexus_env = "os"))]
+pub fn exec_elf(_bundle: &str, _argv: &[&str], _env: &[&str]) -> Result<(), ExecError> {
+    Err(ExecError::Unsupported)
 }
 
 #[cfg(nexus_env = "os")]

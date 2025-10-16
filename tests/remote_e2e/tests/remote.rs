@@ -1,7 +1,7 @@
 #![cfg(nexus_env = "host")]
 
 use dsoftbus::Announcement;
-use remote_e2e::{random_port, Node};
+use remote_e2e::{random_port, ArtifactKind, Node};
 
 const MANIFEST: &str = r#"name = "demo"
 version = "1.0.0"
@@ -35,7 +35,12 @@ fn remote_roundtrip_and_negative_handshake() {
 
     // Install bundle through the remote bundle manager
     let handle = 42u32;
-    connection.push_artifact(handle, MANIFEST.as_bytes()).expect("upload artifact");
+    connection
+        .push_artifact(handle, ArtifactKind::Manifest, MANIFEST.as_bytes())
+        .expect("upload manifest");
+    connection
+        .push_artifact(handle, ArtifactKind::Payload, &[0x00])
+        .expect("upload payload");
     assert!(connection
         .install_bundle("demo", handle, MANIFEST.len() as u32)
         .expect("remote install ok"));

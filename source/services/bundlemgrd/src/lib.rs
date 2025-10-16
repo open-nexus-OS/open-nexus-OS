@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[cfg(feature = "idl-capnp")]
 use bundlemgr::{
@@ -30,13 +30,15 @@ use capnp::message::{Builder, HeapAllocator, ReaderOptions};
 use capnp::serialize;
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::bundlemgr_capnp::{
-    install_request, install_response, query_request, query_response, InstallError,
+    get_payload_request, get_payload_response, install_request, install_response, query_request,
+    query_response, InstallError,
 };
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::keystored_capnp::{verify_request, verify_response};
 
 const OPCODE_INSTALL: u8 = 1;
 const OPCODE_QUERY: u8 = 2;
+const OPCODE_GET_PAYLOAD: u8 = 3;
 #[cfg(feature = "idl-capnp")]
 const KEYSTORE_OPCODE_VERIFY: u8 = 2;
 
@@ -202,7 +204,11 @@ impl From<ServiceError> for ServerError {
 #[derive(Clone, Default)]
 pub struct ArtifactStore {
     inner: Arc<Mutex<HashMap<u32, Vec<u8>>>>,
+    staged_payloads: Arc<Mutex<HashMap<u32, Vec<u8>>>>,
+    payloads: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
+
+static GLOBAL_ARTIFACTS: OnceLock<Mutex<Option<ArtifactStore>>> = OnceLock::new();
 
 impl ArtifactStore {
     /// Creates an empty artifact store.
@@ -233,6 +239,73 @@ impl ArtifactStore {
             }
         }
     }
+
+    /// Stages payload bytes under `handle` until installation completes.
+    pub fn stage_payload(&self, handle: u32, bytes: Vec<u8>) {
+        match self.staged_payloads.lock() {
+            Ok(mut guard) => {
+                guard.insert(handle, bytes);
+            }
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.insert(handle, bytes);
+            }
+        }
+    }
+
+    /// Takes staged payload bytes associated with `handle`, if present.
+    pub fn take_staged_payload(&self, handle: u32) -> Option<Vec<u8>> {
+        match self.staged_payloads.lock() {
+            Ok(mut guard) => guard.remove(&handle),
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.remove(&handle)
+            }
+        }
+    }
+
+    /// Stores payload bytes for the bundle named `name` after installation succeeds.
+    pub fn install_payload(&self, name: &str, bytes: Vec<u8>) {
+        match self.payloads.lock() {
+            Ok(mut guard) => {
+                guard.insert(name.to_string(), bytes);
+            }
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.insert(name.to_string(), bytes);
+            }
+        }
+    }
+
+    /// Returns a clone of the payload bytes for `name` if available.
+    pub fn payload(&self, name: &str) -> Option<Vec<u8>> {
+        match self.payloads.lock() {
+            Ok(guard) => guard.get(name).cloned(),
+            Err(poisoned) => {
+                let guard = poisoned.into_inner();
+                guard.get(name).cloned()
+            }
+        }
+    }
+}
+
+fn global_artifacts() -> &'static Mutex<Option<ArtifactStore>> {
+    GLOBAL_ARTIFACTS.get_or_init(|| Mutex::new(None))
+}
+
+/// Registers the provided artifact store as the globally accessible instance.
+pub fn register_artifact_store(store: &ArtifactStore) {
+    if let Ok(mut slot) = global_artifacts().lock() {
+        *slot = Some(store.clone());
+    }
+}
+
+/// Returns a clone of the globally registered artifact store if available.
+pub fn artifact_store() -> Option<ArtifactStore> {
+    global_artifacts()
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().cloned())
 }
 
 #[cfg(feature = "idl-capnp")]
@@ -368,6 +441,7 @@ impl Server {
         match opcode {
             OPCODE_INSTALL => self.handle_install(payload),
             OPCODE_QUERY => self.handle_query(payload),
+            OPCODE_GET_PAYLOAD => self.handle_get_payload(payload),
             other => Err(ServerError::Decode(format!("unknown opcode {other}"))),
         }
     }
@@ -392,7 +466,7 @@ impl Server {
         let mut response = Builder::new_default();
         let mut builder = response.init_root::<install_response::Builder<'_>>();
 
-        let payload = match self.artifacts.take(handle) {
+        let manifest_bytes = match self.artifacts.take(handle) {
             Some(bytes) => bytes,
             None => {
                 builder.set_ok(false);
@@ -401,17 +475,32 @@ impl Server {
             }
         };
 
-        if expected_len != 0 && payload.len() != expected_len {
+        let payload_bytes = match self.artifacts.take_staged_payload(handle) {
+            Some(bytes) => bytes,
+            None => {
+                builder.set_ok(false);
+                builder.set_err(InstallError::Enoent);
+                // Put manifest bytes back so the caller can retry after staging payload.
+                self.artifacts.insert(handle, manifest_bytes);
+                return Self::encode_response(OPCODE_INSTALL, &response);
+            }
+        };
+
+        if expected_len != 0 && manifest_bytes.len() != expected_len {
             builder.set_ok(false);
             builder.set_err(InstallError::Einval);
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
             return Self::encode_response(OPCODE_INSTALL, &response);
         }
 
-        let manifest_str = match std::str::from_utf8(&payload) {
+        let manifest_str = match std::str::from_utf8(&manifest_bytes) {
             Ok(value) => value,
             Err(_) => {
                 builder.set_ok(false);
                 builder.set_err(InstallError::Einval);
+                self.artifacts.insert(handle, manifest_bytes.clone());
+                self.artifacts.stage_payload(handle, payload_bytes);
                 return Self::encode_response(OPCODE_INSTALL, &response);
             }
         };
@@ -421,6 +510,8 @@ impl Server {
             Err(err) => {
                 builder.set_ok(false);
                 builder.set_err(map_manifest_error(&err));
+                self.artifacts.insert(handle, manifest_bytes.clone());
+                self.artifacts.stage_payload(handle, payload_bytes);
                 return Self::encode_response(OPCODE_INSTALL, &response);
             }
         };
@@ -510,10 +601,13 @@ impl Server {
 
         match self.service.install(DomainInstallRequest { name: &name, manifest: manifest_str }) {
             Ok(_) => {
+                self.artifacts.install_payload(&name, payload_bytes);
                 builder.set_ok(true);
                 builder.set_err(InstallError::None);
             }
             Err(err) => {
+                self.artifacts.insert(handle, manifest_bytes.clone());
+                self.artifacts.stage_payload(handle, payload_bytes);
                 builder.set_ok(false);
                 builder.set_err(map_install_error(&err));
             }
@@ -559,6 +653,59 @@ impl Server {
             }
         }
         Self::encode_response(OPCODE_QUERY, &response)
+    }
+
+    #[cfg(feature = "idl-capnp")]
+    fn handle_get_payload(&mut self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
+        let name = Self::decode_get_payload_request(payload)?;
+        match self.service.query(&name).map_err(ServerError::from)? {
+            Some(_) => match self.artifacts.payload(&name) {
+                Some(bytes) => {
+                    println!("bundlemgrd: get_payload {name} len={}", bytes.len());
+                    Self::encode_get_payload_response(true, &bytes)
+                }
+                None => {
+                    println!("bundlemgrd: get_payload enoent {name}");
+                    Self::encode_get_payload_response(false, &[])
+                }
+            },
+            None => {
+                println!("bundlemgrd: get_payload enoent {name}");
+                Self::encode_get_payload_response(false, &[])
+            }
+        }
+    }
+
+    #[cfg(feature = "idl-capnp")]
+    fn decode_get_payload_request(payload: &[u8]) -> Result<String, ServerError> {
+        let mut cursor = Cursor::new(payload);
+        let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+            .map_err(|err| ServerError::Decode(format!("get_payload read: {err}")))?;
+        let request = message
+            .get_root::<get_payload_request::Reader<'_>>()
+            .map_err(|err| ServerError::Decode(format!("get_payload root: {err}")))?;
+        let name = request
+            .get_name()
+            .map_err(|err| ServerError::Decode(format!("get_payload name: {err}")))?;
+        let utf8 = name
+            .to_str()
+            .map_err(|err| ServerError::Decode(format!("get_payload name utf8: {err}")))?;
+        Ok(utf8.to_string())
+    }
+
+    #[cfg(feature = "idl-capnp")]
+    fn encode_get_payload_response(ok: bool, bytes: &[u8]) -> Result<Vec<u8>, ServerError> {
+        let mut response = Builder::new_default();
+        {
+            let mut builder = response.init_root::<get_payload_response::Builder<'_>>();
+            builder.set_ok(ok);
+            if ok {
+                builder.set_bytes(bytes);
+            } else {
+                builder.reborrow().init_bytes(0);
+            }
+        }
+        Self::encode_response(OPCODE_GET_PAYLOAD, &response)
     }
 
     #[cfg(feature = "idl-capnp")]
@@ -623,6 +770,7 @@ pub fn run_with_transport<T: Transport>(
 ) -> Result<(), ServerError> {
     let service = Service::new();
     let client = keystore.map(KeystoreHandle::into_client);
+    register_artifact_store(&artifacts);
     serve_with_components(transport, service, artifacts, client)
 }
 
@@ -731,5 +879,7 @@ pub fn touch_schemas() {
         let _ = core::any::type_name::<install_response::Reader<'static>>();
         let _ = core::any::type_name::<query_request::Reader<'static>>();
         let _ = core::any::type_name::<query_response::Reader<'static>>();
+        let _ = core::any::type_name::<get_payload_request::Reader<'static>>();
+        let _ = core::any::type_name::<get_payload_response::Reader<'static>>();
     }
 }

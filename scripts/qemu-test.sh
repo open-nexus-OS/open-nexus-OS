@@ -53,7 +53,7 @@ if grep -aFq "init: start" "$UART_LOG"; then
     "bundlemgrd: ready"
     "init: ready"
     "execd: spawn ok"
-    "child: hello"
+    "child: hello-elf"
     "SELFTEST: e2e exec ok"
   )
 

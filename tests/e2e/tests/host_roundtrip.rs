@@ -13,7 +13,8 @@ use nexus_ipc::Client;
 // use sha2::Digest;
 use nexus_e2e::{bundle_loopback, call, samgr_loopback};
 use nexus_idl_runtime::bundlemgr_capnp::{
-    install_request, install_response, query_request, query_response, InstallError,
+    get_payload_request, get_payload_response, install_request, install_response, query_request,
+    query_response, InstallError,
 };
 use nexus_idl_runtime::keystored_capnp::{device_id_request, device_id_response};
 use nexus_idl_runtime::samgr_capnp::{
@@ -24,6 +25,7 @@ const SAMGR_OPCODE_REGISTER: u8 = 1;
 const SAMGR_OPCODE_RESOLVE: u8 = 2;
 const BUNDLE_OPCODE_INSTALL: u8 = 1;
 const BUNDLE_OPCODE_QUERY: u8 = 2;
+const BUNDLE_OPCODE_GET_PAYLOAD: u8 = 3;
 const PUBLISHER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SIG_HEX: &str =
     "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
@@ -60,6 +62,7 @@ fn bundle_install_query_roundtrip() {
     let manifest = valid_manifest();
     let len = manifest.len() as u32;
     store.insert(42, manifest);
+    store.stage_payload(42, vec![0xde, 0xad]);
     let store_clone = store.clone();
     let handle = thread::spawn(move || {
         bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
@@ -83,12 +86,44 @@ fn bundle_install_query_roundtrip() {
 }
 
 #[test]
+fn bundle_install_get_payload_roundtrip() {
+    let (client, mut server) = bundle_loopback();
+    let store = ArtifactStore::new();
+    let manifest = valid_manifest();
+    let len = manifest.len() as u32;
+    store.insert(99, manifest);
+    let payload_bytes = vec![0xde, 0xad, 0xbe, 0xef];
+    store.stage_payload(99, payload_bytes.clone());
+    let store_clone = store.clone();
+
+    let handle = thread::spawn(move || {
+        bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
+    });
+
+    let install = build_install_frame("launcher", 99, len);
+    let response = call(&client, install);
+    let (ok, err) = parse_install(&response);
+    assert!(ok, "install should succeed");
+    assert_eq!(err, InstallError::None);
+
+    let request = build_get_payload_frame("launcher");
+    let response = call(&client, request);
+    let (ok, bytes) = parse_get_payload(&response);
+    assert!(ok, "payload should be returned");
+    assert_eq!(bytes, payload_bytes);
+
+    drop(client);
+    handle.join().expect("bundlemgrd thread exits cleanly");
+}
+
+#[test]
 fn bundle_install_invalid_signature() {
     let (client, mut server) = bundle_loopback();
     let store = ArtifactStore::new();
     let manifest = invalid_manifest();
     let len = manifest.len() as u32;
     store.insert(7, manifest);
+    store.stage_payload(7, vec![0u8]);
     let store_clone = store.clone();
 
     let handle = thread::spawn(move || {
@@ -130,6 +165,7 @@ fn bundle_install_signed_enforced_via_keystored() {
     let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
     let len = manifest.len() as u32;
     store.insert(77, manifest.into_bytes());
+    store.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x01]);
     let store_clone = store.clone();
 
     let handle = std::thread::spawn(move || {
@@ -167,6 +203,7 @@ fn bundle_install_signed_enforced_via_keystored() {
         let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
         let len = manifest.len() as u32;
         store_clone.insert(77, manifest.into_bytes());
+        store_clone.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x02]);
 
         let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(ks_client));
         bundlemgrd::run_with_transport(&mut server, store_clone, keystore).unwrap()
@@ -218,6 +255,15 @@ fn build_query_frame(name: &str) -> Vec<u8> {
         req.set_name(name);
     }
     encode_frame(BUNDLE_OPCODE_QUERY, &message)
+}
+
+fn build_get_payload_frame(name: &str) -> Vec<u8> {
+    let mut message = Builder::new_default();
+    {
+        let mut req = message.init_root::<get_payload_request::Builder<'_>>();
+        req.set_name(name);
+    }
+    encode_frame(BUNDLE_OPCODE_GET_PAYLOAD, &message)
 }
 
 fn encode_frame(opcode: u8, message: &Builder<capnp::message::HeapAllocator>) -> Vec<u8> {
@@ -278,6 +324,25 @@ fn parse_query(frame: &[u8]) -> (bool, String, Vec<String>) {
         }
     }
     (response.get_installed(), version, caps)
+}
+
+fn parse_get_payload(frame: &[u8]) -> (bool, Vec<u8>) {
+    assert_eq!(frame.first(), Some(&BUNDLE_OPCODE_GET_PAYLOAD));
+    let mut cursor = Cursor::new(&frame[1..]);
+    let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
+        .expect("read get_payload response");
+    let response =
+        message.get_root::<get_payload_response::Reader<'_>>().expect("get_payload response root");
+    let ok = response.get_ok();
+    let bytes = if ok {
+        response
+            .get_bytes()
+            .map(|data| data.to_vec())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    (ok, bytes)
 }
 
 fn valid_manifest() -> Vec<u8> {

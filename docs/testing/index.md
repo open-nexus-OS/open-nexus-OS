@@ -83,6 +83,13 @@ The OS smoke path emits a deterministic sequence of UART markers that the runner
 12. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
 13. `SELFTEST: end` – concluding marker from the host-side selftest client
 
+### OS E2E: exec-elf (service path)
+
+- Run `RUN_UNTIL_MARKER=1 just test-os` to exercise the service-integrated loader flow on QEMU.
+- Confirm the UART log contains `execd: elf load ok`, `child: hello-elf`, and `SELFTEST: e2e exec-elf ok` before ending the run.
+- Host coverage mirrors the flow via `cargo test -p nexus-loader` for loader unit tests and the bundle manager IPC round-trips in
+  `cargo test -p tests/e2e`.
+
 ## Policy E2E notes
 
 - Host coverage lives in `tests/e2e_policy/`. The crate spins up loopback
