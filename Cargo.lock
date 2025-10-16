@@ -1158,6 +1158,9 @@ dependencies = [
 [[package]]
 name = "nxb-pack"
 version = "0.1.0"
+dependencies = [
+ "exec-payloads",
+]
 
 [[package]]
 name = "once_cell"
@@ -1676,7 +1679,12 @@ name = "selftest-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bundlemgrd",
+ "capnp",
+ "exec-payloads",
  "execd",
+ "nexus-idl-runtime",
+ "nexus-ipc",
  "policy",
 ]
 

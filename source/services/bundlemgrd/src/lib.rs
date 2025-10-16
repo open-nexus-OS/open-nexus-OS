@@ -302,10 +302,7 @@ pub fn register_artifact_store(store: &ArtifactStore) {
 
 /// Returns a clone of the globally registered artifact store if available.
 pub fn artifact_store() -> Option<ArtifactStore> {
-    global_artifacts()
-        .lock()
-        .ok()
-        .and_then(|slot| slot.as_ref().cloned())
+    global_artifacts().lock().ok().and_then(|slot| slot.as_ref().cloned())
 }
 
 #[cfg(feature = "idl-capnp")]

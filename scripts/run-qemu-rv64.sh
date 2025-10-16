@@ -39,21 +39,21 @@ trim_log() {
 monitor_uart() {
   local line
   local saw_ready=0
-  local saw_spawn=0
+  local saw_elf_ok=0
   local saw_child=0
   while IFS= read -r line; do
     case "$line" in
       *"init: ready"*)
         saw_ready=1
         ;;
-      *"execd: spawn ok"*)
-        saw_spawn=1
+      *"execd: elf load ok"*)
+        saw_elf_ok=1
         ;;
       *"child: hello-elf"*)
         saw_child=1
         ;;
-      *"SELFTEST: e2e exec ok"*)
-        if [[ "$saw_ready" -eq 1 && "$saw_spawn" -eq 1 && "$saw_child" -eq 1 ]]; then
+      *"SELFTEST: e2e exec-elf ok"*)
+        if [[ "$saw_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 ]]; then
           echo "[info] Success marker detected – stopping QEMU" >&2
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
           break

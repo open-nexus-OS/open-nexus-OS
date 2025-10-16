@@ -52,9 +52,9 @@ if grep -aFq "init: start" "$UART_LOG"; then
     "samgrd: ready"
     "bundlemgrd: ready"
     "init: ready"
-    "execd: spawn ok"
+    "execd: elf load ok"
     "child: hello-elf"
-    "SELFTEST: e2e exec ok"
+    "SELFTEST: e2e exec-elf ok"
   )
 
   missing=0

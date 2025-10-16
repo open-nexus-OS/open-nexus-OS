@@ -121,10 +121,7 @@ pub fn parse_elf64_riscv(bytes: &[u8]) -> Result<LoadPlan, Error> {
     if segments.is_empty() {
         return Err(Error::Unsupported);
     }
-    if segments
-        .windows(2)
-        .any(|window| window[0].vaddr >= window[1].vaddr)
-    {
+    if segments.windows(2).any(|window| window[0].vaddr >= window[1].vaddr) {
         return Err(Error::Unsupported);
     }
 

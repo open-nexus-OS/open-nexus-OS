@@ -8,13 +8,21 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(nexus_env = "os")]
 use anyhow::Context;
+
+#[cfg(nexus_env = "os")]
 use bundlemgrd::artifact_store;
+#[cfg(nexus_env = "os")]
 use exec_payloads::HELLO_ELF;
+#[cfg(nexus_env = "os")]
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
+#[cfg(nexus_env = "os")]
 use nexus_ipc::{KernelClient, Wait};
 
+#[cfg(nexus_env = "os")]
 use capnp::message::{Builder, ReaderOptions};
+#[cfg(nexus_env = "os")]
 use capnp::serialize;
 
 fn main() {
@@ -48,7 +56,7 @@ fn run() -> anyhow::Result<()> {
     #[cfg(nexus_env = "os")]
     {
         install_demo_bundle().context("install demo bundle")?;
-        execd::exec_elf("demo.hello", &["hello"], &["K=V"]) 
+        execd::exec_elf("demo.hello", &["hello"], &["K=V"])
             .map_err(|err| anyhow::anyhow!("exec_elf failed: {err}"))?;
         println!("SELFTEST: e2e exec-elf ok");
     }
@@ -107,25 +115,20 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
         Err(err) => return Err(anyhow::anyhow!("install recv: {err:?}")),
     };
 
-    let (opcode, payload) = response
-        .split_first()
-        .ok_or_else(|| anyhow::anyhow!("install response empty"))?;
+    let (opcode, payload) =
+        response.split_first().ok_or_else(|| anyhow::anyhow!("install response empty"))?;
     if *opcode != OPCODE_INSTALL {
         return Err(anyhow::anyhow!("install unexpected opcode {opcode}"));
     }
     let mut cursor = std::io::Cursor::new(payload);
-    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
-        .context("install decode")?;
-    let response = message
-        .get_root::<install_response::Reader<'_>>()
-        .context("install root")?;
+    let message =
+        serialize::read_message(&mut cursor, ReaderOptions::new()).context("install decode")?;
+    let response = message.get_root::<install_response::Reader<'_>>().context("install root")?;
     if response.get_ok() {
         Ok(())
     } else {
-        let err = response
-            .get_err()
-            .map(|e| format!("{e:?}"))
-            .unwrap_or_else(|_| "unknown".to_string());
+        let err =
+            response.get_err().map(|e| format!("{e:?}")).unwrap_or_else(|_| "unknown".to_string());
         Err(anyhow::anyhow!("install failed: {err}"))
     }
 }

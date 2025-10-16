@@ -38,9 +38,7 @@ fn remote_roundtrip_and_negative_handshake() {
     connection
         .push_artifact(handle, ArtifactKind::Manifest, MANIFEST.as_bytes())
         .expect("upload manifest");
-    connection
-        .push_artifact(handle, ArtifactKind::Payload, &[0x00])
-        .expect("upload payload");
+    connection.push_artifact(handle, ArtifactKind::Payload, &[0x00]).expect("upload payload");
     assert!(connection
         .install_bundle("demo", handle, MANIFEST.len() as u32)
         .expect("remote install ok"));

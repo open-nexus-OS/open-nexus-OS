@@ -335,10 +335,7 @@ fn parse_get_payload(frame: &[u8]) -> (bool, Vec<u8>) {
         message.get_root::<get_payload_response::Reader<'_>>().expect("get_payload response root");
     let ok = response.get_ok();
     let bytes = if ok {
-        response
-            .get_bytes()
-            .map(|data| data.to_vec())
-            .unwrap_or_default()
+        response.get_bytes().map(|data| data.to_vec()).unwrap_or_default()
     } else {
         Vec::new()
     };

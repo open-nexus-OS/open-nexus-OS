@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(nexus_env = "os")]
 use core::convert::TryFrom;
 use std::fmt;
 use std::io::Cursor;
@@ -40,10 +41,10 @@ compile_error!("Enable the `idl-capnp` feature to build execd handlers.");
 use capnp::message::{Builder, ReaderOptions};
 #[cfg(feature = "idl-capnp")]
 use capnp::serialize;
-#[cfg(feature = "idl-capnp")]
-use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
 #[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
 use nexus_idl_runtime::bundlemgr_capnp::{get_payload_request, get_payload_response};
+#[cfg(feature = "idl-capnp")]
+use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
 
 const OPCODE_EXEC: u8 = 1;
 #[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
@@ -408,9 +409,8 @@ fn request_bundle_payload(name: &str) -> Result<Vec<u8>, ExecError> {
     if !reader.get_ok() {
         return Err(ExecError::Payload(format!("bundle {name} payload unavailable")));
     }
-    let bytes = reader
-        .get_bytes()
-        .map_err(|err| ExecError::Payload(format!("payload bytes: {err}")))?;
+    let bytes =
+        reader.get_bytes().map_err(|err| ExecError::Payload(format!("payload bytes: {err}")))?;
     Ok(bytes.to_vec())
 }
 

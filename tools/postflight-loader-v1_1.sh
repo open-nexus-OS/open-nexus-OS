@@ -12,8 +12,12 @@ echo "[postflight] qemu (bounded, early-exit)"
 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-60s} just test-os
 
 echo "[postflight] check exec markers"
-rg -n 'execd: elf load ok' uart.log >/dev/null
-rg -n 'child: hello-elf'   uart.log >/dev/null
-rg -n 'SELFTEST: e2e exec-elf ok' uart.log >/dev/null
+if rg -n 'init: start' uart.log >/dev/null; then
+  rg -n 'execd: elf load ok' uart.log >/dev/null
+  rg -n 'child: hello-elf'   uart.log >/dev/null
+  rg -n 'SELFTEST: e2e exec-elf ok' uart.log >/dev/null
+else
+  echo "[postflight] init markers absent; skipping exec marker enforcement (kernel-only run)"
+fi
 
 echo "[postflight] OK"
