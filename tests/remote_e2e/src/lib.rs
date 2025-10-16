@@ -40,6 +40,21 @@ const CHAN_SAMGR: u32 = 1;
 const CHAN_BUNDLEMGR: u32 = 2;
 const CHAN_ARTIFACT: u32 = 3;
 
+/// Artifact payload kinds supported by the remote harness.
+#[derive(Clone, Copy, Debug)]
+pub enum ArtifactKind {
+    /// Manifest bytes staged prior to installation.
+    Manifest = 0,
+    /// Payload bytes paired with the manifest.
+    Payload = 1,
+}
+
+impl ArtifactKind {
+    fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
 const OPCODE_REGISTER: u8 = 1;
 const OPCODE_RESOLVE: u8 = 2;
 const OPCODE_INSTALL: u8 = 1;
@@ -247,7 +262,7 @@ fn handle_session(
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
                 }
                 CHAN_ARTIFACT => {
-                    if bytes.len() < 4 {
+                    if bytes.len() < 5 {
                         return Err(HarnessError::Protocol("artifact frame too small".into()));
                     }
                     let handle_bytes: [u8; 4] = match bytes[0..4].try_into() {
@@ -257,13 +272,27 @@ fn handle_session(
                         }
                     };
                     let handle = u32::from_be_bytes(handle_bytes);
-                    let payload = bytes[4..].to_vec();
+                    let kind = bytes[4];
+                    let payload = bytes[5..].to_vec();
                     eprintln!(
-                        "[remote_e2e] server: CHAN_ARTIFACT handle={} len={}",
+                        "[remote_e2e] server: CHAN_ARTIFACT handle={} kind={} len={}",
                         handle,
+                        kind,
                         payload.len()
                     );
-                    artifacts.insert(handle, payload);
+                    match kind {
+                        x if x == ArtifactKind::Manifest.as_u8() => {
+                            artifacts.insert(handle, payload);
+                        }
+                        x if x == ArtifactKind::Payload.as_u8() => {
+                            artifacts.stage_payload(handle, payload);
+                        }
+                        other => {
+                            return Err(HarnessError::Protocol(format!(
+                                "unknown artifact kind {other}"
+                            )));
+                        }
+                    }
                     stream
                         .send(CHAN_ARTIFACT, &[])
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
@@ -444,12 +473,18 @@ impl RemoteConnection {
     }
 
     /// Uploads bundle bytes into the remote artifact store under `handle`.
-    pub fn push_artifact(&self, handle: u32, bytes: &[u8]) -> Result<()> {
-        let mut payload = Vec::with_capacity(4 + bytes.len());
+    pub fn push_artifact(&self, handle: u32, kind: ArtifactKind, bytes: &[u8]) -> Result<()> {
+        let mut payload = Vec::with_capacity(5 + bytes.len());
         payload.extend_from_slice(&handle.to_be_bytes());
+        payload.push(kind.as_u8());
         payload.extend_from_slice(bytes);
         let mut stream = self.stream.lock();
-        eprintln!("[remote_e2e] client: artifact tx handle={} len={}", handle, bytes.len());
+        eprintln!(
+            "[remote_e2e] client: artifact tx handle={} kind={} len={}",
+            handle,
+            kind.as_u8(),
+            bytes.len()
+        );
         stream.send(CHAN_ARTIFACT, &payload).map_err(|err| anyhow!(err.to_string()))?;
         let response = stream
             .recv()

@@ -7,3 +7,4 @@ license = "Apache-2.0"
 description = "Packs ELF payloads into minimal Nexus bundle directories"
 
 [dependencies]
+exec-payloads = { path = "../../userspace/exec-payloads" }

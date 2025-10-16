@@ -13,7 +13,7 @@
 
 /// Prebuilt ELF64/RISC-V payload that prints a UART marker and yields.
 pub mod hello_elf;
-pub use hello_elf::HELLO_ELF;
+pub use hello_elf::{HELLO_ELF, HELLO_MANIFEST, HELLO_MANIFEST_TOML};
 
 use core::hint::spin_loop;
 
@@ -37,7 +37,7 @@ pub struct BootstrapMsg {
 /// Entry point invoked by the kernel once the child task is scheduled.
 pub extern "C" fn hello_child_entry(bootstrap: *const BootstrapMsg) -> ! {
     let _ = read_bootstrap_once(bootstrap);
-    log_line("child: hello");
+    log_line("child: hello-elf");
 
     loop {
         #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

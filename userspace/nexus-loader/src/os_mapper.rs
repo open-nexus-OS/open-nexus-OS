@@ -27,19 +27,27 @@ impl Mapper for OsMapper {
             return Err(Error::ProtWx);
         }
 
+        if seg.vaddr % PAGE_SIZE != 0 {
+            return Err(Error::Align);
+        }
+
+        if seg.filesz as usize != src.len() {
+            return Err(Error::Truncated);
+        }
+
         let page_mask = PAGE_SIZE - 1;
         let map_base = seg.vaddr & !page_mask;
         let offset = seg.vaddr - map_base;
         let total = seg.memsz.checked_add(offset).ok_or(Error::Internal)?;
         let map_len = align_up(total, PAGE_SIZE).ok_or(Error::Internal)?;
         if map_len == 0 {
-            return Err(Error::Internal);
+            return Err(Error::Oob);
         }
 
         let map_len_usize = usize::try_from(map_len).map_err(|_| Error::Internal)?;
         let offset_usize = usize::try_from(offset).map_err(|_| Error::Internal)?;
         if offset_usize > map_len_usize {
-            return Err(Error::Internal);
+            return Err(Error::Oob);
         }
         if offset_usize.checked_add(src.len()).map_or(true, |end| end > map_len_usize) {
             return Err(Error::Truncated);

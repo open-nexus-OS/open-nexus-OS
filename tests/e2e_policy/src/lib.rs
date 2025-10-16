@@ -79,7 +79,9 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     let allowed_manifest = allowed_manifest();
     let denied_manifest = denied_manifest();
     store.insert(1, allowed_manifest.clone().into_bytes());
+    store.stage_payload(1, Vec::new());
     store.insert(2, denied_manifest.clone().into_bytes());
+    store.stage_payload(2, Vec::new());
     install_bundle(&bundle_client, "samgrd", 1, allowed_manifest.len() as u32)?;
     install_bundle(&bundle_client, "demo.testsvc", 2, denied_manifest.len() as u32)?;
     let allowed_caps = query_caps(&bundle_client, "samgrd")?;
