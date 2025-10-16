@@ -36,9 +36,9 @@ fn run() -> anyhow::Result<()> {
         Err(_) => println!("SELFTEST: policy deny ok"),
     }
 
-    execd::exec_minimal("test.hello")
-        .map_err(|err| anyhow::anyhow!("exec_minimal failed: {err}"))?;
-    println!("SELFTEST: e2e exec ok");
+    execd::exec_hello_elf()
+        .map_err(|err| anyhow::anyhow!("exec_hello_elf failed: {err}"))?;
+    println!("SELFTEST: e2e exec-elf ok");
 
     println!("SELFTEST: end");
     Ok(())

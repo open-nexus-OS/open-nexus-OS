@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+use std::convert::TryFrom;
 use std::fmt;
 use std::io::Cursor;
 
@@ -15,9 +16,11 @@ use nexus_ipc::{self, Wait};
 use thiserror::Error;
 
 #[cfg(nexus_env = "os")]
-use exec_payloads::hello_child_entry;
+use exec_payloads::{hello_child_entry, BootstrapMsg, HELLO_ELF};
 #[cfg(nexus_env = "os")]
 use nexus_abi::{self, AbiError, Rights};
+#[cfg(nexus_env = "os")]
+use nexus_loader::{self, os_mapper::{OsMapper, StackBuilder}};
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -43,6 +46,10 @@ const OPCODE_EXEC: u8 = 1;
 const CHILD_STACK_LEN: usize = 4096;
 #[cfg(nexus_env = "os")]
 const BOOTSTRAP_SLOT: u32 = 0;
+#[cfg(nexus_env = "os")]
+const CHILD_STACK_TOP: u64 = 0x4000_0000;
+#[cfg(nexus_env = "os")]
+const CHILD_STACK_PAGES: u64 = 4;
 #[cfg(nexus_env = "os")]
 static CHILD_STACK_BASE: OnceLock<usize> = OnceLock::new();
 
@@ -186,6 +193,21 @@ pub enum ExecError {
     #[cfg(nexus_env = "os")]
     #[error("capability transfer failed: {0:?}")]
     CapTransfer(AbiError),
+    #[cfg(nexus_env = "os")]
+    #[error("address space creation failed: {0:?}")]
+    AsCreate(AbiError),
+    #[cfg(nexus_env = "os")]
+    #[error("address space map failed: {0:?}")]
+    AsMap(AbiError),
+    #[cfg(nexus_env = "os")]
+    #[error("VMO operation failed: {0:?}")]
+    Vmo(nexus_abi::IpcError),
+    #[cfg(nexus_env = "os")]
+    #[error("loader error: {0}")]
+    Loader(nexus_loader::Error),
+    #[cfg(nexus_env = "os")]
+    #[error("ELF image exceeds VMO limits")]
+    ImageTooLarge,
 }
 
 struct ExecService;
@@ -293,6 +315,43 @@ pub fn exec_minimal(subject: &str) -> Result<(), ExecError> {
 }
 
 #[cfg(nexus_env = "os")]
+pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<(), ExecError> {
+    let plan_info = nexus_loader::parse_elf64_riscv(bytes).map_err(ExecError::Loader)?;
+    let vmo_len = compute_vmo_len(&plan_info, bytes.len())?;
+    let vmo_len_usize = usize::try_from(vmo_len).map_err(|_| ExecError::ImageTooLarge)?;
+
+    let as_handle = nexus_abi::as_create().map_err(ExecError::AsCreate)?;
+    let bundle_vmo = nexus_abi::vmo_create(vmo_len_usize).map_err(ExecError::Vmo)?;
+    nexus_abi::vmo_write(bundle_vmo, 0, bytes).map_err(ExecError::Vmo)?;
+
+    let mut mapper = OsMapper::new(as_handle, bundle_vmo);
+    let plan = nexus_loader::load_with(bytes, &mut mapper).map_err(ExecError::Loader)?;
+
+    let stack_builder = StackBuilder::new(CHILD_STACK_TOP, CHILD_STACK_PAGES)
+        .map_err(ExecError::Loader)?;
+    let stack_vmo = stack_builder.map_stack(as_handle).map_err(ExecError::Loader)?;
+    let (stack_sp, argv_ptr, env_ptr) =
+        stack_builder.populate(stack_vmo, argv, env).map_err(ExecError::Loader)?;
+
+    let argc = argv.len() as u32;
+    let _bootstrap = BootstrapMsg { argc, argv_ptr, env_ptr, cap_seed_ep: BOOTSTRAP_SLOT, flags: 0 };
+
+    let entry_pc = plan.entry;
+    let pid = nexus_abi::spawn(entry_pc, stack_sp, as_handle, BOOTSTRAP_SLOT)
+        .map_err(ExecError::Spawn)?;
+    let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
+        .map_err(ExecError::CapTransfer)?;
+
+    println!("execd: elf load ok {pid}");
+    Ok(())
+}
+
+#[cfg(nexus_env = "os")]
+pub fn exec_hello_elf() -> Result<(), ExecError> {
+    exec_elf_bytes(HELLO_ELF, &["hello-elf"], &["K=V"])
+}
+
+#[cfg(nexus_env = "os")]
 fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
     println!("execd: exec_minimal {subject}");
     let stack_top = child_stack_top();
@@ -302,6 +361,32 @@ fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
         .map_err(ExecError::CapTransfer)?;
     println!("execd: spawn ok {pid}");
     Ok(())
+}
+
+#[cfg(nexus_env = "os")]
+fn compute_vmo_len(plan: &nexus_loader::LoadPlan, file_len: usize) -> Result<u64, ExecError> {
+    let mut required = align_up(file_len as u64, nexus_loader::PAGE_SIZE)
+        .ok_or(ExecError::ImageTooLarge)?;
+    for seg in &plan.segments {
+        let file_extent = seg
+            .off
+            .checked_add(seg.filesz)
+            .ok_or(ExecError::ImageTooLarge)?;
+        required = required.max(file_extent);
+        let mem_len = align_up(seg.memsz, nexus_loader::PAGE_SIZE)
+            .ok_or(ExecError::ImageTooLarge)?;
+        required = required.max(mem_len);
+    }
+    align_up(required, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)
+}
+
+#[cfg(nexus_env = "os")]
+fn align_up(value: u64, align: u64) -> Option<u64> {
+    if align == 0 {
+        return Some(value);
+    }
+    let mask = align - 1;
+    value.checked_add(mask).map(|sum| sum & !mask)
 }
 
 #[cfg(not(nexus_env = "os"))]

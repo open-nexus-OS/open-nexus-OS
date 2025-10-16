@@ -32,6 +32,43 @@ Service launch now flows through the policy gate:
 
 This pipeline applies to every non-core service defined under `recipes/services/`.
 
+### Planned bundlemgrd → execd integration (v1.1)
+
+The initial loader work in v1 keeps `execd` focused on embedded payloads so we
+can validate the address-space plumbing without touching service IDL. The next
+increment extends `bundlemgrd` with an RPC that returns a read-only VMO handle
+for the requested bundle's ELF image (or, equivalently, provides the bytes via
+a shared buffer). `execd` will call the new method, receive the VMO, and hand it
+to the loader instead of relying on statically linked test assets. Capability
+policy and install/query semantics remain unchanged; only the data plane between
+`bundlemgrd` and `execd` grows a handoff for ELF bytes.
+
+## Loader v1 (PT_LOAD only)
+
+The first iteration of the userland loader is intentionally narrow: it accepts
+ELF64 binaries targeting RISC-V, processes PT_LOAD segments only, and enforces
+W^X at plan time. The flow is:
+
+1. `execd::exec_elf_bytes` invokes `nexus_loader::parse_elf64_riscv` to build a
+   `LoadPlan`. Segment metadata is validated (magic/class/machine, page-aligned
+   virtual addresses, `filesz <= memsz`, and no RWX mappings).
+2. `as_create` provisions a fresh Sv39 address space. A staging VMO is carved
+   out via `vmo_create`, filled with the ELF image, and wrapped in
+   `OsMapper`—`load_with` walks the PT_LOAD headers in ascending `p_vaddr`,
+   translating protections into kernel flags before calling `as_map`.
+3. `StackBuilder` allocates a private stack (RW pages + guard), copies the
+   string table for `argv`/`env` into the backing VMO, and returns both a
+   16-byte aligned stack pointer and the child virtual addresses for the tables.
+4. `spawn` receives the entry PC, stack SP, address-space handle, and bootstrap
+   endpoint slot. A placeholder `BootstrapMsg` records `argc`, the table
+   pointers, and the seed endpoint; future revisions will plumb these fields via
+   IPC once the kernel exposes the hook.
+
+The loader defers policy decisions (e.g. bundle provenance) to higher layers
+and intentionally relies on embedded payloads for v1. The kernel still enforces
+W^X when installing mappings; the userspace planner acts as the first filter so
+misbehaving binaries are rejected before any syscalls are issued.
+
 ## Minimal exec path (MVP)
 
 `execd` now exposes `exec_minimal(subject)` as a bootstrap-friendly path while

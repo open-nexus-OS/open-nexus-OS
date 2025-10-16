@@ -1,0 +1,15 @@
+[package]
+name = "nexus-loader"
+version = "0.1.0"
+edition = "2021"
+authors = ["Open Nexus"]
+license = "Apache-2.0"
+description = "ELF64/RISC-V loader planning utilities for Nexus"
+
+[dependencies]
+bitflags = "2"
+goblin = { version = "0.8", default-features = false, features = ["elf64"] }
+thiserror = "1"
+
+[dev-dependencies]
+byteorder = "1"
