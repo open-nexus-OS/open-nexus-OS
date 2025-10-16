@@ -1,23 +1,24 @@
 #![forbid(unsafe_code)]
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
 
 extern crate alloc;
 
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use goblin::elf::{
-    header::{self, header64::SIZEOF_EHDR, EM_RISCV, ELFMAG, ELFCLASS64, ELFDATA2LSB},
+    header::{self, header64::SIZEOF_EHDR, ELFCLASS64, ELFDATA2LSB, ELFMAG, EM_RISCV},
     program_header::PT_LOAD,
     Elf,
 };
 use thiserror::Error;
 
-pub(crate) const PAGE_SIZE: u64 = 4096;
+pub const PAGE_SIZE: u64 = 4096;
 
 #[cfg(nexus_env = "os")]
 pub mod os_mapper;
 
 bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Prot: u32 {
         const R = 0x1;
         const W = 0x2;
@@ -102,10 +103,7 @@ pub fn parse_elf64_riscv(bytes: &[u8]) -> Result<LoadPlan, Error> {
         if ph.p_filesz > ph.p_memsz {
             return Err(Error::Oob);
         }
-        let end = ph
-            .p_offset
-            .checked_add(ph.p_filesz)
-            .ok_or(Error::Internal)?;
+        let end = ph.p_offset.checked_add(ph.p_filesz).ok_or(Error::Internal)?;
         if end > bytes.len() as u64 {
             return Err(Error::Truncated);
         }
@@ -121,10 +119,7 @@ pub fn parse_elf64_riscv(bytes: &[u8]) -> Result<LoadPlan, Error> {
 
     segments.sort_by_key(|s| s.vaddr);
 
-    Ok(LoadPlan {
-        entry: elf.header.e_entry,
-        segments,
-    })
+    Ok(LoadPlan { entry: elf.header.e_entry, segments })
 }
 
 fn map_prot(flags: u32) -> Result<Prot, Error> {
@@ -151,9 +146,7 @@ pub fn load_with<M: Mapper>(bytes: &[u8], mapper: &mut M) -> Result<LoadPlan, Er
             &[]
         } else {
             let start = seg.off as usize;
-            let end = start
-                .checked_add(seg.filesz as usize)
-                .ok_or(Error::Internal)?;
+            let end = start.checked_add(seg.filesz as usize).ok_or(Error::Internal)?;
             bytes.get(start..end).ok_or(Error::Truncated)?
         };
         mapper.map_segment(seg, data)?;
@@ -251,7 +244,10 @@ mod tests {
 
     #[test]
     fn parses_minimal_exec() {
-        let bytes = build_minimal_elf(goblin::elf::program_header::PF_R | goblin::elf::program_header::PF_X, true);
+        let bytes = build_minimal_elf(
+            goblin::elf::program_header::PF_R | goblin::elf::program_header::PF_X,
+            true,
+        );
         let plan = parse_elf64_riscv(&bytes).unwrap();
         assert_eq!(plan.entry, 0x10000);
         assert_eq!(plan.segments.len(), 2);
@@ -276,7 +272,10 @@ mod tests {
 
     #[test]
     fn load_invokes_mapper() {
-        let bytes = build_minimal_elf(goblin::elf::program_header::PF_R | goblin::elf::program_header::PF_X, false);
+        let bytes = build_minimal_elf(
+            goblin::elf::program_header::PF_R | goblin::elf::program_header::PF_X,
+            false,
+        );
         let mut mapper = VecMapper(Vec::new());
         let plan = load_with(&bytes, &mut mapper).unwrap();
         assert_eq!(mapper.0.len(), plan.segments.len());
@@ -302,8 +301,10 @@ mod tests {
     #[test]
     fn rejects_filesz_exceeding_memsz() {
         let mut bytes = build_minimal_elf(goblin::elf::program_header::PF_R, false);
-        let offset = 64 + 32;
-        bytes[offset..offset + 8].fill(0);
+        // Decrease p_memsz below p_filesz to violate the constraint filesz <= memsz.
+        // For ELF64 program header, p_memsz is at offset 64 + 40.
+        let p_memsz_off = 64 + 40;
+        bytes[p_memsz_off..p_memsz_off + 8].fill(0);
         assert_eq!(parse_elf64_riscv(&bytes).unwrap_err(), Error::Oob);
     }
 

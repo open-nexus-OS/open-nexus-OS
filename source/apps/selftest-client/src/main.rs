@@ -36,9 +36,11 @@ fn run() -> anyhow::Result<()> {
         Err(_) => println!("SELFTEST: policy deny ok"),
     }
 
-    execd::exec_hello_elf()
-        .map_err(|err| anyhow::anyhow!("exec_hello_elf failed: {err}"))?;
-    println!("SELFTEST: e2e exec-elf ok");
+    #[cfg(nexus_env = "os")]
+    {
+        execd::exec_hello_elf().map_err(|err| anyhow::anyhow!("exec_hello_elf failed: {err}"))?;
+        println!("SELFTEST: e2e exec-elf ok");
+    }
 
     println!("SELFTEST: end");
     Ok(())

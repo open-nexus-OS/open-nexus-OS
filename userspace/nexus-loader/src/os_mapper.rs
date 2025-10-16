@@ -30,10 +30,7 @@ impl Mapper for OsMapper {
         let page_mask = PAGE_SIZE - 1;
         let map_base = seg.vaddr & !page_mask;
         let offset = seg.vaddr - map_base;
-        let total = seg
-            .memsz
-            .checked_add(offset)
-            .ok_or(Error::Internal)?;
+        let total = seg.memsz.checked_add(offset).ok_or(Error::Internal)?;
         let map_len = align_up(total, PAGE_SIZE).ok_or(Error::Internal)?;
         if map_len == 0 {
             return Err(Error::Internal);
@@ -44,10 +41,7 @@ impl Mapper for OsMapper {
         if offset_usize > map_len_usize {
             return Err(Error::Internal);
         }
-        if offset_usize
-            .checked_add(src.len())
-            .map_or(true, |end| end > map_len_usize)
-        {
+        if offset_usize.checked_add(src.len()).map_or(true, |end| end > map_len_usize) {
             return Err(Error::Truncated);
         }
 
@@ -59,15 +53,8 @@ impl Mapper for OsMapper {
         nexus_abi::vmo_write(seg_vmo, 0, &image).map_err(|_| Error::Internal)?;
 
         let prot = seg.prot.bits();
-        nexus_abi::as_map(
-            self.as_handle,
-            seg_vmo,
-            map_base,
-            map_len,
-            prot,
-            MAP_FLAG_USER,
-        )
-        .map_err(|_| Error::Internal)?;
+        nexus_abi::as_map(self.as_handle, seg_vmo, map_base, map_len, prot, MAP_FLAG_USER)
+            .map_err(|_| Error::Internal)?;
 
         self.segment_vmos.push(seg_vmo);
         Ok(())
@@ -79,9 +66,7 @@ fn align_up(value: u64, align: u64) -> Option<u64> {
         return None;
     }
     let minus_one = align - 1;
-    value
-        .checked_add(minus_one)
-        .map(|v| v & !minus_one)
+    value.checked_add(minus_one).map(|v| v & !minus_one)
 }
 
 pub struct StackBuilder {
@@ -92,9 +77,7 @@ pub struct StackBuilder {
 
 impl StackBuilder {
     pub fn new(top_va: u64, stack_pages: u64) -> Result<Self, Error> {
-        let size = stack_pages
-            .checked_mul(PAGE_SIZE)
-            .ok_or(Error::Internal)?;
+        let size = stack_pages.checked_mul(PAGE_SIZE).ok_or(Error::Internal)?;
         if size > usize::MAX as u64 {
             return Err(Error::Internal);
         }
@@ -168,12 +151,7 @@ impl StackBuilder {
     }
 }
 
-fn push_string(
-    image: &mut [u8],
-    cursor: &mut usize,
-    base: u64,
-    value: &str,
-) -> Result<u64, Error> {
+fn push_string(image: &mut [u8], cursor: &mut usize, base: u64, value: &str) -> Result<u64, Error> {
     let bytes = value.as_bytes();
     let len = bytes.len().checked_add(1).ok_or(Error::Internal)?;
     if *cursor < len {

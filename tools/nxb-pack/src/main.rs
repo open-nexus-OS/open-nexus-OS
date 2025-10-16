@@ -20,7 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&output_dir)?;
 
     let manifest_path = output_dir.join("manifest.json");
-    let manifest = r#"{"name":"demo.hello","version":"0.0.1","required_caps":[],"publisher":"dev","sig":""}"#;
+    let manifest =
+        r#"{"name":"demo.hello","version":"0.0.1","required_caps":[],"publisher":"dev","sig":""}"#;
     fs::write(&manifest_path, format!("{}\n", manifest))?;
 
     let payload_path = output_dir.join("payload.elf");

@@ -5,7 +5,6 @@
 
 #![forbid(unsafe_code)]
 
-use std::convert::TryFrom;
 use std::fmt;
 use std::io::Cursor;
 
@@ -20,7 +19,10 @@ use exec_payloads::{hello_child_entry, BootstrapMsg, HELLO_ELF};
 #[cfg(nexus_env = "os")]
 use nexus_abi::{self, AbiError, Rights};
 #[cfg(nexus_env = "os")]
-use nexus_loader::{self, os_mapper::{OsMapper, StackBuilder}};
+use nexus_loader::{
+    self,
+    os_mapper::{OsMapper, StackBuilder},
+};
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -327,14 +329,15 @@ pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<(), E
     let mut mapper = OsMapper::new(as_handle, bundle_vmo);
     let plan = nexus_loader::load_with(bytes, &mut mapper).map_err(ExecError::Loader)?;
 
-    let stack_builder = StackBuilder::new(CHILD_STACK_TOP, CHILD_STACK_PAGES)
-        .map_err(ExecError::Loader)?;
+    let stack_builder =
+        StackBuilder::new(CHILD_STACK_TOP, CHILD_STACK_PAGES).map_err(ExecError::Loader)?;
     let stack_vmo = stack_builder.map_stack(as_handle).map_err(ExecError::Loader)?;
     let (stack_sp, argv_ptr, env_ptr) =
         stack_builder.populate(stack_vmo, argv, env).map_err(ExecError::Loader)?;
 
     let argc = argv.len() as u32;
-    let _bootstrap = BootstrapMsg { argc, argv_ptr, env_ptr, cap_seed_ep: BOOTSTRAP_SLOT, flags: 0 };
+    let _bootstrap =
+        BootstrapMsg { argc, argv_ptr, env_ptr, cap_seed_ep: BOOTSTRAP_SLOT, flags: 0 };
 
     let entry_pc = plan.entry;
     let pid = nexus_abi::spawn(entry_pc, stack_sp, as_handle, BOOTSTRAP_SLOT)
@@ -342,7 +345,7 @@ pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<(), E
     let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
         .map_err(ExecError::CapTransfer)?;
 
-    println!("execd: elf load ok {pid}");
+    println!("execd: elf load ok");
     Ok(())
 }
 
@@ -365,16 +368,13 @@ fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
 
 #[cfg(nexus_env = "os")]
 fn compute_vmo_len(plan: &nexus_loader::LoadPlan, file_len: usize) -> Result<u64, ExecError> {
-    let mut required = align_up(file_len as u64, nexus_loader::PAGE_SIZE)
-        .ok_or(ExecError::ImageTooLarge)?;
+    let mut required =
+        align_up(file_len as u64, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)?;
     for seg in &plan.segments {
-        let file_extent = seg
-            .off
-            .checked_add(seg.filesz)
-            .ok_or(ExecError::ImageTooLarge)?;
+        let file_extent = seg.off.checked_add(seg.filesz).ok_or(ExecError::ImageTooLarge)?;
         required = required.max(file_extent);
-        let mem_len = align_up(seg.memsz, nexus_loader::PAGE_SIZE)
-            .ok_or(ExecError::ImageTooLarge)?;
+        let mem_len =
+            align_up(seg.memsz, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)?;
         required = required.max(mem_len);
     }
     align_up(required, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)

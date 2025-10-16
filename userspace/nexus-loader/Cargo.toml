@@ -8,7 +8,7 @@ description = "ELF64/RISC-V loader planning utilities for Nexus"
 
 [dependencies]
 bitflags = "2"
-goblin = { version = "0.8", default-features = false, features = ["elf64"] }
+goblin = { version = "0.8", features = ["elf64"] }
 thiserror = "1"
 
 [dev-dependencies]
