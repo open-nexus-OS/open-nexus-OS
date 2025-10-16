@@ -17,7 +17,6 @@ use crate::{
     selftest,
     syscall::{self, api, SyscallTable},
     task::TaskTable,
-    uart,
 };
 
 // (no private selftest stack; kernel stack is provisioned by linker)
@@ -85,7 +84,7 @@ impl KernelState {
         }
 
         // Now proceed with task table and the rest of bring-up under the active SATP.
-        let mut tasks = TaskTable::new();
+         let mut tasks = TaskTable::new();
         // If an early trap occurred, print it once to aid bring-up debugging.
         if let Some(tf) = crate::trap::last_trap() {
             let mut u = crate::uart::raw_writer();
@@ -135,9 +134,9 @@ impl KernelState {
     #[allow(dead_code)]
     fn banner(&self) {
         log_info!(target: "boot", " _ __   ___ _   _ _ __ ___  _ __");
-        log_info!(target: "boot", "| '_ \\\ / _ \\\ | | | '__/ _ \\| '_ \\");
+        log_info!(target: "boot", r"| '_ \ / _ \ | | | '__/ _ \| '_ \");
         log_info!(target: "boot", "| | | |  __/ |_| | | | (_) | | | |");
-        log_info!(target: "boot", "|_| |_|\\\\___|\\\\__,_|_|  \\\\___/|_| |_|");
+        log_info!(target: "boot", r"|_| |_|\___|\__,_|_|  \___/|_| |_|");
         log_info!(target: "boot", "neuron vers. 0.1.0 - One OS. Many Devices.");
     }
 
@@ -249,14 +248,14 @@ pub fn kmain() -> ! {
             if !(target_pc >= start && target_pc < end && (target_pc & 0x3) == 0) {
                 panic!("GATE: invalid selftest entry pc=0x{:x}", target_pc);
             }
-            let ra: usize;
-            let sp: usize;
-            unsafe { core::arch::asm!("mv {o}, ra", o = out(reg) ra, options(nostack, preserves_flags)); }
-            unsafe { core::arch::asm!("mv {o}, sp", o = out(reg) sp, options(nostack, preserves_flags)); }
+            let _ra: usize;
+            let _sp: usize;
+            unsafe { core::arch::asm!("mv {o}, ra", o = out(reg) _ra, options(nostack, preserves_flags)); }
+            unsafe { core::arch::asm!("mv {o}, sp", o = out(reg) _sp, options(nostack, preserves_flags)); }
             #[cfg(feature = "debug_uart")]
             {
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "GATE: before selftest ra=0x{:x} sp=0x{:x} pc=0x{:x}\n", ra, sp, target_pc);
+                let _ = write!(u, "GATE: before selftest ra=0x{:x} sp=0x{:x} pc=0x{:x}\n", _ra, _sp, target_pc);
             }
         }
         // Prefer private selftest stack on OS if enabled; applies to full suite and spawn-only
@@ -268,6 +267,7 @@ pub fn kmain() -> ! {
             target_os = "none"
         )))]
         selftest::entry(&mut ctx);
+        log_info!(target: "boot", "I: after selftest");
     }
     #[cfg(feature = "boot_timing")]
     {

@@ -7,18 +7,33 @@ SECTIONS
 
   /* Markers for text range (used for runtime exec-range checks) */
   __text_start = .;
-  .text : ALIGN(8) {
+  .text : ALIGN(16) {
     KEEP(*(.text._start))
     *(.text .text.*)
+    *(.text.stack_run)
   }
   __text_end = .;
-  .rodata : ALIGN(8) { *(.rodata .rodata.*) }
 
-  .data : ALIGN(8) { *(.sdata .sdata.*) *(.data .data.*) }
+  . = ALIGN(16);
+  .rodata : ALIGN(16) { *(.rodata .rodata.*) }
 
-  .bss (NOLOAD) : ALIGN(8) {
+  . = ALIGN(16);
+  .data : ALIGN(16) { *(.sdata .sdata.*) *(.data .data.*) }
+
+  . = ALIGN(4096);
+  .bss (NOLOAD) : ALIGN(4096) {
     __bss_start = .;
     *(.sbss .sbss.*)
+    /* Private selftest stack with guard pages lives at a 4K boundary */
+    . = ALIGN(4096);
+    __selftest_stack_guard_lo = .;
+    . += 0x1000;
+    __selftest_stack_base = .;
+    *(.bss.selftest_stack_body)
+    . = ALIGN(4096);
+    __selftest_stack_top = .;
+    __selftest_stack_guard_hi = __selftest_stack_top + 0x1000;
+    /* Rest of BSS */
     *(.bss .bss.*)
     *(COMMON)
     /* important: Heap lies in .bss.heap */
@@ -30,16 +45,7 @@ SECTIONS
     __bss_end = .;
   }
 
-  /* Private selftest stack with guard pages */
-  . = ALIGN(4096);
-  __selftest_stack_guard_lo = .;
-  . += 0x1000;
-  __selftest_stack_base = .;
-  KEEP(*(.bss.selftest_stack_body))
-  . = ALIGN(4096);
-  __selftest_stack_top = .;
-  __selftest_stack_guard_hi = __selftest_stack_top + 0x1000;
-  . = __selftest_stack_guard_hi;
+  /* (no standalone selftest stack section) */
 
   /* Dedicated kernel stack region (OS target) */
   . = ALIGN(16);

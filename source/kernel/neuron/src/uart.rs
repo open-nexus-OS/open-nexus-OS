@@ -92,12 +92,14 @@ impl Write for KernelUart {
 }
 
 /// Writes the provided string via the global UART.
+#[allow(dead_code)]
 pub fn write_str(message: &str) {
     let mut uart = KernelUart::lock();
     let _ = uart.write_str(message);
 }
 
 /// Writes a line terminated by `\n` to the UART.
+#[allow(dead_code)]
 pub fn write_line(message: &str) {
     write_str(message);
     write_str("\n");

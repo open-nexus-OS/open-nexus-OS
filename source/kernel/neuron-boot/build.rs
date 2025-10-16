@@ -6,6 +6,6 @@ fn main() {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
         let script = PathBuf::from(manifest_dir).join("kernel.ld");
         println!("cargo:rerun-if-changed={}", script.display());
-        println!("cargo:rustc-link-arg=-T{}", script.display());
+        // Linker script is already provided via .cargo/config.toml; avoid duplicating -T
     }
 }

@@ -299,8 +299,18 @@ impl PageTable {
                 let base: *mut [PageTablePage; PT_STATIC_POOL_CAP] = core::ptr::addr_of_mut!(PT_STATIC_POOL);
                 let first: *mut PageTablePage = base as *mut PageTablePage;
                 let page_ptr: *mut PageTablePage = first.add(idx);
+                {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = write!(u, "PT: pool idx={}\n", idx);
+                }
                 return NonNull::new_unchecked(page_ptr);
             }
+        }
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = write!(u, "PT: heap alloc\n");
         }
         let boxed = Box::new(PageTablePage::new());
         unsafe { NonNull::new_unchecked(Box::into_raw(boxed)) }
@@ -371,7 +381,8 @@ fn vpn_indices(va: usize) -> [usize; 3] {
     let vpn0 = (va >> 12) & 0x1ff;
     let vpn1 = (va >> 21) & 0x1ff;
     let vpn2 = (va >> 30) & 0x1ff;
-    [vpn0, vpn1, vpn2]
+    // Traverse from the top level (VPN2) down to VPN0 to match Sv39 walk order
+    [vpn2, vpn1, vpn0]
 }
 
 pub const fn is_canonical_sv39(va: usize) -> bool {

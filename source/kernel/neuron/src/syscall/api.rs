@@ -375,6 +375,9 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
 fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = SpawnArgsTyped::decode(args)?;
+    let sp_raw = typed.stack_sp.map(|v| v.raw()).unwrap_or(0);
+    let as_raw = typed.as_handle.map(|h| h.to_raw()).unwrap_or(0);
+    log_info!(target: "sys", "SPAWN: entry=0x{:x} sp=0x{:x} as={} slot={}", typed.entry_pc.raw(), sp_raw, as_raw, typed.bootstrap_slot.0);
     typed.check()?;
 
     let parent = ctx.tasks.current_pid();

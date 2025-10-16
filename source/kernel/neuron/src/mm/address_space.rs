@@ -320,49 +320,81 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
     if text_end <= text_start {
         return Err(MapError::OutOfRange);
     }
-    map_identity_range(
+    if let Err(e) = map_identity_range(
         table,
         text_start,
         text_end,
         PageFlags::VALID | PageFlags::READ | PageFlags::EXECUTE | PageFlags::GLOBAL,
-    )?;
+    ) {
+        if let MapError::Overlap = e {
+            log_error!(target: "mm", "AS-MAP: overlap in TEXT {:#x}..{:#x}", text_start, text_end);
+        }
+        return Err(e);
+    }
     fence_i();
 
     let data_start = text_end;
     let data_end = align_up(unsafe { &__bss_end as *const u8 as usize });
-    map_identity_range(
+    if let Err(e) = map_identity_range(
         table,
         data_start,
         data_end,
         PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    )?;
+    ) {
+        if let MapError::Overlap = e {
+            log_error!(target: "mm", "AS-MAP: overlap in DATA {:#x}..{:#x}", data_start, data_end);
+        }
+        return Err(e);
+    }
 
     let stack_start = align_down(unsafe { &__stack_bottom as *const u8 as usize });
     let stack_end = align_up(unsafe { &__stack_top as *const u8 as usize });
     if stack_end <= stack_start {
         return Err(MapError::OutOfRange);
     }
-    map_kernel_stack(table, stack_start, stack_end)?;
+    if let Err(e) = map_kernel_stack(table, stack_start, stack_end) {
+        if let MapError::Overlap = e {
+            log_error!(target: "mm", "AS-MAP: overlap in KSTACK {:#x}..{:#x}", stack_start, stack_end);
+        }
+        return Err(e);
+    }
 
     let selftest_stack_start = align_down(unsafe { &__selftest_stack_base as *const u8 as usize });
     let selftest_stack_end = align_up(unsafe { &__selftest_stack_top as *const u8 as usize });
     if selftest_stack_end > selftest_stack_start {
-        map_identity_range(
-            table,
-            selftest_stack_start,
-            selftest_stack_end,
-            PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-        )?;
+        // Avoid overlapping mappings: if selftest stack lies within [data_start, data_end),
+        // it is already covered by the data/BSS identity range.
+        let overlaps_data = selftest_stack_start < data_end && selftest_stack_end > data_start;
+        if !overlaps_data {
+            if let Err(e) = map_identity_range(
+                table,
+                selftest_stack_start,
+                selftest_stack_end,
+                PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+            ) {
+                if let MapError::Overlap = e {
+                    log_error!(target: "mm", "AS-MAP: overlap in SELFTEST {:#x}..{:#x}", selftest_stack_start, selftest_stack_end);
+                }
+                return Err(e);
+            }
+        } else {
+            log_debug!(target: "mm", "AS-MAP: skip SELFTEST (covered by DATA) {:#x}..{:#x}", selftest_stack_start, selftest_stack_end);
+        }
     }
 
     const UART_BASE: usize = 0x1000_0000;
     const UART_LEN: usize = 0x1000;
-    map_identity_range(
+    if let Err(e) = map_identity_range(
         table,
         align_down(UART_BASE),
         align_up(UART_BASE + UART_LEN),
         PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    )?;
+    ) {
+        if let MapError::Overlap = e {
+            log_error!(target: "mm", "AS-MAP: overlap in UART");
+        }
+        return Err(e);
+    }
 
     log_info!(target: "mm", "map kernel segments ok");
     Ok(())

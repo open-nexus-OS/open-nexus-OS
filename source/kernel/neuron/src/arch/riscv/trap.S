@@ -85,16 +85,15 @@ __trap_vector:
     .type  __satp_trampoline, @function
     .align 2
 __satp_trampoline:
-    /* a0 contains new SATP value */
+    mv    t1, sp
     csrw  satp, a0
     sfence.vma x0, x0
-    /* set SP to (__stack_top - 64) */
     .option push
     .option norelax
     la    t0, __stack_top
     .option pop
     addi  t0, t0, -64
     mv    sp, t0
-    /* Return to caller; Rust will print post-switch marker */
+    mv    sp, t1
     ret
     .size __satp_trampoline, .-__satp_trampoline

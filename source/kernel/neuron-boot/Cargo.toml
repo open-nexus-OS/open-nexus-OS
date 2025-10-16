@@ -5,7 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-neuron = { path = "../neuron" }
+neuron = { path = "../neuron", features = ["bringup_identity"] }
 
 [profile.release]
 lto = "fat"

@@ -21,6 +21,9 @@ impl VirtAddr {
 
     #[inline]
     pub fn instr_aligned(addr: usize) -> Option<Self> {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        const INSTR_ALIGN: usize = 2; // allow compressed 16-bit alignment on RISC-V
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         const INSTR_ALIGN: usize = core::mem::size_of::<u32>();
         Self::new(addr).and_then(|va| if va.0 % INSTR_ALIGN == 0 { Some(va) } else { None })
     }

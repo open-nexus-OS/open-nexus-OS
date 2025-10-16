@@ -149,14 +149,14 @@ fn init_heap() {
 
 // Modules
 
+#[macro_use]
+mod log;
 mod arch;
 mod boot;
 mod bootstrap;
 mod cap;
 mod determinism;
 mod hal;
-#[macro_use]
-mod log;
 mod liveness;
 mod ipc;
 mod kmain;
