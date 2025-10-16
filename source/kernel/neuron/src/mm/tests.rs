@@ -8,7 +8,10 @@ use super::{MapError, PageFlags, PageTable, PAGE_SIZE};
 #[test]
 fn rejects_unaligned_addresses() {
     let mut table = PageTable::new();
-    assert_eq!(table.map(1, PAGE_SIZE, PageFlags::VALID | PageFlags::READ), Err(MapError::Unaligned));
+    assert_eq!(
+        table.map(1, PAGE_SIZE, PageFlags::VALID | PageFlags::READ),
+        Err(MapError::Unaligned)
+    );
     assert_eq!(table.map(0, 1, PageFlags::VALID | PageFlags::READ), Err(MapError::Unaligned));
 }
 
@@ -29,35 +32,22 @@ fn enforces_w_xor_x() {
 #[test]
 fn detects_overlap() {
     let mut table = PageTable::new();
-    table
-        .map(0, 0, PageFlags::VALID | PageFlags::READ)
-        .expect("first mapping");
-    assert_eq!(
-        table.map(0, PAGE_SIZE, PageFlags::VALID | PageFlags::READ),
-        Err(MapError::Overlap)
-    );
+    table.map(0, 0, PageFlags::VALID | PageFlags::READ).expect("first mapping");
+    assert_eq!(table.map(0, PAGE_SIZE, PageFlags::VALID | PageFlags::READ), Err(MapError::Overlap));
 }
 
 #[test]
 fn out_of_range_rejected() {
     let mut table = PageTable::new();
     let va = 1usize << 50; // beyond canonical Sv39 range
-    assert_eq!(
-        table.map(va, 0, PageFlags::VALID | PageFlags::READ),
-        Err(MapError::OutOfRange)
-    );
+    assert_eq!(table.map(va, 0, PageFlags::VALID | PageFlags::READ), Err(MapError::OutOfRange));
 }
 
 #[test]
 fn lookup_observes_mapping() {
     let mut table = PageTable::new();
-    table
-        .map(0, PAGE_SIZE, PageFlags::VALID | PageFlags::READ)
-        .expect("map");
-    assert_eq!(
-        table.lookup(0),
-        Some(PAGE_SIZE | (PageFlags::VALID | PageFlags::READ).bits())
-    );
+    table.map(0, PAGE_SIZE, PageFlags::VALID | PageFlags::READ).expect("map");
+    assert_eq!(table.lookup(0), Some(PAGE_SIZE | (PageFlags::VALID | PageFlags::READ).bits()));
     assert_eq!(table.lookup(PAGE_SIZE), None);
 }
 
@@ -66,4 +56,3 @@ fn root_ppn_reports_base_page() {
     let table = PageTable::new();
     assert_ne!(table.root_ppn(), 0);
 }
-

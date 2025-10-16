@@ -39,7 +39,9 @@ impl KernelUart {
     }
 
     /// Returns a guard for the boot UART singleton.
-    pub fn lock() -> UartGuard<'static> { UART0.lock() }
+    pub fn lock() -> UartGuard<'static> {
+        UART0.lock()
+    }
 
     fn write_raw(&self, offset: usize, value: u8) {
         let addr = (self.base + offset) as *mut u8;

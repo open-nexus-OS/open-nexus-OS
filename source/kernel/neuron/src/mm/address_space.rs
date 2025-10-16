@@ -191,7 +191,12 @@ impl AddressSpaceManager {
         Ok(())
     }
 
-        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "bringup_identity", not(feature = "selftest_no_satp")))]
+    #[cfg(all(
+        target_arch = "riscv64",
+        target_os = "none",
+        feature = "bringup_identity",
+        not(feature = "selftest_no_satp")
+    ))]
     #[allow(dead_code)]
     pub fn activate_via_trampoline(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
         self.activate(handle)
@@ -216,10 +221,7 @@ impl AddressSpaceManager {
     /// Stub implementation of address-space destruction.
     #[must_use]
     pub fn destroy(&mut self, handle: AsHandle) -> Result<(), AddressSpaceError> {
-        let slot = self
-            .spaces
-            .get_mut(handle.index())
-            .ok_or(AddressSpaceError::InvalidHandle)?;
+        let slot = self.spaces.get_mut(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
         match slot.as_ref() {
             None => Err(AddressSpaceError::InvalidHandle),
             Some(space) if space.refcount() != 0 => Err(AddressSpaceError::InUse),
@@ -422,14 +424,16 @@ fn map_identity_range(
     Ok(())
 }
 
-fn map_kernel_stack(table: &mut PageTable, stack_start: usize, stack_end: usize) -> Result<(), MapError> {
+fn map_kernel_stack(
+    table: &mut PageTable,
+    stack_start: usize,
+    stack_end: usize,
+) -> Result<(), MapError> {
     if stack_end <= stack_start {
         return Err(MapError::OutOfRange);
     }
     let guard = kernel_stack_guard_bytes();
-    let mapped_start = stack_start
-        .checked_add(guard)
-        .ok_or(MapError::OutOfRange)?;
+    let mapped_start = stack_start.checked_add(guard).ok_or(MapError::OutOfRange)?;
     if mapped_start >= stack_end {
         return Err(MapError::OutOfRange);
     }
@@ -459,9 +463,7 @@ fn align_up(addr: usize) -> usize {
     if rem == 0 {
         addr
     } else {
-        addr
-            .checked_add(PAGE_SIZE - rem)
-            .unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
+        addr.checked_add(PAGE_SIZE - rem).unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
     }
 }
 

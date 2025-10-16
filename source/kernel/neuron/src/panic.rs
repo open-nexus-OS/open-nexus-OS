@@ -36,7 +36,11 @@ fn panic(info: &PanicInfo) -> ! {
     let _ = writeln!(w, "PANIC: last traps:");
     for _i in 0..8 {
         if let Some(tf) = crate::trap::last_trap() {
-            let _ = writeln!(w, " sepc=0x{:x} scause=0x{:x} stval=0x{:x}", tf.sepc, tf.scause, tf.stval);
+            let _ = writeln!(
+                w,
+                " sepc=0x{:x} scause=0x{:x} stval=0x{:x}",
+                tf.sepc, tf.scause, tf.stval
+            );
         }
     }
 

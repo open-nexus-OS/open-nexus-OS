@@ -11,12 +11,12 @@ extern crate alloc;
 use core::fmt::{self, Write};
 use spin::Mutex;
 
+use crate::{ipc, mm::AddressSpaceManager, sched::Scheduler};
 use crate::{
     mm::{AddressSpaceError, MapError},
     syscall::{api, Args, Error as SysError, SyscallTable},
     task,
 };
-use crate::{ipc, mm::AddressSpaceManager, sched::Scheduler};
 
 #[cfg(test)]
 use alloc::string::String;
@@ -123,17 +123,25 @@ fn is_csr_op(inst: u32) -> bool {
 #[inline]
 fn is_rdcycle_or_time(inst: u32) -> bool {
     // rdcycle/rdtime encodings are CSRRS with rs1=x0 and CSR=cycle/time
-    if (inst & 0x7f) != 0b111_0011 { return false; }
+    if (inst & 0x7f) != 0b111_0011 {
+        return false;
+    }
     let funct3 = (inst >> 12) & 0x7;
-    if funct3 != 0b010 { return false; }
+    if funct3 != 0b010 {
+        return false;
+    }
     let csr = ((inst >> 20) & 0x0fff) as u16;
     csr == 0xC00 /*cycle*/ || csr == 0xC01 /*time*/
 }
 #[inline]
 fn is_rdinstret(inst: u32) -> bool {
-    if (inst & 0x7f) != 0b111_0011 { return false; }
+    if (inst & 0x7f) != 0b111_0011 {
+        return false;
+    }
     let funct3 = (inst >> 12) & 0x7;
-    if funct3 != 0b010 { return false; }
+    if funct3 != 0b010 {
+        return false;
+    }
     let csr = ((inst >> 20) & 0x0fff) as u16;
     csr == 0xC02 /*instret*/
 }
@@ -437,10 +445,15 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         if *count < 8 {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "EXC: scause=0x{:x} sepc=0x{:x}\n", frame.scause as u64, frame.sepc as u64);
+            let _ = write!(
+                u,
+                "EXC: scause=0x{:x} sepc=0x{:x}\n",
+                frame.scause as u64, frame.sepc as u64
+            );
             #[cfg(feature = "trap_symbols")]
             if let Some((name, base)) = nearest_symbol(frame.sepc) {
-                let _ = write!(u, "EXC-S: {:016x} ~ {}+0x{:x}\n", frame.sepc, name, frame.sepc - base);
+                let _ =
+                    write!(u, "EXC-S: {:016x} ~ {}+0x{:x}\n", frame.sepc, name, frame.sepc - base);
             }
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             {
@@ -454,7 +467,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
     if !is_interrupt(frame.scause) {
         use core::fmt::Write as _;
         let mut u = crate::uart::raw_writer();
-        let _ = write!(u, "EXC: scause=0x{:x} sepc=0x{:x}\n", frame.scause as u64, frame.sepc as u64);
+        let _ =
+            write!(u, "EXC: scause=0x{:x} sepc=0x{:x}\n", frame.scause as u64, frame.sepc as u64);
         #[cfg(feature = "trap_symbols")]
         if let Some((name, base)) = nearest_symbol(frame.sepc) {
             let _ = write!(u, "EXC-S: {:016x} ~ {}+0x{:x}\n", frame.sepc, name, frame.sepc - base);
@@ -495,7 +509,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         use core::fmt::Write as _;
                         let mut u = crate::uart::raw_writer();
                         let satp_now = riscv::register::satp::read().bits();
-                        let _ = write!(u, "SW: old={} -> next={} satp=0x{:x}\n", old, next, satp_now);
+                        let _ =
+                            write!(u, "SW: old={} -> next={} satp=0x{:x}\n", old, next, satp_now);
                     }
                     if let Some(t) = tasks.task(next as task::Pid) {
                         if let Some(h) = t.address_space() {
@@ -516,7 +531,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         if frame.sepc == 0 || frame.x[2] == 0 {
                             use core::fmt::Write as _;
                             let mut u = crate::uart::raw_writer();
-                            let _ = write!(u, "YF-E: invalid frame pid={} sepc=0x{:x} sp=0x{:x}\n", next, frame.sepc, frame.x[2]);
+                            let _ = write!(
+                                u,
+                                "YF-E: invalid frame pid={} sepc=0x{:x} sp=0x{:x}\n",
+                                next, frame.sepc, frame.x[2]
+                            );
                             panic!("YF: invalid frame loaded");
                         }
                         {
@@ -525,10 +544,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                             let _ = write!(
                                 u,
                                 "YF: switch {}->{} sepc=0x{:x} sp=0x{:x}\n",
-                                old,
-                                next,
-                                frame.sepc,
-                                frame.x[2]
+                                old, next, frame.sepc, frame.x[2]
                             );
                         }
                     }
@@ -553,7 +569,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let inst: u32 = 0;
         if is_rdcycle_or_time(inst) || is_rdinstret(inst) {
             let rd = ((inst >> 7) & 0x1f) as usize;
-            if rd != 0 { frame.set_x(rd, 0); }
+            if rd != 0 {
+                frame.set_x(rd, 0);
+            }
             record(frame);
             frame.sepc = frame.sepc.wrapping_add(4);
             return;
@@ -566,7 +584,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             let stval_now = riscv::register::stval::read();
             #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
             let stval_now: usize = 0;
-            let _ = write!(u, "ILLEGAL-D: sepc=0x{:x} ra=0x{:x} stval=0x{:x}\n", frame.sepc, frame.x[1], stval_now);
+            let _ = write!(
+                u,
+                "ILLEGAL-D: sepc=0x{:x} ra=0x{:x} stval=0x{:x}\n",
+                frame.sepc, frame.x[1], stval_now
+            );
             // Best-effort fetch of instruction bytes at sepc
             let i16 = unsafe { core::ptr::read_volatile(frame.sepc as *const u16) } as u16;
             let i32 = unsafe { core::ptr::read_volatile(frame.sepc as *const u32) } as u32;
@@ -585,31 +607,53 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 let ppn = satp_now & ((1 << 44) - 1);
                 if ppn == 0 {
                     let page_va = frame.sepc & !(crate::mm::PAGE_SIZE - 1);
-                    let _ = write!(u, "ILLEGAL-D: satp=0x{:x} page=0x{:x} (ppn=0)\n", satp_now, page_va);
+                    let _ = write!(
+                        u,
+                        "ILLEGAL-D: satp=0x{:x} page=0x{:x} (ppn=0)\n",
+                        satp_now, page_va
+                    );
                 } else {
                     let mut table = (ppn << 12) as *const usize;
-                let indices = vpn_indices_sv39(frame.sepc);
-                let mut pte: usize = 0;
-                let mut found = true;
-                for (level, idx) in indices.iter().enumerate() {
-                    let entry_ptr = unsafe { table.add(*idx) };
-                    let entry = unsafe { core::ptr::read_volatile(entry_ptr) };
-                    if entry & 1 == 0 { found = false; break; }
-                    let is_leaf = (entry & ((1<<1)|(1<<2)|(1<<3))) != 0; // any of R/W/X
-                    if level == 2 {
-                        if !is_leaf { found = false; break; }
-                        pte = entry; break;
+                    let indices = vpn_indices_sv39(frame.sepc);
+                    let mut pte: usize = 0;
+                    let mut found = true;
+                    for (level, idx) in indices.iter().enumerate() {
+                        let entry_ptr = unsafe { table.add(*idx) };
+                        let entry = unsafe { core::ptr::read_volatile(entry_ptr) };
+                        if entry & 1 == 0 {
+                            found = false;
+                            break;
+                        }
+                        let is_leaf = (entry & ((1 << 1) | (1 << 2) | (1 << 3))) != 0; // any of R/W/X
+                        if level == 2 {
+                            if !is_leaf {
+                                found = false;
+                                break;
+                            }
+                            pte = entry;
+                            break;
+                        }
+                        if is_leaf {
+                            found = false;
+                            break;
+                        }
+                        let next_ppn = (entry >> 10) & ((1 << 44) - 1);
+                        table = (next_ppn << 12) as *const usize;
                     }
-                    if is_leaf { found = false; break; }
-                    let next_ppn = (entry >> 10) & ((1<<44)-1);
-                    table = (next_ppn << 12) as *const usize;
-                }
                     if found {
                         let flags = pte & 0x3ff;
-                        let _ = write!(u, "ILLEGAL-D: satp=0x{:x} pte=0x{:x} flags=0x{:x}\n", satp_now, pte, flags);
+                        let _ = write!(
+                            u,
+                            "ILLEGAL-D: satp=0x{:x} pte=0x{:x} flags=0x{:x}\n",
+                            satp_now, pte, flags
+                        );
                     } else {
                         let page_va = frame.sepc & !(crate::mm::PAGE_SIZE - 1);
-                        let _ = write!(u, "ILLEGAL-D: satp=0x{:x} page=0x{:x} (unmapped or non-leaf)\n", satp_now, page_va);
+                        let _ = write!(
+                            u,
+                            "ILLEGAL-D: satp=0x{:x} page=0x{:x} (unmapped or non-leaf)\n",
+                            satp_now, page_va
+                        );
                     }
                 }
             }

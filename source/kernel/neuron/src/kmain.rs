@@ -75,7 +75,11 @@ impl KernelState {
             let _ = write!(w, "KS-E: as_activate tramp {:?}\n", err);
             panic!("kernel address space activate via trampoline failed");
         }
-        #[cfg(not(all(target_arch = "riscv64", target_os = "none", feature = "bringup_identity")))]
+        #[cfg(not(all(
+            target_arch = "riscv64",
+            target_os = "none",
+            feature = "bringup_identity"
+        )))]
         if let Err(err) = address_spaces.activate(kernel_as) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
@@ -84,7 +88,7 @@ impl KernelState {
         }
 
         // Now proceed with task table and the rest of bring-up under the active SATP.
-         let mut tasks = TaskTable::new();
+        let mut tasks = TaskTable::new();
         // If an early trap occurred, print it once to aid bring-up debugging.
         if let Some(tf) = crate::trap::last_trap() {
             let mut u = crate::uart::raw_writer();
@@ -250,12 +254,20 @@ pub fn kmain() -> ! {
             }
             let _ra: usize;
             let _sp: usize;
-            unsafe { core::arch::asm!("mv {o}, ra", o = out(reg) _ra, options(nostack, preserves_flags)); }
-            unsafe { core::arch::asm!("mv {o}, sp", o = out(reg) _sp, options(nostack, preserves_flags)); }
+            unsafe {
+                core::arch::asm!("mv {o}, ra", o = out(reg) _ra, options(nostack, preserves_flags));
+            }
+            unsafe {
+                core::arch::asm!("mv {o}, sp", o = out(reg) _sp, options(nostack, preserves_flags));
+            }
             #[cfg(feature = "debug_uart")]
             {
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "GATE: before selftest ra=0x{:x} sp=0x{:x} pc=0x{:x}\n", _ra, _sp, target_pc);
+                let _ = write!(
+                    u,
+                    "GATE: before selftest ra=0x{:x} sp=0x{:x} pc=0x{:x}\n",
+                    _ra, _sp, target_pc
+                );
             }
         }
         // Prefer private selftest stack on OS if enabled; applies to full suite and spawn-only

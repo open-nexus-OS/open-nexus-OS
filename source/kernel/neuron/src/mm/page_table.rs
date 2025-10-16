@@ -296,7 +296,8 @@ impl PageTable {
                 let idx = PT_STATIC_POOL_NEXT;
                 PT_STATIC_POOL_NEXT = PT_STATIC_POOL_NEXT + 1;
                 // Obtain base pointer to the first element without creating a shared ref
-                let base: *mut [PageTablePage; PT_STATIC_POOL_CAP] = core::ptr::addr_of_mut!(PT_STATIC_POOL);
+                let base: *mut [PageTablePage; PT_STATIC_POOL_CAP] =
+                    core::ptr::addr_of_mut!(PT_STATIC_POOL);
                 let first: *mut PageTablePage = base as *mut PageTablePage;
                 let page_ptr: *mut PageTablePage = first.add(idx);
                 {
@@ -329,7 +330,9 @@ impl PageTable {
         unsafe fn walk(page: *const PageTablePage) -> Result<(), &'static str> {
             for i in 0..PT_ENTRIES {
                 let entry = unsafe { (*page).entries[i] };
-                if entry == 0 { continue; }
+                if entry == 0 {
+                    continue;
+                }
                 let valid = entry & PageFlags::VALID.bits() != 0;
                 if !valid {
                     return Err("pt: nonzero but !VALID");
@@ -337,10 +340,14 @@ impl PageTable {
                 let is_leaf = entry & LEAF_PERMS.bits() != 0;
                 if is_leaf {
                     let has_perm = entry & LEAF_PERMS.bits() != 0;
-                    if !has_perm { return Err("pt: leaf without perms"); }
+                    if !has_perm {
+                        return Err("pt: leaf without perms");
+                    }
                     let w = entry & PageFlags::WRITE.bits() != 0;
                     let x = entry & PageFlags::EXECUTE.bits() != 0;
-                    if w && x { return Err("pt: W^X violated"); }
+                    if w && x {
+                        return Err("pt: W^X violated");
+                    }
                 } else {
                     // Non-leaf must not carry any leaf perms
                     if entry & LEAF_PERMS.bits() != 0 {

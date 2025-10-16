@@ -30,7 +30,11 @@ pub struct DbgMutex<T> {
 
 impl<T> DbgMutex<T> {
     pub const fn new(value: T) -> Self {
-        Self { inner: spin::Mutex::new(value), held: AtomicBool::new(false), start_ticks: AtomicU64::new(0) }
+        Self {
+            inner: spin::Mutex::new(value),
+            held: AtomicBool::new(false),
+            start_ticks: AtomicU64::new(0),
+        }
     }
 
     /// Locks the mutex, performing debug checks.
@@ -52,11 +56,15 @@ pub struct DbgMutexGuard<'a, T> {
 
 impl<'a, T> Deref for DbgMutexGuard<'a, T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target { &self.guard }
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
 }
 
 impl<'a, T> DerefMut for DbgMutexGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
 }
 
 impl<'a, T> Drop for DbgMutexGuard<'a, T> {

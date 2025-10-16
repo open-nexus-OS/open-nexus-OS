@@ -10,8 +10,8 @@
 extern crate alloc;
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::ptr::{self, addr_of_mut};
 use core::ptr::NonNull;
+use core::ptr::{self, addr_of_mut};
 use linked_list_allocator::Heap;
 #[cfg(not(debug_assertions))]
 use spin::Mutex;
@@ -39,7 +39,11 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
         #[cfg(debug_assertions)]
         {
             #[repr(C)]
-            struct Header { size: usize, align: usize, canary: usize }
+            struct Header {
+                size: usize,
+                align: usize,
+                canary: usize,
+            }
             const CANARY: usize = 0xC0FFEE_CAFE_BABE_usize;
             let header_size = core::mem::size_of::<Header>();
             let total_size = header_size
@@ -50,9 +54,13 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 log_error!("ALLOC: fail");
                 return ptr::null_mut();
             }
-            let full_layout = Layout::from_size_align(total_size, core::mem::align_of::<Header>()).unwrap();
+            let full_layout =
+                Layout::from_size_align(total_size, core::mem::align_of::<Header>()).unwrap();
             let mut alloc = self.0.lock();
-            let base = match alloc.allocate_first_fit(full_layout) { Ok(b) => b.as_ptr(), Err(_) => ptr::null_mut() };
+            let base = match alloc.allocate_first_fit(full_layout) {
+                Ok(b) => b.as_ptr(),
+                Err(_) => ptr::null_mut(),
+            };
             if base.is_null() {
                 log_error!("ALLOC: fail");
                 return base;
@@ -74,7 +82,10 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
         {
             // SAFETY: allocate_first_fit is safe to call; caller guarantees layout validity per GlobalAlloc contract
             let mut alloc = self.0.lock();
-            let result = alloc.allocate_first_fit(layout).ok().map_or(ptr::null_mut(), |allocation| allocation.as_ptr());
+            let result = alloc
+                .allocate_first_fit(layout)
+                .ok()
+                .map_or(ptr::null_mut(), |allocation| allocation.as_ptr());
             result
         }
     }
@@ -82,9 +93,15 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         #[cfg(debug_assertions)]
         {
-            if ptr.is_null() { return; }
+            if ptr.is_null() {
+                return;
+            }
             #[repr(C)]
-            struct Header { size: usize, align: usize, canary: usize }
+            struct Header {
+                size: usize,
+                align: usize,
+                canary: usize,
+            }
             const CANARY: usize = 0xC0FFEE_CAFE_BABE_usize;
             let header_size = core::mem::size_of::<Header>();
             let base = unsafe { ptr.sub(header_size) };
@@ -101,16 +118,25 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 panic!("heap tail canary");
             }
             // Poison payload
-            for off in 0..size { unsafe { ptr::write_volatile(ptr.add(off), 0xA5); } }
+            for off in 0..size {
+                unsafe {
+                    ptr::write_volatile(ptr.add(off), 0xA5);
+                }
+            }
             // Free backing allocation with expanded layout
             let _ = layout; // silence unused in debug path
             let full_size = header_size + size + core::mem::size_of::<usize>();
-            let _full_layout = Layout::from_size_align(full_size, core::mem::align_of::<Header>()).unwrap();
+            let _full_layout =
+                Layout::from_size_align(full_size, core::mem::align_of::<Header>()).unwrap();
             // Quarantine: hold a few recently freed blocks before returning to allocator
             #[cfg(debug_assertions)]
             {
                 #[derive(Copy, Clone)]
-                struct QEntry { base: *mut u8, size: usize, align: usize }
+                struct QEntry {
+                    base: *mut u8,
+                    size: usize,
+                    align: usize,
+                }
                 const QCAP: usize = 8;
                 static mut Q_ENTRIES: [Option<QEntry>; QCAP] = [None; QCAP];
                 static mut Q_INDEX: usize = 0;
@@ -121,7 +147,11 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                         let ev_nonnull = NonNull::new_unchecked(ev.base);
                         self.0.lock().deallocate(ev_nonnull, ev_layout);
                     }
-                    Q_ENTRIES[Q_INDEX] = Some(QEntry { base, size: full_size, align: core::mem::align_of::<Header>() });
+                    Q_ENTRIES[Q_INDEX] = Some(QEntry {
+                        base,
+                        size: full_size,
+                        align: core::mem::align_of::<Header>(),
+                    });
                     Q_INDEX = (Q_INDEX + 1) % QCAP;
                 }
             }
@@ -157,24 +187,24 @@ mod bootstrap;
 mod cap;
 mod determinism;
 mod hal;
-mod liveness;
 mod ipc;
 mod kmain;
+mod liveness;
 mod mm;
-#[cfg(debug_assertions)]
-pub mod sync;
+mod satp;
 mod sched;
 mod selftest;
+#[cfg(debug_assertions)]
+pub mod sync;
 mod syscall;
-mod types;
 mod task;
 mod trap;
+mod types;
 mod uart;
-mod satp;
 
 pub use bootstrap::BootstrapMsg;
-pub use task::{Pid, TaskTable, TransferError};
 pub use log::Level as LogLevel;
+pub use task::{Pid, TaskTable, TransferError};
 // compile the kernel panic handler automatically for no_std targets (OS = "none")
 #[cfg(all(not(test), target_os = "none"))]
 mod panic;

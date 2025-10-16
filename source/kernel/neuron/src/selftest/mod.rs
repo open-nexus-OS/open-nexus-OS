@@ -6,7 +6,10 @@
 extern crate alloc;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use core::{ffi::c_void, sync::atomic::{AtomicUsize, Ordering}};
+use core::{
+    ffi::c_void,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::{
@@ -16,24 +19,20 @@ use crate::{
     mm::{AddressSpaceError, AddressSpaceManager, MapError, PAGE_SIZE},
     sched::Scheduler,
     syscall::{
-        api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_SPAWN,
-        SYSCALL_YIELD,
+        api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
+        SYSCALL_SPAWN, SYSCALL_YIELD,
     },
     task::TaskTable,
 };
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::task::Pid;
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use riscv::register::sstatus;
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 use crate::{
-    hal::virt::VirtMachine,
-    ipc::Router,
-    mm::AddressSpaceManager,
-    sched::Scheduler,
-    task::TaskTable,
+    hal::virt::VirtMachine, ipc::Router, mm::AddressSpaceManager, sched::Scheduler, task::TaskTable,
 };
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use riscv::register::sstatus;
 
 pub mod assert;
 
@@ -41,7 +40,9 @@ pub mod assert;
 core::arch::global_asm!(include_str!("stack_run.S"));
 
 #[allow(unused_macros)]
-macro_rules! verbose { ($($arg:tt)*) => {}; }
+macro_rules! verbose {
+    ($($arg:tt)*) => {};
+}
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 const CHILD_TEST_VA: usize = 0x4010_0000;
@@ -88,7 +89,9 @@ extern "C" fn child_new_as_entry() {
     let mut first: u8 = 0;
     for (index, byte) in CHILD_PATTERN.iter().enumerate() {
         let value = unsafe { core::ptr::read_volatile((CHILD_TEST_VA + index) as *const u8) };
-        if index == 0 { first = value; }
+        if index == 0 {
+            first = value;
+        }
         if value != *byte {
             matched = false;
             break;
@@ -140,10 +143,8 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
             core::ptr::write_volatile((ptr + idx) as *mut u8, *byte);
         }
     }
-    let cap = Capability {
-        kind: CapabilityKind::Vmo { base: ptr, len: PAGE_SIZE },
-        rights: Rights::MAP,
-    };
+    let cap =
+        Capability { kind: CapabilityKind::Vmo { base: ptr, len: PAGE_SIZE }, rights: Rights::MAP };
     let caps = tasks.bootstrap_mut().caps_mut();
     let _ = caps.set(2, cap);
 }
@@ -169,19 +170,10 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         const PROT_READ: usize = 1 << 0;
         const PROT_WRITE: usize = 1 << 1;
         const MAP_FLAG_USER: usize = 1 << 0;
-        let map_args = Args::new([
-            handle_raw,
-            2,
-            CHILD_TEST_VA,
-            PAGE_SIZE,
-            PROT_READ,
-            MAP_FLAG_USER,
-        ]);
-        table
-            .dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &map_args)
-            .expect("as_map syscall");
+        let map_args =
+            Args::new([handle_raw, 2, CHILD_TEST_VA, PAGE_SIZE, PROT_READ, MAP_FLAG_USER]);
+        table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &map_args).expect("as_map syscall");
         log_info!(target: "selftest", "KSELFTEST: as map ok");
-
 
         let entry = child_new_as_entry as usize;
         verbose!("KSELFTEST: before spawn\n");
@@ -190,8 +182,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         let user_stack_top: usize = 0x4000_0000;
         let guard_bottom = user_stack_top - (STACK_PAGES + 1) * PAGE_SIZE;
         let stack_map_args = Args::new([
-            handle_raw,           // target AS
-            1,                    // VMO slot: identity VMO with MAP rights
+            handle_raw, // target AS
+            1,          // VMO slot: identity VMO with MAP rights
             guard_bottom + PAGE_SIZE,
             (STACK_PAGES * PAGE_SIZE) as usize,
             (PROT_READ | PROT_WRITE) as usize,
@@ -202,9 +194,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             .expect("as_map stack syscall");
         // Supply valid sp and as_handle
         let spawn_args = Args::new([entry, user_stack_top, handle_raw, 0, 0, 0]);
-        child_pid = table
-            .dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args)
-            .expect("spawn syscall");
+        child_pid =
+            table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).expect("spawn syscall");
         verbose!("KSELFTEST: after spawn (raw)\n");
         // Force a few yields to exercise trap fastpath and encourage scheduling
         syscall_yield();
@@ -219,11 +210,15 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             spins += 1;
         }
         if CHILD_HEARTBEAT.load(Ordering::SeqCst) == 0 {
-    let _satp_now = {
+            let _satp_now = {
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                { riscv::register::satp::read().bits() }
+                {
+                    riscv::register::satp::read().bits()
+                }
                 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-                { 0 }
+                {
+                    0
+                }
             };
             log_info!(target: "selftest", "KSELFTEST: no child progress yet pid={} satp=0x{:x}", child_pid, _satp_now);
             // Do not abort here; proceed to direct call_on_stack path to validate AS/mapping.
@@ -244,13 +239,16 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                 log_info!(target: "selftest", "KSELFTEST: direct-run begin");
                 let _ = ctx.address_spaces.activate(handle);
                 log_info!(target: "selftest", "KSELFTEST: direct-run set SUM");
-                unsafe { sstatus::set_sum(); }
+                unsafe {
+                    sstatus::set_sum();
+                }
                 log_info!(target: "selftest", "KSELFTEST: direct-run calling entry sp=0x{:x}", task.frame().x[2]);
                 // Witness: SATP must match the child's address space SATP value
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 {
                     let satp_now = riscv::register::satp::read().bits();
-                    let expected = ctx.address_spaces.get(handle).map(|s| s.satp_value()).unwrap_or(0);
+                    let expected =
+                        ctx.address_spaces.get(handle).map(|s| s.satp_value()).unwrap_or(0);
                     if satp_now != expected {
                         crate::selftest::assert::report_failure("witness: satp mismatch");
                     }
@@ -285,7 +283,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                 DIRECT_RUN_FLAG.store(0, Ordering::SeqCst);
                 log_info!(target: "selftest", "KSELFTEST: direct call return");
                 log_info!(target: "selftest", "KSELFTEST: returned from child entry");
-                unsafe { sstatus::clear_sum(); }
+                unsafe {
+                    sstatus::clear_sum();
+                }
                 if let Some(khandle) = ctx.tasks.bootstrap_mut().address_space {
                     let _ = ctx.address_spaces.activate(khandle);
                 }
@@ -296,7 +296,13 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                     let mut table = SyscallTable::new();
                     api::install_handlers(&mut table);
                     let timer = ctx.hal.timer();
-                    let mut sys_ctx = api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
+                    let mut sys_ctx = api::Context::new(
+                        ctx.scheduler,
+                        ctx.tasks,
+                        ctx.router,
+                        ctx.address_spaces,
+                        timer,
+                    );
                     const PROT_READ: usize = 1 << 0;
                     const PROT_WRITE: usize = 1 << 1;
                     const PROT_EXEC: usize = 1 << 2;
@@ -310,7 +316,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                         MAP_FLAG_USER,
                     ]);
                     match table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &wx_args) {
-                        Err(SysError::AddressSpace(AddressSpaceError::Mapping(MapError::PermissionDenied))) => {
+                        Err(SysError::AddressSpace(AddressSpaceError::Mapping(
+                            MapError::PermissionDenied,
+                        ))) => {
                             log_info!(target: "selftest", "KSELFTEST: w^x enforced");
                         }
                         Err(_) | Ok(_) => {
@@ -331,11 +339,15 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             if let Some(handle) = task.address_space() {
                 // Switch to child AS and allow S-mode to touch USER pages (SUM).
                 let _ = ctx.address_spaces.activate(handle);
-                unsafe { sstatus::set_sum(); }
+                unsafe {
+                    sstatus::set_sum();
+                }
                 // Run the child's entry on its stack, then restore SUM; kernel text/data are
                 // globally mapped so returning here is safe.
                 call_on_stack(child_new_as_entry, task.frame().x[2]);
-                unsafe { sstatus::clear_sum(); }
+                unsafe {
+                    sstatus::clear_sum();
+                }
                 // Reactivate the kernel/bootstrap address space for further tests.
                 if let Some(khandle) = ctx.tasks.bootstrap_mut().address_space {
                     let _ = ctx.address_spaces.activate(khandle);
@@ -357,7 +369,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
     let mut table = SyscallTable::new();
     api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
-    let mut sys_ctx = api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
+    let mut sys_ctx =
+        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
     const PROT_READ: usize = 1 << 0;
     const PROT_WRITE: usize = 1 << 1;
     const PROT_EXEC: usize = 1 << 2;
@@ -385,11 +398,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
-    verbose!(
-        "KSELFTEST: call_on_stack enter sp=0x{:x} func=0x{:x}\n",
-        new_sp,
-        entry as usize
-    );
+    verbose!("KSELFTEST: call_on_stack enter sp=0x{:x} func=0x{:x}\n", new_sp, entry as usize);
     unsafe {
         core::arch::asm!(
             // Save current sp in t0, switch to child stack, call entry, restore sp
@@ -448,4 +457,6 @@ pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
 
 #[cfg(not(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none")))]
 #[allow(dead_code)]
-pub fn entry_on_private_stack(ctx: &mut Context<'_>) { entry(ctx); }
+pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
+    entry(ctx);
+}

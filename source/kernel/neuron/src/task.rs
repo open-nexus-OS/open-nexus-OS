@@ -12,8 +12,8 @@ use crate::{
     ipc::{self, Router},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
     sched::{QosClass, Scheduler},
-    types::{SlotIndex, VirtAddr},
     trap::TrapFrame,
+    types::{SlotIndex, VirtAddr},
 };
 use spin::Mutex;
 
@@ -65,9 +65,7 @@ fn allocate_guarded_stack(
         let _ = write!(
             u,
             "STACK: base=0x{:x} guard_bottom=0x{:x} pages={}\n",
-            phys_base,
-            guard_bottom,
-            STACK_PAGES
+            phys_base, guard_bottom, STACK_PAGES
         );
     }
     for page in 0..STACK_PAGES {
