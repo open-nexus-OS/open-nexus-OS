@@ -16,6 +16,7 @@ exec-payloads = { path = "../../../userspace/exec-payloads" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc" }
 nexus-abi = { path = "../../../source/libs/nexus-abi" }
+nexus-loader = { path = "../../../userspace/nexus-loader" }
 capnp = { version = "0.19", optional = true }
 thiserror = "1"
 

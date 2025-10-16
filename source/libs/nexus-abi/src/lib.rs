@@ -98,6 +98,14 @@ pub type Pid = u32;
 #[cfg(nexus_env = "os")]
 pub type Cap = u32;
 
+/// Handle identifying a virtual memory object (VMO).
+#[cfg(nexus_env = "os")]
+pub type Handle = u32;
+
+/// Opaque handle referencing a user address space managed by the kernel.
+#[cfg(nexus_env = "os")]
+pub type AsHandle = u64;
+
 /// Result returned by privileged syscalls that expose kernel operations.
 #[cfg(nexus_env = "os")]
 pub type SysResult<T> = core::result::Result<T, AbiError>;
@@ -198,11 +206,57 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
     }
 }
 
-// ——— VMO userland wrappers (OS build) ———
-
-/// Opaque handle identifying a Virtual Memory Object (VMO) in the kernel.
+/// Allocates a new address space and returns its opaque handle.
 #[cfg(nexus_env = "os")]
-pub type Handle = u32;
+pub fn as_create() -> SysResult<AsHandle> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_AS_CREATE: usize = 9;
+        let raw = unsafe { ecall0(SYSCALL_AS_CREATE) };
+        decode_syscall(raw).map(|handle| handle as AsHandle)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Maps a VMO into the target address space referenced by `as_handle`.
+#[cfg(nexus_env = "os")]
+pub fn as_map(
+    as_handle: AsHandle,
+    vmo: Handle,
+    va: u64,
+    len: u64,
+    prot: u32,
+    flags: u32,
+) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_AS_MAP: usize = 10;
+        if va > usize::MAX as u64 || len > usize::MAX as u64 {
+            return Err(AbiError::Unsupported);
+        }
+        let raw = unsafe {
+            ecall6(
+                SYSCALL_AS_MAP,
+                as_handle as usize,
+                vmo as usize,
+                va as usize,
+                len as usize,
+                prot as usize,
+                flags as usize,
+            )
+        };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+// ——— VMO userland wrappers (OS build) ———
 
 /// Creates a new contiguous VMO of `len` bytes and returns a handle to it.
 ///
@@ -312,6 +366,38 @@ unsafe fn ecall4(n: usize, a0: usize, a1: usize, a2: usize, a3: usize) -> usize 
         inout("a1") r1,
         inout("a2") r2,
         inout("a3") r3,
+        inout("a7") r7,
+        options(nostack, preserves_flags)
+    );
+    r0
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall6(
+    n: usize,
+    a0: usize,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+) -> usize {
+    let mut r0 = a0;
+    let mut r1 = a1;
+    let mut r2 = a2;
+    let mut r3 = a3;
+    let mut r4 = a4;
+    let mut r5 = a5;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a1") r1,
+        inout("a2") r2,
+        inout("a3") r3,
+        inout("a4") r4,
+        inout("a5") r5,
         inout("a7") r7,
         options(nostack, preserves_flags)
     );

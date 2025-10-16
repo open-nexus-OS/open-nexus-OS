@@ -1,0 +1,9 @@
+[package]
+name = "nxb-pack"
+version = "0.1.0"
+edition = "2021"
+authors = ["Open Nexus OS Contributors"]
+license = "Apache-2.0"
+description = "Packs ELF payloads into minimal Nexus bundle directories"
+
+[dependencies]
