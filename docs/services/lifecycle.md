@@ -1,104 +1,52 @@
-# Service lifecycle notes
+# Process lifecycle & supervision
 
-## Service startup order (scaffold)
+The Neuron kernel now models a task's lifetime with explicit `Running → Zombie → Reaped`
+transitions. A task invokes the `exit` syscall to publish its status and transition into the
+`Zombie` state. The kernel preserves the task control block, address space handle, and exit
+code until the parent issues a matching `wait`. Parents may wait on a concrete child PID or
+any zombie descendant. Once a parent reaps a child the kernel frees the remaining task
+resources and returns the `(pid, status)` pair to userspace.
 
-The init process currently brings up services in the following sequence while
-the platform is under construction:
+## Syscalls
 
-- `init`
-- `keystored`
-- `policyd`
-- `samgrd`
-- `bundlemgrd`
-- `init: ready`
+Two syscalls drive the lifecycle protocol:
 
-Each stub emits a `*: ready` marker on the UART. `nexus-init` prints matching
-`*: up` confirmations as it observes readiness so the QEMU harness can enforce
-the order deterministically.
+- `exit(status: i32)` never returns. The kernel records `status`, tears down the running
+  context, and leaves the task in the zombie table until a parent reaps it.
+- `wait(pid: i32)` blocks (with cooperative yields) until a zombie child is available. A
+  positive `pid` targets a single child, while `pid <= 0` matches the first zombie owned by
+  the caller. Errors map to the conventional errno set: `ECHILD` when no children exist,
+  `ESRCH` for unrelated PIDs, and `EINVAL` when arguments are malformed.
 
-The kernel banner marker to expect in logs is `neuron vers.` rather than `NEURON`.
+The userspace ABI exposes safe wrappers for both syscalls. `nexus_abi::exit` performs the
+non-returning call, and `nexus_abi::wait` returns a `(Pid, i32)` pair mirroring the kernel
+semantics while translating lifecycle errors into `AbiError` variants.
 
-## Execution pipeline
+## execd supervision loop
 
-Service launch now flows through the policy gate:
+`execd` maintains a registry of launched services keyed by bundle name. Each entry records
+its kernel PID, restart policy, and the `argv`/`env` vectors required to respawn the service.
+A dedicated reaper thread calls `nexus_abi::wait(0)` to harvest any exited child and logs a
+marker of the form `execd: child exited pid=<pid> code=<status>` whenever a termination is
+observed. If the registered policy is `restart=always` the reaper transparently re-execs the
+bundle and emits `execd: restart <service> pid=<pid>` when the replacement process starts.
 
-1. `bundlemgrd` exposes each installed bundle's capability requirements via
-   `QueryResponse.requiredCaps`.
-2. `nexus-init` asks `policyd.Check` whether the service may consume those
-   capabilities. Denials are logged as `init: deny <name>` and the service is
-   skipped.
-3. When `policyd` approves, init forwards the request to `execd` which performs
-   the actual launch (stubbed today to emit `execd: exec <name>`).
+Policies currently supported by the supervisor are:
 
-This pipeline applies to every non-core service defined under `recipes/services/`.
+- `always` – respawn immediately after every exit.
+- `never` – log the exit and leave the service stopped.
 
-### Loader v1.1 (service path)
+Future revisions can extend the enum to cover additional strategies (e.g. `on-failure`).
 
-The loader is now wired through the service pipeline. Once a bundle has been
-installed `execd::exec_elf` asks `bundlemgrd` for the payload bytes via the new
-`getPayload` opcode. The daemon looks up the bundle, resolves the staged
-`payload.elf`, and returns it to the caller. `execd` immediately creates a fresh
-address space with `as_create`, stages the ELF into a VMO, and feeds it to the
-loader:
+## init supervision hints
 
-1. `bundlemgrd.getPayload` validates that the bundle is installed and streams
-   the stored `payload.elf` bytes back over IPC.
-2. `execd.exec_elf` writes the bytes into a staging VMO and calls
-   `nexus_loader::load_with`, which enforces ELF64/EM_RISCV/PT_LOAD constraints,
-   rejects W^X mappings, and orders segments strictly by virtual address.
-3. `OsMapper` translates loader protections into kernel flags, zero-fills the
-   `.bss` tail, and invokes `as_map` for each PT_LOAD segment.
-4. `StackBuilder` provisions a private stack (guard page + RW pages), builds the
-   argv/env string tables, and hands the stack pointer plus table addresses back
-   to the caller.
-5. `spawn` receives the entry PC, stack SP, and address-space handle. The child
-   prints `child: hello-elf` and yields, proving that the mapped payload ran.
+`nexus-init` publishes the restart posture for each core daemon at boot time. The init log
+now includes lines such as `init: supervise samgrd restart=always`, which describe the
+expected policy that execd should enforce for the service tree.
 
-Both the loader and the Sv39 mapper deny write+execute pages. Misaligned
-segments, truncated data, and overflows are rejected before any syscalls land,
-so `execd` reports clear failures when a bundle is malformed.
+## Demo workload
 
-## Loader v1 (PT_LOAD only)
-
-The first iteration of the userland loader is intentionally narrow: it accepts
-ELF64 binaries targeting RISC-V, processes PT_LOAD segments only, and enforces
-W^X at plan time. The flow is:
-
-1. `execd::exec_elf_bytes` invokes `nexus_loader::parse_elf64_riscv` to build a
-   `LoadPlan`. Segment metadata is validated (magic/class/machine, page-aligned
-   virtual addresses, `filesz <= memsz`, and no RWX mappings).
-2. `as_create` provisions a fresh Sv39 address space. A staging VMO is carved
-   out via `vmo_create`, filled with the ELF image, and wrapped in
-   `OsMapper`—`load_with` walks the PT_LOAD headers in ascending `p_vaddr`,
-   translating protections into kernel flags before calling `as_map`.
-3. `StackBuilder` allocates a private stack (RW pages + guard), copies the
-   string table for `argv`/`env` into the backing VMO, and returns both a
-   16-byte aligned stack pointer and the child virtual addresses for the tables.
-4. `spawn` receives the entry PC, stack SP, address-space handle, and bootstrap
-   endpoint slot. A placeholder `BootstrapMsg` records `argc`, the table
-   pointers, and the seed endpoint; future revisions will plumb these fields via
-   IPC once the kernel exposes the hook.
-
-The loader defers policy decisions (e.g. bundle provenance) to higher layers
-and intentionally relies on embedded payloads for v1. The kernel still enforces
-W^X when installing mappings; the userspace planner acts as the first filter so
-misbehaving binaries are rejected before any syscalls are issued.
-
-## Minimal exec path (MVP)
-
-`execd` still exposes `exec_minimal(subject)` as a bootstrap-friendly path while
-the loader matures. The handler:
-
-1. carves a temporary, shared stack from a static buffer (the kernel still runs
-   all tasks in a single address space at this stage),
-2. reuses slot `0` of its capability table as the bootstrap endpoint, seeding
-   the child with send-only rights via `cap_transfer`,
-3. issues the `spawn` syscall targeting the `hello_child_entry` payload from
-   `userspace/exec-payloads`, and
-4. logs `execd: spawn ok <pid>` once the kernel acknowledges the request.
-
-The child prints `child: hello-elf` and yields forever, proving that the task was
-scheduled. `selftest-client` emits `SELFTEST: e2e exec ok` after invoking the
-handler so the QEMU harness can assert the full sequence. The shared stack and
-address space are strictly temporary; per-task address spaces land in the next
-milestone.
+The `demo.exit0` payload packages a tiny RISC-V ELF that prints `child: exit0 start`, calls
+`nexus_abi::exit(0)`, and ships with a manifest suitable for bundlemgrd staging. The OS
+selftest client installs this bundle, starts it through execd, waits for the supervisor log,
+and prints `SELFTEST: child exit ok` once the lifecycle markers appear.

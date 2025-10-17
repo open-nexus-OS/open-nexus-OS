@@ -6,6 +6,7 @@ members = [
     "source/services/*",
     "source/init/*",
     "userspace/*",
+    "userspace/apps/*",
     "source/apps/launcher",
     "source/apps/selftest-client",
     "source/drivers/net/virtio",

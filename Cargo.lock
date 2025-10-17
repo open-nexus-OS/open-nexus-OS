@@ -588,6 +588,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "demo-exit0"
+version = "0.1.0"
+
+[[package]]
 name = "dsoftbus"
 version = "0.1.0"
 dependencies = [

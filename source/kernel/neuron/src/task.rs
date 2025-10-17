@@ -20,6 +20,26 @@ use spin::Mutex;
 /// Process identifier.
 pub type Pid = u32;
 
+/// Lifecycle state of a task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskState {
+    Running,
+    Zombie,
+}
+
+/// Errors returned when waiting for child processes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitError {
+    /// Current task has no children to reap.
+    NoChildren,
+    /// Requested PID is not a child of the current task.
+    NoSuchPid,
+    /// Wait argument is not valid (for example, waiting on self).
+    InvalidTarget,
+    /// Target child exists but has not exited yet.
+    WouldBlock,
+}
+
 const USER_STACK_TOP: usize = 0x4000_0000;
 const STACK_PAGES: usize = 4;
 const STACK_POOL_BASE: usize = 0x8000_0000 + 0x10_0000;
@@ -166,14 +186,16 @@ impl From<CapError> for TransferError {
 /// Minimal task control block.
 #[derive(Clone)]
 pub struct Task {
-    #[allow(dead_code)]
     pid: Pid,
     parent: Option<Pid>,
+    state: TaskState,
+    exit_code: Option<i32>,
     frame: TrapFrame,
     caps: CapTable,
     /// Handle referencing the address space bound to this task.
     pub address_space: Option<AsHandle>,
     bootstrap_slot: Option<usize>,
+    children: Vec<Pid>,
 }
 
 impl Task {
@@ -184,10 +206,13 @@ impl Task {
         let t = Self {
             pid: 0,
             parent: None,
+            state: TaskState::Running,
+            exit_code: None,
             frame: zero_frame,
             caps,
             address_space: None,
             bootstrap_slot: None,
+            children: Vec::new(),
         };
         t
     }
@@ -210,6 +235,21 @@ impl Task {
     /// Returns the parent PID, if any.
     pub fn parent(&self) -> Option<Pid> {
         self.parent
+    }
+
+    /// Returns the lifecycle state of the task.
+    pub fn state(&self) -> TaskState {
+        self.state
+    }
+
+    /// Returns the stored exit code, if any.
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit_code
+    }
+
+    /// Returns the child list.
+    pub fn children(&self) -> &[Pid] {
+        &self.children
     }
 
     /// Returns the address-space handle bound to this task, if any.
@@ -369,15 +409,22 @@ impl TaskTable {
         let task = Task {
             pid,
             parent: Some(parent),
+            state: TaskState::Running,
+            exit_code: None,
             frame,
             caps: child_caps,
             address_space: Some(child_as),
             bootstrap_slot: Some(slot),
+            children: Vec::new(),
         };
         self.tasks.push(task);
         if let Err(err) = address_spaces.attach(child_as, pid) {
             self.tasks.pop();
             return Err(err.into());
+        }
+
+        if let Some(parent_task) = self.tasks.get_mut(parent_index) {
+            parent_task.children.push(pid);
         }
 
         scheduler.enqueue(pid, QosClass::PerfBurst);
@@ -397,6 +444,100 @@ impl TaskTable {
         let derived = parent_task.caps.derive(parent_slot, rights)?;
         let child_task = self.tasks.get_mut(child as usize).ok_or(TransferError::InvalidChild)?;
         child_task.caps_mut().allocate(derived).map_err(TransferError::from)
+    }
+
+    /// Marks the current task as exited and transitions it to the zombie state.
+    pub fn exit_current(&mut self, status: i32) {
+        let pid = self.current_pid() as usize;
+        if let Some(task) = self.tasks.get_mut(pid) {
+            task.state = TaskState::Zombie;
+            task.exit_code = Some(status);
+            task.caps = CapTable::default();
+            task.bootstrap_slot = None;
+            task.frame = TrapFrame::default();
+            task.children.clear();
+        }
+    }
+
+    /// Attempts to reap a zombie child belonging to the current task.
+    pub fn reap_child(
+        &mut self,
+        target: Option<Pid>,
+        address_spaces: &mut AddressSpaceManager,
+    ) -> Result<(Pid, i32), WaitError> {
+        let parent_pid = self.current_pid();
+        let parent_index = parent_pid as usize;
+        if parent_index >= self.tasks.len() {
+            return Err(WaitError::NoChildren);
+        }
+
+        let children_snapshot = {
+            let parent_task = self.tasks.get(parent_index).ok_or(WaitError::NoChildren)?;
+            if parent_task.children.is_empty() {
+                return Err(WaitError::NoChildren);
+            }
+            parent_task.children.clone()
+        };
+
+        let selected_pid = if let Some(pid) = target {
+            if pid == parent_pid {
+                return Err(WaitError::InvalidTarget);
+            }
+            if !children_snapshot.iter().any(|candidate| *candidate == pid) {
+                return Err(WaitError::NoSuchPid);
+            }
+            pid
+        } else {
+            let mut found = None;
+            for child_pid in &children_snapshot {
+                if let Some(child_task) = self.tasks.get(*child_pid as usize) {
+                    if child_task.state == TaskState::Zombie && child_task.exit_code.is_some() {
+                        found = Some(*child_pid);
+                        break;
+                    }
+                }
+            }
+            match found {
+                Some(pid) => pid,
+                None => return Err(WaitError::WouldBlock),
+            }
+        };
+
+        let child_index = selected_pid as usize;
+        if child_index >= self.tasks.len() {
+            return Err(WaitError::NoSuchPid);
+        }
+
+        let status = {
+            let child_task = self.tasks.get(child_index).ok_or(WaitError::NoSuchPid)?;
+            if child_task.parent != Some(parent_pid) {
+                return Err(WaitError::NoSuchPid);
+            }
+            if child_task.state != TaskState::Zombie {
+                return Err(WaitError::WouldBlock);
+            }
+            child_task.exit_code.ok_or(WaitError::WouldBlock)?
+        };
+
+        if let Some(parent_task) = self.tasks.get_mut(parent_index) {
+            parent_task.children.retain(|pid| *pid != selected_pid);
+        }
+
+        if let Some(child_task) = self.tasks.get_mut(child_index) {
+            child_task.exit_code = None;
+            child_task.parent = None;
+            child_task.caps = CapTable::default();
+            child_task.bootstrap_slot = None;
+            child_task.frame = TrapFrame::default();
+            child_task.children.clear();
+            if let Some(handle) = child_task.address_space.take() {
+                if let Err(err) = address_spaces.detach(handle, selected_pid) {
+                    log_error!(target: "task", "TASK: detach failed pid={} err={:?}", selected_pid, err);
+                }
+            }
+        }
+
+        Ok((selected_pid, status))
     }
 }
 

@@ -35,33 +35,14 @@ impl Mapper for OsMapper {
             return Err(Error::Truncated);
         }
 
-        let page_mask = PAGE_SIZE - 1;
-        let map_base = seg.vaddr & !page_mask;
-        let offset = seg.vaddr - map_base;
-        let total = seg.memsz.checked_add(offset).ok_or(Error::Internal)?;
-        let map_len = align_up(total, PAGE_SIZE).ok_or(Error::Internal)?;
-        if map_len == 0 {
-            return Err(Error::Oob);
-        }
+        let image = build_segment_image(seg, src)?;
 
-        let map_len_usize = usize::try_from(map_len).map_err(|_| Error::Internal)?;
-        let offset_usize = usize::try_from(offset).map_err(|_| Error::Internal)?;
-        if offset_usize > map_len_usize {
-            return Err(Error::Oob);
-        }
-        if offset_usize.checked_add(src.len()).map_or(true, |end| end > map_len_usize) {
-            return Err(Error::Truncated);
-        }
-
-        let seg_vmo = nexus_abi::vmo_create(map_len_usize).map_err(|_| Error::Internal)?;
-        let mut image = vec![0u8; map_len_usize];
-        if !src.is_empty() {
-            image[offset_usize..offset_usize + src.len()].copy_from_slice(src);
-        }
-        nexus_abi::vmo_write(seg_vmo, 0, &image).map_err(|_| Error::Internal)?;
+        let seg_vmo = nexus_abi::vmo_create(image.bytes.len())
+            .map_err(|_| Error::Internal)?;
+        nexus_abi::vmo_write(seg_vmo, 0, &image.bytes).map_err(|_| Error::Internal)?;
 
         let prot = seg.prot.bits();
-        nexus_abi::as_map(self.as_handle, seg_vmo, map_base, map_len, prot, MAP_FLAG_USER)
+        nexus_abi::as_map(self.as_handle, seg_vmo, image.map_base, image.map_len, prot, MAP_FLAG_USER)
             .map_err(|_| Error::Internal)?;
 
         self.segment_vmos.push(seg_vmo);
@@ -75,6 +56,62 @@ fn align_up(value: u64, align: u64) -> Option<u64> {
     }
     let minus_one = align - 1;
     value.checked_add(minus_one).map(|v| v & !minus_one)
+}
+
+struct SegmentImage {
+    bytes: Vec<u8>,
+    map_base: u64,
+    map_len: u64,
+}
+
+fn build_segment_image(seg: &SegmentPlan, src: &[u8]) -> Result<SegmentImage, Error> {
+    let page_mask = PAGE_SIZE - 1;
+    let map_base = seg.vaddr & !page_mask;
+    let offset = seg.vaddr - map_base;
+    let total = seg.memsz.checked_add(offset).ok_or(Error::Internal)?;
+    let map_len = align_up(total, PAGE_SIZE).ok_or(Error::Internal)?;
+    if map_len == 0 {
+        return Err(Error::Oob);
+    }
+
+    let map_len_usize = usize::try_from(map_len).map_err(|_| Error::Internal)?;
+    let offset_usize = usize::try_from(offset).map_err(|_| Error::Internal)?;
+    if offset_usize > map_len_usize {
+        return Err(Error::Oob);
+    }
+    if offset_usize.checked_add(src.len()).map_or(true, |end| end > map_len_usize) {
+        return Err(Error::Truncated);
+    }
+
+    let mut image = vec![0u8; map_len_usize];
+    if !src.is_empty() {
+        image[offset_usize..offset_usize + src.len()].copy_from_slice(src);
+    }
+
+    Ok(SegmentImage { bytes: image, map_base, map_len })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_fills_bss_region() {
+        let seg = SegmentPlan {
+            vaddr: 0x2000,
+            memsz: 0x80,
+            filesz: 0x20,
+            off: 0,
+            prot: Prot::R | Prot::W,
+        };
+        let src = [0xAAu8; 0x20];
+        let image = build_segment_image(&seg, &src).expect("build image");
+        assert!(image.bytes.len() >= 0x80);
+        let data_start = (seg.vaddr - image.map_base) as usize;
+        let bss_start = data_start + src.len();
+        assert!(image.bytes[data_start..data_start + src.len()].iter().all(|&b| b == 0xAA));
+        assert!(image.bytes[bss_start..].iter().all(|&b| b == 0));
+    }
 }
 
 pub struct StackBuilder {

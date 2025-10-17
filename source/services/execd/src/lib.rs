@@ -7,11 +7,17 @@
 
 #[cfg(nexus_env = "os")]
 use core::convert::TryFrom;
+#[cfg(nexus_env = "os")]
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
 
 #[cfg(nexus_env = "os")]
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+#[cfg(nexus_env = "os")]
+use std::time::Duration;
+#[cfg(nexus_env = "os")]
+use std::thread;
 
 use nexus_ipc::{self, Wait};
 use thiserror::Error;
@@ -60,6 +66,124 @@ const CHILD_STACK_TOP: u64 = 0x4000_0000;
 const CHILD_STACK_PAGES: u64 = 4;
 #[cfg(nexus_env = "os")]
 static CHILD_STACK_BASE: OnceLock<usize> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestartPolicy {
+    Never,
+    Always,
+}
+
+#[cfg(nexus_env = "os")]
+struct ServiceEntry {
+    pid: nexus_abi::Pid,
+    restart: RestartPolicy,
+    argv: Vec<String>,
+    env: Vec<String>,
+}
+
+#[cfg(nexus_env = "os")]
+struct RestartRequest {
+    name: String,
+    argv: Vec<String>,
+    env: Vec<String>,
+    policy: RestartPolicy,
+}
+
+#[cfg(nexus_env = "os")]
+static SERVICE_REGISTRY: OnceLock<Mutex<HashMap<String, ServiceEntry>>> = OnceLock::new();
+
+#[cfg(nexus_env = "os")]
+fn registry() -> &'static Mutex<HashMap<String, ServiceEntry>> {
+    SERVICE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(nexus_env = "os")]
+fn register_service(
+    name: &str,
+    pid: nexus_abi::Pid,
+    restart: RestartPolicy,
+    argv: &[&str],
+    env: &[&str],
+) -> Result<(), ExecError> {
+    let entry = ServiceEntry {
+        pid,
+        restart,
+        argv: argv.iter().map(|arg| (*arg).to_string()).collect(),
+        env: env.iter().map(|var| (*var).to_string()).collect(),
+    };
+    let registry = registry();
+    match registry.lock() {
+        Ok(mut guard) => {
+            guard.insert(name.to_string(), entry);
+            Ok(())
+        }
+        Err(_) => Err(ExecError::RegistryPoisoned),
+    }
+}
+
+#[cfg(nexus_env = "os")]
+fn spawn_reaper_thread() {
+    static REAPER: OnceLock<()> = OnceLock::new();
+    let _ = REAPER.get_or_init(|| {
+        thread::spawn(reaper_loop);
+        ()
+    });
+}
+
+#[cfg(nexus_env = "os")]
+fn reaper_loop() {
+    loop {
+        match nexus_abi::wait(0) {
+            Ok((pid, status)) => handle_exit(pid, status),
+            Err(nexus_abi::AbiError::ChildUnavailable)
+            | Err(nexus_abi::AbiError::NoSuchPid)
+            | Err(nexus_abi::AbiError::InvalidArgument) => {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(nexus_abi::AbiError::Unsupported)
+            | Err(nexus_abi::AbiError::InvalidSyscall) => {
+                return;
+            }
+            Err(err) => {
+                println!("execd: wait error {err:?}");
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+}
+
+#[cfg(nexus_env = "os")]
+fn handle_exit(pid: nexus_abi::Pid, status: i32) {
+    println!("execd: child exited pid={pid} code={status}");
+    let mut restart = None;
+    if let Ok(mut guard) = registry().lock() {
+        let key = guard
+            .iter()
+            .find(|(_, entry)| entry.pid == pid)
+            .map(|(name, _)| name.clone());
+        if let Some(name) = key {
+            if let Some(entry) = guard.remove(&name) {
+                if entry.restart == RestartPolicy::Always {
+                    restart = Some(RestartRequest { name, argv: entry.argv, env: entry.env, policy: entry.restart });
+                }
+            }
+        }
+    }
+    if let Some(request) = restart {
+        restart_service(request);
+    }
+}
+
+#[cfg(nexus_env = "os")]
+fn restart_service(request: RestartRequest) {
+    let RestartRequest { name, argv, env, policy } = request;
+    let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
+    let env_refs: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
+    match exec_elf(&name, &argv_refs, &env_refs, policy) {
+        Ok(pid) => println!("execd: restart {name} pid={pid}"),
+        Err(err) => println!("execd: restart {name} failed: {err}"),
+    }
+}
 
 /// Trait implemented by transports capable of delivering execution requests.
 pub trait Transport {
@@ -222,6 +346,9 @@ pub enum ExecError {
     #[cfg(nexus_env = "os")]
     #[error("ELF image exceeds VMO limits")]
     ImageTooLarge,
+    #[cfg(nexus_env = "os")]
+    #[error("service registry unavailable")]
+    RegistryPoisoned,
 }
 
 struct ExecService;
@@ -329,9 +456,9 @@ pub fn exec_minimal(subject: &str) -> Result<(), ExecError> {
 }
 
 #[cfg(nexus_env = "os")]
-pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<(), ExecError> {
-    let _ = run_loaded_elf(bytes, argv, env)?;
-    Ok(())
+pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<nexus_abi::Pid, ExecError> {
+    spawn_reaper_thread();
+    run_loaded_elf(bytes, argv, env)
 }
 
 #[cfg(nexus_env = "os")]
@@ -415,21 +542,34 @@ fn request_bundle_payload(name: &str) -> Result<Vec<u8>, ExecError> {
 }
 
 #[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
-pub fn exec_elf(bundle: &str, argv: &[&str], env: &[&str]) -> Result<(), ExecError> {
+pub fn exec_elf(
+    bundle: &str,
+    argv: &[&str],
+    env: &[&str],
+    restart: RestartPolicy,
+) -> Result<nexus_abi::Pid, ExecError> {
+    spawn_reaper_thread();
     println!("execd: exec {bundle}");
     let payload = request_bundle_payload(bundle)?;
-    let _ = run_loaded_elf(&payload, argv, env)?;
-    Ok(())
+    let pid = run_loaded_elf(&payload, argv, env)?;
+    register_service(bundle, pid, restart, argv, env)?;
+    Ok(pid)
 }
 
 #[cfg(all(not(feature = "idl-capnp"), nexus_env = "os"))]
-pub fn exec_elf(_bundle: &str, _argv: &[&str], _env: &[&str]) -> Result<(), ExecError> {
+pub fn exec_elf(
+    _bundle: &str,
+    _argv: &[&str],
+    _env: &[&str],
+    _restart: RestartPolicy,
+) -> Result<nexus_abi::Pid, ExecError> {
     Err(ExecError::Unsupported)
 }
 
 #[cfg(nexus_env = "os")]
 fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
     println!("execd: exec_minimal {subject}");
+    spawn_reaper_thread();
     let stack_top = child_stack_top();
     let entry_pc = hello_child_entry as usize as u64;
     let pid = nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT).map_err(ExecError::Spawn)?;

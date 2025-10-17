@@ -96,6 +96,11 @@ impl Scheduler {
         }
     }
 
+    /// Marks the current task as finished without re-enqueuing it.
+    pub fn finish_current(&mut self) {
+        self.current = None;
+    }
+
     fn queue_for(&mut self, qos: QosClass) -> &mut VecDeque<Task> {
         match qos {
             QosClass::Idle => &mut self.queues[0],

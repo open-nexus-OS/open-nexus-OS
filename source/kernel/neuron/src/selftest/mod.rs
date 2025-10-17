@@ -20,7 +20,7 @@ use crate::{
     sched::Scheduler,
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
-        SYSCALL_SPAWN, SYSCALL_YIELD,
+        SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_WAIT, SYSCALL_YIELD,
     },
     task::TaskTable,
 };
@@ -110,6 +110,19 @@ extern "C" fn child_new_as_entry() {
     }
     CHILD_HEARTBEAT.store(2, Ordering::SeqCst);
     log_info!(target: "selftest", "KSELFTEST: child exit");
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+extern "C" fn child_exit_zero() -> ! {
+    unsafe {
+        core::arch::asm!(
+            "li a0, 0",
+            "li a7, {id}",
+            "ecall",
+            id = const SYSCALL_EXIT,
+            options(noreturn)
+        );
+    }
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -397,6 +410,47 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn run_exit_wait_selftests(ctx: &mut Context<'_>) {
+    let mut table = SyscallTable::new();
+    api::install_handlers(&mut table);
+    let timer = ctx.hal.timer();
+    let mut sys_ctx =
+        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
+
+    let entry = child_exit_zero as usize;
+    let spawn_args = Args::new([entry, 0, 0, 0, 0, 0]);
+    let child_pid =
+        table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).expect("spawn exit child");
+    let wait_args = Args::new([child_pid, 0, 0, 0, 0, 0]);
+    let waited_pid =
+        table.dispatch(SYSCALL_WAIT, &mut sys_ctx, &wait_args).expect("wait exit child");
+    let status = sys_ctx.tasks.current_task().frame().x[11] as i32;
+    st_expect_eq!(waited_pid as task::Pid, child_pid as task::Pid);
+    st_expect_eq!(status, 0);
+    log_info!(target: "selftest", "KSELFTEST: exit ok");
+
+    let first_child =
+        table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).expect("spawn child a");
+    let second_child =
+        table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).expect("spawn child b");
+    let any_args = Args::new([0, 0, 0, 0, 0, 0]);
+    let first_wait =
+        table.dispatch(SYSCALL_WAIT, &mut sys_ctx, &any_args).expect("wait any first");
+    let first_status = sys_ctx.tasks.current_task().frame().x[11] as i32;
+    let second_wait =
+        table.dispatch(SYSCALL_WAIT, &mut sys_ctx, &any_args).expect("wait any second");
+    let second_status = sys_ctx.tasks.current_task().frame().x[11] as i32;
+
+    st_expect_eq!(first_status, 0);
+    st_expect_eq!(second_status, 0);
+    st_assert!(first_wait != second_wait, "expected distinct child pids");
+    let waited = [first_wait as task::Pid, second_wait as task::Pid];
+    st_assert!(waited.contains(&(first_child as task::Pid)));
+    st_assert!(waited.contains(&(second_child as task::Pid)));
+    log_info!(target: "selftest", "KSELFTEST: wait ok");
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
     verbose!("KSELFTEST: call_on_stack enter sp=0x{:x} func=0x{:x}\n", new_sp, entry as usize);
     unsafe {
@@ -421,6 +475,7 @@ fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
 pub fn entry(ctx: &mut Context<'_>) {
     CHILD_HEARTBEAT.store(0, Ordering::SeqCst);
     run_address_space_selftests(ctx);
+    run_exit_wait_selftests(ctx);
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
