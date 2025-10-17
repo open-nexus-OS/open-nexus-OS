@@ -45,6 +45,8 @@ pub const SYSCALL_SPAWN: usize = 7;
 pub const SYSCALL_CAP_TRANSFER: usize = 8;
 pub const SYSCALL_AS_CREATE: usize = 9;
 pub const SYSCALL_AS_MAP: usize = 10;
+pub const SYSCALL_EXIT: usize = 11;
+pub const SYSCALL_WAIT: usize = 12;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +63,10 @@ pub enum Error {
     Transfer(task::TransferError),
     /// Address-space manager reported an error.
     AddressSpace(mm::AddressSpaceError),
+    /// Process lifecycle operation failed.
+    Wait(task::WaitError),
+    /// Current task terminated and should not resume.
+    TaskExit,
 }
 
 impl From<cap::CapError> for Error {
@@ -90,6 +96,12 @@ impl From<task::TransferError> for Error {
 impl From<mm::AddressSpaceError> for Error {
     fn from(value: mm::AddressSpaceError) -> Self {
         Self::AddressSpace(value)
+    }
+}
+
+impl From<task::WaitError> for Error {
+    fn from(value: task::WaitError) -> Self {
+        Self::Wait(value)
     }
 }
 

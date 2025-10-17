@@ -214,21 +214,25 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
     let number = frame.x[17]; // a7
     let args =
         Args::new([frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]]);
-    let ret = match table.dispatch(number, ctx, &args) {
-        Ok(ret) => ret,
-        Err(err) => encode_error(err),
-    };
+    let mut maybe_ret = None;
+    match table.dispatch(number, ctx, &args) {
+        Ok(ret) => maybe_ret = Some(ret),
+        Err(SysError::TaskExit) => {}
+        Err(err) => maybe_ret = Some(encode_error(err)),
+    }
     // Advance caller PC and store return in its saved frame (a0).
-    if let Some(task) = ctx.tasks.task_mut(old_pid) {
-        let f = task.frame_mut();
-        f.sepc = f.sepc.wrapping_add(4);
-        f.x[10] = ret;
-        // Minimal debug: show ecall return site and value
-        #[allow(unused_variables)]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "ECALL-R: pid={} sepc=0x{:x} ret=0x{:x}\n", old_pid, f.sepc, ret);
+    if let Some(ret) = maybe_ret {
+        if let Some(task) = ctx.tasks.task_mut(old_pid) {
+            let f = task.frame_mut();
+            f.sepc = f.sepc.wrapping_add(4);
+            f.x[10] = ret;
+            // Minimal debug: show ecall return site and value
+            #[allow(unused_variables)]
+            {
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = write!(u, "ECALL-R: pid={} sepc=0x{:x} ret=0x{:x}\n", old_pid, f.sepc, ret);
+            }
         }
     }
     // Load the next task's frame into the live trap frame.
@@ -243,6 +247,8 @@ const ENOMEM: usize = 12;
 const EINVAL: usize = 22;
 const ENOSPC: usize = 28;
 const ENOSYS: usize = 38;
+const ESRCH: usize = 3;
+const ECHILD: usize = 10;
 
 #[allow(dead_code)]
 fn encode_error(err: SysError) -> usize {
@@ -253,6 +259,8 @@ fn encode_error(err: SysError) -> usize {
         SysError::Spawn(spawn) => spawn_errno(&spawn),
         SysError::Transfer(_) => errno(EPERM),
         SysError::AddressSpace(as_err) => address_space_errno(&as_err),
+        SysError::Wait(wait) => wait_errno(&wait),
+        SysError::TaskExit => errno(EINVAL),
     }
 }
 
@@ -278,6 +286,17 @@ fn address_space_errno(err: &AddressSpaceError) -> usize {
         AddressSpaceError::Unsupported => errno(ENOSYS),
         AddressSpaceError::Mapping(MapError::PermissionDenied) => errno(EPERM),
         AddressSpaceError::Mapping(_) => errno(EINVAL),
+    }
+}
+
+#[allow(dead_code)]
+fn wait_errno(err: &task::WaitError) -> usize {
+    use task::WaitError::*;
+    match err {
+        NoChildren => errno(ECHILD),
+        NoSuchPid => errno(ESRCH),
+        InvalidTarget => errno(EINVAL),
+        WouldBlock => errno(EINVAL),
     }
 }
 

@@ -229,8 +229,8 @@ impl CapTransferArgsTyped {
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_TRANSFER,
-    SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_VMO_CREATE,
-    SYSCALL_VMO_WRITE, SYSCALL_YIELD,
+    SYSCALL_EXIT, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
+    SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -275,6 +275,8 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
     table.register(SYSCALL_AS_CREATE, sys_as_create);
     table.register(SYSCALL_AS_MAP, sys_as_map);
+    table.register(SYSCALL_EXIT, sys_exit);
+    table.register(SYSCALL_WAIT, sys_wait);
 }
 
 fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -399,6 +401,48 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(typed.len)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
+    }
+}
+
+fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let status = args.get(0) as i32;
+    ctx.tasks.exit_current(status);
+    ctx.scheduler.finish_current();
+    if let Some(next) = ctx.scheduler.schedule_next() {
+        ctx.tasks.set_current(next as task::Pid);
+        if let Some(task) = ctx.tasks.task(next as task::Pid) {
+            #[cfg(not(feature = "selftest_no_satp"))]
+            {
+                if let Some(handle) = task.address_space() {
+                    ctx.address_spaces.activate(handle)?;
+                }
+            }
+            #[cfg(feature = "selftest_no_satp")]
+            let _ = task;
+        }
+    } else {
+        ctx.tasks.set_current(0);
+    }
+    Err(Error::TaskExit)
+}
+
+fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let raw_pid = args.get(0) as i32;
+    let target = if raw_pid <= 0 { None } else { Some(raw_pid as task::Pid) };
+    loop {
+        match ctx.tasks.reap_child(target, ctx.address_spaces) {
+            Ok((pid, status)) => {
+                if let Some(task) = ctx.tasks.task_mut(ctx.tasks.current_pid()) {
+                    task.frame_mut().x[11] = status as usize;
+                }
+                return Ok(pid as usize);
+            }
+            Err(task::WaitError::WouldBlock) => {
+                let zero_args = Args::new([0; 6]);
+                let _ = sys_yield(ctx, &zero_args)?;
+            }
+            Err(err) => return Err(Error::from(err)),
+        }
     }
 }
 

@@ -124,6 +124,12 @@ pub enum AbiError {
     SpawnFailed,
     /// Kernel rejected capability transfer.
     TransferFailed,
+    /// Caller does not have any children to wait on.
+    ChildUnavailable,
+    /// Requested process identifier does not belong to the caller.
+    NoSuchPid,
+    /// Syscall arguments were invalid for the requested operation.
+    InvalidArgument,
     /// Operation unsupported on the current build target.
     Unsupported,
 }
@@ -138,6 +144,12 @@ impl AbiError {
             val if val == usize::MAX - 2 => Some(Self::IpcFailure),
             val if val == usize::MAX - 3 => Some(Self::SpawnFailed),
             val if val == usize::MAX - 4 => Some(Self::TransferFailed),
+            _ if (value as isize) < 0 => match -(value as isize) as usize {
+                10 => Some(Self::ChildUnavailable),
+                3 => Some(Self::NoSuchPid),
+                22 => Some(Self::InvalidArgument),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -184,6 +196,44 @@ pub fn spawn(entry_pc: u64, stack_sp: u64, asid: u64, bootstrap_ep: u32) -> SysR
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Terminates the current task with the provided exit `status`.
+#[cfg(nexus_env = "os")]
+pub fn exit(status: i32) -> ! {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        const SYSCALL_EXIT: usize = 11;
+        let _ = ecall1(SYSCALL_EXIT, status as usize);
+        core::hint::spin_loop();
+        loop {
+            core::hint::spin_loop();
+        }
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = status;
+        loop {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+/// Waits for the child identified by `pid` (or any child when `pid <= 0`).
+#[cfg(nexus_env = "os")]
+pub fn wait(pid: i32) -> SysResult<(Pid, i32)> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_WAIT: usize = 12;
+        let (raw_pid, raw_status) = unsafe { ecall1_pair(SYSCALL_WAIT, pid as usize) };
+        let pid = decode_syscall(raw_pid)?;
+        Ok((pid as Pid, raw_status as i32))
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = pid;
         Err(AbiError::Unsupported)
     }
 }
@@ -333,6 +383,36 @@ unsafe fn ecall0(n: usize) -> usize {
         options(nostack, preserves_flags)
     );
     r0
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall1(n: usize, a0: usize) -> usize {
+    let mut r0 = a0;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a7") r7,
+        options(nostack, preserves_flags)
+    );
+    r0
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall1_pair(n: usize, a0: usize) -> (usize, usize) {
+    let mut r0 = a0;
+    let mut r7 = n;
+    let mut r1: usize;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        lateout("a1") r1,
+        inout("a7") r7,
+        options(nostack, preserves_flags)
+    );
+    (r0, r1)
 }
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 #[inline(always)]

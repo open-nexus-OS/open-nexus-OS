@@ -38,10 +38,10 @@ policy checks on host.
 
 ## Loader handshake
 
-Once a bundle is installed, `execd::exec_elf` calls the new
-`bundlemgrd.getPayload(name)` RPC. The daemon validates the install, resolves
-the `payload.elf` bytes (splitting across frames when necessary), and returns
-them to `execd`. The service writes the bytes into a staging VMO, runs
+Once a bundle is installed, `execd::exec_elf(bundle, argv, env, policy)` calls
+the new `bundlemgrd.getPayload(name)` RPC. The daemon validates the install,
+resolves the `payload.elf` bytes (splitting across frames when necessary), and
+returns them to `execd`. The service writes the bytes into a staging VMO, runs
 `nexus_loader::load_with`, and maps each PT_LOAD segment into a fresh Sv39
 address space. W^X is enforced twice: the loader rejects write+execute segments
 and the kernel refuses conflicting protection flags at `as_map` time. A private

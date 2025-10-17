@@ -33,6 +33,13 @@ use std::io::Cursor;
 
 const CORE_SERVICES: [&str; 5] = ["keystored", "policyd", "samgrd", "bundlemgrd", "execd"];
 
+fn core_restart_policy(name: &str) -> &'static str {
+    match name {
+        "keystored" | "policyd" | "samgrd" | "bundlemgrd" | "execd" => "always",
+        _ => "never",
+    }
+}
+
 #[cfg(nexus_env = "host")]
 const BUNDLE_OPCODE_QUERY: u8 = 2;
 #[cfg(nexus_env = "host")]
@@ -59,6 +66,8 @@ fn run() -> Result<(), InitError> {
     #[cfg(nexus_env = "host")]
     let mut service_clients: HashMap<String, nexus_ipc::LoopbackClient> = HashMap::new();
     for name in CORE_SERVICES {
+        let policy = core_restart_policy(name);
+        println!("init: supervise {name} restart={policy}");
         let config = catalog
             .get(name)
             .cloned()

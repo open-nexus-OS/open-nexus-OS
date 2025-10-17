@@ -16,9 +16,13 @@ use bundlemgrd::artifact_store;
 #[cfg(nexus_env = "os")]
 use exec_payloads::HELLO_ELF;
 #[cfg(nexus_env = "os")]
+use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT0_MANIFEST_TOML};
+#[cfg(nexus_env = "os")]
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
 #[cfg(nexus_env = "os")]
 use nexus_ipc::{KernelClient, Wait};
+#[cfg(nexus_env = "os")]
+use execd::RestartPolicy;
 
 #[cfg(nexus_env = "os")]
 use capnp::message::{Builder, ReaderOptions};
@@ -55,10 +59,15 @@ fn run() -> anyhow::Result<()> {
 
     #[cfg(nexus_env = "os")]
     {
-        install_demo_bundle().context("install demo bundle")?;
-        execd::exec_elf("demo.hello", &["hello"], &["K=V"])
-            .map_err(|err| anyhow::anyhow!("exec_elf failed: {err}"))?;
+        install_demo_hello_bundle().context("install demo bundle")?;
+        install_demo_exit0_bundle().context("install exit0 bundle")?;
+        execd::exec_elf("demo.hello", &["hello"], &["K=V"], RestartPolicy::Never)
+            .map_err(|err| anyhow::anyhow!("exec_elf demo.hello failed: {err}"))?;
         println!("SELFTEST: e2e exec-elf ok");
+        execd::exec_elf("demo.exit0", &[], &[], RestartPolicy::Never)
+            .map_err(|err| anyhow::anyhow!("exec_elf demo.exit0 failed: {err}"))?;
+        wait_for_execd_exit();
+        println!("SELFTEST: child exit ok");
     }
 
     println!("SELFTEST: end");
@@ -66,7 +75,7 @@ fn run() -> anyhow::Result<()> {
 }
 
 #[cfg(nexus_env = "os")]
-fn install_demo_bundle() -> anyhow::Result<()> {
+fn install_demo_hello_bundle() -> anyhow::Result<()> {
     let store = artifact_store().context("artifact store unavailable")?;
     let manifest = demo_manifest_bytes();
     let handle = 42u32;
@@ -76,8 +85,25 @@ fn install_demo_bundle() -> anyhow::Result<()> {
 }
 
 #[cfg(nexus_env = "os")]
+fn install_demo_exit0_bundle() -> anyhow::Result<()> {
+    let store = artifact_store().context("artifact store unavailable")?;
+    let manifest = DEMO_EXIT0_MANIFEST_TOML.as_bytes().to_vec();
+    let handle = 43u32;
+    store.insert(handle, manifest.clone());
+    store.stage_payload(handle, DEMO_EXIT0_ELF.to_vec());
+    send_install_request("demo.exit0", handle, manifest.len() as u32)
+}
+
+#[cfg(nexus_env = "os")]
 fn demo_manifest_bytes() -> Vec<u8> {
     exec_payloads::HELLO_MANIFEST_TOML.as_bytes().to_vec()
+}
+
+#[cfg(nexus_env = "os")]
+fn wait_for_execd_exit() {
+    for _ in 0..16 {
+        let _ = nexus_abi::yield_();
+    }
 }
 
 #[cfg(nexus_env = "os")]
