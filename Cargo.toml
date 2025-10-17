@@ -15,7 +15,8 @@ members = [
     "tools/*",
     "tests/e2e",
     "tests/e2e_policy",
-    "tests/remote_e2e"
+    "tests/remote_e2e",
+    "tests/vfs_e2e"
 ]
 resolver = "2"
 exclude = [

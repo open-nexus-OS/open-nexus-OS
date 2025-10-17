@@ -17,6 +17,7 @@ keystored = { path = "../keystored", features = ["idl-capnp"] }
 memchr = "2"
 sha2 = "0.10"
 hex = "0.4"
+nexus-packagefs = { path = "../../../userspace/nexus-packagefs" }
 
 [[bin]]
 name = "bundlemgrd"

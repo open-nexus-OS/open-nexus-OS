@@ -51,6 +51,8 @@ if grep -aFq "init: start" "$UART_LOG"; then
     "policyd: ready"
     "samgrd: ready"
     "bundlemgrd: ready"
+    "packagefsd: ready"
+    "vfsd: ready"
     "init: ready"
     "execd: elf load ok"
     "child: hello-elf"
@@ -86,6 +88,16 @@ if grep -aFq "init: start" "$UART_LOG"; then
   for policy_marker in "SELFTEST: policy allow ok" "SELFTEST: policy deny ok"; do
     if ! grep -aFq "$policy_marker" "$UART_LOG"; then
       echo "Missing UART marker: $policy_marker" >&2
+      exit 1
+    fi
+  done
+
+  for vfs_marker in \
+    "SELFTEST: vfs stat ok" \
+    "SELFTEST: vfs read ok" \
+    "SELFTEST: vfs ebadf ok"; do
+    if ! grep -aFq "$vfs_marker" "$UART_LOG"; then
+      echo "Missing UART marker: $vfs_marker" >&2
       exit 1
     fi
   done

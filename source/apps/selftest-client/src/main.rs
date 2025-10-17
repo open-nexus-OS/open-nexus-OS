@@ -20,6 +20,8 @@ use exec_payloads::HELLO_ELF;
 #[cfg(nexus_env = "os")]
 use execd::RestartPolicy;
 #[cfg(nexus_env = "os")]
+use nexus_vfs::{Error as VfsError, VfsClient};
+#[cfg(nexus_env = "os")]
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
 #[cfg(nexus_env = "os")]
 use nexus_ipc::{KernelClient, Wait};
@@ -68,6 +70,7 @@ fn run() -> anyhow::Result<()> {
             .map_err(|err| anyhow::anyhow!("exec_elf demo.exit0 failed: {err}"))?;
         wait_for_execd_exit();
         println!("SELFTEST: child exit ok");
+        verify_vfs_paths().context("verify vfs namespace")?;
     }
 
     println!("SELFTEST: end");
@@ -157,4 +160,40 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
             response.get_err().map(|e| format!("{e:?}")).unwrap_or_else(|_| "unknown".to_string());
         Err(anyhow::anyhow!("install failed: {err}"))
     }
+}
+
+#[cfg(nexus_env = "os")]
+fn verify_vfs_paths() -> anyhow::Result<()> {
+    let client = match VfsClient::new() {
+        Ok(client) => client,
+        Err(nexus_vfs::Error::Unsupported) => return Ok(()),
+        Err(err) => return Err(anyhow::anyhow!("vfs client init: {err}")),
+    };
+
+    let meta = client
+        .stat("pkg:/demo.hello/manifest.toml")
+        .map_err(|err| anyhow::anyhow!("vfs stat manifest: {err}"))?;
+    if meta.size() == 0 {
+        anyhow::bail!("manifest size reported as zero");
+    }
+    println!("SELFTEST: vfs stat ok");
+
+    let fh = client
+        .open("pkg:/demo.hello/payload.elf")
+        .map_err(|err| anyhow::anyhow!("vfs open payload: {err}"))?;
+    let _ = client
+        .read(fh, 0, 64)
+        .map_err(|err| anyhow::anyhow!("vfs read payload: {err}"))?;
+    println!("SELFTEST: vfs read ok");
+
+    client
+        .close(fh)
+        .map_err(|err| anyhow::anyhow!("vfs close payload: {err}"))?;
+    match client.read(fh, 0, 1) {
+        Err(VfsError::InvalidHandle) => println!("SELFTEST: vfs ebadf ok"),
+        Err(err) => return Err(anyhow::anyhow!("vfs read after close: {err}")),
+        Ok(_) => return Err(anyhow::anyhow!("vfs read after close succeeded")),
+    }
+
+    Ok(())
 }
