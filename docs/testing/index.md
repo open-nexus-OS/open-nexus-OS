@@ -35,6 +35,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Host init smoke | Runs `nexus-init` on host, asserts real daemon readiness and `*: up` markers. | `just test-init` or `make test-init-host` | Exits early on `init: ready` and enforces ordered readiness. |
 | Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
+| Host VFS (`tests/vfs_e2e`) | In-process `packagefsd`, `vfsd`, and `bundlemgrd` validating bundle publication and VFS reads. | `cargo test -p vfs-e2e` | Publishes a demo bundle, checks alias resolution, and verifies read/error paths via `nexus-vfs`. |
 | QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. When services run, the harness waits for `execd: elf load ok`, `child: hello-elf`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), and `SELFTEST: e2e exec-elf ok` before stopping. Logs are trimmed to keep artefacts small. |
 
 ## Workflow checklist
@@ -75,16 +76,21 @@ The OS smoke path emits a deterministic sequence of UART markers that the runner
 4. `policyd: ready` – policy stub ready
 5. `samgrd: ready` – service manager daemon ready
 6. `bundlemgrd: ready` – bundle manager daemon ready
-7. `init: ready` – init completed baseline bring-up
-8. `execd: elf load ok` – loader mapped the embedded ELF into the child address space
-9. `child: hello-elf` – spawned task from the ELF payload started and yielded control back to the kernel
-10. `SELFTEST: e2e exec-elf ok` – selftest client observed the ELF loader path end-to-end
-11. `child: exit0 start` – demo payload exercising `exit(0)` began execution
-12. `execd: child exited pid=… code=0` – supervisor reaped the exit0 child and logged its status
-13. `SELFTEST: child exit ok` – selftest client observed the lifecycle markers from execd
-14. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
-15. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
-16. `SELFTEST: end` – concluding marker from the host-side selftest client
+7. `packagefsd: ready` – package file system daemon registered
+8. `vfsd: ready` – VFS dispatcher ready to serve requests
+9. `init: ready` – init completed baseline bring-up
+10. `execd: elf load ok` – loader mapped the embedded ELF into the child address space
+11. `child: hello-elf` – spawned task from the ELF payload started and yielded control back to the kernel
+12. `SELFTEST: e2e exec-elf ok` – selftest client observed the ELF loader path end-to-end
+13. `child: exit0 start` – demo payload exercising `exit(0)` began execution
+14. `execd: child exited pid=… code=0` – supervisor reaped the exit0 child and logged its status
+15. `SELFTEST: child exit ok` – selftest client observed the lifecycle markers from execd
+16. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
+17. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
+18. `SELFTEST: vfs stat ok` – selftest exercised read-only stat via the userspace VFS
+19. `SELFTEST: vfs read ok` – selftest read bundle payload bytes via the VFS client
+20. `SELFTEST: vfs ebadf ok` – selftest confirmed closed handles are rejected by the VFS
+21. `SELFTEST: end` – concluding marker from the host-side selftest client
 
 ### OS E2E: exec-elf (service path)
 

@@ -35,6 +35,8 @@ use nexus_idl_runtime::bundlemgr_capnp::{
 };
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::keystored_capnp::{verify_request, verify_response};
+#[cfg(feature = "idl-capnp")]
+use nexus_packagefs::{BundleEntry as PackageFsEntry, PackageFsClient, PublishRequest as PackageFsPublish};
 
 const OPCODE_INSTALL: u8 = 1;
 const OPCODE_QUERY: u8 = 2;
@@ -206,6 +208,7 @@ pub struct ArtifactStore {
     inner: Arc<Mutex<HashMap<u32, Vec<u8>>>>,
     staged_payloads: Arc<Mutex<HashMap<u32, Vec<u8>>>>,
     payloads: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    staged_assets: Arc<Mutex<HashMap<u32, Vec<StagedAsset>>>>,
 }
 
 static GLOBAL_ARTIFACTS: OnceLock<Mutex<Option<ArtifactStore>>> = OnceLock::new();
@@ -287,6 +290,35 @@ impl ArtifactStore {
             }
         }
     }
+
+    /// Stages an asset file to be published alongside the bundle payload.
+    pub fn stage_asset(&self, handle: u32, path: &str, bytes: Vec<u8>) {
+        let asset = StagedAsset { path: path.to_string(), bytes };
+        match self.staged_assets.lock() {
+            Ok(mut guard) => guard.entry(handle).or_default().push(asset),
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.entry(handle).or_default().push(asset);
+            }
+        }
+    }
+
+    /// Takes staged assets associated with `handle` if any were recorded.
+    pub fn take_staged_assets(&self, handle: u32) -> Vec<StagedAsset> {
+        match self.staged_assets.lock() {
+            Ok(mut guard) => guard.remove(&handle).unwrap_or_default(),
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.remove(&handle).unwrap_or_default()
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct StagedAsset {
+    pub path: String,
+    pub bytes: Vec<u8>,
 }
 
 fn global_artifacts() -> &'static Mutex<Option<ArtifactStore>> {
@@ -417,11 +449,37 @@ impl KeystoreHandle {
     }
 }
 
+#[cfg(feature = "idl-capnp")]
+pub struct PackageFsHandle(Arc<PackageFsClient>);
+
+#[cfg(feature = "idl-capnp")]
+impl PackageFsHandle {
+    #[cfg(nexus_env = "host")]
+    pub fn from_loopback(client: nexus_ipc::LoopbackClient) -> Self {
+        Self(Arc::new(PackageFsClient::from_loopback(client)))
+    }
+
+    #[cfg(nexus_env = "os")]
+    pub fn from_kernel() -> Result<Self, nexus_packagefs::Error> {
+        PackageFsClient::new().map(Arc::new).map(Self)
+    }
+
+    pub fn from_client(client: Arc<PackageFsClient>) -> Self {
+        Self(client)
+    }
+
+    fn into_client(self) -> Arc<PackageFsClient> {
+        self.0
+    }
+}
+
 struct Server {
     service: Service,
     artifacts: ArtifactStore,
     #[cfg(feature = "idl-capnp")]
     keystore: Option<Box<dyn KeystoreClient>>,
+    #[cfg(feature = "idl-capnp")]
+    packagefs: Option<Arc<PackageFsClient>>,
 }
 
 impl Server {
@@ -429,8 +487,9 @@ impl Server {
         service: Service,
         artifacts: ArtifactStore,
         keystore: Option<Box<dyn KeystoreClient>>,
+        packagefs: Option<Arc<PackageFsClient>>,
     ) -> Self {
-        Self { service, artifacts, keystore }
+        Self { service, artifacts, keystore, packagefs }
     }
 
     #[cfg(feature = "idl-capnp")]
@@ -596,8 +655,11 @@ impl Server {
             }
         }
 
+        let assets = self.artifacts.take_staged_assets(handle);
+
         match self.service.install(DomainInstallRequest { name: &name, manifest: manifest_str }) {
-            Ok(_) => {
+            Ok(bundle) => {
+                self.publish_package_to_fs(&bundle, &manifest_bytes, &payload_bytes, &assets);
                 self.artifacts.install_payload(&name, payload_bytes);
                 builder.set_ok(true);
                 builder.set_err(InstallError::None);
@@ -605,6 +667,7 @@ impl Server {
             Err(err) => {
                 self.artifacts.insert(handle, manifest_bytes.clone());
                 self.artifacts.stage_payload(handle, payload_bytes);
+                self.restage_assets(handle, &assets);
                 builder.set_ok(false);
                 builder.set_err(map_install_error(&err));
             }
@@ -732,6 +795,41 @@ impl Server {
     }
 }
 
+impl Server {
+    fn restage_assets(&self, handle: u32, assets: &[StagedAsset]) {
+        for asset in assets {
+            self.artifacts
+                .stage_asset(handle, &asset.path, asset.bytes.clone());
+        }
+    }
+
+    fn publish_package_to_fs(
+        &self,
+        bundle: &bundlemgr::service::InstalledBundle,
+        manifest_bytes: &[u8],
+        payload_bytes: &[u8],
+        assets: &[StagedAsset],
+    ) {
+        let Some(client) = &self.packagefs else { return; };
+        let version = bundle.version.to_string();
+        let mut entries = Vec::with_capacity(2 + assets.len());
+        entries.push(PackageFsEntry::new("manifest.toml", 0, manifest_bytes));
+        entries.push(PackageFsEntry::new("payload.elf", 0, payload_bytes));
+        for asset in assets {
+            entries.push(PackageFsEntry::new(&asset.path, 0, &asset.bytes));
+        }
+        let request = PackageFsPublish { name: &bundle.name, version: &version, root_vmo: 0, entries: &entries };
+        if let Err(err) = client.publish_bundle(request) {
+            eprintln!(
+                "bundlemgrd: packagefs publish {}@{} failed: {err}",
+                bundle.name, version
+            );
+        } else {
+            println!("bundlemgrd: published {}@{} to packagefs", bundle.name, version);
+        }
+    }
+}
+
 /// Returns the input TOML string without a trailing `sig = "..."` line if present.
 #[allow(dead_code)]
 fn strip_sig_line(manifest: &str) -> String {
@@ -764,11 +862,13 @@ pub fn run_with_transport<T: Transport>(
     transport: &mut T,
     artifacts: ArtifactStore,
     keystore: Option<KeystoreHandle>,
+    packagefs: Option<PackageFsHandle>,
 ) -> Result<(), ServerError> {
     let service = Service::new();
     let client = keystore.map(KeystoreHandle::into_client);
+    let packagefs_client = packagefs.map(PackageFsHandle::into_client);
     register_artifact_store(&artifacts);
-    serve_with_components(transport, service, artifacts, client)
+    serve_with_components(transport, service, artifacts, client, packagefs_client)
 }
 
 /// Serves requests using injected service and artifact store.
@@ -778,8 +878,9 @@ pub(crate) fn serve_with_components<T: Transport>(
     service: Service,
     artifacts: ArtifactStore,
     keystore: Option<Box<dyn KeystoreClient>>,
+    packagefs: Option<Arc<PackageFsClient>>,
 ) -> Result<(), ServerError> {
-    let mut server = Server::new(service, artifacts, keystore);
+    let mut server = Server::new(service, artifacts, keystore, packagefs);
     while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
@@ -845,7 +946,7 @@ pub fn service_main_loop(
         notifier.notify();
         println!("bundlemgrd: ready");
         let keystore = Some(KeystoreHandle::from_loopback(client_keystore));
-        run_with_transport(&mut transport, artifacts, keystore)
+        run_with_transport(&mut transport, artifacts, keystore, None)
     }
 
     #[cfg(nexus_env = "os")]
@@ -856,7 +957,7 @@ pub fn service_main_loop(
         notifier.notify();
         println!("bundlemgrd: ready");
         // TODO: Wire kernel keystore client once IPC is available
-        run_with_transport(&mut transport, artifacts, None)
+        run_with_transport(&mut transport, artifacts, None, None)
     }
 }
 

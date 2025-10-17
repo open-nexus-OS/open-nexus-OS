@@ -14,3 +14,4 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc" }
 exec-payloads = { path = "../../../userspace/exec-payloads" }
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0" }
 capnp = "0.19"
+nexus-vfs = { path = "../../../userspace/nexus-vfs", features = ["idl-capnp"] }

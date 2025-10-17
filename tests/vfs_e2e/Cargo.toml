@@ -1,0 +1,16 @@
+[package]
+name = "vfs-e2e"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+bundlemgrd = { path = "../../source/services/bundlemgrd", features = ["idl-capnp"] }
+capnp = "0.19"
+hex = "0.4"
+nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
+nexus-ipc = { path = "../../userspace/nexus-ipc" }
+nexus-packagefs = { path = "../../userspace/nexus-packagefs" }
+nexus-vfs = { path = "../../userspace/nexus-vfs", features = ["idl-capnp"] }
+packagefsd = { path = "../../source/services/packagefsd", features = ["idl-capnp"] }
+vfsd = { path = "../../source/services/vfsd", features = ["idl-capnp"] }

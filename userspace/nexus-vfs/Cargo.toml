@@ -1,0 +1,16 @@
+[package]
+name = "nexus-vfs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[features]
+default = ["idl-capnp"]
+idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+
+[dependencies]
+thiserror = "1"
+nexus-ipc = { path = "../nexus-ipc" }
+nexus-idl-runtime = { path = "../nexus-idl-runtime" }
+capnp = { version = "0.19", optional = true }

@@ -60,7 +60,7 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     let store = bundlemgrd::ArtifactStore::new();
     let store_clone = store.clone();
     let bundle_handle = thread::spawn(move || {
-        bundlemgrd::run_with_transport(&mut bundle_server, store_clone, None)
+        bundlemgrd::run_with_transport(&mut bundle_server, store_clone, None, None)
             .expect("bundlemgrd exits cleanly");
     });
 

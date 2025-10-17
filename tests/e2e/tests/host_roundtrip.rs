@@ -65,7 +65,7 @@ fn bundle_install_query_roundtrip() {
     store.stage_payload(42, vec![0xde, 0xad]);
     let store_clone = store.clone();
     let handle = thread::spawn(move || {
-        bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
+        bundlemgrd::run_with_transport(&mut server, store_clone, None, None).unwrap()
     });
 
     let install = build_install_frame("launcher", 42, len);
@@ -97,7 +97,7 @@ fn bundle_install_get_payload_roundtrip() {
     let store_clone = store.clone();
 
     let handle = thread::spawn(move || {
-        bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
+        bundlemgrd::run_with_transport(&mut server, store_clone, None, None).unwrap()
     });
 
     let install = build_install_frame("launcher", 99, len);
@@ -127,7 +127,7 @@ fn bundle_install_invalid_signature() {
     let store_clone = store.clone();
 
     let handle = thread::spawn(move || {
-        bundlemgrd::run_with_transport(&mut server, store_clone, None).unwrap()
+        bundlemgrd::run_with_transport(&mut server, store_clone, None, None).unwrap()
     });
 
     let install = build_install_frame("launcher", 7, len);
@@ -206,7 +206,7 @@ fn bundle_install_signed_enforced_via_keystored() {
         store_clone.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x02]);
 
         let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(ks_client));
-        bundlemgrd::run_with_transport(&mut server, store_clone, keystore).unwrap()
+        bundlemgrd::run_with_transport(&mut server, store_clone, keystore, None).unwrap()
     });
 
     let install = build_install_frame("launcher", 77, len);

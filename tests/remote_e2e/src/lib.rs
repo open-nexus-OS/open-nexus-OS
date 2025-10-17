@@ -122,7 +122,7 @@ impl Node {
         let artifact_clone = artifacts.clone();
         let bundle_thread = thread::spawn(move || {
             let mut transport = bundle_server;
-            if let Err(err) = bundle_run_with_transport(&mut transport, artifact_clone, None) {
+            if let Err(err) = bundle_run_with_transport(&mut transport, artifact_clone, None, None) {
                 eprintln!("bundlemgrd loop terminated: {err}");
             }
         });

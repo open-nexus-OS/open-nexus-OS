@@ -11,12 +11,13 @@ An `.nxb` directory contains two files:
 
 ```
 <bundle>.nxb/
-├── manifest.json
+├── manifest.toml
 └── payload.elf
 ```
 
-- `manifest.json` follows the minimal schema used by the policy stub:
-  `{"name":"demo.hello","version":"0.0.1","required_caps":[],"publisher":"dev","sig":""}`.
+- `manifest.toml` follows the minimal schema used by the policy stub:
+  `name = "demo.hello"`, `version = "0.0.1"`, `caps = []`,
+  `abilities = []`, `publisher = "dev"`, `sig = ""`.
   Signing and policy enforcement happen elsewhere; the field is reserved so the
   layout stays forward compatible.
 - `payload.elf` is the ELF64/RISC-V binary. In v1.1 the same payload is staged
@@ -31,10 +32,9 @@ The helper `tools/nxb-pack` crate creates the directory for you:
 cargo run -p nxb-pack -- path/to/app.elf out/demo.hello.nxb
 ```
 
-The tool copies the input ELF into `payload.elf` and writes the default manifest
-(no signing, no extra capabilities). For prototypes you can edit
-`manifest.json` manually to tweak the advertised capabilities before running
-policy checks on host.
+The tool copies the input ELF into `payload.elf` and writes a default manifest
+in TOML format. For prototypes you can edit `manifest.toml` manually to tweak
+the advertised capabilities before running policy checks on host.
 
 ## Loader handshake
 
@@ -48,6 +48,12 @@ and the kernel refuses conflicting protection flags at `as_map` time. A private
 stack is provisioned via `StackBuilder`, argv/env tables are copied in, and
 `spawn` launches the child process.
 
-`userspace/exec-payloads` exposes the same `HELLO_ELF` bytes and canonical
-manifest used by `tools/nxb-pack`. This keeps selftests, host fixtures, and the
+After installation completes `bundlemgrd` also publishes the bundle to
+`packagefsd`. Files are exposed under `/packages/<name>@<version>/...` and the
+alias `pkg:/<name>/...` resolves to the active version. This read-only view is
+used by the userspace VFS service (`vfsd`) and is available to other services
+via the `nexus-vfs` client crate.
+
+`userspace/exec-payloads` exposes the same manifest bytes and canonical payload
+used by `tools/nxb-pack`. This keeps selftests, host fixtures, and the
 packaging toolchain aligned.

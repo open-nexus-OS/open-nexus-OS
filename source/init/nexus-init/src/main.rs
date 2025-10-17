@@ -606,8 +606,12 @@ mod runtime {
                         });
                         // Emit readiness before entering the service loop
                         notifier.notify();
-                        if let Err(err) =
-                            bundlemgrd::run_with_transport(&mut transport, artifacts, keystore)
+                        if let Err(err) = bundlemgrd::run_with_transport(
+                            &mut transport,
+                            artifacts,
+                            keystore,
+                            None,
+                        )
                         {
                             let detail = err.to_string();
                             let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
