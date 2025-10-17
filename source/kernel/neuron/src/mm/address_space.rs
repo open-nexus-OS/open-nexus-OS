@@ -8,7 +8,9 @@ extern crate alloc;
 use alloc::{collections::BTreeSet, vec::Vec};
 use core::num::NonZeroU32;
 
-use super::page_table::{MapError, PageFlags, PageTable, PAGE_SIZE};
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use super::page_table::PAGE_SIZE;
+use super::page_table::{MapError, PageFlags, PageTable};
 
 /// Maximum ASIDs made available by the allocator.
 const MAX_ASIDS: usize = 256;
@@ -407,6 +409,7 @@ fn map_kernel_segments(_table: &mut PageTable) -> Result<(), MapError> {
     Ok(())
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn map_identity_range(
     table: &mut PageTable,
     start: usize,
@@ -424,6 +427,7 @@ fn map_identity_range(
     Ok(())
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn map_kernel_stack(
     table: &mut PageTable,
     stack_start: usize,
@@ -445,19 +449,30 @@ fn map_kernel_stack(
     )
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 const fn kernel_stack_guard_bytes() -> usize {
     STACK_GUARD_PAGES * PAGE_SIZE
 }
 
-#[cfg(any(debug_assertions, feature = "debug_stack_guards"))]
+#[cfg(all(
+    target_arch = "riscv64",
+    target_os = "none",
+    any(debug_assertions, feature = "debug_stack_guards")
+))]
 const STACK_GUARD_PAGES: usize = 1;
-#[cfg(not(any(debug_assertions, feature = "debug_stack_guards")))]
+#[cfg(all(
+    target_arch = "riscv64",
+    target_os = "none",
+    not(any(debug_assertions, feature = "debug_stack_guards"))
+))]
 const STACK_GUARD_PAGES: usize = 0;
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 const fn align_down(addr: usize) -> usize {
     addr & !(PAGE_SIZE - 1)
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn align_up(addr: usize) -> usize {
     let rem = addr % PAGE_SIZE;
     if rem == 0 {
@@ -475,6 +490,7 @@ fn fence_i() {
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+#[allow(dead_code)]
 fn fence_i() {}
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -495,6 +511,7 @@ fn ensure_rx_guard() {
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+#[allow(dead_code)]
 fn ensure_rx_guard() {}
 
 #[cfg(test)]

@@ -18,6 +18,11 @@ members = [
     "tests/remote_e2e"
 ]
 resolver = "2"
+exclude = [
+    # Exclude the umbrella directory that contains sub-crates to avoid Cargo
+    # treating it as a workspace member without its own Cargo.toml.
+    "userspace/apps",
+]
 
 [workspace.package]
 edition = "2021"

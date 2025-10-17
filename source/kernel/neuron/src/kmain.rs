@@ -6,16 +6,20 @@
 use alloc::vec::Vec;
 use core::fmt::Write as _;
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use crate::arch::riscv;
+use crate::ipc;
+use crate::ipc::header::MessageHeader;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use crate::syscall;
 use crate::{
-    arch::riscv,
     cap::{Capability, CapabilityKind, Rights},
     hal::virt::VirtMachine,
     hal::{IrqCtl, Tlb},
-    ipc::{self, header::MessageHeader},
     mm::{AddressSpaceManager, AsHandle},
     sched::{QosClass, Scheduler},
     selftest,
-    syscall::{self, api, SyscallTable},
+    syscall::{api, SyscallTable},
     task::TaskTable,
 };
 
@@ -175,6 +179,7 @@ impl KernelState {
                 self.hal.timer(),
             );
             // Real S-mode ECALL to enter trap path and switch to next task frame
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             unsafe {
                 core::arch::asm!(
                     "li a7, {id}\n ecall",
@@ -182,7 +187,16 @@ impl KernelState {
                     options(nostack)
                 );
             }
+            #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+            {
+                core::hint::spin_loop();
+            }
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             riscv::wait_for_interrupt();
+            #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+            {
+                core::hint::spin_loop();
+            }
         }
     }
 }

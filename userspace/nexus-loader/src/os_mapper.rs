@@ -37,13 +37,19 @@ impl Mapper for OsMapper {
 
         let image = build_segment_image(seg, src)?;
 
-        let seg_vmo = nexus_abi::vmo_create(image.bytes.len())
-            .map_err(|_| Error::Internal)?;
+        let seg_vmo = nexus_abi::vmo_create(image.bytes.len()).map_err(|_| Error::Internal)?;
         nexus_abi::vmo_write(seg_vmo, 0, &image.bytes).map_err(|_| Error::Internal)?;
 
         let prot = seg.prot.bits();
-        nexus_abi::as_map(self.as_handle, seg_vmo, image.map_base, image.map_len, prot, MAP_FLAG_USER)
-            .map_err(|_| Error::Internal)?;
+        nexus_abi::as_map(
+            self.as_handle,
+            seg_vmo,
+            image.map_base,
+            image.map_len,
+            prot,
+            MAP_FLAG_USER,
+        )
+        .map_err(|_| Error::Internal)?;
 
         self.segment_vmos.push(seg_vmo);
         Ok(())

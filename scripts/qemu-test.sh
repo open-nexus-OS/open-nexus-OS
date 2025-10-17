@@ -54,6 +54,7 @@ if grep -aFq "init: start" "$UART_LOG"; then
     "init: ready"
     "execd: elf load ok"
     "child: hello-elf"
+    # We currently assert lifecycle markers via selftest-client logs, not kernel proxy
     "SELFTEST: e2e exec-elf ok"
   )
 

@@ -14,15 +14,15 @@ use anyhow::Context;
 #[cfg(nexus_env = "os")]
 use bundlemgrd::artifact_store;
 #[cfg(nexus_env = "os")]
+use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT0_MANIFEST_TOML};
+#[cfg(nexus_env = "os")]
 use exec_payloads::HELLO_ELF;
 #[cfg(nexus_env = "os")]
-use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT0_MANIFEST_TOML};
+use execd::RestartPolicy;
 #[cfg(nexus_env = "os")]
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
 #[cfg(nexus_env = "os")]
 use nexus_ipc::{KernelClient, Wait};
-#[cfg(nexus_env = "os")]
-use execd::RestartPolicy;
 
 #[cfg(nexus_env = "os")]
 use capnp::message::{Builder, ReaderOptions};

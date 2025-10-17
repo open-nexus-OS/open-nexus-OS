@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[postflight] build workspace"
-cargo build --workspace
+echo "[postflight] build workspace (host)"
+cargo build --workspace --exclude neuron-boot
 
 echo "[postflight] qemu (bounded, early-exit)"
 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-60s} just test-os

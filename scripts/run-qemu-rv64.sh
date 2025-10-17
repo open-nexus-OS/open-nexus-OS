@@ -41,6 +41,8 @@ monitor_uart() {
   local saw_ready=0
   local saw_elf_ok=0
   local saw_child=0
+  local saw_exit_log=0
+  local saw_child_exit_ok=0
   while IFS= read -r line; do
     case "$line" in
       *"init: ready"*)
@@ -52,8 +54,14 @@ monitor_uart() {
       *"child: hello-elf"*)
         saw_child=1
         ;;
+      *"execd: child exited pid="*)
+        saw_exit_log=1
+        ;;
+      *"SELFTEST: child exit ok"*)
+        saw_child_exit_ok=1
+        ;;
       *"SELFTEST: e2e exec-elf ok"*)
-        if [[ "$saw_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 ]]; then
+        if [[ "$saw_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 ]]; then
           echo "[info] Success marker detected – stopping QEMU" >&2
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
           break

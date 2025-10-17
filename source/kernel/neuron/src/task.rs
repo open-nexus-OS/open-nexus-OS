@@ -186,6 +186,7 @@ impl From<CapError> for TransferError {
 /// Minimal task control block.
 #[derive(Clone)]
 pub struct Task {
+    #[cfg_attr(not(test), allow(dead_code))]
     pid: Pid,
     parent: Option<Pid>,
     state: TaskState,

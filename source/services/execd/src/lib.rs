@@ -15,9 +15,9 @@ use std::io::Cursor;
 #[cfg(nexus_env = "os")]
 use std::sync::{Mutex, OnceLock};
 #[cfg(nexus_env = "os")]
-use std::time::Duration;
-#[cfg(nexus_env = "os")]
 use std::thread;
+#[cfg(nexus_env = "os")]
+use std::time::Duration;
 
 use nexus_ipc::{self, Wait};
 use thiserror::Error;
@@ -140,8 +140,7 @@ fn reaper_loop() {
             | Err(nexus_abi::AbiError::InvalidArgument) => {
                 thread::sleep(Duration::from_millis(5));
             }
-            Err(nexus_abi::AbiError::Unsupported)
-            | Err(nexus_abi::AbiError::InvalidSyscall) => {
+            Err(nexus_abi::AbiError::Unsupported) | Err(nexus_abi::AbiError::InvalidSyscall) => {
                 return;
             }
             Err(err) => {
@@ -157,14 +156,16 @@ fn handle_exit(pid: nexus_abi::Pid, status: i32) {
     println!("execd: child exited pid={pid} code={status}");
     let mut restart = None;
     if let Ok(mut guard) = registry().lock() {
-        let key = guard
-            .iter()
-            .find(|(_, entry)| entry.pid == pid)
-            .map(|(name, _)| name.clone());
+        let key = guard.iter().find(|(_, entry)| entry.pid == pid).map(|(name, _)| name.clone());
         if let Some(name) = key {
             if let Some(entry) = guard.remove(&name) {
                 if entry.restart == RestartPolicy::Always {
-                    restart = Some(RestartRequest { name, argv: entry.argv, env: entry.env, policy: entry.restart });
+                    restart = Some(RestartRequest {
+                        name,
+                        argv: entry.argv,
+                        env: entry.env,
+                        policy: entry.restart,
+                    });
                 }
             }
         }
@@ -456,7 +457,11 @@ pub fn exec_minimal(subject: &str) -> Result<(), ExecError> {
 }
 
 #[cfg(nexus_env = "os")]
-pub fn exec_elf_bytes(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<nexus_abi::Pid, ExecError> {
+pub fn exec_elf_bytes(
+    bytes: &[u8],
+    argv: &[&str],
+    env: &[&str],
+) -> Result<nexus_abi::Pid, ExecError> {
     spawn_reaper_thread();
     run_loaded_elf(bytes, argv, env)
 }
