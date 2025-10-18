@@ -17,7 +17,7 @@ use parking_lot::Mutex;
 use thiserror::Error;
 
 use nexus_idl_runtime::packagefs_capnp::{
-    publish_bundle_request, publish_bundle_response, resolve_request, resolve_response,
+    publish_bundle, publish_response, resolve_path, resolve_response,
 };
 
 const KIND_FILE: u16 = 0;
@@ -337,6 +337,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<()> {
 
     #[cfg(nexus_env = "os")]
     {
+        nexus_ipc::set_default_target("packagefsd");
         let server = nexus_ipc::KernelServer::new().map_err(TransportError::from)?;
         let mut transport = IpcTransport::new(server);
         let registry = BundleRegistry::global().clone();
@@ -387,6 +388,7 @@ where
     let (opcode, payload) = frame
         .split_first()
         .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+    let opcode = *opcode;
     let response = match opcode {
         OPCODE_PUBLISH => handle_publish(state, payload)?,
         OPCODE_RESOLVE => handle_resolve(state, payload)?,
@@ -405,15 +407,19 @@ fn handle_publish(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| ServerError::Decode(format!("publish read: {err}")))?;
     let request = message
-        .get_root::<publish_bundle_request::Reader<'_>>()
+        .get_root::<publish_bundle::Reader<'_>>()
         .map_err(|err| ServerError::Decode(format!("publish root: {err}")))?;
     let name = request
         .get_name()
         .map_err(|err| ServerError::Decode(format!("publish name: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("publish name utf8: {err}")))?
         .to_string();
     let version = request
         .get_version()
         .map_err(|err| ServerError::Decode(format!("publish version: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("publish version utf8: {err}")))?
         .to_string();
     info!(
         "packagefsd: publish {name}@{version} root={}",
@@ -427,6 +433,8 @@ fn handle_publish(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
         let path = entry
             .get_path()
             .map_err(|err| ServerError::Decode(format!("publish entry path: {err}")))?
+            .to_str()
+            .map_err(|err| ServerError::Decode(format!("publish entry path utf8: {err}")))?
             .to_string();
         let kind = entry.get_kind();
         let bytes = entry
@@ -447,11 +455,13 @@ fn handle_resolve(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| ServerError::Decode(format!("resolve read: {err}")))?;
     let request = message
-        .get_root::<resolve_request::Reader<'_>>()
+        .get_root::<resolve_path::Reader<'_>>()
         .map_err(|err| ServerError::Decode(format!("resolve root: {err}")))?;
     let rel = request
         .get_rel()
         .map_err(|err| ServerError::Decode(format!("resolve rel: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("resolve rel utf8: {err}")))?
         .to_string();
     match state.registry.resolve(&rel) {
         Ok(entry) => encode_resolve_response(true, entry.size, entry.kind, &entry.bytes),
@@ -464,7 +474,7 @@ fn encode_publish_response(ok: bool) -> Result<Vec<u8>> {
     let mut message = capnp::message::Builder::new_default();
     {
         let mut response = message
-            .init_root::<publish_bundle_response::Builder<'_>>();
+            .init_root::<publish_response::Builder<'_>>();
         response.set_ok(ok);
     }
     serialize_response(OPCODE_PUBLISH, message)
@@ -516,8 +526,8 @@ fn sanitize_entry_path(path: &str) -> core::result::Result<String, ServiceError>
 
 /// Ensures Cap'n Proto schemas are referenced.
 pub fn touch_schemas() {
-    let _ = core::any::type_name::<publish_bundle_request::Reader<'static>>();
-    let _ = core::any::type_name::<resolve_request::Reader<'static>>();
+    let _ = core::any::type_name::<publish_bundle::Reader<'static>>();
+    let _ = core::any::type_name::<resolve_path::Reader<'static>>();
 }
 
 #[cfg(test)]
@@ -558,7 +568,7 @@ mod tests {
         let mut message = capnp::message::Builder::new_default();
         {
             let mut request = message
-                .init_root::<publish_bundle_request::Builder<'_>>();
+                .init_root::<publish_bundle::Builder<'_>>();
             request.set_name("demo");
             request.set_version("1.0.0");
             request.set_root_vmo(7);

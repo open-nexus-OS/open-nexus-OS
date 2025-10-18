@@ -223,6 +223,7 @@ dependencies = [
  "memchr",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-packagefs",
  "sha2",
 ]
 
@@ -1091,12 +1092,15 @@ dependencies = [
  "keystored",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-vfs",
+ "packagefsd",
  "policyd",
  "samgrd",
  "serde",
  "tempfile",
  "thiserror",
  "toml",
+ "vfsd",
 ]
 
 [[package]]
@@ -1119,6 +1123,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-packagefs"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "thiserror",
+]
+
+[[package]]
 name = "nexus-sched"
 version = "0.1.0"
 
@@ -1129,6 +1143,16 @@ version = "0.1.0"
 [[package]]
 name = "nexus-sync"
 version = "0.1.0"
+
+[[package]]
+name = "nexus-vfs"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "thiserror",
+]
 
 [[package]]
 name = "notif"
@@ -1189,6 +1213,18 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "packagefsd"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "log",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "parking_lot",
+ "thiserror",
+]
 
 [[package]]
 name = "parking_lot"
@@ -1690,6 +1726,7 @@ dependencies = [
  "execd",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-vfs",
  "policy",
 ]
 
@@ -2060,6 +2097,34 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vfs-e2e"
+version = "0.1.0"
+dependencies = [
+ "bundlemgrd",
+ "capnp",
+ "hex",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "nexus-packagefs",
+ "nexus-vfs",
+ "packagefsd",
+ "vfsd",
+]
+
+[[package]]
+name = "vfsd"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "log",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "nexus-packagefs",
+ "parking_lot",
+ "thiserror",
+]
 
 [[package]]
 name = "wait-timeout"

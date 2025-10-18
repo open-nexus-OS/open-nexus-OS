@@ -31,7 +31,15 @@ use nexus_ipc::{Client, Wait};
 #[cfg(nexus_env = "host")]
 use std::io::Cursor;
 
-const CORE_SERVICES: [&str; 5] = ["keystored", "policyd", "samgrd", "bundlemgrd", "execd"];
+const CORE_SERVICES: [&str; 7] = [
+    "keystored",
+    "policyd",
+    "samgrd",
+    "bundlemgrd",
+    "packagefsd",
+    "vfsd",
+    "execd",
+];
 
 fn core_restart_policy(name: &str) -> &'static str {
     match name {
@@ -601,7 +609,7 @@ mod runtime {
                         let keystore =
                             Some(bundlemgrd::KeystoreHandle::from_loopback(keystore_client));
                         let notifier = bundlemgrd::ReadyNotifier::new(move || {
-                            println!("bundlemgrd: ready");
+                            // Daemon prints its own readiness marker
                             let _ = ready_clone.send(ServiceStatus::Ready(Some(bundle_client)));
                         });
                         // Emit readiness before entering the service loop
@@ -623,8 +631,11 @@ mod runtime {
 
                     #[cfg(nexus_env = "os")]
                     {
+                        // OS: set default IPC target and run service
+                        nexus_ipc::set_default_target("bundlemgrd");
                         let ready_clone = ready.clone();
                         let notifier = bundlemgrd::ReadyNotifier::new(move || {
+                            // Daemon prints its own readiness marker
                             let _ = ready_clone.send(ServiceStatus::Ready(None));
                         });
                         let artifacts = bundlemgrd::ArtifactStore::new();
@@ -637,6 +648,28 @@ mod runtime {
                             }));
                         }
                     }
+                }
+                "packagefsd" => {
+                    // OS: set default target and start service
+                    #[cfg(nexus_env = "os")]
+                    nexus_ipc::set_default_target("packagefsd");
+                    let ready_clone = ready.clone();
+                    let notifier = packagefsd::ReadyNotifier::new(move || {
+                        // The daemon prints its own readiness marker
+                        let _ = ready_clone.send(ServiceStatus::Ready(None));
+                    });
+                    let _ = packagefsd::service_main_loop(notifier);
+                }
+                "vfsd" => {
+                    // OS: set default target and start service
+                    #[cfg(nexus_env = "os")]
+                    nexus_ipc::set_default_target("vfsd");
+                    let ready_clone = ready.clone();
+                    let notifier = vfsd::ReadyNotifier::new(move || {
+                        // The daemon prints its own readiness marker
+                        let _ = ready_clone.send(ServiceStatus::Ready(None));
+                    });
+                    let _ = vfsd::service_main_loop(notifier);
                 }
                 "execd" => {
                     #[cfg(nexus_env = "host")]

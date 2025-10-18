@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[postflight] build workspace"
-cargo build --workspace
+echo "[postflight] build workspace (host userspace only)"
+env RUSTFLAGS='--cfg nexus_env="host"' cargo build --workspace --exclude neuron --exclude neuron-boot
 
 echo "[postflight] host vfs tests"
-cargo test -p vfs-e2e -- --nocapture
+env RUSTFLAGS='--cfg nexus_env="host"' cargo test -p vfs-e2e -- --nocapture
 
 echo "[postflight] qemu run (bounded, early-exit)"
+# Rebuild kernel so latest userspace (nexus-init, services) is embedded
+just build-kernel
 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-60s} just test-os
 
 echo "[postflight] check OS vfs markers"

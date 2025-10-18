@@ -951,13 +951,26 @@ pub fn service_main_loop(
 
     #[cfg(nexus_env = "os")]
     {
+        nexus_ipc::set_default_target("bundlemgrd");
         let server = nexus_ipc::KernelServer::new()
             .map_err(|err| ServerError::Transport(TransportError::from(err)))?;
         let mut transport = IpcTransport::new(server);
         notifier.notify();
         println!("bundlemgrd: ready");
         // TODO: Wire kernel keystore client once IPC is available
-        run_with_transport(&mut transport, artifacts, None, None)
+        #[cfg(feature = "idl-capnp")]
+        let packagefs = match PackageFsHandle::from_kernel() {
+            Ok(handle) => Some(handle),
+            Err(err) => {
+                eprintln!("bundlemgrd: packagefs client init failed: {err:?}");
+                None
+            }
+        };
+
+        #[cfg(not(feature = "idl-capnp"))]
+        let packagefs = None;
+
+        run_with_transport(&mut transport, artifacts, None, packagefs)
     }
 }
 

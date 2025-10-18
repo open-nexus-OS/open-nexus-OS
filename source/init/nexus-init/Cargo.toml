@@ -13,6 +13,9 @@ bundlemgrd = { path = "../../services/bundlemgrd" }
 keystored = { path = "../../services/keystored" }
 policyd = { path = "../../services/policyd" }
 execd = { path = "../../services/execd" }
+nexus-vfs = { path = "../../../userspace/nexus-vfs" }
+packagefsd = { path = "../../services/packagefsd" }
+vfsd = { path = "../../services/vfsd" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 capnp = { version = "0.19" }

@@ -342,7 +342,7 @@ impl Dispatcher {
         drop(mounts);
 
         if entry.kind == KIND_DIRECTORY {
-            return Err(ServiceError::InvalidPath);
+            return Err(ServiceError::InvalidPath.into());
         }
 
         let mut handles = self.handles.lock();
@@ -413,13 +413,18 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<()> {
 
     #[cfg(nexus_env = "os")]
     {
+        // Ensure default target is set for this service
+        nexus_ipc::set_default_target("vfsd");
         let server = nexus_ipc::KernelServer::new().map_err(TransportError::from)?;
         let mut transport = IpcTransport::new(server);
+        // Packagefs client targets the packagefsd service
+        let packagefs = nexus_ipc::set_default_target("packagefsd");
         let packagefs = PackageFsClient::new()
             .map(Arc::new)
             .map_err(|err| ServerError::Service(ServiceError::Provider(format!(
                 "packagefs client init: {err}"
             ))))?;
+        nexus_ipc::set_default_target("vfsd");
         let dispatcher = Arc::new(Dispatcher::new(packagefs));
         notifier.notify();
         run_loop(&mut transport, dispatcher)
@@ -471,6 +476,7 @@ where
     let (opcode, payload) = frame
         .split_first()
         .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+    let opcode = *opcode;
     let response = match opcode {
         OPCODE_OPEN => handle_open(dispatcher, payload)?,
         OPCODE_READ => handle_read(dispatcher, payload)?,
@@ -497,6 +503,8 @@ fn handle_open(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
     let path = request
         .get_path()
         .map_err(|err| ServerError::Decode(format!("open path: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("open path utf8: {err}")))?
         .to_string();
     match dispatcher.open(&path) {
         Ok((handle, entry)) => encode_open_response(true, handle, entry.size, entry.kind),
@@ -548,6 +556,8 @@ fn handle_stat(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
     let path = request
         .get_path()
         .map_err(|err| ServerError::Decode(format!("stat path: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("stat path utf8: {err}")))?
         .to_string();
     match dispatcher.stat(&path) {
         Ok((size, kind)) => encode_stat_response(true, size, kind),
@@ -567,10 +577,14 @@ fn handle_mount(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
     let mount_point = request
         .get_mount_point()
         .map_err(|err| ServerError::Decode(format!("mount mount_point: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("mount mount_point utf8: {err}")))?
         .to_string();
     let fs_id = request
         .get_fs_id()
         .map_err(|err| ServerError::Decode(format!("mount fs_id: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("mount fs_id utf8: {err}")))?
         .to_string();
     match dispatcher.mount(&mount_point, &fs_id) {
         Ok(()) => encode_mount_response(true),

@@ -19,7 +19,7 @@ compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or 
 compile_error!("Enable the `idl-capnp` feature to build the packagefs client.");
 
 use nexus_idl_runtime::packagefs_capnp::{
-    publish_bundle_request, publish_bundle_response, resolve_request, resolve_response,
+    publish_bundle, publish_response, resolve_path, resolve_response,
 };
 
 const OPCODE_PUBLISH: u8 = 1;
@@ -146,7 +146,7 @@ impl PackageFsClient {
     pub fn publish_bundle(&self, request: PublishRequest<'_>) -> Result<()> {
         let mut message = capnp::message::Builder::new_default();
         {
-            let mut req = message.init_root::<publish_bundle_request::Builder<'_>>();
+            let mut req = message.init_root::<publish_bundle::Builder<'_>>();
             req.set_name(request.name);
             req.set_version(request.version);
             req.set_root_vmo(request.root_vmo);
@@ -175,7 +175,7 @@ impl PackageFsClient {
         )
         .map_err(|_| Error::Decode)?;
         let response = message
-            .get_root::<publish_bundle_response::Reader<'_>>()
+            .get_root::<publish_response::Reader<'_>>()
             .map_err(|_| Error::Decode)?;
         if response.get_ok() {
             Ok(())
@@ -188,7 +188,7 @@ impl PackageFsClient {
     pub fn resolve(&self, rel: &str) -> Result<ResolvedEntry> {
         let mut message = capnp::message::Builder::new_default();
         {
-            let mut req = message.init_root::<resolve_request::Builder<'_>>();
+            let mut req = message.init_root::<resolve_path::Builder<'_>>();
             req.set_rel(rel);
         }
         let mut payload = Vec::new();

@@ -43,10 +43,18 @@ monitor_uart() {
   local saw_child=0
   local saw_exit_log=0
   local saw_child_exit_ok=0
+  local saw_pkgfs_ready=0
+  local saw_vfsd_ready=0
   while IFS= read -r line; do
     case "$line" in
       *"init: ready"*)
         saw_ready=1
+        ;;
+      *"packagefsd: ready"*)
+        saw_pkgfs_ready=1
+        ;;
+      *"vfsd: ready"*)
+        saw_vfsd_ready=1
         ;;
       *"execd: elf load ok"*)
         saw_elf_ok=1
@@ -61,14 +69,14 @@ monitor_uart() {
         saw_child_exit_ok=1
         ;;
       *"SELFTEST: e2e exec-elf ok"*)
-        if [[ "$saw_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 ]]; then
+        if [[ "$saw_ready" -eq 1 && "$saw_pkgfs_ready" -eq 1 && "$saw_vfsd_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 ]]; then
           echo "[info] Success marker detected – stopping QEMU" >&2
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
           break
         fi
         ;;
       *"I: after selftest"*|*"KSELFTEST: spawn ok"*|*"SELFTEST: ipc ok"*|*"SELFTEST: end"*)
-        if [[ "$saw_ready" -eq 0 ]]; then
+        if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
           echo "[info] Success marker detected – stopping QEMU" >&2
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
           break

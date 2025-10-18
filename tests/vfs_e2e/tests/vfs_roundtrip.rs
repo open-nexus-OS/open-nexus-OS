@@ -8,7 +8,7 @@ use bundlemgrd::{ArtifactStore, PackageFsHandle};
 use capnp::message::ReaderOptions;
 use capnp::serialize;
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
-use nexus_ipc::{LoopbackClient, Wait};
+use nexus_ipc::{Client, LoopbackClient, Wait};
 use nexus_packagefs::PackageFsClient;
 use nexus_vfs::{Error as VfsError, VfsClient};
 
@@ -72,6 +72,19 @@ fn vfs_package_roundtrip() {
         .read(fh, 0, PAYLOAD_BYTES.len())
         .expect("read payload succeeds");
     assert_eq!(payload, PAYLOAD_BYTES);
+
+    // Out-of-range reads must clamp to the available tail
+    let start = PAYLOAD_BYTES.len().saturating_sub(2) as u64;
+    let clamped = vfs_client
+        .read(fh, start, 10)
+        .expect("read beyond end clamps");
+    assert_eq!(clamped, &PAYLOAD_BYTES[PAYLOAD_BYTES.len().saturating_sub(2)..]);
+
+    // Reads starting past EOF should return an empty slice
+    let empty = vfs_client
+        .read(fh, PAYLOAD_BYTES.len() as u64 + 16, 32)
+        .expect("read past EOF yields empty slice");
+    assert!(empty.is_empty());
     vfs_client.close(fh).expect("close succeeds");
     assert_eq!(
         vfs_client.read(fh, 0, 1).unwrap_err(),
@@ -88,10 +101,12 @@ fn vfs_package_roundtrip() {
         VfsError::NotFound
     );
 
+    // Drop clients in order to allow servers to observe disconnect and exit
     drop(vfs_client);
     drop(bundle_client);
     bundle_thread.join().expect("bundlemgrd exits cleanly");
     vfs_thread.join().expect("vfsd exits cleanly");
+    drop(packagefs_client);
     packagefs_thread.join().expect("packagefsd exits cleanly");
 }
 
