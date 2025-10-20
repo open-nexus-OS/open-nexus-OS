@@ -86,7 +86,7 @@ fn run() -> Result<(), InitError> {
         if let Some(client) = handle.take_endpoint() {
             service_clients.insert(name.to_string(), client);
         }
-        println!("{name}: up");
+        println!("init: up {name}");
         handles.push(handle);
     }
 

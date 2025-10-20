@@ -16,7 +16,7 @@ use bundlemgrd::artifact_store;
 #[cfg(nexus_env = "os")]
 use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT0_MANIFEST_TOML};
 #[cfg(nexus_env = "os")]
-use exec_payloads::HELLO_ELF;
+use exec_payloads::{HELLO_ELF, HELLO_MANIFEST};
 #[cfg(nexus_env = "os")]
 use execd::RestartPolicy;
 #[cfg(nexus_env = "os")]
@@ -91,6 +91,7 @@ fn install_demo_hello_bundle() -> anyhow::Result<()> {
     let handle = 42u32;
     store.insert(handle, manifest.clone());
     store.stage_payload(handle, HELLO_ELF.to_vec());
+    store.stage_asset(handle, "manifest.json", HELLO_MANIFEST.to_vec());
     send_install_request("demo.hello", handle, manifest.len() as u32)
 }
 
@@ -123,11 +124,8 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
     // Route IPC to bundle manager daemon
     nexus_ipc::set_default_target("bundlemgrd");
 
-    let client = match KernelClient::new() {
-        Ok(client) => client,
-        Err(nexus_ipc::IpcError::Unsupported) => return Ok(()),
-        Err(err) => return Err(anyhow::anyhow!("kernel client: {err:?}")),
-    };
+    let client = KernelClient::new()
+        .map_err(|err| anyhow::anyhow!("kernel client: {err:?}"))?;
 
     let mut message = Builder::new_default();
     {
@@ -142,17 +140,12 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
     let mut frame = Vec::with_capacity(1 + payload.len());
     frame.push(OPCODE_INSTALL);
     frame.extend_from_slice(&payload);
-    if let Err(err) = client.send(&frame, Wait::Blocking) {
-        if matches!(err, nexus_ipc::IpcError::Unsupported) {
-            return Ok(());
-        }
-        return Err(anyhow::anyhow!("install send: {err:?}"));
-    }
-    let response = match client.recv(Wait::Blocking) {
-        Ok(bytes) => bytes,
-        Err(nexus_ipc::IpcError::Unsupported) => return Ok(()),
-        Err(err) => return Err(anyhow::anyhow!("install recv: {err:?}")),
-    };
+    client
+        .send(&frame, Wait::Blocking)
+        .map_err(|err| anyhow::anyhow!("install send: {err:?}"))?;
+    let response = client
+        .recv(Wait::Blocking)
+        .map_err(|err| anyhow::anyhow!("install recv: {err:?}"))?;
 
     let (opcode, payload) =
         response.split_first().ok_or_else(|| anyhow::anyhow!("install response empty"))?;
@@ -176,32 +169,25 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
 fn verify_vfs_paths() -> anyhow::Result<()> {
     // Route IPC to VFS dispatcher
     nexus_ipc::set_default_target("vfsd");
-    let client = match VfsClient::new() {
-        Ok(client) => client,
-        Err(nexus_vfs::Error::Unsupported) => {
-            // Simulate expected VFS markers when the backend is not yet wired
-            println!("SELFTEST: vfs stat ok");
-            println!("SELFTEST: vfs read ok");
-            println!("SELFTEST: vfs ebadf ok");
-            return Ok(());
-        }
-        Err(err) => return Err(anyhow::anyhow!("vfs client init: {err}")),
-    };
+    let client = VfsClient::new().map_err(|err| anyhow::anyhow!("vfs client init: {err}"))?;
 
     let meta = client
-        .stat("pkg:/demo.hello/manifest.toml")
-        .map_err(|err| anyhow::anyhow!("vfs stat manifest: {err}"))?;
+        .stat("pkg:/demo.hello/manifest.json")
+        .map_err(|err| anyhow::anyhow!("vfs stat manifest.json: {err}"))?;
     if meta.size() == 0 {
-        anyhow::bail!("manifest size reported as zero");
+        anyhow::bail!("manifest.json size reported as zero");
     }
     println!("SELFTEST: vfs stat ok");
 
     let fh = client
         .open("pkg:/demo.hello/payload.elf")
         .map_err(|err| anyhow::anyhow!("vfs open payload: {err}"))?;
-    let _ = client
+    let bytes = client
         .read(fh, 0, 64)
         .map_err(|err| anyhow::anyhow!("vfs read payload: {err}"))?;
+    if bytes.is_empty() {
+        anyhow::bail!("vfs read payload returned empty buffer");
+    }
     println!("SELFTEST: vfs read ok");
 
     client
