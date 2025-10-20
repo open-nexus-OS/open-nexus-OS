@@ -1,38 +1,18 @@
-// Copyright 2024 Open Nexus OS Contributors
-// SPDX-License-Identifier: Apache-2.0
-
-//! Minimal init process responsible for launching core services and emitting
-//! deterministic UART markers for the OS test harness.
-
-#![forbid(unsafe_code)]
-#![deny(clippy::all, missing_docs)]
-#![allow(unexpected_cfgs)]
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
 use serde::Deserialize;
 use thiserror::Error;
 
-#[cfg(nexus_env = "host")]
 use capnp::message::{Builder, HeapAllocator, ReaderOptions};
-#[cfg(nexus_env = "host")]
 use capnp::serialize;
-#[cfg(nexus_env = "host")]
 use nexus_idl_runtime::bundlemgr_capnp::{query_request, query_response};
-#[cfg(nexus_env = "host")]
 use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
-#[cfg(nexus_env = "host")]
 use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
-#[cfg(nexus_env = "host")]
 use nexus_ipc::{Client, Wait};
-#[cfg(nexus_env = "host")]
 use std::io::Cursor;
-
-use nexus_init::touch_schemas;
-use nexus_init::{service_main_loop, ReadyNotifier};
+use std::process::ExitCode;
 
 const CORE_SERVICES: [&str; 7] = [
     "keystored",
@@ -44,13 +24,6 @@ const CORE_SERVICES: [&str; 7] = [
     "execd",
 ];
 
-fn core_restart_policy(name: &str) -> &'static str {
-    match name {
-        "keystored" | "policyd" | "samgrd" | "bundlemgrd" | "execd" => "always",
-        _ => "never",
-    }
-}
-
 #[cfg(nexus_env = "host")]
 const BUNDLE_OPCODE_QUERY: u8 = 2;
 #[cfg(nexus_env = "host")]
@@ -58,24 +31,39 @@ const POLICY_OPCODE_CHECK: u8 = 1;
 #[cfg(nexus_env = "host")]
 const EXEC_OPCODE_EXEC: u8 = 1;
 
-fn main() -> ! {
-    #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
-    touch_schemas();
-    if let Err(err) = service_main_loop(ReadyNotifier::new(|| ())) {
-        eprintln!("init: fatal error: {err}");
+pub fn touch_schemas() {
+    bundlemgrd::touch_schemas();
+    execd::touch_schemas();
+    packagefsd::touch_schemas();
+    vfsd::touch_schemas();
+    policyd::touch_schemas();
+}
+
+pub struct ReadyNotifier(Box<dyn FnOnce() + Send>);
+
+impl ReadyNotifier {
+    pub fn new<F>(func: F) -> Self
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        Self(Box::new(func))
     }
-    loop {
-        core::hint::spin_loop();
+
+    pub fn notify(self) {
+        (self.0)();
     }
 }
 
-fn run() -> Result<(), InitError> {
+pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), InitError> {
+    run(Some(notifier))
+}
+
+fn run(notifier: Option<ReadyNotifier>) -> Result<(), InitError> {
     println!("init: start");
     let mut catalog = ServiceCatalog::load(Path::new("recipes/services"))?;
     catalog.ensure_core_defaults();
 
     let mut handles = Vec::new();
-    #[cfg(nexus_env = "host")]
     let mut service_clients: HashMap<String, nexus_ipc::LoopbackClient> = HashMap::new();
     for name in CORE_SERVICES {
         let policy = core_restart_policy(name);
@@ -86,7 +74,6 @@ fn run() -> Result<(), InitError> {
             .ok_or_else(|| InitError::MissingService(name.to_string()))?;
         let mut handle = runtime::spawn_service(&config)?;
         handle.wait_ready()?;
-        #[cfg(nexus_env = "host")]
         if let Some(client) = handle.take_endpoint() {
             service_clients.insert(name.to_string(), client);
         }
@@ -94,14 +81,10 @@ fn run() -> Result<(), InitError> {
         handles.push(handle);
     }
 
-    #[cfg(nexus_env = "host")]
     let bundle_client = service_clients.remove("bundlemgrd").map(BundleManagerClient::new);
-    #[cfg(nexus_env = "host")]
     let policy_client = service_clients.remove("policyd").map(PolicyClient::new);
-    #[cfg(nexus_env = "host")]
     let exec_client = service_clients.remove("execd").map(ExecClient::new);
 
-    #[cfg(nexus_env = "host")]
     {
         let bundle_client = bundle_client
             .as_ref()
@@ -117,7 +100,17 @@ fn run() -> Result<(), InitError> {
     }
 
     println!("init: ready");
+    if let Some(notifier) = notifier {
+        notifier.notify();
+    }
     runtime::idle(handles)
+}
+
+fn core_restart_policy(name: &str) -> &'static str {
+    match name {
+        "keystored" | "policyd" | "samgrd" | "bundlemgrd" | "execd" => "always",
+        _ => "never",
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -195,18 +188,15 @@ impl ServiceCatalog {
     }
 }
 
-#[cfg(nexus_env = "host")]
 struct BundleManagerClient {
     client: nexus_ipc::LoopbackClient,
 }
 
-#[cfg(nexus_env = "host")]
 struct BundleQuery {
     installed: bool,
     caps: Vec<String>,
 }
 
-#[cfg(nexus_env = "host")]
 impl BundleManagerClient {
     fn new(client: nexus_ipc::LoopbackClient) -> Self {
         Self { client }
@@ -256,18 +246,15 @@ impl BundleManagerClient {
     }
 }
 
-#[cfg(nexus_env = "host")]
 struct PolicyClient {
     client: nexus_ipc::LoopbackClient,
 }
 
-#[cfg(nexus_env = "host")]
 enum PolicyOutcome {
     Allowed,
     Denied(Vec<String>),
 }
 
-#[cfg(nexus_env = "host")]
 impl PolicyClient {
     fn new(client: nexus_ipc::LoopbackClient) -> Self {
         Self { client }
@@ -325,12 +312,10 @@ impl PolicyClient {
     }
 }
 
-#[cfg(nexus_env = "host")]
 struct ExecClient {
     client: nexus_ipc::LoopbackClient,
 }
 
-#[cfg(nexus_env = "host")]
 impl ExecClient {
     fn new(client: nexus_ipc::LoopbackClient) -> Self {
         Self { client }
@@ -366,13 +351,12 @@ impl ExecClient {
             Ok(())
         } else {
             let detail =
-                reader.get_message().ok().and_then(|m| m.to_str().ok()).unwrap_or("").to_string();
+                reader.get_message().ok().and_then(|m| m.to_str().ok()).unwrap_or("".into());
             Err(service_error("execd", detail))
         }
     }
 }
 
-#[cfg(nexus_env = "host")]
 fn enforce_and_launch(
     name: &str,
     bundle: &BundleManagerClient,
@@ -400,7 +384,6 @@ fn enforce_and_launch(
     Ok(())
 }
 
-#[cfg(nexus_env = "host")]
 fn encode_frame(opcode: u8, message: &Builder<HeapAllocator>) -> Result<Vec<u8>, capnp::Error> {
     let mut payload = Vec::new();
     serialize::write_message(&mut payload, message)?;
@@ -414,66 +397,26 @@ fn service_error(service: &str, detail: impl Into<String>) -> InitError {
     InitError::ServiceError { service: service.to_string(), detail: detail.into() }
 }
 
-/// Error produced by the init runtime.
 #[derive(Debug, Error)]
 pub enum InitError {
-    /// Failed to access a file or directory inside the recipe tree.
     #[error("failed to access {path}: {source}")]
-    Io {
-        /// Location associated with the error.
-        path: PathBuf,
-        /// Underlying operating system error.
-        source: std::io::Error,
-    },
-    /// TOML parsing failed for a service recipe.
+    Io { path: PathBuf, source: std::io::Error },
     #[error("failed to parse service recipe {path}: {source}")]
-    Parse {
-        /// Location of the malformed recipe file.
-        path: PathBuf,
-        /// Error returned by the TOML deserializer.
-        source: toml::de::Error,
-    },
-    /// Recipe was missing mandatory metadata.
+    Parse { path: PathBuf, source: toml::de::Error },
     #[error("invalid service recipe {path}: {reason}")]
-    InvalidRecipe {
-        /// Location of the malformed recipe file.
-        path: PathBuf,
-        /// Human readable description of the issue.
-        reason: String,
-    },
-    /// Encountered the same service name multiple times while loading recipes.
+    InvalidRecipe { path: PathBuf, reason: String },
     #[error("duplicate service definition for {0}")]
     DuplicateService(String),
-    /// Spawning the service thread failed.
     #[error("service {name} spawn failed: {source}")]
-    Spawn {
-        /// Logical service name.
-        name: String,
-        /// Reason reported by the thread builder.
-        source: std::io::Error,
-    },
-    /// Configuration referenced a service that could not be located.
+    Spawn { name: String, source: std::io::Error },
     #[error("service {0} missing from catalog")]
     MissingService(String),
-    /// Service failed to report readiness and terminated early.
     #[error("service {0} failed during startup")]
     ServiceFailed(String),
-    /// Service reported a fatal runtime error.
     #[error("service {service} error: {detail}")]
-    ServiceError {
-        /// Name of the failing service.
-        service: String,
-        /// Human readable details from the daemon.
-        detail: String,
-    },
-    /// Recipe referenced an entry point that is not supported yet.
+    ServiceError { service: String, detail: String },
     #[error("service {service} references unsupported entry {entry}")]
-    UnsupportedEntry {
-        /// Service that declared the entry.
-        service: String,
-        /// Requested entry symbol.
-        entry: String,
-    },
+    UnsupportedEntry { service: String, entry: String },
 }
 
 mod runtime {
@@ -481,10 +424,7 @@ mod runtime {
     use std::sync::mpsc::{self, Receiver, Sender};
     use std::thread;
 
-    #[cfg(nexus_env = "host")]
     type ServiceClient = nexus_ipc::LoopbackClient;
-    #[cfg(nexus_env = "os")]
-    type ServiceClient = ();
 
     pub struct ServiceHandle {
         name: String,
@@ -538,7 +478,7 @@ mod runtime {
 
     mod service_registry {
         use super::{ReadySender, ServiceConfig, ServiceStatus};
-        use crate::InitError;
+        use crate::std_server::InitError;
 
         pub fn launch(service: ServiceConfig, ready: ReadySender) {
             let ServiceConfig { name, entry } = service;
@@ -548,38 +488,23 @@ mod runtime {
                     let notifier = keystored::ReadyNotifier::new(move || {
                         let _ = ready_clone.send(ServiceStatus::Ready(None));
                     });
-                    // Stub service: report readiness and idle.
                     let _ = keystored::service_main_loop(notifier);
                 }
                 "policyd" => {
-                    #[cfg(nexus_env = "host")]
-                    {
-                        policyd::touch_schemas();
-                        let ready_clone = ready.clone();
-                        let service_name = name.clone();
-                        let (client, server) = nexus_ipc::loopback_channel();
-                        let mut transport = policyd::IpcTransport::new(server);
-                        let notifier = policyd::ReadyNotifier::new(move || {
-                            let _ = ready_clone.send(ServiceStatus::Ready(Some(client)));
-                        });
-                        if let Err(err) =
-                            policyd::run_with_transport_ready(&mut transport, notifier)
-                        {
-                            let detail = err.to_string();
-                            let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
-                                service: service_name,
-                                detail,
-                            }));
-                        }
-                    }
-
-                    #[cfg(nexus_env = "os")]
-                    {
-                        let ready_clone = ready.clone();
-                        let notifier = policyd::ReadyNotifier::new(move || {
-                            let _ = ready_clone.send(ServiceStatus::Ready(None));
-                        });
-                        let _ = policyd::service_main_loop(notifier);
+                    policyd::touch_schemas();
+                    let ready_clone = ready.clone();
+                    let service_name = name.clone();
+                    let (client, server) = nexus_ipc::loopback_channel();
+                    let mut transport = policyd::IpcTransport::new(server);
+                    let notifier = policyd::ReadyNotifier::new(move || {
+                        let _ = ready_clone.send(ServiceStatus::Ready(Some(client)));
+                    });
+                    if let Err(err) = policyd::run_with_transport_ready(&mut transport, notifier) {
+                        let detail = err.to_string();
+                        let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
+                            service: service_name,
+                            detail,
+                        }));
                     }
                 }
                 "samgrd" => {
@@ -596,124 +521,70 @@ mod runtime {
                     }
                 }
                 "bundlemgrd" => {
-                    #[cfg(nexus_env = "host")]
-                    {
-                        bundlemgrd::touch_schemas();
-                        let ready_clone = ready.clone();
-                        let service_name = name.clone();
-                        let artifacts = bundlemgrd::ArtifactStore::new();
-                        let (bundle_client, bundle_server) = nexus_ipc::loopback_channel();
-                        let (keystore_client, keystore_server) = nexus_ipc::loopback_channel();
-                        std::thread::spawn(move || {
-                            let mut ks_transport = keystored::IpcTransport::new(keystore_server);
-                            let _ =
-                                keystored::run_with_transport_default_anchors(&mut ks_transport);
-                        });
-                        let mut transport = bundlemgrd::IpcTransport::new(bundle_server);
-                        let keystore =
-                            Some(bundlemgrd::KeystoreHandle::from_loopback(keystore_client));
-                        let notifier = bundlemgrd::ReadyNotifier::new(move || {
-                            // Daemon prints its own readiness marker
-                            let _ = ready_clone.send(ServiceStatus::Ready(Some(bundle_client)));
-                        });
-                        // Emit readiness before entering the service loop
-                        notifier.notify();
-                        if let Err(err) = bundlemgrd::run_with_transport(
-                            &mut transport,
-                            artifacts,
-                            keystore,
-                            None,
-                        )
-                        {
-                            let detail = err.to_string();
-                            let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
-                                service: service_name,
-                                detail,
-                            }));
-                        }
-                    }
-
-                    #[cfg(nexus_env = "os")]
-                    {
-                        // OS: set default IPC target and run service
-                        nexus_ipc::set_default_target("bundlemgrd");
-                        let ready_clone = ready.clone();
-                        let notifier = bundlemgrd::ReadyNotifier::new(move || {
-                            // Daemon prints its own readiness marker
-                            let _ = ready_clone.send(ServiceStatus::Ready(None));
-                        });
-                        let artifacts = bundlemgrd::ArtifactStore::new();
-                        bundlemgrd::register_artifact_store(&artifacts);
-                        if let Err(err) = bundlemgrd::service_main_loop(notifier, artifacts) {
-                            let detail = err.to_string();
-                            let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
-                                service: name,
-                                detail,
-                            }));
-                        }
+                    bundlemgrd::touch_schemas();
+                    let ready_clone = ready.clone();
+                    let service_name = name.clone();
+                    let artifacts = bundlemgrd::ArtifactStore::new();
+                    let (bundle_client, bundle_server) = nexus_ipc::loopback_channel();
+                    let (keystore_client, keystore_server) = nexus_ipc::loopback_channel();
+                    std::thread::spawn(move || {
+                        let mut ks_transport = keystored::IpcTransport::new(keystore_server);
+                        let _ = keystored::run_with_transport_default_anchors(&mut ks_transport);
+                    });
+                    let mut transport = bundlemgrd::IpcTransport::new(bundle_server);
+                    let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(keystore_client));
+                    let notifier = bundlemgrd::ReadyNotifier::new(move || {
+                        let _ = ready_clone.send(ServiceStatus::Ready(Some(bundle_client)));
+                    });
+                    notifier.notify();
+                    if let Err(err) = bundlemgrd::run_with_transport(
+                        &mut transport,
+                        artifacts,
+                        keystore,
+                        None,
+                    ) {
+                        let detail = err.to_string();
+                        let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
+                            service: service_name,
+                            detail,
+                        }));
                     }
                 }
                 "packagefsd" => {
-                    // OS: set default target and start service
-                    #[cfg(nexus_env = "os")]
                     nexus_ipc::set_default_target("packagefsd");
                     let ready_clone = ready.clone();
                     let notifier = packagefsd::ReadyNotifier::new(move || {
-                        // The daemon prints its own readiness marker
                         let _ = ready_clone.send(ServiceStatus::Ready(None));
                     });
                     let _ = packagefsd::service_main_loop(notifier);
                 }
                 "vfsd" => {
-                    // OS: set default target and start service
-                    #[cfg(nexus_env = "os")]
                     nexus_ipc::set_default_target("vfsd");
                     let ready_clone = ready.clone();
                     let notifier = vfsd::ReadyNotifier::new(move || {
-                        // The daemon prints its own readiness marker
                         let _ = ready_clone.send(ServiceStatus::Ready(None));
                     });
                     let _ = vfsd::service_main_loop(notifier);
                 }
                 "execd" => {
-                    #[cfg(nexus_env = "host")]
-                    {
-                        execd::touch_schemas();
-                        let ready_clone = ready.clone();
-                        let service_name = name.clone();
-                        let (client, server) = nexus_ipc::loopback_channel();
-                        let mut transport = execd::IpcTransport::new(server);
-                        let notifier = execd::ReadyNotifier::new(move || {
-                            let _ = ready_clone.send(ServiceStatus::Ready(Some(client)));
-                        });
-                        if let Err(err) = execd::run_with_transport_ready(&mut transport, notifier)
-                        {
-                            let detail = err.to_string();
-                            let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
-                                service: service_name,
-                                detail,
-                            }));
-                        }
-                    }
-
-                    #[cfg(nexus_env = "os")]
-                    {
-                        let ready_clone = ready.clone();
-                        let notifier = execd::ReadyNotifier::new(move || {
-                            let _ = ready_clone.send(ServiceStatus::Ready(None));
-                        });
-                        if let Err(err) = execd::service_main_loop(notifier) {
-                            let detail = err.to_string();
-                            let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
-                                service: name,
-                                detail,
-                            }));
-                        }
+                    execd::touch_schemas();
+                    let ready_clone = ready.clone();
+                    let service_name = name.clone();
+                    let (client, server) = nexus_ipc::loopback_channel();
+                    let mut transport = execd::IpcTransport::new(server);
+                    let notifier = execd::ReadyNotifier::new(move || {
+                        let _ = ready_clone.send(ServiceStatus::Ready(Some(client)));
+                    });
+                    if let Err(err) = execd::run_with_transport_ready(&mut transport, notifier) {
+                        let detail = err.to_string();
+                        let _ = ready.send(ServiceStatus::Failed(InitError::ServiceError {
+                            service: service_name,
+                            detail,
+                        }));
                     }
                 }
                 other => {
-                    let err =
-                        InitError::UnsupportedEntry { service: name, entry: other.to_string() };
+                    let err = InitError::UnsupportedEntry { service: name, entry: other.to_string() };
                     let _ = ready.send(ServiceStatus::Failed(err));
                 }
             }
