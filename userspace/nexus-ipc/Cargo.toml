@@ -5,6 +5,10 @@ edition = "2021"
 license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
+[features]
+default = []
+os-lite = []
+
 [dependencies]
 nexus-abi = { path = "../../source/libs/nexus-abi" }
 parking_lot = "0.12"

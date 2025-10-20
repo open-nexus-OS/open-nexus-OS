@@ -7,12 +7,18 @@ license = "Apache-2.0"
 [features]
 default = ["idl-capnp"]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+os-lite = []
 
 [dependencies]
 capnp = { version = "0.19", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-nexus-ipc = { path = "../../../userspace/nexus-ipc" }
-parking_lot = "0.12"
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite"] }
+parking_lot = { version = "0.12", optional = true }
+thiserror = { version = "1", default-features = false, features = ["std"] }
+log = { version = "0.4", optional = true }
+
+[target.'cfg(not(all(nexus_env = "os", feature = "os-lite")))'.dependencies]
+parking_lot = { version = "0.12" }
 thiserror = "1"
 log = "0.4"
 

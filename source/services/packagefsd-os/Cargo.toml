@@ -1,0 +1,10 @@
+[package]
+name = "packagefsd-os"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nexus-abi = { path = "../../../source/libs/nexus-abi" }
+nexus-ipc = { path = "../../../userspace/nexus-ipc" }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
+os-mailbox-lite = { path = "../../../userspace/os-mailbox-lite" }

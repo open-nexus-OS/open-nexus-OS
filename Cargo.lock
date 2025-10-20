@@ -1215,6 +1215,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
+name = "os-mailbox-lite"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+]
+
+[[package]]
 name = "packagefsd"
 version = "0.1.0"
 dependencies = [
@@ -1224,6 +1231,16 @@ dependencies = [
  "nexus-ipc",
  "parking_lot",
  "thiserror",
+]
+
+[[package]]
+name = "packagefsd-os"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "os-mailbox-lite",
 ]
 
 [[package]]
@@ -1724,10 +1741,15 @@ dependencies = [
  "demo-exit0",
  "exec-payloads",
  "execd",
+ "keystored",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-vfs",
+ "packagefsd-os",
  "policy",
+ "policyd",
+ "samgrd",
+ "vfsd-os",
 ]
 
 [[package]]
@@ -2124,6 +2146,16 @@ dependencies = [
  "nexus-packagefs",
  "parking_lot",
  "thiserror",
+]
+
+[[package]]
+name = "vfsd-os"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "os-mailbox-lite",
 ]
 
 [[package]]

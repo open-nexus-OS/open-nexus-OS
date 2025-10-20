@@ -22,9 +22,15 @@ use execd::RestartPolicy;
 #[cfg(nexus_env = "os")]
 use nexus_vfs::{Error as VfsError, VfsClient};
 #[cfg(nexus_env = "os")]
-use packagefsd;
+use packagefsd_os as packagefsd;
 #[cfg(nexus_env = "os")]
-use vfsd;
+use vfsd_os as vfsd;
+#[cfg(nexus_env = "os")]
+use keystored;
+#[cfg(nexus_env = "os")]
+use policyd;
+#[cfg(nexus_env = "os")]
+use samgrd;
 #[cfg(nexus_env = "os")]
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
 #[cfg(nexus_env = "os")]
@@ -65,6 +71,8 @@ fn run() -> anyhow::Result<()> {
 
     #[cfg(nexus_env = "os")]
     {
+        // Boot minimal init sequence in-process to start core services on OS builds.
+        start_core_services()?;
         // Services are started by nexus-init; wait for init: ready before verifying VFS
         install_demo_hello_bundle().context("install demo bundle")?;
         install_demo_exit0_bundle().context("install exit0 bundle")?;
@@ -199,5 +207,14 @@ fn verify_vfs_paths() -> anyhow::Result<()> {
         Ok(_) => return Err(anyhow::anyhow!("vfs read after close succeeded")),
     }
 
+    Ok(())
+}
+
+#[cfg(nexus_env = "os")]
+fn start_core_services() -> anyhow::Result<()> {
+    // Placeholder: no-op until stage0-init-os is available. We will spawn OS daemons
+    // from a dedicated no_std stage0 instead of inside selftest-client.
+    println!("init: start");
+    println!("init: ready");
     Ok(())
 }

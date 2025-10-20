@@ -5,16 +5,25 @@
 //!
 //! The host backend uses in-process channels to emulate kernel IPC and allows
 //! unit tests to execute Cap'n Proto request/response cycles without booting
-//! the full system. The OS backend delegates to the [`nexus-abi`] syscall
-//! wrappers and will be wired to the kernel in subsequent commits.
+//! the full system. The OS backend delegates to either the standard runtime or
+//! a cooperative "os-lite" mailbox transport depending on the enabled
+//! features.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+extern crate alloc;
+
 use core::time::Duration;
 
 use thiserror::Error;
+
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+use alloc::vec::Vec;
+#[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+use std::vec::Vec;
 
 /// Result type returned by IPC operations.
 pub type Result<T> = core::result::Result<T, IpcError>;
@@ -94,7 +103,13 @@ mod host;
 #[cfg(nexus_env = "host")]
 pub use host::{loopback_channel, LoopbackClient, LoopbackServer};
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
 mod os;
-#[cfg(nexus_env = "os")]
-pub use os::{KernelClient, KernelServer};
+#[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
+pub use os::{set_default_target, KernelClient, KernelServer};
+
+// no_std OS-lite backend (OpenHarmony LiteIPC-like), enabled via feature flag
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod os_lite;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub use os_lite::{LiteClient as KernelClient, LiteServer as KernelServer, set_default_target};
