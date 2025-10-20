@@ -294,7 +294,8 @@ pub fn kmain() -> ! {
         )))]
         selftest::entry(&mut ctx);
         // Userspace acceptance markers are emitted by daemons and selftest-client.
-        // Kernel success marker for kernel-only runs (used by harness fallback).
+        // Kernel marker is available for developer builds when explicitly requested.
+        #[cfg(nexus_dev_kernel_markers)]
         log_info!(target: "boot", "I: after selftest");
     }
     #[cfg(feature = "boot_timing")]
