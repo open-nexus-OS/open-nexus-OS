@@ -2,41 +2,49 @@
 
 use nexus_abi::yield_;
 
+/// Callback invoked when the cooperative bootstrap has reached a stable state.
 pub struct ReadyNotifier<F: FnOnce() + Send>(F);
 
 impl<F: FnOnce() + Send> ReadyNotifier<F> {
+    /// Create a new notifier from the supplied closure.
     pub fn new(func: F) -> Self {
         Self(func)
     }
 
+    /// Execute the wrapped callback.
     pub fn notify(self) {
         (self.0)();
     }
 }
 
+/// Placeholder error type used by the os-lite backend.
 #[derive(Debug)]
 pub enum InitError {}
 
+/// No-op for parity with the std backend which warms schema caches.
 pub fn touch_schemas() {}
 
+/// Sequential bootstrap loop that emits stage0-compatible UART markers and
+/// cooperatively yields control back to the scheduler.
 pub fn service_main_loop<F>(notifier: ReadyNotifier<F>) -> Result<(), InitError>
 where
     F: FnOnce() + Send,
 {
-    println("init: start\n");
+    emit_line("init: start");
     notifier.notify();
-    println("init: ready\n");
+    emit_line("init: ready");
     loop {
         let _ = yield_();
     }
 }
 
-fn println(s: &str) {
+fn emit_line(message: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     {
-        for b in s.as_bytes() {
+        for b in message.as_bytes() {
             uart_write_byte(*b);
         }
+        uart_write_byte(b'\n');
     }
 }
 

@@ -31,6 +31,8 @@ const POLICY_OPCODE_CHECK: u8 = 1;
 #[cfg(nexus_env = "host")]
 const EXEC_OPCODE_EXEC: u8 = 1;
 
+/// Touch schema registries for host builds so the runtime can serve
+/// serialization requests without additional disk I/O during boot.
 pub fn touch_schemas() {
     bundlemgrd::touch_schemas();
     execd::touch_schemas();
@@ -39,9 +41,11 @@ pub fn touch_schemas() {
     policyd::touch_schemas();
 }
 
+/// Callback invoked once all supervised services reach their ready markers.
 pub struct ReadyNotifier(Box<dyn FnOnce() + Send>);
 
 impl ReadyNotifier {
+    /// Create a new notifier from the supplied closure.
     pub fn new<F>(func: F) -> Self
     where
         F: FnOnce() + Send + 'static,
@@ -49,11 +53,13 @@ impl ReadyNotifier {
         Self(Box::new(func))
     }
 
+    /// Execute the wrapped callback.
     pub fn notify(self) {
         (self.0)();
     }
 }
 
+/// Run the init supervisor and block until all core services are spawned.
 pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), InitError> {
     run(Some(notifier))
 }
@@ -397,26 +403,66 @@ fn service_error(service: &str, detail: impl Into<String>) -> InitError {
     InitError::ServiceError { service: service.to_string(), detail: detail.into() }
 }
 
+/// Error produced by the init runtime while supervising services.
 #[derive(Debug, Error)]
 pub enum InitError {
+    /// Failed to access a file or directory inside the recipe tree.
     #[error("failed to access {path}: {source}")]
-    Io { path: PathBuf, source: std::io::Error },
+    Io {
+        /// Location associated with the error.
+        path: PathBuf,
+        /// Underlying operating system error.
+        source: std::io::Error,
+    },
+    /// TOML parsing failed for a service recipe.
     #[error("failed to parse service recipe {path}: {source}")]
-    Parse { path: PathBuf, source: toml::de::Error },
+    Parse {
+        /// Location of the malformed recipe file.
+        path: PathBuf,
+        /// Error returned by the TOML deserializer.
+        source: toml::de::Error,
+    },
+    /// Recipe was missing mandatory metadata.
     #[error("invalid service recipe {path}: {reason}")]
-    InvalidRecipe { path: PathBuf, reason: String },
+    InvalidRecipe {
+        /// Location of the malformed recipe file.
+        path: PathBuf,
+        /// Human readable description of the issue.
+        reason: String,
+    },
+    /// Encountered the same service name multiple times while loading recipes.
     #[error("duplicate service definition for {0}")]
     DuplicateService(String),
+    /// Spawning the service thread failed.
     #[error("service {name} spawn failed: {source}")]
-    Spawn { name: String, source: std::io::Error },
+    Spawn {
+        /// Logical service name.
+        name: String,
+        /// Reason reported by the thread builder.
+        source: std::io::Error,
+    },
+    /// Configuration referenced a service that could not be located.
     #[error("service {0} missing from catalog")]
     MissingService(String),
+    /// Service failed to report readiness and terminated early.
     #[error("service {0} failed during startup")]
     ServiceFailed(String),
+    /// Service reported a fatal runtime error.
     #[error("service {service} error: {detail}")]
-    ServiceError { service: String, detail: String },
+    ServiceError {
+        /// Name of the failing service.
+        service: String,
+        /// Human readable details from the daemon.
+        detail: String,
+    },
+    /// Recipe referenced an entry point that is not supported yet.
     #[error("service {service} references unsupported entry {entry}")]
-    UnsupportedEntry { service: String, entry: String },
+    UnsupportedEntry {
+        /// Service that declared the entry.
+        service: String,
+        /// Requested entry symbol.
+        entry: String,
+    },
 }
 
 mod runtime {
