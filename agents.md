@@ -70,19 +70,29 @@ Do not change these without updating scripts, postflight tooling, and docs in th
    trampoline. `SpawnHandle` now retains those allocations for future teardown
    work, and the next increments will focus on refining capability rights per
    service.
-4. Stage 4 introduces capability hygiene for the os-lite bootstrap: bootstrap
-   slots are leased per spawn and relinquished immediately after the child
-   takes ownership, `cap_transfer` calls use the minimum rights mask, and the
-   init loop performs an explicit teardown pass so stack/address-space handles
-   are dropped once readiness is observed. Teardown should explicitly attempt
-   to close the parent's bootstrap slot and destroy stack/address-space VMOs
-   (gracefully tolerating `Unsupported`/`InvalidSyscall` until the kernel
-   grows the corresponding hooks) so init stops retaining those handles once
-   services report ready. The os-lite ABI now exposes `cap_close`,
-   `as_destroy`, and `vmo_destroy` wrappers so init can issue the drops even if
-   the kernel stubs them out today.
+4. Stage 4 locks down bootstrap capability hygiene for the os-lite path:
+   init closes its copy of slot `0` immediately after `cap_transfer` succeeds,
+   each transfer uses the narrow `Rights::SEND` mask, and the bootstrap loop
+   queues every `SpawnHandle` for a teardown pass that destroys the parent
+   address-space and stack handles once readiness fires. The teardown helper
+   tolerates `Unsupported`/`InvalidSyscall`/`CapabilityDenied` results so the
+   cleanup remains idempotent while kernel hooks land. These changes ensure the
+   parent no longer retains bootstrap rights or leaked VMOs after Stage 3.
 5. Once the os-lite runtime reaches parity, flip the boot image to launch it
    instead of the old stage0 shim.
+
+---
+
+## Stage 4 (capability hygiene & teardown)
+
+- After transferring the bootstrap capability (slot 0) into each service with
+  SEND rights, init relinquishes its own reference and later calls
+  `cap_close(0)` to drop any lingering parent ref.
+- Each spawned service retains a `SpawnHandle` whose Drop releases the stack
+  VMO and destroys the address space (`as_destroy`) when available on the
+  target. Unsupported/denied results are tolerated and logged as warnings.
+- At the end of the bootstrap sequence, `teardown_services` drops all retained
+  `SpawnHandle`s and calls the bootstrap-cap release helper before `init: ready`.
 
 ---
 

@@ -613,7 +613,7 @@ fn teardown_services(handles: Vec<SpawnHandle>) {
 
 fn release_bootstrap_capability() {
     if let Err(err) = nexus_abi::cap_close(BOOTSTRAP_SLOT) {
-        if !matches!(err, AbiError::InvalidSyscall | AbiError::Unsupported) {
+        if !matches!(err, AbiError::InvalidSyscall | AbiError::Unsupported | AbiError::CapabilityDenied) {
             emit_line(&format!("init: warn bootstrap drop failed: {:?}", err));
         }
     }
@@ -751,6 +751,8 @@ where
     }
     let _ = yield_();
 
+    // Release parent's references to per-service resources and bootstrap slot.
+    teardown_services(spawned);
     notifier.notify();
     emit_line("init: ready");
 
