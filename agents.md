@@ -68,7 +68,18 @@ Do not change these without updating scripts, postflight tooling, and docs in th
    trampoline. `SpawnHandle` now retains those allocations for future teardown
    work, and the next increments will focus on refining capability rights per
    service.
-4. Once the os-lite runtime reaches parity, flip the boot image to launch it
+4. Stage 4 introduces capability hygiene for the os-lite bootstrap: bootstrap
+   slots are leased per spawn and relinquished immediately after the child
+   takes ownership, `cap_transfer` calls use the minimum rights mask, and the
+   init loop performs an explicit teardown pass so stack/address-space handles
+   are dropped once readiness is observed. Teardown should explicitly attempt
+   to close the parent's bootstrap slot and destroy stack/address-space VMOs
+   (gracefully tolerating `Unsupported`/`InvalidSyscall` until the kernel
+   grows the corresponding hooks) so init stops retaining those handles once
+   services report ready. The os-lite ABI now exposes `cap_close`,
+   `as_destroy`, and `vmo_destroy` wrappers so init can issue the drops even if
+   the kernel stubs them out today.
+5. Once the os-lite runtime reaches parity, flip the boot image to launch it
    instead of the old stage0 shim.
 
 ---

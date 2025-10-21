@@ -154,6 +154,59 @@ const PROT_WRITE: u32 = 1 << 1;
 const MAP_FLAG_USER: u32 = 1 << 0;
 const BOOTSTRAP_SLOT: u32 = 0;
 
+struct BootstrapSlotState {
+    slot: u32,
+    in_use: SpinLock<bool>,
+}
+
+impl BootstrapSlotState {
+    const fn new(slot: u32) -> Self {
+        Self { slot, in_use: SpinLock::new(false) }
+    }
+
+    fn claim(&self) -> Result<BootstrapLease<'_>, SpawnError> {
+        let mut guard = self.in_use.lock();
+        if *guard {
+            return Err(SpawnError::BootstrapBusy);
+        }
+        *guard = true;
+        Ok(BootstrapLease { state: self, released: false })
+    }
+
+    fn release(&self) {
+        let mut guard = self.in_use.lock();
+        *guard = false;
+    }
+}
+
+struct BootstrapLease<'a> {
+    state: &'a BootstrapSlotState,
+    released: bool,
+}
+
+impl<'a> BootstrapLease<'a> {
+    fn slot(&self) -> u32 {
+        self.state.slot
+    }
+
+    fn relinquish(mut self) {
+        if !self.released {
+            self.state.release();
+            self.released = true;
+        }
+    }
+}
+
+impl Drop for BootstrapLease<'_> {
+    fn drop(&mut self) {
+        if !self.released {
+            self.state.release();
+        }
+    }
+}
+
+static BOOTSTRAP_SLOT_STATE: BootstrapSlotState = BootstrapSlotState::new(BOOTSTRAP_SLOT);
+
 type ServiceRunner = fn() -> Result<(), ServiceError>;
 
 struct ServiceMetadata {
@@ -252,7 +305,7 @@ impl Drop for RuntimeRegistration {
 struct StackMapping {
     base: u64,
     len: u64,
-    _vmo: nexus_abi::Handle,
+    vmo: Option<nexus_abi::Handle>,
 }
 
 impl StackMapping {
@@ -277,11 +330,31 @@ impl StackMapping {
         )
         .map_err(SpawnError::StackMap)?;
 
-        Ok(Self { base, len: aligned, _vmo: vmo })
+        Ok(Self { base, len: aligned, vmo: Some(vmo) })
     }
 
     fn stack_top(&self) -> u64 {
         self.base + self.len
+    }
+
+    fn release(&mut self) {
+        // Drop the parent's reference to the stack VMO. The underlying kernel object
+        // stays mapped in the child task. Once kernel-side destruction hooks land, the
+        // `vmo_destroy` syscall will also tear down the allocation. Until then we
+        // ignore unsupported/invalid-syscall errors so the teardown path remains
+        // idempotent.
+        if let Some(vmo) = self.vmo.take() {
+            if let Err(err) = nexus_abi::vmo_destroy(vmo) {
+                if !matches!(err, AbiError::InvalidSyscall | AbiError::Unsupported) {
+                    emit_line(&format!(
+                        "init: warn stack vmo destroy failed: {:?}",
+                        err
+                    ));
+                }
+            }
+        }
+        self.base = 0;
+        self.len = 0;
     }
 }
 
@@ -326,18 +399,27 @@ fn align_stack_len(size: usize) -> Result<u64, SpawnError> {
 #[derive(Debug)]
 pub struct SpawnHandle {
     pid: nexus_abi::Pid,
-    address_space: nexus_abi::AsHandle,
+    address_space: Option<nexus_abi::AsHandle>,
     stack: StackMapping,
 }
 
 impl SpawnHandle {
     fn new(pid: nexus_abi::Pid, address_space: nexus_abi::AsHandle, stack: StackMapping) -> Self {
-        Self { pid, address_space, stack }
+        Self { pid, address_space: Some(address_space), stack }
     }
 
     #[allow(dead_code)]
     fn pid(&self) -> nexus_abi::Pid {
         self.pid
+    }
+}
+
+impl Drop for SpawnHandle {
+    fn drop(&mut self) {
+        self.stack.release();
+        if let Some(handle) = self.address_space.take() {
+            release_address_space(handle);
+        }
     }
 }
 
@@ -351,6 +433,7 @@ enum SpawnError {
     CapTransfer(nexus_abi::AbiError),
     Yield(nexus_abi::AbiError),
     ServiceFailed,
+    BootstrapBusy,
 }
 
 impl fmt::Display for SpawnError {
@@ -364,6 +447,7 @@ impl fmt::Display for SpawnError {
             Self::StackVmo(err) => write!(f, "stack allocation failed: {err:?}"),
             Self::StackMap(err) => write!(f, "stack map failed: {err:?}"),
             Self::ServiceFailed => write!(f, "service exited before readiness"),
+            Self::BootstrapBusy => write!(f, "bootstrap slot busy"),
         }
     }
 }
@@ -371,6 +455,7 @@ impl fmt::Display for SpawnError {
 fn spawn_service(metadata: &ServiceMetadata) -> Result<SpawnHandle, SpawnError> {
     set_default_target(metadata.target);
 
+    let bootstrap = BOOTSTRAP_SLOT_STATE.claim()?;
     let stack_size = metadata.stack_size.unwrap_or(DEFAULT_STACK_SIZE);
     let address_space = AddressSpaceLease::new(stack_size)?;
     let align_mask = (STACK_ALIGN as u64).saturating_sub(1);
@@ -380,7 +465,7 @@ fn spawn_service(metadata: &ServiceMetadata) -> Result<SpawnHandle, SpawnError> 
     let mut registration = RuntimeRegistration::new(runtime);
     let entry_pc = service_task_entry as usize as u64;
 
-    let pid = match nexus_abi::spawn(entry_pc, stack_sp, address_space.raw(), BOOTSTRAP_SLOT) {
+    let pid = match nexus_abi::spawn(entry_pc, stack_sp, address_space.raw(), bootstrap.slot()) {
         Ok(pid) => pid,
         Err(err) => {
             registration.release();
@@ -388,10 +473,12 @@ fn spawn_service(metadata: &ServiceMetadata) -> Result<SpawnHandle, SpawnError> 
         }
     };
 
-    if let Err(err) = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND) {
+    if let Err(err) = nexus_abi::cap_transfer(pid, bootstrap.slot(), Rights::SEND) {
         registration.release();
         return Err(SpawnError::CapTransfer(err));
     }
+
+    bootstrap.relinquish();
 
     while !SERVICE_READY.was_signaled() {
         match yield_() {
@@ -502,6 +589,27 @@ fn run_vfsd() -> Result<(), ServiceError> {
 fn run_execd() -> Result<(), ServiceError> {
     execd::service_main_loop(execd::ReadyNotifier::new(|| emit_service_ready()))
         .map_err(ServiceError::from)
+}
+
+fn release_address_space(_handle: nexus_abi::AsHandle) {
+    if let Err(err) = nexus_abi::as_destroy(_handle) {
+        if !matches!(err, AbiError::InvalidSyscall | AbiError::Unsupported) {
+            emit_line(&format!("init: warn as destroy failed: {:?}", err));
+        }
+    }
+}
+
+fn teardown_services(handles: Vec<SpawnHandle>) {
+    handles.into_iter().for_each(drop);
+    release_bootstrap_capability();
+}
+
+fn release_bootstrap_capability() {
+    if let Err(err) = nexus_abi::cap_close(BOOTSTRAP_SLOT) {
+        if !matches!(err, AbiError::InvalidSyscall | AbiError::Unsupported) {
+            emit_line(&format!("init: warn bootstrap drop failed: {:?}", err));
+        }
+    }
 }
 
 impl From<keystored::ServerError> for ServiceError {
@@ -638,6 +746,9 @@ where
 
     notifier.notify();
     emit_line("init: ready");
+
+    teardown_services(spawned);
+
     loop {
         let _ = yield_();
     }

@@ -256,6 +256,36 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
     }
 }
 
+/// Drops the caller's reference to the capability slot identified by `cap`.
+#[cfg(nexus_env = "os")]
+pub fn cap_close(cap: Cap) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_CAP_CLOSE: usize = 13;
+        let raw = unsafe { ecall1(SYSCALL_CAP_CLOSE, cap as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Drops the caller's reference to an address space handle.
+#[cfg(nexus_env = "os")]
+pub fn as_destroy(handle: AsHandle) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_AS_DESTROY: usize = 14;
+        let raw = unsafe { ecall1(SYSCALL_AS_DESTROY, handle as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Allocates a new address space and returns its opaque handle.
 #[cfg(nexus_env = "os")]
 pub fn as_create() -> SysResult<AsHandle> {
@@ -358,6 +388,21 @@ pub fn vmo_map(_handle: Handle, _va: usize, _flags: u32) -> Result<()> {
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
         Err(IpcError::Unsupported)
+    }
+}
+
+/// Drops the caller's reference to the VMO represented by `handle`.
+#[cfg(nexus_env = "os")]
+pub fn vmo_destroy(handle: Handle) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_VMO_DESTROY: usize = 15;
+        let raw = unsafe { ecall1(SYSCALL_VMO_DESTROY, handle as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
     }
 }
 
