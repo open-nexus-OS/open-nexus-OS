@@ -18,5 +18,5 @@ nexus-vfs = { path = "../../../userspace/nexus-vfs", features = ["idl-capnp"] }
 keystored = { path = "../../../source/services/keystored" }
 policyd = { path = "../../../source/services/policyd" }
 samgrd = { path = "../../../source/services/samgrd" }
-packagefsd_os = { package = "packagefsd-os", path = "../../../source/services/packagefsd-os" }
-vfsd_os = { package = "vfsd-os", path = "../../../source/services/vfsd-os" }
+packagefsd = { path = "../../../source/services/packagefsd" }
+vfsd = { path = "../../../source/services/vfsd" }

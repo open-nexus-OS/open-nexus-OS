@@ -1,9 +1,0 @@
-[package]
-name = "os-mailbox-lite"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-nexus-abi = { path = "../../source/libs/nexus-abi" }
-
-
