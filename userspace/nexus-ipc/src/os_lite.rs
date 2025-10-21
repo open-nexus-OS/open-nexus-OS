@@ -12,7 +12,8 @@ use nexus_sync::SpinLock;
 
 use crate::{Client, IpcError, Result, Server, Wait};
 
-const MAX_FRAME: usize = os_mailbox_lite::mailbox::MAX_FRAME;
+/// Maximum frame size accepted by the cooperative mailbox transport.
+const MAX_FRAME: usize = 512;
 static MAX_QUEUE_DEPTH: AtomicUsize = AtomicUsize::new(4);
 
 /// Shared registry storing in-memory endpoints for each service.

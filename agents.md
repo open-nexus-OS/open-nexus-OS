@@ -26,6 +26,8 @@ When migrating a std-based service to an os-lite split:
 4. **Enablement:** Only when parity is achieved, flip the entrypoint or feature flag that makes `os_lite` active for the OS build.
 5. **Cleanup:** Remove superseded crates/binaries (e.g. `stage0-init-os`) once the new path is stable.
 
+Note: os-lite service backends are now embedded in `packagefsd` and `vfsd`; the old `*-os` crates were removed. The mailbox prototype was superseded by `nexus-ipc`'s os-lite transport.
+
 ---
 
 ## Prompt Structure Checklist

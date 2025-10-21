@@ -22,9 +22,9 @@ use execd::RestartPolicy;
 #[cfg(nexus_env = "os")]
 use nexus_vfs::{Error as VfsError, VfsClient};
 #[cfg(nexus_env = "os")]
-use packagefsd_os as packagefsd;
+use packagefsd;
 #[cfg(nexus_env = "os")]
-use vfsd_os as vfsd;
+use vfsd;
 #[cfg(nexus_env = "os")]
 use keystored;
 #[cfg(nexus_env = "os")]
