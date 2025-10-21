@@ -218,12 +218,13 @@ struct ServiceMetadata {
 
 struct ServiceRuntime {
     name: &'static str,
+    target: &'static str,
     runner: ServiceRunner,
 }
 
 impl ServiceRuntime {
-    const fn new(name: &'static str, runner: ServiceRunner) -> Self {
-        Self { name, runner }
+    const fn new(name: &'static str, target: &'static str, runner: ServiceRunner) -> Self {
+        Self { name, target, runner }
     }
 }
 
@@ -460,7 +461,11 @@ fn spawn_service(metadata: &ServiceMetadata) -> Result<SpawnHandle, SpawnError> 
     let address_space = AddressSpaceLease::new(stack_size)?;
     let align_mask = (STACK_ALIGN as u64).saturating_sub(1);
     let stack_sp = address_space.stack_top() & !align_mask;
-    let runtime = Box::into_raw(Box::new(ServiceRuntime::new(metadata.name, metadata.runner)));
+    let runtime = Box::into_raw(Box::new(ServiceRuntime::new(
+        metadata.name,
+        metadata.target,
+        metadata.runner,
+    )));
     SERVICE_RUNTIMES.push(runtime);
     let mut registration = RuntimeRegistration::new(runtime);
     let entry_pc = service_task_entry as usize as u64;
@@ -507,8 +512,10 @@ extern "C" fn service_task_entry(_bootstrap: *const c_void) -> ! {
     if let Some(ptr) = SERVICE_RUNTIMES.pop_front() {
         let runtime = unsafe { Box::from_raw(ptr) };
         let name = runtime.name;
+        let target = runtime.target;
         let runner = runtime.runner;
         drop(runtime);
+        set_default_target(target);
         run_service_task(name, runner)
     } else {
         SERVICE_READY.mark_failed();
