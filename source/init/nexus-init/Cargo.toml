@@ -23,6 +23,7 @@ vfsd = { path = "../../services/vfsd" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 capnp = { version = "0.19" }
+nexus-sync = { path = "../../libs/nexus-sync" }
 
 [dev-dependencies]
 tempfile = "3"

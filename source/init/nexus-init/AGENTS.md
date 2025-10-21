@@ -14,6 +14,21 @@ runner and the lightweight OS images.
   `nexus_abi::yield_()`. Future stages will extend this backend to spawn core
   services and distribute capabilities.
 
+## Stage 2 (os-lite bootstrap)
+
+- Grow the cooperative bootstrap so it launches the seven core services in a
+  deterministic order (`keystored` through `execd`). Each launch should set the
+  IPC default target first, build the service's readiness notifier, and then
+  enter its `service_main_loop` using the lite mailbox transport.
+- The readiness notifier must emit `init: up <service>` exactly once. These
+  markers land before the legacy `init: ready` print and end up bracketed by
+  the downstream `packagefsd: ready` and `vfsd: ready` UART markers during boot.
+- After every readiness callback fires, yield back to the scheduler with
+  `nexus_abi::yield_()` so other cooperative tasks can observe progress.
+- Service failures should be logged as `init: fail <service>: ...` without
+  aborting init. The long-term plan is to replace the sequential loop with true
+  task spawning once lite IPC gains process support.
+
 ## Staged migration plan
 
 1. Preserve the host code path during every refactor and keep the UART markers
