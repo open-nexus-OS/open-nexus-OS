@@ -14,6 +14,7 @@ path = "src/main.rs"
 [features]
 default = ["idl-capnp"]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+os-lite = []
 
 [dependencies]
 capnp = { version = "0.19", optional = true }
@@ -22,5 +23,5 @@ parking_lot = "0.12"
 thiserror = "1.0"
 
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-nexus-ipc = { path = "../../../userspace/nexus-ipc" }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite"] }
 nexus-packagefs = { path = "../../../userspace/nexus-packagefs" }

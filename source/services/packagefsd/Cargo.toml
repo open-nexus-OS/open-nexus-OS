@@ -14,7 +14,7 @@ capnp = { version = "0.19", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite"] }
 parking_lot = { version = "0.12", optional = true }
-thiserror = { version = "1", default-features = false, features = ["std"] }
+thiserror = { version = "1", default-features = false }
 log = { version = "0.4", optional = true }
 
 [target.'cfg(not(all(nexus_env = "os", feature = "os-lite")))'.dependencies]
