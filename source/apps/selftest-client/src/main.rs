@@ -212,8 +212,9 @@ fn verify_vfs_paths() -> anyhow::Result<()> {
 
 #[cfg(nexus_env = "os")]
 fn start_core_services() -> anyhow::Result<()> {
-    // Placeholder: no-op until stage0-init-os is available. We will spawn OS daemons
-    // from a dedicated no_std stage0 instead of inside selftest-client.
+    // Placeholder: no-op until the os-lite nexus-init path supervises services in
+    // the test image. Once the cooperative backend can spawn daemons this helper
+    // will defer to it instead of emitting markers directly.
     println!("init: start");
     println!("init: ready");
     Ok(())
