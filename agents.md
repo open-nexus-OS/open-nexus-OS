@@ -60,11 +60,14 @@ Do not change these without updating scripts, postflight tooling, and docs in th
 1. Preserve the host code path during every refactor and keep the UART markers
    `packagefsd: ready`, `vfsd: ready`, and the `SELFTEST` probes untouched.
 2. Grow the os-lite backend incrementally (stage 1 stub ✅, stage 2 sequential
-   service bootstrap ✅, stage 3 task spawning next), guarding new code behind
+   service bootstrap ✅, stage 3 task spawning ✅), guarding new code behind
    `feature = "os-lite"`.
-3. Stage 3 will spawn each core service via `nexus_abi::spawn` and
-   `cap_transfer`, giving them dedicated tasks while still reusing the existing
-   service loops. Later stages can harden address spaces and capability sets.
+3. Stage 3 moves each core service into its own task via `nexus_abi::spawn`
+   and `cap_transfer`, provisioning a dedicated address space/stack per task
+   while reusing the existing service loops through the shared init
+   trampoline. `SpawnHandle` now retains those allocations for future teardown
+   work, and the next increments will focus on refining capability rights per
+   service.
 4. Once the os-lite runtime reaches parity, flip the boot image to launch it
    instead of the old stage0 shim.
 
