@@ -1092,6 +1092,7 @@ dependencies = [
  "keystored",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-sync",
  "nexus-vfs",
  "packagefsd",
  "policyd",

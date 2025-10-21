@@ -55,6 +55,21 @@ Do not change these without updating scripts, postflight tooling, and docs in th
 
 ---
 
+## Staged migration plan
+
+1. Preserve the host code path during every refactor and keep the UART markers
+   `packagefsd: ready`, `vfsd: ready`, and the `SELFTEST` probes untouched.
+2. Grow the os-lite backend incrementally (stage 1 stub ✅, stage 2 sequential
+   service bootstrap ✅, stage 3 task spawning next), guarding new code behind
+   `feature = "os-lite"`.
+3. Stage 3 will spawn each core service via `nexus_abi::spawn` and
+   `cap_transfer`, giving them dedicated tasks while still reusing the existing
+   service loops. Later stages can harden address spaces and capability sets.
+4. Once the os-lite runtime reaches parity, flip the boot image to launch it
+   instead of the old stage0 shim.
+
+---
+
 ## Contact
 
 When in doubt, leave a TODO comment or open a follow-up prompt describing uncertainties (e.g. capability distribution strategy). Avoid speculative implementations without validation guidance.
