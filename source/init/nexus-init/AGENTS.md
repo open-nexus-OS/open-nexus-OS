@@ -29,6 +29,25 @@ runner and the lightweight OS images.
   aborting init. The long-term plan is to replace the sequential loop with true
   task spawning once lite IPC gains process support.
 
+## Stage 3 (service tasks)
+
+- Each service now launches through `spawn_service`, which configures the
+  default IPC target, provisions a dedicated address space and stack via
+  `nexus_abi::{as_create, as_map}`, records the service runtime descriptor, and
+  calls `nexus_abi::spawn`. The returned `SpawnHandle` keeps the allocated
+  address space and stack VMOs rooted so follow-on prompts can wire up proper
+  teardown.
+- The bootstrap capability in slot `0` is transferred to the child with SEND
+  rights via `nexus_abi::cap_transfer` before waiting for readiness.
+- A shared trampoline (`service_task_entry`) pops the registered descriptor and
+  invokes the existing `service_main_loop`, preserving UART readiness prints.
+- The parent yields after every spawn so the child task can announce
+  `init: up <service>`; failures still log `init: fail <service>: …` and
+  bootstrap continues.
+- Keep the helper boundaries clean so future stages can hand out
+  rights-filtered capability sets per service and tighten stack/VMO lifecycle
+  management once destruction hooks land.
+
 ## Staged migration plan
 
 1. Preserve the host code path during every refactor and keep the UART markers

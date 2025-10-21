@@ -2,7 +2,10 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use core::ffi::c_void;
 use core::fmt;
 
 use bundlemgrd;
@@ -13,7 +16,7 @@ use policyd;
 use samgrd;
 use vfsd;
 
-use nexus_abi::yield_;
+use nexus_abi::{self, yield_, AbiError, IpcError, Rights};
 use nexus_ipc::set_default_target;
 use nexus_sync::SpinLock;
 
@@ -68,9 +71,22 @@ impl fmt::Display for ServiceError {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum ReadyStatus {
+    Pending,
+    Ready,
+    Failed,
+}
+
+impl ReadyStatus {
+    fn is_signaled(self) -> bool {
+        !matches!(self, ReadyStatus::Pending)
+    }
+}
+
 struct ServiceReadyState {
     name: &'static str,
-    signaled: bool,
+    status: ReadyStatus,
 }
 
 struct ServiceReadyCell {
@@ -84,22 +100,41 @@ impl ServiceReadyCell {
 
     fn begin(&self, name: &'static str) -> Option<ServiceReadyState> {
         let mut guard = self.state.lock();
-        core::mem::replace(&mut *guard, Some(ServiceReadyState { name, signaled: false }))
+        core::mem::replace(
+            &mut *guard,
+            Some(ServiceReadyState { name, status: ReadyStatus::Pending }),
+        )
     }
 
     fn mark_ready(&self) {
         let mut guard = self.state.lock();
         if let Some(state) = guard.as_mut() {
-            if !state.signaled {
-                state.signaled = true;
+            if !state.status.is_signaled() {
+                state.status = ReadyStatus::Ready;
                 emit_line(&format!("init: up {}", state.name));
+            }
+        }
+    }
+
+    fn mark_failed(&self) {
+        let mut guard = self.state.lock();
+        if let Some(state) = guard.as_mut() {
+            if !state.status.is_signaled() {
+                state.status = ReadyStatus::Failed;
             }
         }
     }
 
     fn was_signaled(&self) -> bool {
         let guard = self.state.lock();
-        guard.as_ref().map_or(false, |state| state.signaled)
+        guard
+            .as_ref()
+            .map_or(false, |state| state.status.is_signaled())
+    }
+
+    fn status(&self) -> Option<ReadyStatus> {
+        let guard = self.state.lock();
+        guard.as_ref().map(|state| state.status)
     }
 
     fn restore(&self, previous: Option<ServiceReadyState>) {
@@ -110,25 +145,363 @@ impl ServiceReadyCell {
 
 static SERVICE_READY: ServiceReadyCell = ServiceReadyCell::new();
 
+const DEFAULT_STACK_SIZE: usize = 16 * 1024;
+const STACK_ALIGN: usize = 16;
+const PAGE_SIZE: u64 = 4096;
+const USER_STACK_TOP: u64 = 0x4000_0000;
+const PROT_READ: u32 = 1 << 0;
+const PROT_WRITE: u32 = 1 << 1;
+const MAP_FLAG_USER: u32 = 1 << 0;
+const BOOTSTRAP_SLOT: u32 = 0;
+
+type ServiceRunner = fn() -> Result<(), ServiceError>;
+
+struct ServiceMetadata {
+    name: &'static str,
+    target: &'static str,
+    runner: ServiceRunner,
+    stack_size: Option<usize>,
+}
+
+struct ServiceRuntime {
+    name: &'static str,
+    runner: ServiceRunner,
+}
+
+impl ServiceRuntime {
+    const fn new(name: &'static str, runner: ServiceRunner) -> Self {
+        Self { name, runner }
+    }
+}
+
+struct ServiceRuntimeQueue {
+    entries: SpinLock<Vec<*mut ServiceRuntime>>,
+}
+
+impl ServiceRuntimeQueue {
+    const fn new() -> Self {
+        Self { entries: SpinLock::new(Vec::new()) }
+    }
+
+    fn push(&self, runtime: *mut ServiceRuntime) {
+        let mut guard = self.entries.lock();
+        guard.push(runtime);
+    }
+
+    fn pop_front(&self) -> Option<*mut ServiceRuntime> {
+        let mut guard = self.entries.lock();
+        if guard.is_empty() {
+            None
+        } else {
+            Some(guard.remove(0))
+        }
+    }
+
+    fn remove(&self, runtime: *mut ServiceRuntime) -> bool {
+        let mut guard = self.entries.lock();
+        if let Some(index) = guard.iter().position(|&ptr| ptr == runtime) {
+            guard.remove(index);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+static SERVICE_RUNTIMES: ServiceRuntimeQueue = ServiceRuntimeQueue::new();
+
+struct RuntimeRegistration {
+    runtime: *mut ServiceRuntime,
+    released: bool,
+}
+
+impl RuntimeRegistration {
+    fn new(runtime: *mut ServiceRuntime) -> Self {
+        Self { runtime, released: false }
+    }
+
+    fn release(&mut self) {
+        if !self.released {
+            if SERVICE_RUNTIMES.remove(self.runtime) {
+                unsafe {
+                    drop(Box::from_raw(self.runtime));
+                }
+            }
+            self.released = true;
+        }
+    }
+
+    fn commit(mut self) {
+        self.released = true;
+        core::mem::forget(self);
+    }
+}
+
+impl Drop for RuntimeRegistration {
+    fn drop(&mut self) {
+        if !self.released {
+            if SERVICE_RUNTIMES.remove(self.runtime) {
+                unsafe {
+                    drop(Box::from_raw(self.runtime));
+                }
+            }
+        }
+    }
+}
+
+struct StackMapping {
+    base: u64,
+    len: u64,
+    _vmo: nexus_abi::Handle,
+}
+
+impl StackMapping {
+    fn new(handle: nexus_abi::AsHandle, size: usize) -> Result<Self, SpawnError> {
+        if size == 0 {
+            return Err(SpawnError::StackSize);
+        }
+
+        let aligned = align_stack_len(size)?;
+        let base = USER_STACK_TOP
+            .checked_sub(aligned)
+            .ok_or(SpawnError::StackSize)?;
+
+        let vmo = nexus_abi::vmo_create(aligned as usize).map_err(SpawnError::StackVmo)?;
+        nexus_abi::as_map(
+            handle,
+            vmo,
+            base,
+            aligned,
+            PROT_READ | PROT_WRITE,
+            MAP_FLAG_USER,
+        )
+        .map_err(SpawnError::StackMap)?;
+
+        Ok(Self { base, len: aligned, _vmo: vmo })
+    }
+
+    fn stack_top(&self) -> u64 {
+        self.base + self.len
+    }
+}
+
+struct AddressSpaceLease {
+    handle: nexus_abi::AsHandle,
+    stack: StackMapping,
+}
+
+impl AddressSpaceLease {
+    fn new(stack_size: usize) -> Result<Self, SpawnError> {
+        let handle = nexus_abi::as_create().map_err(SpawnError::AddressSpace)?;
+        let stack = StackMapping::new(handle, stack_size)?;
+        Ok(Self { handle, stack })
+    }
+
+    fn stack_top(&self) -> u64 {
+        self.stack.stack_top()
+    }
+
+    fn raw(&self) -> u64 {
+        self.handle
+    }
+
+    fn into_parts(self) -> (nexus_abi::AsHandle, StackMapping) {
+        let AddressSpaceLease { handle, stack } = self;
+        (handle, stack)
+    }
+}
+
+fn align_stack_len(size: usize) -> Result<u64, SpawnError> {
+    let size_u64 = size as u64;
+    let aligned = size_u64
+        .checked_add(PAGE_SIZE - 1)
+        .map(|value| value & !(PAGE_SIZE - 1))
+        .ok_or(SpawnError::StackSize)?;
+    if aligned == 0 {
+        return Err(SpawnError::StackSize);
+    }
+    Ok(aligned)
+}
+
+#[derive(Debug)]
+pub struct SpawnHandle {
+    pid: nexus_abi::Pid,
+    address_space: nexus_abi::AsHandle,
+    stack: StackMapping,
+}
+
+impl SpawnHandle {
+    fn new(pid: nexus_abi::Pid, address_space: nexus_abi::AsHandle, stack: StackMapping) -> Self {
+        Self { pid, address_space, stack }
+    }
+
+    #[allow(dead_code)]
+    fn pid(&self) -> nexus_abi::Pid {
+        self.pid
+    }
+}
+
+#[derive(Debug)]
+enum SpawnError {
+    StackSize,
+    AddressSpace(AbiError),
+    StackVmo(IpcError),
+    StackMap(AbiError),
+    Spawn(nexus_abi::AbiError),
+    CapTransfer(nexus_abi::AbiError),
+    Yield(nexus_abi::AbiError),
+    ServiceFailed,
+}
+
+impl fmt::Display for SpawnError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StackSize => write!(f, "invalid stack configuration"),
+            Self::Spawn(err) => write!(f, "spawn failed: {err:?}"),
+            Self::CapTransfer(err) => write!(f, "cap transfer failed: {err:?}"),
+            Self::Yield(err) => write!(f, "yield failed: {err:?}"),
+            Self::AddressSpace(err) => write!(f, "address space failed: {err:?}"),
+            Self::StackVmo(err) => write!(f, "stack allocation failed: {err:?}"),
+            Self::StackMap(err) => write!(f, "stack map failed: {err:?}"),
+            Self::ServiceFailed => write!(f, "service exited before readiness"),
+        }
+    }
+}
+
+fn spawn_service(metadata: &ServiceMetadata) -> Result<SpawnHandle, SpawnError> {
+    set_default_target(metadata.target);
+
+    let stack_size = metadata.stack_size.unwrap_or(DEFAULT_STACK_SIZE);
+    let address_space = AddressSpaceLease::new(stack_size)?;
+    let align_mask = (STACK_ALIGN as u64).saturating_sub(1);
+    let stack_sp = address_space.stack_top() & !align_mask;
+    let runtime = Box::into_raw(Box::new(ServiceRuntime::new(metadata.name, metadata.runner)));
+    SERVICE_RUNTIMES.push(runtime);
+    let mut registration = RuntimeRegistration::new(runtime);
+    let entry_pc = service_task_entry as usize as u64;
+
+    let pid = match nexus_abi::spawn(entry_pc, stack_sp, address_space.raw(), BOOTSTRAP_SLOT) {
+        Ok(pid) => pid,
+        Err(err) => {
+            registration.release();
+            return Err(SpawnError::Spawn(err));
+        }
+    };
+
+    if let Err(err) = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND) {
+        registration.release();
+        return Err(SpawnError::CapTransfer(err));
+    }
+
+    while !SERVICE_READY.was_signaled() {
+        match yield_() {
+            Ok(_) => {}
+            Err(err) => {
+                registration.release();
+                return Err(SpawnError::Yield(err));
+            }
+        }
+    }
+
+    let readiness = SERVICE_READY.status();
+    if readiness != Some(ReadyStatus::Ready) {
+        registration.release();
+        return Err(SpawnError::ServiceFailed);
+    }
+
+    registration.commit();
+
+    let (address_space_handle, stack) = address_space.into_parts();
+
+    Ok(SpawnHandle::new(pid, address_space_handle, stack))
+}
+
+extern "C" fn service_task_entry(_bootstrap: *const c_void) -> ! {
+    if let Some(ptr) = SERVICE_RUNTIMES.pop_front() {
+        let runtime = unsafe { Box::from_raw(ptr) };
+        let name = runtime.name;
+        let runner = runtime.runner;
+        drop(runtime);
+        run_service_task(name, runner)
+    } else {
+        SERVICE_READY.mark_failed();
+        emit_line("init: fail service: bootstrap mismatch");
+        loop {
+            let _ = yield_();
+        }
+    }
+}
+
 fn emit_service_ready() {
     SERVICE_READY.mark_ready();
 }
 
-fn start_service(name: &'static str, f: impl FnOnce() -> Result<(), ServiceError>) {
-    emit_line(&format!("init: start {name}"));
-    let previous = SERVICE_READY.begin(name);
-    let result = f();
-    match result {
-        Ok(()) => {
+fn start_spawned_service(metadata: ServiceMetadata) -> Option<SpawnHandle> {
+    emit_line(&format!("init: start {}", metadata.name));
+    let previous = SERVICE_READY.begin(metadata.name);
+    let result = spawn_service(&metadata);
+    let outcome = match result {
+        Ok(handle) => {
             if !SERVICE_READY.was_signaled() {
                 emit_service_ready();
             }
+            Some(handle)
         }
         Err(err) => {
-            emit_line(&format!("init: fail {name}: {err}"));
+            emit_line(&format!("init: fail {}: {err}", metadata.name));
+            None
         }
-    }
+    };
     SERVICE_READY.restore(previous);
+    outcome
+}
+
+fn run_service_task(name: &'static str, runner: ServiceRunner) -> ! {
+    if let Err(err) = runner() {
+        SERVICE_READY.mark_failed();
+        emit_line(&format!("init: fail {name}: {err}"));
+    }
+    loop {
+        let _ = yield_();
+    }
+}
+
+fn run_keystored() -> Result<(), ServiceError> {
+    keystored::service_main_loop(keystored::ReadyNotifier::new(|| emit_service_ready()))
+        .map_err(ServiceError::from)
+}
+
+fn run_policyd() -> Result<(), ServiceError> {
+    policyd::service_main_loop(policyd::ReadyNotifier::new(|| emit_service_ready()))
+        .map_err(ServiceError::from)
+}
+
+fn run_samgrd() -> Result<(), ServiceError> {
+    samgrd::service_main_loop(samgrd::ReadyNotifier::new(|| emit_service_ready()))
+        .map_err(ServiceError::from)
+}
+
+fn run_bundlemgrd() -> Result<(), ServiceError> {
+    bundlemgrd::service_main_loop(
+        bundlemgrd::ReadyNotifier::new(|| emit_service_ready()),
+        bundlemgrd::ArtifactStore::new(),
+    )
+    .map_err(ServiceError::from)
+}
+
+fn run_packagefsd() -> Result<(), ServiceError> {
+    packagefsd::service_main_loop(packagefsd::ReadyNotifier::new(|| emit_service_ready()))
+        .map_err(ServiceError::from)
+}
+
+fn run_vfsd() -> Result<(), ServiceError> {
+    vfsd::service_main_loop(vfsd::ReadyNotifier::new(|| emit_service_ready()))
+        .map_err(ServiceError::from)
+}
+
+fn run_execd() -> Result<(), ServiceError> {
+    execd::service_main_loop(execd::ReadyNotifier::new(|| emit_service_ready()))
+        .map_err(ServiceError::from)
 }
 
 impl From<keystored::ServerError> for ServiceError {
@@ -191,56 +564,76 @@ where
 {
     emit_line("init: start");
 
-    set_default_target("keystored");
-    start_service("keystored", || {
-        keystored::service_main_loop(keystored::ReadyNotifier::new(|| emit_service_ready()))
-            .map_err(ServiceError::from)
-    });
+    let mut spawned: Vec<SpawnHandle> = Vec::new();
+
+    if let Some(handle) = start_spawned_service(ServiceMetadata {
+        name: "keystored",
+        target: "keystored",
+        runner: run_keystored,
+        stack_size: None,
+    }) {
+        spawned.push(handle);
+    }
     let _ = yield_();
 
-    set_default_target("policyd");
-    start_service("policyd", || {
-        policyd::service_main_loop(policyd::ReadyNotifier::new(|| emit_service_ready()))
-            .map_err(ServiceError::from)
-    });
+    if let Some(handle) = start_spawned_service(ServiceMetadata {
+        name: "policyd",
+        target: "policyd",
+        runner: run_policyd,
+        stack_size: None,
+    }) {
+        spawned.push(handle);
+    }
     let _ = yield_();
 
-    set_default_target("samgrd");
-    start_service("samgrd", || {
-        samgrd::service_main_loop(samgrd::ReadyNotifier::new(|| emit_service_ready()))
-            .map_err(ServiceError::from)
-    });
+    if let Some(handle) = start_spawned_service(ServiceMetadata {
+        name: "samgrd",
+        target: "samgrd",
+        runner: run_samgrd,
+        stack_size: None,
+    }) {
+        spawned.push(handle);
+    }
     let _ = yield_();
 
-    set_default_target("bundlemgrd");
-    start_service("bundlemgrd", || {
-        bundlemgrd::service_main_loop(
-            bundlemgrd::ReadyNotifier::new(|| emit_service_ready()),
-            bundlemgrd::ArtifactStore::new(),
-        )
-        .map_err(ServiceError::from)
-    });
+    if let Some(handle) = start_spawned_service(ServiceMetadata {
+        name: "bundlemgrd",
+        target: "bundlemgrd",
+        runner: run_bundlemgrd,
+        stack_size: None,
+    }) {
+        spawned.push(handle);
+    }
     let _ = yield_();
 
-    set_default_target("packagefsd");
-    start_service("packagefsd", || {
-        packagefsd::service_main_loop(packagefsd::ReadyNotifier::new(|| emit_service_ready()))
-            .map_err(ServiceError::from)
-    });
+    if let Some(handle) = start_spawned_service(ServiceMetadata {
+        name: "packagefsd",
+        target: "packagefsd",
+        runner: run_packagefsd,
+        stack_size: None,
+    }) {
+        spawned.push(handle);
+    }
     let _ = yield_();
 
-    set_default_target("vfsd");
-    start_service("vfsd", || {
-        vfsd::service_main_loop(vfsd::ReadyNotifier::new(|| emit_service_ready()))
-            .map_err(ServiceError::from)
-    });
+    if let Some(handle) = start_spawned_service(ServiceMetadata {
+        name: "vfsd",
+        target: "vfsd",
+        runner: run_vfsd,
+        stack_size: None,
+    }) {
+        spawned.push(handle);
+    }
     let _ = yield_();
 
-    set_default_target("execd");
-    start_service("execd", || {
-        execd::service_main_loop(execd::ReadyNotifier::new(|| emit_service_ready()))
-            .map_err(ServiceError::from)
-    });
+    if let Some(handle) = start_spawned_service(ServiceMetadata {
+        name: "execd",
+        target: "execd",
+        runner: run_execd,
+        stack_size: None,
+    }) {
+        spawned.push(handle);
+    }
     let _ = yield_();
 
     notifier.notify();
