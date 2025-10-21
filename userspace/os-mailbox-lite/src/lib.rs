@@ -52,7 +52,14 @@ pub mod mailbox {
                     return n;
                 }
             }
-            let _ = nexus_abi::yield_();
+            #[cfg(nexus_env = "os")]
+            {
+                let _ = nexus_abi::yield_();
+            }
+            #[cfg(not(nexus_env = "os"))]
+            {
+                core::hint::spin_loop();
+            }
         }
     }
 
@@ -77,5 +84,3 @@ pub mod mailbox {
         }
     }
 }
-
-

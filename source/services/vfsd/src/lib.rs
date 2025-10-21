@@ -16,3 +16,8 @@ pub use os_lite::*;
 mod std_server;
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
 pub use std_server::*;
+
+/// Host build schema warmer (no-op for vfsd).
+#[cfg(nexus_env = "host")]
+#[allow(dead_code)]
+pub fn touch_schemas() {}

@@ -18,7 +18,17 @@ pub fn service_main_loop<F: FnOnce()>(notifier: ReadyNotifier<F>) -> Result<(), 
     let mut req = [0u8; 512];
     loop {
         let n = mailbox::server_poll(&mut req);
-        if n == 0 { let _ = nexus_abi::yield_(); continue; }
+        if n == 0 {
+            #[cfg(nexus_env = "os")]
+            {
+                let _ = nexus_abi::yield_();
+            }
+            #[cfg(not(nexus_env = "os"))]
+            {
+                core::hint::spin_loop();
+            }
+            continue;
+        }
         if n >= 8 {
             let opcode = u16::from_le_bytes([req[0], req[1]]);
             let len = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;

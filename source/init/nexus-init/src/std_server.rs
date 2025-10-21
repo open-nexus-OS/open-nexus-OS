@@ -597,6 +597,7 @@ mod runtime {
                     }
                 }
                 "packagefsd" => {
+                    #[cfg(nexus_env = "os")]
                     nexus_ipc::set_default_target("packagefsd");
                     let ready_clone = ready.clone();
                     let notifier = packagefsd::ReadyNotifier::new(move || {
@@ -605,6 +606,7 @@ mod runtime {
                     let _ = packagefsd::service_main_loop(notifier);
                 }
                 "vfsd" => {
+                    #[cfg(nexus_env = "os")]
                     nexus_ipc::set_default_target("vfsd");
                     let ready_clone = ready.clone();
                     let notifier = vfsd::ReadyNotifier::new(move || {

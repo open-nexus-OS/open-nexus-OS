@@ -11,7 +11,14 @@ pub fn service_main_loop<F: FnOnce()>(notifier: ReadyNotifier<F>) -> Result<(), 
     println("vfsd: ready\n");
     notifier.notify();
     loop {
-        let _ = nexus_abi::yield_();
+        #[cfg(nexus_env = "os")]
+        {
+            let _ = nexus_abi::yield_();
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            core::hint::spin_loop();
+        }
     }
 }
 

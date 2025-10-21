@@ -578,50 +578,71 @@ fn handle_mount(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
         .map_err(|err| ServerError::Decode(format!("mount fs_id utf8: {err}")))?
         .to_string();
     match dispatcher.mount(&mount_point, &fs_id) {
-        Ok(()) => encode_mount_response(true),
+        Ok(()) => encode_mount_response(true, String::new()),
         Err(ServerError::Service(ServiceError::Provider(msg))) => encode_mount_response(false, msg),
         Err(err) => Err(err),
     }
 }
 
-fn encode_open_response(success: bool, handle: u32, size: u64, kind: u16) -> Vec<u8> {
+fn encode_frame(
+    opcode: u8,
+    build: impl FnOnce(
+        &mut capnp::message::Builder<capnp::message::HeapAllocator>,
+    ) -> core::result::Result<(), capnp::Error>,
+) -> Result<Vec<u8>> {
     let mut message = capnp::message::Builder::new_default();
-    let mut open_response = message.init_root::<open_response::Builder<'_>>();
-    open_response.set_success(success);
-    open_response.set_fh(handle);
-    open_response.set_size(size);
-    open_response.set_kind(kind);
-    message.into_bytes().unwrap()
+    build(&mut message).map_err(ServerError::Encode)?;
+    let mut payload = Vec::new();
+    capnp::serialize::write_message(&mut payload, &message).map_err(ServerError::Encode)?;
+    let mut frame = Vec::with_capacity(1 + payload.len());
+    frame.push(opcode);
+    frame.extend_from_slice(&payload);
+    Ok(frame)
 }
 
-fn encode_read_response(success: bool, bytes: &[u8]) -> Vec<u8> {
-    let mut message = capnp::message::Builder::new_default();
-    let mut read_response = message.init_root::<read_response::Builder<'_>>();
-    read_response.set_success(success);
-    read_response.set_bytes(bytes);
-    message.into_bytes().unwrap()
+fn encode_open_response(success: bool, handle: u32, size: u64, kind: u16) -> Result<Vec<u8>> {
+    encode_frame(OPCODE_OPEN, |message| {
+        let mut resp = message.init_root::<open_response::Builder<'_>>();
+        resp.set_ok(success);
+        resp.set_fh(handle);
+        resp.set_size(size);
+        resp.set_kind(kind);
+        Ok(())
+    })
 }
 
-fn encode_close_response(success: bool) -> Vec<u8> {
-    let mut message = capnp::message::Builder::new_default();
-    let mut close_response = message.init_root::<close_response::Builder<'_>>();
-    close_response.set_success(success);
-    message.into_bytes().unwrap()
+fn encode_read_response(success: bool, bytes: &[u8]) -> Result<Vec<u8>> {
+    encode_frame(OPCODE_READ, |message| {
+        let mut resp = message.init_root::<read_response::Builder<'_>>();
+        resp.set_ok(success);
+        resp.set_bytes(bytes);
+        Ok(())
+    })
 }
 
-fn encode_stat_response(success: bool, size: u64, kind: u16) -> Vec<u8> {
-    let mut message = capnp::message::Builder::new_default();
-    let mut stat_response = message.init_root::<stat_response::Builder<'_>>();
-    stat_response.set_success(success);
-    stat_response.set_size(size);
-    stat_response.set_kind(kind);
-    message.into_bytes().unwrap()
+fn encode_close_response(success: bool) -> Result<Vec<u8>> {
+    encode_frame(OPCODE_CLOSE, |message| {
+        let mut resp = message.init_root::<close_response::Builder<'_>>();
+        resp.set_ok(success);
+        Ok(())
+    })
 }
 
-fn encode_mount_response(success: bool, msg: String) -> Vec<u8> {
-    let mut message = capnp::message::Builder::new_default();
-    let mut mount_response = message.init_root::<mount_response::Builder<'_>>();
-    mount_response.set_success(success);
-    mount_response.set_msg(msg);
-    message.into_bytes().unwrap()
+fn encode_stat_response(success: bool, size: u64, kind: u16) -> Result<Vec<u8>> {
+    encode_frame(OPCODE_STAT, |message| {
+        let mut resp = message.init_root::<stat_response::Builder<'_>>();
+        resp.set_ok(success);
+        resp.set_size(size);
+        resp.set_kind(kind);
+        Ok(())
+    })
+}
+
+fn encode_mount_response(success: bool, msg: String) -> Result<Vec<u8>> {
+    encode_frame(OPCODE_MOUNT, |message| {
+        let mut resp = message.init_root::<mount_response::Builder<'_>>();
+        let _ = msg; // suppress unused until mount response gains fields
+        resp.set_ok(success);
+        Ok(())
+    })
 }
