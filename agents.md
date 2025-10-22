@@ -24,7 +24,7 @@ When migrating a std-based service to an os-lite split:
 2. **Skeleton first:** Start `os_lite` as a stub emitting readiness markers. Do not remove the old implementation yet.
 3. **Incremental wiring:** Port service responsibilities one feature at a time (e.g. readiness, IPC transport, spawning) with tests after each step.
 4. **Enablement:** Only when parity is achieved, flip the entrypoint or feature flag that makes `os_lite` active for the OS build.
-5. **Cleanup:** Remove superseded crates/binaries (e.g. `stage0-init-os`) once the new path is stable.
+5. **Cleanup:** Remove superseded crates and binaries once the new path is stable.
 
 Note: os-lite service backends are now embedded in `packagefsd` and `vfsd`; the old `*-os` crates were removed. The mailbox prototype was superseded by `nexus-ipc`'s os-lite transport.
 
