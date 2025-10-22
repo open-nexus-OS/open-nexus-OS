@@ -36,7 +36,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
 | Host VFS (`tests/vfs_e2e`) | In-process `packagefsd`, `vfsd`, and `bundlemgrd` validating bundle publication and VFS reads. | `cargo test -p vfs-e2e` | Publishes a demo bundle, checks alias resolution, and verifies read/error paths via `nexus-vfs`. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness now waits for each `init: up <svc>` marker in addition to `execd: elf load ok`, `child: hello-elf`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), and `SELFTEST: e2e exec-elf ok` before stopping. Logs are trimmed to keep artefacts small. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness now waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), the policy allow/deny probes, and the VFS checks before stopping. Logs are trimmed to keep artefacts small. |
 
 ## Workflow checklist
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -68,36 +68,46 @@ seen and ensure log caps are in effect. `just test-os` wraps
 
 ## OS-E2E marker sequence and VMO split
 
-The OS smoke path emits a deterministic sequence of UART markers that the runner validates in order:
+The legacy `stage0-init-os` shim has been retired, so the os-lite `nexus-init`
+backend is now responsible for announcing service bring-up. The OS smoke path
+emits a deterministic sequence of UART markers that the runner validates in
+order:
 
 1. `neuron vers.` – kernel banner
 2. `init: start` – init process begins bootstrapping services
-3. `init: up keystored` – os-lite init observed the keystore daemon reach readiness
-4. `keystored: ready` – key store stub ready
-5. `init: up policyd` – os-lite init observed the policy daemon reach readiness
-6. `policyd: ready` – policy stub ready
-7. `init: up samgrd` – os-lite init observed the service manager reach readiness
-8. `samgrd: ready` – service manager daemon ready
-9. `init: up bundlemgrd` – os-lite init observed the bundle manager reach readiness
-10. `bundlemgrd: ready` – bundle manager daemon ready
-11. `init: up packagefsd` – os-lite init observed the package FS daemon reach readiness
-12. `packagefsd: ready` – package file system daemon registered
-13. `init: up vfsd` – os-lite init observed the VFS dispatcher reach readiness
-14. `vfsd: ready` – VFS dispatcher ready to serve requests
-15. `init: up execd` – os-lite init observed the exec daemon reach readiness
-16. `init: ready` – init completed baseline bring-up
-17. `execd: elf load ok` – loader mapped the embedded ELF into the child address space
-18. `child: hello-elf` – spawned task from the ELF payload started and yielded control back to the kernel
-19. `SELFTEST: e2e exec-elf ok` – selftest client observed the ELF loader path end-to-end
-20. `child: exit0 start` – demo payload exercising `exit(0)` began execution
-21. `execd: child exited pid=… code=0` – supervisor reaped the exit0 child and logged its status
-22. `SELFTEST: child exit ok` – selftest client observed the lifecycle markers from execd
-23. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
-24. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
-25. `SELFTEST: vfs stat ok` – selftest exercised read-only stat via the userspace VFS
-26. `SELFTEST: vfs read ok` – selftest read bundle payload bytes via the VFS client
-27. `SELFTEST: vfs ebadf ok` – selftest confirmed closed handles are rejected by the VFS
-28. `SELFTEST: end` – concluding marker from the host-side selftest client
+3. `init: start keystored` – os-lite init launching the keystore daemon
+4. `init: up keystored` – os-lite init observed the keystore daemon reach readiness
+5. `keystored: ready` – key store stub ready
+6. `init: start policyd` – os-lite init launching the policy daemon
+7. `init: up policyd` – os-lite init observed the policy daemon reach readiness
+8. `policyd: ready` – policy stub ready
+9. `init: start samgrd` – os-lite init launching the service manager
+10. `init: up samgrd` – os-lite init observed the service manager reach readiness
+11. `samgrd: ready` – service manager daemon ready
+12. `init: start bundlemgrd` – os-lite init launching the bundle manager
+13. `init: up bundlemgrd` – os-lite init observed the bundle manager reach readiness
+14. `bundlemgrd: ready` – bundle manager daemon ready
+15. `init: start packagefsd` – os-lite init launching the package FS daemon
+16. `init: up packagefsd` – os-lite init observed the package FS daemon reach readiness
+17. `packagefsd: ready` – package file system daemon registered
+18. `init: start vfsd` – os-lite init launching the VFS dispatcher
+19. `init: up vfsd` – os-lite init observed the VFS dispatcher reach readiness
+20. `vfsd: ready` – VFS dispatcher ready to serve requests
+21. `init: start execd` – os-lite init launching the exec daemon
+22. `init: up execd` – os-lite init observed the exec daemon reach readiness
+23. `init: ready` – init completed baseline bring-up
+24. `execd: elf load ok` – loader mapped the embedded ELF into the child address space
+25. `child: hello-elf` – spawned task from the ELF payload started and yielded control back to the kernel
+26. `SELFTEST: e2e exec-elf ok` – selftest client observed the ELF loader path end-to-end
+27. `child: exit0 start` – demo payload exercising `exit(0)` began execution
+28. `execd: child exited pid=… code=0` – supervisor reaped the exit0 child and logged its status
+29. `SELFTEST: child exit ok` – selftest client observed the lifecycle markers from execd
+30. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
+31. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
+32. `SELFTEST: vfs stat ok` – selftest exercised read-only stat via the userspace VFS
+33. `SELFTEST: vfs read ok` – selftest read bundle payload bytes via the VFS client
+34. `SELFTEST: vfs ebadf ok` – selftest confirmed closed handles are rejected by the VFS
+35. `SELFTEST: end` – concluding marker from the host-side selftest client
 
 ### OS E2E: exec-elf (service path)
 

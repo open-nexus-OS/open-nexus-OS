@@ -41,27 +41,40 @@ QEMU_LOG_MAX="$QEMU_LOG_MAX" \
 UART_LOG_MAX="$UART_LOG_MAX" \
 "$ROOT/scripts/run-qemu-rv64.sh" "${QEMU_EXTRA_ARGS[@]}"
 
-# Verify markers printed by the OS stack and selftest client.
+# Verify markers printed by the OS stack and selftest client. The harness waits
+# for os-lite init to announce each service twice (`init: start <svc>` then
+# `init: up <svc>`) before the packagefsd/vfsd readiness markers, the execd
+# lifecycle markers, and the selftest tail.
 expected_sequence=(
   "neuron vers."
   "init: start"
+  "init: start keystored"
   "init: up keystored"
   "keystored: ready"
+  "init: start policyd"
   "init: up policyd"
   "policyd: ready"
+  "init: start samgrd"
   "init: up samgrd"
   "samgrd: ready"
+  "init: start bundlemgrd"
   "init: up bundlemgrd"
   "bundlemgrd: ready"
+  "init: start packagefsd"
   "init: up packagefsd"
   "packagefsd: ready"
+  "init: start vfsd"
   "init: up vfsd"
   "vfsd: ready"
+  "init: start execd"
   "init: up execd"
   "init: ready"
   "execd: elf load ok"
   "child: hello-elf"
   "SELFTEST: e2e exec-elf ok"
+  "child: exit0 start"
+  "execd: child exited"
+  "SELFTEST: child exit ok"
   "SELFTEST: vfs stat ok"
   "SELFTEST: vfs read ok"
   "SELFTEST: vfs ebadf ok"

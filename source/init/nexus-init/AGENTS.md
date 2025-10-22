@@ -54,8 +54,8 @@ runner and the lightweight OS images.
    `packagefsd: ready`, `vfsd: ready`, and the `SELFTEST` probes untouched.
 2. Grow the os-lite backend incrementally (readiness notification, IPC wiring,
    service spawning) while guarding new code behind `feature = "os-lite"`.
-3. Once the os-lite runtime reaches parity, flip the boot image to launch it
-   instead of the old stage0 shim.
+3. Once the os-lite runtime reaches parity, flip the boot image to launch the
+   os-lite backend by default.
 
 ## Testing expectations
 
