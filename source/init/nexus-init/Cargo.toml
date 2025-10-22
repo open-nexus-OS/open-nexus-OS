@@ -5,7 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [features]
-default = []
+default = ["os-lite"]
 os-lite = ["nexus-ipc/os-lite", "packagefsd/os-lite", "vfsd/os-lite"]
 
 [dependencies]
