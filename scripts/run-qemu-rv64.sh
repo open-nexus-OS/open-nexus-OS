@@ -36,11 +36,33 @@ trim_log() {
   fi
 }
 
+# UART stream monitor that enforces the os-lite init readiness sequence before
+# allowing RUN_UNTIL_MARKER=1 to stop QEMU. Expected order:
+#   init: start
+#   init: start <service>
+#   init: up <service>
+#   init: ready
+#   packagefsd: ready
+#   vfsd: ready
+#   execd/selftest markers: elf load -> hello-elf -> e2e exec-elf -> exit0 start ->
+#     child exited -> child exit ok
+#   policy allow/deny probes
+#   VFS stat/read/ebadf checks
 monitor_uart() {
   local line
+  local saw_init_start=0
+  local saw_init_start_keystored=0
+  local saw_init_start_policyd=0
+  local saw_init_start_samgrd=0
+  local saw_init_start_bundlemgrd=0
+  local saw_init_start_packagefsd=0
+  local saw_init_start_vfsd=0
+  local saw_init_start_execd=0
   local saw_ready=0
   local saw_elf_ok=0
+  local saw_exec_selftest=0
   local saw_child=0
+  local saw_child_exit_start=0
   local saw_exit_log=0
   local saw_child_exit_ok=0
   local saw_pkgfs_ready=0
@@ -52,8 +74,37 @@ monitor_uart() {
   local saw_init_up_packagefsd=0
   local saw_init_up_vfsd=0
   local saw_init_up_execd=0
+  local saw_policy_allow=0
+  local saw_policy_deny=0
+  local saw_vfs_stat=0
+  local saw_vfs_read=0
+  local saw_vfs_ebadf=0
   while IFS= read -r line; do
     case "$line" in
+      *"init: start keystored"*)
+        saw_init_start_keystored=1
+        ;;
+      *"init: start policyd"*)
+        saw_init_start_policyd=1
+        ;;
+      *"init: start samgrd"*)
+        saw_init_start_samgrd=1
+        ;;
+      *"init: start bundlemgrd"*)
+        saw_init_start_bundlemgrd=1
+        ;;
+      *"init: start packagefsd"*)
+        saw_init_start_packagefsd=1
+        ;;
+      *"init: start vfsd"*)
+        saw_init_start_vfsd=1
+        ;;
+      *"init: start execd"*)
+        saw_init_start_execd=1
+        ;;
+      *"init: start"*)
+        saw_init_start=1
+        ;;
       *"init: ready"*)
         saw_ready=1
         ;;
@@ -87,8 +138,14 @@ monitor_uart() {
       *"execd: elf load ok"*)
         saw_elf_ok=1
         ;;
+      *"SELFTEST: e2e exec-elf ok"*)
+        saw_exec_selftest=1
+        ;;
       *"child: hello-elf"*)
         saw_child=1
+        ;;
+      *"child: exit0 start"*)
+        saw_child_exit_start=1
         ;;
       *"execd: child exited pid="*)
         saw_exit_log=1
@@ -96,13 +153,20 @@ monitor_uart() {
       *"SELFTEST: child exit ok"*)
         saw_child_exit_ok=1
         ;;
-      *"SELFTEST: e2e exec-elf ok"*)
-        if [[ "$saw_ready" -eq 1 && "$saw_pkgfs_ready" -eq 1 && "$saw_vfsd_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 \
-          && "$saw_init_up_keystored" -eq 1 && "$saw_init_up_policyd" -eq 1 && "$saw_init_up_samgrd" -eq 1 && "$saw_init_up_bundlemgrd" -eq 1 && "$saw_init_up_packagefsd" -eq 1 && "$saw_init_up_vfsd" -eq 1 && "$saw_init_up_execd" -eq 1 ]]; then
-          echo "[info] Success marker detected – stopping QEMU" >&2
-          pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
-          break
-        fi
+      *"SELFTEST: policy allow ok"*)
+        saw_policy_allow=1
+        ;;
+      *"SELFTEST: policy deny ok"*)
+        saw_policy_deny=1
+        ;;
+      *"SELFTEST: vfs stat ok"*)
+        saw_vfs_stat=1
+        ;;
+      *"SELFTEST: vfs read ok"*)
+        saw_vfs_read=1
+        ;;
+      *"SELFTEST: vfs ebadf ok"*)
+        saw_vfs_ebadf=1
         ;;
       *"I: after selftest"*|*"KSELFTEST: spawn ok"*|*"SELFTEST: ipc ok"*|*"SELFTEST: end"*)
         if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
@@ -126,6 +190,20 @@ monitor_uart() {
         fi
         ;;
     esac
+
+    if [[ "$RUN_UNTIL_MARKER" == "1" \
+        && "$saw_init_start" -eq 1 && "$saw_init_start_keystored" -eq 1 && "$saw_init_start_policyd" -eq 1 && "$saw_init_start_samgrd" -eq 1 \
+        && "$saw_init_start_bundlemgrd" -eq 1 && "$saw_init_start_packagefsd" -eq 1 && "$saw_init_start_vfsd" -eq 1 && "$saw_init_start_execd" -eq 1 \
+        && "$saw_init_up_keystored" -eq 1 && "$saw_init_up_policyd" -eq 1 && "$saw_init_up_samgrd" -eq 1 && "$saw_init_up_bundlemgrd" -eq 1 \
+        && "$saw_init_up_packagefsd" -eq 1 && "$saw_init_up_vfsd" -eq 1 && "$saw_init_up_execd" -eq 1 \
+        && "$saw_ready" -eq 1 && "$saw_pkgfs_ready" -eq 1 && "$saw_vfsd_ready" -eq 1 \
+        && "$saw_elf_ok" -eq 1 && "$saw_exec_selftest" -eq 1 && "$saw_child" -eq 1 && "$saw_child_exit_start" -eq 1 \
+        && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 && "$saw_policy_allow" -eq 1 && "$saw_policy_deny" -eq 1 \
+        && "$saw_vfs_stat" -eq 1 && "$saw_vfs_read" -eq 1 && "$saw_vfs_ebadf" -eq 1 ]]; then
+      echo "[info] Success marker detected – stopping QEMU" >&2
+      pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
+      break
+    fi
   done
 }
 

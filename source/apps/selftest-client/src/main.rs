@@ -8,39 +8,39 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use anyhow::Context;
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use bundlemgrd::artifact_store;
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT0_MANIFEST_TOML};
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use exec_payloads::{HELLO_ELF, HELLO_MANIFEST};
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use execd::RestartPolicy;
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use nexus_vfs::{Error as VfsError, VfsClient};
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use packagefsd;
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use vfsd;
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use keystored;
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use policyd;
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use samgrd;
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use nexus_ipc::{KernelClient, Wait};
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use nexus_init::{bootstrap_once, ReadyNotifier};
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use capnp::message::{Builder, ReaderOptions};
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use capnp::serialize;
 
 fn main() {
@@ -71,7 +71,7 @@ fn run() -> anyhow::Result<()> {
         Err(_) => println!("SELFTEST: policy deny ok"),
     }
 
-    #[cfg(nexus_env = "os")]
+    #[cfg(all(nexus_env = "os", feature = "os-lite"))]
     {
         // Boot minimal init sequence in-process to start core services on OS builds.
         start_core_services()?;
@@ -94,7 +94,7 @@ fn run() -> anyhow::Result<()> {
 
 // Services are launched by init on OS builds; no local spawns here.
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn install_demo_hello_bundle() -> anyhow::Result<()> {
     let store = artifact_store().context("artifact store unavailable")?;
     let manifest = demo_manifest_bytes();
@@ -105,7 +105,7 @@ fn install_demo_hello_bundle() -> anyhow::Result<()> {
     send_install_request("demo.hello", handle, manifest.len() as u32)
 }
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn install_demo_exit0_bundle() -> anyhow::Result<()> {
     let store = artifact_store().context("artifact store unavailable")?;
     let manifest = DEMO_EXIT0_MANIFEST_TOML.as_bytes().to_vec();
@@ -115,19 +115,19 @@ fn install_demo_exit0_bundle() -> anyhow::Result<()> {
     send_install_request("demo.exit0", handle, manifest.len() as u32)
 }
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn demo_manifest_bytes() -> Vec<u8> {
     exec_payloads::HELLO_MANIFEST_TOML.as_bytes().to_vec()
 }
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn wait_for_execd_exit() {
     for _ in 0..16 {
         let _ = nexus_abi::yield_();
     }
 }
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()> {
     const OPCODE_INSTALL: u8 = 1;
 
@@ -175,7 +175,7 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
     }
 }
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn verify_vfs_paths() -> anyhow::Result<()> {
     // Route IPC to VFS dispatcher
     nexus_ipc::set_default_target("vfsd");
@@ -212,7 +212,7 @@ fn verify_vfs_paths() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(nexus_env = "os")]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn start_core_services() -> anyhow::Result<()> {
     bootstrap_once(ReadyNotifier::new(|| ()))
         .map_err(|_| anyhow::anyhow!("nexus-init bootstrap failed"))?;

@@ -23,7 +23,7 @@ When migrating a std-based service to an os-lite split:
 1. **Module split:** Introduce `std_server.rs` (existing logic) and `os_lite.rs` (new path) behind cfg gates. Keep host behaviour identical.
 2. **Skeleton first:** Start `os_lite` as a stub emitting readiness markers. Do not remove the old implementation yet.
 3. **Incremental wiring:** Port service responsibilities one feature at a time (e.g. readiness, IPC transport, spawning) with tests after each step.
-4. **Enablement:** Only when parity is achieved, flip the entrypoint or feature flag that makes `os_lite` active for the OS build.
+4. **Enablement:** Only when parity is achieved, keep the os-lite backend selected for the OS build via the entrypoint or feature flag.
 5. **Cleanup:** Remove superseded crates and binaries once the new path is stable.
 
 Note: os-lite service backends are now embedded in `packagefsd` and `vfsd`; the old `*-os` crates were removed. The mailbox prototype was superseded by `nexus-ipc`'s os-lite transport.
@@ -78,8 +78,8 @@ Do not change these without updating scripts, postflight tooling, and docs in th
    tolerates `Unsupported`/`InvalidSyscall`/`CapabilityDenied` results so the
    cleanup remains idempotent while kernel hooks land. These changes ensure the
    parent no longer retains bootstrap rights or leaked VMOs after Stage 3.
-5. Once the os-lite runtime reaches parity, flip the boot image to launch it
-   instead of the old stage0 shim.
+5. Once the os-lite runtime reaches parity, flip the boot image to launch the
+   os-lite backend by default.
 
 ---
 

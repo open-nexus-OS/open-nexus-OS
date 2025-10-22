@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+default = []
+os-lite = []
+
 [dependencies]
 anyhow = "1"
 execd = { path = "../../../source/services/execd" }
@@ -21,5 +25,5 @@ samgrd = { path = "../../../source/services/samgrd" }
 packagefsd = { path = "../../../source/services/packagefsd" }
 vfsd = { path = "../../../source/services/vfsd" }
 
-[target.'cfg(nexus_env = "os")'.dependencies]
-nexus-init = { path = "../../../source/init/nexus-init" }
+[target.'cfg(all(nexus_env = "os", feature = "os-lite"))'.dependencies]
+nexus-init = { path = "../../../source/init/nexus-init", features = ["os-lite"] }
