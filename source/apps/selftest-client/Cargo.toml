@@ -20,3 +20,6 @@ policyd = { path = "../../../source/services/policyd" }
 samgrd = { path = "../../../source/services/samgrd" }
 packagefsd = { path = "../../../source/services/packagefsd" }
 vfsd = { path = "../../../source/services/vfsd" }
+
+[target.'cfg(nexus_env = "os")'.dependencies]
+nexus-init = { path = "../../../source/init/nexus-init" }

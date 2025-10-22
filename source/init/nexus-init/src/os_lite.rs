@@ -671,9 +671,10 @@ impl From<nexus_ipc::IpcError> for ServiceError {
 /// No-op for parity with the std backend which warms schema caches.
 pub fn touch_schemas() {}
 
-/// Sequential bootstrap loop that emits stage0-compatible UART markers and
-/// cooperatively yields control back to the scheduler.
-pub fn service_main_loop<F>(notifier: ReadyNotifier<F>) -> Result<(), InitError>
+/// Bootstraps the lightweight init runtime until every service reports
+/// readiness. The parent releases its bootstrap capabilities once the
+/// readiness callback fires.
+pub fn bootstrap_once<F>(notifier: ReadyNotifier<F>) -> Result<(), InitError>
 where
     F: FnOnce() + Send,
 {
@@ -751,12 +752,21 @@ where
     }
     let _ = yield_();
 
-    // Release parent's references to per-service resources and bootstrap slot.
-    teardown_services(spawned);
     notifier.notify();
     emit_line("init: ready");
 
     teardown_services(spawned);
+
+    Ok(())
+}
+
+/// Sequential bootstrap loop that emits UART markers and then idles forever so
+/// that cooperative tasks can continue to make progress.
+pub fn service_main_loop<F>(notifier: ReadyNotifier<F>) -> Result<(), InitError>
+where
+    F: FnOnce() + Send,
+{
+    bootstrap_once(notifier)?;
 
     loop {
         let _ = yield_();

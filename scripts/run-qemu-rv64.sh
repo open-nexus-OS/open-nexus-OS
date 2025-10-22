@@ -45,10 +45,38 @@ monitor_uart() {
   local saw_child_exit_ok=0
   local saw_pkgfs_ready=0
   local saw_vfsd_ready=0
+  local saw_init_up_keystored=0
+  local saw_init_up_policyd=0
+  local saw_init_up_samgrd=0
+  local saw_init_up_bundlemgrd=0
+  local saw_init_up_packagefsd=0
+  local saw_init_up_vfsd=0
+  local saw_init_up_execd=0
   while IFS= read -r line; do
     case "$line" in
       *"init: ready"*)
         saw_ready=1
+        ;;
+      *"init: up keystored"*)
+        saw_init_up_keystored=1
+        ;;
+      *"init: up policyd"*)
+        saw_init_up_policyd=1
+        ;;
+      *"init: up samgrd"*)
+        saw_init_up_samgrd=1
+        ;;
+      *"init: up bundlemgrd"*)
+        saw_init_up_bundlemgrd=1
+        ;;
+      *"init: up packagefsd"*)
+        saw_init_up_packagefsd=1
+        ;;
+      *"init: up vfsd"*)
+        saw_init_up_vfsd=1
+        ;;
+      *"init: up execd"*)
+        saw_init_up_execd=1
         ;;
       *"packagefsd: ready"*)
         saw_pkgfs_ready=1
@@ -69,7 +97,8 @@ monitor_uart() {
         saw_child_exit_ok=1
         ;;
       *"SELFTEST: e2e exec-elf ok"*)
-        if [[ "$saw_ready" -eq 1 && "$saw_pkgfs_ready" -eq 1 && "$saw_vfsd_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 ]]; then
+        if [[ "$saw_ready" -eq 1 && "$saw_pkgfs_ready" -eq 1 && "$saw_vfsd_ready" -eq 1 && "$saw_elf_ok" -eq 1 && "$saw_child" -eq 1 && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 \
+          && "$saw_init_up_keystored" -eq 1 && "$saw_init_up_policyd" -eq 1 && "$saw_init_up_samgrd" -eq 1 && "$saw_init_up_bundlemgrd" -eq 1 && "$saw_init_up_packagefsd" -eq 1 && "$saw_init_up_vfsd" -eq 1 && "$saw_init_up_execd" -eq 1 ]]; then
           echo "[info] Success marker detected – stopping QEMU" >&2
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
           break
