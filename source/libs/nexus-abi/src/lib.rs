@@ -13,7 +13,7 @@
 //! PUBLIC API: MsgHeader, IpcError; OS-only syscalls: yield_, spawn, exit, wait, cap_transfer, as_*, vmo_*, debug_*
 //! DEPENDS_ON: no_std (OS), riscv ecall asm (OS), bitflags
 //! INVARIANTS: Header is 16 bytes LE; userspace wrappers map to stable kernel syscall IDs
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 
 /// Result type returned by ABI helpers.
 pub type Result<T> = core::result::Result<T, IpcError>;

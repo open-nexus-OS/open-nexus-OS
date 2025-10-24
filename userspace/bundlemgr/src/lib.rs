@@ -1,10 +1,20 @@
-//! CONTEXT: Userspace bundle manager domain library (manifest parsing, service API)
+//! CONTEXT: Bundle manager domain library
 //! OWNERS: @runtime
-//! PUBLIC API: Manifest, Service, parse/install helpers
-//! DEPENDS_ON: std, toml, crypto (as needed)
-//! INVARIANTS: Manifest schema stable; pure domain logic without IPC
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
-//! Bundle manager domain logic shared between host tests and the OS daemon.
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - cli::{execute, help, run_with, AbilityRegistrar}: CLI interface
+//!   - manifest::{Error, Manifest}: Manifest parsing
+//!   - service::{InstallRequest, InstalledBundle, Service, ServiceError}: Service layer
+//!
+//! DEPENDENCIES:
+//!   - toml: Manifest parsing
+//!   - semver: Version handling
+//!   - base64: Signature encoding
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 

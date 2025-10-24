@@ -1,10 +1,47 @@
-//! CONTEXT: Demo bundle payload embedded for selftests and loader bring-up
-//! INTENT: Provide embedded ELF payload for testing loader functionality
-//! IDL (target): HELLO_ELF (embedded bytes), HELLO_MANIFEST (JSON), HELLO_MANIFEST_TOML (TOML)
-//! DEPS: None (embedded data)
-//! READINESS: Test payload ready; used by selftests
-//! TESTS: ELF parsing, manifest validation, loader integration
-//! Demo bundle payload embedded for selftests and loader bring-up.
+//! CONTEXT: Embedded ELF64/RISC-V payload for testing and bootstrap
+//!
+//! OWNERS: @runtime
+//!
+//! PUBLIC API:
+//!   - HELLO_ELF: Embedded RISC-V ELF binary (409 bytes)
+//!   - HELLO_MANIFEST: JSON manifest for the demo bundle
+//!   - HELLO_MANIFEST_TOML: TOML manifest template for selftests
+//!
+//! EMBEDDED DATA:
+//!   - ELF binary: RISC-V executable that prints "child: hello-elf" and yields
+//!   - JSON manifest: Bundle metadata with name, version, capabilities
+//!   - TOML manifest: Template for selftest staging and installation
+//!
+//! SECURITY INVARIANTS:
+//!   - No unsafe code in embedded data
+//!   - ELF binary is statically validated
+//!   - Manifest data is properly formatted
+//!   - No external dependencies on binary assets
+//!
+//! ERROR CONDITIONS:
+//!   - Invalid ELF format: Binary will fail to load
+//!   - Malformed manifest: JSON/TOML parsing will fail
+//!   - Size limits: ELF binary is fixed at 409 bytes
+//!
+//! DEPENDENCIES:
+//!   - None (embedded data only)
+//!
+//! FEATURES:
+//!   - Embedded ELF binary for testing
+//!   - JSON manifest for bundle metadata
+//!   - TOML manifest template for selftests
+//!   - No external binary dependencies
+//!
+//! TEST SCENARIOS:
+//!   - test_elf_parsing(): Parse embedded ELF binary
+//!   - test_manifest_validation(): Validate JSON manifest format
+//!   - test_toml_template(): Validate TOML manifest template
+//!   - test_bundle_creation(): Create bundle from embedded data
+//!   - test_loader_integration(): Load ELF using nexus-loader
+//!   - test_execution(): Execute ELF and verify output
+//!   - test_manifest_roundtrip(): Round-trip manifest serialization
+//!
+//! ADR: docs/adr/0007-executable-payloads-architecture.md
 
 /// Embedded RISC-V ELF payload that prints a marker and yields forever.
 ///

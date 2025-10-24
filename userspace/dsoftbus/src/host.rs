@@ -1,9 +1,64 @@
-//! CONTEXT: Host backend implementation for DSoftBus-lite
-//! INTENT: TCP-backed discovery, Noise XK authentication, encrypted streams
-//! IDL (target): announce(device,services,port), bind(addr,identity), accept(), connect(peer)
-//! DEPS: snow (Noise), capnp (serialization), ed25519-dalek (crypto), identity (device keys)
-//! READINESS: Host backend ready; used for integration testing
-//! TESTS: Discovery registry, Noise handshakes, encrypted frame transport, device validation
+//! CONTEXT: Host backend implementation for DSoftBus-lite distributed service fabric
+//!
+//! OWNERS: @runtime
+//!
+//! PUBLIC API:
+//!   - struct HostDiscovery: In-process service discovery registry
+//!   - struct HostAuthenticator: TCP-backed authenticator with Noise XK protocol
+//!   - struct HostSession: Established authenticated session
+//!   - struct HostStream: Reliable encrypted stream with channel multiplexing
+//!   - struct HostAnnouncementStream: Iterator for service announcements
+//!
+//! SECURITY INVARIANTS:
+//!   - All communication uses Noise XK protocol for authenticated encryption
+//!   - Device identities are cryptographically validated
+//!   - Handshake proofs prevent man-in-the-middle attacks
+//!   - Frame boundaries are preserved across TCP transport
+//!   - No unsafe code in network operations
+//!
+//! ERROR CONDITIONS:
+//!   - DiscoveryError::Unsupported: Discovery backend not available
+//!   - DiscoveryError::Io: Network I/O failure during discovery
+//!   - DiscoveryError::Registry: Internal registry failure
+//!   - AuthError::Io: Transport failure during handshake
+//!   - AuthError::Noise: Noise protocol handshake failure
+//!   - AuthError::Identity: Identity validation failed
+//!   - AuthError::Protocol: Message parsing failure
+//!   - SessionError::Io: Underlying transport failure
+//!   - SessionError::Rejected: Peer rejected connection
+//!   - StreamError::Io: I/O failure during stream operations
+//!   - StreamError::Crypto: Cryptographic failure during encryption/decryption
+//!   - StreamError::Protocol: Frame parsing failure
+//!
+//! DEPENDENCIES:
+//!   - snow: Noise protocol implementation
+//!   - capnp: Message serialization
+//!   - ed25519-dalek: Digital signatures
+//!   - identity: Device identity and signing
+//!   - nexus-idl-runtime: DSoftBus IDL bindings
+//!   - parking_lot: Mutex implementation
+//!   - once_cell: Lazy static initialization
+//!
+//! FEATURES:
+//!   - TCP-based service discovery
+//!   - Noise XK authenticated handshakes
+//!   - Encrypted reliable streams
+//!   - Channel multiplexing
+//!   - Device identity validation
+//!   - Frame-based message transport
+//!
+//! TEST SCENARIOS:
+//!   - test_discovery_registry(): Service announcement and discovery
+//!   - test_noise_handshake(): Noise XK protocol handshake
+//!   - test_encrypted_transport(): Encrypted frame transport
+//!   - test_device_validation(): Device identity validation
+//!   - test_channel_multiplexing(): Multiple logical channels
+//!   - test_connection_rejection(): Peer connection rejection
+//!   - test_crypto_failures(): Cryptographic operation failures
+//!   - test_network_failures(): Network I/O failures and timeouts
+//!   - test_concurrent_sessions(): Multiple concurrent sessions
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};

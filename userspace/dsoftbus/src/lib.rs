@@ -1,14 +1,22 @@
-//! CONTEXT: DSoftBus-lite shared userland library
-//! INTENT: Distributed service discovery, authenticated sessions, reliable streams
-//! IDL (target): announce(device,services,port), connect(peer), send(channel,payload), recv()
-//! DEPS: identity (device keys), x25519-dalek (Noise), serde (serialization)
-//! READINESS: Host backend ready; OS backend needs kernel transport
-//! TESTS: Discovery announcements, Noise handshakes, frame multiplexing
+//! CONTEXT: DSoftBus-lite distributed service fabric
+//! OWNERS: @runtime
+//! STATUS: Functional (host backend), Placeholder (OS backend - pending kernel transport)
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 integration test
 //!
-//! The library provides discovery and authenticated session helpers used by the
-//! `dsoftbusd` daemon. Host builds expose a TCP-backed implementation, while OS
-//! builds currently provide stubs that will be wired to kernel transports in a
-//! future change.
+//! PUBLIC API:
+//!   - Announcement: Service discovery announcement
+//!   - Discovery trait: Service discovery interface
+//!   - Authenticator trait: Session authentication
+//!   - Session/Stream traits: Communication channels
+//!
+//! DEPENDENCIES:
+//!   - identity: Device identity and signing
+//!   - x25519-dalek: Noise protocol
+//!   - ed25519-dalek: Digital signatures
+//!   - serde: Message serialization
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 #![forbid(unsafe_code)]
 

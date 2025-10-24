@@ -1,11 +1,21 @@
-//! CONTEXT: Userspace virtual file system client library
-//! INTENT: File operations (open/read/close/stat) through VFS service
-//! IDL (target): open(path), read(fh,off,len), close(fh), stat(path)
-//! DEPS: nexus-idl-runtime (capnp), nexus-ipc (transport)
-//! READINESS: Host backend ready; OS backend returns Unsupported
-//! TESTS: Open/read/close roundtrip; stat metadata; error handling
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Virtual file system client library
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - VfsClient: Virtual file system client
+//!   - VfsError: Client error types
+//!
+//! DEPENDENCIES:
+//!   - nexus-ipc: IPC communication
+//!   - nexus-idl-runtime: IDL bindings
+//!
+//! ADR: docs/adr/0004-idl-runtime-architecture.md
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]

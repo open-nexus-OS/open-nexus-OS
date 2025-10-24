@@ -3,7 +3,7 @@
 //! PUBLIC API: service_main_loop(), ReadyNotifier
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp)
 //! INVARIANTS: Stable readiness prints; no cross-service logic
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "accessibilityd surfaces assistive metadata. Usage: accessibilityd [--help] hint"
 }

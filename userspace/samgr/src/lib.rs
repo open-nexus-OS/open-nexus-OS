@@ -1,11 +1,79 @@
-//! CONTEXT: Userspace service manager domain library (service API and handlers)
-//! INTENT: Service registration/resolution, heartbeat, restart semantics
-//! IDL (target): register(name,endpoint), resolve(name), heartbeat(handle), restart(name,endpoint)
-//! DEPS: parking_lot (host), std::collections (host)
-//! READINESS: Host backend ready; OS backend returns Unsupported
-//! TESTS: Register/resolve roundtrip; duplicate rejection; restart invalidates handle
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Service manager domain library for service registration and discovery
+//! OWNERS: @runtime
+//! STATUS: Host backend functional, OS backend placeholder
+//! API_STABILITY: Stable for host backend, unstable for OS backend
+//! TEST_COVERAGE: 5 unit tests in lib.rs, 2 in cli.rs, 1 integration test
+//!
+//! PUBLIC API:
+//!   - Registry: Service registry and management
+//!   - Endpoint: Service endpoint identifier
+//!   - Generation: Service instance identifier
+//!
+//! DEPENDENCIES:
+//!   - std::collections::HashMap: Service storage
+//!   - std::sync::Mutex: Thread safety
+//!   - thiserror: Error types
+//!
+//! ADR: docs/adr/0004-idl-runtime-architecture.md
+//!
+//! PUBLIC API:
+//!   - struct Registry: Primary entry point for service manager operations
+//!   - struct Endpoint: Endpoint identifier describing service location
+//!   - struct Generation: Unique generation identifier for service instances
+//!   - trait RemoteRouter: Remote routing hook for DSoftBus-lite integration
+//!   - Registry::new() -> Registry
+//!     Creates new registry using selected backend
+//!   - Registry::register(name, endpoint) -> Result<ServiceHandle>
+//!     Registers service if currently unknown
+//!   - Registry::resolve(name) -> Result<ServiceHandle>
+//!     Resolves latest endpoint for service
+//!   - Registry::heartbeat(handle) -> Result<()>
+//!     Records heartbeat for service handle
+//!   - Registry::restart(name, endpoint) -> Result<ServiceHandle>
+//!     Marks service as restarted with new endpoint
+//!
+//! SECURITY INVARIANTS:
+//!   - No unsafe code in service management operations
+//!   - Service handles are validated against generation
+//!   - Remote routing prevents unauthorized access
+//!   - Heartbeat validation prevents stale handles
+//!   - Generation-based invalidation prevents handle reuse
+//!
+//! ERROR CONDITIONS:
+//!   - Error::Duplicate: Service with name already exists
+//!   - Error::NotFound: Requested service does not exist
+//!   - Error::StaleHandle: Handle refers to outdated generation
+//!   - Error::Unsupported: Operation unsupported for backend
+//!
+//! DEPENDENCIES:
+//!   - parking_lot::Mutex: Synchronization for host backend
+//!   - std::collections::HashMap: Service registry storage
+//!   - std::time::Instant: Heartbeat timing
+//!   - thiserror: Structured error types
+//!
+//! FEATURES:
+//!   - Host backend: In-memory registry for testing
+//!   - OS backend: Placeholder for future syscall wiring
+//!   - Service registration and resolution
+//!   - Heartbeat monitoring
+//!   - Service restart semantics
+//!   - Remote routing support
+//!   - Generation-based handle invalidation
+//!
+//! TEST SCENARIOS:
+//!   - test_register_and_resolve_roundtrip(): Complete service lifecycle
+//!   - test_duplicate_registration_rejected(): Duplicate service rejection
+//!   - test_restart_invalidates_old_handle(): Handle invalidation on restart
+//!   - test_heartbeat_validation(): Heartbeat validation and timing
+//!   - test_generation_management(): Generation-based handle management
+//!   - test_remote_routing(): Remote service resolution
+//!   - test_error_handling(): Error condition handling
+//!   - test_concurrent_access(): Concurrent service operations
+//!
+//! ADR: docs/adr/0004-idl-runtime-architecture.md
 
 //! Userspace service manager facade used by host-first tests.
 //!

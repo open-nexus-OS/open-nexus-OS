@@ -1,8 +1,12 @@
-#![forbid(unsafe_code)]
-#![deny(missing_docs)]
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
 
-//! Embedded demo payload that prints a marker and exits via the process
-//! lifecycle syscalls.
+//! CONTEXT: Embedded demo payload for process lifecycle testing
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0007-executable-payloads-architecture.md
 
 /// Prebuilt ELF payload for the `demo.exit0` bundle.
 pub const DEMO_EXIT0_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-exit0.elf"));

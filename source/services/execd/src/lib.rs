@@ -7,7 +7,7 @@
 //! DEPENDS_ON: nexus_ipc, nexus_abi, userspace::nexus_loader (os), exec_payloads (test)
 //! FEATURES: requires `idl-capnp` for IPC handlers; os path behind `cfg(nexus_env = "os")`
 //! INVARIANTS: Delegates ELF mapping to `nexus-loader`; emits readiness via ReadyNotifier
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0017-service-architecture.md
 
 #![forbid(unsafe_code)]
 

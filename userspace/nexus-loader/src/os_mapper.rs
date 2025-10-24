@@ -1,9 +1,51 @@
-//! CONTEXT: OS-specific memory mapping implementation for nexus-loader
-//! INTENT: Map ELF segments into address spaces using kernel VMO/AS APIs
-//! IDL (target): mapSegment(plan,src), mapStack(asHandle), populateStack(stackVmo,argv,env)
-//! DEPS: nexus-abi (VMO/AS syscalls), alloc::vec (memory management)
-//! READINESS: OS backend ready; requires kernel VMO/AS support
-//! TESTS: Segment mapping, stack creation, BSS zero-filling, alignment checks
+//! CONTEXT: OS-specific memory mapping implementation for ELF64/RISC-V loader
+//!
+//! OWNERS: @runtime
+//!
+//! PUBLIC API:
+//!   - struct OsMapper: OS-specific segment mapper using kernel VMO/AS APIs
+//!   - struct StackBuilder: Stack creation and population utilities
+//!   - OsMapper::new(): Create mapper with address space and bundle VMO handles
+//!   - StackBuilder::new(): Create stack builder with top address and page count
+//!   - StackBuilder::map_stack(): Map stack into address space
+//!   - StackBuilder::populate(): Populate stack with argv/env data
+//!
+//! SECURITY INVARIANTS:
+//!   - No W+X segments allowed (enforced at mapper level)
+//!   - All segments must be page-aligned (4KB boundary)
+//!   - Stack guard pages prevent buffer overflows
+//!   - VMO operations are bounds-checked
+//!   - No unsafe code in mapping operations
+//!
+//! ERROR CONDITIONS:
+//!   - Error::ProtWx: Segment has both write and execute permissions
+//!   - Error::Align: Segment not page-aligned
+//!   - Error::Truncated: File size mismatch
+//!   - Error::Oob: Segment goes out of bounds
+//!   - Error::Internal: Kernel VMO/AS operation failed
+//!
+//! DEPENDENCIES:
+//!   - nexus-abi: Kernel VMO and address space syscalls
+//!   - alloc::vec: Memory management for segment images
+//!   - core::convert::TryFrom: Type conversions
+//!
+//! FEATURES:
+//!   - ELF segment mapping with BSS zero-filling
+//!   - Stack creation with guard pages
+//!   - Stack population with argv/env data
+//!   - Page-aligned memory operations
+//!   - VMO-based memory management
+//!
+//! TEST SCENARIOS:
+//!   - test_segment_mapping(): Map ELF segments into address space
+//!   - test_bss_zero_filling(): Zero-fill BSS regions
+//!   - test_stack_creation(): Create stack with guard pages
+//!   - test_stack_population(): Populate stack with argv/env
+//!   - test_alignment_validation(): Validate page alignment
+//!   - test_vmo_operations(): Test VMO create/write/map operations
+//!   - test_address_space_mapping(): Test AS mapping operations
+//!
+//! ADR: docs/adr/0002-nexus-loader-architecture.md
 #[cfg(not(nexus_env = "os"))]
 compile_error!("os_mapper is only available when building for nexus_env=\"os\"");
 

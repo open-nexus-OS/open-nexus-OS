@@ -3,4 +3,8 @@
 
 /source/kernel/neuron/** @kernel-team
 /source/libs/** @runtime
+/source/services/** @runtime
+/userspace/** @runtime
 /docs/ARCHITECTURE.md @kernel-team
+/docs/adr/** @runtime
+/docs/standards/** @runtime

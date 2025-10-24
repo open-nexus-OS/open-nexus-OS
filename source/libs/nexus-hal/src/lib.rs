@@ -4,7 +4,7 @@
 //! PUBLIC API: Bus, DmaBuffer, Fence
 //! DEPENDS_ON: core
 //! INVARIANTS: Pure traits; no unsafe; test-only mocks in this crate
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 
 /// Basic bus access trait shared by user drivers.
 pub trait Bus {

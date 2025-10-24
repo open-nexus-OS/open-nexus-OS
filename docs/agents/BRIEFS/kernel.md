@@ -8,3 +8,4 @@ Purpose: give minimal context to solve scoped tasks without repo-wide scanning.
 - Typical tasks: document handler invariants, add headers, fix comments, wire tests/log markers.
 - Tests: `just test-os` for UART markers; kernel selftests print `neuron vers.` and trap diagnostics.
 - References: `docs/ARCHITECTURE.md` (Kernel quick reference), ADR-0001.
+

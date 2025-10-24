@@ -1,10 +1,23 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal OS selftest client. Emits deterministic UART markers once core
-//! services are up and the policy allow/deny paths have been exercised. Kernel
-//! IPC wiring is pending, so policy evaluation is simulated via the shared
-//! policy library to keep the boot markers stable.
+//! CONTEXT: OS selftest client for end-to-end system validation
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - main(): Application entry point
+//!   - run(): Main selftest logic
+//!
+//! DEPENDENCIES:
+//!   - samgrd, bundlemgrd, keystored: Core services
+//!   - policy: Policy evaluation
+//!   - nexus-ipc: IPC communication
+//!   - nexus-init: Bootstrap services
+//!
+//! ADR: docs/adr/0017-service-architecture.md
 
 #![forbid(unsafe_code)]
 

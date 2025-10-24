@@ -1,3 +1,22 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: VirtIO block driver for storage operations
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 unit tests
+//!
+//! PUBLIC API:
+//!   - VirtioBlk: Block driver implementation
+//!   - capacity(): Get storage capacity
+//!   - read_block(): Read data block
+//!
+//! DEPENDENCIES:
+//!   - nexus-hal::{Bus, DmaBuffer}: Hardware abstraction layer
+//!
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
+
 use nexus_hal::{Bus, DmaBuffer};
 
 pub struct VirtioBlk<B: Bus> {

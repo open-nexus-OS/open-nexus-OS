@@ -1,4 +1,21 @@
 //! CONTEXT: Tests for bump allocator alignment and reuse
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test
+//!
+//! TEST_SCOPE:
+//!   - Memory allocation alignment
+//!   - Allocator reuse after reset
+//!   - Memory boundary validation
+//!
+//! TEST_SCENARIOS:
+//!   - test_reset_allows_reuse(): Test allocator reset and reuse
+//!
+//! DEPENDENCIES:
+//!   - nexus_alloc::BumpAllocator: Bump allocator implementation
+//!
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 use nexus_alloc::BumpAllocator;
 
 #[test]

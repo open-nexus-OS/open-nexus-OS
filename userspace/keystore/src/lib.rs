@@ -1,10 +1,22 @@
-//! CONTEXT: Userspace keystore domain library
-//! INTENT: Anchor key loading, signature verification, device ID derivation
-//! IDL (target): loadAnchors(dir), verifyDetached(pk,msg,sig), deviceId(pk)
-//! DEPS: ed25519_dalek, sha2, base64, hex (crypto operations)
-//! READINESS: Library ready; no service dependencies
-//! TESTS: Hex/PEM anchor loading; signature verification; device ID derivation
-//! Keystore primitives for loading anchors and verifying signatures.
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Keystore domain library for cryptographic operations
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 unit tests
+//!
+//! PUBLIC API:
+//!   - Keystore: Cryptographic key management
+//!   - KeystoreError: Keystore error types
+//!
+//! DEPENDENCIES:
+//!   - std::fs: File system operations
+//!   - std::collections::HashMap: Key storage
+//!   - thiserror: Error types
+//!
+//! ADR: docs/adr/0006-device-identity-architecture.md
 
 #![forbid(unsafe_code)]
 

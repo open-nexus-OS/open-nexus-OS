@@ -1,3 +1,22 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: VirtIO network driver for network communication
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 unit tests
+//!
+//! PUBLIC API:
+//!   - VirtioNet: Network driver implementation
+//!   - read_status(): Read network status
+//!   - kick_queue(): Kick network queue
+//!
+//! DEPENDENCIES:
+//!   - nexus-hal::{Bus, DmaBuffer, Fence}: Hardware abstraction layer
+//!
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
+
 use nexus_hal::{Bus, DmaBuffer, Fence};
 
 pub struct VirtioNet<B: Bus> {

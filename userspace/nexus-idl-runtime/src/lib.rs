@@ -1,12 +1,21 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Userland IDL runtime: Cap'n Proto glue for control-plane messaging
+//! CONTEXT: IDL runtime providing Cap'n Proto bindings for control-plane messaging
 //! OWNERS: @runtime
-//! PUBLIC API: generated *_capnp modules, IdlError
-//! DEPENDS_ON: capnp build outputs (OUT_DIR)
-//! INVARIANTS: No unsafe; only exposes generated bindings; stable module names
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - Generated modules: samgr_capnp, bundlemgr_capnp, etc.
+//!   - IdlError: Serialization error types
+//!
+//! DEPENDENCIES:
+//!   - capnp: Cap'n Proto serialization
+//!   - Generated code from .capnp schemas
+//!
+//! ADR: docs/adr/0004-idl-runtime-architecture.md
 #![forbid(unsafe_code)]
 
 #[cfg(feature = "capnp")]

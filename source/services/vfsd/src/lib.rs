@@ -10,7 +10,7 @@
 //! PUBLIC API: service_main_loop(), ReadyNotifier, transports
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp)
 //! INVARIANTS: Separate from PackageFs; stable readiness prints
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0017-service-architecture.md
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;

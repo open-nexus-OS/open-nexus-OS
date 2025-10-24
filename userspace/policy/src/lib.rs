@@ -1,11 +1,23 @@
-//! CONTEXT: Userspace policy domain library
-//! INTENT: Policy document parsing, capability checking, TOML loading
-//! IDL (target): check(required_caps, subject), loadDir(path)
-//! DEPS: serde, toml, std::fs (file operations)
-//! READINESS: Library ready; no service dependencies
-//! TESTS: Allow/deny checks; directory loading; canonicalization
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Policy domain library for capability-based access control
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 unit tests
+//!
+//! PUBLIC API:
+//!   - Policy: Capability-based access control
+//!   - PolicyError: Policy error types
+//!
+//! DEPENDENCIES:
+//!   - serde: Serialization/deserialization
+//!   - toml: TOML file parsing
+//!   - std::collections: Ordered collections
+//!   - thiserror: Error types
+//!
+//! ADR: docs/adr/0014-policy-architecture.md
 
 #![forbid(unsafe_code)]
 

@@ -1,10 +1,18 @@
-//! CONTEXT: Host-first configuration storage logic shared with the settings daemon
-//! INTENT: Persist and retrieve system configuration key-value pairs
-//! IDL (target): help(), execute(args), run(), apply(key=value)
-//! DEPS: CLI argument parsing, key-value parsing
-//! READINESS: Host backend ready; OS backend needs persistent storage
-//! TESTS: Key-value parsing, configuration application, CLI handling
-//! Host-first configuration storage logic shared with the settings daemon.
+//! CONTEXT: Configuration storage and management system
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test
+//!
+//! PUBLIC API:
+//!   - help() -> &'static str: CLI usage string
+//!   - execute(args: &[&str]) -> String: CLI execution
+//!   - run(): Daemon entry point
+//!
+//! DEPENDENCIES:
+//!   - std::env::args: CLI argument processing
+//!
+//! ADR: docs/adr/0011-settings-architecture.md
 
 #![forbid(unsafe_code)]
 

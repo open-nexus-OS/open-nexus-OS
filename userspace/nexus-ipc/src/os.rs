@@ -1,17 +1,60 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Kernel-backed IPC implementation
-//! INTENT: Service router with per-service channels for OS builds
-//! IDL (target): setDefaultTarget(name), new(), send(frame), recv(wait)
-//! DEPS: std::collections::HashMap (routing), std::sync::mpsc (channels)
-//! READINESS: OS backend ready; temporary in-process router
-//! TESTS: Service routing, channel creation, thread-local targeting
+//! CONTEXT: Kernel-backed IPC implementation for OS builds
 //!
-//! Temporary in-process router for OS builds: until the kernel syscall surface
-//! is available, services and clients communicate over per-service loopback
-//! channels keyed by the spawning thread name (`svc-<service>`). Clients set a
-//! default target via [`set_default_target`].
+//! OWNERS: @runtime
+//!
+//! PUBLIC API:
+//!   - struct KernelClient: Client backed by kernel IPC
+//!   - struct KernelServer: Server backed by kernel IPC
+//!   - set_default_target(): Set default service target for current thread
+//!   - KernelClient::new(): Create client bound to thread's default target
+//!   - KernelClient::new_for(): Create client for specific target service
+//!   - KernelServer::new(): Create server bound to current thread's service name
+//!
+//! IMPLEMENTATION STATUS:
+//!   - Temporary in-process router using std::sync::mpsc
+//!   - Service routing based on thread names (svc-<service>)
+//!   - Thread-local default target for clients
+//!   - Future kernel syscall integration pending
+//!
+//! SECURITY INVARIANTS:
+//!   - No unsafe code in IPC operations
+//!   - Thread-local storage for service targeting
+//!   - Channel-based communication prevents data races
+//!   - Service isolation through thread naming
+//!
+//! ERROR CONDITIONS:
+//!   - IpcError::Unsupported: Default target not set or thread name invalid
+//!   - IpcError::Disconnected: Target service not available
+//!   - IpcError::WouldBlock: Operation would block in non-blocking mode
+//!   - IpcError::Timeout: Operation timed out
+//!
+//! DEPENDENCIES:
+//!   - std::collections::HashMap: Service routing table
+//!   - std::sync::mpsc: Channel-based communication
+//!   - std::sync::{Arc, Mutex, OnceLock}: Synchronization primitives
+//!   - std::thread: Thread name detection
+//!
+//! FEATURES:
+//!   - Service routing with per-service channels
+//!   - Thread-local default target
+//!   - Blocking, non-blocking, and timeout operations
+//!   - Channel-based request/response communication
+//!   - Future kernel syscall integration
+//!
+//! TEST SCENARIOS:
+//!   - test_service_routing(): Route requests to correct services
+//!   - test_channel_creation(): Create per-service channels
+//!   - test_thread_local_targeting(): Test thread-local default target
+//!   - test_blocking_operations(): Test blocking send/recv
+//!   - test_non_blocking_operations(): Test non-blocking send/recv
+//!   - test_timeout_operations(): Test timeout behavior
+//!   - test_disconnection_handling(): Test service disconnection
+//!   - test_kernel_integration(): Future tests for kernel syscalls
+//!
+//! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};

@@ -1,7 +1,35 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Service layer for bundle installation and queries.
+//! CONTEXT: Service layer for bundle installation and queries
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 5 unit tests
+//!   - semver: Semantic versioning
+//!   - std::collections::HashMap: Bundle registry storage
+//!   - std::sync::Mutex: Synchronization
+//!   - thiserror: Structured error types
+//!
+//! FEATURES:
+//!   - Host backend: In-memory bundle registry for testing
+//!   - OS backend: Placeholder for future syscall wiring
+//!   - Bundle installation and querying
+//!   - Manifest parsing and validation
+//!   - Signature verification
+//!   - Publisher validation
+//!
+//! TEST SCENARIOS:
+//!   - test_install_success(): Successful bundle installation
+//!   - test_install_duplicate_rejected(): Duplicate installation rejection
+//!   - test_invalid_signature_encoding_rejected(): Invalid signature handling
+//!   - test_mismatched_name_rejected(): Name mismatch validation
+//!   - test_backend_unavailable(): Backend availability checking
+//!   - test_manifest_parsing(): Manifest parsing and validation
+//!   - test_signature_verification(): Signature verification
+//!   - test_publisher_validation(): Publisher validation
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 
 #![forbid(unsafe_code)]
 

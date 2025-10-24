@@ -4,7 +4,7 @@
 //! PUBLIC API: nexus_interface! macro
 //! DEPENDS_ON: core
 //! INVARIANTS: Macro expands to trait + descriptor() list; no runtime deps
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 
 /// Declarative macro for defining service interfaces and exposing descriptors.
 #[macro_export]

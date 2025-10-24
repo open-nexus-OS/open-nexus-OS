@@ -1,4 +1,23 @@
-use std::collections::HashMap;
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Host std backend for service supervision and IPC
+//! OWNERS: @init-team @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 unit tests
+//!
+//! PUBLIC API:
+//!   - touch_schemas(): Warm schema caches
+//!   - service_main_loop(): Main service supervision loop
+//!   - ReadyNotifier: Readiness notification callback
+//!
+//! DEPENDENCIES:
+//!   - std::thread: Thread management
+//!   - nexus-ipc: IPC communication
+//!   - Core services: keystored, policyd, samgrd, etc.
+//!
+//! ADR: docs/adr/0017-service-architecture.md
 use std::fs;
 use std::path::{Path, PathBuf};
 

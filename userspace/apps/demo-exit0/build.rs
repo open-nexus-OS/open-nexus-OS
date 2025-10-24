@@ -1,3 +1,12 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Build script for demo-exit0 application ELF generation
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! ADR: docs/adr/0007-executable-payloads-architecture.md
+
 use std::{env, fs, path::PathBuf};
 
 fn main() {

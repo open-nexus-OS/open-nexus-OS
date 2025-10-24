@@ -1,10 +1,56 @@
-//! CONTEXT: Cooperative mailbox-backed IPC suitable for no_std OS-lite builds
-//! INTENT: Lightweight IPC using spinlocks and cooperative yielding
-//! IDL (target): setDefaultTarget(name), new(), send(frame), recv(wait)
-//! DEPS: nexus-sync::SpinLock (synchronization), nexus-abi::yield_ (cooperation)
-//! READINESS: OS-lite backend ready; no_std compatible
-//! TESTS: Service registration, queue depth limits, cooperative yielding
-//! Cooperative mailbox-backed IPC suitable for no_std OS-lite builds.
+//! CONTEXT: Cooperative mailbox-backed IPC for no_std OS-lite builds
+//!
+//! OWNERS: @runtime
+//!
+//! PUBLIC API:
+//!   - struct LiteClient: Client backed by cooperative mailbox
+//!   - struct LiteServer: Server backed by cooperative mailbox queues
+//!   - set_default_target(): Set default service target for current context
+//!   - LiteClient::new(): Create client targeting current default
+//!   - LiteClient::new_for(): Create client targeting specific service
+//!   - LiteServer::new(): Create server bound to current service name
+//!   - LiteServer::new_named(): Create server bound to specific service
+//!
+//! SECURITY INVARIANTS:
+//!   - No unsafe code in mailbox operations
+//!   - Frame size limits prevent memory exhaustion
+//!   - Queue depth limits prevent unbounded growth
+//!   - Cooperative yielding prevents deadlocks
+//!   - Thread-local storage for service targeting
+//!
+//! ERROR CONDITIONS:
+//!   - IpcError::Unsupported: Frame too large or feature not available
+//!   - IpcError::WouldBlock: Operation would block in non-blocking mode
+//!   - IpcError::Timeout: Operation timed out
+//!   - IpcError::Disconnected: Target service not available
+//!
+//! DEPENDENCIES:
+//!   - nexus-sync::SpinLock: Synchronization for mailbox queues
+//!   - nexus-abi::yield_: Cooperative yielding
+//!   - alloc::collections::VecDeque: Queue implementation
+//!   - alloc::string::String: String handling
+//!   - alloc::sync::Arc: Reference counting
+//!   - core::cell::RefCell: Thread-local storage
+//!   - core::sync::atomic::AtomicUsize: Atomic operations
+//!
+//! FEATURES:
+//!   - Cooperative mailbox transport
+//!   - Service registry with thread-local targeting
+//!   - Queue depth limits with cooperative yielding
+//!   - Frame size limits for memory safety
+//!   - No_std compatibility
+//!
+//! TEST SCENARIOS:
+//!   - test_service_registration(): Register services in mailbox
+//!   - test_queue_depth_limits(): Test queue depth enforcement
+//!   - test_cooperative_yielding(): Test cooperative yielding behavior
+//!   - test_frame_size_limits(): Test frame size enforcement
+//!   - test_thread_local_targeting(): Test thread-local service targeting
+//!   - test_client_server_communication(): Test client-server communication
+//!   - test_timeout_handling(): Test timeout behavior
+//!   - test_disconnection_handling(): Test service disconnection
+//!
+//! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};

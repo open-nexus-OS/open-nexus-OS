@@ -1,18 +1,24 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Minimal IPC runtime abstractions shared by host tests and the OS build
+//! CONTEXT: IPC runtime abstractions for cross-process communication
 //! OWNERS: @runtime
-//! PUBLIC API: Client/Server traits, loopback_channel(), KernelClient/Server
-//! DEPENDS_ON: nexus-abi (OS), std/alloc per backend, thiserror
-//! INVARIANTS: Host loopback available; OS backends selected by feature (os-lite/std)
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 unit tests
 //!
-//! The host backend uses in-process channels to emulate kernel IPC and allows
-//! unit tests to execute Cap'n Proto request/response cycles without booting
-//! the full system. The OS backend delegates to either the standard runtime or
-//! a cooperative "os-lite" mailbox transport depending on the enabled
-//! features.
+//! PUBLIC API:
+//!   - Client trait: Client-side IPC interface
+//!   - Server trait: Server-side IPC interface
+//!   - Wait enum: Wait behavior for operations
+//!   - IpcError: IPC error types
+//!
+//! DEPENDENCIES:
+//!   - std::sync::mpsc: Host backend channels
+//!   - nexus-abi: OS backend syscalls
+//!   - thiserror: Error types
+//!
+//! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]

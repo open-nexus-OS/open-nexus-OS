@@ -1,10 +1,21 @@
-//! CONTEXT: Search daemon domain logic shared with the thin OS adapter
-//! INTENT: Index and search local content with CLI interface
-//! IDL (target): help(), execute(args), run()
-//! DEPS: CLI argument parsing
-//! READINESS: Host backend ready; OS backend needs indexing engine
-//! TESTS: CLI argument handling, search indexing simulation
-//! Search daemon domain logic shared with the thin OS adapter.
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Search daemon for local content indexing
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test, 1 integration test
+//!
+//! PUBLIC API:
+//!   - help() -> &'static str: CLI usage string
+//!   - execute(args: &[&str]) -> String: CLI execution
+//!   - run(): Daemon entry point
+//!
+//! DEPENDENCIES:
+//!   - std::env::args: CLI argument processing
+//!
+//! ADR: docs/adr/0010-search-architecture.md
 
 #![forbid(unsafe_code)]
 

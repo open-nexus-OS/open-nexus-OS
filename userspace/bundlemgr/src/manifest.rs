@@ -1,12 +1,29 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Host-first manifest parser for the bundle manager service.
+//! CONTEXT: Host-first manifest parser for bundle manager service
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 8 manifest tests
+//!   - TOML manifest parsing
+//!   - Manifest validation and reporting
+//!   - Signature verification
+//!   - Publisher validation
+//!   - Capability requirement checking
+//!   - Warning generation for unknown fields
 //!
-//! The parser intentionally focuses on validation and reporting rather than I/O
-//! so it can be exercised directly from tests. It reads a TOML document and
-//! enforces a minimal schema containing name, version, declared abilities,
-//! capabilities, and the minimum supported SDK version.
+//! TEST SCENARIOS:
+//!   - test_parses_hex_signature(): Parse hex-encoded signatures
+//!   - test_parses_base64_signature(): Parse base64-encoded signatures
+//!   - test_rejects_empty_name(): Reject empty bundle names
+//!   - test_manifest_validation(): Manifest validation and reporting
+//!   - test_signature_verification(): Signature verification
+//!   - test_publisher_validation(): Publisher validation
+//!   - test_capability_validation(): Capability requirement validation
+//!   - test_warning_generation(): Warning generation for unknown fields
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 
 #![deny(clippy::all, missing_docs)]
 

@@ -3,7 +3,7 @@
 //! PUBLIC API: service_main_loop(), daemon_main(), loopback_transport()
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystore lib
 //! INVARIANTS: Separate from SAMgr/BundleMgr roles; stable readiness prints
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0017-service-architecture.md
 
 #![forbid(unsafe_code)]
 

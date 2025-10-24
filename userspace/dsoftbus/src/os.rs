@@ -1,13 +1,48 @@
-//! CONTEXT: OS backend stubs for DSoftBus-lite
-//! INTENT: Placeholder implementations pending kernel transport integration
-//! IDL (target): announce(), bind(), accept(), connect(), send(), recv()
-//! DEPS: identity (device keys)
-//! READINESS: OS backend not ready; requires kernel transport
-//! TESTS: Compilation only; functionality pending kernel integration
+//! CONTEXT: OS backend implementation for DSoftBus-lite distributed service fabric
 //!
-//! The kernel transport will expose discovery and authenticated sessions in a
-//! future change. For now the OS build provides placeholders so userland daemons
-//! can compile without pulling in host-only TCP dependencies.
+//! OWNERS: @runtime
+//!
+//! PUBLIC API:
+//!   - struct OsDiscovery: Placeholder discovery backend for OS configuration
+//!   - struct OsAuthenticator: Placeholder authenticator for OS configuration
+//!   - struct OsSession: Placeholder session object for OS configuration
+//!   - struct OsStream: Placeholder stream object for OS configuration
+//!
+//! IMPLEMENTATION STATUS:
+//!   - All methods return `todo!()` macros
+//!   - Pending kernel transport integration
+//!   - Provides compilation compatibility for OS builds
+//!   - No functional implementation until kernel networking is available
+//!
+//! SECURITY INVARIANTS:
+//!   - No unsafe code in placeholder implementations
+//!   - All methods will be implemented with proper security validation
+//!   - Kernel transport will enforce authentication and encryption
+//!
+//! ERROR CONDITIONS:
+//!   - All operations currently panic with `todo!()` macros
+//!   - Future implementation will provide proper error handling
+//!   - Kernel transport errors will be mapped to appropriate error types
+//!
+//! DEPENDENCIES:
+//!   - identity: Device identity and signing support
+//!   - std::net::SocketAddr: Network address types
+//!
+//! FEATURES:
+//!   - Compilation compatibility for OS builds
+//!   - Placeholder implementations for all DSoftBus interfaces
+//!   - Future kernel transport integration
+//!
+//! TEST SCENARIOS:
+//!   - test_compilation(): Verify OS backend compiles without errors
+//!   - test_placeholder_behavior(): Verify placeholder methods panic as expected
+//!   - test_kernel_integration(): Future tests for kernel transport integration
+//!   - test_discovery_operations(): Future tests for OS discovery backend
+//!   - test_authentication_flow(): Future tests for OS authentication
+//!   - test_session_management(): Future tests for OS session handling
+//!   - test_stream_operations(): Future tests for OS stream operations
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 use std::net::SocketAddr;
 

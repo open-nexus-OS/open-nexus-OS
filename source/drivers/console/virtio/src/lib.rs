@@ -1,3 +1,22 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: VirtIO console driver for serial communication
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 unit tests
+//!
+//! PUBLIC API:
+//!   - VirtioConsole: Console driver implementation
+//!   - write_byte(): Write single byte to console
+//!   - flush(): Flush console output
+//!
+//! DEPENDENCIES:
+//!   - nexus-hal::{Bus, Fence}: Hardware abstraction layer
+//!
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
+
 use nexus_hal::{Bus, Fence};
 
 pub struct VirtioConsole<B: Bus> {

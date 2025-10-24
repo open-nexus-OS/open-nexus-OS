@@ -1,12 +1,23 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
-//! CONTEXT: Userspace loader library providing ELF64/RISC-V load plan and mapping interface
+//! CONTEXT: ELF64/RISC-V loader library for secure user program execution
 //! OWNERS: @runtime
-//! PUBLIC API: parse_elf64_riscv(), load_with(), Mapper, LoadPlan
-//! DEPENDS_ON: goblin, thiserror, nexus-abi (os mapper only)
-//! FEATURES: `os_mapper` only when `cfg(nexus_env = "os")`
-//! INVARIANTS: No W+X segments; page-aligned segments; sorted non-overlapping vaddrs
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 11 tests (7 unit, 3 integration, 1 OS mapper)
+//!
+//! PUBLIC API:
+//!   - parse_elf64_riscv: ELF parsing functionality
+//!   - load_with: Program loading with mapper
+//!   - Mapper trait: Memory mapping interface
+//!   - Error: Loader error types
+//!
+//! DEPENDENCIES:
+//!   - goblin: ELF parsing
+//!   - bitflags: Protection flags
+//!   - alloc: Dynamic allocation
+//!
+//! ADR: docs/adr/0002-nexus-loader-architecture.md
 
 extern crate alloc;
 

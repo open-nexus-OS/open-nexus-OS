@@ -1,6 +1,25 @@
-#![cfg(all(nexus_env = "os", feature = "os-lite"))]
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
 
-extern crate alloc;
+//! CONTEXT: OS-lite backend for cooperative service bootstrap
+//! OWNERS: @init-team @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - bootstrap_once(): Bootstrap services once
+//!   - service_main_loop(): Main service loop
+//!   - ReadyNotifier: Readiness notification callback
+//!   - SpawnHandle: Service spawn handle
+//!
+//! DEPENDENCIES:
+//!   - nexus-abi: Kernel syscalls
+//!   - nexus-ipc: IPC communication
+//!   - nexus-sync: Synchronization primitives
+//!   - Core services: keystored, policyd, samgrd, etc.
+//!
+//! ADR: docs/adr/0017-service-architecture.md
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};

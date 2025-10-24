@@ -1,14 +1,21 @@
-//! CONTEXT: Device identity and signing support for Open Nexus OS userland services
-//! INTENT: Generate stable device identifiers, sign/verify messages, persist keys
-//! IDL (target): generate(), fromJson(json), toJson(), sign(message), verify(message,sig)
-//! DEPS: ed25519-dalek (crypto), serde (serialization), rand-core (entropy)
-//! READINESS: Host backend ready; OS backend needs persistent storage
-//! TESTS: Identity generation, JSON roundtrip, signature verification
+//! CONTEXT: Device identity and cryptographic signing support
+//! OWNERS: @runtime
+//! STATUS: Functional (host backend), Placeholder (OS backend - provide stubs that will be wired later)
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 unit tests, 1 integration test
 //!
-//! The identity module provides helpers for generating a stable device
-//! identifier derived from the long-term signing key. Keys can be persisted by
-//! serialising the identity to JSON. The same APIs work for the host tooling and
-//! the operating system userland where persistent storage will be added later.
+//! PUBLIC API:
+//!   - Identity: Device identity with signing capabilities
+//!   - DeviceId: Stable device identifier
+//!   - IdentityError: Error type for identity operations
+//!
+//! DEPENDENCIES:
+//!   - ed25519-dalek: Digital signatures
+//!   - rand_core: Random number generation
+//!   - serde: JSON serialization
+//!   - sha2: Cryptographic hashing
+//!
+//! ADR: docs/adr/0006-device-identity-architecture.md
 
 #![forbid(unsafe_code)]
 

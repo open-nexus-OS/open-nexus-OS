@@ -4,7 +4,7 @@
 //! PUBLIC API: SpinLock, SpinLockGuard
 //! DEPENDS_ON: core::sync::atomic
 //! INVARIANTS: Acquire/Release semantics; non-reentrant; minimal spinning
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};

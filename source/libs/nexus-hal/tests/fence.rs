@@ -1,4 +1,22 @@
 //! CONTEXT: Tests for HAL traits: Bus/DmaBuffer/Fence mocks
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test
+//!
+//! TEST_SCOPE:
+//!   - HAL trait implementations
+//!   - Mock object behavior
+//!   - Interface compliance
+//!
+//! TEST_SCENARIOS:
+//!   - test_fence_signaling(): Test fence signaling functionality
+//!
+//! DEPENDENCIES:
+//!   - nexus_hal::{Bus, DmaBuffer, Fence}: HAL trait definitions
+//!   - DummyBus, DummyDmaBuffer, DummyFence: Mock implementations
+//!
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 use nexus_hal::{Bus, DmaBuffer, Fence};
 
 struct DummyBus;

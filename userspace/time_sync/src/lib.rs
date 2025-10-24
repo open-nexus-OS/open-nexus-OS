@@ -1,10 +1,18 @@
-//! CONTEXT: Clock synchronization logic shared with the time-sync daemon
-//! INTENT: Synchronize system clock with external time sources using offset correction
-//! IDL (target): help(), execute(args), run(), applyOffset(ppm)
-//! DEPS: CLI argument parsing, numeric parsing
-//! READINESS: Host backend ready; OS backend needs time source integration
-//! TESTS: Offset parsing, PPM calculation, CLI handling
-//! Clock synchronization logic shared with the time-sync daemon.
+//! CONTEXT: Clock synchronization system for external time sources
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test
+//!
+//! PUBLIC API:
+//!   - help() -> &'static str: CLI usage string
+//!   - execute(args: &[&str]) -> String: CLI execution
+//!   - run(): Daemon entry point
+//!
+//! DEPENDENCIES:
+//!   - std::env::args: CLI argument processing
+//!
+//! ADR: docs/adr/0012-time-sync-architecture.md
 
 #![forbid(unsafe_code)]
 

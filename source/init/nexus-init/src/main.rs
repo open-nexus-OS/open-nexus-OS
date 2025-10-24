@@ -1,8 +1,22 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal init process responsible for launching core services and emitting
-//! deterministic UART markers for the OS test harness.
+//! CONTEXT: Init process for launching core services and emitting UART markers
+//! OWNERS: @init-team @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - main(): Init process entry point
+//!   - uart_println(): UART output for OS builds
+//!   - uart_write_byte(): Low-level UART byte output
+//!
+//! DEPENDENCIES:
+//!   - nexus-init: Init library with backends
+//!   - core::hint::spin_loop: CPU spin loop
+//!
+//! ADR: docs/adr/0017-service-architecture.md
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]

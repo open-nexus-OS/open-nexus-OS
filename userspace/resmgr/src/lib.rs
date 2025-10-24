@@ -1,10 +1,18 @@
-//! CONTEXT: Resource manager domain logic shared with the daemon
-//! INTENT: Allocate and manage localized assets and resources
-//! IDL (target): help(), execute(args), run()
-//! DEPS: CLI argument parsing
-//! READINESS: Host backend ready; OS backend needs resource allocation
-//! TESTS: CLI argument handling, help message generation
-//! Resource manager domain logic shared with the daemon.
+//! CONTEXT: Resource manager for localized asset allocation
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test
+//!
+//! PUBLIC API:
+//!   - help() -> &'static str: CLI usage string
+//!   - execute(args: &[&str]) -> String: CLI execution
+//!   - run(): Daemon entry point
+//!
+//! DEPENDENCIES:
+//!   - std::env::args: CLI argument processing
+//!
+//! ADR: docs/adr/0015-resource-manager-architecture.md
 
 #![forbid(unsafe_code)]
 

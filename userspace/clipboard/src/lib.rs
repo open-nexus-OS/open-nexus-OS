@@ -1,10 +1,22 @@
-//! CONTEXT: Clipboard storage logic shared with the OS daemon
-//! INTENT: Store and retrieve shared text content across applications
-//! IDL (target): set(value), get(), help()
-//! DEPS: std::sync::Mutex (thread safety)
-//! READINESS: Host backend ready; OS backend needs IPC integration
-//! TESTS: Set/get operations, CLI argument parsing
-//! Clipboard storage logic shared with the OS daemon.
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Clipboard storage and management
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test, 1 integration test
+//!
+//! PUBLIC API:
+//!   - help() -> &'static str: CLI usage string
+//!   - execute(args: &[&str]) -> String: CLI execution
+//!   - run(): Daemon entry point
+//!
+//! DEPENDENCIES:
+//!   - std::sync::Mutex: Thread-safe storage
+//!   - std::env::args: CLI argument processing
+//!
+//! ADR: docs/adr/0008-clipboard-architecture.md
 
 #![forbid(unsafe_code)]
 

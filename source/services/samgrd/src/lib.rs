@@ -7,7 +7,7 @@
 //! PUBLIC API: service_main_loop(), run_with_transport(), loopback_transport()
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), samgr registry lib
 //! INVARIANTS: Separate from Keystore/BundleMgr roles; stable readiness prints
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0017-service-architecture.md
 
 use std::collections::HashMap;
 use std::fmt;

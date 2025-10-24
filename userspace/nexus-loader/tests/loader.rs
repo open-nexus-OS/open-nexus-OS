@@ -1,3 +1,28 @@
+//! CONTEXT: Integration tests for nexus-loader ELF64/RISC-V loading functionality
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 integration tests
+//!
+//! TEST_SCOPE:
+//!   - ELF64/RISC-V parsing and validation
+//!   - Segment mapping and ordering
+//!   - Security constraint enforcement
+//!   - Loader integration with mapper interface
+//!
+//! TEST_SCENARIOS:
+//!   - test_parse_fixture_segments_are_sorted(): Verify segments are sorted by virtual address
+//!   - test_load_with_invokes_mapper_in_order(): Verify mapper is called in correct order
+//!   - test_rejects_write_execute_segments(): Verify W+X segments are rejected
+//!
+//! DEPENDENCIES:
+//!   - nexus_loader::parse_elf64_riscv: ELF parsing functionality
+//!   - nexus_loader::load_with: Loading functionality
+//!   - RecordingMapper: Test mapper implementation
+//!   - Test ELF fixture data
+//!
+//! ADR: docs/adr/0002-nexus-loader-architecture.md
+
 use byteorder::{LittleEndian, WriteBytesExt};
 use nexus_loader::{load_with, parse_elf64_riscv, Error, Mapper, Prot, SegmentPlan};
 

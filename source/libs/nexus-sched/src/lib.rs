@@ -4,7 +4,7 @@
 //! PUBLIC API: Deadline
 //! DEPENDS_ON: core
 //! INVARIANTS: Pure calculations; unit-tested
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 
 /// Simple scheduler timeline helper for user space services.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -5,7 +5,7 @@
 //! PUBLIC API: BumpAllocator
 //! DEPENDS_ON: core
 //! INVARIANTS: No heap growth; alignment respected; test-only in most crates
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 
 /// Very small bump allocator stub for deterministic testing.
 pub struct BumpAllocator {

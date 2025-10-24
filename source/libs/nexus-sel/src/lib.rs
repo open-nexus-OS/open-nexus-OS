@@ -4,7 +4,7 @@
 //! PUBLIC API: PolicyEntry, Policy
 //! DEPENDS_ON: core
 //! INVARIANTS: Read-only table; constant-time lookup per entry scan
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! ADR: docs/adr/0016-kernel-libs-architecture.md
 
 /// Policy entry describing entitlement decisions.
 #[derive(Clone, Copy, Debug)]

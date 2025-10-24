@@ -1,3 +1,30 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Integration tests for bundle manifest parsing and validation
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 manifest tests
+//!
+//! TEST_SCOPE:
+//!   - Manifest parsing from TOML
+//!   - Field validation and error handling
+//!   - Version and capability parsing
+//!   - Warning generation
+//!
+//! TEST_SCENARIOS:
+//!   - test_parse_valid_manifest(): Parse valid manifest with all fields
+//!   - test_missing_fields_error(): Handle missing required fields
+//!   - test_invalid_caps_error(): Handle invalid capability specifications
+//!
+//! DEPENDENCIES:
+//!   - bundlemgr::Manifest: Manifest parsing functionality
+//!   - Test manifest files in tests/manifests/
+//!   - std::fs: File system operations
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
+
 use std::fs;
 
 use bundlemgr::{Error, Manifest};

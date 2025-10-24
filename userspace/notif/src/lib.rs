@@ -1,10 +1,18 @@
-//! CONTEXT: User notification dispatch logic shared with the OS daemon
-//! INTENT: Broker and dispatch user alerts and notifications
-//! IDL (target): help(), execute(args), run(), dispatch(alert)
-//! DEPS: CLI argument parsing
-//! READINESS: Host backend ready; OS backend needs notification channels
-//! TESTS: CLI argument handling, notification dispatch simulation
-//! User notification dispatch logic shared with the OS daemon.
+//! CONTEXT: User notification dispatch system
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test, 1 integration test
+//!
+//! PUBLIC API:
+//!   - help() -> &'static str: CLI usage string
+//!   - execute(args: &[&str]) -> String: CLI execution
+//!   - run(): Daemon entry point
+//!
+//! DEPENDENCIES:
+//!   - std::env::args: CLI argument processing
+//!
+//! ADR: docs/adr/0013-notification-architecture.md
 
 #![forbid(unsafe_code)]
 

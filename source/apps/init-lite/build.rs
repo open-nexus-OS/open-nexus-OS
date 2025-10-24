@@ -1,4 +1,21 @@
-fn main() {
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Build script for init-lite application
+//! OWNERS: @runtime
+//! STATUS: Deprecated
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - main(): Build script entry point
+//!
+//! DEPENDENCIES:
+//!   - std::env: Environment variables
+//!   - std::fs: File system operations
+//!   - link.ld: Linker script
+//!
+//! ADR: docs/adr/0017-service-architecture.md
     use std::env;
     use std::fs;
     use std::path::PathBuf;

@@ -8,12 +8,22 @@
 )]
 #![deny(clippy::all, missing_docs)]
 
-//! CONTEXT: Tiny collection of executable payloads used by execd while the ELF/NXB loaders
+//! CONTEXT: Executable payloads for system testing and bootstrap
 //! OWNERS: @runtime
-//! PUBLIC API: HELLO_ELF, hello_child_entry(), BootstrapMsg
-//! DEPENDS_ON: nexus-abi (OS)
-//! INVARIANTS: No MMIO; use debug_println syscall; stable UART markers
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - HELLO_ELF: Prebuilt ELF64/RISC-V binary
+//!   - HELLO_MANIFEST: Manifest data
+//!   - hello_child_entry: Child process entry point
+//!
+//! DEPENDENCIES:
+//!   - nexus-abi: Kernel syscalls (OS builds)
+//!   - core::hint::spin_loop: CPU spin loop
+//!
+//! ADR: docs/adr/0007-executable-payloads-architecture.md
 
 /// Prebuilt ELF64/RISC-V payload that prints a UART marker and yields.
 pub mod hello_elf;

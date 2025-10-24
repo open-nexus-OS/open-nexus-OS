@@ -1,4 +1,14 @@
-//! Command-line and policy logic for the bundle manager service.
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Command-line interface for bundle manager service
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 CLI tests
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
+
+#![forbid(unsafe_code)]
 
 /// Describes a registrar capable of exposing newly installed abilities.
 pub trait AbilityRegistrar {

@@ -27,6 +27,21 @@ fn panic(_: &PanicInfo) -> ! { loop {} }
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
 fn main() {}
 
-// DEPRECATED: This app is superseded by `source/init/nexus-init`.
-// Prefer using the init library with std_server/os_lite backends.
-// See ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Minimal init process for OS bootstrap testing
+//! OWNERS: @runtime
+//! STATUS: Deprecated
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//!
+//! PUBLIC API:
+//!   - _start(): OS entry point
+//!   - panic(): Panic handler
+//!
+//! DEPENDENCIES:
+//!   - nexus-abi: Kernel syscalls
+//!   - core::hint::spin_loop: CPU spin loop
+//!
+//! ADR: docs/adr/0017-service-architecture.md
