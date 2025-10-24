@@ -45,3 +45,4 @@ Implement a host-first bundle manager with the following architecture:
 - OS backend will integrate with kernel VMO system
 - CLI provides install, remove, query, and help commands
 - Manifest validation includes field type checking and warnings
+

@@ -9,3 +9,4 @@ Purpose: give minimal context to solve scoped tasks without repo-wide scanning.
 - Tests: `just test-os` for UART markers; kernel selftests print `neuron vers.` and trap diagnostics.
 - References: `docs/ARCHITECTURE.md` (Kernel quick reference), ADR-0001.
 
+

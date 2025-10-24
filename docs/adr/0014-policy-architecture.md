@@ -46,3 +46,4 @@ Implement a directory-based policy system with the following architecture:
 - Capability names are canonicalized for consistent matching
 - Policy merging allows incremental policy updates
 - Denial information includes specific missing capabilities
+
