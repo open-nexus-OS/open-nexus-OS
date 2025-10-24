@@ -10,3 +10,4 @@ Purpose: give minimal context to solve scoped tasks without repo-wide scanning.
 - References: `docs/ARCHITECTURE.md` (Kernel quick reference), ADR-0001.
 
 
+

@@ -38,3 +38,4 @@ Implement a resource manager with the following architecture:
 - Asset tracking and availability monitoring
 - Integration with resource allocation algorithms
 
+

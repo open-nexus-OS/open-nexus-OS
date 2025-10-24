@@ -38,3 +38,4 @@ Implement a placeholder search system with the following architecture:
 - Integration with file system for content discovery
 - Search query processing and result ranking
 
+

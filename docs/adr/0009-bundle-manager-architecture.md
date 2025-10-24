@@ -46,3 +46,4 @@ Implement a host-first bundle manager with the following architecture:
 - CLI provides install, remove, query, and help commands
 - Manifest validation includes field type checking and warnings
 
+
