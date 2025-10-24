@@ -1,3 +1,9 @@
+//! CONTEXT: QEMU runner tool
+//! INTENT: Launch QEMU with OS image for testing
+//! IDL (target): run()
+//! DEPS: scripts/qemu-run.sh (shell script)
+//! READINESS: Command-line tool; no service dependencies
+//! TESTS: QEMU launches successfully
 use std::path::PathBuf;
 use std::process::Command;
 

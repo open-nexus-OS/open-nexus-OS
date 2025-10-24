@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Early boot routines for the NEURON microkernel.
+//! CONTEXT: Early boot routines for the NEURON microkernel
+//! OWNERS: @kernel-boot-team
+//! PUBLIC API: early_boot_init()
+//! DEPENDS_ON: arch::riscv::clear_bss, trap::install_trap_vector, init_heap
+//! INVARIANTS: Single-invocation; interrupts masked; minimal diagnostics on OS path
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #[cfg(not(test))]
 extern "C" {

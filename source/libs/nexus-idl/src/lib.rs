@@ -1,4 +1,10 @@
 #![cfg_attr(not(test), no_std)]
+//! CONTEXT: Declarative macro for defining service interfaces and descriptors
+//! OWNERS: @runtime
+//! PUBLIC API: nexus_interface! macro
+//! DEPENDS_ON: core
+//! INVARIANTS: Macro expands to trait + descriptor() list; no runtime deps
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 /// Declarative macro for defining service interfaces and exposing descriptors.
 #[macro_export]

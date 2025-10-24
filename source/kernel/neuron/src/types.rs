@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal newtypes for safer syscall decoding (debug-friendly, low overhead).
+//! CONTEXT: Minimal newtypes for safer syscall decoding (debug-friendly, low overhead)
+//! OWNERS: @kernel-team
+//! PUBLIC API: VirtAddr, PageLen, SlotIndex
+//! DEPENDS_ON: mm::page_table::is_canonical_sv39, PAGE_SIZE
+//! INVARIANTS: Enforce canonical Sv39 addresses; alignment helpers
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use crate::mm::{page_table::is_canonical_sv39, PAGE_SIZE};
 

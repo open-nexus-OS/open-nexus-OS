@@ -1,3 +1,9 @@
+//! CONTEXT: Userspace virtual file system client library
+//! INTENT: File operations (open/read/close/stat) through VFS service
+//! IDL (target): open(path), read(fh,off,len), close(fh), stat(path)
+//! DEPS: nexus-idl-runtime (capnp), nexus-ipc (transport)
+//! READINESS: Host backend ready; OS backend returns Unsupported
+//! TESTS: Open/read/close roundtrip; stat metadata; error handling
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 

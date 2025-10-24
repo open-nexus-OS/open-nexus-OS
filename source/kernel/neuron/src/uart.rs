@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal UART support for boot diagnostics.
+//! CONTEXT: Minimal UART support for boot diagnostics
+//! OWNERS: @kernel-hal-team
+//! PUBLIC API: KernelUart::lock(), raw_writer(), write_raw_mmio()
+//! DEPENDS_ON: spin/dbg_mutex (build), MMIO registers
+//! INVARIANTS: Lock-free raw writer for trap/panic; best-effort emission only
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::fmt::{self, Write};
 #[cfg(not(debug_assertions))]

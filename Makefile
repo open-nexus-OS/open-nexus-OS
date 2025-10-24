@@ -36,9 +36,9 @@ ifeq ($(MODE),container)
 		  mkdir -p "$$RUSTUP_HOME" "$$CARGO_HOME"; \
 		  rustup default stable; \
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd && \
-                  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd && \
-                  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) build -p nexus-init --features os-lite && \
-                  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) build -p selftest-client --features os-lite && \
+	                  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd && \
+		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) build -p nexus-init --no-default-features --features os-lite && \
+	                  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) build -p selftest-client --no-default-features --features os-lite && \
 		  echo "[2/2] cross build kernel (riscv)"; \
 		  rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal; \
 		  rustup component add rust-src --toolchain "$(NIGHTLY)"; \
@@ -48,9 +48,9 @@ ifeq ($(MODE),container)
 else
 	@echo "==> Building workspace on host"
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"' cargo build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd
-        @RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd
-        @RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo build -p nexus-init --features os-lite
-        @RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo build -p selftest-client --features os-lite
+	        @RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo build -p samgrd -p bundlemgrd -p identityd -p dsoftbusd -p dist-data -p clipboardd -p notifd -p resmgrd -p searchd -p settingsd -p time-syncd
+	        @RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo build -p nexus-init --no-default-features --features os-lite
+	        @RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo build -p selftest-client --no-default-features --features os-lite
 endif
 
 test:

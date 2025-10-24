@@ -1,4 +1,10 @@
 #![cfg_attr(not(test), no_std)]
+//! CONTEXT: Userland HAL traits (Bus, DmaBuffer, Fence)
+//! OWNERS: @runtime
+//! PUBLIC API: Bus, DmaBuffer, Fence
+//! DEPENDS_ON: core
+//! INVARIANTS: Pure traits; no unsafe; test-only mocks in this crate
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 /// Basic bus access trait shared by user drivers.
 pub trait Bus {

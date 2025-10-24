@@ -1,5 +1,12 @@
 #![cfg_attr(not(test), no_std)]
 
+//! CONTEXT: Minimal bump allocator for deterministic testing
+//! OWNERS: @runtime
+//! PUBLIC API: BumpAllocator
+//! DEPENDS_ON: core
+//! INVARIANTS: No heap growth; alignment respected; test-only in most crates
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+
 /// Very small bump allocator stub for deterministic testing.
 pub struct BumpAllocator {
     start: usize,

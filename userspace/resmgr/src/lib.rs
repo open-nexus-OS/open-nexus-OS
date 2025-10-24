@@ -1,3 +1,9 @@
+//! CONTEXT: Resource manager domain logic shared with the daemon
+//! INTENT: Allocate and manage localized assets and resources
+//! IDL (target): help(), execute(args), run()
+//! DEPS: CLI argument parsing
+//! READINESS: Host backend ready; OS backend needs resource allocation
+//! TESTS: CLI argument handling, help message generation
 //! Resource manager domain logic shared with the daemon.
 
 #![forbid(unsafe_code)]

@@ -1,3 +1,9 @@
+//! CONTEXT: Host-side end-to-end integration tests
+//! INTENT: Service registration/resolution, bundle install/query/payload, signature verification
+//! IDL (target): register(name,endpoint), resolve(name), installBundle(name,handle,len), queryBundle(name), getPayload(name)
+//! DEPS: samgrd, bundlemgrd, keystored (service integration)
+//! READINESS: All services ready; loopback transport established
+//! TESTS: Service roundtrip, bundle lifecycle, signature validation, keystore integration
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
@@ -201,7 +207,6 @@ fn bundle_install_signed_enforced_via_keystored() {
         );
         let sig = sk.sign(signed_payload.as_bytes());
         let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
-        let len = manifest.len() as u32;
         store_clone.insert(77, manifest.into_bytes());
         store_clone.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x02]);
 

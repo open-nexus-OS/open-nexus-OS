@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Bootstrap protocol data structures shared between the kernel and initial tasks.
+//! CONTEXT: Bootstrap protocol data structures shared between kernel and initial tasks
+//! OWNERS: @kernel-team
+//! PUBLIC API: BootstrapMsg
+//! DEPENDS_ON: core
+//! INVARIANTS: repr(C) layout frozen (golden vectors), LE byte order for tests
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 /// Message delivered to the child's bootstrap endpoint after [`spawn`](crate::syscall)
 /// succeeds.

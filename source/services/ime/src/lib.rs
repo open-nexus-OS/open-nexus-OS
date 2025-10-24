@@ -1,3 +1,9 @@
+//! CONTEXT: Input Method Engine daemon domain library (service API and handlers)
+//! INTENT: Input method (keyboard), compose/commit, candidate UI
+//! IDL (target): attachClient(win), setComposingText(text), commitText(text), show/hide()
+//! DEPS: systemui, compositor, accessibilityd
+//! READINESS: print "ime: ready"; register/heartbeat with samgr
+//! TESTS: attachClient mock; transform uppercase
 pub fn help() -> &'static str {
     "ime provides input methods. Usage: ime [--help] text"
 }

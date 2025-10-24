@@ -1,3 +1,9 @@
+//! CONTEXT: System UI service domain library (service API and handlers)
+//! INTENT: Statusbar, launcher, shell UI
+//! IDL (target): showLauncher(), setStatus(icon,state), setTheme(theme)
+//! DEPS: compositor/ime/notifd
+//! READINESS: print "systemui: ready"; register/heartbeat with samgr
+//! TESTS: show launcher mock; frame checksum stable
 pub fn help() -> &'static str {
     "systemui draws system chrome. Usage: systemui [--help] [--boot-animation]"
 }

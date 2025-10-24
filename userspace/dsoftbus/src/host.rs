@@ -1,3 +1,9 @@
+//! CONTEXT: Host backend implementation for DSoftBus-lite
+//! INTENT: TCP-backed discovery, Noise XK authentication, encrypted streams
+//! IDL (target): announce(device,services,port), bind(addr,identity), accept(), connect(peer)
+//! DEPS: snow (Noise), capnp (serialization), ed25519-dalek (crypto), identity (device keys)
+//! READINESS: Host backend ready; used for integration testing
+//! TESTS: Discovery registry, Noise handshakes, encrypted frame transport, device validation
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};

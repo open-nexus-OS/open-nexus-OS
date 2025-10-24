@@ -2,6 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
+//! CONTEXT: Identity daemon – device id, sign, verify over Cap'n Proto IPC
+//! OWNERS: @services-team
+//! PUBLIC API: service_main_loop(), loopback_transport(), touch_schemas()
+//! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), identity lib, ed25519-dalek
+//! INVARIANTS: Separate from Keystore; stable readiness prints
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");

@@ -8,8 +8,12 @@
 )]
 #![deny(clippy::all, missing_docs)]
 
-//! Tiny collection of executable payloads used by execd while the ELF/NXB
-//! loaders are under construction.
+//! CONTEXT: Tiny collection of executable payloads used by execd while the ELF/NXB loaders
+//! OWNERS: @runtime
+//! PUBLIC API: HELLO_ELF, hello_child_entry(), BootstrapMsg
+//! DEPENDS_ON: nexus-abi (OS)
+//! INVARIANTS: No MMIO; use debug_println syscall; stable UART markers
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 /// Prebuilt ELF64/RISC-V payload that prints a UART marker and yields.
 pub mod hello_elf;
@@ -70,36 +74,10 @@ fn read_bootstrap_once(_ptr: *const BootstrapMsg) -> Option<BootstrapMsg> {
 
 fn log_line(line: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    uart_write_line(line);
+    let _ = nexus_abi::debug_println(line);
 
     #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
     let _ = line;
 }
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn uart_write_line(line: &str) {
-    for byte in line.bytes() {
-        uart_write_byte(byte);
-    }
-    uart_write_byte(b'\n');
-}
-
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn uart_write_byte(byte: u8) {
-    const UART0_BASE: usize = 0x1000_0000;
-    const UART_TX: usize = 0x0;
-    const UART_LSR: usize = 0x5;
-    const LSR_TX_IDLE: u8 = 1 << 5;
-
-    // SAFETY: interacts with the QEMU virt UART MMIO region; only invoked on OS builds.
-    unsafe {
-        while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
-        if byte == b'\n' {
-            core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\r');
-            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0
-            {
-            }
-        }
-        core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, byte);
-    }
-}
+// MMIO UART helpers replaced by kernel debug_println syscall

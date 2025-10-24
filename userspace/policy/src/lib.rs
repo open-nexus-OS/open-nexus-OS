@@ -1,3 +1,9 @@
+//! CONTEXT: Userspace policy domain library
+//! INTENT: Policy document parsing, capability checking, TOML loading
+//! IDL (target): check(required_caps, subject), loadDir(path)
+//! DEPS: serde, toml, std::fs (file operations)
+//! READINESS: Library ready; no service dependencies
+//! TESTS: Allow/deny checks; directory loading; canonicalization
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 

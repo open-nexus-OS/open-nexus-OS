@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Unified panic handler emitting deterministic diagnostics over UART.
+//! CONTEXT: Unified panic handler emitting deterministic diagnostics over UART
+//! OWNERS: @kernel-team
+//! PUBLIC API: panic handler (no_std)
+//! DEPENDS_ON: trap::last_trap(), uart::raw_writer()
+//! INVARIANTS: Minimal formatting; no allocations; stable output fields
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::{fmt, fmt::Write, panic::PanicInfo};
 

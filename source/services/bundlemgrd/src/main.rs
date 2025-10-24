@@ -1,3 +1,9 @@
+//! CONTEXT: Bundle Manager daemon entrypoint wiring to service logic
+//! INTENT: Application bundle install/query/serve, manifest parsing, capability checks
+//! IDL (target): installBundle(path), queryBundle(id), getCapabilities(id), uninstallBundle(id)
+//! DEPS: keystored (signature verification), policyd (capability checks), vfsd (file access)
+//! READINESS: print "bundlemgrd: ready"; register/heartbeat with samgr
+//! TESTS: installBundle mock; queryBundle returns manifest
 //! Bundle manager daemon entrypoint wiring default transport to the shared service logic.
 
 fn main() -> ! {

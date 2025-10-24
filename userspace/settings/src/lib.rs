@@ -1,3 +1,9 @@
+//! CONTEXT: Host-first configuration storage logic shared with the settings daemon
+//! INTENT: Persist and retrieve system configuration key-value pairs
+//! IDL (target): help(), execute(args), run(), apply(key=value)
+//! DEPS: CLI argument parsing, key-value parsing
+//! READINESS: Host backend ready; OS backend needs persistent storage
+//! TESTS: Key-value parsing, configuration application, CLI handling
 //! Host-first configuration storage logic shared with the settings daemon.
 
 #![forbid(unsafe_code)]

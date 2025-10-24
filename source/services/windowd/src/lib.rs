@@ -1,3 +1,9 @@
+//! CONTEXT: Window manager daemon domain library (service API and handlers)
+//! INTENT: Window/surface management, compositor bridge, Z-order
+//! IDL (target): createWindow(spec), setZOrder(id,z), resize(id,w,h), close(id)
+//! DEPS: compositor (rendering), systemui (chrome)
+//! READINESS: print "windowd: ready"; register/heartbeat with samgr
+//! TESTS: createWindow mock; frame checksum stable
 pub fn help() -> &'static str {
     "windowd orchestrates surfaces. Usage: windowd [--help]"
 }

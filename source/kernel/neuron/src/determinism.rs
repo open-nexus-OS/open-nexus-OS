@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Deterministic boot knobs shared across the kernel.
+//! CONTEXT: Deterministic boot knobs shared across the kernel
+//! OWNERS: @kernel-team
+//! PUBLIC API: seed(), set_seed(), fixed_tick_ns(), set_fixed_tick_ns()
+//! DEPENDS_ON: core::sync::atomic
+//! INVARIANTS: Relaxed atomics sufficient; default values stable across boots
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 //!
 //! The NEURON bring-up environment runs both on the host and inside QEMU.
 //! For reproducibility the kernel exposes a deterministic seed and a fixed

@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal scheduler used during NEURON bring-up.
+//! CONTEXT: Minimal scheduler used during NEURON bring-up
+//! OWNERS: @kernel-sched-team
+//! PUBLIC API: Scheduler (new/enqueue/next), QosClass, TaskId
+//! DEPENDS_ON: uart (boot logs), determinism (timeslice)
+//! INVARIANTS: No heap growth in hot paths; timeslice deterministic; RR per QoS
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 

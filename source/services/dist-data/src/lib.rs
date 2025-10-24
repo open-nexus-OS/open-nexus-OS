@@ -1,3 +1,9 @@
+//! CONTEXT: Distributed data service domain library (service API and handlers)
+//! INTENT: Distributed KV data (DDS-like), conflict resolution, sync
+//! IDL (target): put(ns,key,val), get(ns,key), watch(ns,prefix), sync(peer)
+//! DEPS: dsoftbusd (transport), policyd (access control)
+//! READINESS: print "dist-data: ready"; register/heartbeat with samgr
+//! TESTS: put/get loopback; watch emits change
 pub fn help() -> &'static str {
     "dist-data replicates state across devices. Usage: dist-data [--help] token"
 }

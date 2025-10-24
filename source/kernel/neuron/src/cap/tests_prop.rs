@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg(test)]
+//! CONTEXT: Property-based tests for capability table
+//! OWNERS: @kernel-cap-team
+//! NOTE: Tests only; no kernel logic. Ensures Rights derivation and slot ops are sound.
 
 use super::{CapError, CapTable, Capability, CapabilityKind, Rights};
 use proptest::prelude::*;

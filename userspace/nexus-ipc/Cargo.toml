@@ -13,3 +13,4 @@ os-lite = []
 nexus-abi = { path = "../../source/libs/nexus-abi" }
 parking_lot = "0.12"
 thiserror = "1"
+nexus-sync = { path = "../../source/libs/nexus-sync" }

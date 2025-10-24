@@ -43,9 +43,10 @@ pub enum InitError {}
 #[derive(Debug)]
 pub enum ServiceError {
     /// Wrapper around the lightweight packagefs service error type.
-    Lite(packagefsd::LiteError),
-    /// Wrapper around the lightweight VFS dispatcher error type.
-    Vfs(vfsd::Error),
+    /// Packagefs os-lite error (deprecated under std_server on OS builds).
+    Lite(packagefsd::TransportError),
+    /// VFS dispatcher error (map to string for readiness logs only).
+    Vfs,
     /// Wrapper around IPC errors surfaced while initializing transports.
     Ipc(nexus_ipc::IpcError),
     /// Error message describing a failure without structured context.
@@ -58,12 +59,7 @@ impl fmt::Display for ServiceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Lite(err) => write!(f, "{err}"),
-            Self::Vfs(err) => match err {
-                vfsd::Error::Transport => write!(f, "transport error"),
-                vfsd::Error::InvalidPath => write!(f, "invalid path"),
-                vfsd::Error::NotFound => write!(f, "entry not found"),
-                vfsd::Error::BadHandle => write!(f, "bad file handle"),
-            },
+            Self::Vfs => write!(f, "vfs error"),
             Self::Ipc(err) => write!(f, "{err}"),
             Self::Message(msg) => write!(f, "{msg}"),
             Self::Detail(msg) => write!(f, "{msg}"),
@@ -228,8 +224,14 @@ impl ServiceRuntime {
     }
 }
 
+#[derive(Copy, Clone)]
+struct RuntimePtr(*mut ServiceRuntime);
+
+// SAFETY: os-lite runs cooperatively; we only move opaque pointers between queues under SpinLock.
+unsafe impl Send for RuntimePtr {}
+
 struct ServiceRuntimeQueue {
-    entries: SpinLock<Vec<*mut ServiceRuntime>>,
+    entries: SpinLock<Vec<RuntimePtr>>,
 }
 
 impl ServiceRuntimeQueue {
@@ -239,10 +241,10 @@ impl ServiceRuntimeQueue {
 
     fn push(&self, runtime: *mut ServiceRuntime) {
         let mut guard = self.entries.lock();
-        guard.push(runtime);
+        guard.push(RuntimePtr(runtime));
     }
 
-    fn pop_front(&self) -> Option<*mut ServiceRuntime> {
+    fn pop_front(&self) -> Option<RuntimePtr> {
         let mut guard = self.entries.lock();
         if guard.is_empty() {
             None
@@ -253,7 +255,7 @@ impl ServiceRuntimeQueue {
 
     fn remove(&self, runtime: *mut ServiceRuntime) -> bool {
         let mut guard = self.entries.lock();
-        if let Some(index) = guard.iter().position(|&ptr| ptr == runtime) {
+        if let Some(index) = guard.iter().position(|&ptr| ptr.0 == runtime) {
             guard.remove(index);
             true
         } else {
@@ -276,11 +278,7 @@ impl RuntimeRegistration {
 
     fn release(&mut self) {
         if !self.released {
-            if SERVICE_RUNTIMES.remove(self.runtime) {
-                unsafe {
-                    drop(Box::from_raw(self.runtime));
-                }
-            }
+            let _ = SERVICE_RUNTIMES.remove(self.runtime);
             self.released = true;
         }
     }
@@ -294,15 +292,12 @@ impl RuntimeRegistration {
 impl Drop for RuntimeRegistration {
     fn drop(&mut self) {
         if !self.released {
-            if SERVICE_RUNTIMES.remove(self.runtime) {
-                unsafe {
-                    drop(Box::from_raw(self.runtime));
-                }
-            }
+            let _ = SERVICE_RUNTIMES.remove(self.runtime);
         }
     }
 }
 
+#[derive(Debug)]
 struct StackMapping {
     base: u64,
     len: u64,
@@ -398,6 +393,7 @@ fn align_stack_len(size: usize) -> Result<u64, SpawnError> {
 }
 
 #[derive(Debug)]
+/// Handle retaining the child task's address space and stack mapping until teardown.
 pub struct SpawnHandle {
     pid: nexus_abi::Pid,
     address_space: Option<nexus_abi::AsHandle>,
@@ -509,12 +505,12 @@ fn spawn_service(metadata: &ServiceMetadata) -> Result<SpawnHandle, SpawnError> 
 }
 
 extern "C" fn service_task_entry(_bootstrap: *const c_void) -> ! {
-    if let Some(ptr) = SERVICE_RUNTIMES.pop_front() {
-        let runtime = unsafe { Box::from_raw(ptr) };
+    if let Some(RuntimePtr(ptr)) = SERVICE_RUNTIMES.pop_front() {
+        let runtime = unsafe { &*ptr };
         let name = runtime.name;
         let target = runtime.target;
         let runner = runtime.runner;
-        drop(runtime);
+        // leak boxed runtime; parent retains it for process lifetime; freed on teardown
         set_default_target(target);
         run_service_task(name, runner)
     } else {
@@ -585,12 +581,12 @@ fn run_bundlemgrd() -> Result<(), ServiceError> {
 
 fn run_packagefsd() -> Result<(), ServiceError> {
     packagefsd::service_main_loop(packagefsd::ReadyNotifier::new(|| emit_service_ready()))
-        .map_err(ServiceError::from)
+        .map_err(|_e| ServiceError::Lite(packagefsd::TransportError::Other("packagefsd".into())))
 }
 
 fn run_vfsd() -> Result<(), ServiceError> {
     vfsd::service_main_loop(vfsd::ReadyNotifier::new(|| emit_service_ready()))
-        .map_err(ServiceError::from)
+        .map_err(|_e| ServiceError::Vfs)
 }
 
 fn run_execd() -> Result<(), ServiceError> {
@@ -643,15 +639,9 @@ impl From<bundlemgrd::ServerError> for ServiceError {
     }
 }
 
-impl From<packagefsd::LiteError> for ServiceError {
-    fn from(err: packagefsd::LiteError) -> Self {
+impl From<packagefsd::TransportError> for ServiceError {
+    fn from(err: packagefsd::TransportError) -> Self {
         Self::Lite(err)
-    }
-}
-
-impl From<vfsd::Error> for ServiceError {
-    fn from(err: vfsd::Error) -> Self {
-        Self::Vfs(err)
     }
 }
 
@@ -776,25 +766,6 @@ where
 fn emit_line(message: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     {
-        for b in message.as_bytes() {
-            uart_write_byte(*b);
-        }
-        uart_write_byte(b'\n');
-    }
-}
-
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn uart_write_byte(byte: u8) {
-    const UART0_BASE: usize = 0x1000_0000;
-    const UART_TX: usize = 0x0;
-    const UART_LSR: usize = 0x5;
-    const LSR_TX_IDLE: u8 = 1 << 5;
-    unsafe {
-        while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
-        if byte == b'\n' {
-            core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\r');
-            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
-        }
-        core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, byte);
+        let _ = nexus_abi::debug_println(message);
     }
 }

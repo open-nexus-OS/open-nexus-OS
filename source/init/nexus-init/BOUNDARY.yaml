@@ -1,0 +1,27 @@
+module: source/init/nexus-init
+purpose: Init process selecting Host std backend or OS-lite bootstrap
+layer: init
+owners: ["@init-team", "@runtime"]
+entrypoints:
+  - "touch_schemas"
+  - "service_main_loop"
+allowed_deps:
+  - "source/services/execd"
+  - "source/services/keystored"
+  - "source/services/policyd"
+  - "source/services/samgrd"
+  - "source/services/bundlemgrd"
+  - "source/services/packagefsd"
+  - "source/services/vfsd"
+  - "source/libs/nexus-abi"
+  - "userspace/nexus-ipc"
+forbidden_deps:
+  - "source/kernel/**"
+  - "userspace/**/tests/**"
+features:
+  requires_any: ["os-lite", "host"]
+adrs:
+  - "docs/adr/0001-runtime-roles-and-boundaries.md"
+invariants:
+  - "Preserve UART markers"
+  - "Host path byte-compatible"

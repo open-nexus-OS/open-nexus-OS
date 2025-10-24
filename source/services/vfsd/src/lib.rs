@@ -5,7 +5,12 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 
-//! Userspace virtual file system dispatcher.
+//! CONTEXT: Userspace virtual file system dispatcher
+//! OWNERS: @services-team
+//! PUBLIC API: service_main_loop(), ReadyNotifier, transports
+//! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp)
+//! INVARIANTS: Separate from PackageFs; stable readiness prints
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;

@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! In-kernel selftest harness executed during deterministic boot.
+//! CONTEXT: In-kernel selftest harness executed during deterministic boot
+//! OWNERS: @kernel-team
+//! PUBLIC API: selftest modules (assert, stack_run)
+//! DEPENDS_ON: hal::virt, ipc::Router, mm::AddressSpaceManager, sched::Scheduler, syscall::api
+//! INVARIANTS: Minimal side effects; UART markers only; feature-gated private stack
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 
@@ -118,9 +123,7 @@ extern "C" fn child_new_as_entry() {
 extern "C" fn child_exit_zero() -> ! {
     unsafe {
         core::arch::asm!(
-            "li a0, 0",
-            "li a7, {id}",
-            "ecall",
+            "li a7, {id}\n ecall\n j .",
             id = const SYSCALL_EXIT,
             options(noreturn)
         );

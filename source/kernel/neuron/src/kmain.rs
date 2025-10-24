@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Kernel main routine responsible for subsystem bring-up.
+//! CONTEXT: Kernel main bring-up and idle loop
+//! OWNERS: @kernel-team
+//! PUBLIC API: kmain()
+//! DEPENDS_ON: hal::VirtMachine, mm::AddressSpaceManager, sched::Scheduler, ipc::Router
+//! INVARIANTS: Activate kernel AS before complex init; cooperative scheduling via SYSCALL_YIELD
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use alloc::vec::Vec;
 use core::fmt::Write as _;
@@ -202,6 +207,7 @@ impl KernelState {
 }
 
 /// Kernel main invoked after boot assembly completed.
+/// CRITICAL: Activate kernel address space before complex init; idle loop uses SYSCALL_YIELD.
 pub fn kmain() -> ! {
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
@@ -245,6 +251,7 @@ pub fn kmain() -> ! {
                 &mut kernel.ipc,
                 &mut kernel.address_spaces,
             );
+            crate::trap::register_syscall_table(&mut kernel.syscalls);
         }
         let mut ctx = selftest::Context {
             hal: &kernel.hal,

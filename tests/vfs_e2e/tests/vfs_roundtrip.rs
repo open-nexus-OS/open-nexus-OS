@@ -1,3 +1,9 @@
+//! CONTEXT: VFS end-to-end integration tests
+//! INTENT: Package filesystem roundtrip through bundlemgrd/vfsd/packagefsd
+//! IDL (target): installBundle(path), stat(path), open(path), read(fh,offset,len)
+//! DEPS: bundlemgrd, vfsd, packagefsd (service integration)
+//! READINESS: All services ready; loopback transport established
+//! TESTS: Install bundle, VFS access, payload read, asset access, error handling
 #![cfg(nexus_env = "host")]
 
 use std::io::Cursor;

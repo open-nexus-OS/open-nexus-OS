@@ -1,0 +1,11 @@
+[package]
+name = "init-lite"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nexus-abi = { path = "../../libs/nexus-abi" }
+
+[build-dependencies]
+rustc_version = "0.4"

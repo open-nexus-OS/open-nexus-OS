@@ -1,3 +1,4 @@
+//! CONTEXT: Tests for nexus_interface! macro descriptor generation
 use nexus_idl::nexus_interface;
 
 nexus_interface!(interface sample {

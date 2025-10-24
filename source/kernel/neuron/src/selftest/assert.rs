@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! UART-friendly selftest assertion helpers.
+//! CONTEXT: UART-friendly selftest assertion helpers
+//! OWNERS: @kernel-team
+//! PUBLIC API: st_assert!, st_expect_eq!, st_expect_err!, report_failure()
+//! DEPENDS_ON: log (UART), alloc
+//! INVARIANTS: Minimal formatting; deterministic output; panic to trigger kernel panic handler
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 

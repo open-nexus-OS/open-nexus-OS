@@ -1,3 +1,9 @@
+/*
+ * CONTEXT: Run selftest function on a private stack
+ * OWNERS: @kernel-team
+ * ABI: a0=func(void*), a1=arg, a2=new_sp
+ * INVARIANTS: Save/restore caller SP/RA/S0/S1; no extra clobbers; non-functional annotation only
+ */
 .section .text.stack_run, "ax", @progbits
 .globl run_selftest_on_stack
 .align 4

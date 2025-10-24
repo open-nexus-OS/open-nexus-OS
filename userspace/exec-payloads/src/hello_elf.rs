@@ -1,3 +1,9 @@
+//! CONTEXT: Demo bundle payload embedded for selftests and loader bring-up
+//! INTENT: Provide embedded ELF payload for testing loader functionality
+//! IDL (target): HELLO_ELF (embedded bytes), HELLO_MANIFEST (JSON), HELLO_MANIFEST_TOML (TOML)
+//! DEPS: None (embedded data)
+//! READINESS: Test payload ready; used by selftests
+//! TESTS: ELF parsing, manifest validation, loader integration
 //! Demo bundle payload embedded for selftests and loader bring-up.
 
 /// Embedded RISC-V ELF payload that prints a marker and yields forever.

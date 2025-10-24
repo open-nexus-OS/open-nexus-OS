@@ -1,3 +1,4 @@
+//! CONTEXT: Tests for bump allocator alignment and reuse
 use nexus_alloc::BumpAllocator;
 
 #[test]

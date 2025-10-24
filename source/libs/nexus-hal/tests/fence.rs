@@ -1,3 +1,4 @@
+//! CONTEXT: Tests for HAL traits: Bus/DmaBuffer/Fence mocks
 use nexus_hal::{Bus, DmaBuffer, Fence};
 
 struct DummyBus;

@@ -1,3 +1,9 @@
+//! CONTEXT: Remote end-to-end integration tests
+//! INTENT: Distributed service discovery, remote bundle management, authentication
+//! IDL (target): announce(device_id,services,port), connect(remote), resolve(name), installBundle(name,handle,len)
+//! DEPS: dsoftbusd, samgrd, bundlemgrd (distributed service integration)
+//! READINESS: Multiple nodes started; service discovery active
+//! TESTS: Service discovery, remote resolution, bundle install, authentication failure
 #![cfg(nexus_env = "host")]
 
 use dsoftbus::Announcement;

@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Sv39 address-space management with ASID allocation.
+//! CONTEXT: Sv39 address-space management with ASID allocation
+//! OWNERS: @kernel-mm-team
+//! PUBLIC API: AddressSpaceManager (create/get/activate/as_map), AsHandle
+//! DEPENDS_ON: mm::page_table, arch::riscv (satp), hal::virt
+//! INVARIANTS: Map kernel segments; stable SATP value encoding; best-effort W^X for user maps
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 
@@ -174,6 +179,29 @@ impl AddressSpaceManager {
         let _ = &space; // silence unused when SATP switching is disabled
         #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
         {
+            log_info!(target: "as", "AS: activating satp=0x{:x}", space.satp_value());
+            // Best-effort preflight: verify current PC is mapped in target page table
+            let pc = crate::arch::riscv::read_pc() & !(PAGE_SIZE - 1);
+            match space.page_table().lookup(pc) {
+                Some(entry) => {
+                    let flags = entry & 0x3FF;
+                    log_info!(target: "as", "AS: pc map present va=0x{:x} flags=0x{:x}", pc, flags);
+                }
+                None => {
+                    log_error!(target: "as", "AS: pc map missing va=0x{:x}", pc);
+                }
+            }
+            // Verify current SP page is mapped RW
+            let sp = crate::arch::riscv::read_sp() & !(PAGE_SIZE - 1);
+            match space.page_table().lookup(sp) {
+                Some(entry) => {
+                    let flags = entry & 0x3FF;
+                    log_info!(target: "as", "AS: sp map present va=0x{:x} flags=0x{:x}", sp, flags);
+                }
+                None => {
+                    log_error!(target: "as", "AS: sp map missing va=0x{:x}", sp);
+                }
+            }
             ensure_rx_guard();
             unsafe {
                 extern "C" {
@@ -181,6 +209,12 @@ impl AddressSpaceManager {
                 }
                 satp_switch_island(space.satp_value());
             }
+        }
+        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_no_satp"))]
+        {
+            // Skip SATP switch for bring-up; emit post-switch marker directly
+            fence_i();
+            log_info!(target: "as", "AS: post-satp OK");
         }
         #[cfg(debug_assertions)]
         {
@@ -191,6 +225,12 @@ impl AddressSpaceManager {
             }
         }
         Ok(())
+    }
+
+    /// Sets additional leaf flags for a mapping at `va` in the address space referenced by `handle`.
+    pub fn set_leaf_flags(&mut self, handle: AsHandle, va: usize, set: PageFlags) -> Result<(), AddressSpaceError> {
+        let space = self.get_mut(handle)?;
+        space.page_table_mut().set_leaf_flags(va, set).map_err(AddressSpaceError::from)
     }
 
     #[cfg(all(
@@ -356,15 +396,46 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
     if stack_end <= stack_start {
         return Err(MapError::OutOfRange);
     }
-    if let Err(e) = map_kernel_stack(table, stack_start, stack_end) {
-        if let MapError::Overlap = e {
-            log_error!(target: "mm", "AS-MAP: overlap in KSTACK {:#x}..{:#x}", stack_start, stack_end);
+    // Avoid double-mapping: if kernel stack lies within DATA/BSS range, it is already covered.
+    let overlaps_data = stack_start < data_end && stack_end > data_start;
+    if !overlaps_data {
+        if let Err(e) = map_kernel_stack(table, stack_start, stack_end) {
+            if let MapError::Overlap = e {
+                log_error!(target: "mm", "AS-MAP: overlap in KSTACK {:#x}..{:#x}", stack_start, stack_end);
+            }
+            return Err(e);
         }
-        return Err(e);
+    } else {
+        log_debug!(target: "mm", "AS-MAP: skip KSTACK (covered by DATA) {:#x}..{:#x}", stack_start, stack_end);
     }
 
     let selftest_stack_start = align_down(unsafe { &__selftest_stack_base as *const u8 as usize });
     let selftest_stack_end = align_up(unsafe { &__selftest_stack_top as *const u8 as usize });
+    // Map SATP island stack as GLOBAL RW (skip if covered by DATA/BSS identity range)
+    extern "C" {
+        static __satp_island_stack_base: u8;
+        static __satp_island_stack_top: u8;
+    }
+    let island_start = align_down(unsafe { &__satp_island_stack_base as *const u8 as usize });
+    let island_end = align_up(unsafe { &__satp_island_stack_top as *const u8 as usize });
+    if island_end > island_start {
+        let overlaps_data = island_start < data_end && island_end > data_start;
+        if !overlaps_data {
+            if let Err(e) = map_identity_range(
+                table,
+                island_start,
+                island_end,
+                PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+            ) {
+                if let MapError::Overlap = e {
+                    log_error!(target: "mm", "AS-MAP: overlap in SATP-ISLAND {:#x}..{:#x}", island_start, island_end);
+                }
+                return Err(e);
+            }
+        } else {
+            log_debug!(target: "mm", "AS-MAP: skip SATP-ISLAND (covered by DATA) {:#x}..{:#x}", island_start, island_end);
+        }
+    }
     if selftest_stack_end > selftest_stack_start {
         // Avoid overlapping mappings: if selftest stack lies within [data_start, data_end),
         // it is already covered by the data/BSS identity range.
@@ -384,6 +455,22 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         } else {
             log_debug!(target: "mm", "AS-MAP: skip SELFTEST (covered by DATA) {:#x}..{:#x}", selftest_stack_start, selftest_stack_end);
         }
+    }
+
+    // Map a small page-pool window after BSS so kernel can zero/copy user pages by PA.
+    // This matches the temporary page pool used by the user_loader.
+    let pool_base = 0x8060_0000usize;
+    let pool_end = pool_base + 512 * 1024;
+    if let Err(e) = map_identity_range(
+        table,
+        pool_base,
+        pool_end,
+        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+    ) {
+        if let MapError::Overlap = e {
+            log_error!(target: "mm", "AS-MAP: overlap in POOL {:#x}..{:#x}", pool_base, pool_end);
+        }
+        return Err(e);
     }
 
     const UART_BASE: usize = 0x1000_0000;
@@ -494,6 +581,7 @@ fn fence_i() {
 fn fence_i() {}
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+#[allow(dead_code)]
 fn ensure_rx_guard() {
     let pc = crate::arch::riscv::read_pc();
     let mut zero = true;

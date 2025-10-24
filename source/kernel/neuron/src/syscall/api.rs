@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Syscall handlers exposed to the dispatcher.
+//! CONTEXT: Syscall handlers exposed to the dispatcher
+//! OWNERS: @kernel-team
+//! PUBLIC API: install_handlers(table), Context, Args, SysResult
+//! DEPENDS_ON: sched::Scheduler, task::TaskTable, ipc::Router, mm::AddressSpaceManager
+//! INVARIANTS: Stable syscall IDs; Decode→Check→Execute pattern; W^X for user mappings
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 
@@ -229,8 +234,8 @@ impl CapTransferArgsTyped {
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_TRANSFER,
-    SYSCALL_EXIT, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
-    SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_DEBUG_PUTC, SYSCALL_EXIT, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
+    SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -277,6 +282,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_AS_MAP, sys_as_map);
     table.register(SYSCALL_EXIT, sys_exit);
     table.register(SYSCALL_WAIT, sys_wait);
+    table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
 }
 
 fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -446,6 +452,22 @@ fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
 }
 
+/// Minimal debug UART write for userspace: writes one byte `a0` to UART.
+/// Returns the byte written on success. This is best-effort and meant only
+/// for early bring-up. It does not perform permission checks.
+// CRITICAL: Debug only. No permission checks; avoid locks; do not expand scope.
+fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let byte = (args.get(0) & 0xff) as u8;
+    // Use the raw writer to avoid taking locks under scheduler paths.
+    let mut u = crate::uart::raw_writer();
+    use core::fmt::Write as _;
+    let ch = [byte];
+    let s = core::str::from_utf8(&ch).unwrap_or("");
+    let _ = u.write_str(s);
+    Ok(byte as usize)
+}
+
+// CRITICAL: ABI surface for userspace spawn. Keep Decode→Check→Execute and rights checks stable.
 fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = SpawnArgsTyped::decode(args)?;
     let sp_raw = typed.stack_sp.map(|v| v.raw()).unwrap_or(0);
@@ -487,6 +509,7 @@ fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(handle.to_raw() as usize)
 }
 
+// TODO: Enforce W^X policy consistently for user mappings when flags/prot are extended.
 fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = AsMapArgsTyped::decode(args)?;
     typed.check()?; // Check phase

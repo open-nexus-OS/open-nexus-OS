@@ -33,6 +33,11 @@ SECTIONS
     . = ALIGN(4096);
     __selftest_stack_top = .;
     __selftest_stack_guard_hi = __selftest_stack_top + 0x1000;
+    /* SATP island stack (4 KiB) used during SATP switching */
+    . = ALIGN(4096);
+    __satp_island_stack_base = .;
+    . += 0x1000;
+    __satp_island_stack_top = .;
     /* Rest of BSS */
     *(.bss .bss.*)
     *(COMMON)

@@ -98,7 +98,7 @@ impl Entry {
 }
 
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> LiteResult<()> {
-    println("packagefsd: ready\n");
+    debug_print("packagefsd: ready\n");
     notifier.notify();
     let server = KernelServer::new().map_err(|_| LiteError::Transport)?;
     let registry = seed_registry();
@@ -167,29 +167,11 @@ fn seed_registry() -> BundleRegistry {
     registry
 }
 
-fn println(s: &str) {
+fn debug_print(s: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    {
-        for b in s.as_bytes() {
-            uart_write_byte(*b);
-        }
-    }
+    let _ = nexus_abi::debug_write(s.as_bytes());
 }
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn uart_write_byte(byte: u8) {
-    const UART0_BASE: usize = 0x1000_0000;
-    const UART_TX: usize = 0x0;
-    const UART_LSR: usize = 0x5;
-    const LSR_TX_IDLE: u8 = 1 << 5;
-    unsafe {
-        while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
-        if byte == b'\n' {
-            core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\r');
-            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
-        }
-        core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, byte);
-    }
-}
+// raw UART helper removed in favor of debug_write syscall
 
 pub fn touch_schemas() {}

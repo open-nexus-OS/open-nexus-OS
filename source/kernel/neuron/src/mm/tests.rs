@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg(test)]
+//! CONTEXT: Unit tests for Sv39 page table invariants
+//! OWNERS: @kernel-mm-team
+//! NOTE: Tests only; verify alignment, flags, W^X, overlap, range, lookup
 
 use super::{MapError, PageFlags, PageTable, PAGE_SIZE};
 

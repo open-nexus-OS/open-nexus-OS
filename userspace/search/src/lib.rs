@@ -1,3 +1,9 @@
+//! CONTEXT: Search daemon domain logic shared with the thin OS adapter
+//! INTENT: Index and search local content with CLI interface
+//! IDL (target): help(), execute(args), run()
+//! DEPS: CLI argument parsing
+//! READINESS: Host backend ready; OS backend needs indexing engine
+//! TESTS: CLI argument handling, search indexing simulation
 //! Search daemon domain logic shared with the thin OS adapter.
 
 #![forbid(unsafe_code)]

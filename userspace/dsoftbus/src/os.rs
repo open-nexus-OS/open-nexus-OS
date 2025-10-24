@@ -1,4 +1,9 @@
-//! OS backend stubs for DSoftBus-lite.
+//! CONTEXT: OS backend stubs for DSoftBus-lite
+//! INTENT: Placeholder implementations pending kernel transport integration
+//! IDL (target): announce(), bind(), accept(), connect(), send(), recv()
+//! DEPS: identity (device keys)
+//! READINESS: OS backend not ready; requires kernel transport
+//! TESTS: Compilation only; functionality pending kernel integration
 //!
 //! The kernel transport will expose discovery and authenticated sessions in a
 //! future change. For now the OS build provides placeholders so userland daemons

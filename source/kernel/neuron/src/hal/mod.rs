@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Hardware abstraction layer traits.
+//! CONTEXT: Hardware abstraction layer traits
+//! OWNERS: @kernel-hal-team
+//! PUBLIC API: Timer, Uart, IrqCtl, Tlb
+//! DEPENDS_ON: per-machine impls under hal::<machine> (e.g., virt)
+//! INVARIANTS: No allocation in IRQ paths; stable contracts across builds
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 pub mod virt;
 

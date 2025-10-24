@@ -1,3 +1,9 @@
+//! CONTEXT: Compositor daemon domain library (service API and handlers)
+//! INTENT: Surface/layer composition, VSync, window Z-order
+//! IDL (target): createSurface(token), commit(surface,rects), setLayer(win,z), subscribeVsync()
+//! DEPS: systemui, windowd (if separate)
+//! READINESS: print "compositor: ready"; register/heartbeat with samgr
+//! TESTS: VSync tick; frame checksum stable
 pub fn help() -> &'static str {
     "compositor composites window surfaces. Usage: compositor [--help]"
 }

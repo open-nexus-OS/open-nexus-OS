@@ -1,3 +1,9 @@
+//! CONTEXT: Package manager tool
+//! INTENT: Bundle packing and signing operations
+//! IDL (target): pack(app_dir), sign(bundle.nxb)
+//! DEPS: std::fs (file operations)
+//! READINESS: Command-line tool; no service dependencies
+//! TESTS: Pack creates file; sign creates signature
 use std::env;
 use std::fs::File;
 use std::io::{self, Write};

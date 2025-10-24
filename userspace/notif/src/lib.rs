@@ -1,3 +1,9 @@
+//! CONTEXT: User notification dispatch logic shared with the OS daemon
+//! INTENT: Broker and dispatch user alerts and notifications
+//! IDL (target): help(), execute(args), run(), dispatch(alert)
+//! DEPS: CLI argument parsing
+//! READINESS: Host backend ready; OS backend needs notification channels
+//! TESTS: CLI argument handling, notification dispatch simulation
 //! User notification dispatch logic shared with the OS daemon.
 
 #![forbid(unsafe_code)]

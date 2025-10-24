@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Kernel-backed IPC implementation.
+//! CONTEXT: Kernel-backed IPC implementation
+//! INTENT: Service router with per-service channels for OS builds
+//! IDL (target): setDefaultTarget(name), new(), send(frame), recv(wait)
+//! DEPS: std::collections::HashMap (routing), std::sync::mpsc (channels)
+//! READINESS: OS backend ready; temporary in-process router
+//! TESTS: Service routing, channel creation, thread-local targeting
 //!
 //! Temporary in-process router for OS builds: until the kernel syscall surface
 //! is available, services and clients communicate over per-service loopback

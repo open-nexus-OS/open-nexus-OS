@@ -1,4 +1,10 @@
 #![cfg_attr(not(test), no_std)]
+//! CONTEXT: Simple spin lock primitives for no_std userland
+//! OWNERS: @runtime
+//! PUBLIC API: SpinLock, SpinLockGuard
+//! DEPENDS_ON: core::sync::atomic
+//! INVARIANTS: Acquire/Release semantics; non-reentrant; minimal spinning
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};

@@ -1,3 +1,9 @@
+//! CONTEXT: Thermal manager daemon domain library (service API and handlers)
+//! INTENT: Thermal sensing, throttling/hints
+//! IDL (target): subscribe(sensor), setThrottling(level), getTemp(sensor)
+//! DEPS: powermgr (policy coordination)
+//! READINESS: print "thermalmgr: ready"; register/heartbeat with samgr
+//! TESTS: getTemp mock; subscribe emits
 pub fn help() -> &'static str {
     "thermalmgr balances device thermals. Usage: thermalmgr [--help]"
 }

@@ -1,3 +1,9 @@
+//! CONTEXT: Power manager daemon domain library (service API and handlers)
+//! INTENT: Power states, wakelocks, sleep policies
+//! IDL (target): acquireWakeLock(tag), releaseWakeLock(tag), setState(s0..s5)
+//! DEPS: batterymgr, thermalmgr
+//! READINESS: print "powermgr: ready"; register/heartbeat with samgr
+//! TESTS: acquire/release wakelock mock
 pub fn help() -> &'static str {
     "powermgr coordinates power domains. Usage: powermgr [--help]"
 }

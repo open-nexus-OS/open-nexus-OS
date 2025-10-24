@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Capability table implementation.
+//! CONTEXT: Capability table implementation (Endpoint, VMO, IRQ) and rights
+//! OWNERS: @kernel-cap-team
+//! PUBLIC API: CapTable, Capability{Kind,rights}, Rights
+//! DEPENDS_ON: ipc::EndpointId
+//! INVARIANTS: Rights enforced at syscall boundaries; slots validated; no cross-layer leaks
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 

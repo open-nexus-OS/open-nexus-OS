@@ -1,0 +1,57 @@
+name: CI Kernel Hygiene
+
+on:
+  pull_request:
+    paths:
+      - 'source/kernel/neuron/**'
+      - 'source/services/**'
+      - 'source/libs/**'
+      - 'userspace/**'
+      - 'docs/**'
+      - '.github/**'
+  push:
+    branches: [ neuron-foundation ]
+
+jobs:
+  check-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check header presence (CONTEXT headers in crate roots and mains)
+        run: |
+          set -e
+          files=$( (find source/kernel/neuron/src -type f \( -name lib.rs -o -name main.rs \) 2>/dev/null; \
+                    find source/services -type f \( -name lib.rs -o -name main.rs \) 2>/dev/null; \
+                    find source/libs -type f \( -name lib.rs -o -name main.rs \) 2>/dev/null; \
+                    find userspace -type f \( -name lib.rs -o -name main.rs \) 2>/dev/null; \
+                    find tools -type f -name main.rs 2>/dev/null) | sort )
+          missing=""
+          for f in $files; do
+            if ! grep -q '^//! CONTEXT:' "$f"; then
+              missing="$missing\n$f"
+            fi
+          done
+          if [ -n "$missing" ]; then echo -e "Missing CONTEXT header in:$missing"; exit 1; fi
+      - name: Boundary files exist
+        run: |
+          test -f source/init/nexus-init/BOUNDARY.yaml
+          test -f source/services/execd/BOUNDARY.yaml
+          test -f userspace/nexus-loader/BOUNDARY.yaml
+      - name: Cargo fmt & clippy (host path)
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Install tools
+        run: |
+          cargo install cargo-udeps --locked || true
+          cargo install cargo-deny --locked || true
+          npm install -g jscpd || true
+      - name: Duplicate code check (jscpd)
+        run: |
+          npx jscpd --min-lines 20 --threshold 2 --ignore "**/target/**" || true
+      - name: Dependency hygiene
+        run: |
+          cargo deny check || true
+          cargo udeps --workspace || true

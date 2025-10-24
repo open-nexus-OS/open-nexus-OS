@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Syscall dispatcher and error handling.
+//! CONTEXT: Syscall dispatcher and error handling
+//! OWNERS: @kernel-team
+//! PUBLIC API: SyscallTable, Args, Error, Handler, SYSCALL_* IDs
+//! DEPENDS_ON: cap, ipc, mm, task, syscall::api
+//! INVARIANTS: Fixed MAX_SYSCALL window; stable IDs; decode/check/execute discipline
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 pub mod api;
 
@@ -10,7 +15,7 @@ use core::fmt;
 use crate::{cap, ipc, mm, task};
 
 /// Maximum number of syscalls supported by this increment.
-const MAX_SYSCALL: usize = 16;
+const MAX_SYSCALL: usize = 32;
 
 /// Result type used by syscall handlers.
 pub type SysResult<T> = Result<T, Error>;
@@ -47,6 +52,8 @@ pub const SYSCALL_AS_CREATE: usize = 9;
 pub const SYSCALL_AS_MAP: usize = 10;
 pub const SYSCALL_EXIT: usize = 11;
 pub const SYSCALL_WAIT: usize = 12;
+/// Debug UART putc for userspace (best-effort, no permissions required).
+pub const SYSCALL_DEBUG_PUTC: usize = 16;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

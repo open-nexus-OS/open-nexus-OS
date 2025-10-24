@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! NEURON kernel library – no binary entry here.
+//! CONTEXT: NEURON kernel library – module glue and global allocator
+//! OWNERS: @kernel-team
+//! PUBLIC API: early_boot_init(), kmain(), exported types
+//! DEPENDS_ON: linked_list_allocator, sync (debug), arch/hal/mm/ipc/etc.
+//! INVARIANTS: Global allocator lock strategy differs in debug vs release; no_std OS builds
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #![cfg_attr(not(test), no_std)]
 #![deny(warnings)]
@@ -189,6 +194,7 @@ mod determinism;
 mod hal;
 mod ipc;
 mod kmain;
+mod user_loader;
 mod liveness;
 mod mm;
 mod satp;

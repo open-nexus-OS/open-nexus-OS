@@ -1,3 +1,9 @@
+//! CONTEXT: Policy daemon domain library (service API and handlers)
+//! INTENT: Policy/entitlement/DAC checks, audit
+//! IDL (target): checkPermission(subject,cap), addPolicy(entry), audit(record)
+//! DEPS: keystored/identityd (crypto/IDs)
+//! READINESS: print "policyd: ready"; register/heartbeat with samgr
+//! TESTS: checkPermission loopback; deny/allow paths
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 

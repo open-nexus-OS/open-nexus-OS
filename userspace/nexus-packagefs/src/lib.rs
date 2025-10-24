@@ -1,3 +1,9 @@
+//! CONTEXT: Userspace package filesystem client library
+//! INTENT: Bundle publishing and path resolution through packagefs service
+//! IDL (target): publishBundle(name,version,root_vmo,entries), resolve(rel_path)
+//! DEPS: nexus-idl-runtime (capnp), nexus-ipc (transport)
+//! READINESS: Host backend ready; OS backend returns Unsupported
+//! TESTS: Publish/resolve roundtrip; bundle entry validation
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 

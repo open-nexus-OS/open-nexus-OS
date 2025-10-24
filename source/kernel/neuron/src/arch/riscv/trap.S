@@ -84,16 +84,19 @@ __trap_vector:
     .globl __satp_trampoline
     .type  __satp_trampoline, @function
     .align 2
+/* CONTEXT: SATP trampoline; CRITICAL: do not add stack-using code before SP switch */
 __satp_trampoline:
     mv    t1, sp
     csrw  satp, a0
     sfence.vma x0, x0
     .option push
     .option norelax
+    /* TODO: If switching to a different kernel stack is required, drop the restore below */
     la    t0, __stack_top
     .option pop
     addi  t0, t0, -64
     mv    sp, t0
+    /* CRITICAL: We restore original SP to avoid clobbering caller's context */
     mv    sp, t1
     ret
     .size __satp_trampoline, .-__satp_trampoline

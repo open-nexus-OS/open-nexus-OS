@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Task table and lifecycle helpers for the NEURON kernel.
+//! CONTEXT: Task table and lifecycle helpers for the NEURON kernel
+//! OWNERS: @kernel-sched-team
+//! PUBLIC API: TaskTable (spawn/exit/wait), Pid, TaskState
+//! DEPENDS_ON: ipc::Router, mm::AddressSpaceManager, sched::Scheduler, types::{SlotIndex,VirtAddr}
+//! INVARIANTS: Kernel text entry validation; guard-paged user stacks; capability rights respected
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 

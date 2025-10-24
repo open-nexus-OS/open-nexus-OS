@@ -1,3 +1,9 @@
+//! CONTEXT: Distributed scheduler daemon domain library (service API and handlers)
+//! INTENT: Remote ability start/continuation, device listing
+//! IDL (target): startRemoteAbility(device,intent), continueAbility(token), listDevices()
+//! DEPS: dsoftbusd, abilitymgr, samgrd
+//! READINESS: print "dist-scheduler: ready"; register/heartbeat with samgr
+//! TESTS: listDevices empty; startRemoteAbility mock
 pub fn help() -> &'static str {
     "dist-scheduler coordinates remote tasks. Usage: dist-scheduler [--help] delay_ms"
 }

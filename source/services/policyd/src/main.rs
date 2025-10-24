@@ -1,3 +1,9 @@
+//! CONTEXT: Policy daemon entrypoint wiring to service logic
+//! INTENT: Policy/entitlement/DAC checks, audit
+//! IDL (target): checkPermission(subject,cap), addPolicy(entry), audit(record)
+//! DEPS: keystored/identityd (crypto/IDs)
+//! READINESS: print "policyd: ready"; register/heartbeat with samgr
+//! TESTS: checkPermission loopback; deny/allow paths
 //! Bin wrapper wiring policyd's daemon entry point.
 
 #[cfg(not(any(nexus_env = "host", nexus_env = "os")))]

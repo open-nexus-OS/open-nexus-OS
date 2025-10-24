@@ -1,3 +1,4 @@
+//! CONTEXT: Tests for entitlement policy allow/deny lookup
 use nexus_sel::{Policy, PolicyEntry};
 
 #[test]

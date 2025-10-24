@@ -8,7 +8,12 @@
 )]
 #![deny(clippy::all, missing_docs)]
 
-//! Shared ABI definitions exposed to userland crates.
+//! CONTEXT: Shared ABI definitions exposed to userland crates
+//! OWNERS: @runtime
+//! PUBLIC API: MsgHeader, IpcError; OS-only syscalls: yield_, spawn, exit, wait, cap_transfer, as_*, vmo_*, debug_*
+//! DEPENDS_ON: no_std (OS), riscv ecall asm (OS), bitflags
+//! INVARIANTS: Header is 16 bytes LE; userspace wrappers map to stable kernel syscall IDs
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 /// Result type returned by ABI helpers.
 pub type Result<T> = core::result::Result<T, IpcError>;
@@ -404,6 +409,40 @@ pub fn vmo_destroy(handle: Handle) -> SysResult<()> {
     {
         Err(AbiError::Unsupported)
     }
+}
+
+// ——— Debug print helpers (OS build) ———
+
+/// Writes a single byte to the kernel UART from userspace for debugging.
+#[cfg(nexus_env = "os")]
+pub fn debug_putc(byte: u8) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_DEBUG_PUTC: usize = 16;
+        let raw = unsafe { ecall1(SYSCALL_DEBUG_PUTC, byte as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = byte;
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Writes a byte slice to the kernel UART for debugging.
+#[cfg(nexus_env = "os")]
+pub fn debug_write(bytes: &[u8]) -> SysResult<()> {
+    for &b in bytes {
+        let _ = debug_putc(b);
+    }
+    Ok(())
+}
+
+/// Writes a line (with trailing '\n') to the kernel UART for debugging.
+#[cfg(nexus_env = "os")]
+pub fn debug_println(s: &str) -> SysResult<()> {
+    debug_write(s.as_bytes())?;
+    debug_putc(b'\n')
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

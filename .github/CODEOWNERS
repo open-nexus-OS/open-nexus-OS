@@ -1,0 +1,6 @@
+# CODEOWNERS - define reviewers/owners for kernel paths
+# NOTE: Replace @kernel-team with actual GitHub team or usernames
+
+/source/kernel/neuron/** @kernel-team
+/source/libs/** @runtime
+/docs/ARCHITECTURE.md @kernel-team

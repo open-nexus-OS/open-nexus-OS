@@ -1,4 +1,7 @@
-//! Architecture guard ensuring userspace crates remain independent of OS layers.
+//! CONTEXT: Architecture guard ensuring userspace crates remain independent of OS layers
+//! OWNERS: @runtime
+//! PURPOSE: Fail CI if userspace depends on OS/services beyond allowed ABI
+//! NOTE: Command-line tool; no library API
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;

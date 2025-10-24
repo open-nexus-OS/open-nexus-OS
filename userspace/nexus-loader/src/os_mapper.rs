@@ -1,3 +1,9 @@
+//! CONTEXT: OS-specific memory mapping implementation for nexus-loader
+//! INTENT: Map ELF segments into address spaces using kernel VMO/AS APIs
+//! IDL (target): mapSegment(plan,src), mapStack(asHandle), populateStack(stackVmo,argv,env)
+//! DEPS: nexus-abi (VMO/AS syscalls), alloc::vec (memory management)
+//! READINESS: OS backend ready; requires kernel VMO/AS support
+//! TESTS: Segment mapping, stack creation, BSS zero-filling, alignment checks
 #[cfg(not(nexus_env = "os"))]
 compile_error!("os_mapper is only available when building for nexus_env=\"os\"");
 

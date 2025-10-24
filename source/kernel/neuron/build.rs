@@ -1,6 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// CONTEXT: Kernel build script – emits optional trap symbol table and configures linker/script
+// OWNERS: @kernel-team
+// PUBLIC API: cargo build-script outputs (env/cfg, generated trap_symbols.rs)
+// DEPENDS_ON: env vars NEURON_SYMBOLS_MAP, NEURON_LINKER_SCRIPT, EMBED_INIT_ELF
+// INVARIANTS: No-op in debug; best-effort generation only
+
 fn emit_symbol_table() {
     // Only attempt in release builds; keep host/dev simple.
     let profile = std::env::var("PROFILE").unwrap_or_default();
@@ -32,7 +38,7 @@ fn emit_symbol_table() {
             for (addr, name) in entries {
                 out.push_str(&format!("    (0x{:x}, \"{}\"),\n", addr, name));
             }
-            out.push_str("];\n");
+            out.push_str("]\n");
             let _ = std::fs::write(&out_path, out);
             generated = true;
         }
@@ -46,6 +52,7 @@ fn emit_symbol_table() {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=NEURON_LINKER_SCRIPT");
     if let Ok(script) = std::env::var("NEURON_LINKER_SCRIPT") {
         println!("cargo:rustc-link-arg=-T{script}");
@@ -53,4 +60,13 @@ fn main() {
     // Also allow external map file
     println!("cargo:rerun-if-env-changed=NEURON_SYMBOLS_MAP");
     emit_symbol_table();
+
+    // Propagate optional embedded init ELF path into the kernel build so it can be included.
+    println!("cargo:rerun-if-env-changed=EMBED_INIT_ELF");
+    if let Ok(path) = std::env::var("EMBED_INIT_ELF") {
+        println!("cargo:rustc-cfg=embed_init");
+        println!("cargo:rustc-env=EMBED_INIT_ELF={path}");
+        // Rebuild if the embedded ELF changes
+        println!("cargo:rerun-if-changed={path}");
+    }
 }

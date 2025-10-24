@@ -1,3 +1,4 @@
+//! CONTEXT: Tests for no_std SpinLock basic semantics
 use nexus_sync::SpinLock;
 
 #[test]

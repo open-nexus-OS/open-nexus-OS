@@ -1,6 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: In-process IPC emulation for host-based tests
+//! INTENT: Loopback client/server pairs for integration testing
+//! IDL (target): loopbackChannel(), send(frame), recv(wait)
+//! DEPS: std::sync::mpsc (channels), parking_lot::Mutex (synchronization)
+//! READINESS: Host backend ready; used for testing
+//! TESTS: Loopback roundtrip, timeout handling, disconnected state
 //! In-process IPC emulation for host-based tests.
 
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};

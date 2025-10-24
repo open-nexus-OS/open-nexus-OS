@@ -1,3 +1,9 @@
+//! CONTEXT: Battery manager daemon domain library (service API and handlers)
+//! INTENT: Battery status/health/charging policy, low-power signals
+//! IDL (target): getLevel(), getStatus(), subscribe(), setPowerSave(bool)
+//! DEPS: powermgr (policies), notifd (warnings)
+//! READINESS: print "batterymgr: ready"; register/heartbeat with samgr
+//! TESTS: level mock, subscribe event
 pub fn help() -> &'static str {
     "batterymgr tracks charge levels. Usage: batterymgr [--help]"
 }

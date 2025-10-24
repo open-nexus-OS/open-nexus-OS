@@ -1,4 +1,10 @@
 #![cfg_attr(not(test), no_std)]
+//! CONTEXT: Simple scheduler timeline helper for user space services
+//! OWNERS: @runtime
+//! PUBLIC API: Deadline
+//! DEPENDS_ON: core
+//! INVARIANTS: Pure calculations; unit-tested
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 /// Simple scheduler timeline helper for user space services.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

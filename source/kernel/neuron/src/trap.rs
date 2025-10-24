@@ -1,7 +1,11 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
-//! Trap handling: external ASM prologue/epilogue + safe Rust core,
-//! HPM CSR emulation, SBI timer handling.
+//! CONTEXT: Trap handling: external ASM prologue/epilogue + safe Rust core, HPM CSR emulation, SBI timer handling
+//! OWNERS: @kernel-team
+//! PUBLIC API: register_scheduler_env(), register_syscall_table()
+//! DEPENDS_ON: sched::Scheduler, task::TaskTable, ipc::Router, mm::AddressSpaceManager, SyscallTable
+//! INVARIANTS: Trap ABI/prologue stable; ECALL dispatch IDs stable; minimal UART in trap context
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #![allow(clippy::identity_op)]
 
@@ -91,7 +95,9 @@ const INTERRUPT_FLAG: usize = usize::MAX - (usize::MAX >> 1);
 struct TrapSysEnv {
     scheduler_addr: usize,
     tasks_addr: usize,
+    router_addr: usize,
     spaces_addr: usize,
+    syscalls_addr: usize,
 }
 
 static TRAP_ENV: Mutex<Option<TrapSysEnv>> = Mutex::new(None);
@@ -99,17 +105,28 @@ static TRAP_ENV: Mutex<Option<TrapSysEnv>> = Mutex::new(None);
 /// Registers scheduler/task/router/address-space pointers used by the trap-time
 /// ecall fastpath (yield only). Unsafe: caller must ensure single-hart use and
 /// that the references remain valid for the lifetime of the kernel.
+// CRITICAL: Unsafe contract—caller guarantees single-hart and pointer validity.
 pub unsafe fn register_scheduler_env(
     scheduler: *mut Scheduler,
     tasks: *mut task::TaskTable,
-    _router: *mut ipc::Router,
+    router: *mut ipc::Router,
     spaces: *mut AddressSpaceManager,
 ) {
     *TRAP_ENV.lock() = Some(TrapSysEnv {
         scheduler_addr: scheduler as usize,
         tasks_addr: tasks as usize,
+        router_addr: router as usize,
         spaces_addr: spaces as usize,
+        syscalls_addr: 0,
     });
+}
+
+/// Registers the syscall dispatch table pointer for trap-time dispatch of ECALLs.
+// CRITICAL: Must be called after SyscallTable init; used by ECALL fastpath only.
+pub unsafe fn register_syscall_table(table: *mut SyscallTable) {
+    if let Some(env) = TRAP_ENV.lock().as_mut() {
+        env.syscalls_addr = table as usize;
+    }
 }
 
 // ——— HPM CSR emulation helpers ———
@@ -456,6 +473,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
     // Exception path (print limited diagnostics only for exceptions)
     const ILLEGAL_INSTRUCTION: usize = 2;
+    const ECALL_UMODE: usize = 8;
     const ECALL_SMODE: usize = 9;
     let exc = frame.scause & (usize::MAX >> 1);
     #[cfg(any(debug_assertions, feature = "trap_ring"))]
@@ -498,84 +516,26 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             let _ = write!(u, "EXC: stval=0x{:x}\n", stval_now as u64);
         }
     }
-    if exc == ECALL_SMODE {
-        // Minimal in-kernel syscall handling: SYSCALL_YIELD only.
-        const SYSCALL_YIELD: usize = crate::syscall::SYSCALL_YIELD;
-        let num = frame.x[17];
-        if num == SYSCALL_YIELD {
-            // SAFETY: registered once during bring-up; single-core.
-            if let Some(env) = TRAP_ENV.lock().as_ref() {
-                let scheduler = unsafe { &mut *(env.scheduler_addr as *mut Scheduler) };
-                let tasks = unsafe { &mut *(env.tasks_addr as *mut task::TaskTable) };
-                let spaces = unsafe { &mut *(env.spaces_addr as *mut AddressSpaceManager) };
-                // Persist caller frame and advance past ecall
-                let old = tasks.current_pid();
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "ECALL-FP: old={} a7={}\n", old, num);
-                }
-                if let Some(t) = tasks.task_mut(old) {
-                    *t.frame_mut() = *frame;
-                    let f = t.frame_mut();
-                    f.sepc = f.sepc.wrapping_add(4);
-                }
-                // Ensure the yielding task is re-enqueued even if `current` was not set.
-                scheduler.enqueue(old as u32, crate::sched::QosClass::Normal);
-                if let Some(next) = scheduler.schedule_next() {
-                    tasks.set_current(next as task::Pid);
-                    {
-                        use core::fmt::Write as _;
-                        let mut u = crate::uart::raw_writer();
-                        let satp_now = riscv::register::satp::read().bits();
-                        let _ =
-                            write!(u, "SW: old={} -> next={} satp=0x{:x}\n", old, next, satp_now);
-                    }
-                    if let Some(t) = tasks.task(next as task::Pid) {
-                        if let Some(h) = t.address_space() {
-                            let _ = spaces.activate(h);
-                            // Fail-fast: SATP must be non-zero after activation
-                            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                            {
-                                let satp_now = riscv::register::satp::read().bits();
-                                if satp_now == 0 {
-                                    panic!("YF: satp not activated (0) for pid={}", next);
-                                }
-                            }
-                        }
-                    }
-                    if let Some(t) = tasks.task_mut(next as task::Pid) {
-                        *frame = *t.frame();
-                        // Fail-fast: loaded frame must have a plausible PC/stack
-                        if frame.sepc == 0 || frame.x[2] == 0 {
-                            use core::fmt::Write as _;
-                            let mut u = crate::uart::raw_writer();
-                            let _ = write!(
-                                u,
-                                "YF-E: invalid frame pid={} sepc=0x{:x} sp=0x{:x}\n",
-                                next, frame.sepc, frame.x[2]
-                            );
-                            panic!("YF: invalid frame loaded");
-                        }
-                        {
-                            use core::fmt::Write as _;
-                            let mut u = crate::uart::raw_writer();
-                            let _ = write!(
-                                u,
-                                "YF: switch {}->{} sepc=0x{:x} sp=0x{:x}\n",
-                                old, next, frame.sepc, frame.x[2]
-                            );
-                        }
-                    }
-                } else {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "SW: schedule_next none (old={})\n", old);
-                }
-                return;
+    if exc == ECALL_UMODE || exc == ECALL_SMODE {
+        if let Some(env) = TRAP_ENV.lock().as_ref() {
+            // Build a syscall context and dispatch through the table for both U and S ECALLs.
+            let scheduler = unsafe { &mut *(env.scheduler_addr as *mut Scheduler) };
+            let tasks = unsafe { &mut *(env.tasks_addr as *mut task::TaskTable) };
+            let router = unsafe { &mut *(env.router_addr as *mut ipc::Router) };
+            let spaces = unsafe { &mut *(env.spaces_addr as *mut AddressSpaceManager) };
+            let table = unsafe { &*(env.syscalls_addr as *const SyscallTable) };
+            // Minimal timer stub; only sys_nsec uses it.
+            struct NullTimer;
+            impl crate::hal::Timer for NullTimer {
+                fn now(&self) -> u64 { 0 }
+                fn set_wakeup(&self, _deadline: u64) {}
             }
+            let timer = NullTimer;
+            let mut ctx = api::Context::new(scheduler, tasks, router, spaces, &timer);
+            handle_ecall(frame, table, &mut ctx);
+            return;
         }
-        // Unregistered or unsupported syscall: encode ENOSYS and advance PC.
+        // Fallback: unsupported without registered env
         frame.x[10] = errno(ENOSYS);
         frame.sepc = frame.sepc.wrapping_add(4);
         return;

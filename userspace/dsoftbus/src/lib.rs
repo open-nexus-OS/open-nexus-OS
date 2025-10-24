@@ -1,4 +1,9 @@
-//! DSoftBus-lite shared userland library.
+//! CONTEXT: DSoftBus-lite shared userland library
+//! INTENT: Distributed service discovery, authenticated sessions, reliable streams
+//! IDL (target): announce(device,services,port), connect(peer), send(channel,payload), recv()
+//! DEPS: identity (device keys), x25519-dalek (Noise), serde (serialization)
+//! READINESS: Host backend ready; OS backend needs kernel transport
+//! TESTS: Discovery announcements, Noise handshakes, frame multiplexing
 //!
 //! The library provides discovery and authenticated session helpers used by the
 //! `dsoftbusd` daemon. Host builds expose a TCP-backed implementation, while OS

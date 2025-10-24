@@ -1,3 +1,9 @@
+//! CONTEXT: Media service domain library (service API and handlers)
+//! INTENT: Media playback/record pipeline, codec routing, volume
+//! IDL (target): createPlayer(), setSource(url/vmo), play(), pause(), setVolume(vol)
+//! DEPS: resmgrd (resources), vfsd/packagefsd (payloads)
+//! READINESS: print "media: ready"; register/heartbeat with samgr
+//! TESTS: createPlayer/setSource mock
 pub fn help() -> &'static str {
     "media orchestrates playback. Usage: media [--help] [--probe asset]"
 }

@@ -1,0 +1,21 @@
+module: source/services/execd
+purpose: Service/task spawner and exec service
+layer: services
+owners: ["@services-team"]
+entrypoints:
+  - "service_main_loop"
+  - "exec_elf"
+  - "exec_minimal"
+allowed_deps:
+  - "userspace/nexus-loader"
+  - "source/libs/nexus-abi"
+  - "userspace/nexus-ipc"
+  - "userspace/exec-payloads" # tests
+forbidden_deps:
+  - "source/kernel/**"
+features:
+  requires_all: ["idl-capnp"]
+adrs:
+  - "docs/adr/0001-runtime-roles-and-boundaries.md"
+invariants:
+  - "Delegates ELF mapping to nexus-loader"

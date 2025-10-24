@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! RISC-V specific helpers used across the NEURON kernel.
+//! CONTEXT: RISC-V specific helpers used across the NEURON kernel
+//! OWNERS: @kernel-arch-team
+//! PUBLIC API: read_pc(), clear_bss(), read_time(), set_timer()
+//! DEPENDS_ON: core arch asm, optional CLINT/SBI
+//! INVARIANTS: Host stubs exist; OS path uses inline asm guarded by cfg
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 //!
 //! The implementation follows the Sv39 privileged specification and is
 //! written such that host builds can still exercise high level logic via
@@ -10,6 +15,7 @@
 
 /// Returns the current program counter.
 #[inline]
+#[allow(dead_code)]
 pub fn read_pc() -> usize {
     #[cfg(target_arch = "riscv64")]
     unsafe {
@@ -92,4 +98,18 @@ pub fn wait_for_interrupt() {
     {
         core::hint::spin_loop();
     }
+}
+
+/// Returns the current stack pointer.
+#[inline]
+#[allow(dead_code)]
+pub fn read_sp() -> usize {
+    #[cfg(target_arch = "riscv64")]
+    unsafe {
+        let value: usize;
+        core::arch::asm!("mv {o}, sp", o = out(reg) value, options(nomem, nostack, preserves_flags));
+        value
+    }
+    #[cfg(not(target_arch = "riscv64"))]
+    { 0 }
 }

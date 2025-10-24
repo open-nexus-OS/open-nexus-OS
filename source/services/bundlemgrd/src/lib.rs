@@ -2,6 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
+//! CONTEXT: BundleMgr daemon – bundle install/query/payload via Cap'n Proto IPC
+//! OWNERS: @services-team
+//! PUBLIC API: service_main_loop(), run_with_transport(), loopback_transport()
+//! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystored client, packagefs client
+//! INVARIANTS: Separate from SAMgr/Keystore roles; stable readiness prints
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use std::collections::HashMap;
 use std::fmt;

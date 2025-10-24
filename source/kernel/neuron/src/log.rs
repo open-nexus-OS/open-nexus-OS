@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal structured logging with severity levels.
+//! CONTEXT: Minimal structured logging with severity levels
+//! OWNERS: @kernel-team
+//! PUBLIC API: log_* macros, emit(level,target,args)
+//! DEPENDS_ON: uart::KernelUart
+//! INVARIANTS: Debug/Trace only in debug builds; single-line emission
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::fmt::{Arguments, Write};
 

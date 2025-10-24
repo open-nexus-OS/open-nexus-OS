@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal IPC runtime abstractions shared by host tests and the OS build.
+//! CONTEXT: Minimal IPC runtime abstractions shared by host tests and the OS build
+//! OWNERS: @runtime
+//! PUBLIC API: Client/Server traits, loopback_channel(), KernelClient/Server
+//! DEPENDS_ON: nexus-abi (OS), std/alloc per backend, thiserror
+//! INVARIANTS: Host loopback available; OS backends selected by feature (os-lite/std)
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 //!
 //! The host backend uses in-process channels to emulate kernel IPC and allows
 //! unit tests to execute Cap'n Proto request/response cycles without booting

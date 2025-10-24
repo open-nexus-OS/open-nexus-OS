@@ -1,0 +1,22 @@
+module: userspace/nexus-loader
+purpose: Userspace loader library (ELF64/RISC-V) with OS mapper
+layer: userspace
+owners: ["@runtime"]
+entrypoints:
+  - "parse_elf64_riscv"
+  - "load_with"
+allowed_deps:
+  - "source/libs/nexus-abi"
+  - "goblin"
+  - "thiserror"
+forbidden_deps:
+  - "source/kernel/**"
+  - "source/services/**"
+features:
+  optional: ["os_mapper"]
+adrs:
+  - "docs/adr/0001-runtime-roles-and-boundaries.md"
+invariants:
+  - "No W+X segments"
+  - "Page-aligned segments"
+  - "Non-overlapping vaddrs"

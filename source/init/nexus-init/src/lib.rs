@@ -1,9 +1,13 @@
-#![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 
-//! Minimal init process responsible for launching core services and emitting
-//! deterministic UART markers for the OS test harness.
+//! CONTEXT: Init process selecting Host std backend or OS-lite cooperative bootstrap
+//! OWNERS: @init-team @runtime
+//! PUBLIC API: touch_schemas(), service_main_loop(), ReadyNotifier
+//! DEPENDS_ON: execd, keystored, policyd, samgrd, bundlemgrd, packagefsd, vfsd (os-lite)
+//! FEATURES: cfg(all(nexus_env = "os", feature = "os-lite")) selects os_lite; otherwise std_server
+//! INVARIANTS: Preserve UART markers; Host path byte-compatible
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 //!
 //! The library exposes two backends selected via `nexus_env` and the
 //! `os-lite` feature. Host builds keep the original std runtime while the OS

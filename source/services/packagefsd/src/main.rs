@@ -1,3 +1,4 @@
+//! CONTEXT: Packagefsd entrypoint wiring default transport to shared service logic
 //! Package file system daemon entrypoint.
 
 fn main() -> ! {

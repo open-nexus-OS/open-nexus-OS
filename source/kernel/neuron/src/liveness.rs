@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Lightweight progress watchdog for bring-up and debugging.
+//! CONTEXT: Lightweight progress watchdog for bring-up and debugging
+//! OWNERS: @kernel-team
+//! PUBLIC API: bump(), last_bump_ticks(), check(deadline_ticks)
+//! DEPENDS_ON: riscv time CSR (OS), log
+//! INVARIANTS: Only emits panic on prolonged stalls; cheap in steady state
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #![allow(dead_code)]
 

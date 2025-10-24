@@ -1,3 +1,9 @@
+//! CONTEXT: Userspace bundle manager domain library (manifest parsing, service API)
+//! OWNERS: @runtime
+//! PUBLIC API: Manifest, Service, parse/install helpers
+//! DEPENDS_ON: std, toml, crypto (as needed)
+//! INVARIANTS: Manifest schema stable; pure domain logic without IPC
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 //! Bundle manager domain logic shared between host tests and the OS daemon.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]

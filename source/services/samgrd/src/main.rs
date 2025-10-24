@@ -1,4 +1,4 @@
-//! Thin SAMGR daemon entrypoint: wires transports to the shared server logic.
+//! CONTEXT: SAMGR daemon entrypoint wiring default transport to shared server logic
 
 fn main() -> ! {
     samgrd::touch_schemas();

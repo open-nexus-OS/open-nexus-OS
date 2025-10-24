@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! HAL implementation targeting QEMU's `virt` machine.
+//! CONTEXT: HAL implementation targeting QEMU's `virt` machine
+//! OWNERS: @kernel-hal-team
+//! PUBLIC API: VirtMachine (timer/uart/tlb/irq), Timer::now/set_wakeup
+//! DEPENDS_ON: arch::riscv, sbi-rt (OS), MMIO UART regs
+//! INVARIANTS: No allocations in IRQ paths; UART writes are best-effort; time = 10MHz ticks
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::ptr::{read_volatile, write_volatile};
 

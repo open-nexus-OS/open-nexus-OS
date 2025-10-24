@@ -1,3 +1,9 @@
+//! CONTEXT: Userspace keystore domain library
+//! INTENT: Anchor key loading, signature verification, device ID derivation
+//! IDL (target): loadAnchors(dir), verifyDetached(pk,msg,sig), deviceId(pk)
+//! DEPS: ed25519_dalek, sha2, base64, hex (crypto operations)
+//! READINESS: Library ready; no service dependencies
+//! TESTS: Hex/PEM anchor loading; signature verification; device ID derivation
 //! Keystore primitives for loading anchors and verifying signatures.
 
 #![forbid(unsafe_code)]

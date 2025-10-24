@@ -1,3 +1,9 @@
+//! CONTEXT: Userspace service manager domain library (service API and handlers)
+//! INTENT: Service registration/resolution, heartbeat, restart semantics
+//! IDL (target): register(name,endpoint), resolve(name), heartbeat(handle), restart(name,endpoint)
+//! DEPS: parking_lot (host), std::collections (host)
+//! READINESS: Host backend ready; OS backend returns Unsupported
+//! TESTS: Register/resolve roundtrip; duplicate rejection; restart invalidates handle
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 

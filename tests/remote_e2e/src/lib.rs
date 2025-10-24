@@ -1,3 +1,9 @@
+//! CONTEXT: Remote end-to-end test harness library
+//! INTENT: DSoftBus-lite stack testing with service nodes and remote operations
+//! IDL (target): start(port,services), connect(peer), resolve(service), installBundle(name,handle,len)
+//! DEPS: dsoftbus, samgrd, bundlemgrd, identity (service integration)
+//! READINESS: Host backend ready; multiple nodes with service discovery
+//! TESTS: Service discovery, remote resolution, bundle install, authentication
 //! Host-only remote end-to-end harness exercising the DSoftBus-lite stack.
 //!
 //! The helpers defined here spin up a pair of service nodes (identityd,

@@ -1,3 +1,9 @@
+//! CONTEXT: Cooperative mailbox-backed IPC suitable for no_std OS-lite builds
+//! INTENT: Lightweight IPC using spinlocks and cooperative yielding
+//! IDL (target): setDefaultTarget(name), new(), send(frame), recv(wait)
+//! DEPS: nexus-sync::SpinLock (synchronization), nexus-abi::yield_ (cooperation)
+//! READINESS: OS-lite backend ready; no_std compatible
+//! TESTS: Service registration, queue depth limits, cooperative yielding
 //! Cooperative mailbox-backed IPC suitable for no_std OS-lite builds.
 
 use core::cell::RefCell;

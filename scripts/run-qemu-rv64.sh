@@ -15,7 +15,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 KERNEL_ELF=$ROOT/target/$TARGET/release/neuron-boot
 KERNEL_BIN=$ROOT/target/$TARGET/release/neuron-boot.bin
-RUN_TIMEOUT=${RUN_TIMEOUT:-30s}
+INIT_ELF=$ROOT/target/$TARGET/release/init-lite
+RUSTFLAGS_OS=${RUSTFLAGS_OS:---cfg nexus_env=\"os\"}
+export RUSTFLAGS="$RUSTFLAGS_OS"
+RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-0}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
@@ -221,9 +224,9 @@ finish() {
   return "$status"
 }
 
-if [[ ! -f "$KERNEL_ELF" ]]; then
-  (cd "$ROOT" && cargo build -p neuron-boot --target "$TARGET" --release)
-fi
+# Always rebuild nexus-init (os-lite) and kernel to pick up changes
+(cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release)
+(cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p neuron-boot --target "$TARGET" --release)
 
 if [[ ! -f "$KERNEL_BIN" || "$KERNEL_BIN" -ot "$KERNEL_ELF" ]]; then
   # Use Rust's llvm-objcopy (works with all targets)

@@ -68,10 +68,9 @@ seen and ensure log caps are in effect. `just test-os` wraps
 
 ## OS-E2E marker sequence and VMO split
 
-The legacy `stage0-init-os` shim has been retired, so the os-lite `nexus-init`
-backend is now responsible for announcing service bring-up. The OS smoke path
-emits a deterministic sequence of UART markers that the runner validates in
-order:
+The os-lite `nexus-init` backend is responsible for announcing service
+bring-up. The OS smoke path emits a deterministic sequence of UART markers that
+the runner validates in order:
 
 1. `neuron vers.` – kernel banner
 2. `init: start` – init process begins bootstrapping services

@@ -1,3 +1,9 @@
+//! CONTEXT: Nexus bundle packer tool
+//! INTENT: Package ELF binaries into deployable bundles with manifest
+//! IDL (target): pack(input_elf, output_dir), packHello(output_dir)
+//! DEPS: exec-payloads (hello ELF), std::fs (file operations)
+//! READINESS: Command-line tool; no service dependencies
+//! TESTS: Pack hello ELF; pack custom ELF; validate output structure
 use std::env;
 use std::fs;
 use std::io::{self, Write};

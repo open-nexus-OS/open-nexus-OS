@@ -1,7 +1,13 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! execd daemon: executes service bundles after policy approval.
+//! CONTEXT: Service/task spawner and exec service; consumes payloads and starts processes
+//! OWNERS: @services-team
+//! PUBLIC API: service_main_loop(), exec_elf(), exec_minimal(), exec_elf_bytes()
+//! DEPENDS_ON: nexus_ipc, nexus_abi, userspace::nexus_loader (os), exec_payloads (test)
+//! FEATURES: requires `idl-capnp` for IPC handlers; os path behind `cfg(nexus_env = "os")`
+//! INVARIANTS: Delegates ELF mapping to `nexus-loader`; emits readiness via ReadyNotifier
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #![forbid(unsafe_code)]
 
@@ -144,7 +150,8 @@ fn reaper_loop() {
                 return;
             }
             Err(err) => {
-                println!("execd: wait error {err:?}");
+                #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+                let _ = nexus_abi::debug_println(&format!("execd: wait error {err:?}"));
                 thread::sleep(Duration::from_millis(5));
             }
         }
@@ -153,7 +160,8 @@ fn reaper_loop() {
 
 #[cfg(nexus_env = "os")]
 fn handle_exit(pid: nexus_abi::Pid, status: i32) {
-    println!("execd: child exited pid={pid} code={status}");
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    let _ = nexus_abi::debug_println(&format!("execd: child exited pid={pid} code={status}"));
     let mut restart = None;
     if let Ok(mut guard) = registry().lock() {
         let key = guard.iter().find(|(_, entry)| entry.pid == pid).map(|(name, _)| name.clone());
@@ -181,8 +189,14 @@ fn restart_service(request: RestartRequest) {
     let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
     let env_refs: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
     match exec_elf(&name, &argv_refs, &env_refs, policy) {
-        Ok(pid) => println!("execd: restart {name} pid={pid}"),
-        Err(err) => println!("execd: restart {name} failed: {err}"),
+        Ok(pid) => {
+            #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+            let _ = nexus_abi::debug_println(&format!("execd: restart {name} pid={pid}"));
+        }
+        Err(err) => {
+            #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+            let _ = nexus_abi::debug_println(&format!("execd: restart {name} failed: {err}"));
+        }
     }
 }
 
@@ -385,7 +399,8 @@ impl ExecService {
                 .map_err(|err| ServerError::Decode(format!("exec name utf8: {err}")))?
                 .to_string();
 
-            println!("execd: exec {name}");
+            #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+            let _ = nexus_abi::debug_println(&format!("execd: exec {name}"));
             let exec_result = self.exec_minimal(&name);
 
             let mut response = Builder::new_default();
@@ -501,12 +516,14 @@ fn run_loaded_elf(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<nexus_abi
     let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
         .map_err(ExecError::CapTransfer)?;
 
-    println!("execd: elf load ok {pid}");
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    let _ = nexus_abi::debug_println(&format!("execd: elf load ok {pid}"));
     Ok(pid)
 }
 
 #[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
 fn request_bundle_payload(name: &str) -> Result<Vec<u8>, ExecError> {
+    use nexus_ipc::Client as _;
     let client = nexus_ipc::KernelClient::new().map_err(ExecError::Ipc)?;
 
     let mut message = Builder::new_default();
@@ -554,7 +571,8 @@ pub fn exec_elf(
     restart: RestartPolicy,
 ) -> Result<nexus_abi::Pid, ExecError> {
     spawn_reaper_thread();
-    println!("execd: exec {bundle}");
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    let _ = nexus_abi::debug_println(&format!("execd: exec {bundle}"));
     let payload = request_bundle_payload(bundle)?;
     let pid = run_loaded_elf(&payload, argv, env)?;
     register_service(bundle, pid, restart, argv, env)?;
@@ -573,14 +591,16 @@ pub fn exec_elf(
 
 #[cfg(nexus_env = "os")]
 fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
-    println!("execd: exec_minimal {subject}");
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    let _ = nexus_abi::debug_println(&format!("execd: exec_minimal {subject}"));
     spawn_reaper_thread();
     let stack_top = child_stack_top();
     let entry_pc = hello_child_entry as usize as u64;
     let pid = nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT).map_err(ExecError::Spawn)?;
     let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
         .map_err(ExecError::CapTransfer)?;
-    println!("execd: spawn ok {pid}");
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    let _ = nexus_abi::debug_println(&format!("execd: spawn ok {pid}"));
     Ok(())
 }
 
@@ -634,7 +654,8 @@ pub fn run_with_transport_ready<T: Transport>(
     touch_schemas();
     let service = ExecService::new();
     notifier.notify();
-    println!("execd: ready");
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    let _ = nexus_abi::debug_println("execd: ready");
     serve(&service, transport)
 }
 

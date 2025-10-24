@@ -1,3 +1,9 @@
+//! CONTEXT: Location daemon domain library (service API and handlers)
+//! INTENT: GNSS/network positioning, geofencing, mock
+//! IDL (target): getLast(), subscribe(request), setMock(enabled,loc)
+//! DEPS: policyd (privacy), time-syncd (time)
+//! READINESS: print "locationd: ready"; register/heartbeat with samgr
+//! TESTS: getLast mock; subscribe emits
 pub fn help() -> &'static str {
     "locationd fuses sensors for positioning. Usage: locationd [--help]"
 }

@@ -1,3 +1,4 @@
+//! CONTEXT: Keystored daemon entrypoint wiring default transport to service logic
 //! Bin wrapper wiring keystored's daemon entry point.
 
 #[cfg(not(any(nexus_env = "host", nexus_env = "os")))]

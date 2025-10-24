@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Debug-only mutex wrapper with simple lockdep-style checks.
+//! CONTEXT: Debug-only mutex wrapper with simple lockdep-style checks
+//! OWNERS: @kernel-sync-team
+//! PUBLIC API: DbgMutex::new(), DbgMutex::lock()
+//! DEPENDS_ON: spin::Mutex, riscv time CSR (OS)
+//! INVARIANTS: Detect double-lock; warn on long holds; debug-only
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #![allow(dead_code)]
 

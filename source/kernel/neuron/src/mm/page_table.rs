@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Sv39 page-table implementation with lazy allocation of intermediate levels.
+//! CONTEXT: Sv39 page-table implementation with lazy allocation of intermediate levels
+//! OWNERS: @kernel-mm-team
+//! PUBLIC API: PageTable (new/map/unmap/lookup/verify), PageFlags, MapError, PAGE_SIZE
+//! DEPENDS_ON: bitflags, core alloc (optional static pool behind features)
+//! INVARIANTS: Enforce W^X (`PermissionDenied`), canonical Sv39 ranges, 4096-byte alignment
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 

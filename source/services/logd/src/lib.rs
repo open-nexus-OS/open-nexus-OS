@@ -1,3 +1,9 @@
+//! CONTEXT: Log daemon domain library (service API and handlers)
+//! INTENT: Kernel/user logs, ring buffer, filter/subscribe
+//! IDL (target): write(tag,level,msg), subscribe(filter), dump()
+//! DEPS: policyd (access control)
+//! READINESS: print "logd: ready"; register/heartbeat with samgr
+//! TESTS: write/dump roundtrip; subscribe emits
 pub fn help() -> &'static str {
     "logd collects structured records. Usage: logd [--help] message"
 }

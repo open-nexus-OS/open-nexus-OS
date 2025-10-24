@@ -1,5 +1,12 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
+//! CONTEXT: Userspace loader library providing ELF64/RISC-V load plan and mapping interface
+//! OWNERS: @runtime
+//! PUBLIC API: parse_elf64_riscv(), load_with(), Mapper, LoadPlan
+//! DEPENDS_ON: goblin, thiserror, nexus-abi (os mapper only)
+//! FEATURES: `os_mapper` only when `cfg(nexus_env = "os")`
+//! INVARIANTS: No W+X segments; page-aligned segments; sorted non-overlapping vaddrs
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 
@@ -164,8 +171,6 @@ fn map_goblin_error(err: goblin::error::Error) -> Error {
     match err {
         goblin::error::Error::Scroll(_) => Error::Truncated,
         goblin::error::Error::Malformed(_) | goblin::error::Error::BadMagic(_) => Error::InvalidElf,
-        #[cfg(feature = "std")]
-        goblin::error::Error::Io(_) => Error::InvalidElf,
         #[allow(unreachable_patterns)]
         _ => Error::InvalidElf,
     }
@@ -186,8 +191,7 @@ mod tests {
 
     fn build_minimal_elf(flags: u32, second_segment: bool) -> Vec<u8> {
         use goblin::elf::header::{ELFCLASS64, ELFDATA2LSB};
-        use goblin::elf::program_header::{PF_R, PF_W, PF_X};
-        use std::io::Write;
+        use goblin::elf::program_header::{PF_R, PF_W};
 
         let mut buf = Vec::new();
         let mut e_ident = [0u8; 16];

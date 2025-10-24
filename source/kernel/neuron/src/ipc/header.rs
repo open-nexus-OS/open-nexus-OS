@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! IPC message header definition.
+//! CONTEXT: IPC message header definition (16-byte LE)
+//! OWNERS: @kernel-ipc-team
+//! PUBLIC API: MessageHeader::new(), to_le_bytes(), from_le_bytes()
+//! DEPENDS_ON: core::convert
+//! INVARIANTS: Exactly 16 bytes; align(4); fields LE-encoded; stable across builds
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::convert::TryInto;
 

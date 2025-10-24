@@ -1,7 +1,12 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Kernel side IPC primitives.
+//! CONTEXT: Kernel-side IPC primitives (endpoints, router)
+//! OWNERS: @kernel-ipc-team
+//! PUBLIC API: Router (send/recv), Message, EndpointId
+//! DEPENDS_ON: ipc::header::MessageHeader
+//! INVARIANTS: Header.len bounds payload; queue depth respected; no cross-layer deps
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 

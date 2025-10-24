@@ -29,3 +29,13 @@ parse Cap'n Proto payloads; they only shuttle handles or VMOs referenced in the
 metadata. Service daemons link `nexus-idl-runtime` to translate Cap'n Proto
 messages into safe userspace library calls while bulk payloads continue to move
 out-of-band via VMOs and `map()`.
+
+## Kernel quick reference (for devs and agents)
+- Entry: `kmain()` brings up HAL, Sv39 `AddressSpaceManager`, installs syscall table, starts `Scheduler` and `ipc::Router`.
+- SATP: kernel address space activated early; RISC-V trampoline via `satp_switch_island`.
+- Idle loop: drives cooperative scheduling via `SYSCALL_YIELD`.
+- Syscalls (os-lite): `yield`, `nsec`, `send/recv`, `map`, `vmo_create/write`, `spawn`, `cap_transfer`, `as_create/map`, `exit`, `wait`, `debug_putc`.
+- Entry points: `kmain.rs`, `syscall/api.rs`, `mm/address_space.rs`, `trap.rs`, `satp.rs`.
+- Don’t touch without RFC/ADR: syscall IDs/ABI, trap prologue/epilogue, kernel memory map/SATP assumptions.
+
+Canonical: this is the single architecture page. For deeper details, read the source files listed above.

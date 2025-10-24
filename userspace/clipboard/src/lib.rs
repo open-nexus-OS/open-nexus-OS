@@ -1,3 +1,9 @@
+//! CONTEXT: Clipboard storage logic shared with the OS daemon
+//! INTENT: Store and retrieve shared text content across applications
+//! IDL (target): set(value), get(), help()
+//! DEPS: std::sync::Mutex (thread safety)
+//! READINESS: Host backend ready; OS backend needs IPC integration
+//! TESTS: Set/get operations, CLI argument parsing
 //! Clipboard storage logic shared with the OS daemon.
 
 #![forbid(unsafe_code)]
