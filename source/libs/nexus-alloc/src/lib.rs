@@ -16,7 +16,11 @@ pub struct BumpAllocator {
 
 impl BumpAllocator {
     pub const fn new(start: usize, size: usize) -> Self {
-        Self { start, end: start + size, cursor: start }
+        Self {
+            start,
+            end: start + size,
+            cursor: start,
+        }
     }
 
     pub fn alloc(&mut self, len: usize, align: usize) -> Option<usize> {

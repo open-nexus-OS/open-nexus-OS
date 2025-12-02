@@ -76,6 +76,11 @@ impl Scheduler {
 
     /// Enqueues a task with the provided QoS class.
     pub fn enqueue(&mut self, id: TaskId, qos: QosClass) {
+        // Debug: log all enqueues to trace queue state
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id, qos);
+
         let task = Task { id, qos };
         self.queue_for(qos).push_back(task);
     }
@@ -83,14 +88,31 @@ impl Scheduler {
     /// Picks the next runnable task.
     pub fn schedule_next(&mut self) -> Option<TaskId> {
         crate::liveness::bump();
-        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
-        {
+
+        // Debug: log queue sizes before scheduling
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = writeln!(u, "[DEBUG sched] schedule_next: queues=[PerfBurst:{}, Interactive:{}, Normal:{}, Idle:{}]",
+            self.queues[3].len(), self.queues[2].len(), self.queues[1].len(), self.queues[0].len());
+
+        for class in [
+            QosClass::PerfBurst,
+            QosClass::Interactive,
+            QosClass::Normal,
+            QosClass::Idle,
+        ] {
             if let Some(task) = self.queue_for(class).pop_front() {
+                let _ = writeln!(
+                    u,
+                    "[DEBUG sched] picked: pid={} qos={:?}",
+                    task.id, task.qos
+                );
                 self.current = Some(task.clone());
                 return Some(task.id);
             }
         }
         self.current = None;
+        let _ = writeln!(u, "[DEBUG sched] no task to schedule");
         None
     }
 

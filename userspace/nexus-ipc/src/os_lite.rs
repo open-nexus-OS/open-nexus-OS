@@ -52,7 +52,6 @@
 //!
 //! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
-use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use alloc::collections::VecDeque;
@@ -75,12 +74,17 @@ struct Registry {
 
 impl Registry {
     const fn new() -> Self {
-        Self { services: SpinLock::new(Vec::new()) }
+        Self {
+            services: SpinLock::new(Vec::new()),
+        }
     }
 
     fn get(&self, name: &str) -> Option<Arc<ServiceQueues>> {
         let guard = self.services.lock();
-        guard.iter().find(|record| record.name == name).map(|record| record.queues.clone())
+        guard
+            .iter()
+            .find(|record| record.name == name)
+            .map(|record| record.queues.clone())
     }
 
     fn get_or_insert(&self, name: &str) -> Arc<ServiceQueues> {
@@ -92,7 +96,10 @@ impl Registry {
             return record.queues.clone();
         }
         let queues = Arc::new(ServiceQueues::new());
-        guard.push(ServiceRecord { name: name.to_string(), queues: queues.clone() });
+        guard.push(ServiceRecord {
+            name: name.to_string(),
+            queues: queues.clone(),
+        });
         queues
     }
 }
@@ -109,22 +116,23 @@ struct ServiceQueues {
 
 impl ServiceQueues {
     fn new() -> Self {
-        Self { requests: SpinLock::new(VecDeque::new()), response: SpinLock::new(None) }
+        Self {
+            requests: SpinLock::new(VecDeque::new()),
+            response: SpinLock::new(None),
+        }
     }
 }
 
 static REGISTRY: Registry = Registry::new();
-thread_local! {
-    static DEFAULT_TARGET: RefCell<Option<String>> = const { RefCell::new(None) };
-}
+static DEFAULT_TARGET: SpinLock<Option<String>> = SpinLock::new(None);
 
 /// Allows the current execution context to target `name` by default.
 pub fn set_default_target(name: &str) {
-    DEFAULT_TARGET.with(|slot| slot.replace(Some(name.to_string())));
+    *DEFAULT_TARGET.lock() = Some(name.to_string());
 }
 
 fn current_target() -> Result<String> {
-    DEFAULT_TARGET.with(|slot| slot.borrow().clone()).ok_or(IpcError::Unsupported)
+    DEFAULT_TARGET.lock().clone().ok_or(IpcError::Unsupported)
 }
 
 /// Client backed by the cooperative mailbox.
@@ -144,7 +152,9 @@ impl LiteClient {
         if REGISTRY.get(service).is_none() {
             return Err(IpcError::Disconnected);
         }
-        Ok(Self { target: service.to_string() })
+        Ok(Self {
+            target: service.to_string(),
+        })
     }
 }
 
@@ -160,17 +170,15 @@ impl Client for LiteClient {
             match wait {
                 Wait::NonBlocking => return Err(IpcError::WouldBlock),
                 Wait::Timeout(_) => return Err(IpcError::Timeout),
-                Wait::Blocking => {
-                    loop {
-                        let _ = nexus_abi::yield_();
-                        let mut retry = queues.requests.lock();
-                        if retry.len() < MAX_QUEUE_DEPTH.load(Ordering::Relaxed) {
-                            retry.push_back(frame.to_vec());
-                            return Ok(());
-                        }
-                        drop(retry);
+                Wait::Blocking => loop {
+                    let _ = nexus_abi::yield_();
+                    let mut retry = queues.requests.lock();
+                    if retry.len() < MAX_QUEUE_DEPTH.load(Ordering::Relaxed) {
+                        retry.push_back(frame.to_vec());
+                        return Ok(());
                     }
-                }
+                    drop(retry);
+                },
             }
         }
         requests.push_back(frame.to_vec());
@@ -210,7 +218,10 @@ impl LiteServer {
     /// Creates a server explicitly bound to `service`.
     pub fn new_named(service: &str) -> Result<Self> {
         let queues = REGISTRY.get_or_insert(service);
-        Ok(Self { target: service.to_string(), queues })
+        Ok(Self {
+            target: service.to_string(),
+            queues,
+        })
     }
 }
 

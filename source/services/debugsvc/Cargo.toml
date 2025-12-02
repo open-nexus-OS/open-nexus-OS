@@ -1,0 +1,14 @@
+[package]
+name = "debugsvc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = ["std"]
+std = []
+os-lite = ["nexus-service-entry", "nexus-abi"]
+
+[dependencies]
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }

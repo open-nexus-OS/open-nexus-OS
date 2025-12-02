@@ -16,20 +16,27 @@
 //! DEPENDENCIES:
 //!   - std::sync::mpsc: Host backend channels
 //!   - nexus-abi: OS backend syscalls
-//!   - thiserror: Error types
 //!
 //! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
+#![cfg_attr(
+    all(
+        feature = "os-lite",
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none"
+    ),
+    no_std
+)]
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 extern crate alloc;
 
+use core::fmt;
 use core::time::Duration;
-
-use thiserror::Error;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use alloc::vec::Vec;
@@ -66,24 +73,34 @@ impl Wait {
 }
 
 /// Errors produced by the IPC runtime.
-#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IpcError {
     /// Operation could not progress without blocking.
-    #[error("operation would block")]
     WouldBlock,
     /// The caller exceeded the requested timeout.
-    #[error("operation timed out")]
     Timeout,
     /// The opposite endpoint disconnected.
-    #[error("peer disconnected")]
     Disconnected,
     /// Kernel returned an IPC failure.
-    #[error("kernel rejected ipc request: {0:?}")]
     Kernel(nexus_abi::IpcError),
     /// IPC is not available under the current build.
-    #[error("ipc not supported for this configuration")]
     Unsupported,
 }
+
+impl fmt::Display for IpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WouldBlock => write!(f, "operation would block"),
+            Self::Timeout => write!(f, "operation timed out"),
+            Self::Disconnected => write!(f, "peer disconnected"),
+            Self::Kernel(err) => write!(f, "kernel rejected ipc request: {err:?}"),
+            Self::Unsupported => write!(f, "ipc not supported for this configuration"),
+        }
+    }
+}
+
+#[cfg(nexus_env = "host")]
+impl std::error::Error for IpcError {}
 
 impl From<nexus_abi::IpcError> for IpcError {
     fn from(err: nexus_abi::IpcError) -> Self {
@@ -123,4 +140,4 @@ pub use os::{set_default_target, KernelClient, KernelServer};
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
-pub use os_lite::{LiteClient as KernelClient, LiteServer as KernelServer, set_default_target};
+pub use os_lite::{set_default_target, LiteClient as KernelClient, LiteServer as KernelServer};

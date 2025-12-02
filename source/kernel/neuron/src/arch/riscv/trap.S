@@ -19,6 +19,15 @@
     .align 4
 
 __trap_vector:
+    /* If trap came from U-mode (SPP=0), swap to kernel stack via sscratch */
+    csrr  t0, sstatus
+    /* Test SSTATUS_SPP (bit 8) */
+    andi  t0, t0, 256
+    bnez  t0, 1f
+    /* from U-mode: save user sp into sscratch and switch to fixed kernel stack */
+    csrw  sscratch, sp
+    la    sp, __stack_top
+1:
     /* allocate TrapFrame */
     addi  sp, sp, -{TF_SIZE}
 
@@ -46,6 +55,19 @@ __trap_vector:
     csrr  t3, stval
     sd    t3, {OFF_STVAL}(sp)
 
+    /* DEBUG: Log ECALL entry via raw UART (before Rust code) */
+    /* Only log if scause is ECALL (8=U-mode, 9=S-mode) */
+    li    t4, 8
+    beq   t2, t4, .L_debug_ecall
+    li    t4, 9
+    bne   t2, t4, .L_skip_debug
+.L_debug_ecall:
+    /* Write 'E' to UART at 0x10000000 */
+    li    t4, 0x10000000
+    li    t5, 0x45        /* 'E' */
+    sb    t5, 0(t4)
+.L_skip_debug:
+
     /* call Rust handler: a0 = &mut TrapFrame */
     mv    a0, sp
     call  __trap_rust
@@ -71,7 +93,12 @@ __trap_vector:
 
     /* deallocate frame and return */
     addi  sp, sp, {TF_SIZE}
-    sret
+    /* If returning to U-mode (SPP=0), restore user sp from sscratch */
+    csrr  t0, sstatus
+    andi  t0, t0, 256
+    bnez  t0, 2f
+    csrr  sp, sscratch
+2:  sret
 
     .size __trap_vector, .-__trap_vector
 

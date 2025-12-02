@@ -106,7 +106,12 @@ impl CapTable {
         if slot >= self.slots.len() {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "CAP-E: invalid slot {} (len={})\n", slot, self.slots.len());
+            let _ = write!(
+                u,
+                "CAP-E: invalid slot {} (len={})\n",
+                slot,
+                self.slots.len()
+            );
             return Err(CapError::InvalidSlot);
         }
         if let Some(entry) = self.slots.get_mut(slot) {
@@ -132,7 +137,10 @@ impl CapTable {
 
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
-        self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)
+        self.slots
+            .get(slot)
+            .and_then(|entry| *entry)
+            .ok_or(CapError::InvalidSlot)
     }
 
     /// Derives a new capability with intersected rights.
@@ -141,7 +149,10 @@ impl CapTable {
         if !base.rights.contains(rights) {
             return Err(CapError::PermissionDenied);
         }
-        Ok(Capability { kind: base.kind, rights })
+        Ok(Capability {
+            kind: base.kind,
+            rights,
+        })
     }
 }
 

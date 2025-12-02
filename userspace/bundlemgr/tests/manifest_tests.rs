@@ -39,8 +39,14 @@ fn parse_valid_manifest() {
     let manifest = Manifest::parse_str(&data).expect("manifest parsed");
     assert_eq!(manifest.name, "com.example.app");
     assert_eq!(manifest.version.to_string(), "1.2.3");
-    assert_eq!(manifest.abilities, vec!["ui".to_string(), "storage".to_string()]);
-    assert_eq!(manifest.capabilities, vec!["camera".to_string(), "network".to_string()]);
+    assert_eq!(
+        manifest.abilities,
+        vec!["ui".to_string(), "storage".to_string()]
+    );
+    assert_eq!(
+        manifest.capabilities,
+        vec!["camera".to_string(), "network".to_string()]
+    );
     assert_eq!(manifest.min_sdk.to_string(), "0.5.0");
     assert_eq!(manifest.warnings.len(), 1);
     assert!(manifest.warnings[0].contains("notes"));

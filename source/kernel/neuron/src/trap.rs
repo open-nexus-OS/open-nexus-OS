@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //! CONTEXT: Trap handling: external ASM prologue/epilogue + safe Rust core, HPM CSR emulation, SBI timer handling
 //! OWNERS: @kernel-team
-//! PUBLIC API: register_scheduler_env(), register_syscall_table()
+//! PUBLIC API: install_runtime(), register_trap_domain(), TrapDomainId
 //! DEPENDS_ON: sched::Scheduler, task::TaskTable, ipc::Router, mm::AddressSpaceManager, SyscallTable
 //! INVARIANTS: Trap ABI/prologue stable; ECALL dispatch IDs stable; minimal UART in trap context
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #![allow(clippy::identity_op)]
 
-#[cfg(test)]
 extern crate alloc;
 
+use alloc::vec::Vec;
 use core::fmt::{self, Write};
+use core::ptr::NonNull;
 use spin::Mutex;
 
 use crate::{ipc, mm::AddressSpaceManager, sched::Scheduler};
@@ -50,6 +51,7 @@ extern "C" {
 #[cfg(any(debug_assertions, feature = "trap_ring"))]
 static LAST_TRAP: Mutex<Option<TrapFrame>> = Mutex::new(None);
 #[cfg(any(debug_assertions, feature = "trap_ring"))]
+#[allow(dead_code)]
 static TRAP_DIAG_COUNT: Mutex<usize> = Mutex::new(0);
 
 #[cfg(any(debug_assertions, feature = "trap_ring"))]
@@ -59,9 +61,12 @@ static TRAP_RING: Mutex<[Option<TrapFrame>; TRAP_RING_LEN]> = Mutex::new([None; 
 #[cfg(any(debug_assertions, feature = "trap_ring"))]
 static TRAP_RING_IDX: Mutex<usize> = Mutex::new(0);
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 #[inline]
-fn uart_write_hex(u: &mut crate::uart::RawUart, value: usize) {
+pub fn uart_write_hex(u: &mut crate::uart::RawUart, value: usize) {
     let nibbles = core::mem::size_of::<usize>() * 2;
     let lut = b"0123456789abcdef";
     let mut i = nibbles;
@@ -76,7 +81,45 @@ fn uart_write_hex(u: &mut crate::uart::RawUart, value: usize) {
     }
 }
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg(feature = "debug_uart")]
+macro_rules! uart_dbg_block {
+    ($body:block) => {
+        $body
+    };
+}
+
+#[cfg(not(feature = "debug_uart"))]
+macro_rules! uart_dbg_block {
+    ($body:block) => {};
+}
+
+#[cfg(feature = "debug_uart")]
+const ECALL_LOG_LIMIT: usize = 512;
+#[cfg(feature = "debug_uart")]
+static ECALL_LOG_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(feature = "debug_uart")]
+fn ecall_log<F>(f: F)
+where
+    F: FnOnce(&mut crate::uart::RawUart),
+{
+    use core::sync::atomic::Ordering;
+
+    if ECALL_LOG_COUNT.load(Ordering::Relaxed) >= ECALL_LOG_LIMIT {
+        return;
+    }
+    let prev = ECALL_LOG_COUNT.fetch_add(1, Ordering::Relaxed);
+    if prev >= ECALL_LOG_LIMIT {
+        return;
+    }
+    let mut u = crate::uart::raw_writer();
+    f(&mut u);
+}
+
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 #[inline]
 fn uart_print_exc(scause: usize, sepc: usize, stval: usize) {
     let mut u = crate::uart::raw_writer();
@@ -89,44 +132,192 @@ fn uart_print_exc(scause: usize, sepc: usize, stval: usize) {
     let _ = u.write_str("\n");
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn dump_user_stack_for_task(task: &task::Task, spaces: &AddressSpaceManager, sp: usize) {
+    const STACK_WORDS: usize = 8;
+    if sp == 0 {
+        return;
+    }
+    let handle = match task.address_space() {
+        Some(h) => h,
+        None => return,
+    };
+    let space = match spaces.get(handle) {
+        Ok(space) => space,
+        Err(_) => return,
+    };
+    let page_table = space.page_table();
+    const UART_BASE: usize = 0x1000_0000;
+    const UART_TX: usize = 0x0;
+    const UART_LSR: usize = 0x5;
+    const LSR_TX_IDLE: u8 = 1 << 5;
+    unsafe {
+        let write_byte = |b: u8| {
+            while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {
+            }
+            core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
+        };
+        for index in 0..STACK_WORDS {
+            for &b in b"[USER-PF] stack +" {
+                write_byte(b);
+            }
+            let offset = index * core::mem::size_of::<usize>();
+            write_byte(b'0');
+            write_byte(b'x');
+            for shift in (0..4).rev() {
+                let nibble = ((offset >> (shift * 4)) & 0xf) as u8;
+                let ch = if nibble < 10 {
+                    b'0' + nibble
+                } else {
+                    b'a' + (nibble - 10)
+                };
+                write_byte(ch);
+            }
+            for &b in b" = " {
+                write_byte(b);
+            }
+            let addr = sp.wrapping_add(offset);
+            if let Some(pa) = page_table.translate(addr) {
+                let value = core::ptr::read_volatile(pa as *const usize);
+                write_byte(b'0');
+                write_byte(b'x');
+                for shift in (0..16).rev() {
+                    let nibble = ((value >> (shift * 4)) & 0xf) as u8;
+                    let ch = if nibble < 10 {
+                        b'0' + nibble
+                    } else {
+                        b'a' + (nibble - 10)
+                    };
+                    write_byte(ch);
+                }
+            } else {
+                for &b in b"<hole>" {
+                    write_byte(b);
+                }
+            }
+            write_byte(b'\n');
+        }
+    }
+}
+
 const INTERRUPT_FLAG: usize = usize::MAX - (usize::MAX >> 1);
 
-// ——— minimal syscall environment for trap-time yield handling ———
-struct TrapSysEnv {
-    scheduler_addr: usize,
-    tasks_addr: usize,
-    router_addr: usize,
-    spaces_addr: usize,
-    syscalls_addr: usize,
-}
+/// Identifier selecting a trap domain (e.g. syscall table) for a task.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrapDomainId(pub(crate) usize);
 
-static TRAP_ENV: Mutex<Option<TrapSysEnv>> = Mutex::new(None);
-
-/// Registers scheduler/task/router/address-space pointers used by the trap-time
-/// ecall fastpath (yield only). Unsafe: caller must ensure single-hart use and
-/// that the references remain valid for the lifetime of the kernel.
-// CRITICAL: Unsafe contract—caller guarantees single-hart and pointer validity.
-pub unsafe fn register_scheduler_env(
-    scheduler: *mut Scheduler,
-    tasks: *mut task::TaskTable,
-    router: *mut ipc::Router,
-    spaces: *mut AddressSpaceManager,
-) {
-    *TRAP_ENV.lock() = Some(TrapSysEnv {
-        scheduler_addr: scheduler as usize,
-        tasks_addr: tasks as usize,
-        router_addr: router as usize,
-        spaces_addr: spaces as usize,
-        syscalls_addr: 0,
-    });
-}
-
-/// Registers the syscall dispatch table pointer for trap-time dispatch of ECALLs.
-// CRITICAL: Must be called after SyscallTable init; used by ECALL fastpath only.
-pub unsafe fn register_syscall_table(table: *mut SyscallTable) {
-    if let Some(env) = TRAP_ENV.lock().as_mut() {
-        env.syscalls_addr = table as usize;
+impl Default for TrapDomainId {
+    fn default() -> Self {
+        TrapDomainId(0)
     }
+}
+
+#[derive(Clone, Copy)]
+struct KernelHandles {
+    scheduler: NonNull<Scheduler>,
+    tasks: NonNull<task::TaskTable>,
+    router: NonNull<ipc::Router>,
+    spaces: NonNull<AddressSpaceManager>,
+}
+unsafe impl Send for KernelHandles {}
+unsafe impl Sync for KernelHandles {}
+
+#[derive(Clone, Copy)]
+struct TrapDomain {
+    syscalls: NonNull<SyscallTable>,
+}
+unsafe impl Send for TrapDomain {}
+unsafe impl Sync for TrapDomain {}
+
+struct TrapRuntime {
+    kernel: KernelHandles,
+    domains: Vec<TrapDomain>,
+    default_domain: TrapDomainId,
+}
+unsafe impl Send for TrapRuntime {}
+unsafe impl Sync for TrapRuntime {}
+
+static TRAP_RUNTIME: Mutex<Option<TrapRuntime>> = Mutex::new(None);
+
+impl TrapRuntime {
+    fn new(
+        scheduler: &mut Scheduler,
+        tasks: &mut task::TaskTable,
+        router: &mut ipc::Router,
+        spaces: &mut AddressSpaceManager,
+    ) -> Self {
+        Self {
+            kernel: KernelHandles {
+                scheduler: NonNull::from(scheduler),
+                tasks: NonNull::from(tasks),
+                router: NonNull::from(router),
+                spaces: NonNull::from(spaces),
+            },
+            domains: Vec::new(),
+            default_domain: TrapDomainId::default(),
+        }
+    }
+
+    fn push_domain(&mut self, table: &SyscallTable) -> TrapDomainId {
+        let id = TrapDomainId(self.domains.len());
+        let ptr = (table as *const SyscallTable) as *mut SyscallTable;
+        self.domains.push(TrapDomain {
+            syscalls: NonNull::new(ptr).expect("syscall table ptr"),
+        });
+        id
+    }
+
+    fn domain(&self, id: TrapDomainId) -> Option<&TrapDomain> {
+        self.domains.get(id.0)
+    }
+}
+
+/// Installs the runtime trap context using kernel subsystems and default syscall table.
+pub fn install_runtime(
+    scheduler: &mut Scheduler,
+    tasks: &mut task::TaskTable,
+    router: &mut ipc::Router,
+    spaces: &mut AddressSpaceManager,
+    syscalls: &SyscallTable,
+) -> TrapDomainId {
+    let mut runtime = TrapRuntime::new(scheduler, tasks, router, spaces);
+    let default = runtime.push_domain(syscalls);
+    runtime.default_domain = default;
+    *TRAP_RUNTIME.lock() = Some(runtime);
+    default
+}
+
+/// Registers an additional trap domain (e.g. alternative syscall table).
+#[allow(dead_code)]
+pub fn register_trap_domain(syscalls: &SyscallTable) -> TrapDomainId {
+    let mut guard = TRAP_RUNTIME.lock();
+    let runtime = guard.as_mut().expect("trap runtime not installed");
+    runtime.push_domain(syscalls)
+}
+
+fn runtime_kernel_handles() -> Option<KernelHandles> {
+    let guard = TRAP_RUNTIME.lock();
+    guard.as_ref().map(|runtime| runtime.kernel)
+}
+
+fn runtime_domain(id: TrapDomainId) -> Option<NonNull<SyscallTable>> {
+    let guard = TRAP_RUNTIME.lock();
+    guard
+        .as_ref()
+        .and_then(|runtime| {
+            runtime
+                .domain(id)
+                .or_else(|| runtime.domain(runtime.default_domain))
+        })
+        .map(|domain| domain.syscalls)
+}
+
+fn runtime_default_domain() -> TrapDomainId {
+    let guard = TRAP_RUNTIME.lock();
+    guard
+        .as_ref()
+        .map(|runtime| runtime.default_domain)
+        .unwrap_or_default()
 }
 
 // ——— HPM CSR emulation helpers ———
@@ -208,6 +399,8 @@ pub struct TrapFrame {
     pub scause: usize,
     pub stval: usize,
 }
+
+const _: [(); core::mem::size_of::<usize>() * 32] = [(); core::mem::offset_of!(TrapFrame, sepc)];
 impl TrapFrame {
     #[inline]
     fn set_x(&mut self, rd: usize, value: usize) {
@@ -223,39 +416,160 @@ impl TrapFrame {
 pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::Context<'_>) {
     // Save current frame into the current task before handling the syscall.
     let old_pid = ctx.tasks.current_pid();
+    uart_dbg_block!({
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("HECALL start old=0x");
+        uart_write_hex(&mut u, old_pid as usize);
+        let _ = u.write_str("\n");
+    });
+    uart_dbg_block!({
+        ecall_log(|u| {
+            use core::fmt::Write as _;
+            let _ = write!(
+                u,
+                "ECALL save pid=0x{:x} sepc=0x{:x}\n",
+                old_pid as usize, frame.sepc
+            );
+        });
+    });
     if let Some(task) = ctx.tasks.task_mut(old_pid) {
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("HECALL save frame pid=0x");
+            uart_write_hex(&mut u, old_pid as usize);
+            let _ = u.write_str("\n");
+        });
         *task.frame_mut() = *frame;
+    } else {
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("HECALL missing task pid=0x");
+            uart_write_hex(&mut u, old_pid as usize);
+            let _ = u.write_str("\n");
+        });
     }
     record(frame);
     // a7 = syscall number; a0..a5 = args
     let number = frame.x[17]; // a7
-    let args =
-        Args::new([frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]]);
+    let args = Args::new([
+        frame.x[10],
+        frame.x[11],
+        frame.x[12],
+        frame.x[13],
+        frame.x[14],
+        frame.x[15],
+    ]);
+    uart_dbg_block!({
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("HECALL dispatch num=0x");
+        uart_write_hex(&mut u, number);
+        let _ = u.write_str("\n");
+    });
+    uart_dbg_block!({
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("HECALL table ptr=0x");
+        uart_write_hex(&mut u, table as *const SyscallTable as usize);
+        let _ = u.write_str(" handler=0x");
+        if let Some(addr) = table.debug_handler_addr(number) {
+            uart_write_hex(&mut u, addr);
+        } else {
+            let _ = u.write_str("none");
+        }
+        let _ = u.write_str("\n");
+    });
     let mut maybe_ret = None;
     match table.dispatch(number, ctx, &args) {
         Ok(ret) => maybe_ret = Some(ret),
         Err(SysError::TaskExit) => {}
         Err(err) => maybe_ret = Some(encode_error(err)),
     }
+    uart_dbg_block!({
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("HECALL dispatch done maybe=");
+        match maybe_ret {
+            Some(ret) => uart_write_hex(&mut u, ret),
+            None => {
+                let _ = u.write_str("none");
+            }
+        }
+        let _ = u.write_str("\n");
+    });
+    uart_dbg_block!({
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("handle_ecall before advance sepc=0x");
+        uart_write_hex(&mut u, frame.sepc);
+        let _ = u.write_str("\n");
+    });
     // Advance caller PC and store return in its saved frame (a0).
     if let Some(ret) = maybe_ret {
         if let Some(task) = ctx.tasks.task_mut(old_pid) {
             let f = task.frame_mut();
+            uart_dbg_block!({
+                ecall_log(|u| {
+                    use core::fmt::Write as _;
+                    let _ = write!(
+                        u,
+                        "ECALL pre-advance pid=0x{:x} sepc=0x{:x}\n",
+                        old_pid as usize, f.sepc
+                    );
+                });
+            });
             f.sepc = f.sepc.wrapping_add(4);
             f.x[10] = ret;
-            // Minimal debug: show ecall return site and value
-            #[allow(unused_variables)]
-            {
-                use core::fmt::Write as _;
+            uart_dbg_block!({
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "ECALL-R: pid={} sepc=0x{:x} ret=0x{:x}\n", old_pid, f.sepc, ret);
-            }
+                let _ = u.write_str("HECALL ret store pid=0x");
+                uart_write_hex(&mut u, old_pid as usize);
+                let _ = u.write_str(" sepc=0x");
+                uart_write_hex(&mut u, f.sepc);
+                let _ = u.write_str(" a0=0x");
+                uart_write_hex(&mut u, ret);
+                let _ = u.write_str("\n");
+            });
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("task.frame_mut after sepc=0x");
+                uart_write_hex(&mut u, f.sepc);
+                let _ = u.write_str("\n");
+            });
+            uart_dbg_block!({
+                ecall_log(|u| {
+                    use core::fmt::Write as _;
+                    let _ = write!(
+                        u,
+                        "ECALL post-advance pid=0x{:x} sepc=0x{:x}\n",
+                        old_pid as usize, f.sepc
+                    );
+                });
+            });
         }
     }
     // Load the next task's frame into the live trap frame.
     let new_pid = ctx.tasks.current_pid();
+    uart_dbg_block!({
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("HECALL load next pid=0x");
+        uart_write_hex(&mut u, new_pid as usize);
+        let _ = u.write_str("\n");
+    });
     if let Some(task) = ctx.tasks.task_mut(new_pid) {
         *frame = *task.frame();
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("HECALL frame updated sepc=0x");
+            uart_write_hex(&mut u, frame.sepc);
+            let _ = u.write_str("\n");
+        });
+        uart_dbg_block!({
+            ecall_log(|u| {
+                use core::fmt::Write as _;
+                let _ = write!(
+                    u,
+                    "ECALL load pid=0x{:x} sepc=0x{:x}\n",
+                    new_pid as usize, frame.sepc
+                );
+            });
+        });
     }
 }
 
@@ -347,7 +661,11 @@ pub fn is_interrupt(scause: usize) -> bool {
     scause & INTERRUPT_FLAG != 0
 }
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
+#[allow(dead_code)]
 pub fn describe_cause(scause: usize) -> &'static str {
     let code = scause & (usize::MAX >> 1);
     if is_interrupt(scause) {
@@ -377,10 +695,19 @@ pub fn describe_cause(scause: usize) -> &'static str {
     }
 }
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
+#[allow(dead_code)]
 pub fn fmt_trap<W: Write>(frame: &TrapFrame, f: &mut W) -> fmt::Result {
     writeln!(f, " sepc=0x{:016x}", frame.sepc)?;
-    writeln!(f, " scause=0x{:016x} ({})", frame.scause, describe_cause(frame.scause))?;
+    writeln!(
+        f,
+        " scause=0x{:016x} ({})",
+        frame.scause,
+        describe_cause(frame.scause)
+    )?;
     writeln!(f, " stval=0x{:016x}", frame.stval)?;
     writeln!(f, " a0..a7 = {:016x?}", &frame.x[10..=17])
 }
@@ -388,7 +715,10 @@ pub fn fmt_trap<W: Write>(frame: &TrapFrame, f: &mut W) -> fmt::Result {
 // ——— SBI timer utilities ———
 
 /// Default tick in cycles (10 ms for 10 MHz mtimer on QEMU virt).
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 pub const DEFAULT_TICK_CYCLES: u64 = 100_000;
 
 /// Arm S-mode timer via SBI for `now + delta_cycles`.
@@ -455,6 +785,17 @@ pub unsafe fn disable_timer_interrupts() {
 
 #[no_mangle]
 extern "C" fn __trap_rust(frame: &mut TrapFrame) {
+    // CRITICAL: Trap entry marker with cause (safe UART, no heap)
+    uart_dbg_block!({
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("TRAP[");
+        uart_write_hex(&mut u, frame.scause);
+        let _ = u.write_str("] sepc=0x");
+        uart_write_hex(&mut u, frame.sepc);
+        let _ = u.write_str("\n");
+        core::mem::drop(u);
+    });
+
     // Liveness heartbeat on every trap entry
     crate::liveness::bump();
     if is_interrupt(frame.scause) {
@@ -475,69 +816,127 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
     const ILLEGAL_INSTRUCTION: usize = 2;
     const ECALL_UMODE: usize = 8;
     const ECALL_SMODE: usize = 9;
+    const LOAD_PAGE_FAULT: usize = 13;
+    const STORE_PAGE_FAULT: usize = 15;
+    const INST_PAGE_FAULT: usize = 12;
     let exc = frame.scause & (usize::MAX >> 1);
-    #[cfg(any(debug_assertions, feature = "trap_ring"))]
-    if !is_interrupt(frame.scause) {
-        let mut count = TRAP_DIAG_COUNT.lock();
-        if *count < 8 {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(
-                u,
-                "EXC: scause=0x{:x} sepc=0x{:x}\n",
-                frame.scause as u64, frame.sepc as u64
-            );
-            #[cfg(feature = "trap_symbols")]
-            if let Some((name, base)) = nearest_symbol(frame.sepc) {
-                let _ =
-                    write!(u, "EXC-S: {:016x} ~ {}+0x{:x}\n", frame.sepc, name, frame.sepc - base);
-            }
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            {
-                let stval_now = riscv::register::stval::read();
-                let _ = write!(u, "EXC: stval=0x{:x}\n", stval_now as u64);
-            }
-            *count += 1;
-        }
-    }
-    #[cfg(not(any(debug_assertions, feature = "trap_ring")))]
-    if !is_interrupt(frame.scause) {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ =
-            write!(u, "EXC: scause=0x{:x} sepc=0x{:x}\n", frame.scause as u64, frame.sepc as u64);
-        #[cfg(feature = "trap_symbols")]
-        if let Some((name, base)) = nearest_symbol(frame.sepc) {
-            let _ = write!(u, "EXC-S: {:016x} ~ {}+0x{:x}\n", frame.sepc, name, frame.sepc - base);
-        }
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            let stval_now = riscv::register::stval::read();
-            let _ = write!(u, "EXC: stval=0x{:x}\n", stval_now as u64);
-        }
-    }
+    // Quiet exception banner during bring-up to avoid fmt/alloc paths
     if exc == ECALL_UMODE || exc == ECALL_SMODE {
-        if let Some(env) = TRAP_ENV.lock().as_ref() {
-            // Build a syscall context and dispatch through the table for both U and S ECALLs.
-            let scheduler = unsafe { &mut *(env.scheduler_addr as *mut Scheduler) };
-            let tasks = unsafe { &mut *(env.tasks_addr as *mut task::TaskTable) };
-            let router = unsafe { &mut *(env.router_addr as *mut ipc::Router) };
-            let spaces = unsafe { &mut *(env.spaces_addr as *mut AddressSpaceManager) };
-            let table = unsafe { &*(env.syscalls_addr as *const SyscallTable) };
-            // Minimal timer stub; only sys_nsec uses it.
-            struct NullTimer;
-            impl crate::hal::Timer for NullTimer {
-                fn now(&self) -> u64 { 0 }
-                fn set_wakeup(&self, _deadline: u64) {}
-            }
-            let timer = NullTimer;
-            let mut ctx = api::Context::new(scheduler, tasks, router, spaces, &timer);
-            handle_ecall(frame, table, &mut ctx);
-            return;
+        // Debug: Log FIRST ecall only using safe UART (no heap allocation)
+        static ECALL_COUNT: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(0);
+        let count = ECALL_COUNT.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        if count == 0 {
+            // CRITICAL: Minimal logging in separate scope, explicit drop before proceeding
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("ECALL #0 sepc=0x");
+                uart_write_hex(&mut u, frame.sepc);
+                let _ = u.write_str("\n");
+                core::mem::drop(u);
+            });
         }
-        // Fallback: unsupported without registered env
-        frame.x[10] = errno(ENOSYS);
-        frame.sepc = frame.sepc.wrapping_add(4);
+
+        // Debug: Log syscall number with safe UART
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("SYSCALL a7=");
+            uart_write_hex(&mut u, frame.x[17]); // a7
+            let _ = u.write_str(" a0=");
+            uart_write_hex(&mut u, frame.x[10]); // a0
+            let _ = u.write_str("\n");
+        });
+
+        let kernel_handles = match runtime_kernel_handles() {
+            Some(handles) => handles,
+            None => {
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("WARN: trap runtime not installed\n");
+                frame.x[10] = errno(ENOSYS);
+                frame.sepc = frame.sepc.wrapping_add(4);
+                return;
+            }
+        };
+
+        static LOGGED_ENV_PTRS: core::sync::atomic::AtomicBool =
+            core::sync::atomic::AtomicBool::new(false);
+        if !LOGGED_ENV_PTRS.swap(true, core::sync::atomic::Ordering::SeqCst) {
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("TRAPENV sched=0x");
+                uart_write_hex(&mut u, kernel_handles.scheduler.as_ptr() as usize);
+                let _ = u.write_str(" tasks=0x");
+                uart_write_hex(&mut u, kernel_handles.tasks.as_ptr() as usize);
+                let _ = u.write_str(" router=0x");
+                uart_write_hex(&mut u, kernel_handles.router.as_ptr() as usize);
+                let _ = u.write_str(" spaces=0x");
+                uart_write_hex(&mut u, kernel_handles.spaces.as_ptr() as usize);
+                let _ = u.write_str("\n");
+            });
+        }
+
+        let mut sched_ptr = kernel_handles.scheduler;
+        let scheduler = unsafe { sched_ptr.as_mut() };
+        let mut tasks_ptr = kernel_handles.tasks;
+        let tasks = unsafe { tasks_ptr.as_mut() };
+        let mut router_ptr = kernel_handles.router;
+        let router = unsafe { router_ptr.as_mut() };
+        let mut spaces_ptr = kernel_handles.spaces;
+        let spaces = unsafe { spaces_ptr.as_mut() };
+
+        let current_pid = tasks.current_pid();
+        let domain_id = tasks
+            .task(current_pid)
+            .map(|task| task.trap_domain())
+            .unwrap_or_else(|| runtime_default_domain());
+        let syscalls_ptr = runtime_domain(domain_id)
+            .or_else(|| runtime_domain(runtime_default_domain()))
+            .expect("trap domain not available");
+        let table = unsafe { syscalls_ptr.as_ref() };
+
+        struct NullTimer;
+        impl crate::hal::Timer for NullTimer {
+            fn now(&self) -> u64 {
+                0
+            }
+            fn set_wakeup(&self, _deadline: u64) {}
+        }
+        let timer = NullTimer;
+        #[allow(unused_variables)]
+        let old_pid = tasks.current_pid();
+        let mut ctx = api::Context::new(scheduler, tasks, router, spaces, &timer);
+        handle_ecall(frame, table, &mut ctx);
+
+        let current_pid = ctx.tasks.current_pid();
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("CTX PID old=0x");
+            uart_write_hex(&mut u, old_pid as usize);
+            let _ = u.write_str(" new=0x");
+            uart_write_hex(&mut u, current_pid as usize);
+            let _ = u.write_str("\n");
+        });
+        if let Some(task) = ctx.tasks.task(current_pid) {
+            let tf = task.frame();
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("TASK FRAME sepc=0x");
+                uart_write_hex(&mut u, tf.sepc);
+                let _ = u.write_str("\n");
+            });
+            frame.x.copy_from_slice(&tf.x);
+            frame.sepc = tf.sepc;
+            frame.sstatus = tf.sstatus;
+            frame.scause = tf.scause;
+            frame.stval = tf.stval;
+        } else {
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("TASK FRAME missing for pid=0x");
+                uart_write_hex(&mut u, current_pid as usize);
+                let _ = u.write_str("\n");
+            });
+        }
         return;
     }
     if exc == ILLEGAL_INSTRUCTION {
@@ -638,19 +1037,371 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             }
         }
         record(frame);
-        panic!("ILLEGAL sepc=0x{:x}", frame.sepc);
-    } else {
-        // Non-Illegal exceptions: emit minimal diagnostics and enforce null-deref sentinel.
+        // Avoid formatted panic to prevent allocator/formatting faults during bring-up
+        panic!("ILLEGAL");
+    }
+
+    // Handle page faults (common for user processes)
+    if exc == LOAD_PAGE_FAULT || exc == STORE_PAGE_FAULT || exc == INST_PAGE_FAULT {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            let stval_now = riscv::register::stval::read();
+            const SSTATUS_SPP: usize = 1 << 8;
+            let from_user = (frame.sstatus & SSTATUS_SPP) == 0;
+
+            if from_user {
+                // User page fault - ROBUST logging via direct MMIO (no heap, no fmt)
+                // This cannot crash because it uses no dynamic allocation
+                const UART_BASE: usize = 0x10000000;
+                const UART_TX: usize = 0x0;
+                const UART_LSR: usize = 0x5;
+                const LSR_TX_IDLE: u8 = 1 << 5;
+
+                unsafe {
+                    // Helper to write one byte
+                    let write_byte = |b: u8| {
+                        while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8)
+                            & LSR_TX_IDLE
+                            == 0
+                        {}
+                        core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
+                    };
+
+                    // Write "[USER-PF] type @ sepc=0x... stval=0x...\n"
+                    for &b in b"[USER-PF] " {
+                        write_byte(b);
+                    }
+
+                    // Fault type
+                    let fault_name: &[u8] = match exc {
+                        LOAD_PAGE_FAULT => b"LOAD",
+                        STORE_PAGE_FAULT => b"STORE",
+                        INST_PAGE_FAULT => b"INST",
+                        _ => b"???",
+                    };
+                    for &b in fault_name {
+                        write_byte(b);
+                    }
+
+                    for &b in b" @ sepc=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.sepc >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+
+                    for &b in b" stval=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((stval_now >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+
+                    write_byte(b'\n');
+
+                    for &b in b"[USER-PF] regs ra=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.x[1] >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+                    for &b in b" sp=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.x[2] >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+                    write_byte(b'\n');
+
+                    for &b in b"[USER-PF] regs gp=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.x[3] >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+                    write_byte(b'\n');
+
+                    for &b in b"[USER-PF] regs a0=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.x[10] >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+                    write_byte(b'\n');
+
+                    for &b in b"[USER-PF] regs a1=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.x[11] >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+                    write_byte(b'\n');
+
+                    for &b in b"[USER-PF] regs a2=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.x[12] >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+                    write_byte(b'\n');
+
+                    for &b in b"[USER-PF] regs a3=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((frame.x[13] >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
+                        write_byte(ch);
+                    }
+                    write_byte(b'\n');
+
+                    // Additional diagnostics to catch stray branch targets.
+                    let regs_to_dump = [
+                        (&b"t0"[..], 5usize),
+                        (&b"t1"[..], 6usize),
+                        (&b"t2"[..], 7usize),
+                        (&b"s0"[..], 8usize),
+                        (&b"s1"[..], 9usize),
+                        (&b"s2"[..], 18usize),
+                        (&b"s3"[..], 19usize),
+                        (&b"s4"[..], 20usize),
+                        (&b"s5"[..], 21usize),
+                        (&b"s6"[..], 22usize),
+                        (&b"s7"[..], 23usize),
+                        (&b"s8"[..], 24usize),
+                        (&b"s9"[..], 25usize),
+                        (&b"s10"[..], 26usize),
+                        (&b"s11"[..], 27usize),
+                        (&b"t3"[..], 28usize),
+                        (&b"t4"[..], 29usize),
+                        (&b"t5"[..], 30usize),
+                        (&b"t6"[..], 31usize),
+                    ];
+                    for &(label, reg_idx) in regs_to_dump.iter() {
+                        for &b in b"[USER-PF] regs " {
+                            write_byte(b);
+                        }
+                        for &b in label.iter() {
+                            write_byte(b);
+                        }
+                        for &b in b"=0x" {
+                            write_byte(b);
+                        }
+                        let value = frame.x[reg_idx];
+                        for shift in (0..16).rev() {
+                            let nibble = ((value >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 {
+                                b'0' + nibble
+                            } else {
+                                b'a' + (nibble - 10)
+                            };
+                            write_byte(ch);
+                        }
+                        write_byte(b'\n');
+                    }
+                }
+
+                // Snapshot current task's saved frame for additional diagnostics
+                if let Some(handles) = runtime_kernel_handles() {
+                    unsafe {
+                        let tasks = handles.tasks.as_ref();
+                        let spaces = handles.spaces.as_ref();
+                        let current_pid = tasks.current_pid();
+                        if let Some(task) = tasks.task(current_pid) {
+                            dump_user_stack_for_task(task, spaces, frame.x[2]);
+                            let tf = task.frame();
+                            let write_field = |label: &[u8], value: usize| {
+                                let write_byte = |b: u8| {
+                                    while core::ptr::read_volatile(
+                                        (UART_BASE + UART_LSR) as *const u8,
+                                    ) & LSR_TX_IDLE
+                                        == 0
+                                    {}
+                                    core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
+                                };
+                                for &b in b"[USER-PF] task " {
+                                    write_byte(b);
+                                }
+                                for &b in label {
+                                    write_byte(b);
+                                }
+                                for &b in b"=0x" {
+                                    write_byte(b);
+                                }
+                                for shift in (0..16).rev() {
+                                    let nibble = ((value >> (shift * 4)) & 0xf) as u8;
+                                    let ch = if nibble < 10 {
+                                        b'0' + nibble
+                                    } else {
+                                        b'a' + (nibble - 10)
+                                    };
+                                    write_byte(ch);
+                                }
+                                write_byte(b'\n');
+                            };
+                            write_field(b"sepc", tf.sepc);
+                            write_field(b"sp", tf.x[2]);
+                        }
+                    }
+                }
+
+                // TODO: Properly kill task and return to scheduler
+                // For now, just hang this task by looping on same instruction
+                return;
+            }
+
+            // Kernel page fault - emit minimal diagnostics via raw MMIO then panic
+            {
+                const UART_BASE: usize = 0x10000000;
+                const UART_TX: usize = 0x0;
+                const UART_LSR: usize = 0x5;
+                const LSR_TX_IDLE: u8 = 1 << 5;
+                unsafe {
+                    let write_byte = |b: u8| {
+                        while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8)
+                            & LSR_TX_IDLE
+                            == 0
+                        {}
+                        core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
+                    };
+                    let write_hex = |val: usize, digits: usize| {
+                        for shift in (0..digits).rev() {
+                            let nibble = ((val >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 {
+                                b'0' + nibble
+                            } else {
+                                b'a' + (nibble - 10)
+                            };
+                            write_byte(ch);
+                        }
+                    };
+                    for &b in b"KPGF sepc=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.sepc, 16);
+                    for &b in b" stval=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(stval_now, 16);
+                    for &b in b" scause=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.scause, 16);
+                    for &b in b" ra=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.x[1], 16);
+                    for &b in b" sp=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.x[2], 16);
+                    for &b in b" a7=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.x[17], 16);
+                    for &b in b" a0=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.x[10], 16);
+                    for &b in b" sstatus=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.sstatus, 16);
+                    write_byte(b'\n');
+                }
+            }
+            panic!("KPGF");
+        }
+    }
+
+    // Other exceptions
+    {
+        // Non-Illegal exceptions: emit minimal diagnostics
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             let stval_now = riscv::register::stval::read();
             uart_print_exc(frame.scause, frame.sepc, stval_now);
+
+            // Check if fault is from user mode (SPP=0) or kernel mode (SPP=1)
+            const SSTATUS_SPP: usize = 1 << 8;
+            let from_user = (frame.sstatus & SSTATUS_SPP) == 0;
+
+            if from_user {
+                // User task fault - log and halt
+                // CRITICAL: Use safe UART (no allocation/formatting)
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("[USER-FAULT] scause=0x");
+                uart_write_hex(&mut u, frame.scause);
+                let _ = u.write_str(" sepc=0x");
+                uart_write_hex(&mut u, frame.sepc);
+                let _ = u.write_str(" stval=0x");
+                uart_write_hex(&mut u, stval_now);
+                let _ = u.write_str("\n");
+                // Hang user task
+                frame.sepc = frame.sepc;
+                return;
+            }
+
+            // Kernel fault - this is a bug
             if stval_now < 0x1000 {
-                panic!("NULL-DEREF: sepc=0x{:x} stval=0x{:x}", frame.sepc, stval_now);
+                panic!("KNULL");
             }
         }
         record(frame);
-        panic!("EXC: scause=0x{:x} sepc=0x{:x}", frame.scause, frame.sepc);
+        panic!("KEXC");
     }
 }
 

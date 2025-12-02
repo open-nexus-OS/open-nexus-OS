@@ -52,7 +52,13 @@ pub struct MsgHeader {
 impl MsgHeader {
     /// Creates a new header with the provided fields.
     pub const fn new(src: u32, dst: u32, ty: u16, flags: u16, len: u32) -> Self {
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
     }
 
     /// Serialises the header to a little-endian byte array.
@@ -73,7 +79,13 @@ impl MsgHeader {
         let ty = u16::from_le_bytes([bytes[8], bytes[9]]);
         let flags = u16::from_le_bytes([bytes[10], bytes[11]]);
         let len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
     }
 }
 
@@ -180,21 +192,28 @@ pub fn yield_() -> SysResult<()> {
     }
 }
 
-/// Spawns a new task using the provided entry point, stack, and bootstrap endpoint.
+/// Spawns a new task using the provided entry point, stack, bootstrap endpoint, and GP value.
 #[cfg(nexus_env = "os")]
-pub fn spawn(entry_pc: u64, stack_sp: u64, asid: u64, bootstrap_ep: u32) -> SysResult<Pid> {
+pub fn spawn(
+    entry_pc: u64,
+    stack_sp: u64,
+    asid: u64,
+    bootstrap_ep: u32,
+    global_pointer: u64,
+) -> SysResult<Pid> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_SPAWN: usize = 7;
         let raw = unsafe {
             // SAFETY: the syscall interface expects raw register arguments and returns the new PID
             // or a sentinel error code; all inputs are forwarded as provided by the caller.
-            ecall4(
+            ecall5(
                 SYSCALL_SPAWN,
                 entry_pc as usize,
                 stack_sp as usize,
                 asid as usize,
                 bootstrap_ep as usize,
+                global_pointer as usize,
             )
         };
         decode_syscall(raw).map(|pid| pid as Pid)
@@ -251,7 +270,12 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
         const SYSCALL_CAP_TRANSFER: usize = 8;
         let raw = unsafe {
             // SAFETY: forwards raw arguments expected by the kernel capability transfer ABI.
-            ecall3(SYSCALL_CAP_TRANSFER, dst_task as usize, cap as usize, rights.bits() as usize)
+            ecall3(
+                SYSCALL_CAP_TRANSFER,
+                dst_task as usize,
+                cap as usize,
+                rights.bits() as usize,
+            )
         };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
@@ -370,8 +394,12 @@ pub fn vmo_write(_handle: Handle, _offset: usize, _bytes: &[u8]) -> Result<()> {
     unsafe {
         const SYSCALL_VMO_WRITE: usize = 6;
         let len = _bytes.len();
-        let _ = ecall3(SYSCALL_VMO_WRITE, _handle as usize, _offset, len);
-        Ok(())
+        let ptr = _bytes.as_ptr() as usize;
+        let raw = ecall4(SYSCALL_VMO_WRITE, _handle as usize, _offset, ptr, len);
+        match decode_syscall(raw) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(IpcError::Unsupported),
+        }
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
@@ -433,7 +461,7 @@ pub fn debug_putc(byte: u8) -> SysResult<()> {
 #[cfg(nexus_env = "os")]
 pub fn debug_write(bytes: &[u8]) -> SysResult<()> {
     for &b in bytes {
-        let _ = debug_putc(b);
+        debug_putc(b)?;
     }
     Ok(())
 }
@@ -530,6 +558,28 @@ unsafe fn ecall4(n: usize, a0: usize, a1: usize, a2: usize, a3: usize) -> usize 
         inout("a1") r1,
         inout("a2") r2,
         inout("a3") r3,
+        inout("a7") r7,
+        options(nostack, preserves_flags)
+    );
+    r0
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn ecall5(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) -> usize {
+    let mut r0 = a0;
+    let mut r1 = a1;
+    let mut r2 = a2;
+    let mut r3 = a3;
+    let mut r4 = a4;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a1") r1,
+        inout("a2") r2,
+        inout("a3") r3,
+        inout("a4") r4,
         inout("a7") r7,
         options(nostack, preserves_flags)
     );

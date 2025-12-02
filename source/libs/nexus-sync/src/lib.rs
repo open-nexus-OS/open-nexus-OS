@@ -21,11 +21,17 @@ unsafe impl<T: ?Sized + Send> Sync for SpinLock<T> {}
 
 impl<T> SpinLock<T> {
     pub const fn new(value: T) -> Self {
-        Self { flag: AtomicBool::new(false), value: UnsafeCell::new(value) }
+        Self {
+            flag: AtomicBool::new(false),
+            value: UnsafeCell::new(value),
+        }
     }
 
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        while self.flag.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err()
+        while self
+            .flag
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
         {
             core::hint::spin_loop();
         }

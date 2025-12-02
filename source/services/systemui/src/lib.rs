@@ -29,7 +29,9 @@ pub fn compose_frame() -> Vec<u32> {
 }
 
 pub fn checksum() -> u32 {
-    compose_frame().iter().fold(0_u32, |acc, value| acc.wrapping_add(*value))
+    compose_frame()
+        .iter()
+        .fold(0_u32, |acc, value| acc.wrapping_add(*value))
 }
 
 pub fn run() {

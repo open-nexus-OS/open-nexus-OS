@@ -7,6 +7,7 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 - Preserve invariants: UART markers, Host path byte-compatibility, `os-lite` feature gating.
 - Do not introduce cross-layer dependencies. Kernel ↔ Services boundaries are strict.
 - Prefer edits over refactors. If refactor spans modules, require an ADR.
+- Keep every touched file’s CONTEXT header in sync with `docs/standards/DOCUMENTATION_STANDARDS.md`. Adjust fields (CONTEXT/OWNERS/STATUS/API_STABILITY/TEST_COVERAGE/ADR) instead of deleting them.
 
 ## Session Checklist
 - Read the current `tasks/TASK-*.md` brief. Only touch listed files.
@@ -35,6 +36,11 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 ### Deprecated target (`source/apps/init-lite`)
 - Marked deprecated; keep as wrapper or pointer to `nexus-init`.
 
+### Header & ADR discipline
+- Before editing any module, verify it carries the standard header block defined in `docs/standards/DOCUMENTATION_STANDARDS.md`.
+- If the header is missing or outdated, fix it in the same prompt. Missing headers block review.
+- Reference a relevant ADR (or add one) whenever architectural boundaries change.
+
 ## Dont Touch List (without ADR)
 - Kernel memory manager internals
 - Syscall ABI surface
@@ -47,5 +53,3 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 ## Links
 - ADR-0001 (Runtime Roles & Boundaries): `docs/adr/0001-runtime-roles-and-boundaries.md`
 - Task index: `tasks/`
-
-

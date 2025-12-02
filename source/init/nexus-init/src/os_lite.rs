@@ -1,23 +1,23 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
-
-//! CONTEXT: OS-lite backend for cooperative service bootstrap
+//
+//! CONTEXT: Shared os-lite backend that implements the RFC-0002/0003/0004 loader,
+//!          invoked by the deprecated `init-lite` wrapper.
 //! OWNERS: @init-team @runtime
 //! STATUS: Functional
-//! API_STABILITY: Stable
+//! API_STABILITY: Stable (while os-lite remains the boot backend)
 //! TEST_COVERAGE: No tests
 //!
 //! PUBLIC API:
-//!   - bootstrap_once(): Bootstrap services once
-//!   - service_main_loop(): Main service loop
+//!   - bootstrap_once(): Bootstrap services once (called by init-lite wrapper)
+//!   - service_main_loop(): Main loop that keeps init alive post-bootstrap
 //!   - ReadyNotifier: Readiness notification callback
 //!   - SpawnHandle: Service spawn handle
 //!
 //! DEPENDENCIES:
-//!   - nexus-abi: Kernel syscalls
-//!   - nexus-ipc: IPC communication
-//!   - nexus-sync: Synchronization primitives
-//!   - Core services: keystored, policyd, samgrd, etc.
+//!   - nexus-abi / nexus-ipc / nexus-sync (syscalls + IPC)
+//!   - nexus-log (topic/StrRef logging, RFC-0003 compliance)
+//!   - Core services: keystored, policyd, samgrd, bundlemgrd, packagefsd, vfsd, execd
 //!
 //! ADR: docs/adr/0017-service-architecture.md
 
@@ -110,14 +110,19 @@ struct ServiceReadyCell {
 
 impl ServiceReadyCell {
     const fn new() -> Self {
-        Self { state: SpinLock::new(None) }
+        Self {
+            state: SpinLock::new(None),
+        }
     }
 
     fn begin(&self, name: &'static str) -> Option<ServiceReadyState> {
         let mut guard = self.state.lock();
         core::mem::replace(
             &mut *guard,
-            Some(ServiceReadyState { name, status: ReadyStatus::Pending }),
+            Some(ServiceReadyState {
+                name,
+                status: ReadyStatus::Pending,
+            }),
         )
     }
 
@@ -176,7 +181,10 @@ struct BootstrapSlotState {
 
 impl BootstrapSlotState {
     const fn new(slot: u32) -> Self {
-        Self { slot, in_use: SpinLock::new(false) }
+        Self {
+            slot,
+            in_use: SpinLock::new(false),
+        }
     }
 
     fn claim(&self) -> Result<BootstrapLease<'_>, SpawnError> {
@@ -185,7 +193,10 @@ impl BootstrapSlotState {
             return Err(SpawnError::BootstrapBusy);
         }
         *guard = true;
-        Ok(BootstrapLease { state: self, released: false })
+        Ok(BootstrapLease {
+            state: self,
+            released: false,
+        })
     }
 
     fn release(&self) {
@@ -239,7 +250,11 @@ struct ServiceRuntime {
 
 impl ServiceRuntime {
     const fn new(name: &'static str, target: &'static str, runner: ServiceRunner) -> Self {
-        Self { name, target, runner }
+        Self {
+            name,
+            target,
+            runner,
+        }
     }
 }
 
@@ -255,7 +270,9 @@ struct ServiceRuntimeQueue {
 
 impl ServiceRuntimeQueue {
     const fn new() -> Self {
-        Self { entries: SpinLock::new(Vec::new()) }
+        Self {
+            entries: SpinLock::new(Vec::new()),
+        }
     }
 
     fn push(&self, runtime: *mut ServiceRuntime) {
@@ -292,7 +309,10 @@ struct RuntimeRegistration {
 
 impl RuntimeRegistration {
     fn new(runtime: *mut ServiceRuntime) -> Self {
-        Self { runtime, released: false }
+        Self {
+            runtime,
+            released: false,
+        }
     }
 
     fn release(&mut self) {
@@ -345,7 +365,11 @@ impl StackMapping {
         )
         .map_err(SpawnError::StackMap)?;
 
-        Ok(Self { base, len: aligned, vmo: Some(vmo) })
+        Ok(Self {
+            base,
+            len: aligned,
+            vmo: Some(vmo),
+        })
     }
 
     fn stack_top(&self) -> u64 {
@@ -361,10 +385,7 @@ impl StackMapping {
         if let Some(vmo) = self.vmo.take() {
             if let Err(err) = nexus_abi::vmo_destroy(vmo) {
                 if !matches!(err, AbiError::InvalidSyscall | AbiError::Unsupported) {
-                    emit_line(&format!(
-                        "init: warn stack vmo destroy failed: {:?}",
-                        err
-                    ));
+                    emit_line(&format!("init: warn stack vmo destroy failed: {:?}", err));
                 }
             }
         }
@@ -421,7 +442,11 @@ pub struct SpawnHandle {
 
 impl SpawnHandle {
     fn new(pid: nexus_abi::Pid, address_space: nexus_abi::AsHandle, stack: StackMapping) -> Self {
-        Self { pid, address_space: Some(address_space), stack }
+        Self {
+            pid,
+            address_space: Some(address_space),
+            stack,
+        }
     }
 
     #[allow(dead_code)]
@@ -628,7 +653,10 @@ fn teardown_services(handles: Vec<SpawnHandle>) {
 
 fn release_bootstrap_capability() {
     if let Err(err) = nexus_abi::cap_close(BOOTSTRAP_SLOT) {
-        if !matches!(err, AbiError::InvalidSyscall | AbiError::Unsupported | AbiError::CapabilityDenied) {
+        if !matches!(
+            err,
+            AbiError::InvalidSyscall | AbiError::Unsupported | AbiError::CapabilityDenied
+        ) {
             emit_line(&format!("init: warn bootstrap drop failed: {:?}", err));
         }
     }
@@ -675,7 +703,6 @@ impl From<nexus_ipc::IpcError> for ServiceError {
         Self::Ipc(err)
     }
 }
-
 
 /// No-op for parity with the std backend which warms schema caches.
 pub fn touch_schemas() {}

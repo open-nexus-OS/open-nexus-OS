@@ -5,20 +5,31 @@ edition = "2021"
 license = "Apache-2.0"
 
 [features]
-default = ["idl-capnp"]
+default = ["std", "idl-capnp"]
+std = [
+    "dep:exec-payloads",
+    "dep:nexus-idl-runtime",
+    "dep:nexus-ipc",
+    "nexus-ipc/std",
+    "dep:nexus-loader",
+    "dep:capnp",
+    "dep:thiserror",
+]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+os-lite = ["dep:nexus-service-entry"]
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-exec-payloads = { path = "../../../userspace/exec-payloads" }
-nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-nexus-ipc = { path = "../../../userspace/nexus-ipc" }
 nexus-abi = { path = "../../../source/libs/nexus-abi" }
-nexus-loader = { path = "../../../userspace/nexus-loader" }
+exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-loader = { path = "../../../userspace/nexus-loader", optional = true }
 capnp = { version = "0.19", optional = true }
-thiserror = "1"
+thiserror = { version = "1", optional = true }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 
 [[bin]]
 name = "execd"

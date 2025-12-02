@@ -57,7 +57,9 @@ struct PageTablePage {
 
 impl PageTablePage {
     const fn new() -> Self {
-        Self { entries: [0; PT_ENTRIES] }
+        Self {
+            entries: [0; PT_ENTRIES],
+        }
     }
 }
 
@@ -89,12 +91,18 @@ impl PageTable {
             // early bring-up; higher-level code must ensure single use or add a manager.
             let ptr: *mut PageTablePage = core::ptr::addr_of_mut!(PT_STATIC_ROOT);
             let root = NonNull::new_unchecked(ptr);
-            return Self { root, owned: vec![] };
+            return Self {
+                root,
+                owned: vec![],
+            };
         }
         #[cfg(not(feature = "pt_static_root"))]
         {
             let root = Self::alloc_page();
-            Self { root, owned: vec![root] }
+            Self {
+                root,
+                owned: vec![root],
+            }
         }
     }
 
@@ -128,6 +136,33 @@ impl PageTable {
         None
     }
 
+    /// Translates an arbitrary virtual address to a physical address if mapped.
+    pub fn translate(&self, va: usize) -> Option<usize> {
+        if !is_canonical_sv39(va) {
+            return None;
+        }
+        let indices = vpn_indices(va);
+        let mut table = self.root;
+        for (level, index) in indices.iter().enumerate() {
+            let entry = unsafe { (*table.as_ptr()).entries[*index] };
+            if entry & PageFlags::VALID.bits() == 0 {
+                return None;
+            }
+            let is_leaf = entry & LEAF_PERMS.bits() != 0;
+            if is_leaf {
+                let ppn = entry >> 10;
+                let page_shift = 12 + (2 - level) * 9;
+                let page_size = 1usize << page_shift;
+                let phys_base = (ppn << 12) & !(page_size - 1);
+                let offset = va & (page_size - 1);
+                return Some(phys_base | offset);
+            }
+            let next = ((entry >> 10) << 12) as *mut PageTablePage;
+            table = NonNull::new(next)?;
+        }
+        None
+    }
+
     /// Installs a 4 KiB mapping from `va` to `pa` using `flags`.
     pub fn map(&mut self, va: usize, pa: usize, flags: PageFlags) -> Result<(), MapError> {
         if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {
@@ -144,6 +179,10 @@ impl PageTable {
         }
 
         let indices = vpn_indices(va);
+        let mut effective_flags = flags | PageFlags::ACCESSED;
+        if flags.contains(PageFlags::WRITE) {
+            effective_flags |= PageFlags::DIRTY;
+        }
         let mut table = self.root;
         for (level, index) in indices.iter().enumerate() {
             let entry = unsafe { &mut (*table.as_ptr()).entries[*index] };
@@ -152,7 +191,7 @@ impl PageTable {
                     return Err(MapError::Overlap);
                 }
                 let ppn = pa / PAGE_SIZE;
-                *entry = (ppn << 10) | flags.bits();
+                *entry = (ppn << 10) | effective_flags.bits();
                 return Ok(());
             }
 
@@ -387,7 +426,9 @@ impl Drop for PageTable {
     }
 }
 
-const LEAF_PERMS: PageFlags = PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
+const LEAF_PERMS: PageFlags = PageFlags::READ
+    .union(PageFlags::WRITE)
+    .union(PageFlags::EXECUTE);
 
 fn vpn_indices(va: usize) -> [usize; 3] {
     let vpn0 = (va >> 12) & 0x1ff;

@@ -50,7 +50,10 @@ impl<T> DbgMutex<T> {
         }
         self.start_ticks.store(read_time(), Ordering::SeqCst);
         let guard = self.inner.lock();
-        DbgMutexGuard { parent: self, guard }
+        DbgMutexGuard {
+            parent: self,
+            guard,
+        }
     }
 }
 

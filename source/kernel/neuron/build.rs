@@ -53,16 +53,13 @@ fn emit_symbol_table() {
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=NEURON_LINKER_SCRIPT");
-    if let Ok(script) = std::env::var("NEURON_LINKER_SCRIPT") {
-        println!("cargo:rustc-link-arg=-T{script}");
-    }
     // Also allow external map file
     println!("cargo:rerun-if-env-changed=NEURON_SYMBOLS_MAP");
     emit_symbol_table();
 
     // Propagate optional embedded init ELF path into the kernel build so it can be included.
     println!("cargo:rerun-if-env-changed=EMBED_INIT_ELF");
+    println!("cargo::rustc-check-cfg=cfg(embed_init)");
     if let Ok(path) = std::env::var("EMBED_INIT_ELF") {
         println!("cargo:rustc-cfg=embed_init");
         println!("cargo:rustc-env=EMBED_INIT_ELF={path}");

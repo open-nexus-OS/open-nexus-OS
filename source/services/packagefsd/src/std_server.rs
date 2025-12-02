@@ -182,12 +182,20 @@ pub struct FileEntry {
 impl FileEntry {
     /// Constructs a new metadata entry.
     pub fn new(path: &str, kind: u16, bytes: Vec<u8>) -> Self {
-        Self { path: path.to_string(), kind, bytes }
+        Self {
+            path: path.to_string(),
+            kind,
+            bytes,
+        }
     }
 
     /// Creates a directory entry.
     pub fn directory(path: &str) -> Self {
-        Self { path: path.to_string(), kind: KIND_DIRECTORY, bytes: Vec::new() }
+        Self {
+            path: path.to_string(),
+            kind: KIND_DIRECTORY,
+            bytes: Vec::new(),
+        }
     }
 
     fn size(&self) -> u64 {
@@ -201,7 +209,10 @@ struct BundleRecord {
 }
 
 impl BundleRecord {
-    fn replace_entries(&mut self, entries: Vec<FileEntry>) -> core::result::Result<(), ServiceError> {
+    fn replace_entries(
+        &mut self,
+        entries: Vec<FileEntry>,
+    ) -> core::result::Result<(), ServiceError> {
         self.files.clear();
         for entry in entries {
             let FileEntry { path, kind, bytes } = entry;
@@ -225,7 +236,9 @@ impl BundleRecord {
             }
             prefix.push_str(segment);
             let key = prefix.clone();
-            self.files.entry(key.clone()).or_insert_with(|| FileEntry::directory(&key));
+            self.files
+                .entry(key.clone())
+                .or_insert_with(|| FileEntry::directory(&key));
         }
     }
 
@@ -347,7 +360,10 @@ where
 
 /// Creates a loopback transport pair for host tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>) {
+pub fn loopback_transport() -> (
+    nexus_ipc::LoopbackClient,
+    IpcTransport<nexus_ipc::LoopbackServer>,
+) {
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -464,8 +480,7 @@ fn handle_resolve(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
 fn encode_publish_response(ok: bool) -> Result<Vec<u8>> {
     let mut message = capnp::message::Builder::new_default();
     {
-        let mut response = message
-            .init_root::<publish_response::Builder<'_>>();
+        let mut response = message.init_root::<publish_response::Builder<'_>>();
         response.set_ok(ok);
     }
     serialize_response(OPCODE_PUBLISH, message)
@@ -474,8 +489,7 @@ fn encode_publish_response(ok: bool) -> Result<Vec<u8>> {
 fn encode_resolve_response(ok: bool, size: u64, kind: u16, bytes: &[u8]) -> Result<Vec<u8>> {
     let mut message = capnp::message::Builder::new_default();
     {
-        let mut response = message
-            .init_root::<resolve_response::Builder<'_>>();
+        let mut response = message.init_root::<resolve_response::Builder<'_>>();
         response.set_ok(ok);
         response.set_size(size);
         response.set_kind(kind);
@@ -558,8 +572,7 @@ mod tests {
         let mut state = ServiceState::new(registry.clone());
         let mut message = capnp::message::Builder::new_default();
         {
-            let mut request = message
-                .init_root::<publish_bundle::Builder<'_>>();
+            let mut request = message.init_root::<publish_bundle::Builder<'_>>();
             request.set_name("demo");
             request.set_version("1.0.0");
             request.set_root_vmo(7);

@@ -1,21 +1,20 @@
-//! CONTEXT: Keystored daemon entrypoint wiring default transport to service logic
-//! Bin wrapper wiring keystored's daemon entry point.
+#![cfg_attr(
+    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    no_std,
+    no_main
+)]
 
-#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
-compile_error!(
-    "nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '--cfg nexus_env=\"os\"'."
-);
+//! CONTEXT: Keystored daemon entrypoint wiring default transport to service logic.
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+nexus_service_entry::declare_entry!(os_entry);
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn os_entry() -> keystored::LiteResult<()> {
+    keystored::service_main_loop(keystored::ReadyNotifier::new(|| {}))
+}
 
 #[cfg(nexus_env = "host")]
 fn main() {
     keystored::daemon_main(|| {});
-}
-
-#[cfg(nexus_env = "os")]
-fn main() {
-    let notifier = keystored::ReadyNotifier::new(|| {});
-    let _ = keystored::service_main_loop(notifier);
-    loop {
-        core::hint::spin_loop();
-    }
 }

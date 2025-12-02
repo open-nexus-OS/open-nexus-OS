@@ -129,7 +129,9 @@ impl Identity {
 
     /// Serialises the identity as JSON for storage.
     pub fn to_json(&self) -> Result<String, IdentityError> {
-        let stored = StoredIdentity { signing_key: hex::encode(self.signing_key.to_bytes()) };
+        let stored = StoredIdentity {
+            signing_key: hex::encode(self.signing_key.to_bytes()),
+        };
         serde_json::to_string(&stored).map_err(|err| IdentityError::Serialize(err.to_string()))
     }
 
@@ -168,7 +170,10 @@ impl Identity {
     fn from_signing_key(signing_key: SigningKey) -> Self {
         let verifying_key = signing_key.verifying_key();
         let device_id = DeviceId::from_verifying_key(&verifying_key);
-        Self { device_id, signing_key }
+        Self {
+            device_id,
+            signing_key,
+        }
     }
 }
 
@@ -196,6 +201,10 @@ mod tests {
 
         let message = b"round trip";
         let signature = identity.sign(message);
-        assert!(Identity::verify_with_key(&restored.verifying_key(), message, &signature));
+        assert!(Identity::verify_with_key(
+            &restored.verifying_key(),
+            message,
+            &signature
+        ));
     }
 }

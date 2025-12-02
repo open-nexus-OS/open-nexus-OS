@@ -15,10 +15,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     let first = args.next().ok_or_else(|| usage("missing input ELF path"))?;
     let (input, output) = if first == "--hello" {
-        let output = args.next().ok_or_else(|| usage("missing output directory"))?;
+        let output = args
+            .next()
+            .ok_or_else(|| usage("missing output directory"))?;
         (None, output)
     } else {
-        let output = args.next().ok_or_else(|| usage("missing output directory"))?;
+        let output = args
+            .next()
+            .ok_or_else(|| usage("missing output directory"))?;
         (Some(first), output)
     };
     if args.next().is_some() {

@@ -11,6 +11,7 @@
 #![cfg_attr(not(test), no_std)]
 #![deny(warnings)]
 #![deny(unsafe_op_in_unsafe_fn)] // deny instead of forbid to allow naked functions
+#![feature(alloc_error_handler)]
 
 extern crate alloc;
 
@@ -182,6 +183,42 @@ fn init_heap() {
     }
 }
 
+/// Alloc error handler - catches allocation failures and provides diagnostic info
+#[cfg(all(not(test), target_os = "none"))]
+#[alloc_error_handler]
+fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
+    // CRITICAL: Use only raw UART, no allocation allowed here!
+    use core::fmt::Write;
+    let mut u = crate::uart::raw_writer();
+    let _ = u.write_str("\n!!! ALLOC ERROR !!!\n");
+    let _ = u.write_str("size=");
+    crate::trap::uart_write_hex(&mut u, layout.size());
+    let _ = u.write_str(" align=");
+    crate::trap::uart_write_hex(&mut u, layout.align());
+
+    // Show current SATP to identify which AS we're in
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        let satp = riscv::register::satp::read().bits();
+        let _ = u.write_str("\nsatp=");
+        crate::trap::uart_write_hex(&mut u, satp);
+        let mode = (satp >> 60) & 0xF;
+        let asid = (satp >> 44) & 0xFFFF;
+        let _ = u.write_str(" mode=");
+        crate::trap::uart_write_hex(&mut u, mode);
+        let _ = u.write_str(" asid=");
+        crate::trap::uart_write_hex(&mut u, asid);
+    }
+
+    // Show heap address to verify it's accessible
+    let heap_start = unsafe { addr_of_mut!(HEAP.0) as usize };
+    let _ = u.write_str("\nheap_start=");
+    crate::trap::uart_write_hex(&mut u, heap_start);
+
+    let _ = u.write_str("\n");
+    panic!("ALLOC-FAIL");
+}
+
 // Modules
 
 #[macro_use]
@@ -194,7 +231,6 @@ mod determinism;
 mod hal;
 mod ipc;
 mod kmain;
-mod user_loader;
 mod liveness;
 mod mm;
 mod satp;

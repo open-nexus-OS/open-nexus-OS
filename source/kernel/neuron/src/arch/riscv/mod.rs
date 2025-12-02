@@ -111,5 +111,7 @@ pub fn read_sp() -> usize {
         value
     }
     #[cfg(not(target_arch = "riscv64"))]
-    { 0 }
+    {
+        0
+    }
 }

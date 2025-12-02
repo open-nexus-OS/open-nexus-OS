@@ -11,8 +11,8 @@ use nexus_idl_runtime::vfs_capnp::{
     close_request, close_response, mount_request, mount_response, open_request, open_response,
     read_request, read_response, stat_request, stat_response,
 };
-use nexus_packagefs::PackageFsClient;
 use nexus_ipc::{IpcError, Wait};
+use nexus_packagefs::PackageFsClient;
 
 const OPCODE_OPEN: u8 = 1;
 const OPCODE_READ: u8 = 2;
@@ -206,21 +206,19 @@ impl PackageFsProvider {
 
 impl FsProvider for PackageFsProvider {
     fn resolve(&self, rel_path: &str) -> core::result::Result<ProviderEntry, ServiceError> {
-        let entry = self
-            .client
-            .resolve(rel_path)
-            .map_err(map_packagefs_error)?;
+        let entry = self.client.resolve(rel_path).map_err(map_packagefs_error)?;
         if entry.kind() == KIND_DIRECTORY {
             return Err(ServiceError::InvalidPath);
         }
-        Ok(ProviderEntry { bytes: entry.bytes().to_vec(), size: entry.size(), kind: entry.kind() })
+        Ok(ProviderEntry {
+            bytes: entry.bytes().to_vec(),
+            size: entry.size(),
+            kind: entry.kind(),
+        })
     }
 
     fn stat(&self, rel_path: &str) -> core::result::Result<(u64, u16), ServiceError> {
-        let entry = self
-            .client
-            .resolve(rel_path)
-            .map_err(map_packagefs_error)?;
+        let entry = self.client.resolve(rel_path).map_err(map_packagefs_error)?;
         Ok((entry.size(), entry.kind()))
     }
 }
@@ -235,7 +233,9 @@ fn map_packagefs_error(err: nexus_packagefs::Error) -> ServiceError {
         nexus_packagefs::Error::Encode | nexus_packagefs::Error::Decode => {
             ServiceError::Provider("packagefs protocol error".into())
         }
-        nexus_packagefs::Error::Rejected => ServiceError::Provider("packagefs publish rejected".into()),
+        nexus_packagefs::Error::Rejected => {
+            ServiceError::Provider("packagefs publish rejected".into())
+        }
         nexus_packagefs::Error::Ipc(msg) => ServiceError::Provider(format!("packagefs ipc: {msg}")),
     }
 }
@@ -247,14 +247,19 @@ struct MountTable {
 
 impl MountTable {
     fn new() -> Self {
-        Self { mounts: HashMap::new() }
+        Self {
+            mounts: HashMap::new(),
+        }
     }
 
     fn mount(&mut self, path: &str, provider: Box<dyn FsProvider>) {
         self.mounts.insert(path.to_string(), provider);
     }
 
-    fn resolve<'a>(&'a self, path: &str) -> core::result::Result<(&'a dyn FsProvider, String), ServiceError> {
+    fn resolve<'a>(
+        &'a self,
+        path: &str,
+    ) -> core::result::Result<(&'a dyn FsProvider, String), ServiceError> {
         if let Some(rest) = path.strip_prefix("pkg:/") {
             let provider = self
                 .mounts
@@ -303,7 +308,10 @@ struct Dispatcher {
 impl Dispatcher {
     fn new(packagefs: Arc<PackageFsClient>) -> Self {
         let mut mounts = MountTable::new();
-        mounts.mount("/packages", Box::new(PackageFsProvider::new(packagefs.clone())));
+        mounts.mount(
+            "/packages",
+            Box::new(PackageFsProvider::new(packagefs.clone())),
+        );
         info!("vfsd: mounted /packages -> packagefs");
         Self {
             mounts: Mutex::new(mounts),
@@ -317,7 +325,10 @@ impl Dispatcher {
         let mut mounts = self.mounts.lock();
         match fs_id {
             "packagefs" => {
-                mounts.mount(mount_point, Box::new(PackageFsProvider::new(self.packagefs.clone())));
+                mounts.mount(
+                    mount_point,
+                    Box::new(PackageFsProvider::new(self.packagefs.clone())),
+                );
                 Ok(())
             }
             other => Err(ServerError::Service(ServiceError::Provider(format!(
@@ -410,11 +421,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<()> {
         let mut transport = IpcTransport::new(server);
         // Packagefs client targets the packagefsd service
         let _ = nexus_ipc::set_default_target("packagefsd");
-        let packagefs = PackageFsClient::new()
-            .map(Arc::new)
-            .map_err(|err| ServerError::Service(ServiceError::Provider(format!(
+        let packagefs = PackageFsClient::new().map(Arc::new).map_err(|err| {
+            ServerError::Service(ServiceError::Provider(format!(
                 "packagefs client init: {err}"
-            ))))?;
+            )))
+        })?;
         nexus_ipc::set_default_target("vfsd");
         let dispatcher = Arc::new(Dispatcher::new(packagefs));
         notifier.notify();
@@ -436,7 +447,10 @@ where
 
 /// Creates a loopback transport pair for host tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>) {
+pub fn loopback_transport() -> (
+    nexus_ipc::LoopbackClient,
+    IpcTransport<nexus_ipc::LoopbackServer>,
+) {
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -500,7 +514,9 @@ fn handle_open(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
     match dispatcher.open(&path) {
         Ok((handle, entry)) => encode_open_response(true, handle, entry.size, entry.kind),
         Err(ServerError::Service(ServiceError::NotFound)) => encode_open_response(false, 0, 0, 0),
-        Err(ServerError::Service(ServiceError::InvalidPath)) => encode_open_response(false, 0, 0, 0),
+        Err(ServerError::Service(ServiceError::InvalidPath)) => {
+            encode_open_response(false, 0, 0, 0)
+        }
         Err(err) => Err(err),
     }
 }

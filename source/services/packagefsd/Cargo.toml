@@ -5,22 +5,33 @@ edition = "2021"
 license = "Apache-2.0"
 
 [features]
-default = ["idl-capnp"]
+default = ["std", "idl-capnp"]
+std = [
+    "dep:nexus-idl-runtime",
+    "dep:nexus-ipc",
+    "nexus-ipc/std",
+    "dep:capnp",
+    "dep:parking_lot",
+    "dep:thiserror",
+    "dep:log",
+]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
-os-lite = []
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+]
 
 [dependencies]
 capnp = { version = "0.19", optional = true }
-nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite"] }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 parking_lot = { version = "0.12", optional = true }
-thiserror = { version = "1", default-features = false }
+thiserror = { version = "1", optional = true }
 log = { version = "0.4", optional = true }
-
-[target.'cfg(not(all(nexus_env = "os", feature = "os-lite")))'.dependencies]
-parking_lot = { version = "0.12" }
-thiserror = "1"
-log = "0.4"
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 
 [[bin]]
 name = "packagefsd"

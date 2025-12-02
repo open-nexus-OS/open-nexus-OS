@@ -44,8 +44,13 @@ fn vfs_package_roundtrip() {
     let store_clone = artifacts.clone();
     let packagefs_handle = PackageFsHandle::from_client(packagefs_client.clone());
     let bundle_thread = thread::spawn(move || {
-        bundlemgrd::run_with_transport(&mut bundle_server, store_clone, None, Some(packagefs_handle))
-            .unwrap();
+        bundlemgrd::run_with_transport(
+            &mut bundle_server,
+            store_clone,
+            None,
+            Some(packagefs_handle),
+        )
+        .unwrap();
     });
 
     let handle = 42u32;
@@ -84,7 +89,10 @@ fn vfs_package_roundtrip() {
     let clamped = vfs_client
         .read(fh, start, 10)
         .expect("read beyond end clamps");
-    assert_eq!(clamped, &PAYLOAD_BYTES[PAYLOAD_BYTES.len().saturating_sub(2)..]);
+    assert_eq!(
+        clamped,
+        &PAYLOAD_BYTES[PAYLOAD_BYTES.len().saturating_sub(2)..]
+    );
 
     // Reads starting past EOF should return an empty slice
     let empty = vfs_client

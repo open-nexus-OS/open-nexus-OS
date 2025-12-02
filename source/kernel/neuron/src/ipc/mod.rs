@@ -45,7 +45,10 @@ struct Endpoint {
 
 impl Endpoint {
     fn with_depth(depth: usize) -> Self {
-        Self { queue: VecDeque::new(), depth }
+        Self {
+            queue: VecDeque::new(),
+            depth,
+        }
     }
 
     fn push(&mut self, msg: Message) -> Result<(), IpcError> {
@@ -107,7 +110,11 @@ impl Router {
         if DENY_NEXT_SEND.swap(false, Ordering::SeqCst) {
             return Err(IpcError::PermissionDenied);
         }
-        let res = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?.push(msg);
+        let res = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?
+            .push(msg);
         #[cfg(feature = "debug_uart")]
         {
             match res {
@@ -131,7 +138,11 @@ impl Router {
     pub fn recv(&mut self, id: EndpointId) -> Result<Message, IpcError> {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "ipc", "recv enter");
-        let res = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?.pop();
+        let res = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?
+            .pop();
         #[cfg(feature = "debug_uart")]
         {
             match &res {
@@ -174,7 +185,9 @@ mod tests {
         let mut router = Router::new(2);
         let header = MessageHeader::new(1, 0, 42, 0, 4);
         let payload = vec![1, 2, 3, 4];
-        router.send(0, Message::new(header, payload.clone())).unwrap();
+        router
+            .send(0, Message::new(header, payload.clone()))
+            .unwrap();
         let received = router.recv(0).unwrap();
         assert_eq!(received.header.ty, 42);
         assert_eq!(received.payload, payload);

@@ -33,23 +33,23 @@ use exec_payloads::{HELLO_ELF, HELLO_MANIFEST};
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use execd::RestartPolicy;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+use keystored;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+use nexus_init::{bootstrap_once, ReadyNotifier};
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+use nexus_ipc::{KernelClient, Wait};
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use nexus_vfs::{Error as VfsError, VfsClient};
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use packagefsd;
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
-use vfsd;
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
-use keystored;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use policyd;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use samgrd;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
-use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
-use nexus_ipc::{KernelClient, Wait};
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
-use nexus_init::{bootstrap_once, ReadyNotifier};
+use vfsd;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use capnp::message::{Builder, ReaderOptions};
@@ -147,8 +147,7 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
     // Route IPC to bundle manager daemon
     nexus_ipc::set_default_target("bundlemgrd");
 
-    let client = KernelClient::new()
-        .map_err(|err| anyhow::anyhow!("kernel client: {err:?}"))?;
+    let client = KernelClient::new().map_err(|err| anyhow::anyhow!("kernel client: {err:?}"))?;
 
     let mut message = Builder::new_default();
     {
@@ -170,20 +169,25 @@ fn send_install_request(name: &str, handle: u32, len: u32) -> anyhow::Result<()>
         .recv(Wait::Blocking)
         .map_err(|err| anyhow::anyhow!("install recv: {err:?}"))?;
 
-    let (opcode, payload) =
-        response.split_first().ok_or_else(|| anyhow::anyhow!("install response empty"))?;
+    let (opcode, payload) = response
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("install response empty"))?;
     if *opcode != OPCODE_INSTALL {
         return Err(anyhow::anyhow!("install unexpected opcode {opcode}"));
     }
     let mut cursor = std::io::Cursor::new(payload);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("install decode")?;
-    let response = message.get_root::<install_response::Reader<'_>>().context("install root")?;
+    let response = message
+        .get_root::<install_response::Reader<'_>>()
+        .context("install root")?;
     if response.get_ok() {
         Ok(())
     } else {
-        let err =
-            response.get_err().map(|e| format!("{e:?}")).unwrap_or_else(|_| "unknown".to_string());
+        let err = response
+            .get_err()
+            .map(|e| format!("{e:?}"))
+            .unwrap_or_else(|_| "unknown".to_string());
         Err(anyhow::anyhow!("install failed: {err}"))
     }
 }

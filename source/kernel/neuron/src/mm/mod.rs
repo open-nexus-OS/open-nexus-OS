@@ -12,7 +12,10 @@ pub mod address_space;
 pub mod page_table;
 
 pub use address_space::{AddressSpaceError, AddressSpaceManager, AsHandle};
-pub use page_table::{MapError, PageFlags, PageTable, PAGE_SIZE};
+pub use page_table::{MapError, PageFlags, PAGE_SIZE};
+
+/// Size reserved for user VMO allocations directly managed by the kernel.
+pub const USER_VMO_ARENA_LEN: usize = 16 * 1024 * 1024;
 
 #[cfg(test)]
 mod tests;

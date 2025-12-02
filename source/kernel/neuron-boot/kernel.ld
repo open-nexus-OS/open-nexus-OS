@@ -1,5 +1,11 @@
 ENTRY(_start)
 
+PHDRS
+{
+  text PT_LOAD FLAGS(5);  /* R | X */
+  data PT_LOAD FLAGS(6);  /* R | W */
+}
+
 SECTIONS
 {
   /*  Standard RISC-V kernel load address (2MB after firmware @ 0x80000000) */
@@ -7,21 +13,21 @@ SECTIONS
 
   /* Markers for text range (used for runtime exec-range checks) */
   __text_start = .;
-  .text : ALIGN(16) {
+  .text ALIGN(16) : {
     KEEP(*(.text._start))
     *(.text .text.*)
     *(.text.stack_run)
-  }
+  } : text
   __text_end = .;
 
   . = ALIGN(16);
-  .rodata : ALIGN(16) { *(.rodata .rodata.*) }
+  .rodata ALIGN(16) : { *(.rodata .rodata.*) } : text
 
   . = ALIGN(16);
-  .data : ALIGN(16) { *(.sdata .sdata.*) *(.data .data.*) }
+  .data ALIGN(16) : { *(.sdata .sdata.*) *(.data .data.*) } : data
 
   . = ALIGN(4096);
-  .bss (NOLOAD) : ALIGN(4096) {
+  .bss (NOLOAD) : {
     __bss_start = .;
     *(.sbss .sbss.*)
     /* Private selftest stack with guard pages lives at a 4K boundary */
@@ -48,7 +54,7 @@ SECTIONS
     . = ALIGN(8);
     *(.bss.page_table)
     __bss_end = .;
-  }
+  } : data
 
   /* (no standalone selftest stack section) */
 

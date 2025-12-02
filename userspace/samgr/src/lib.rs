@@ -155,7 +155,9 @@ pub struct Endpoint {
 impl Endpoint {
     /// Creates a new endpoint wrapper from the provided address string.
     pub fn new(address: impl Into<String>) -> Self {
-        Self { address: address.into() }
+        Self {
+            address: address.into(),
+        }
     }
 
     /// Returns the raw endpoint address.
@@ -189,7 +191,11 @@ pub struct ServiceHandle {
 
 impl ServiceHandle {
     fn new(name: String, endpoint: Endpoint, generation: Generation) -> Self {
-        Self { name, endpoint, generation }
+        Self {
+            name,
+            endpoint,
+            generation,
+        }
     }
 }
 
@@ -316,7 +322,11 @@ impl HostRegistry {
     fn resolve(&self, name: &str) -> Result<ServiceHandle> {
         let services = self.services.lock();
         let record = services.get(name).ok_or(Error::NotFound)?;
-        Ok(ServiceHandle::new(name.to_string(), record.endpoint.clone(), record.generation))
+        Ok(ServiceHandle::new(
+            name.to_string(),
+            record.endpoint.clone(),
+            record.generation,
+        ))
     }
 
     fn heartbeat(&self, handle: &ServiceHandle) -> Result<()> {
@@ -335,7 +345,11 @@ impl HostRegistry {
         record.generation = record.generation.next();
         record.endpoint = endpoint.clone();
         record.last_heartbeat = Instant::now();
-        Ok(ServiceHandle::new(name.to_string(), endpoint, record.generation))
+        Ok(ServiceHandle::new(
+            name.to_string(),
+            endpoint,
+            record.generation,
+        ))
     }
 }
 
@@ -348,8 +362,9 @@ mod tests {
     #[test]
     fn register_and_resolve_roundtrip() {
         let registry = Registry::new();
-        let handle =
-            registry.register("samgr", Endpoint::from("ipc://samgr")).expect("register succeeds");
+        let handle = registry
+            .register("samgr", Endpoint::from("ipc://samgr"))
+            .expect("register succeeds");
         let resolved = registry.resolve("samgr").expect("resolve succeeds");
         assert_eq!(handle, resolved);
         registry.heartbeat(&resolved).expect("heartbeat ok");
@@ -359,7 +374,9 @@ mod tests {
     #[test]
     fn duplicate_registration_rejected() {
         let registry = Registry::new();
-        registry.register("samgr", Endpoint::from("ipc://samgr")).expect("initial register");
+        registry
+            .register("samgr", Endpoint::from("ipc://samgr"))
+            .expect("initial register");
         let err = registry
             .register("samgr", Endpoint::from("ipc://samgr2"))
             .expect_err("duplicate rejected");
@@ -370,12 +387,17 @@ mod tests {
     #[test]
     fn restart_invalidates_old_handle() {
         let registry = Registry::new();
-        let handle = registry.register("samgr", Endpoint::from("ipc://samgr")).expect("register");
-        let restarted =
-            registry.restart("samgr", Endpoint::from("ipc://samgr-new")).expect("restart");
+        let handle = registry
+            .register("samgr", Endpoint::from("ipc://samgr"))
+            .expect("register");
+        let restarted = registry
+            .restart("samgr", Endpoint::from("ipc://samgr-new"))
+            .expect("restart");
         assert!(restarted.generation.value() > handle.generation.value());
         assert_eq!(registry.resolve("samgr").unwrap(), restarted);
-        let err = registry.heartbeat(&handle).expect_err("old handle rejected");
+        let err = registry
+            .heartbeat(&handle)
+            .expect_err("old handle rejected");
         assert_eq!(err, Error::StaleHandle);
     }
 

@@ -1,7 +1,9 @@
 # Nexus Init Coding Notes
 
 This directory houses the shared `nexus-init` crate used by both the host test
-runner and the lightweight OS images.
+runner and the lightweight OS images. Every file in this tree must keep the
+standard CONTEXT header (see `docs/standards/DOCUMENTATION_STANDARDS.md`);
+adjust fields when behaviour changes and ensure the ADR reference (`docs/adr/0017-service-architecture.md`) stays accurate.
 
 ## Backend split
 

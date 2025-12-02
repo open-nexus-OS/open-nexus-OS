@@ -9,14 +9,14 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use alloc::vec::Vec;
-use core::fmt::Write as _;
+use core::{fmt::Write as _, mem::MaybeUninit};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use crate::arch::riscv;
+// Removed: use crate::arch::riscv; (was only used for wait_for_interrupt)
 use crate::ipc;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::ipc::header::MessageHeader;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use crate::syscall;
 use crate::{
     cap::{Capability, CapabilityKind, Rights},
     hal::virt::VirtMachine,
@@ -30,6 +30,7 @@ use crate::{
 
 // (no private selftest stack; kernel stack is provisioned by linker)
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 /// Aggregated kernel state initialised during boot.
 struct KernelState {
     hal: VirtMachine,
@@ -43,6 +44,15 @@ struct KernelState {
     syscalls: SyscallTable,
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+static mut KERNEL_STATE: MaybeUninit<KernelState> = MaybeUninit::uninit();
+
+#[allow(static_mut_refs)]
+unsafe fn init_kernel_state() -> &'static mut KernelState {
+    unsafe { KERNEL_STATE.write(KernelState::new()) }
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 impl KernelState {
     fn new() -> Self {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -77,7 +87,11 @@ impl KernelState {
         }
         // Activate kernel address space immediately to ensure deterministic
         // RX mapping for subsequent code paths.
-        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "bringup_identity"))]
+        #[cfg(all(
+            target_arch = "riscv64",
+            target_os = "none",
+            feature = "bringup_identity"
+        ))]
         if let Err(err) = address_spaces.activate_via_trampoline(kernel_as) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
@@ -121,7 +135,10 @@ impl KernelState {
             let _ = caps.set(
                 1,
                 Capability {
-                    kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 },
+                    kind: CapabilityKind::Vmo {
+                        base: 0x8000_0000,
+                        len: 0x10_0000,
+                    },
                     rights: Rights::MAP,
                 },
             );
@@ -141,7 +158,15 @@ impl KernelState {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "kmain", "KS: after VirtMachine::new");
 
-        Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls }
+        Self {
+            hal,
+            scheduler,
+            tasks,
+            ipc: router,
+            address_spaces,
+            kernel_as,
+            syscalls,
+        }
     }
 
     #[allow(dead_code)]
@@ -157,61 +182,242 @@ impl KernelState {
     fn exercise_ipc(&mut self) {
         // Send a bootstrap message to prove IPC wiring works before tasks run.
         let header = MessageHeader::new(0, 0, 0x100, 0, 0);
-        if self.ipc.send(0, ipc::Message::new(header, Vec::new())).is_ok() {
+        if self
+            .ipc
+            .send(0, ipc::Message::new(header, Vec::new()))
+            .is_ok()
+        {
             let _ = self.ipc.recv(0);
         }
     }
 
     fn idle_loop(&mut self) -> ! {
+        log_info!(target: "kmain", "KMAIN: Entering idle_loop");
         loop {
             // Watchdog: ensure forward progress; 10ms in mtimer ticks (10MHz) ~ 100_000 cycles
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             crate::liveness::check(crate::trap::DEFAULT_TICK_CYCLES * 3);
-            // Register trap fastpath environment for S-mode SYSCALL_YIELD once per loop
-            unsafe {
-                crate::trap::register_scheduler_env(
-                    &mut self.scheduler,
-                    &mut self.tasks,
-                    &mut self.ipc,
-                    &mut self.address_spaces,
-                );
+
+            // Debug: Check if we're stuck
+            static LOOP_COUNT: core::sync::atomic::AtomicUsize =
+                core::sync::atomic::AtomicUsize::new(0);
+            let count = LOOP_COUNT.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+            if count % 10000 == 0 {
+                log_info!(target: "kmain", "KMAIN: idle_loop iteration {}", count);
             }
-            let _ctx = api::Context::new(
-                &mut self.scheduler,
-                &mut self.tasks,
-                &mut self.ipc,
-                &mut self.address_spaces,
-                self.hal.timer(),
-            );
-            // Real S-mode ECALL to enter trap path and switch to next task frame
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            unsafe {
-                core::arch::asm!(
-                    "li a7, {id}\n ecall",
-                    id = const syscall::SYSCALL_YIELD,
-                    options(nostack)
-                );
-            }
-            #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-            {
-                core::hint::spin_loop();
-            }
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            riscv::wait_for_interrupt();
-            #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-            {
-                core::hint::spin_loop();
+
+            // ARCHITECTURAL FIX: Idle loop is S-mode kernel code, not a task.
+            // S-mode ecalls trap to M-mode (OpenSBI), not our S-mode handler!
+            // Solution: Directly schedule next task and context switch via assembly.
+
+            if let Some(next_pid) = self.scheduler.schedule_next() {
+                self.tasks.set_current(next_pid);
+
+                if let Some(task) = self.tasks.task(next_pid) {
+                    // ARCHITECTURAL FIX: Only context-switch to REAL USER tasks.
+                    // Requirements: has AS, SPP=0 (U-mode), AND sepc in user space (< 0x80000000)
+                    const SSTATUS_SPP: usize = 1 << 8;
+                    const KERNEL_BASE: usize = 0x80000000;
+                    let frame = task.frame();
+                    let is_umode = (frame.sstatus & SSTATUS_SPP) == 0;
+                    let is_user_addr = frame.sepc < KERNEL_BASE;
+
+                    if let Some(handle) = task.address_space() {
+                        if !is_umode {
+                            // Task has AS but is S-mode (kernel selftest task) - skip
+                            if count < 10 {
+                                log_info!(target: "kmain", "KMAIN: skip S-mode task pid={} (SPP=1)", next_pid);
+                            }
+                            continue;
+                        }
+
+                        if !is_user_addr {
+                            // Task has SPP=0 but sepc in kernel space - inconsistent state, skip
+                            if count < 10 {
+                                log_info!(target: "kmain", "KMAIN: skip invalid task pid={} (sepc=0x{:x} in kernel space)",
+                                          next_pid, frame.sepc);
+                            }
+                            continue;
+                        }
+
+                        // Log BEFORE activating user AS (no logging after AS switch!)
+                        if count < 10 {
+                            log_info!(target: "kmain", "KMAIN: switch to U-mode pid={} sepc=0x{:x} sp=0x{:x}",
+                                      next_pid, frame.sepc, frame.x[2]);
+                        }
+
+                        // CRITICAL: Jump to separate function to ensure cleanup happens BEFORE AS switch
+                        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                        unsafe {
+                            activate_and_switch_to_user(&mut self.address_spaces, handle, frame);
+                        }
+                        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+                        {
+                            if let Err(e) = self.address_spaces.activate(handle) {
+                                log_error!(target: "kmain", "KMAIN: AS activate failed {:?}", e);
+                                continue;
+                            }
+                        }
+                    } else {
+                        // Kernel task - skip (should not be in runqueue in production)
+                        if count < 10 {
+                            log_info!(target: "kmain", "KMAIN: skip kernel task pid={} (no AS)", next_pid);
+                        }
+                    }
+                }
+            } else {
+                // No runnable tasks - spin briefly
+                for _ in 0..1000 {
+                    core::hint::spin_loop();
+                }
             }
         }
     }
 }
 
+/// Activates user address space and immediately switches to user mode.
+/// CRITICAL: This function MUST NOT be inlined to ensure all temporaries from caller
+/// are dropped before the AS switch. After activate(), we jump directly to user mode.
+///
+/// SAFETY: Uses ManuallyDrop and mem::forget to prevent destructors from running
+/// after the AS switch, which is the enterprise-level Rust pattern for this scenario.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+#[inline(never)]
+unsafe fn activate_and_switch_to_user(
+    spaces: &mut crate::mm::AddressSpaceManager,
+    handle: crate::mm::AsHandle,
+    frame: &crate::trap::TrapFrame,
+) -> ! {
+    // Log BEFORE AS switch - safe UART only
+    {
+        use core::fmt::Write;
+        let mut u = crate::uart::raw_writer();
+        let _ = u.write_str("ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x");
+        crate::trap::uart_write_hex(&mut u, frame.sepc);
+        let _ = u.write_str(" frame_ptr=0x");
+        crate::trap::uart_write_hex(&mut u, frame as *const _ as usize);
+        let _ = u.write_str(" sp=0x");
+        crate::trap::uart_write_hex(&mut u, frame.x[2]);
+        let _ = u.write_str(" gp=0x");
+        crate::trap::uart_write_hex(&mut u, frame.x[3]);
+        let _ = u.write_str(" ra=0x");
+        crate::trap::uart_write_hex(&mut u, frame.x[1]);
+        let _ = u.write_str(" sstatus=0x");
+        crate::trap::uart_write_hex(&mut u, frame.sstatus);
+        let _ = u.write_str(" off_sepc=0x");
+        crate::trap::uart_write_hex(&mut u, core::mem::offset_of!(crate::trap::TrapFrame, sepc));
+        let _ = u.write_str("\n");
+        core::mem::drop(u);
+    }
+
+    // CRITICAL SECTION: Atomically activate AS and jump to user - NO cleanup code possible
+    // Move activate() INTO context_switch to ensure they're truly atomic
+    unsafe {
+        context_switch_with_activate(spaces, handle, frame);
+    }
+}
+
+/// Atomically activates the user AS and context switches to the task.
+/// CRITICAL: inline(always) ensures activate() and asm! are truly atomic with NO cleanup code between them.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn context_switch_with_activate(
+    spaces: &mut crate::mm::AddressSpaceManager,
+    handle: crate::mm::AsHandle,
+    frame: &crate::trap::TrapFrame,
+) -> ! {
+    // Activate user AS - from this point we're in the user's address space
+    let _ = spaces.activate(handle);
+
+    // IMMEDIATELY jump to assembly - inline(always) ensures no code between activate and asm
+    unsafe {
+        context_switch_to_task(frame);
+    }
+}
+
+/// Pure assembly context switch - loads TrapFrame and executes sret.
+/// This function never returns - it jumps to the task's saved PC.
+/// CRITICAL: #[inline(always)] ensures the asm! block is inlined directly into the caller.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+#[inline(always)]
+unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
+    // CRITICAL: This function is inline(always), so it's inserted directly after activate()
+    // NO Rust code here - only raw pointer conversion and direct assembly jump
+    let frame_ptr = frame as *const crate::trap::TrapFrame;
+
+    // Direct jump to assembly - no logs, no temporaries, no cleanup code possible
+    unsafe {
+        core::arch::asm!(
+        // Set up CSRs first (sepc, sstatus)
+        "ld t0, {off_sepc}(t3)",
+        "csrw sepc, t0",
+        "ld t1, {off_sstatus}(t3)",
+        "csrw sstatus, t1",
+
+        // Load GPRs from frame (skip x0)
+        "ld ra,   1*8(t3)",
+        "ld gp,   3*8(t3)",
+        "ld tp,   4*8(t3)",
+        "ld t0,   5*8(t3)",
+        "ld t1,   6*8(t3)",
+        "ld t2,   7*8(t3)",
+        "ld s0,   8*8(t3)",
+        "ld s1,   9*8(t3)",
+        "ld a0,  10*8(t3)",
+        "ld a1,  11*8(t3)",
+        "ld a2,  12*8(t3)",
+        "ld a3,  13*8(t3)",
+        "ld a4,  14*8(t3)",
+        "ld a5,  15*8(t3)",
+        "ld a6,  16*8(t3)",
+        "ld a7,  17*8(t3)",
+        "ld s2,  18*8(t3)",
+        "ld s3,  19*8(t3)",
+        "ld s4,  20*8(t3)",
+        "ld s5,  21*8(t3)",
+        "ld s6,  22*8(t3)",
+        "ld s7,  23*8(t3)",
+        "ld s8,  24*8(t3)",
+        "ld s9,  25*8(t3)",
+        "ld s10, 26*8(t3)",
+        "ld s11, 27*8(t3)",
+        "ld t4,  29*8(t3)",
+        "ld t5,  30*8(t3)",
+        "ld t6,  31*8(t3)",
+        // Load sp before restoring pointer register
+        "ld sp,   2*8(t3)",
+        // Restore pointer register itself LAST to avoid clobbering base early
+        "ld t3,  28*8(t3)",
+
+        // Return to task via sret
+        "sret",
+
+        in("t3") frame_ptr,
+        off_sepc = const core::mem::offset_of!(crate::trap::TrapFrame, sepc),
+        off_sstatus = const core::mem::offset_of!(crate::trap::TrapFrame, sstatus),
+        options(noreturn)
+        );
+    }
+}
+
 /// Kernel main invoked after boot assembly completed.
 /// CRITICAL: Activate kernel address space before complex init; idle loop uses SYSCALL_YIELD.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn kmain() -> ! {
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
-    let mut kernel = KernelState::new();
+    let kernel = unsafe { init_kernel_state() };
+    let _default_trap_domain = crate::trap::install_runtime(
+        &mut kernel.scheduler,
+        &mut kernel.tasks,
+        &mut kernel.ipc,
+        &mut kernel.address_spaces,
+        &kernel.syscalls,
+    );
+    kernel
+        .tasks
+        .bootstrap_mut()
+        .set_trap_domain(_default_trap_domain);
     // Touch HAL traits to satisfy imports
     let uart_dev = kernel.hal.uart();
     let _: &dyn crate::hal::Uart = uart_dev;
@@ -242,17 +448,6 @@ pub fn kmain() -> ! {
     #[cfg(feature = "boot_timing")]
     let t2 = crate::arch::riscv::read_time();
     {
-        // Make trap fastpath available to selftests for real scheduling via ECALL
-        // before borrowing components into the selftest context.
-        unsafe {
-            crate::trap::register_scheduler_env(
-                &mut kernel.scheduler,
-                &mut kernel.tasks,
-                &mut kernel.ipc,
-                &mut kernel.address_spaces,
-            );
-            crate::trap::register_syscall_table(&mut kernel.syscalls);
-        }
         let mut ctx = selftest::Context {
             hal: &kernel.hal,
             router: &mut kernel.ipc,
@@ -292,7 +487,11 @@ pub fn kmain() -> ! {
             }
         }
         // Prefer private selftest stack on OS if enabled; applies to full suite and spawn-only
-        #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(
+            feature = "selftest_priv_stack",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         selftest::entry_on_private_stack(&mut ctx);
         #[cfg(not(all(
             feature = "selftest_priv_stack",
@@ -314,4 +513,9 @@ pub fn kmain() -> ! {
     // emitting their own readiness markers.
 
     kernel.idle_loop()
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+pub fn kmain() -> ! {
+    panic!("kmain is only available on riscv64 none target");
 }

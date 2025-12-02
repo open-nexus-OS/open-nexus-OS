@@ -1,5 +1,6 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
+#![cfg_attr(feature = "os-payload", no_std)]
 
 //! CONTEXT: Init process selecting Host std backend or OS-lite cooperative bootstrap
 //! OWNERS: @init-team @runtime
@@ -14,12 +15,28 @@
 //! variant uses a cooperative bootstrap stub that will gain capabilities in
 //! later stages of the migration.
 
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+/// Shared os-lite loader facade used by the deprecated init-lite wrapper.
+#[cfg(feature = "os-payload")]
+pub mod os_payload;
+
+#[cfg(all(
+    not(feature = "os-payload"),
+    all(nexus_env = "os", feature = "os-lite")
+))]
 mod os_lite;
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+#[cfg(all(
+    not(feature = "os-payload"),
+    all(nexus_env = "os", feature = "os-lite")
+))]
 pub use os_lite::*;
 
-#[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+#[cfg(all(
+    not(feature = "os-payload"),
+    not(all(nexus_env = "os", feature = "os-lite"))
+))]
 mod std_server;
-#[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+#[cfg(all(
+    not(feature = "os-payload"),
+    not(all(nexus_env = "os", feature = "os-lite"))
+))]
 pub use std_server::*;

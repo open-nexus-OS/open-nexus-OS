@@ -31,7 +31,13 @@ pub struct BootstrapMsg {
 impl BootstrapMsg {
     /// Creates a message with the provided fields.
     pub const fn new(argc: u32, argv_ptr: u64, env_ptr: u64, cap_seed_ep: u32, flags: u32) -> Self {
-        Self { argc, argv_ptr, env_ptr, cap_seed_ep, flags }
+        Self {
+            argc,
+            argv_ptr,
+            env_ptr,
+            cap_seed_ep,
+            flags,
+        }
     }
 
     /// Serialises the message into a little-endian byte array suitable for

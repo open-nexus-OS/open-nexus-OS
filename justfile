@@ -26,9 +26,12 @@ help:
     @echo
     @echo "[Kernel Developers]"
     @echo "  just build-kernel        # cross-compile kernel (riscv)"
+    @echo "  just build-nexus-log-os  # cross-compile nexus-log (userspace sink)"
+    @echo "  just build-init-lite-os  # cross-compile init-lite userspace payload"
     @echo "  just test-os             # run kernel selftests in QEMU"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
+    @echo "  INIT_LITE_LOG_TOPICS=svc-meta just qemu  # opt-in init-lite log topics"
     @echo
     @echo "[Project Maintainers]"
     @echo "  just lint                # run clippy checks"
@@ -39,6 +42,14 @@ help:
 # Build the bootable NEURON binary crate
 build-kernel:
     cargo +{{toolchain}} build -p neuron-boot --target riscv64imac-unknown-none-elf --release
+
+# Cross-compile the shared logging shim with the OS sink
+build-nexus-log-os:
+    @env RUSTFLAGS='{{os_rustflags}}' cargo +{{toolchain}} build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release
+
+# Cross-compile the os-lite init payload
+build-init-lite-os:
+    @env RUSTFLAGS='{{os_rustflags}}' cargo +{{toolchain}} build -p init-lite --target riscv64imac-unknown-none-elf --release
 
 # Build only the kernel library with its own panic handler (no binary)
 build-kernel-lib:

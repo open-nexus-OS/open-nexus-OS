@@ -185,11 +185,9 @@ impl PackageFsClient {
             return Err(Error::Decode);
         }
         let mut cursor = std::io::Cursor::new(body);
-        let message = capnp::serialize::read_message(
-            &mut cursor,
-            capnp::message::ReaderOptions::new(),
-        )
-        .map_err(|_| Error::Decode)?;
+        let message =
+            capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
+                .map_err(|_| Error::Decode)?;
         let response = message
             .get_root::<publish_response::Reader<'_>>()
             .map_err(|_| Error::Decode)?;
@@ -218,11 +216,9 @@ impl PackageFsClient {
             return Err(Error::Decode);
         }
         let mut cursor = std::io::Cursor::new(body);
-        let message = capnp::serialize::read_message(
-            &mut cursor,
-            capnp::message::ReaderOptions::new(),
-        )
-        .map_err(|_| Error::Decode)?;
+        let message =
+            capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
+                .map_err(|_| Error::Decode)?;
         let response = message
             .get_root::<resolve_response::Reader<'_>>()
             .map_err(|_| Error::Decode)?;
@@ -231,17 +227,16 @@ impl PackageFsClient {
         }
         let size = response.get_size();
         let kind = response.get_kind();
-        let bytes = response
-            .get_bytes()
-            .map_err(|_| Error::Decode)?
-            .to_vec();
+        let bytes = response.get_bytes().map_err(|_| Error::Decode)?.to_vec();
         Ok(ResolvedEntry::new(size, kind, bytes))
     }
 
     #[cfg(nexus_env = "host")]
     /// Creates a client bound to the provided loopback connection.
     pub fn from_loopback(client: nexus_ipc::LoopbackClient) -> Self {
-        Self { backend: Backend::Host(host::Client::from_loopback(client)) }
+        Self {
+            backend: Backend::Host(host::Client::from_loopback(client)),
+        }
     }
 }
 
@@ -281,7 +276,9 @@ mod host {
 
     impl Client {
         pub fn from_loopback(client: LoopbackClient) -> Self {
-            Self { ipc: Arc::new(client) }
+            Self {
+                ipc: Arc::new(client),
+            }
         }
 
         pub fn call(&self, frame: Vec<u8>) -> Result<Vec<u8>> {

@@ -5,18 +5,29 @@ edition = "2021"
 license = "Apache-2.0"
 
 [features]
-default = ["idl-capnp"]
+default = ["std", "idl-capnp"]
+std = [
+    "dep:policy",
+    "dep:nexus-idl-runtime",
+    "dep:capnp",
+    "dep:nexus-ipc",
+    "nexus-ipc/std",
+    "dep:thiserror",
+]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+os-lite = ["dep:nexus-service-entry", "dep:nexus-abi"]
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-policy = { path = "../../../userspace/policy" }
-nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
+policy = { path = "../../../userspace/policy", optional = true }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.19", optional = true }
-nexus-ipc = { path = "../../../userspace/nexus-ipc" }
-thiserror = "1"
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+thiserror = { version = "1", optional = true }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 
 [[bin]]
 name = "policyd"

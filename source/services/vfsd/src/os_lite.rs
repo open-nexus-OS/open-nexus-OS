@@ -1,8 +1,12 @@
 use alloc::collections::BTreeMap;
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use nexus_ipc::{IpcError, LiteServer, Wait};
+use core::fmt;
+
+use nexus_abi;
+use nexus_ipc::{IpcError, KernelServer, Server, Wait};
 
 const OPCODE_STAT: u8 = 4;
 const OPCODE_OPEN: u8 = 1;
@@ -18,19 +22,37 @@ pub type Result<T> = core::result::Result<T, Error>;
 /// Errors produced by the os-lite backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
+    /// Mailbox transport failure.
     Transport,
+    /// Path does not match `pkg:/bundle@version/path`.
     InvalidPath,
+    /// Bundle or entry missing from the namespace.
     NotFound,
+    /// File handle referenced after it was closed.
     BadHandle,
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport => write!(f, "transport error"),
+            Self::InvalidPath => write!(f, "invalid path"),
+            Self::NotFound => write!(f, "entry not found"),
+            Self::BadHandle => write!(f, "invalid file handle"),
+        }
+    }
+}
+
+/// Signals init-lite once the service is ready.
 pub struct ReadyNotifier<F: FnOnce() + Send>(F);
 
 impl<F: FnOnce() + Send> ReadyNotifier<F> {
+    /// Creates a notifier from the provided closure.
     pub fn new(func: F) -> Self {
         Self(func)
     }
 
+    /// Invokes the stored closure to emit readiness.
     pub fn notify(self) {
         (self.0)();
     }
@@ -52,7 +74,9 @@ impl Namespace {
         if entry.kind != KIND_FILE {
             return Err(Error::InvalidPath);
         }
-        Ok(FileHandle { bytes: entry.bytes.clone(), kind: entry.kind })
+        Ok(FileHandle {
+            bytes: entry.bytes.clone(),
+        })
     }
 
     fn resolve(&self, path: &str) -> Result<&Entry> {
@@ -86,18 +110,18 @@ struct Entry {
 
 struct FileHandle {
     bytes: Vec<u8>,
-    kind: u16,
 }
 
+/// Runs the cooperative vfsd loop and emits a readiness marker once.
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Result<()> {
     debug_print("vfsd: ready\n");
     notifier.notify();
-    let server = LiteServer::new().map_err(|_| Error::Transport)?;
+    let server = KernelServer::new().map_err(|_| Error::Transport)?;
     let namespace = seed_namespace();
     run_loop(server, namespace)
 }
 
-fn run_loop(server: LiteServer, namespace: Namespace) -> Result<()> {
+fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut handles: BTreeMap<u32, FileHandle> = BTreeMap::new();
     let mut next_handle: u32 = 1;
     loop {
@@ -121,7 +145,9 @@ fn run_loop(server: LiteServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        server
+                            .send(&reply, Wait::Blocking)
+                            .map_err(|_| Error::Transport)?;
                     }
                     OPCODE_OPEN => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");
@@ -136,7 +162,9 @@ fn run_loop(server: LiteServer, namespace: Namespace) -> Result<()> {
                             }
                             Err(_) => reply.push(0),
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        server
+                            .send(&reply, Wait::Blocking)
+                            .map_err(|_| Error::Transport)?;
                     }
                     OPCODE_READ => {
                         if frame.len() < 1 + 4 + 8 + 4 {
@@ -144,20 +172,24 @@ fn run_loop(server: LiteServer, namespace: Namespace) -> Result<()> {
                         }
                         let fh = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
                         let off = u64::from_le_bytes([
-                            frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11], frame[12],
+                            frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
+                            frame[12],
                         ]);
                         let len = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
                         let mut reply = Vec::new();
                         match handles.get(&fh) {
                             Some(handle) => {
                                 let start = off.min(handle.bytes.len() as u64) as usize;
-                                let end = start.saturating_add(len as usize).min(handle.bytes.len());
+                                let end =
+                                    start.saturating_add(len as usize).min(handle.bytes.len());
                                 reply.push(1);
                                 reply.extend_from_slice(&handle.bytes[start..end]);
                             }
                             None => reply.push(0),
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        server
+                            .send(&reply, Wait::Blocking)
+                            .map_err(|_| Error::Transport)?;
                     }
                     OPCODE_CLOSE => {
                         if frame.len() < 5 {
@@ -170,7 +202,9 @@ fn run_loop(server: LiteServer, namespace: Namespace) -> Result<()> {
                         } else {
                             reply.push(0);
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        server
+                            .send(&reply, Wait::Blocking)
+                            .map_err(|_| Error::Transport)?;
                     }
                     _ => {
                         let _ = nexus_abi::yield_();
@@ -192,31 +226,65 @@ fn seed_namespace() -> Namespace {
     let mut hello_entries = BTreeMap::new();
     hello_entries.insert(
         "manifest.json".to_string(),
-        Entry { kind: KIND_FILE, size: 64, bytes: b"{\"name\":\"demo.hello\"}".to_vec() },
+        Entry {
+            kind: KIND_FILE,
+            size: 64,
+            bytes: b"{\"name\":\"demo.hello\"}".to_vec(),
+        },
     );
     hello_entries.insert(
         "payload.elf".to_string(),
-        Entry { kind: KIND_FILE, size: HELLO_ELF.len() as u64, bytes: HELLO_ELF.to_vec() },
+        Entry {
+            kind: KIND_FILE,
+            size: HELLO_ELF.len() as u64,
+            bytes: HELLO_ELF.to_vec(),
+        },
     );
-    hello_entries.insert(".".to_string(), Entry { kind: KIND_DIRECTORY, size: 0, bytes: Vec::new() });
+    hello_entries.insert(
+        ".".to_string(),
+        Entry {
+            kind: KIND_DIRECTORY,
+            size: 0,
+            bytes: Vec::new(),
+        },
+    );
     namespace.bundles.insert(
         "demo.hello@1.0.0".to_string(),
-        Bundle { entries: hello_entries },
+        Bundle {
+            entries: hello_entries,
+        },
     );
 
     let mut exit_entries = BTreeMap::new();
     exit_entries.insert(
         "manifest.json".to_string(),
-        Entry { kind: KIND_FILE, size: 48, bytes: b"{\"name\":\"demo.exit0\"}".to_vec() },
+        Entry {
+            kind: KIND_FILE,
+            size: 48,
+            bytes: b"{\"name\":\"demo.exit0\"}".to_vec(),
+        },
     );
     exit_entries.insert(
         "payload.elf".to_string(),
-        Entry { kind: KIND_FILE, size: EXIT_ELF.len() as u64, bytes: EXIT_ELF.to_vec() },
+        Entry {
+            kind: KIND_FILE,
+            size: EXIT_ELF.len() as u64,
+            bytes: EXIT_ELF.to_vec(),
+        },
     );
-    exit_entries.insert(".".to_string(), Entry { kind: KIND_DIRECTORY, size: 0, bytes: Vec::new() });
+    exit_entries.insert(
+        ".".to_string(),
+        Entry {
+            kind: KIND_DIRECTORY,
+            size: 0,
+            bytes: Vec::new(),
+        },
+    );
     namespace.bundles.insert(
         "demo.exit0@1.0.0".to_string(),
-        Bundle { entries: exit_entries },
+        Bundle {
+            entries: exit_entries,
+        },
     );
 
     namespace

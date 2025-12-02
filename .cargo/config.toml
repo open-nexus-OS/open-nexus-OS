@@ -12,5 +12,4 @@ rustdocflags = ["--cfg", "nexus_env=\"host\""]
 rustflags = [
     "-C", "relocation-model=static",
     "-Z", "share-generics=y",
-    "-C", "link-arg=-Tsource/kernel/neuron-boot/kernel.ld",
 ]

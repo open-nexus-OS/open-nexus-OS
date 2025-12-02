@@ -13,6 +13,9 @@ Codex frequently contributes to `open-nexus-OS`. This guide captures the expecta
 3. **Favour incremental steps.** Large rewrites should be decomposed into prompts that each produce a runnable tree (tests passing, UART markers intact). Avoid sprawling edits.
 4. **No kernel edits unless requested.** Userland and service layers are fair game; the kernel stays untouched by default.
 5. **Testing discipline.** At the end of every prompt, run the minimal necessary checks (workspace `cargo test`, targeted e2e harness, or UART marker verification). Document expected markers in the prompt itself.
+6. **Header + ADR hygiene.** Every Rust/IDL file must carry the CONTEXT header described in `docs/standards/DOCUMENTATION_STANDARDS.md` (CONTEXT/OWNERS/STATUS/API_STABILITY/TEST_COVERAGE + ADR). Update fields when behaviour changes; never delete the block. If a change crosses architectural boundaries, reference (or add) the matching ADR before landing code.
+
+Refer to `docs/agents/PLAYBOOK.md` for the per-session checklist and header reminders; it now explicitly points back to the documentation standard above.
 
 ---
 
@@ -99,3 +102,11 @@ Do not change these without updating scripts, postflight tooling, and docs in th
 ## Contact
 
 When in doubt, leave a TODO comment or open a follow-up prompt describing uncertainties (e.g. capability distribution strategy). Avoid speculative implementations without validation guidance.
+
+---
+
+## References
+
+- `docs/agents/PLAYBOOK.md` – session checklist + subsystem briefs.
+- `docs/standards/DOCUMENTATION_STANDARDS.md` – canonical CONTEXT header / ADR requirements.
+- `source/init/nexus-init/AGENTS.md` – backend-specific expectations (keep in sync with the header standard when editing runtime code).

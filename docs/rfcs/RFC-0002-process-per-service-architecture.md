@@ -1,0 +1,247 @@
+---
+title: RFC-0002 Process-Per-Service Architecture
+status: In Progress
+owners: @runtime @kernel-team
+created: 2025-10-24
+---
+
+## Context
+
+Current architecture attempts to link all services (keystored, policyd, samgrd, bundlemgrd, packagefsd, vfsd, execd) into a single no_std binary (nexus-init with os-lite feature). This creates insurmountable dependency conflicts:
+
+1. **Cargo limitation**: `target.'cfg(...)'` conditional dependencies don't prevent compilation, only linking
+2. **Std leakage**: Services transitively pull std dependencies (serde, thiserror, parking_lot, capnp, der)
+3. **Maintenance burden**: Every service dependency must be audited for no_std compatibility
+4. **Security**: Single-address-space services violate process isolation principles
+
+The TASK-0002 blocker: Cannot build nexus-init or selftest-client for `riscv64imac-unknown-none-elf` target because service dependencies require std.
+
+## Decision
+
+Adopt **process-per-service architecture** where each service is an independent ELF binary:
+
+### Architecture
+
+```
+Kernel
+  └─> spawns init (minimal, ~100 lines, only nexus-abi dependency)
+       └─> init loads and spawns service ELFs from embedded storage:
+            ├─> keystored.elf
+            ├─> policyd.elf  
+            ├─> samgrd.elf
+            ├─> bundlemgrd.elf
+            ├─> packagefsd.elf
+            ├─> vfsd.elf
+            └─> execd.elf
+```
+
+### Components
+
+1. **Minimal init** (`source/init/nexus-init`, os-lite backend)
+   - Loader, guard canaries, capability hand-off, and UART logging live in the shared `nexus-init` crate
+   - The deprecated `source/apps/init-lite` target now only stages service ELFs (via build.rs) and delegates into `nexus-init`
+   - Reads service ELFs from embedded ramdisk or kernel-provided storage
+   - Spawns each service as separate process
+   - Prints `init: start`, `init: ready` markers from the shared logging path
+
+2. **Service binaries** (each service's `src/main.rs`)
+   - Build independently for `riscv64imac-unknown-none-elf`
+   - Use conditional `#[cfg(nexus_env = "os")]` for no_std/no_main
+   - Can have std dependencies when built for host testing
+   - Link with appropriate backends (os_lite vs std_server)
+
+3. **ELF loader** (`userspace/nexus-loader`)
+   - Already exists with proper architecture (ADR-0002)
+   - Used by init to load service binaries
+   - Enforces security constraints (W^X, page alignment)
+
+4. **Embedded storage**
+   - Initial: Include service ELFs in kernel image via `include_bytes!`
+   - Future: Ramdisk filesystem or early storage driver
+
+### Migration Path
+
+#### Phase 1: Infrastructure (blocking TASK-0002)
+- [x] kernel: Add `embed_init` cfg and EMBED_INIT_ELF build variable
+- [x] kernel/selftest: Implement minimal ELF loader using existing spawn infrastructure
+- [x] Verify init-lite can be embedded and spawned as separate process
+- [x] Emit basic userspace markers to prove kernel→userspace works
+
+#### Phase 2: Service Binaries
+- [ ] Service entry wrappers per crate:
+  - [~] `keystored`: os-lite stub now emits readiness via `nexus_service_entry`, full transport still pending
+  - [ ] `policyd`: mirrors keystored pattern; no `_start`, relies on `std`
+  - [ ] `samgrd`: host-style entry with `eprintln!`; lacks `no_std` gating
+  - [ ] `bundlemgrd`: host-style entry; no `_start`
+  - [ ] `execd`: host-style entry; no `_start`
+  - [x] `debugsvc`: already uses `nexus_service_entry::declare_entry!` under `no_std`
+  - [x] `packagefsd`: wraps `service_main_loop` via `declare_entry!`
+  - [x] `vfsd`: wraps `service_main_loop` via `declare_entry!`
+- [ ] Update each service's `Cargo.toml`:
+  - Add `[[bin]]` section where missing
+  - Ensure dependencies build for both host and OS targets (gate or replace `std` features)
+- [ ] Cargo feature refactor:
+  - Replace `target.'cfg(...)'.dependencies` + `feature = "..."` shims with real crate features that explicitly gate optional deps.
+  - Define `os-lite` feature per service crate to pull in `nexus-service-entry`/`nexus-abi` while keeping host transports behind `std`.
+  - Document the dependency split here so CI treats the warning fix as part of RFC‑0002 rather than one-off cleanup.
+- [~] Build service ELFs: `cargo build -p <service> --target riscv64imac-unknown-none-elf --features os-lite` (init-lite + debug/pf/vfsd/keystored done; remaining services still blocked on no_std ports).
+- [ ] Init packaging + guard hygiene (ties into RFC‑0003/0004):
+  - [x] Relocate the generated `ServiceImage` tables (names + include_bytes! blobs) into `.rodata` so they never overlap the `.bss` guard fence referenced by RFC‑0003/0004.
+  - [x] Move the `__small_data_guard` symbol into a dedicated `NOLOAD` section to keep the guard address range distinct from real data and stop `nexus_log` from faulting when probing service metadata.
+  - [~] Map text/data segments with disjoint VMOs and enforce W^X at the kernel `as_map` boundary (see RFC‑0004 status update). Kernel-side W^X + the dedicated VMO arena are in place; explicit `PROT_NONE` guards and scratch-page zeroing remain.
+
+#### Phase 3: Init Integration
+- [ ] Create ramdisk or embedded storage format
+- [ ] Enhance init to:
+  - Enumerate available service ELFs
+  - Load each using `nexus-loader`
+  - Spawn as separate processes with isolated address spaces
+  - Transfer appropriate capabilities per service
+- [ ] Wait for service ready markers before proceeding
+
+#### Phase 4: Testing
+- [ ] Update `scripts/run-qemu-rv64.sh` to embed init + service ELFs
+- [ ] Verify marker sequence with real service processes
+- [ ] Run VFS operations from selftest-client against real vfsd/packagefsd
+
+## Rationale
+
+**Benefits:**
+- **Eliminates dependency hell**: Each service builds independently with its own dependency closure
+- **Process isolation**: Services in separate address spaces (security, fault isolation)
+- **Incremental migration**: Can convert services one at a time
+- **Matches ADR-0001**: Clear role boundaries (init, loader, services)
+- **Production-ready**: Standard OS architecture
+
+**Costs:**
+- **More binaries**: Must build and embed multiple ELFs (init + N services)
+- **Loader complexity**: Init needs ELF loading capability (already exists in nexus-loader)
+- **Boot time**: Sequential service loading/spawning (acceptable for embedded)
+
+**Alternatives considered:**
+1. ❌ **Fix service std dependencies**: Massive audit/refactor, ongoing maintenance burden
+2. ❌ **Cargo features per dependency**: Doesn't solve transitive dependencies, complex
+3. ❌ **Single-address-space services**: Current approach, fundamentally broken
+4. ✅ **Process-per-service**: Industry standard, clean architecture
+
+## Consequences
+
+**Immediate (TASK-0002):**
+- Can complete userspace VFS proof by spawning real service processes
+- Markers come from actual running services, not fakes
+- Proves end-to-end userspace IPC and VFS functionality
+
+**Long-term:**
+- Services can use any dependencies (std or no_std) as appropriate
+- Better security and fault isolation
+- Easier to test services independently
+- Aligns with production OS architecture
+
+## Open Questions
+
+1. **Storage format**: Embed ELFs as separate blobs or in tar/cpio archive?
+   - **Recommendation**: Start with individual `include_bytes!`, migrate to ramdisk format later
+
+2. **Capability distribution**: How does init know which caps to give each service?
+   - **Recommendation**: Hardcode initial policy in init, move to config file in Phase 4
+
+3. **Service dependencies**: How to handle servicevice startup ordering (e.g., vfsd needs packagefsd)?
+   - **Recommendation**: Simple sequential launch order in init, no dependency graph yet
+
+4. **Failure handling**: What if a service fails to load/start?
+   - **Recommendation**: Log error and continue (don't block other services), revisit with supervision
+
+## Implementation Status
+
+### Phase 1: Kernel ELF Loader ✅ COMPLETE
+- Kernel: ELF embedding infrastructure (build.rs, check-cfg)
+- Kernel: ELF64 parser in selftest
+- Kernel: User page allocation and mapping
+- Kernel: Spawn with separate AS and U-mode (SPP=0)
+- Init spawns correctly (PID 5, entry=0x10400000, sp=0x20000000)
+
+### Phase 2: Userspace Scheduling ✅ COMPLETE
+- Init-lite built, embedded, and scheduled
+- Dynamic trap runtime replaces static `TRAP_ENV` (per-task trap domains)
+- Context switch path uses pure Rust + inline asm (no `#[naked]`, no post-satp cleanup)
+- U-mode syscalls execute repeatedly; init-lite prints `init: start` marker via `SYSCALL_DEBUG_PUTC`
+- User page fault at `0x10000000` fixed by relocating init-lite ROM to `0x10400000`
+
+- ### Phase 3: Service Binaries (Audit 2025-11-24)
+- Host-oriented wrappers for `policyd`, `samgrd`, `bundlemgrd`, and `execd` still depend on `std` transport stacks and only expose `fn main()`.
+- `debugsvc`, `packagefsd`, and `vfsd` integrate `nexus_service_entry::declare_entry!` with `no_std` gating and compile for the OS target.
+- `keystored` now offers an os-lite stub (`nexus_service_entry` + cooperative loop) while the full Cap'n Proto transport remains host-only.
+- Primary blockers: keystore/policy crates require filesystem and heap abstractions from `std`; need feature gates or replacements prior to no_std builds.
+- Next steps: refactor remaining services onto `nexus_service_entry`, gate `std` usage, and add OS `[[bin]]` manifests.
+
+### Phase 3: Service Binaries (Next)
+- [ ] Service binaries: migrate remaining crates to `nexus_service_entry` and `no_std`
+- [x] Init: ELF loading and multi-service spawn (env-driven bundle; awaiting full service roster)
+- [x] Relocate loader/logging logic into `nexus-init` so the deprecated `init-lite` binary is only a payload wrapper
+- [ ] Scripts: Build and embed all service ELFs (helper plumbing landed, needs real no_std builds)
+- [ ] Testing: End-to-end with real services
+
+### Phase 4: Testing (Next)
+- [x] Update `scripts/run-qemu-rv64.sh` to embed init + service ELFs
+- [ ] Verify marker sequence with real service processes
+- [ ] Run VFS operations from selftest-client against real vfsd/packagefsd
+
+### Known Gaps
+- `userspace/nexus-ipc/src/lib.rs` currently contains a duplicated module body. That duplication breaks `cargo fmt`/`cargo check`; we need the IPC layer clean before launching real user processes to avoid booting on a “dirty” chain.
+
+### Recent Progress (2025-11-18)
+- Address-space switch now atomic: `activate()` + context restore fused into `context_switch_with_activate`
+- Trap handler hardened with per-task trap domains; resolves `sepc` corruption/double-fault
+- Logging path moved to `nexus-log`; temporary uart probes guard against unsafe pointers until Phase 0a lands (RFC-0003)
+- User entry migrated to `nexus_service_entry::declare_entry!`; no kernel `#[naked]` functions
+- `init-lite` relinked to `0x10400000`; first user trap prints correct 16-digit diagnostics
+- QEMU runs show sustained ECALLs without kernel faults; groundwork ready for spawning additional services
+- Init build script now consumes `INIT_LITE_SERVICE_LIST` + per-service ELF env vars, parses ELF headers directly, and maps segments without `nexus-loader`
+- Current blocker: logging guard detects runaway string lengths (e.g. `len=0x3b0fff10000`), pointing to pending Phase 0a hardening (RFC-0003 / RFC-0004). Temporary probes stay enabled while we rework the StrRef/VMO pipeline.
+
+### Recent Progress (2025-11-24)
+- Audited service binaries to document which crates already expose `_start` via `nexus_service_entry` (`debugsvc`, `packagefsd`, `vfsd`) and which remain host-only (`keystored`, `policyd`, `samgrd`, `bundlemgrd`, `execd`).
+- Captured outstanding blockers around `std`-only dependencies (filesystem-backed keystore, policy registries) ahead of the no_std porting work.
+- Landed an os-lite keystored stub that emits readiness through `nexus_service_entry`, establishing the pattern for future service shims.
+
+### Historical Debug Notes (2025-11-02)
+- Initial trap handler crash traced to stale static pointers after AS switch
+- Dynamic trap runtime and safe logging introduced to eliminate the failure mode
+
+## Execution Plan (Top-Down)
+
+### 1. Capability Contracts & Launch Policy
+- Produce a per-service capability matrix covering bootstrap endpoint, IPC rights, required VMOs and address-space handles.
+- Document expected startup order (`init → execd → packagefsd → vfsd → bundlemgrd → policyd → keystored → samgrd`) with readiness markers.
+- Derive initial policy for capability transfers in init-lite (source slots, rights masks, target slots).
+- Capture fallbacks for optional services (e.g., absence of policyd should not block vfsd bring-up).
+- Add the matrix and policy narrative to `docs/rfcs/RFC-0002` and reference ADR-0017 once finalized.
+
+### 2. Service Binary Scaffolding
+- Introduce a shared `service-entry` crate that provides `_start`, panic handler, and syscall shims under `nexus_env = "os"`.
+- Update each service crate (`keystored`, `policyd`, `samgrd`, `bundlemgrd`, `packagefsd`, `vfsd`, `execd`) with:
+  - `[[bin]]` target for OS builds.
+  - Feature gates to select between host/std main and OS `_start`.
+  - Integration tests that validate the thin entry layer on the host using `cargo test --features std`.
+- Ensure services compile standalone for `riscv64imac-unknown-none-elf` with only `nexus-abi` and minimal dependencies enabled.
+
+### 3. Init-Lite Orchestration
+- Decide short-term ELF packaging (`include_bytes!` per service vs packed archive) and implement extraction helpers.
+- Extend init-lite to enumerate packaged ELFs, load them via `nexus-loader`, and invoke kernel spawn + capability transfer per the policy above.
+- Emit structured UART markers (`service:<name>:spawned`, `service:<name>:ready`) for CI scripts.
+- Handle failure modes: log and continue on missing binary, propagate critical errors back to kernel for panic.
+- Provide build-time env controls (`INIT_LITE_SERVICE_LIST`, `INIT_LITE_SERVICE_<NAME>_ELF/STACK_PAGES`) and wire `run-qemu-rv64.sh` to stage default services.
+
+### 4. Tooling & Validation
+- Update `scripts/run-qemu-rv64.sh` to embed the full service bundle and capture the readiness markers.
+- Add a smoke test that boots QEMU, waits for `init: ready` plus all service markers, and asserts no kernel traps were emitted.
+- Expand selftest-client to exercise a minimal cross-service workflow (e.g., request file listing via `vfsd` backed by `packagefsd`).
+- Track outstanding work with GitHub issues per service, linking back to this RFC section for scope alignment.
+
+## References
+
+- ADR-0001: Runtime Roles & Boundaries
+- ADR-0002: Nexus Loader Architecture  
+- ADR-0017: Service Architecture
+- TASK-0002: Userspace VFS Proof
+- `userspace/nexus-loader/`: Existing ELF loader implementation

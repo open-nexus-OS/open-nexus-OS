@@ -38,8 +38,14 @@ mod tests {
     #[test]
     fn allow_lookup() {
         let entries = [
-            PolicyEntry { capability: "window.manage", allow: true },
-            PolicyEntry { capability: "window.debug", allow: false },
+            PolicyEntry {
+                capability: "window.manage",
+                allow: true,
+            },
+            PolicyEntry {
+                capability: "window.debug",
+                allow: false,
+            },
         ];
         let policy = Policy::new(&entries);
         assert!(policy.allows("window.manage"));

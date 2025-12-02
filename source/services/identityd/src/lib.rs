@@ -154,8 +154,9 @@ impl IdentityService {
     }
 
     fn handle_frame(&self, frame: &[u8]) -> Result<Vec<u8>, ServerError> {
-        let (opcode, payload) =
-            frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+        let (opcode, payload) = frame
+            .split_first()
+            .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
         match opcode {
             &OPCODE_GET_DEVICE_ID => self.handle_get_device_id(),
             &OPCODE_SIGN => self.handle_sign(payload),
@@ -180,7 +181,9 @@ impl IdentityService {
         let request = message
             .get_root::<sign_request::Reader<'_>>()
             .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let data = request.get_payload().map_err(|err| ServerError::Decode(err.to_string()))?;
+        let data = request
+            .get_payload()
+            .map_err(|err| ServerError::Decode(err.to_string()))?;
         let signature: Signature = self.identity.sign(data);
 
         let mut response = Builder::new_default();
@@ -200,19 +203,26 @@ impl IdentityService {
         let request = message
             .get_root::<verify_request::Reader<'_>>()
             .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let message_bytes =
-            request.get_payload().map_err(|err| ServerError::Decode(err.to_string()))?;
-        let signature_bytes =
-            request.get_signature().map_err(|err| ServerError::Decode(err.to_string()))?;
-        let verifying_key_bytes =
-            request.get_verifying_key().map_err(|err| ServerError::Decode(err.to_string()))?;
+        let message_bytes = request
+            .get_payload()
+            .map_err(|err| ServerError::Decode(err.to_string()))?;
+        let signature_bytes = request
+            .get_signature()
+            .map_err(|err| ServerError::Decode(err.to_string()))?;
+        let verifying_key_bytes = request
+            .get_verifying_key()
+            .map_err(|err| ServerError::Decode(err.to_string()))?;
 
         let signature_bytes: [u8; 64] = signature_bytes.try_into().map_err(|_| {
-            ServerError::Identity(IdentityError::Deserialize("invalid signature length".into()))
+            ServerError::Identity(IdentityError::Deserialize(
+                "invalid signature length".into(),
+            ))
         })?;
         let signature = Signature::from_bytes(&signature_bytes);
         let verifying_key_slice: [u8; 32] = verifying_key_bytes.try_into().map_err(|_| {
-            ServerError::Identity(IdentityError::Deserialize("invalid verifying key length".into()))
+            ServerError::Identity(IdentityError::Deserialize(
+                "invalid verifying key length".into(),
+            ))
         })?;
         let verifying_key = VerifyingKey::from_bytes(&verifying_key_slice)
             .map_err(|err| ServerError::Identity(IdentityError::Crypto(err.to_string())))?;
@@ -322,10 +332,15 @@ where
 {
     let service = IdentityService::new(identity);
     loop {
-        match transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
+        match transport
+            .recv()
+            .map_err(|err| ServerError::Transport(err.into()))?
+        {
             Some(frame) => {
                 let response = service.handle_frame(&frame)?;
-                transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
+                transport
+                    .send(&response)
+                    .map_err(|err| ServerError::Transport(err.into()))?;
             }
             None => return Ok(()),
         }
@@ -334,8 +349,10 @@ where
 
 /// Creates a loopback transport pair for host tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
-{
+pub fn loopback_transport() -> (
+    nexus_ipc::LoopbackClient,
+    IpcTransport<nexus_ipc::LoopbackServer>,
+) {
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -367,15 +384,22 @@ mod tests {
     fn get_device_id_roundtrip() {
         let identity = Identity::generate().expect("identity");
         let service = IdentityService::new(identity.clone());
-        let response = service.handle_frame(&[OPCODE_GET_DEVICE_ID]).expect("device id response");
+        let response = service
+            .handle_frame(&[OPCODE_GET_DEVICE_ID])
+            .expect("device id response");
         assert_eq!(response.first(), Some(&OPCODE_GET_DEVICE_ID));
         let mut cursor = Cursor::new(&response[1..]);
         let message =
             serialize::read_message(&mut cursor, ReaderOptions::new()).expect("read response");
-        let reader =
-            message.get_root::<get_device_id_response::Reader<'_>>().expect("response root");
+        let reader = message
+            .get_root::<get_device_id_response::Reader<'_>>()
+            .expect("response root");
         assert_eq!(
-            reader.get_device_id().expect("device id").to_str().expect("utf8"),
+            reader
+                .get_device_id()
+                .expect("device id")
+                .to_str()
+                .expect("utf8"),
             identity.device_id().as_str()
         );
     }
@@ -403,7 +427,9 @@ mod tests {
         let mut cursor = Cursor::new(&response[1..]);
         let message =
             serialize::read_message(&mut cursor, ReaderOptions::new()).expect("read sign response");
-        let reader = message.get_root::<sign_response::Reader<'_>>().expect("sign response root");
+        let reader = message
+            .get_root::<sign_response::Reader<'_>>()
+            .expect("sign response root");
         assert!(reader.get_ok(), "sign operation succeeds");
         let signature = reader.get_signature().expect("signature").to_vec();
 
@@ -421,13 +447,16 @@ mod tests {
         verify_frame.push(OPCODE_VERIFY);
         verify_frame.extend_from_slice(&verify_body);
 
-        let verify_response = service.handle_frame(&verify_frame).expect("verify response");
+        let verify_response = service
+            .handle_frame(&verify_frame)
+            .expect("verify response");
         assert_eq!(verify_response.first(), Some(&OPCODE_VERIFY));
         let mut cursor = Cursor::new(&verify_response[1..]);
         let message = serialize::read_message(&mut cursor, ReaderOptions::new())
             .expect("read verify response");
-        let reader =
-            message.get_root::<verify_response::Reader<'_>>().expect("verify response root");
+        let reader = message
+            .get_root::<verify_response::Reader<'_>>()
+            .expect("verify response root");
         assert!(reader.get_valid(), "signature must validate");
     }
 }

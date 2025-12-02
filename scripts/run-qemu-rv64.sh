@@ -8,6 +8,7 @@
 #   QEMU_LOG_MAX     – maximum size of qemu.log after trimming (default: 52428800 bytes)
 #   UART_LOG_MAX     – maximum size of uart.log after trimming (default: 10485760 bytes)
 #   QEMU_LOG / UART_LOG – override log file paths.
+#   INIT_LITE_LOG_TOPICS – comma separated init-lite log topic list (e.g. "svc-meta") propagated to the build script.
 
 set -euo pipefail
 
@@ -24,6 +25,65 @@ QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
 UART_LOG=${UART_LOG:-uart.log}
+
+join_by() {
+  local IFS="$1"
+  shift
+  echo "$*"
+}
+
+set_env_var() {
+  local name=$1
+  local value=$2
+  printf -v "$name" '%s' "$value"
+  export "$name"
+}
+
+declare -a SERVICES=()
+
+DEFAULT_SERVICE_LIST="keystored,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd"
+
+prepare_service_payloads() {
+  if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
+    INIT_LITE_SERVICE_LIST=$DEFAULT_SERVICE_LIST
+    export INIT_LITE_SERVICE_LIST
+  fi
+
+  if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
+    SERVICES=()
+  else
+    IFS=',' read -r -a SERVICES <<<"$INIT_LITE_SERVICE_LIST"
+  fi
+
+  if [[ "${#SERVICES[@]}" -eq 0 ]]; then
+    return
+  fi
+
+  for raw in "${SERVICES[@]}"; do
+    local svc=${raw//[[:space:]]/}
+    [[ -z "$svc" ]] && continue
+    local svc_upper
+    svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+
+    local cargo_flags_var="INIT_LITE_SERVICE_${svc_upper}_CARGO_FLAGS"
+    local -a cargo_args=(build -p "$svc" --target "$TARGET" --release)
+    if [[ -n "${!cargo_flags_var:-}" ]]; then
+      # shellcheck disable=SC2206 # intentionally split user-provided flags
+      local extra_flags=(${!cargo_flags_var})
+      cargo_args+=("${extra_flags[@]}")
+    else
+      cargo_args+=(--no-default-features --features os-lite)
+    fi
+    (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}")
+
+    local elf_path="$ROOT/target/$TARGET/release/$svc"
+    set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$elf_path"
+    local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
+    if [[ -z "${!stack_var:-}" ]]; then
+      set_env_var "$stack_var" "8"
+    fi
+  done
+}
 
 # Continuous QEMU tracing can easily balloon into tens of gigabytes; trim the
 # tail post-run to keep CI artifacts and local logs manageable.
@@ -224,7 +284,9 @@ finish() {
   return "$status"
 }
 
-# Always rebuild nexus-init (os-lite) and kernel to pick up changes
+prepare_service_payloads
+
+# Always rebuild init-lite and kernel to pick up changes
 (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release)
 (cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p neuron-boot --target "$TARGET" --release)
 

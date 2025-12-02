@@ -50,7 +50,12 @@ fn main() -> ! {
     }
 }
 
-#[cfg(all(nexus_env = "os", feature = "os-lite", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    nexus_env = "os",
+    feature = "os-lite",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn uart_println(s: &str) {
     for b in s.as_bytes() {
         uart_write_byte(*b);
@@ -58,7 +63,12 @@ fn uart_println(s: &str) {
     uart_write_byte(b'\n');
 }
 
-#[cfg(all(nexus_env = "os", feature = "os-lite", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    nexus_env = "os",
+    feature = "os-lite",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn uart_write_byte(byte: u8) {
     const UART0_BASE: usize = 0x1000_0000;
     const UART_TX: usize = 0x0;
@@ -68,7 +78,9 @@ fn uart_write_byte(byte: u8) {
         while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
         if byte == b'\n' {
             core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\r');
-            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
+            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0
+            {
+            }
         }
         core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, byte);
     }

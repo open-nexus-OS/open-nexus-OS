@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
-#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
+#![cfg_attr(
+    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    no_std
+)]
 //! CONTEXT: ELF64/RISC-V loader library for secure user program execution
 //! OWNERS: @runtime
 //! STATUS: Functional
@@ -23,12 +26,12 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use bitflags::bitflags;
+use core::fmt;
 use goblin::elf::{
     header::{self, header64::SIZEOF_EHDR, ELFCLASS64, ELFDATA2LSB, ELFMAG, EM_RISCV},
     program_header::PT_LOAD,
     Elf,
 };
-use thiserror::Error;
 
 pub const PAGE_SIZE: u64 = 4096;
 
@@ -44,22 +47,30 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    #[error("invalid ELF")]
     InvalidElf,
-    #[error("unsupported feature")]
     Unsupported,
-    #[error("segment has write and execute permissions")]
     ProtWx,
-    #[error("segment alignment violation")]
     Align,
-    #[error("segment goes out of bounds")]
     Oob,
-    #[error("segment data truncated")]
     Truncated,
-    #[error("internal loader error")]
     Internal,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::InvalidElf => "invalid ELF",
+            Self::Unsupported => "unsupported feature",
+            Self::ProtWx => "segment has write and execute permissions",
+            Self::Align => "segment alignment violation",
+            Self::Oob => "segment goes out of bounds",
+            Self::Truncated => "segment data truncated",
+            Self::Internal => "internal loader error",
+        };
+        f.write_str(message)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +132,10 @@ pub fn parse_elf64_riscv(bytes: &[u8]) -> Result<LoadPlan, Error> {
         if ph.p_filesz > ph.p_memsz {
             return Err(Error::Oob);
         }
-        let end = ph.p_offset.checked_add(ph.p_filesz).ok_or(Error::Internal)?;
+        let end = ph
+            .p_offset
+            .checked_add(ph.p_filesz)
+            .ok_or(Error::Internal)?;
         if end > bytes.len() as u64 {
             return Err(Error::Truncated);
         }
@@ -139,11 +153,17 @@ pub fn parse_elf64_riscv(bytes: &[u8]) -> Result<LoadPlan, Error> {
     if segments.is_empty() {
         return Err(Error::Unsupported);
     }
-    if segments.windows(2).any(|window| window[0].vaddr >= window[1].vaddr) {
+    if segments
+        .windows(2)
+        .any(|window| window[0].vaddr >= window[1].vaddr)
+    {
         return Err(Error::Unsupported);
     }
 
-    Ok(LoadPlan { entry: elf.header.e_entry, segments })
+    Ok(LoadPlan {
+        entry: elf.header.e_entry,
+        segments,
+    })
 }
 
 fn map_prot(flags: u32) -> Result<Prot, Error> {
@@ -170,7 +190,9 @@ pub fn load_with<M: Mapper>(bytes: &[u8], mapper: &mut M) -> Result<LoadPlan, Er
             &[]
         } else {
             let start = seg.off as usize;
-            let end = start.checked_add(seg.filesz as usize).ok_or(Error::Internal)?;
+            let end = start
+                .checked_add(seg.filesz as usize)
+                .ok_or(Error::Internal)?;
             bytes.get(start..end).ok_or(Error::Truncated)?
         };
         mapper.map_segment(seg, data)?;
@@ -227,7 +249,9 @@ mod tests {
         cursor.write_u32::<LittleEndian>(0).unwrap();
         cursor.write_u16::<LittleEndian>(64).unwrap();
         cursor.write_u16::<LittleEndian>(56).unwrap();
-        cursor.write_u16::<LittleEndian>(if second_segment { 2 } else { 1 }).unwrap();
+        cursor
+            .write_u16::<LittleEndian>(if second_segment { 2 } else { 1 })
+            .unwrap();
         cursor.write_u16::<LittleEndian>(0).unwrap();
         cursor.write_u16::<LittleEndian>(0).unwrap();
         cursor.write_u16::<LittleEndian>(0).unwrap();

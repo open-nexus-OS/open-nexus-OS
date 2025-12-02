@@ -12,16 +12,32 @@ name = "vfsd"
 path = "src/main.rs"
 
 [features]
-default = ["idl-capnp"]
+default = ["std", "idl-capnp"]
+std = [
+    "dep:capnp",
+    "dep:log",
+    "dep:parking_lot",
+    "dep:thiserror",
+    "dep:nexus-idl-runtime",
+    "dep:nexus-packagefs",
+    "dep:nexus-ipc",
+    "nexus-ipc/std",
+]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
-os-lite = []
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "dep:nexus-abi",
+]
 
 [dependencies]
 capnp = { version = "0.19", optional = true }
-log = "0.4"
-parking_lot = "0.12"
-thiserror = "1.0"
-
-nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite"] }
-nexus-packagefs = { path = "../../../userspace/nexus-packagefs" }
+log = { version = "0.4", optional = true }
+parking_lot = { version = "0.12", optional = true }
+thiserror = { version = "1.0", optional = true }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-packagefs = { path = "../../../userspace/nexus-packagefs", optional = true }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }

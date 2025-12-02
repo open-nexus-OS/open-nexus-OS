@@ -17,7 +17,7 @@ use crate::{
     ipc::{self, Router},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
     sched::{QosClass, Scheduler},
-    trap::TrapFrame,
+    trap::{TrapDomainId, TrapFrame},
     types::{SlotIndex, VirtAddr},
 };
 use spin::Mutex;
@@ -56,7 +56,9 @@ struct StackPool {
 
 impl StackPool {
     const fn new() -> Self {
-        Self { cursor: STACK_POOL_LIMIT }
+        Self {
+            cursor: STACK_POOL_LIMIT,
+        }
     }
 
     fn alloc(&mut self, pages: usize) -> Option<usize> {
@@ -101,7 +103,11 @@ fn allocate_guarded_stack(
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "STACK: map idx={} va=0x{:x} pa=0x{:x}\n", page, page_va, page_pa);
+            let _ = write!(
+                u,
+                "STACK: map idx={} va=0x{:x} pa=0x{:x}\n",
+                page, page_va, page_pa
+            );
         }
     }
     #[cfg(feature = "debug_uart")]
@@ -113,7 +119,15 @@ fn allocate_guarded_stack(
     VirtAddr::page_aligned(USER_STACK_TOP).ok_or(SpawnError::InvalidStackPointer)
 }
 
-fn ensure_entry_in_kernel_text(entry: VirtAddr) -> Result<(), SpawnError> {
+fn ensure_entry_in_kernel_text(
+    entry: VirtAddr,
+    address_space: Option<AsHandle>,
+) -> Result<(), SpawnError> {
+    // Skip validation for user-mode processes (when custom AS is provided)
+    if address_space.is_some() {
+        return Ok(());
+    }
+
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         extern "C" {
@@ -198,6 +212,7 @@ pub struct Task {
     exit_code: Option<i32>,
     frame: TrapFrame,
     caps: CapTable,
+    trap_domain: TrapDomainId,
     /// Handle referencing the address space bound to this task.
     pub address_space: Option<AsHandle>,
     bootstrap_slot: Option<usize>,
@@ -208,7 +223,13 @@ impl Task {
     fn bootstrap() -> Self {
         let caps = CapTable::new();
         // Avoid Default impl to minimize any unexpected code paths during bring-up.
-        let zero_frame = TrapFrame { x: [0; 32], sepc: 0, sstatus: 0, scause: 0, stval: 0 };
+        let zero_frame = TrapFrame {
+            x: [0; 32],
+            sepc: 0,
+            sstatus: 0,
+            scause: 0,
+            stval: 0,
+        };
         let t = Self {
             pid: 0,
             parent: None,
@@ -216,6 +237,7 @@ impl Task {
             exit_code: None,
             frame: zero_frame,
             caps,
+            trap_domain: TrapDomainId::default(),
             address_space: None,
             bootstrap_slot: None,
             children: Vec::new(),
@@ -263,6 +285,16 @@ impl Task {
         self.address_space
     }
 
+    /// Returns the trap domain associated with this task.
+    pub fn trap_domain(&self) -> TrapDomainId {
+        self.trap_domain
+    }
+
+    /// Sets the trap domain for this task.
+    pub fn set_trap_domain(&mut self, domain: TrapDomainId) {
+        self.trap_domain = domain;
+    }
+
     /// Returns the slot that seeded the bootstrap endpoint, if any.
     pub fn bootstrap_slot(&self) -> Option<usize> {
         self.bootstrap_slot
@@ -280,7 +312,10 @@ impl TaskTable {
     pub fn new() -> Self {
         let mut tasks_vec: Vec<Task> = Vec::new();
         tasks_vec.push(Task::bootstrap());
-        Self { tasks: tasks_vec, current: 0 }
+        Self {
+            tasks: tasks_vec,
+            current: 0,
+        }
     }
 
     /// Returns the PID of the currently running task.
@@ -341,6 +376,7 @@ impl TaskTable {
         entry_pc: VirtAddr,
         stack_sp: Option<VirtAddr>,
         address_space: Option<AsHandle>,
+        global_pointer: usize,
         bootstrap_slot: SlotIndex,
         scheduler: &mut Scheduler,
         _router: &mut Router,
@@ -351,6 +387,7 @@ impl TaskTable {
             entry_pc,
             stack_sp,
             address_space,
+            global_pointer,
             bootstrap_slot,
             scheduler,
             _router,
@@ -366,15 +403,21 @@ impl TaskTable {
         entry_pc: VirtAddr,
         stack_sp: Option<VirtAddr>,
         address_space: Option<AsHandle>,
+        global_pointer: usize,
         bootstrap_slot: SlotIndex,
         scheduler: &mut Scheduler,
         _router: &mut Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
         let parent_index = parent as usize;
-        let parent_task = self.tasks.get(parent_index).ok_or(SpawnError::InvalidParent)?;
+        let parent_task = self
+            .tasks
+            .get(parent_index)
+            .ok_or(SpawnError::InvalidParent)?;
 
-        ensure_entry_in_kernel_text(entry_pc)?;
+        ensure_entry_in_kernel_text(entry_pc, address_space)?;
+
+        let parent_domain = parent_task.trap_domain();
 
         let slot = bootstrap_slot.0;
         let bootstrap_cap = parent_task.caps.get(slot)?;
@@ -406,10 +449,29 @@ impl TaskTable {
 
         frame.x[2] = stack_top.raw();
         frame.x[1] = frame.sepc;
+        frame.x[3] = global_pointer;
+
+        // Debug: verify SP was set
+        log_info!(
+            target: "task",
+            "SPAWN-FRAME: sepc=0x{:x} sp(x2)=0x{:x} gp(x3)=0x{:x}",
+            frame.sepc,
+            frame.x[2],
+            frame.x[3]
+        );
         const SSTATUS_SPIE: usize = 1 << 5;
         const SSTATUS_SPP: usize = 1 << 8;
         const SSTATUS_SUM: usize = 1 << 18;
-        frame.sstatus |= SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM;
+
+        // For user-mode processes (separate AS), clear SPP to run in U-mode
+        // For kernel tasks (shared AS), set SPP to run in S-mode
+        if address_space.is_some() {
+            // Enable interrupts-on-return and permit S-mode to access user memory (SUM)
+            // so that trap entry can save the frame on the user stack until sscratch swap is added.
+            frame.sstatus |= SSTATUS_SPIE | SSTATUS_SUM; // U-mode task (SPP=0)
+        } else {
+            frame.sstatus |= SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM; // S-mode task
+        }
 
         let pid = self.tasks.len() as Pid;
         let task = Task {
@@ -419,6 +481,7 @@ impl TaskTable {
             exit_code: None,
             frame,
             caps: child_caps,
+            trap_domain: parent_domain,
             address_space: Some(child_as),
             bootstrap_slot: Some(slot),
             children: Vec::new(),
@@ -446,10 +509,19 @@ impl TaskTable {
         parent_slot: usize,
         rights: Rights,
     ) -> Result<usize, TransferError> {
-        let parent_task = self.tasks.get(parent as usize).ok_or(TransferError::InvalidParent)?;
+        let parent_task = self
+            .tasks
+            .get(parent as usize)
+            .ok_or(TransferError::InvalidParent)?;
         let derived = parent_task.caps.derive(parent_slot, rights)?;
-        let child_task = self.tasks.get_mut(child as usize).ok_or(TransferError::InvalidChild)?;
-        child_task.caps_mut().allocate(derived).map_err(TransferError::from)
+        let child_task = self
+            .tasks
+            .get_mut(child as usize)
+            .ok_or(TransferError::InvalidChild)?;
+        child_task
+            .caps_mut()
+            .allocate(derived)
+            .map_err(TransferError::from)
     }
 
     /// Marks the current task as exited and transitions it to the zombie state.
@@ -547,7 +619,7 @@ impl TaskTable {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "riscv64", target_os = "none"))]
 mod tests {
     use super::*;
     use crate::cap::{CapError, Capability, CapabilityKind, Rights};
@@ -584,7 +656,17 @@ mod tests {
         table.bootstrap_mut().address_space = Some(bootstrap_as);
         let entry = VirtAddr::instr_aligned(0).unwrap();
         let child = table
-            .spawn(0, entry, None, None, SlotIndex(0), &mut scheduler, &mut router, &mut spaces)
+            .spawn(
+                0,
+                entry,
+                None,
+                None,
+                0,
+                SlotIndex(0),
+                &mut scheduler,
+                &mut router,
+                &mut spaces,
+            )
             .unwrap();
 
         let slot = table.transfer_cap(0, child, 0, Rights::RECV).unwrap();

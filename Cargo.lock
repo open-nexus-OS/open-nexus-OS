@@ -11,6 +11,12 @@ name = "accessibilityd"
 version = "0.1.0"
 
 [[package]]
+name = "adler2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -221,9 +227,11 @@ dependencies = [
  "hex",
  "keystored",
  "memchr",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-packagefs",
+ "nexus-service-entry",
  "sha2",
 ]
 
@@ -422,6 +430,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "criterion"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -555,6 +572,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "debugsvc"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+]
+
+[[package]]
 name = "demo-exit0"
 version = "0.1.0"
 
@@ -566,6 +591,17 @@ checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
  "zeroize",
+]
+
+[[package]]
+name = "derive_more"
+version = "0.99.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -718,6 +754,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-loader",
+ "nexus-service-entry",
  "thiserror",
 ]
 
@@ -738,6 +775,16 @@ name = "find-msvc-tools"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52051878f80a721bb68ebfbc930e07b65ba72f2da88968ea5c06fd6ca3d3a127"
+
+[[package]]
+name = "flate2"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfe33edd8e85a12a67454e37f8c75e730830d83e313556ab9ebf9ee7fbeb3bfb"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide",
+]
 
 [[package]]
 name = "fnv"
@@ -886,7 +933,10 @@ name = "init-lite"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
- "rustc_version",
+ "nexus-init",
+ "nexus-log",
+ "nexus-service-entry",
+ "object",
 ]
 
 [[package]]
@@ -960,8 +1010,10 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "keystore",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-service-entry",
  "thiserror",
 ]
 
@@ -1026,6 +1078,16 @@ name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
+
+[[package]]
+name = "miniz_oxide"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
+dependencies = [
+ "adler2",
+ "simd-adler32",
+]
 
 [[package]]
 name = "net-virtio"
@@ -1118,6 +1180,7 @@ dependencies = [
  "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-log",
  "nexus-sync",
  "nexus-vfs",
  "packagefsd",
@@ -1137,7 +1200,6 @@ dependencies = [
  "nexus-abi",
  "nexus-sync",
  "parking_lot",
- "thiserror",
 ]
 
 [[package]]
@@ -1148,8 +1210,11 @@ dependencies = [
  "byteorder",
  "goblin",
  "nexus-abi",
- "thiserror",
 ]
+
+[[package]]
+name = "nexus-log"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-packagefs"
@@ -1168,6 +1233,15 @@ version = "0.1.0"
 [[package]]
 name = "nexus-sel"
 version = "0.1.0"
+
+[[package]]
+name = "nexus-service-entry"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-log",
+ "nexus-sync",
+]
 
 [[package]]
 name = "nexus-sync"
@@ -1220,6 +1294,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.32.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6a622008b6e321afc04970976f62ee297fdbaa6f95318ca343e3eebb9648441"
+dependencies = [
+ "flate2",
+ "memchr",
+ "ruzstd",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1249,8 +1334,10 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "log",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-service-entry",
  "parking_lot",
  "thiserror",
 ]
@@ -1341,8 +1428,10 @@ name = "policyd"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-service-entry",
  "policy",
  "thiserror",
 ]
@@ -1654,6 +1743,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58c4eb8a81997cf040a091d1f7e1938aeab6749d3a0dfa73af43cdc32393483d"
+dependencies = [
+ "byteorder",
+ "derive_more",
+ "twox-hash",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1683,8 +1783,10 @@ name = "samgrd"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-service-entry",
  "samgr",
 ]
 
@@ -1868,6 +1970,12 @@ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "rand_core 0.6.4",
 ]
+
+[[package]]
+name = "simd-adler32"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 
 [[package]]
 name = "smallvec"
@@ -2094,6 +2202,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "1.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if",
+ "static_assertions",
+]
+
+[[package]]
 name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2160,9 +2278,11 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "log",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-packagefs",
+ "nexus-service-entry",
  "parking_lot",
  "thiserror",
 ]
