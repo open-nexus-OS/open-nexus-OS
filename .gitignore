@@ -13,3 +13,8 @@
 *.nxb
 *.log
 build/*.log
+
+# Auto-generated runtime artefacts
+uart.log
+uart_ecall_chars.log
+neuron-boot.map
