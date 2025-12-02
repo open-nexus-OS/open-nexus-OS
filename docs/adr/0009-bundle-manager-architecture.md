@@ -47,3 +47,9 @@ Implement a host-first bundle manager with the following architecture:
 - Manifest validation includes field type checking and warnings
 
 
+
+
+
+
+
+

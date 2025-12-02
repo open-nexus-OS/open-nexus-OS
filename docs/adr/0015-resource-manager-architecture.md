@@ -39,3 +39,9 @@ Implement a resource manager with the following architecture:
 - Integration with resource allocation algorithms
 
 
+
+
+
+
+
+
