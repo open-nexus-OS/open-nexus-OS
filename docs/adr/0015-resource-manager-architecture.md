@@ -45,3 +45,4 @@ Implement a resource manager with the following architecture:
 
 
 
+

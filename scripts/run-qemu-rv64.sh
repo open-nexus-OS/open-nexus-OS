@@ -17,7 +17,7 @@ TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 KERNEL_ELF=$ROOT/target/$TARGET/release/neuron-boot
 KERNEL_BIN=$ROOT/target/$TARGET/release/neuron-boot.bin
 INIT_ELF=$ROOT/target/$TARGET/release/init-lite
-RUSTFLAGS_OS=${RUSTFLAGS_OS:---cfg nexus_env=\"os\"}
+RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 export RUSTFLAGS="$RUSTFLAGS_OS"
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-0}
@@ -25,6 +25,7 @@ QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
 UART_LOG=${UART_LOG:-uart.log}
+NEURON_BOOT_FEATURES=${NEURON_BOOT_FEATURES:-}
 
 join_by() {
   local IFS="$1"
@@ -142,7 +143,16 @@ monitor_uart() {
   local saw_vfs_stat=0
   local saw_vfs_read=0
   local saw_vfs_ebadf=0
-  while IFS= read -r line; do
+    while IFS= read -r line; do
+    # Generic single-marker short-circuit: if RUN_UNTIL_MARKER is a non-zero,
+    # non-"1" string, stop as soon as the line contains it.
+    if [[ "$RUN_UNTIL_MARKER" != "0" && "$RUN_UNTIL_MARKER" != "1" ]]; then
+      if [[ "$line" == *"$RUN_UNTIL_MARKER"* ]]; then
+        echo "[info] Marker \"$RUN_UNTIL_MARKER\" seen – stopping QEMU" >&2
+        pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
+        break
+      fi
+    fi
     case "$line" in
       *"init: start keystored"*)
         saw_init_start_keystored=1
@@ -274,7 +284,7 @@ finish() {
   local status=$1
   trim_log "$QEMU_LOG" "$QEMU_LOG_MAX"
   trim_log "$UART_LOG" "$UART_LOG_MAX"
-  if [[ "$status" -eq 143 && "$RUN_UNTIL_MARKER" == "1" ]]; then
+  if [[ "$status" -eq 143 && "$RUN_UNTIL_MARKER" != "0" ]]; then
     echo "[info] QEMU stopped after success marker" >&2
     status=0
   fi
@@ -288,7 +298,15 @@ prepare_service_payloads
 
 # Always rebuild init-lite and kernel to pick up changes
 (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release)
-(cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p neuron-boot --target "$TARGET" --release)
+kernel_build() {
+  local -a cargo_args=(build -p neuron-boot --target "$TARGET" --release)
+  if [[ -n "$NEURON_BOOT_FEATURES" ]]; then
+    cargo_args+=(--features "$NEURON_BOOT_FEATURES")
+  fi
+  (cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}")
+}
+
+kernel_build
 
 if [[ ! -f "$KERNEL_BIN" || "$KERNEL_BIN" -ot "$KERNEL_ELF" ]]; then
   # Use Rust's llvm-objcopy (works with all targets)
@@ -326,7 +344,7 @@ if [[ "${QEMU_GDB:-0}" == "1" ]]; then
 fi
 
 status=0
-if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
+if [[ "$RUN_UNTIL_MARKER" != "0" ]]; then
   set +e
   timeout --foreground "$RUN_TIMEOUT" stdbuf -oL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
     | tee >(monitor_uart) \

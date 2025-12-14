@@ -24,14 +24,11 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 
 ### Spawner (`source/services/execd`)
 - Single spawner for services/tasks. Uses lite IPC where applicable.
-- Should depend on `userspace/nexus-loader` for ELF/load routines.
+- Delegates to kernel `exec` loader; no userspace ELF mapping remains.
 
-### Loader (`userspace/nexus-loader`)
-- Library providing load/ELF/ABI routines for user programs.
-- Used by `execd` and test harnesses. Kernel bridge delegates here.
-
-### Kernel bridge (`source/kernel/neuron/src/user_loader.rs`)
-- Thin bridge for user-space spawn ABI. No business logic duplication.
+### Kernel exec path
+- `exec` syscall owns ELF parse/map/guard/W^X; treat it as the single loader.
+- `source/kernel/neuron/src/user_loader.rs` stays thin; no business logic duplication.
 
 ### Deprecated target (`source/apps/init-lite`)
 - Marked deprecated; keep as wrapper or pointer to `nexus-init`.

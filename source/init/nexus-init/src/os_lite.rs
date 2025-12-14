@@ -714,7 +714,11 @@ pub fn bootstrap_once<F>(notifier: ReadyNotifier<F>) -> Result<(), InitError>
 where
     F: FnOnce() + Send,
 {
-    emit_line("init: start");
+    // Deprecated path: os_lite bootstrap is retired; kernel exec loader is the only path.
+    emit_line("init: start (os_lite deprecated)");
+    emit_line("init: fail os_lite deprecated; use kernel exec loader");
+    notifier.notify();
+    return Err(InitError {});
 
     let mut spawned: Vec<SpawnHandle> = Vec::new();
 
@@ -802,11 +806,8 @@ pub fn service_main_loop<F>(notifier: ReadyNotifier<F>) -> Result<(), InitError>
 where
     F: FnOnce() + Send,
 {
-    bootstrap_once(notifier)?;
-
-    loop {
-        let _ = yield_();
-    }
+    let _ = notifier;
+    Err(InitError {})
 }
 
 fn emit_line(message: &str) {

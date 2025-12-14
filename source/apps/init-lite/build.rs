@@ -30,6 +30,11 @@ fn main() {
         Ok(spec) => println!("cargo::rustc-env=INIT_LITE_LOG_TOPICS={spec}"),
         Err(_) => println!("cargo::rustc-env=INIT_LITE_LOG_TOPICS="),
     }
+    println!("cargo:rerun-if-env-changed=INIT_LITE_FORCE_PROBE");
+    match std::env::var("INIT_LITE_FORCE_PROBE") {
+        Ok(val) => println!("cargo::rustc-env=INIT_LITE_FORCE_PROBE={val}"),
+        Err(_) => println!("cargo::rustc-env=INIT_LITE_FORCE_PROBE="),
+    }
 
     generate_service_table(&out);
 }
@@ -38,23 +43,47 @@ fn generate_service_table(out: &std::path::Path) {
     use object::{Object, ObjectSymbol};
 
     let mut services = Vec::new();
-    let manifest = std::env::var("INIT_LITE_SERVICE_LIST").unwrap_or_default();
+    let manifest_env = std::env::var("INIT_LITE_SERVICE_LIST").unwrap_or_default();
     println!("cargo:rerun-if-env-changed=INIT_LITE_SERVICE_LIST");
 
-    for raw in manifest.split(',') {
-        let name = raw.trim();
+    let default_candidates = [
+        "keystored",
+        "identityd",
+        "policyd",
+        "samgrd",
+        "bundlemgrd",
+        "packagefsd",
+        "vfsd",
+        "execd",
+    ];
+
+    // If no manifest is provided, auto-discover services for which ELFs are present.
+    let manifest_iter: Box<dyn Iterator<Item = &str>> = if manifest_env.trim().is_empty() {
+        Box::new(default_candidates.iter().copied())
+    } else {
+        Box::new(manifest_env.split(',').map(|s| s.trim()))
+    };
+
+    for name in manifest_iter {
         if name.is_empty() {
             continue;
         }
         let upper = name.to_ascii_uppercase().replace('-', "_");
         let path_var = format!("INIT_LITE_SERVICE_{}_ELF", upper);
         println!("cargo:rerun-if-env-changed={}", path_var);
-        let src_path = std::env::var(&path_var).unwrap_or_else(|_| {
-            panic!(
-                "missing {} while building init-lite (service '{}')",
-                path_var, name
-            )
-        });
+        let src_path = match std::env::var(&path_var) {
+            Ok(v) => v,
+            Err(_) => {
+                // Skip services whose ELFs are not provided when using the default list.
+                if manifest_env.trim().is_empty() {
+                    continue;
+                }
+                panic!(
+                    "missing {} while building init-lite (service '{}')",
+                    path_var, name
+                )
+            }
+        };
 
         let stack_var = format!("INIT_LITE_SERVICE_{}_STACK_PAGES", upper);
         println!("cargo:rerun-if-env-changed={}", stack_var);

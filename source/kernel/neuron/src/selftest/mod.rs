@@ -764,12 +764,14 @@ fn load_init_elf(
         }
     }
 
-    // Allocate stack (place high in user address space)
+    // Allocate stack (place high in user address space) and ensure the SP page is mapped.
     const STACK_PAGES: usize = 16;
     const USER_STACK_TOP: usize = 0x20000000;
-    let stack_base = USER_STACK_TOP - STACK_PAGES * PAGE_SIZE;
+    let total_pages = STACK_PAGES + 11; // requested + head + boundary (guard sits above)
+    let mapped_top = USER_STACK_TOP + 10 * PAGE_SIZE; // boundary mapped, guard above
+    let stack_base = mapped_top - total_pages * PAGE_SIZE;
 
-    for i in 0..STACK_PAGES {
+    for i in 0..total_pages {
         let va = stack_base + i * PAGE_SIZE;
         let pa = alloc_init_page().ok_or("stack oom")?;
         unsafe {
@@ -904,8 +906,10 @@ fn load_init_elf(
     }
 
     let gp = global_pointer.ok_or("missing gp symbol")?;
+    // Seed SP two pages below the mapped top, 16-byte aligned (stay clear of the boundary).
+    let stack_sp = (mapped_top - 2 * PAGE_SIZE) & !0xf;
 
-    Ok((e_entry, USER_STACK_TOP, gp, as_handle))
+    Ok((e_entry, stack_sp, gp, as_handle))
 }
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]

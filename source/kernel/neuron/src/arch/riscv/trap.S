@@ -22,8 +22,8 @@ __trap_vector:
     /* If trap came from U-mode (SPP=0), swap to kernel stack via sscratch */
     csrr  t0, sstatus
     /* Test SSTATUS_SPP (bit 8) */
-    andi  t0, t0, 256
-    bnez  t0, 1f
+    andi  t1, t0, 256
+    bnez  t1, 1f
     /* from U-mode: save user sp into sscratch and switch to fixed kernel stack */
     csrw  sscratch, sp
     la    sp, __stack_top
@@ -33,7 +33,13 @@ __trap_vector:
 
     /* save GPRs x1..x31 into frame.x[i] (x0 is implicit) */
     sd    ra,   1*8(sp)
-    sd    sp,   2*8(sp)         /* saved for completeness; we restore via addi */
+    /* If U-mode trap (t1==0), store user SP from sscratch; otherwise current SP. */
+    beqz  t1, 2f
+    sd    sp,   2*8(sp)         /* S-mode trap */
+    j     3f
+2:  csrr  t2, sscratch
+    sd    t2,  2*8(sp)          /* U-mode trap: preserve user SP */
+3:
     sd    gp,   3*8(sp)
     sd    tp,   4*8(sp)
     sd    t0,   5*8(sp);  sd  t1,   6*8(sp);  sd  t2,   7*8(sp)
@@ -54,19 +60,6 @@ __trap_vector:
     sd    t2, {OFF_SCAUSE}(sp)
     csrr  t3, stval
     sd    t3, {OFF_STVAL}(sp)
-
-    /* DEBUG: Log ECALL entry via raw UART (before Rust code) */
-    /* Only log if scause is ECALL (8=U-mode, 9=S-mode) */
-    li    t4, 8
-    beq   t2, t4, .L_debug_ecall
-    li    t4, 9
-    bne   t2, t4, .L_skip_debug
-.L_debug_ecall:
-    /* Write 'E' to UART at 0x10000000 */
-    li    t4, 0x10000000
-    li    t5, 0x45        /* 'E' */
-    sb    t5, 0(t4)
-.L_skip_debug:
 
     /* call Rust handler: a0 = &mut TrapFrame */
     mv    a0, sp

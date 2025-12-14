@@ -1215,6 +1215,9 @@ dependencies = [
 [[package]]
 name = "nexus-log"
 version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+]
 
 [[package]]
 name = "nexus-packagefs"

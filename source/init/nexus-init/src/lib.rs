@@ -16,7 +16,7 @@
 //! later stages of the migration.
 
 /// Shared os-lite loader facade used by the deprecated init-lite wrapper.
-#[cfg(feature = "os-payload")]
+#[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod os_payload;
 
 #[cfg(all(

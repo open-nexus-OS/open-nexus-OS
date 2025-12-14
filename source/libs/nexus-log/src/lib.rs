@@ -9,7 +9,21 @@
 
 use core::fmt;
 use core::ops::{BitOr, BitOrAssign};
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
+use core::sync::atomic::AtomicBool;
+
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
+use core::sync::atomic::AtomicUsize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
@@ -276,6 +290,9 @@ fn str_ref_permitted(ptr: usize, len: usize) -> bool {
         target_os = "none"
     ))]
     {
+        if !guard_logs_enabled() {
+            return true;
+        }
         if !is_sv39_canonical(ptr) {
             return false;
         }
@@ -287,11 +304,15 @@ fn str_ref_permitted(ptr: usize, len: usize) -> bool {
             .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
         {
-            let (start, limit) = image_bounds();
-            debug_ptr(b'S', start);
-            debug_ptr(b'E', limit);
+            if guard_logs_enabled() {
+                let (start, limit) = image_bounds();
+                debug_ptr(b'S', start);
+                debug_ptr(b'E', limit);
+            }
         }
-        if USERS_STR_DIAG.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
+        if guard_logs_enabled()
+            && USERS_STR_DIAG.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT
+        {
             debug_ptr(b'@', ptr);
             debug_ptr(b'%', end);
             debug_ptr(b'&', len);
@@ -382,8 +403,15 @@ impl<'a, 'meta> LineBuilder<'a, 'meta> {
             target_arch = "riscv64",
             target_os = "none"
         ))]
+        let guard_enabled = guard_logs_enabled();
+
+        #[cfg(all(
+            feature = "sink-userspace",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         {
-            if USERS_STR_PROBE.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
+            if guard_enabled && USERS_STR_PROBE.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
                 debug_str_probe(text.ptr(), text.len());
             }
         }
@@ -395,7 +423,7 @@ impl<'a, 'meta> LineBuilder<'a, 'meta> {
                 target_os = "none"
             ))]
             {
-                if USERS_TEXT_FAST.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
+                if guard_enabled && USERS_TEXT_FAST.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
                     trace_text_fast(text.ptr(), text.len());
                 }
             }
@@ -409,11 +437,13 @@ impl<'a, 'meta> LineBuilder<'a, 'meta> {
             target_os = "none"
         ))]
         {
-            let fallback_probe = USERS_TEXT_FALLBACK.fetch_add(1, Ordering::Relaxed);
-            if fallback_probe < PROBE_LIMIT {
-                trace_text_fallback(text.ptr(), text.len());
+            if guard_enabled {
+                let fallback_probe = USERS_TEXT_FALLBACK.fetch_add(1, Ordering::Relaxed);
+                if fallback_probe < PROBE_LIMIT {
+                    trace_text_fallback(text.ptr(), text.len());
+                }
+                debug_bad_str(text.ptr(), text.len());
             }
-            debug_bad_str(text.ptr(), text.len());
         }
 
         self.sink.write_str("<bad-str ptr=");
@@ -575,6 +605,7 @@ fn log_guard_violation(
     target_arch = "riscv64",
     target_os = "none"
 ))]
+#[allow(dead_code)]
 #[derive(Copy, Clone)]
 enum GuardFault {
     NonCanonical,
@@ -683,6 +714,9 @@ static USERS_BOUNDS_ONCE: AtomicBool = AtomicBool::new(false);
     target_os = "none"
 ))]
 fn debug_str_probe(ptr: usize, len: usize) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(b'#');
     for &b in b"probe-str ptr=0x" {
         userspace_putc(b);
@@ -702,6 +736,9 @@ fn debug_str_probe(ptr: usize, len: usize) {
     target_os = "none"
 ))]
 fn debug_bad_str(ptr: usize, len: usize) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(b'!');
     for &b in b"bad-str ptr=0x" {
         userspace_putc(b);
@@ -721,6 +758,9 @@ fn debug_bad_str(ptr: usize, len: usize) {
     target_os = "none"
 ))]
 fn debug_ptr(prefix: u8, value: usize) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(prefix);
     userspace_putc(b'=');
     emit_hex(value as u64, |b| userspace_putc(b));
@@ -733,6 +773,9 @@ fn debug_ptr(prefix: u8, value: usize) {
     target_os = "none"
 ))]
 fn trace_good_str(ptr: usize, len: usize) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(b'~');
     for &b in b"good-str ptr=0x" {
         userspace_putc(b);
@@ -752,6 +795,9 @@ fn trace_good_str(ptr: usize, len: usize) {
     target_os = "none"
 ))]
 fn trace_text_fast(ptr: usize, len: usize) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(b'^');
     for &b in b"text-fast ptr=0x" {
         userspace_putc(b);
@@ -771,6 +817,9 @@ fn trace_text_fast(ptr: usize, len: usize) {
     target_os = "none"
 ))]
 fn trace_text_fallback(ptr: usize, len: usize) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(b'^');
     for &b in b"text-fallback ptr=0x" {
         userspace_putc(b);
@@ -784,6 +833,7 @@ fn trace_text_fallback(ptr: usize, len: usize) {
     userspace_putc(b'\n');
 }
 
+#[allow(dead_code)]
 fn emit_literal(bytes: &[u8]) {
     for &b in bytes {
         userspace_putc(b);
@@ -800,6 +850,7 @@ fn level_tag(level: Level) -> u8 {
     }
 }
 
+#[allow(dead_code)]
 fn emit_level_label(level: Level) {
     match level {
         Level::Error => emit_literal(b"ERROR"),
@@ -815,7 +866,30 @@ fn emit_level_label(level: Level) {
     target_arch = "riscv64",
     target_os = "none"
 ))]
+fn guard_logs_enabled() -> bool {
+    // Default off to keep boot UART clean; opt-in with INIT_LITE_GUARD_LOG=1.
+    option_env!("INIT_LITE_GUARD_LOG") == Some("1")
+}
+
+// Host/non-RISC-V stub to keep sink-userspace compiling when the feature is
+// enabled but we are not building the os-lite target.
+#[cfg(all(
+    feature = "sink-userspace",
+    not(all(target_arch = "riscv64", target_os = "none"))
+))]
+fn guard_logs_enabled() -> bool {
+    false
+}
+
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn trace_large_write(ptr: usize, len: usize, ra: usize, level: Level, target: &str) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(b'^');
     for &b in b"log-large level=" {
         userspace_putc(b);
@@ -846,12 +920,22 @@ fn trace_large_write(ptr: usize, len: usize, ra: usize, level: Level, target: &s
     userspace_putc(b'\n');
 }
 
+// Host/non-RISC-V stub.
+#[cfg(all(
+    feature = "sink-userspace",
+    not(all(target_arch = "riscv64", target_os = "none"))
+))]
+fn trace_large_write(_ptr: usize, _len: usize, _ra: usize, _level: Level, _target: &str) {}
+
 #[cfg(all(
     feature = "sink-userspace",
     target_arch = "riscv64",
     target_os = "none"
 ))]
 fn trace_dec_slice(ptr: usize, len: usize, ra: usize) {
+    if !guard_logs_enabled() {
+        return;
+    }
     userspace_putc(b'^');
     for &b in b"dec-slice ptr=0x" {
         userspace_putc(b);
@@ -882,6 +966,16 @@ fn read_ra() -> usize {
         core::arch::asm!("mv {0}, ra", out(reg) ra);
     }
     ra
+}
+
+// Host/non-RISC-V stub.
+#[cfg(all(
+    feature = "sink-userspace",
+    not(all(target_arch = "riscv64", target_os = "none"))
+))]
+#[inline(always)]
+fn read_ra() -> usize {
+    0
 }
 
 #[cfg(all(
@@ -962,6 +1056,9 @@ mod sink_userspace {
         target: &str,
         reason: SliceProbeReason,
     ) {
+        if !crate::guard_logs_enabled() {
+            return;
+        }
         crate::userspace_putc(b'%');
         for &b in b"slice reason=" {
             crate::userspace_putc(b);
@@ -1024,10 +1121,11 @@ mod sink_userspace {
             let ra = read_ra();
             const PROBE_CAP: usize = 32;
             static BYTE_PROBE: AtomicUsize = AtomicUsize::new(0);
-            if BYTE_PROBE.fetch_add(1, Ordering::Relaxed) < PROBE_CAP {
+            if crate::guard_logs_enabled() && BYTE_PROBE.fetch_add(1, Ordering::Relaxed) < PROBE_CAP
+            {
                 trace_large_write(ptr, len, ra, self.level, self.target);
             }
-            {
+            if crate::guard_logs_enabled() {
                 crate::userspace_putc(b'&');
                 let boot_sample =
                     SLICE_PROBE_COUNT.fetch_add(1, Ordering::Relaxed) < SLICE_PROBE_BOOT_LIMIT;
@@ -1069,34 +1167,62 @@ mod sink_userspace {
 }
 
 #[inline(never)]
-fn guard_violation(ptr: usize, len: usize, ra: usize, level: Level, target: &str) -> bool {
+fn guard_violation(
+    _ptr: usize,
+    _len: usize,
+    _ra: usize,
+    _level: Level,
+    _target: &str,
+) -> bool {
     #[cfg(all(
         feature = "sink-userspace",
         target_arch = "riscv64",
         target_os = "none"
     ))]
     {
+        let ptr = _ptr;
+        let len = _len;
+        let ra = _ra;
+        let level = _level;
+        let target = _target;
         if !is_sv39_canonical(ptr) {
-            log_guard_violation(ptr, len, ra, GuardFault::NonCanonical, level, target);
+            if guard_logs_enabled() {
+                log_guard_violation(ptr, len, ra, GuardFault::NonCanonical, level, target);
+            }
             return true;
         }
         if len == 0 {
-            log_guard_violation(ptr, len, ra, GuardFault::LenZero, level, target);
-            return true;
+            return false;
         }
         if len > MAX_SLICE_LEN {
-            log_guard_violation(ptr, len, ra, GuardFault::LenTooLarge, level, target);
+            if guard_logs_enabled() {
+                log_guard_violation(ptr, len, ra, GuardFault::LenTooLarge, level, target);
+            }
             return true;
         }
         let end = match ptr.checked_add(len) {
             Some(val) => val,
             None => {
-                log_guard_violation(ptr, len, ra, GuardFault::Overflow, level, target);
+                if guard_logs_enabled() {
+                    log_guard_violation(ptr, len, ra, GuardFault::Overflow, level, target);
+                }
                 return true;
             }
         };
         if overlaps_guard(ptr, end) {
-            log_guard_violation(ptr, len, ra, GuardFault::GuardRange, level, target);
+            if guard_logs_enabled() {
+                log_guard_violation(ptr, len, ra, GuardFault::GuardRange, level, target);
+            }
+            return true;
+        }
+        // Reject slices that fall outside the mapped image; otherwise we may
+        // read from unmapped stack/guard pages and fault before logging.
+        let (start, limit) = image_bounds();
+        let in_range = ptr >= start && end <= limit;
+        if !in_range {
+            if guard_logs_enabled() {
+                log_guard_violation(ptr, len, ra, GuardFault::GuardRange, level, target);
+            }
             return true;
         }
     }
@@ -1109,20 +1235,8 @@ fn guard_violation(ptr: usize, len: usize, ra: usize, level: Level, target: &str
     target_os = "none"
 ))]
 fn userspace_putc(byte: u8) {
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            inlateout("a0") (byte as usize) => _,
-            inlateout("a7") 16usize => _,
-            lateout("a1") _,
-            lateout("a2") _,
-            lateout("a3") _,
-            lateout("a4") _,
-            lateout("a5") _,
-            lateout("a6") _,
-            options(nostack)
-        );
-    }
+    // Use the canonical syscall wrapper to avoid subtle inline-asm ABI hazards.
+    let _ = nexus_abi::debug_putc(byte);
 }
 
 #[cfg(not(all(

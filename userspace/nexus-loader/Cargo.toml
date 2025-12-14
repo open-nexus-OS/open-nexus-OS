@@ -8,7 +8,7 @@ description = "ELF64/RISC-V loader planning utilities for Nexus"
 
 [dependencies]
 bitflags = "2"
-goblin = { version = "0.8", default-features = false, features = ["elf32", "elf64", "alloc"] }
+goblin = { version = "0.8", default-features = false, features = ["elf32", "elf64", "alloc", "std", "endian_fd"] }
 nexus-abi = { path = "../../source/libs/nexus-abi" }
 
 [dev-dependencies]

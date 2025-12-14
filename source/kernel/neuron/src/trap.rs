@@ -422,16 +422,6 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
         uart_write_hex(&mut u, old_pid as usize);
         let _ = u.write_str("\n");
     });
-    uart_dbg_block!({
-        ecall_log(|u| {
-            use core::fmt::Write as _;
-            let _ = write!(
-                u,
-                "ECALL save pid=0x{:x} sepc=0x{:x}\n",
-                old_pid as usize, frame.sepc
-            );
-        });
-    });
     if let Some(task) = ctx.tasks.task_mut(old_pid) {
         uart_dbg_block!({
             let mut u = crate::uart::raw_writer();
@@ -459,6 +449,36 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
         frame.x[14],
         frame.x[15],
     ]);
+    #[cfg(feature = "debug_uart")]
+    if number != SYSCALL_DEBUG_PUTC {
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("SYSCALL a7=0x");
+            uart_write_hex(&mut u, number);
+            let _ = u.write_str(" a0=0x");
+            uart_write_hex(&mut u, frame.x[10]);
+            let _ = u.write_str("\n");
+        });
+    }
+    #[cfg(feature = "debug_uart")]
+    if number == SYSCALL_AS_MAP {
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("SYSCALL as_map handle=0x");
+            uart_write_hex(&mut u, frame.x[10]);
+            let _ = u.write_str(" vmo=0x");
+            uart_write_hex(&mut u, frame.x[11]);
+            let _ = u.write_str(" va=0x");
+            uart_write_hex(&mut u, frame.x[12]);
+            let _ = u.write_str(" len=0x");
+            uart_write_hex(&mut u, frame.x[13]);
+            let _ = u.write_str(" prot=0x");
+            uart_write_hex(&mut u, frame.x[14]);
+            let _ = u.write_str(" flags=0x");
+            uart_write_hex(&mut u, frame.x[15]);
+            let _ = u.write_str("\n");
+        });
+    }
     uart_dbg_block!({
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("HECALL dispatch num=0x");
@@ -481,7 +501,22 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
     match table.dispatch(number, ctx, &args) {
         Ok(ret) => maybe_ret = Some(ret),
         Err(SysError::TaskExit) => {}
-        Err(err) => maybe_ret = Some(encode_error(err)),
+        Err(err) => {
+            let _errno_val = encode_error(err);
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("HECALL dispatch err num=0x");
+                uart_write_hex(&mut u, number);
+                let _ = u.write_str(" sepc=0x");
+                uart_write_hex(&mut u, frame.sepc);
+                let _ = u.write_str(" err=");
+                uart_write_hex(&mut u, _errno_val);
+                let _ = u.write_str("\n");
+            });
+            // Fail-fast: terminate the offending task to avoid ECALL storms.
+            ctx.tasks.exit_current(-22);
+            return;
+        }
     }
     uart_dbg_block!({
         let mut u = crate::uart::raw_writer();
@@ -554,6 +589,22 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
     });
     if let Some(task) = ctx.tasks.task_mut(new_pid) {
         *frame = *task.frame();
+        // If the syscall path switched `current_pid` (e.g. SYSCALL_YIELD), ensure we
+        // also switch SATP + SSCRATCH before returning to U-mode. Do NOT do this for
+        // non-switching syscalls (debug_putc etc) or we will spam the UART and slow
+        // boot to a crawl.
+        if new_pid != old_pid {
+            #[cfg(not(feature = "selftest_no_satp"))]
+            if let Some(handle) = task.address_space() {
+                if ctx.address_spaces.activate(handle).is_err() {
+                    // Fail-fast: returning with a mismatched SATP is unsafe.
+                    ctx.tasks.exit_current(-22);
+                    return;
+                }
+            }
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            riscv::register::sscratch::write(frame.x[2]);
+        }
         uart_dbg_block!({
             let mut u = crate::uart::raw_writer();
             let _ = u.write_str("HECALL frame updated sepc=0x");
@@ -655,6 +706,19 @@ pub fn last_trap() -> Option<TrapFrame> {
 #[cfg(not(any(debug_assertions, feature = "trap_ring")))]
 pub fn last_trap() -> Option<TrapFrame> {
     None
+}
+
+#[cfg(any(debug_assertions, feature = "trap_ring"))]
+pub fn visit_trap_ring(mut f: impl FnMut(usize, &TrapFrame)) {
+    let len = TRAP_RING_LEN;
+    let start = *TRAP_RING_IDX.lock();
+    let ring = TRAP_RING.lock();
+    for offset in 0..len {
+        let slot = (start + offset) % len;
+        if let Some(frame) = &ring[slot] {
+            f(slot, frame);
+        }
+    }
 }
 #[inline]
 pub fn is_interrupt(scause: usize) -> bool {
@@ -825,6 +889,12 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         // Debug: Log FIRST ecall only using safe UART (no heap allocation)
         static ECALL_COUNT: core::sync::atomic::AtomicUsize =
             core::sync::atomic::AtomicUsize::new(0);
+        // Guard against true ECALL storms (same sepc repeating), but do not penalize
+        // normal syscall-heavy workloads (e.g. init printing boot markers).
+        static LAST_ECALL_SEPC: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(0);
+        static SAME_ECALL_SEPC_COUNT: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(0);
         let count = ECALL_COUNT.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
         if count == 0 {
             // CRITICAL: Minimal logging in separate scope, explicit drop before proceeding
@@ -837,16 +907,36 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             });
         }
 
-        // Debug: Log syscall number with safe UART
-        uart_dbg_block!({
-            let mut u = crate::uart::raw_writer();
-            let _ = u.write_str("SYSCALL a7=");
-            uart_write_hex(&mut u, frame.x[17]); // a7
-            let _ = u.write_str(" a0=");
-            uart_write_hex(&mut u, frame.x[10]); // a0
-            let _ = u.write_str("\n");
-        });
+        // Prevent endless ECALL storms: abort only if we observe a large number of
+        // ECALLs from the exact same sepc (no forward progress).
+        let last = LAST_ECALL_SEPC.load(core::sync::atomic::Ordering::Relaxed);
+        let same = if last == frame.sepc {
+            SAME_ECALL_SEPC_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1
+        } else {
+            LAST_ECALL_SEPC.store(frame.sepc, core::sync::atomic::Ordering::Relaxed);
+            SAME_ECALL_SEPC_COUNT.store(0, core::sync::atomic::Ordering::Relaxed);
+            0
+        };
+        if same > 10_000 {
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("ECALL-STORM abort sepc=0x");
+                uart_write_hex(&mut u, frame.sepc);
+                let _ = u.write_str(" ra=0x");
+                uart_write_hex(&mut u, frame.x[1]);
+                let _ = u.write_str("\n");
+            });
+            frame.x[10] = errno(EINVAL);
+            if let Some(mut handles) = runtime_kernel_handles() {
+                unsafe {
+                    let tasks = handles.tasks.as_mut();
+                    tasks.exit_current(-22);
+                }
+            }
+            return;
+        }
 
+        // Debug: Log syscall number with safe UART
         let kernel_handles = match runtime_kernel_handles() {
             Some(handles) => handles,
             None => {
@@ -857,6 +947,51 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 return;
             }
         };
+
+        // User-mode sanity: verify sepc is mapped in current AS and looks executable.
+        // This is diagnostic-only and protects against jumping into rodata.
+        const SSTATUS_SPP: usize = 1 << 8;
+        let from_user = (frame.sstatus & SSTATUS_SPP) == 0;
+        if from_user {
+            let tasks = unsafe { kernel_handles.tasks.as_ref() };
+            let spaces = unsafe { kernel_handles.spaces.as_ref() };
+            let pid = tasks.current_pid();
+            if let Some(task) = tasks.task(pid) {
+                if let Some(as_handle) = task.address_space() {
+                    if let Ok(space) = spaces.get(as_handle) {
+                        let pt = space.page_table();
+                        let maybe_sepc = pt.translate(frame.sepc);
+                        if let Some(_pa) = maybe_sepc {
+                            uart_dbg_block!({
+                                let mut u = crate::uart::raw_writer();
+                                let _ = u.write_str("ECALL-BOUNDS sepc ok pa=0x");
+                                uart_write_hex(&mut u, _pa);
+                                let _ = u.write_str("\n");
+                            });
+                        } else {
+                            uart_dbg_block!({
+                                let mut u = crate::uart::raw_writer();
+                                let _ = u.write_str("ECALL-BOUNDS unmapped sepc=0x");
+                                uart_write_hex(&mut u, frame.sepc);
+                                let _ = u.write_str(" ra=0x");
+                                uart_write_hex(&mut u, frame.x[1]);
+                                let _ = u.write_str(" sp=0x");
+                                uart_write_hex(&mut u, frame.x[2]);
+                                let _ = u.write_str("\n");
+                            });
+                            frame.x[10] = errno(EINVAL);
+                            if let Some(mut handles) = runtime_kernel_handles() {
+                                unsafe {
+                                    let tasks = handles.tasks.as_mut();
+                                    tasks.exit_current(-22);
+                                }
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+        }
 
         static LOGGED_ENV_PTRS: core::sync::atomic::AtomicBool =
             core::sync::atomic::AtomicBool::new(false);
@@ -1355,13 +1490,29 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         write_byte(b);
                     }
                     write_hex(frame.x[10], 16);
+                    for &b in b" a1=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.x[11], 16);
+                    for &b in b" a2=0x" {
+                        write_byte(b);
+                    }
+                    write_hex(frame.x[12], 16);
                     for &b in b" sstatus=0x" {
                         write_byte(b);
                     }
                     write_hex(frame.sstatus, 16);
+                    for &b in b" satp=0x" {
+                        write_byte(b);
+                    }
+                    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                    write_hex(riscv::register::satp::read().bits(), 16);
+                    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+                    write_hex(0, 16);
                     write_byte(b'\n');
                 }
             }
+            record(frame);
             panic!("KPGF");
         }
     }

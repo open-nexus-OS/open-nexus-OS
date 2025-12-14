@@ -54,50 +54,50 @@ pub fn emit(level: Level, target: &'static str, args: Arguments<'_>) {
 
 #[macro_export]
 macro_rules! log_error {
-    (target: $target:expr, $($arg:tt)+) => {
+    (target: $target:expr, $($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Error, $target, format_args!($($arg)+));
-    };
-    ($($arg:tt)+) => {
+    }};
+    ($($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Error, module_path!(), format_args!($($arg)+));
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! log_warn {
-    (target: $target:expr, $($arg:tt)+) => {
+    (target: $target:expr, $($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Warn, $target, format_args!($($arg)+));
-    };
-    ($($arg:tt)+) => {
+    }};
+    ($($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Warn, module_path!(), format_args!($($arg)+));
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! log_info {
-    (target: $target:expr, $($arg:tt)+) => {
+    (target: $target:expr, $($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Info, $target, format_args!($($arg)+));
-    };
-    ($($arg:tt)+) => {
+    }};
+    ($($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Info, module_path!(), format_args!($($arg)+));
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! log_debug {
-    (target: $target:expr, $($arg:tt)+) => {
+    (target: $target:expr, $($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Debug, $target, format_args!($($arg)+));
-    };
-    ($($arg:tt)+) => {
+    }};
+    ($($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Debug, module_path!(), format_args!($($arg)+));
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! log_trace {
-    (target: $target:expr, $($arg:tt)+) => {
+    (target: $target:expr, $($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Trace, $target, format_args!($($arg)+));
-    };
-    ($($arg:tt)+) => {
+    }};
+    ($($arg:tt)+) => {{
         $crate::log::emit($crate::log::Level::Trace, module_path!(), format_args!($($arg)+));
-    };
+    }};
 }

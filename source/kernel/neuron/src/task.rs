@@ -447,8 +447,10 @@ impl TaskTable {
             }
         };
 
+        // Seed minimal user frame: sp from caller, gp passed in, ra cleared so
+        // accidental returns do not jump into arbitrary memory.
         frame.x[2] = stack_top.raw();
-        frame.x[1] = frame.sepc;
+        frame.x[1] = 0;
         frame.x[3] = global_pointer;
 
         // Debug: verify SP was set

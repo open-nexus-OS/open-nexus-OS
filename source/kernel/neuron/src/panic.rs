@@ -56,6 +56,19 @@ fn panic(info: &PanicInfo) -> ! {
         let _ = w.write_str("\n");
     }
 
+    #[cfg(any(debug_assertions, feature = "trap_ring"))]
+    {
+        let _ = w.write_str("PANIC: trap ring snapshot\n");
+        trap::visit_trap_ring(|slot, frame| {
+            use core::fmt::Write as _;
+            let _ = write!(
+                w,
+                " slot=0x{:02x} sepc=0x{:016x} scause=0x{:016x} stval=0x{:016x}\n",
+                slot, frame.sepc, frame.scause, frame.stval
+            );
+        });
+    }
+
     drop(w);
 
     loop {

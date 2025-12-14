@@ -18,6 +18,7 @@
 //!   - Core services: keystored, policyd, samgrd, etc.
 //!
 //! ADR: docs/adr/0017-service-architecture.md
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -31,7 +32,6 @@ use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
 use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
 use nexus_ipc::{Client, Wait};
 use std::io::Cursor;
-use std::process::ExitCode;
 
 const CORE_SERVICES: [&str; 7] = [
     "keystored",

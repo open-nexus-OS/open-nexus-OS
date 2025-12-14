@@ -47,12 +47,16 @@ future routing (buffers, tracing).
 
 ## Implementation Status
 
+### Completion snapshot (2025-12-12)
+- Overall: ~60% complete. Unified facade + topic gating landed; hybrid guard track partially rolled out; kernel sink adoption and full StrRef/VMO provenance still pending.
+
 | Component | Status | Notes |
 | --------- | ------ | ----- |
-| Userspace sink + facade | **Complete** | `nexus-init` (os-lite backend) now routes through `nexus-log`; `init-lite` simply forwards to the shared loader (Phase 0). |
+| Userspace sink + facade | **Complete** | `nexus-init` (os-lite backend) routes through `nexus-log`; `init-lite` is a thin wrapper that only forwards into the shared path and calls into the kernel `exec` syscall. |
 | Pointer guards (Phase 0a) | **In progress (partially implemented)** | Guard code merged and `nexus-log` rejects non-canonical/guard-crossing strings; loader and VMO provenance still pending under RFC‑0004. |
-| Topic filters (Phase 2 preview) | **Partial** | `Topic` bitmask + `INIT_LITE_LOG_TOPICS` env landed; currently used by the nexus-init loader (invoked via init-lite wrapper) to gate `svc-meta` traces. |
+| Topic filters (Phase 2 preview) | **Partial** | `Topic` bitmask + `INIT_LITE_LOG_TOPICS` env landed; the mask is set by `nexus-init` and init-lite merely forwards, so svc-meta/probe traces are gated centrally. |
 | Probe topic gating | **Complete** | Verbose loader/allocator probes now attach to the `probe` topic. The topic is disabled by default so UART output stays deterministic; opt in with `INIT_LITE_LOG_TOPICS=probe,…` when debugging. |
+| Kernel exec-path logging | **Partial** | Kernel `exec`/stack mapping now emits gated `exec` topic lines (STACK-MAP / STACK-CHECK) and will adopt the same topic mask as `init-lite`/`nexus-init`. Guarded sink + StrRef plumbing is required next. |
 | StrRef / bounded sink buffers | **Planned** | Replace raw `&str` emission with validated handles and optional bounce buffers, inspired by Fuchsia / seL4. |
 | StrRef handles (Phase 0a hybrid) | **In progress** | Introduced `StrRef` handle + `LineBuilder::text_ref`, adopted by init-lite’s service-name guard; still need broader rollout and kernel plumbing. |
 | Kernel delegation (Phase 1) | **Planned** | Kernel logging still uses legacy macros. |
@@ -130,6 +134,8 @@ This change introduces the `nexus-log` crate with the following minimal surface:
 
 These changes replace only the logs we had to touch for ongoing debugging. The
 rest of the system remains unchanged until we decide to adopt later phases. The loader/VMO provenance work called out in RFC‑0004 is a prerequisite for finishing Phase 0a; we are implementing the minimal subset (per-service metadata VMOs + W^X enforcement) in tandem with RFC‑0002 to keep service bring‑up safe.
+
+With the move to a kernel `exec` loader, the userspace footprint shrinks to boot markers and policy hand-off. The existing topic gating (`INIT_LITE_LOG_TOPICS`, `probe`) stays for optional deep dives, but the default path aims to be quiet: kernel-side logging covers loader/mapping events, userspace only emits structured readiness markers.
 
 ### Interim Debugging Measures
 

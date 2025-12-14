@@ -224,6 +224,33 @@ pub fn spawn(
     }
 }
 
+/// Loads and spawns a process from an ELF blob using the kernel exec loader.
+#[cfg(nexus_env = "os")]
+pub fn exec(elf: &[u8], stack_pages: usize, global_pointer: u64) -> SysResult<Pid> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_EXEC: usize = 13;
+        if stack_pages == 0 || elf.is_empty() {
+            return Err(AbiError::InvalidArgument);
+        }
+        let raw = unsafe {
+            ecall4(
+                SYSCALL_EXEC,
+                elf.as_ptr() as usize,
+                elf.len(),
+                stack_pages,
+                global_pointer as usize,
+            )
+        };
+        decode_syscall(raw).map(|pid| pid as Pid)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (elf, stack_pages, global_pointer);
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Terminates the current task with the provided exit `status`.
 #[cfg(nexus_env = "os")]
 pub fn exit(status: i32) -> ! {
@@ -288,31 +315,15 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
 /// Drops the caller's reference to the capability slot identified by `cap`.
 #[cfg(nexus_env = "os")]
 pub fn cap_close(cap: Cap) -> SysResult<()> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        const SYSCALL_CAP_CLOSE: usize = 13;
-        let raw = unsafe { ecall1(SYSCALL_CAP_CLOSE, cap as usize) };
-        decode_syscall(raw).map(|_| ())
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        Err(AbiError::Unsupported)
-    }
+    let _ = cap;
+    Err(AbiError::Unsupported)
 }
 
 /// Drops the caller's reference to an address space handle.
 #[cfg(nexus_env = "os")]
 pub fn as_destroy(handle: AsHandle) -> SysResult<()> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        const SYSCALL_AS_DESTROY: usize = 14;
-        let raw = unsafe { ecall1(SYSCALL_AS_DESTROY, handle as usize) };
-        decode_syscall(raw).map(|_| ())
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        Err(AbiError::Unsupported)
-    }
+    let _ = handle;
+    Err(AbiError::Unsupported)
 }
 
 /// Allocates a new address space and returns its opaque handle.
@@ -484,6 +495,7 @@ fn decode_syscall(value: usize) -> SysResult<usize> {
 
 // ——— Architecture-specific ecall helpers (riscv64, OS) ———
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
 #[inline(always)]
 unsafe fn ecall0(n: usize) -> usize {
     let mut r7 = n;
@@ -492,12 +504,14 @@ unsafe fn ecall0(n: usize) -> usize {
         "ecall",
         inout("a7") r7,
         lateout("a0") r0,
-        options(nostack, preserves_flags)
+        clobber_abi("C"),
+        options(nostack)
     );
     r0
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
 #[inline(always)]
 unsafe fn ecall1(n: usize, a0: usize) -> usize {
     let mut r0 = a0;
@@ -506,12 +520,14 @@ unsafe fn ecall1(n: usize, a0: usize) -> usize {
         "ecall",
         inout("a0") r0,
         inout("a7") r7,
-        options(nostack, preserves_flags)
+        clobber_abi("C"),
+        options(nostack)
     );
     r0
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
 #[inline(always)]
 unsafe fn ecall1_pair(n: usize, a0: usize) -> (usize, usize) {
     let mut r0 = a0;
@@ -522,11 +538,13 @@ unsafe fn ecall1_pair(n: usize, a0: usize) -> (usize, usize) {
         inout("a0") r0,
         lateout("a1") r1,
         inout("a7") r7,
-        options(nostack, preserves_flags)
+        clobber_abi("C"),
+        options(nostack)
     );
     (r0, r1)
 }
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
 #[inline(always)]
 unsafe fn ecall3(n: usize, a0: usize, a1: usize, a2: usize) -> usize {
     let mut r0 = a0;
@@ -539,12 +557,14 @@ unsafe fn ecall3(n: usize, a0: usize, a1: usize, a2: usize) -> usize {
         inout("a1") r1,
         inout("a2") r2,
         inout("a7") r7,
-        options(nostack, preserves_flags)
+        clobber_abi("C"),
+        options(nostack)
     );
     r0
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
 #[inline(always)]
 unsafe fn ecall4(n: usize, a0: usize, a1: usize, a2: usize, a3: usize) -> usize {
     let mut r0 = a0;
@@ -559,12 +579,14 @@ unsafe fn ecall4(n: usize, a0: usize, a1: usize, a2: usize, a3: usize) -> usize 
         inout("a2") r2,
         inout("a3") r3,
         inout("a7") r7,
-        options(nostack, preserves_flags)
+        clobber_abi("C"),
+        options(nostack)
     );
     r0
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
 #[inline(always)]
 unsafe fn ecall5(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize) -> usize {
     let mut r0 = a0;
@@ -581,12 +603,14 @@ unsafe fn ecall5(n: usize, a0: usize, a1: usize, a2: usize, a3: usize, a4: usize
         inout("a3") r3,
         inout("a4") r4,
         inout("a7") r7,
-        options(nostack, preserves_flags)
+        clobber_abi("C"),
+        options(nostack)
     );
     r0
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
 #[inline(always)]
 unsafe fn ecall6(
     n: usize,
@@ -613,7 +637,8 @@ unsafe fn ecall6(
         inout("a4") r4,
         inout("a5") r5,
         inout("a7") r7,
-        options(nostack, preserves_flags)
+        clobber_abi("C"),
+        options(nostack)
     );
     r0
 }

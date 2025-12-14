@@ -32,6 +32,7 @@ help:
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
     @echo "  INIT_LITE_LOG_TOPICS=svc-meta just qemu  # opt-in init-lite log topics"
+    @echo "  tools/uart-filter.py --strip-escape uart.log | less  # decode legacy escape logs"
     @echo
     @echo "[Project Maintainers]"
     @echo "  just lint                # run clippy checks"

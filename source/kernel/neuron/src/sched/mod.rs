@@ -76,10 +76,16 @@ impl Scheduler {
 
     /// Enqueues a task with the provided QoS class.
     pub fn enqueue(&mut self, id: TaskId, qos: QosClass) {
-        // Debug: log all enqueues to trace queue state
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id, qos);
+        // Debug: log only the first few enqueues to avoid UART flood
+        const LOG_LIMIT: usize = 32;
+        static ENQ_COUNT: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(0);
+        let count = ENQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if count < LOG_LIMIT {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id, qos);
+        }
 
         let task = Task { id, qos };
         self.queue_for(qos).push_back(task);
@@ -89,11 +95,29 @@ impl Scheduler {
     pub fn schedule_next(&mut self) -> Option<TaskId> {
         crate::liveness::bump();
 
-        // Debug: log queue sizes before scheduling
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = writeln!(u, "[DEBUG sched] schedule_next: queues=[PerfBurst:{}, Interactive:{}, Normal:{}, Idle:{}]",
-            self.queues[3].len(), self.queues[2].len(), self.queues[1].len(), self.queues[0].len());
+        // Debug: log queue sizes for the first few iterations only
+        const LOG_LIMIT: usize = 256;
+        static NEXT_COUNT: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(0);
+        let count = NEXT_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let log_now = count < LOG_LIMIT;
+        #[allow(unused_mut)]
+        let mut u = if log_now {
+            Some(crate::uart::raw_writer())
+        } else {
+            None
+        };
+        if let Some(ref mut w) = u {
+            use core::fmt::Write as _;
+            let _ = writeln!(
+                w,
+                "[DEBUG sched] schedule_next: queues=[PerfBurst:{}, Interactive:{}, Normal:{}, Idle:{}]",
+                self.queues[3].len(),
+                self.queues[2].len(),
+                self.queues[1].len(),
+                self.queues[0].len()
+            );
+        }
 
         for class in [
             QosClass::PerfBurst,
@@ -102,17 +126,19 @@ impl Scheduler {
             QosClass::Idle,
         ] {
             if let Some(task) = self.queue_for(class).pop_front() {
-                let _ = writeln!(
-                    u,
-                    "[DEBUG sched] picked: pid={} qos={:?}",
-                    task.id, task.qos
-                );
+                if let Some(ref mut w) = u {
+                    use core::fmt::Write as _;
+                    let _ = writeln!(w, "[DEBUG sched] picked: pid={} qos={:?}", task.id, task.qos);
+                }
                 self.current = Some(task.clone());
                 return Some(task.id);
             }
         }
         self.current = None;
-        let _ = writeln!(u, "[DEBUG sched] no task to schedule");
+        if let Some(mut w) = u {
+            use core::fmt::Write as _;
+            let _ = writeln!(w, "[DEBUG sched] no task to schedule");
+        }
         None
     }
 

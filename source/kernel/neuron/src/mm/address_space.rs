@@ -640,8 +640,13 @@ fn fence_i() {}
 ))]
 #[inline(never)]
 fn do_preflight_checks_and_switch(satp_val: usize) {
+    const LOG_LIMIT: usize = 16;
+    static LOG_COUNT: core::sync::atomic::AtomicUsize =
+        core::sync::atomic::AtomicUsize::new(0);
+    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT;
+
     // SAFE logging using raw UART - no heap allocation, logs in separate scopes
-    {
+    if log_now {
         use core::fmt::Write;
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("AS: activating satp=0x");
@@ -650,7 +655,7 @@ fn do_preflight_checks_and_switch(satp_val: usize) {
     }
 
     // Preflight: verify PC is executable
-    {
+    if log_now {
         use core::fmt::Write;
         let mut u = crate::uart::raw_writer();
         let pc = crate::arch::riscv::read_pc() & !(PAGE_SIZE - 1);
@@ -660,7 +665,7 @@ fn do_preflight_checks_and_switch(satp_val: usize) {
     }
 
     // Preflight: verify SP is accessible
-    {
+    if log_now {
         use core::fmt::Write;
         let mut u = crate::uart::raw_writer();
         let sp = crate::arch::riscv::read_sp() & !(PAGE_SIZE - 1);
@@ -684,8 +689,13 @@ fn do_preflight_checks_and_switch(satp_val: usize) {
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 #[allow(dead_code)]
 fn ensure_rx_guard() {
+    const LOG_LIMIT: usize = 16;
+    static LOG_COUNT: core::sync::atomic::AtomicUsize =
+        core::sync::atomic::AtomicUsize::new(0);
+    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT;
+
     let pc = crate::arch::riscv::read_pc();
-    {
+    if log_now {
         use core::fmt::Write;
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("AS: ensure_rx_guard pc=0x");

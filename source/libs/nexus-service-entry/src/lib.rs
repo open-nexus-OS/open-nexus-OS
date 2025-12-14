@@ -220,8 +220,10 @@ pub mod os {
                 return ptr;
             }
 
-            let mut saved_s5 = 0usize;
-            let mut saved_s6 = 0usize;
+            #[allow(unused_assignments)]
+            let mut saved_s5: usize;
+            #[allow(unused_assignments)]
+            let mut saved_s6: usize;
             if !ptr.is_null() && layout.size() != 0 {
                 let addr = ptr as usize;
                 let end = addr.checked_add(layout.size()).unwrap_or(usize::MAX);

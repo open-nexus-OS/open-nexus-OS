@@ -10,6 +10,8 @@ rustdocflags = ["--cfg", "nexus_env=\"host\""]
 # RISC-V kernel target (no nexus_env needed for kernel)
 [target.riscv64imac-unknown-none-elf]
 rustflags = [
+    "--check-cfg=cfg(nexus_env, values(\"host\",\"os\"))",
+    "--cfg", "nexus_env=\"os\"",
     "-C", "relocation-model=static",
     "-Z", "share-generics=y",
 ]

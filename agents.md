@@ -10,7 +10,8 @@ Codex frequently contributes to `open-nexus-OS`. This guide captures the expecta
 
 1. **Stay on feature branches.** Never work directly on `main`. Start every effort by creating (or switching to) a dedicated `feat/` branch; keep commits focused and logical.
 2. **Respect `nexus_env` splits.** Host/vector code lives under `nexus_env = "host"`; OS paths use `nexus_env = "os"`. New functionality must honor this split instead of introducing new cfgs ad hoc.
-3. **Favour incremental steps.** Large rewrites should be decomposed into prompts that each produce a runnable tree (tests passing, UART markers intact). Avoid sprawling edits.
+3. **Kernel exec is the only loader.** Init-lite is just a wrapper; do not reintroduce userspace ELF mapping or scratch-page tricks—hand off to the kernel `exec` path.
+4. **Favour incremental steps.** Large rewrites should be decomposed into prompts that each produce a runnable tree (tests passing, UART markers intact). Avoid sprawling edits.
 4. **No kernel edits unless requested.** Userland and service layers are fair game; the kernel stays untouched by default.
 5. **Testing discipline.** At the end of every prompt, run the minimal necessary checks (workspace `cargo test`, targeted e2e harness, or UART marker verification). Document expected markers in the prompt itself.
 6. **Header + ADR hygiene.** Every Rust/IDL file must carry the CONTEXT header described in `docs/standards/DOCUMENTATION_STANDARDS.md` (CONTEXT/OWNERS/STATUS/API_STABILITY/TEST_COVERAGE + ADR). Update fields when behaviour changes; never delete the block. If a change crosses architectural boundaries, reference (or add) the matching ADR before landing code.

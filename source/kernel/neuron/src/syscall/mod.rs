@@ -52,6 +52,7 @@ pub const SYSCALL_AS_CREATE: usize = 9;
 pub const SYSCALL_AS_MAP: usize = 10;
 pub const SYSCALL_EXIT: usize = 11;
 pub const SYSCALL_WAIT: usize = 12;
+pub const SYSCALL_EXEC: usize = 13;
 /// Debug UART putc for userspace (best-effort, no permissions required).
 pub const SYSCALL_DEBUG_PUTC: usize = 16;
 

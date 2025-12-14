@@ -18,3 +18,5 @@ build/*.log
 uart.log
 uart_ecall_chars.log
 neuron-boot.map
+uart_syspipe*.txt
+uart_syspipe.txt

@@ -204,7 +204,6 @@ impl Client for LiteClient {
 
 /// Server backed by the cooperative mailbox queues.
 pub struct LiteServer {
-    target: String,
     queues: Arc<ServiceQueues>,
 }
 
@@ -219,7 +218,6 @@ impl LiteServer {
     pub fn new_named(service: &str) -> Result<Self> {
         let queues = REGISTRY.get_or_insert(service);
         Ok(Self {
-            target: service.to_string(),
             queues,
         })
     }
@@ -245,7 +243,7 @@ impl Server for LiteServer {
         if frame.len() > MAX_FRAME {
             return Err(IpcError::Unsupported);
         }
-        let mut response = self.queues.response.lock();
+        let response = self.queues.response.lock();
         if response.is_some() {
             drop(response);
             match wait {

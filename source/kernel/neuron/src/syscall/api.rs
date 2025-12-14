@@ -26,6 +26,7 @@ use crate::{
     sched::Scheduler,
     task,
 };
+use core::slice;
 use spin::Mutex;
 
 // Typed decoders for seL4-style Decode→Check→Execute
@@ -39,6 +40,42 @@ struct SpawnArgsTyped {
     global_pointer: usize,
 }
 
+#[derive(Copy, Clone)]
+struct ExecArgsTyped {
+    elf_ptr: usize,
+    elf_len: usize,
+    stack_pages: usize,
+    global_pointer: usize,
+}
+
+impl ExecArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        let elf_ptr = args.get(0);
+        let elf_len = args.get(1);
+        let stack_pages = args.get(2);
+        let global_pointer = args.get(3);
+        if elf_len == 0 || stack_pages == 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        Ok(Self {
+            elf_ptr,
+            elf_len,
+            stack_pages,
+            global_pointer,
+        })
+    }
+
+    #[inline]
+    fn check(&self) -> Result<(), Error> {
+        ensure_user_slice(self.elf_ptr, self.elf_len)?;
+        if self.stack_pages == 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        Ok(())
+    }
+}
+
 impl SpawnArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
@@ -48,7 +85,8 @@ impl SpawnArgsTyped {
         let stack_sp = if stack_raw == 0 {
             None
         } else {
-            Some(VirtAddr::page_aligned(stack_raw).ok_or(AddressSpaceError::InvalidArgs)?)
+            // Accept a normal stack pointer (not necessarily page aligned), but require a canonical VA.
+            Some(VirtAddr::new(stack_raw).ok_or(AddressSpaceError::InvalidArgs)?)
         };
         let raw_handle = args.get(2) as u32;
         let as_handle = AsHandle::from_raw(raw_handle);
@@ -267,8 +305,9 @@ impl CapTransferArgsTyped {
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_TRANSFER,
-    SYSCALL_DEBUG_PUTC, SYSCALL_EXIT, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
-    SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_DEBUG_PUTC, SYSCALL_EXIT, SYSCALL_EXEC, SYSCALL_MAP, SYSCALL_NSEC, SYSCALL_RECV,
+    SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
+    SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -322,6 +361,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_AS_MAP, sys_as_map);
     table.register(SYSCALL_EXIT, sys_exit);
     table.register(SYSCALL_WAIT, sys_wait);
+    table.register(SYSCALL_EXEC, sys_exec);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
     {
         use core::fmt::Write as _;
@@ -349,14 +389,8 @@ fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
                     task.frame().sepc
                 );
             }
-            #[cfg(not(feature = "selftest_no_satp"))]
-            {
-                if let Some(handle) = task.address_space() {
-                    ctx.address_spaces.activate(handle)?;
-                }
-            }
-            #[cfg(feature = "selftest_no_satp")]
-            let _ = task; // silence unused when SATP is disabled for selftests
+            #[cfg(not(feature = "debug_uart"))]
+            let _ = task; // silence unused when debug UART is disabled
         }
         Ok(next as usize)
     } else {
@@ -428,6 +462,19 @@ fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 .current_task()
                 .address_space()
                 .ok_or(AddressSpaceError::InvalidHandle)?;
+            #[cfg(feature = "debug_uart")]
+            {
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = writeln!(
+                    u,
+                    "AS-MAP handle=0x{:x} va=0x{:x} pa=0x{:x} flags=0x{:x}",
+                    handle.to_raw(),
+                    va.raw(),
+                    pa,
+                    typed.flags.bits()
+                );
+            }
             ctx.address_spaces
                 .map_page(handle, va.raw(), pa, typed.flags)?;
             Ok(0)
@@ -440,6 +487,16 @@ fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
     let (base, aligned_len) = VMO_POOL.lock().allocate(typed.len)?;
+    #[cfg(feature = "debug_uart")]
+    {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = writeln!(
+            u,
+            "VMO-CREATE len=0x{:x} base=0x{:x} slot=0x{:x}",
+            aligned_len, base, typed.slot_raw
+        );
+    }
     let cap = Capability {
         kind: CapabilityKind::Vmo {
             base,
@@ -467,6 +524,16 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         CapabilityKind::Vmo { base, len } => (base, len),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
+    #[cfg(feature = "debug_uart")]
+    {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = write!(
+            u,
+            "VMO-WRITE slot=0x{:x} base=0x{:x} off=0x{:x} len=0x{:x} user=0x{:x}\n",
+            typed.slot.0, base, typed.offset, typed.len, typed.user_ptr
+        );
+    }
     let span_end = typed
         .offset
         .checked_add(typed.len)
@@ -475,6 +542,31 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     ensure_user_slice(typed.user_ptr, typed.len)?;
+    #[cfg(feature = "debug_uart")]
+    let preview_len = core::cmp::min(typed.len, 16);
+    #[cfg(feature = "debug_uart")]
+    let mut preview_bytes = [0u8; 16];
+    #[cfg(feature = "debug_uart")]
+    if preview_len > 0 {
+        unsafe {
+            ptr::copy_nonoverlapping(
+                typed.user_ptr as *const u8,
+                preview_bytes.as_mut_ptr(),
+                preview_len,
+            );
+        }
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = write!(
+            u,
+            "VMO-WRITE DATA slot=0x{:x} off=0x{:x} head=0x",
+            typed.slot.0, typed.offset
+        );
+        for byte in preview_bytes.iter().take(preview_len) {
+            let _ = write!(u, "{:02x}", byte);
+        }
+        let _ = u.write_str("\n");
+    }
     if typed.len != 0 {
         unsafe {
             ptr::copy_nonoverlapping(
@@ -532,6 +624,246 @@ fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Err(err) => return Err(Error::from(err)),
         }
     }
+}
+
+fn read_u16_le(bytes: &[u8], off: usize) -> Result<u16, Error> {
+    let end = off
+        .checked_add(2)
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let slice = bytes.get(off..end).ok_or(AddressSpaceError::InvalidArgs)?;
+    Ok(u16::from_le_bytes([slice[0], slice[1]]))
+}
+
+fn read_u32_le(bytes: &[u8], off: usize) -> Result<u32, Error> {
+    let end = off
+        .checked_add(4)
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let slice = bytes.get(off..end).ok_or(AddressSpaceError::InvalidArgs)?;
+    Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+fn read_u64_le(bytes: &[u8], off: usize) -> Result<u64, Error> {
+    let end = off
+        .checked_add(8)
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let slice = bytes.get(off..end).ok_or(AddressSpaceError::InvalidArgs)?;
+    Ok(u64::from_le_bytes([
+        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
+    ]))
+}
+
+/// Kernel-side exec loader: parses ELF64/RISC-V, maps PT_LOAD with W^X + USER, sets stack, spawns task.
+fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let typed = ExecArgsTyped::decode(args)?;
+    typed.check()?;
+
+    // Capability gate: only tasks holding a SEND right in slot 0 (bootstrap cap) may exec.
+    {
+        let _ = ctx
+            .tasks
+            .current_caps_mut()
+            .derive(0, Rights::SEND)
+            .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    }
+
+    // SAFETY: user slice validated by check; still best-effort.
+    let elf = unsafe { slice::from_raw_parts(typed.elf_ptr as *const u8, typed.elf_len) };
+    if elf.len() < 64 || &elf[0..4] != b"\x7FELF" {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    if elf[4] != 2 || elf[5] != 1 {
+        return Err(AddressSpaceError::InvalidArgs.into()); // not ELF64/LE
+    }
+
+    let e_entry = read_u64_le(elf, 24)? as usize;
+    let e_phoff = read_u64_le(elf, 32)? as usize;
+    let e_phentsize = read_u16_le(elf, 54)? as usize;
+    let e_phnum = read_u16_le(elf, 56)? as usize;
+    if e_phoff >= elf.len() {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+
+    const PT_LOAD: u32 = 1;
+    const PF_R: u32 = 4;
+    const PF_W: u32 = 2;
+    const PF_X: u32 = 1;
+
+    let as_handle = ctx.address_spaces.create()?;
+
+    // Map PT_LOAD segments
+    for i in 0..e_phnum {
+        let off = e_phoff
+            .checked_add(i * e_phentsize)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        if off + 56 > elf.len() {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        let p_type = read_u32_le(elf, off)?;
+        if p_type != PT_LOAD {
+            continue;
+        }
+        let p_flags = read_u32_le(elf, off + 4)?;
+        let p_offset = read_u64_le(elf, off + 8)? as usize;
+        let p_vaddr = read_u64_le(elf, off + 16)? as usize;
+        let p_filesz = read_u64_le(elf, off + 32)? as usize;
+        let p_memsz = read_u64_le(elf, off + 40)? as usize;
+
+        if p_memsz == 0 {
+            continue;
+        }
+        if p_filesz > p_memsz {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        let end = p_offset
+            .checked_add(p_filesz)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        if end > elf.len() {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        if (p_flags & PF_W != 0) && (p_flags & PF_X != 0) {
+            return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
+        }
+
+        let page_off = p_vaddr & (PAGE_SIZE - 1);
+        let aligned_vaddr = p_vaddr - page_off;
+        let alloc_len = align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let (base, alloc_len) = VMO_POOL.lock().allocate(alloc_len)?;
+
+        // Copy file payload
+        if p_filesz != 0 {
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    elf.as_ptr().add(p_offset),
+                    (base + page_off) as *mut u8,
+                    p_filesz,
+                );
+            }
+        }
+        // Zero BSS tail
+        if p_memsz > p_filesz {
+            let bss_start = base
+                .checked_add(page_off)
+                .and_then(|v| v.checked_add(p_filesz))
+                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let bss_len = p_memsz
+                .checked_sub(p_filesz)
+                .ok_or(AddressSpaceError::InvalidArgs)?;
+            unsafe {
+                ptr::write_bytes(bss_start as *mut u8, 0, bss_len);
+            }
+        }
+
+        let mut flags = PageFlags::VALID | PageFlags::USER;
+        if p_flags & PF_R != 0 {
+            flags |= PageFlags::READ;
+        }
+        if p_flags & PF_W != 0 {
+            flags |= PageFlags::WRITE;
+        }
+        if p_flags & PF_X != 0 {
+            flags |= PageFlags::EXECUTE;
+        }
+
+        // Map pages
+        let pages = alloc_len / PAGE_SIZE;
+        for page in 0..pages {
+            let va = aligned_vaddr
+                .checked_add(page * PAGE_SIZE)
+                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let pa = base
+                .checked_add(page * PAGE_SIZE)
+                .ok_or(AddressSpaceError::InvalidArgs)?;
+            ctx.address_spaces.map_page(as_handle, va, pa, flags)?;
+        }
+    }
+
+    // Stack
+    // Userspace init-lite expects its stack at 0x2000_0000; map downward from there.
+    // Map head pages so the top-of-stack address (0x2000_0000) and a boundary page
+    // above it are mapped, then seed SP two pages below the mapped top to avoid
+    // touching the boundary. Leave a guard page above the boundary.
+    let total_pages = typed
+        .stack_pages
+        .checked_add(11) // requested + 9 head pages + boundary page; guard stays unmapped
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let stack_bytes = total_pages
+        .checked_mul(PAGE_SIZE)
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let (stack_base, stack_len) = VMO_POOL.lock().allocate(stack_bytes)?;
+    // Clear the freshly allocated stack to avoid stale data influencing user
+    // register setup/prologue logic.
+    unsafe {
+        ptr::write_bytes(stack_base as *mut u8, 0, stack_len);
+    }
+    let user_stack_top: usize = 0x2000_0000;
+    // Map through the former faulting address (boundary) and leave a guard above.
+    let mapped_top = user_stack_top
+        .checked_add(10 * PAGE_SIZE)
+        .ok_or(AddressSpaceError::InvalidArgs)?; // boundary page mapped; guard sits above
+    let stack_bottom = mapped_top
+        .checked_sub(stack_len)
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+
+    let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
+    for page in 0..total_pages {
+        let va = stack_bottom
+            .checked_add(page * PAGE_SIZE)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let pa = stack_base
+            .checked_add(page * PAGE_SIZE)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        ctx.address_spaces.map_page(as_handle, va, pa, stack_flags)?;
+    }
+    log_info!(
+        target: "exec",
+        "STACK-MAP: va=0x{:x}-0x{:x} pa=0x{:x} pages={} sp=0x{:x}",
+        stack_bottom,
+        mapped_top.saturating_sub(1),
+        stack_base,
+        total_pages,
+        user_stack_top
+    );
+
+    let sp_probe = mapped_top
+        .checked_sub(2 * PAGE_SIZE)
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+    if let Ok(space) = ctx.address_spaces.get(as_handle) {
+        let pt = space.page_table();
+        let t_sp = pt.translate(sp_probe);
+        let t_top_minus_1 = pt.translate(mapped_top.saturating_sub(1));
+        let t_top = pt.translate(mapped_top);
+        log_info!(
+            target: "exec",
+            "STACK-CHECK: base=0x{:x} top=0x{:x} top-1->0x{:x?} top->0x{:x?} sp->0x{:x?}",
+            stack_bottom,
+            mapped_top,
+            t_top_minus_1,
+            t_top,
+            t_sp
+        );
+    }
+
+    let entry_pc = VirtAddr::instr_aligned(e_entry).ok_or(AddressSpaceError::InvalidArgs)?;
+    // Start SP one full page below the mapped top to stay clear of the boundary, 16-byte aligned.
+    let stack_sp_raw = sp_probe & !0xf;
+    let stack_sp = VirtAddr::new(stack_sp_raw).ok_or(AddressSpaceError::InvalidArgs)?;
+    let bootstrap_slot = SlotIndex::decode(0);
+
+    let parent = ctx.tasks.current_pid();
+    let pid = ctx.tasks.spawn(
+        parent,
+        entry_pc,
+        Some(stack_sp),
+        Some(as_handle),
+        typed.global_pointer,
+        bootstrap_slot,
+        ctx.scheduler,
+        ctx.router,
+        ctx.address_spaces,
+    )?;
+
+    Ok(pid as usize)
 }
 
 /// Minimal debug UART write for userspace: writes one byte `a0` to UART.
@@ -597,6 +929,11 @@ const PROT_EXEC: u32 = 1 << 2;
 
 const MAP_FLAG_USER: u32 = 1 << 0;
 const USER_VADDR_LIMIT: usize = 0x8000_0000;
+// Keep the kernel-managed user VMO arena away from the kernel stacks/data.
+// The previous implicit choice (__bss_end aligned) overlapped the kernel stack
+// pages (0x8048a000..), causing memcpy into the stack guard. Place it at a
+// fixed high region in DRAM; virt QEMU gives us ample headroom.
+const USER_VMO_ARENA_BASE: usize = 0x8100_0000;
 
 static VMO_POOL: Mutex<VmoPool> = Mutex::new(VmoPool::new());
 
@@ -619,10 +956,7 @@ impl VmoPool {
         if self.base != 0 {
             return;
         }
-        extern "C" {
-            static __bss_end: u8;
-        }
-        let start = align_up_addr(unsafe { &__bss_end as *const u8 as usize });
+        let start = align_up_addr(USER_VMO_ARENA_BASE);
         let limit = start.saturating_add(USER_VMO_ARENA_LEN);
         self.base = start;
         self.next = start;
@@ -645,6 +979,18 @@ impl VmoPool {
         let base = self.next;
         self.next = next;
         Ok((base, aligned))
+    }
+
+    #[allow(dead_code)]
+    fn contains(&self, addr: usize, len: usize) -> bool {
+        if self.base == 0 || len == 0 {
+            return false;
+        }
+        let end = match addr.checked_add(len) {
+            Some(end) => end,
+            None => return false,
+        };
+        addr >= self.base && end <= self.limit
     }
 }
 
@@ -725,6 +1071,27 @@ fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         flags |= PageFlags::USER;
     }
 
+    #[cfg(feature = "debug_uart")]
+    {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = writeln!(
+            u,
+            "AS-MAP handle=0x{:x} slot=0x{:x} va=0x{:x} len=0x{:x} pages=0x{:x} base=0x{:x} prot=0x{:x} flags=0x{:x}",
+            typed.handle.to_raw(),
+            typed.vmo_slot.0,
+            typed.va.raw(),
+            typed.len.raw(),
+            pages,
+            base,
+            typed.prot,
+            flags.bits()
+        );
+    }
+
+    #[cfg(feature = "debug_uart")]
+    let mut logged_preview = false;
+
     for page in 0..pages {
         let page_va = typed
             .va
@@ -736,9 +1103,51 @@ fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             .ok_or(AddressSpaceError::InvalidArgs)?;
         ctx.address_spaces
             .map_page(typed.handle, page_va, page_pa, flags)?;
+        #[cfg(feature = "debug_uart")]
+        if !logged_preview {
+            logged_preview = true;
+            log_vmo_preview(typed.vmo_slot.0, page_pa, aligned_bytes, typed.prot);
+        }
     }
 
     Ok(0)
+}
+
+#[cfg(feature = "debug_uart")]
+fn log_vmo_preview(slot: usize, base: usize, len: u64, prot: u32) {
+    use core::fmt::Write as _;
+
+    let mut u = crate::uart::raw_writer();
+    let preview_len = core::cmp::min(len, 16) as usize;
+
+    let pool = VMO_POOL.lock();
+    let in_pool = preview_len > 0 && pool.contains(base, preview_len);
+    drop(pool);
+
+    if !in_pool {
+        let _ = write!(
+            u,
+            "VMO-PREVIEW skipped slot=0x{:x} base=0x{:x} len=0x{:x} prot=0x{:x}\n",
+            slot, base, len, prot
+        );
+        return;
+    }
+
+    let mut buf = [0u8; 16];
+    if preview_len > 0 {
+        unsafe {
+            core::ptr::copy_nonoverlapping(base as *const u8, buf.as_mut_ptr(), preview_len);
+        }
+    }
+    let _ = write!(
+        u,
+        "VMO-PREVIEW slot=0x{:x} base=0x{:x} len=0x{:x} prot=0x{:x} bytes=",
+        slot, base, len, prot
+    );
+    for byte in &buf[..preview_len] {
+        let _ = write!(u, "{:02x}", byte);
+    }
+    let _ = u.write_str("\n");
 }
 
 #[cfg(test)]

@@ -6,14 +6,12 @@
 
 ## Summary
 
-The current userspace bootstrap path shares a scratch page between the
-kernel and the os-lite init loader (now implemented inside `nexus-init` and
-invoked via the thin `init-lite` wrapper). Subsequent services inherit pointers into this
-shared area (service names, logging targets), which violates the
-assumption behind the unified logging facade (RFC-0003) that string data
-passed to `LineBuilder` lives in stable, read-only memory. During the
-latest debugging session this resulted in repeated traps when the logging
-facade attempted to dereference a pointer inside the shared page.
+The current bootstrap path now uses a kernel `exec` loader; `nexus-init` only
+forwards packaged ELFs via the thin `init-lite` wrapper. Earlier userspace
+mapping code shared a scratch page between kernel and init, leaking pointers
+and causing traps. With mapping/guards moved into the kernel, this RFC scopes
+the guard/provenance expectations that must stay enforced in the kernel loader
+and documents the shutdown of the old userspace loader path.
 
 This RFC defines a scoped plan for hardening the loader and its shared
 artifacts so that each service owns immutable copies of the metadata it
@@ -52,6 +50,9 @@ relies on, and crash diagnostics can trust pointer provenance.
 
 ## Implementation Plan
 
+### Completion snapshot (2025-12-12)
+- Overall: ~55% complete. Kernel `exec` now owns ELF mapping, W^X, and guard VMAs; scratch-page sharing removed. Per-service metadata VMOs and post-spawn zero/unmap plus kernel trap telemetry remain to finish Phase 0/1.
+
 ### Phase 0 – Immediate Hardening (Current Quarter)
 
 - Copy service name strings into a per-service read-only VMO before
@@ -71,6 +72,11 @@ relies on, and crash diagnostics can trust pointer provenance.
 - Keep the enhanced debugging instrumentation (UART probes, guard counters)
   in place until the new StrRef/VMO path is finished, so we can detect regressions
   quickly during bring-up.
+- Kernel `exec` loader stack policy (in effect): map stack downward from the
+  fixed top, include a boundary page above the top-of-stack address, place SP at
+  least one page below the mapped top, and keep a guard page above. Emit
+  STACK-MAP / STACK-CHECK telemetry and add selftests that verify `top-1` is
+  mapped and `top` faults to catch regressions early.
 
 ### Phase 1 – Runtime Diagnostics
 
@@ -87,7 +93,6 @@ relies on, and crash diagnostics can trust pointer provenance.
   ring buffer or per-service staging area).
 
 ## Current Status
-
 - Phase 0: **In progress.** Guard logic in `nexus-log` already rejects
   pointers that escape the `.rodata`/`.data` fences. On the loader side we
   now:
@@ -99,35 +104,25 @@ relies on, and crash diagnostics can trust pointer provenance.
     and writes directly into the arena backing each VMO.
   - Keep the old bootstrap guard page as a `NOLOAD` section, ensuring the new
     metadata copies never overlap it.
-  Outstanding tasks are zeroing the bootstrap scratch page after each spawn,
-  introducing explicit `PROT_NONE` guard gaps between writable segments, and
-  teaching the loader self-tests to assert the new invariants.
+  - Ongoing: zero/unmap the bootstrap scratch page after each spawn and insert
+    explicit `PROT_NONE` guard gaps between writable segments.
+  As the loader moves into a kernel `exec` path, these invariants remain
+  requirements for the kernel implementation.
 - Phase 1: Not started.
 - Phase 2: Not started.
 
 ### Hybrid Guard Instrumentation (2025-11-29)
 
 While Phase 0 continues, we introduced a stop-gap “hybrid” layer to make pointer
-faults deterministic:
+faults deterministic. With the kernel `exec` path live, the userspace pieces have
+been retired; the relevant bits remain in the kernel loader:
 
-- The `nexus-init` os-lite loader now tracks every `PT_LOAD` and guard VMA it maps via a
-  `RangeTracker`. The tracker enforces non-overlap (segments vs. guards) before
-  issuing `as_map` calls and logs a structured `guard-conflict` error if a
-  caller ever attempts to reuse an address range. This mirrors seL4’s PMP-based
-  guard accounting without requiring kernel changes.
-- The loader’s per-service metadata strings are copied into small bounce buffers
-  with canaries prior to logging. If a caller scribbles over the buffer, the
-  canary trips immediately and the fault is attributed to the correct site.
-- Together with the RFC‑0003 slice validation the hybrid layer ensures that a
-  corrupt pointer cannot flow silently from the loader into the logging façade:
-  the loader catches overlap/guard issues, while the logger bounds-checks every
-  slice and reports the originating return address.
-- Sink-side instrumentation now records the emitting log’s `[LEVEL target]` when
-  a guard violation or oversized write is detected, giving clear blame data for
-  any remaining corruption that bypasses loader checks.
-
-These measures are documented here so we can treat them as part of RFC‑0004’s
-Phase 0 completion criteria rather than temporary debugging hacks.
+- Guard accounting (PT_LOAD + guard VMAs) now lives in the kernel `exec` mapper,
+  which enforces non-overlap and W^X before committing page-table entries.
+- The logger still bounds-checks every slice and reports the originating return
+  address; userspace bounce buffers were removed alongside the old loader.
+- Sink-side instrumentation continues to record the emitting log’s
+  `[LEVEL target]` when a guard violation or oversized write is detected.
 
 ## Relationship to Other RFCs
 

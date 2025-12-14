@@ -53,6 +53,32 @@ def _iter_lines(handle: TextIO, strip_escape: bool) -> Iterator[str]:
         yield line
 
 
+def _iter_debug_stream(lines: Iterable[str]) -> Iterator[str]:
+    import re
+
+    pattern = re.compile(r"SYSCALL a7=([0-9a-fA-F]+)\s+a0=([0-9a-fA-F]+)")
+    buffer: list[str] = []
+    for line in lines:
+        match = pattern.search(line)
+        if not match:
+            continue
+        a7 = int(match.group(1), 16)
+        if a7 != 0x10:
+            continue
+        a0 = int(match.group(2), 16) & 0xFF
+        ch = chr(a0) if 0x20 <= a0 <= 0x7E or a0 in (0x0A, 0x0D, 0x09) else ""
+        if a0 in (0x0A, 0x0D):
+            if buffer:
+                yield "".join(buffer) + "\n"
+                buffer.clear()
+            else:
+                yield "\n"
+        elif ch:
+            buffer.append(ch)
+    if buffer:
+        yield "".join(buffer)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Filter/clean UART logs")
     parser.add_argument("path", nargs="?", help="Input file (defaults to stdin)")
@@ -73,6 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="Drop lines containing this substring (can be repeated)",
     )
+    parser.add_argument(
+        "--extract-debug-putc",
+        action="store_true",
+        help="Extract characters written via sys_debug_putc from kernel ECALL logs",
+    )
     args = parser.parse_args(argv)
 
     handle: TextIO
@@ -82,9 +113,14 @@ def main(argv: list[str] | None = None) -> int:
         handle = sys.stdin
 
     try:
-        for line in _iter_lines(handle, args.strip_escape):
-            if _should_keep(line, args.grep, args.exclude):
-                sys.stdout.write(line)
+        lines = _iter_lines(handle, args.strip_escape)
+        if args.extract_debug_putc:
+            for decoded in _iter_debug_stream(lines):
+                sys.stdout.write(decoded)
+        else:
+            for line in lines:
+                if _should_keep(line, args.grep, args.exclude):
+                    sys.stdout.write(line)
     finally:
         if handle is not sys.stdin:
             handle.close()
@@ -94,4 +130,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

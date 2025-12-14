@@ -6,7 +6,8 @@ license.workspace = true
 
 [features]
 default = []
-sink-userspace = []
+sink-userspace = ["dep:nexus-abi"]
 sink-kernel = []
 
 [dependencies]
+nexus-abi = { path = "../nexus-abi", optional = true }

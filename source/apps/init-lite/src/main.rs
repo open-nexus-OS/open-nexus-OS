@@ -13,7 +13,6 @@ fn main() {}
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod os_entry {
     use nexus_init::os_payload::{self, ReadyNotifier};
-    use nexus_log;
     use nexus_service_entry::declare_entry;
 
     declare_entry!(init_main);
@@ -28,13 +27,7 @@ mod os_entry {
         let notifier = ReadyNotifier::new(|| ());
         match os_payload::service_main_loop_images(services::SERVICE_IMAGES, notifier) {
             Ok(()) => unreachable!(),
-            Err(err) => {
-                nexus_log::error("init", |line| {
-                    line.text("init-lite: fatal bootstrap err=");
-                    os_payload::describe_init_error(line, &err);
-                });
-                Err(err)
-            }
+            Err(err) => os_payload::fatal_err(err),
         }
     }
 }
