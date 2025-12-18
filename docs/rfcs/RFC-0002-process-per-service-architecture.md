@@ -1,10 +1,9 @@
----
-title: RFC-0002 Process-Per-Service Architecture
-status: In Progress
-owners: @runtime @kernel-team
-created: 2025-10-24
-last_updated: 2025-12-05
----
+# RFC-0002: Process-Per-Service Architecture
+
+- Status: In Progress
+- Owners: Runtime + Kernel Team
+- Created: 2025-10-24
+- Last Updated: 2025-12-05
 
 ## Context
 
@@ -146,8 +145,8 @@ Kernel
 1. **Storage format**: Embed ELFs as separate blobs or in tar/cpio archive?
    - **Recommendation**: Start with individual `include_bytes!`, migrate to ramdisk format later
 
-2. **Capability distribution**: How does init know which caps to give each service?
-   - **Recommendation**: Hardcode initial policy in init, move to config file in Phase 4
+2. **Capability distribution / IPC semantics**: How does init know which caps to give each service, and what are the stable IPC/capability rules?
+   - **Recommendation**: This is defined in RFC-0005 (Kernel IPC & Capability Model). RFC-0002 only defines the process-per-service split.
 
 3. **Service dependencies**: How to handle servicevice startup ordering (e.g., vfsd needs packagefsd)?
    - **Recommendation**: Simple sequential launch order in init, no dependency graph yet

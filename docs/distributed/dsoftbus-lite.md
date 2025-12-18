@@ -5,6 +5,9 @@ OS services. It focuses on host-first development: all transports are
 implemented in Rust, rely on Cap'n Proto for the control-plane, and avoid any
 kernel dependencies. The daemon is responsible for three major tasks:
 
+This is aligned with the project vision: distributed behavior is layered in userland (`softbusd`
+later), while the kernel stays minimal and capability-based (see `docs/agents/VISION.md`).
+
 1. **Discovery** – each node announces its device identifier, published
    services, and listening port. The host backend uses an in-process registry so
    tests can run without sockets; the OS build will swap in a multicast-based

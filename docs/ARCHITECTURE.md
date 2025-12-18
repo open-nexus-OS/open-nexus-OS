@@ -6,6 +6,10 @@ behind mutually exclusive `nexus_env="host"` and `nexus_env="os"` configurations
 Each `userspace` crate must compile with exactly one environment selected via
 `RUSTFLAGS='--cfg nexus_env="..."'` and forbids all unsafe code.
 
+Project-level vision lens (architecture/security/performance direction):
+
+- `docs/agents/VISION.md`
+
 Daemons under `source/services/<name>d` are thin adapters. They register with
 `samgr`, expose IDL bindings, and forward requests into the corresponding
 userspace crate compiled with `nexus_env="os"`.

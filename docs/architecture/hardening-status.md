@@ -12,4 +12,8 @@ This checklist captures the state of the hardening objectives from the October 1
 | 6. Debug/dev hardening | Guard pages, lockdep-light, heap redzones, PT verifier, trap ring buffer | ✅ Completed | Kernel and selftest stacks gain unmapped guards, the SATP island reuses the guarded kernel stack, debug builds expose a trap ring buffer (`trap_ring`) and optional `trap_symbols`, and CI triage aborts on PANIC/EXC/ILLEGAL/RX markers. |
 | 7. Verifiable-style refactors | Newtypes, pure helpers, structured logging | ✅ Completed | Typed IDs/lengths gate syscall inputs, helper routines stay pure, and the kernel now routes output through leveled log macros so debug chatter is suppressed in release builds. |
 
-**Bottom line:** All seven hardening objectives from the brief are now satisfied in-tree.
+**Bottom line:** The hardening objectives are satisfied for mapping/guards/W^X/typed decoding.
+
+**Current state note (2025-12-18):** syscall handlers return expected errors as `-errno` in `a0`.
+The kernel may still terminate tasks in true “no forward progress” situations (e.g. repeated
+ECALL storms), but ordinary syscall errors are returned to userspace.

@@ -1,9 +1,8 @@
----
-title: RFC-0001 Kernel Simplification (Logic-Preserving)
-status: Draft
-owners: @kernel-team @runtime
-created: 2025-10-24
----
+# RFC-0001: Kernel Simplification (Logic-Preserving)
+
+- Status: Draft
+- Owners: Kernel + Runtime Team
+- Created: 2025-10-24
 
 Context
 The NEURON kernel is functionally progressing but navigation and comprehension costs are high. This RFC proposes 10 logic-preserving measures to reduce complexity, improve agent/developer orientation, and surface test scope—without changing runtime behavior.

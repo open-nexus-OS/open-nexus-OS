@@ -5,6 +5,16 @@ microkernel capable of booting on the QEMU RISC-V `virt` machine,
 printing a banner over UART and exposing a deterministic syscall
 surface for early user tasks.
 
+## Security north star (system-level)
+
+NEURON is the kernel core of a HarmonyOS-like, Rust-first, RISC‑V-first system.
+The system security roadmap is intentionally hybrid:
+
+- Verified boot + signed bundles/packages + capability-based isolation as the MVP root.
+- Pluggable key custody via `keystored`/`identityd` that can later use Secure Element / TEE
+  without rewriting kernel interfaces.
+- Measured boot/attestation later for distributed trust (`softbusd`) without inflating kernel TCB.
+
 ## Boot Flow
 
 1. `_start` is provided by `boot.rs`. It clears `.bss`, installs the
@@ -37,6 +47,11 @@ increment:
 - `ENOSPC` when the ASID allocator is exhausted.
 - `ENOSYS` for disabled/unsupported functionality.
 - `ENOMEM` when the guarded stack pool runs out of pages.
+
+> Current state note (2025-12-18): syscall handlers return `-errno` in `a0` for
+> expected errors. The kernel may still terminate tasks in true “no forward
+> progress” situations (e.g. repeated ECALL storms), but ordinary syscall errors
+> are returned to userspace.
 
 ## Address Space Model
 

@@ -19,7 +19,9 @@ An `.nxb` directory contains two files:
   `name = "demo.hello"`, `version = "0.0.1"`, `caps = []`,
   `abilities = []`, `publisher = "dev"`, `sig = ""`.
   Signing and policy enforcement happen elsewhere; the field is reserved so the
-  layout stays forward compatible.
+  layout stays forward compatible. Long-term, `.nxb` packaging participates in
+  the hybrid security root (verified boot + signed bundles/packages + policy)
+  described in `docs/agents/VISION.md`.
 - `payload.elf` is the ELF64/RISC-V binary. In v1.1 the same payload is staged
   in `bundlemgrd`'s artifact store so the daemon can serve it to `execd` during
   `getPayload`.

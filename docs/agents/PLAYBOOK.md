@@ -8,6 +8,28 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 - Do not introduce cross-layer dependencies. Kernel ↔ Services boundaries are strict.
 - Prefer edits over refactors. If refactor spans modules, require an ADR.
 - Keep every touched file’s CONTEXT header in sync with `docs/standards/DOCUMENTATION_STANDARDS.md`. Adjust fields (CONTEXT/OWNERS/STATUS/API_STABILITY/TEST_COVERAGE/ADR) instead of deleting them.
+- Implementations must be **real**: avoid “fake success” logs/markers and avoid returning “Ok” from stub paths unless explicitly documented as a stub.
+ - Default vision lens: see `docs/agents/VISION.md`. Use it when evaluating tradeoffs and suggest improvements aligned with the vision.
+
+## Proof of implementation (default)
+
+Unless the user explicitly asks for a design-only response, every “please implement X” task MUST include:
+
+- A **code change** that actually wires the behavior (not just logging).
+- At least one **proof artifact**:
+  - a test (`cargo test -p …`), or
+  - a QEMU marker run (`RUN_UNTIL_MARKER=1 …`), or
+  - an ABI/contract test demonstrating the behavior is enforced.
+
+If proof cannot be produced (e.g. missing tooling), the agent MUST state the blocker explicitly.
+
+## Stubs and placeholders (default policy)
+
+Stubs are allowed during bring-up, but MUST be obvious and non-deceptive:
+
+- **Label clearly**: return `Unsupported`/`Placeholder` errors or emit a marker containing `stub`/`placeholder`.
+- **Never fake success**: do not emit “ready/ok” markers or “success” logs for unimplemented behavior.
+- **Document**: update ADR/RFC “Current state” notes when a subsystem is intentionally stubbed.
 
 ## Session Checklist
 - Read the current `tasks/TASK-*.md` brief. Only touch listed files.
@@ -50,3 +72,4 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 ## Links
 - ADR-0001 (Runtime Roles & Boundaries): `docs/adr/0001-runtime-roles-and-boundaries.md`
 - Task index: `tasks/`
+- Agent vision: `docs/agents/VISION.md`

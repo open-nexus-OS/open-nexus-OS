@@ -10,3 +10,11 @@
 
 - RFC-0001: Kernel Simplification (Logic-Preserving)
   - docs/rfcs/RFC-0001-kernel-simplification.md
+- RFC-0002: Process-Per-Service Architecture
+  - docs/rfcs/RFC-0002-process-per-service-architecture.md
+- RFC-0003: Unified Logging Infrastructure
+  - docs/rfcs/RFC-0003-unified-logging.md
+- RFC-0004: Loader Safety & Shared-Page Guards
+  - docs/rfcs/RFC-0004-safe-loader-guards.md
+- RFC-0005: Kernel IPC & Capability Model
+  - docs/rfcs/RFC-0005-kernel-ipc-capability-model.md

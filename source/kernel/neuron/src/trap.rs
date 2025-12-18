@@ -513,9 +513,9 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
                 uart_write_hex(&mut u, _errno_val);
                 let _ = u.write_str("\n");
             });
-            // Fail-fast: terminate the offending task to avoid ECALL storms.
-            ctx.tasks.exit_current(-22);
-            return;
+            // ABI: return -errno in a0; do not terminate the calling task for expected syscall errors.
+            // (See RFC-0005 and docs/architecture/01-neuron-kernel.md.)
+            maybe_ret = Some(_errno_val);
         }
     }
     uart_dbg_block!({
@@ -920,19 +920,18 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         if same > 10_000 {
             uart_dbg_block!({
                 let mut u = crate::uart::raw_writer();
-                let _ = u.write_str("ECALL-STORM abort sepc=0x");
+                let _ = u.write_str("ECALL-STORM throttle sepc=0x");
                 uart_write_hex(&mut u, frame.sepc);
                 let _ = u.write_str(" ra=0x");
                 uart_write_hex(&mut u, frame.x[1]);
                 let _ = u.write_str("\n");
             });
+            // Throttle/quarantine behavior (no kill):
+            // - Return a deterministic error to userspace
+            // - Advance past the ECALL to avoid an infinite re-trap at the same sepc
+            // This preserves the ABI model (syscalls return -errno) and prevents CPU-burning storms.
             frame.x[10] = errno(EINVAL);
-            if let Some(mut handles) = runtime_kernel_handles() {
-                unsafe {
-                    let tasks = handles.tasks.as_mut();
-                    tasks.exit_current(-22);
-                }
-            }
+            frame.sepc = frame.sepc.wrapping_add(4);
             return;
         }
 

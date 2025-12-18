@@ -33,24 +33,29 @@ Implement `userspace/nexus-ipc` as the IPC runtime with the following architectu
 - Timeout handling prevents indefinite blocking
 - Peer disconnection is detected and reported
 
+## Current state (2025-12-18)
+
+This ADR remains directionally correct, but the implementation is currently in a transitional state:
+
+- **Host backend**: implemented (in-process channels), used heavily by `tests/e2e*` and `tests/remote_e2e`.
+- **OS-lite backend**: implemented (cooperative mailbox), used for OS bring-up; **not security relevant**.
+- **OS “kernel IPC” backend**: not yet wired to kernel syscalls for payload transport; this is the work
+  specified by RFC-0005.
+
+To prevent drift between docs and code, the kernel IPC + capability model is now specified in:
+
+- `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
+
+This ADR defines the runtime abstraction (`Client`/`Server`/`Wait`), while RFC-0005 defines the
+kernel-enforced transport and capability semantics required to make the OS backend real.
+
 ## Implementation Plan
 1. Implement core Client/Server traits
 2. Create host backend using std::sync::mpsc
-3. Create OS standard backend using nexus-abi
+3. Create OS standard backend using kernel IPC syscalls (see RFC-0005)
 4. Create OS-lite backend using mailbox transport
 5. Add comprehensive test coverage
 
 ## References
 - `userspace/nexus-ipc/src/lib.rs`
 - `source/services/*/src/main.rs`
-
-
-
-
-
-
-
-
-
-
-

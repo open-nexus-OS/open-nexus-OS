@@ -45,8 +45,8 @@ relies on, and crash diagnostics can trust pointer provenance.
   adjustments needed for metadata isolation.
 - Changing the syscall ABI for logging or introducing asynchronous log
   routing (tracked in RFC-0003).
-- Implementing a generalized capability model for scratch pages—this RFC
-  focuses on the init-loader path only.
+- Defining the kernel IPC and capability semantics for services (tracked in RFC-0005).
+  This RFC focuses on loader/mapping/guard safety and provenance constraints that IPC must obey.
 
 ## Implementation Plan
 

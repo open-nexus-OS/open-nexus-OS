@@ -189,6 +189,17 @@ Potential improvements:
 3. Update CODEOWNERS when team responsibilities change
 4. Maintain consistency across all files
 
+### “Definition of done” for architecture/security/ABI changes
+
+When you change IPC, capabilities, loader, scheduler semantics that affect blocking/timeout, or any
+security boundary:
+
+1. **RFC**: update the relevant RFC (e.g. RFC‑0005 for IPC/caps) so it stays the canonical contract.
+2. **ADR**: update or add an ADR “Current state” section if the implementation is transitional.
+3. **Testing**: update `docs/testing/` when markers, E2E expectations, or test tiers change.
+4. **Headers**: update module headers (`STATUS`, `TEST_COVERAGE`, invariants) to reflect reality.
+5. **Contradictions**: if docs disagree, add an explicit drift note and escalate for a decision.
+
 ## Lessons Learned
 
 ### What Worked Well

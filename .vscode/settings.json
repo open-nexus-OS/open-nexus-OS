@@ -17,7 +17,7 @@
     "files.trimTrailingWhitespace": true,
     // workbench
     "workbench.editorAssociations": {
-        "*.md": "vscode.markdown.preview.editor",
+        "*.md": "default",
         "*.svg": "svgPreviewer.customEditor"
     },
     // Git

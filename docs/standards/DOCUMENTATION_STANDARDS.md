@@ -219,6 +219,37 @@ Library files follow the standard format with PUBLIC API and DEPENDENCIES:
 #### Service Files (services/*.rs)
 Service files use a specialized format with PUBLIC API and DEPENDS_ON:
 
+## Change management (keep docs in sync)
+
+When a change affects architecture, security boundaries, ABI, IPC, capabilities, loader, or testing
+workflow, documentation updates are part of “done”.
+
+### Required updates (rule of thumb)
+
+- **ADRs (`docs/adr/`)**: update the relevant ADR(s) with a short **Current state** section if the
+  implementation is transitional, and add cross-links to the canonical RFC if one exists.
+- **RFCs (`docs/rfcs/`)**: update the RFC that specifies the contract/ABI/semantics (e.g. RFC‑0005
+  for IPC + capabilities).
+- **Testing (`docs/testing/`)**: update the testing methodology and marker/CI expectations if the
+  change affects how we validate correctness (new markers, new E2E requirements, new negative tests).
+- **Headers (source file CONTEXT headers)**: update `STATUS`, `TEST_COVERAGE`, and invariants when
+  the implementation or its risk profile changes.
+
+### Contradictions and drift (must be called out)
+
+If you notice a contradiction between:
+
+- ADR/RFC text and the current implementation, or
+- two different docs describing incompatible behavior,
+
+then:
+
+1. Add a small **“Current state / Drift”** note in the affected ADR/RFC (don’t silently rewrite history).
+2. Open a discussion: record the competing concepts and choose the intended direction.
+
+This is especially important for kernel syscall error semantics, capability transfer rules, and IPC
+transport behavior, where “almost correct” can still be insecure.
+
 ```rust
 //! CONTEXT: [Service description]
 //! OWNERS: @services-team

@@ -9,14 +9,9 @@ Purpose: give minimal context to solve scoped tasks without repo-wide scanning.
 - Tests: `just test-os` for UART markers; kernel selftests print `neuron vers.` and trap diagnostics.
 - References: `docs/ARCHITECTURE.md` (Kernel quick reference), ADR-0001.
 
+Default expectations:
 
-
-
-
-
-
-
-
-
-
-
+- Implementations must be real (no “fake ok” logs). If something is stubbed, return `-errno` /
+  `Unsupported` and label it.
+- For kernel behavior changes, always provide proof via `just test-os` (or a narrower kernel test
+  if available) unless explicitly blocked.

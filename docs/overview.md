@@ -9,6 +9,10 @@ This document summarises the purpose of each top-level directory in the Open Nex
 * [Userspace libraries (`userspace`)](../userspace/): host-native crates like `samgr` and `bundlemgr` containing all business rules, property tests, and Miri coverage.
 * [Host E2E tests (`tests/e2e`)](../tests/e2e/): in-process loopback integration exercising real IDL handlers without QEMU.
 
+Project-level north star (so you don't have to restate it per change):
+
+* [Agent Vision](agents/VISION.md)
+
 ## `kernel/`
 The workspace definitions and target configuration for the NEURON kernel live here. The kernel runtime itself is split between the reusable library crate (`source/kernel/neuron`) and the `neuron-boot` binary wrapper that provides the minimal `_start` entry point. No IDL parsing or userspace policy code lives in this layer.
 

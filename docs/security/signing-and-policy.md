@@ -4,6 +4,9 @@ Open Nexus OS pairs manifest signing with runtime capability policies. Bundle
 signatures prove provenance, while the policy layer restricts which processes
 may consume specific kernel capabilities.
 
+This is part of the system’s **hybrid security root**: verified boot + signed bundles/packages +
+policy gating + capability enforcement (see `docs/agents/VISION.md`).
+
 ## Evaluation order
 
 1. **Bundle manifest** – `bundlemgrd` parses the signed manifest and records the

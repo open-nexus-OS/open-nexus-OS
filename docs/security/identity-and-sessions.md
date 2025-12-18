@@ -6,6 +6,9 @@ identifier by hashing the verifying key, and exposes helpers to sign or verify
 payloads. Keys are currently kept in-memory, but the API is designed so that a
 future keystore can back the same serialization logic without touching callers.
 
+This follows the system hybrid approach: keep APIs stable now, and later move key custody to secure
+hardware (Secure Element / TEE) per device class without ABI churn (see `docs/agents/VISION.md`).
+
 The identity daemon (`identityd`) is the single entry point for other userland
 services. It exposes three Cap'n Proto calls:
 
