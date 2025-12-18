@@ -114,10 +114,9 @@ impl Entry {
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> LiteResult<()> {
     debug_print("packagefsd: ready\n");
     notifier.notify();
-    // OS-lite IPC server identity comes from the per-task default target.
-    // Set it explicitly so `KernelServer::new()` binds this server as "packagefsd".
-    nexus_ipc::set_default_target("packagefsd");
-    let server = KernelServer::new().map_err(|_| LiteError::Transport)?;
+    // RFC-0005: name-based routing; init-lite assigns per-service endpoint caps and answers route
+    // queries over a private control channel, so services don't hardcode slot numbers.
+    let server = KernelServer::new_for("packagefsd").map_err(|_| LiteError::Transport)?;
     let registry = seed_registry();
     run_loop(&server, &registry)
 }

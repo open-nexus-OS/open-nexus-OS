@@ -32,6 +32,22 @@ pub enum TaskState {
     Zombie,
 }
 
+/// Scheduler-visible blocking reason for a task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockReason {
+    IpcRecv {
+        endpoint: ipc::EndpointId,
+        deadline_ns: u64,
+    },
+    IpcSend {
+        endpoint: ipc::EndpointId,
+        deadline_ns: u64,
+    },
+    WaitChild {
+        target: Option<Pid>,
+    },
+}
+
 /// Errors returned when waiting for child processes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaitError {
@@ -83,6 +99,11 @@ fn allocate_guarded_stack(
         let mut pool = STACK_ALLOCATOR.lock();
         pool.alloc(STACK_PAGES).ok_or(SpawnError::StackExhausted)?
     };
+    // RFC-0004: zero newly allocated stack pages so no stale bytes leak into user space.
+    // This relies on the kernel identity-mapping `STACK_POOL_BASE..STACK_POOL_LIMIT`.
+    unsafe {
+        core::ptr::write_bytes(phys_base as *mut u8, 0, STACK_PAGES * PAGE_SIZE);
+    }
     let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
     let guard_bottom = USER_STACK_TOP - (STACK_PAGES + 1) * PAGE_SIZE;
     #[cfg(feature = "debug_uart")]
@@ -213,6 +234,9 @@ pub struct Task {
     frame: TrapFrame,
     caps: CapTable,
     trap_domain: TrapDomainId,
+    qos: QosClass,
+    blocked: bool,
+    block_reason: Option<BlockReason>,
     /// Handle referencing the address space bound to this task.
     pub address_space: Option<AsHandle>,
     bootstrap_slot: Option<usize>,
@@ -238,6 +262,9 @@ impl Task {
             frame: zero_frame,
             caps,
             trap_domain: TrapDomainId::default(),
+            qos: QosClass::PerfBurst,
+            blocked: false,
+            block_reason: None,
             address_space: None,
             bootstrap_slot: None,
             children: Vec::new(),
@@ -299,6 +326,31 @@ impl Task {
     pub fn bootstrap_slot(&self) -> Option<usize> {
         self.bootstrap_slot
     }
+
+    /// Returns the QoS class used by the scheduler.
+    pub fn qos(&self) -> QosClass {
+        self.qos
+    }
+
+    /// Returns whether this task is currently blocked (not runnable).
+    pub fn is_blocked(&self) -> bool {
+        self.blocked
+    }
+
+    /// Returns the current block reason, if any.
+    pub fn block_reason(&self) -> Option<BlockReason> {
+        self.block_reason
+    }
+
+    fn set_blocked(&mut self, reason: BlockReason) {
+        self.blocked = true;
+        self.block_reason = Some(reason);
+    }
+
+    fn clear_blocked(&mut self) {
+        self.blocked = false;
+        self.block_reason = None;
+    }
 }
 
 /// Kernel task table managing task control blocks.
@@ -326,6 +378,11 @@ impl TaskTable {
     /// Changes the currently running task.
     pub fn set_current(&mut self, pid: Pid) {
         self.current = pid;
+    }
+
+    /// Returns the number of allocated task slots (PIDs).
+    pub fn len(&self) -> usize {
+        self.tasks.len()
     }
 
     /// Returns a mutable reference to the bootstrap task (PID 0).
@@ -484,6 +541,9 @@ impl TaskTable {
             frame,
             caps: child_caps,
             trap_domain: parent_domain,
+            qos: QosClass::PerfBurst,
+            blocked: false,
+            block_reason: None,
             address_space: Some(child_as),
             bootstrap_slot: Some(slot),
             children: Vec::new(),
@@ -536,6 +596,45 @@ impl TaskTable {
             task.bootstrap_slot = None;
             task.frame = TrapFrame::default();
             task.children.clear();
+        }
+    }
+
+    /// Blocks the current task and removes it from the scheduler (not runnable).
+    pub fn block_current(&mut self, reason: BlockReason, scheduler: &mut Scheduler) {
+        let pid = self.current_pid();
+        if let Some(task) = self.task_mut(pid) {
+            task.set_blocked(reason);
+        }
+        // Ensure the scheduler does not keep queued references to this PID.
+        scheduler.purge(pid);
+        scheduler.finish_current();
+    }
+
+    /// Wakes a blocked task and enqueues it for execution. Returns true if a task was woken.
+    pub fn wake(&mut self, pid: Pid, scheduler: &mut Scheduler) -> bool {
+        let Some(task) = self.task_mut(pid) else { return false };
+        if !task.blocked {
+            return false;
+        }
+        task.clear_blocked();
+        // Avoid duplicates; then enqueue with the stored QoS.
+        scheduler.purge(pid);
+        scheduler.enqueue(pid, task.qos);
+        true
+    }
+
+    /// Wakes the current task's parent if it is blocked in `wait` for this child.
+    pub fn wake_parent_waiter(&mut self, child: Pid, scheduler: &mut Scheduler) {
+        let Some(child_task) = self.task(child) else { return };
+        let Some(parent) = child_task.parent() else { return };
+        let Some(parent_task) = self.task(parent) else { return };
+        if !parent_task.is_blocked() {
+            return;
+        }
+        if let Some(BlockReason::WaitChild { target }) = parent_task.block_reason() {
+            if target.is_none() || target == Some(child) {
+                let _ = self.wake(parent, scheduler);
+            }
         }
     }
 

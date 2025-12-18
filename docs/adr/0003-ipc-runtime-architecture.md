@@ -39,8 +39,14 @@ This ADR remains directionally correct, but the implementation is currently in a
 
 - **Host backend**: implemented (in-process channels), used heavily by `tests/e2e*` and `tests/remote_e2e`.
 - **OS-lite backend**: implemented (cooperative mailbox), used for OS bring-up; **not security relevant**.
-- **OS “kernel IPC” backend**: not yet wired to kernel syscalls for payload transport; this is the work
-  specified by RFC-0005.
+- **OS “kernel IPC” backend**: wired to kernel IPC v1 syscalls for payload transport, including deadline semantics (RFC-0005).
+
+Routing note (bootstrap):
+
+- The OS backend resolves named targets via an init-lite routing responder. Each service receives
+  per-process control endpoint capabilities in deterministic slots (slot 1 = control SEND, slot 2 = control RECV).
+  The client sends a `ROUTE_GET` frame containing the target name and receives a `ROUTE_RSP` frame containing
+  the capability slots to use for that target. This keeps service code free of hard-coded slot numbers.
 
 To prevent drift between docs and code, the kernel IPC + capability model is now specified in:
 

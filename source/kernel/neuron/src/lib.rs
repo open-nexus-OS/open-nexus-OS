@@ -9,7 +9,12 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #![cfg_attr(not(test), no_std)]
-#![deny(warnings)]
+// Keep *kernel* builds warning-clean; allow host builds (`cargo test`) to compile modules that are
+// only reachable on the riscv64/none target without turning dead-code into hard errors.
+#![cfg_attr(
+    all(not(test), target_arch = "riscv64", target_os = "none"),
+    deny(warnings)
+)]
 #![deny(unsafe_op_in_unsafe_fn)] // deny instead of forbid to allow naked functions
 #![feature(alloc_error_handler)]
 
@@ -244,7 +249,7 @@ mod trap;
 mod types;
 mod uart;
 
-pub use bootstrap::BootstrapMsg;
+pub use bootstrap::{BootstrapInfo, BootstrapMsg};
 pub use log::Level as LogLevel;
 pub use task::{Pid, TaskTable, TransferError};
 // compile the kernel panic handler automatically for no_std targets (OS = "none")

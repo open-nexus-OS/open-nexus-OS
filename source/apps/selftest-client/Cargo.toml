@@ -46,6 +46,6 @@ nexus-init = { path = "../../../source/init/nexus-init", features = ["os-lite"],
 
 nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../../source/libs/nexus-abi", optional = true }
-nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite"], optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }

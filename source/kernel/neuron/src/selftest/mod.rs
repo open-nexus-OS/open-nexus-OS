@@ -30,7 +30,7 @@ use crate::{
     sched::Scheduler,
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
-        SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_WAIT, SYSCALL_YIELD,
+        SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_WAIT, SYSCALL_YIELD,
     },
     task::TaskTable,
 };
@@ -219,6 +219,40 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             .expect("as_create syscall");
         handle_raw = h;
         log_info!(target: "selftest", "KSELFTEST: as create ok");
+
+        // RFC-0004: VMO allocations must be zero-initialized (no stale memory leaks).
+        // Create a fresh VMO and validate its backing bytes are all zero before any write.
+        {
+            const VMO_SLOT: usize = 3;
+            let vmo_create_args = Args::new([VMO_SLOT, PAGE_SIZE, 0, 0, 0, 0]);
+            table
+                .dispatch(SYSCALL_VMO_CREATE, &mut sys_ctx, &vmo_create_args)
+                .expect("vmo_create syscall");
+            let cap = sys_ctx
+                .tasks
+                .bootstrap_mut()
+                .caps_mut()
+                .get(VMO_SLOT)
+                .expect("vmo cap present");
+            let (base, len) = match cap.kind {
+                CapabilityKind::Vmo { base, len } => (base, len),
+                _ => panic!("unexpected cap kind"),
+            };
+            let probe_len = core::cmp::min(len, 64);
+            let mut all_zero = true;
+            for idx in 0..probe_len {
+                let byte = unsafe { core::ptr::read_volatile((base + idx) as *const u8) };
+                if byte != 0 {
+                    all_zero = false;
+                    break;
+                }
+            }
+            if all_zero {
+                log_info!(target: "selftest", "KSELFTEST: vmo zero ok");
+            } else {
+                log_info!(target: "selftest", "KSELFTEST: vmo zero FAIL");
+            }
+        }
 
         const PROT_READ: usize = 1 << 0;
         const PROT_WRITE: usize = 1 << 1;

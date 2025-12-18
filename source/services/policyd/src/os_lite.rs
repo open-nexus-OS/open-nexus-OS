@@ -1,10 +1,13 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
+extern crate alloc;
+
 use alloc::boxed::Box;
 
 use core::fmt;
 
 use nexus_abi::{debug_putc, yield_};
+use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 
 /// Result alias used by the lite policyd backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -45,12 +48,42 @@ impl fmt::Display for ServerError {
 /// Schema warmer placeholder for interface parity.
 pub fn touch_schemas() {}
 
-/// Stubbed service loop that reports readiness then yields forever.
+const OPCODE_CHECK: u8 = 1;
+
+/// Minimal kernel-IPC backed policyd loop.
+///
+/// NOTE: This is a bring-up implementation: it only supports an allow/deny check over IPC and
+/// returns a deterministic decision:
+/// - allow if subject != "demo.testsvc"
+/// - deny if subject == "demo.testsvc"
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("policyd: ready (stub)");
+    let server = KernelServer::new_for("policyd").map_err(|_| ServerError::Unsupported)?;
     loop {
-        let _ = yield_();
+        match server.recv(Wait::Blocking) {
+            Ok(frame) => {
+                if frame.is_empty() {
+                    continue;
+                }
+                if frame[0] != OPCODE_CHECK || frame.len() < 2 {
+                    continue;
+                }
+                let n = frame[1] as usize;
+                if 2 + n > frame.len() {
+                    continue;
+                }
+                let name = core::str::from_utf8(&frame[2..2 + n]).unwrap_or("");
+                let allowed = name != "demo.testsvc";
+                let reply = [OPCODE_CHECK, if allowed { 1 } else { 0 }];
+                let _ = server.send(&reply, Wait::Blocking);
+            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                let _ = yield_();
+            }
+            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
+            Err(_) => return Err(ServerError::Unsupported),
+        }
     }
 }
 

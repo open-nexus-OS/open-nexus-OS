@@ -53,8 +53,16 @@ pub const SYSCALL_AS_MAP: usize = 10;
 pub const SYSCALL_EXIT: usize = 11;
 pub const SYSCALL_WAIT: usize = 12;
 pub const SYSCALL_EXEC: usize = 13;
+/// IPC v1 (payload copy-in): see RFC-0005.
+pub const SYSCALL_IPC_SEND_V1: usize = 14;
+/// Exec loader v2: adds explicit service metadata (name ptr/len) for RFC-0004 provenance.
+pub const SYSCALL_EXEC_V2: usize = 17;
 /// Debug UART putc for userspace (best-effort, no permissions required).
 pub const SYSCALL_DEBUG_PUTC: usize = 16;
+/// IPC v1 (payload copy-out): see RFC-0005.
+pub const SYSCALL_IPC_RECV_V1: usize = 18;
+/// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).
+pub const SYSCALL_IPC_ENDPOINT_CREATE: usize = 19;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +83,14 @@ pub enum Error {
     Wait(task::WaitError),
     /// Current task terminated and should not resume.
     TaskExit,
+    /// Request an immediate reschedule **without** advancing the caller PC (`sepc`).
+    ///
+    /// Rationale: syscall handlers must not "switch tasks" by calling `sys_yield()` internally,
+    /// because that would mutate `current_pid` without going through the trap-exit path that
+    /// also switches SATP (address space). Doing so can accidentally run userspace code in the
+    /// wrong address space. Instead, handlers return `Reschedule` and the kernel performs the
+    /// switch on trap exit; the same syscall is retried when the task runs again.
+    Reschedule,
 }
 
 impl From<cap::CapError> for Error {

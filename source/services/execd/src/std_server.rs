@@ -527,7 +527,10 @@ fn run_loaded_elf(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<nexus_abi
     };
 
     let entry_pc = plan.entry;
-    let pid = nexus_abi::spawn(entry_pc, stack_sp, as_handle, BOOTSTRAP_SLOT)
+    // NOTE: This path is not used by the RFC-0002 OS boot flow (which uses kernel `exec`),
+    // but it must still compile under `cfg(nexus_env="os")`. We pass a placeholder GP here
+    // because this backend is not executed on the bare-metal target.
+    let pid = nexus_abi::spawn(entry_pc, stack_sp, as_handle, BOOTSTRAP_SLOT, 0)
         .map_err(ExecError::Spawn)?;
     let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
         .map_err(ExecError::CapTransfer)?;
@@ -617,7 +620,7 @@ fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
     spawn_reaper_thread();
     let stack_top = child_stack_top();
     let entry_pc = hello_child_entry as usize as u64;
-    let pid = nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT).map_err(ExecError::Spawn)?;
+    let pid = nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT, 0).map_err(ExecError::Spawn)?;
     let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
         .map_err(ExecError::CapTransfer)?;
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

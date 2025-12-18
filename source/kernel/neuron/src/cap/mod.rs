@@ -77,6 +77,7 @@ impl CapTable {
             // Avoids potential libc/memset intrinsics on no_std target
             table.push(None);
         }
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
@@ -87,12 +88,14 @@ impl CapTable {
 
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
             let _ = write!(u, "CAP: new enter\n");
         }
         let table = Self::with_capacity(32);
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
@@ -104,14 +107,17 @@ impl CapTable {
     /// Inserts or overwrites a slot.
     pub fn set(&mut self, slot: usize, cap: Capability) -> Result<(), CapError> {
         if slot >= self.slots.len() {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(
-                u,
-                "CAP-E: invalid slot {} (len={})\n",
-                slot,
-                self.slots.len()
-            );
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            {
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = write!(
+                    u,
+                    "CAP-E: invalid slot {} (len={})\n",
+                    slot,
+                    self.slots.len()
+                );
+            }
             return Err(CapError::InvalidSlot);
         }
         if let Some(entry) = self.slots.get_mut(slot) {

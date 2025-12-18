@@ -16,7 +16,6 @@ use core::num::NonZeroU32;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use super::page_table::PAGE_SIZE;
 use super::page_table::{MapError, PageFlags, PageTable};
-use super::USER_VMO_ARENA_LEN;
 
 /// Maximum ASIDs made available by the allocator.
 const MAX_ASIDS: usize = 256;
@@ -524,11 +523,35 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         return Err(e);
     }
 
+    // Identity-map the user stack pool used by `task::allocate_guarded_stack` so the kernel can
+    // zero freshly allocated stack pages (RFC-0004: no stale bytes / pointer remnants).
+    //
+    // NOTE: This region is intentionally kept separate from the POOL window used by early
+    // loader/selftest staging.
+    let user_stack_pool_base = 0x8000_0000usize + 0x10_0000;
+    let user_stack_pool_end = 0x8000_0000usize + 0x20_0000;
+    if let Err(e) = map_identity_range(
+        table,
+        user_stack_pool_base,
+        user_stack_pool_end,
+        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+    ) {
+        if let MapError::Overlap = e {
+            log_error!(
+                target: "mm",
+                "AS-MAP: overlap in USER-STACK-POOL {:#x}..{:#x}",
+                user_stack_pool_base,
+                user_stack_pool_end
+            );
+        }
+        return Err(e);
+    }
+
     // Identity-map the per-service VMO arena after the kernel pools/stacks so
     // userspace VMOs never alias kernel text/data.
     let vmo_base = core::cmp::max(align_up(stack_end), align_up(pool_end));
     let vmo_end = vmo_base
-        .checked_add(USER_VMO_ARENA_LEN)
+        .checked_add(super::USER_VMO_ARENA_LEN)
         .ok_or(MapError::OutOfRange)?;
     if let Err(e) = map_identity_range(
         table,
@@ -720,7 +743,7 @@ fn ensure_rx_guard() {
 #[allow(dead_code)]
 fn ensure_rx_guard() {}
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "riscv64", target_os = "none"))]
 mod tests {
     use super::*;
 

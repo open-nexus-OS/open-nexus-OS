@@ -136,8 +136,14 @@ mod os;
 #[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
 pub use os::{set_default_target, KernelClient, KernelServer};
 
+// OS/no_std kernel syscall backend (IPC v1). Prefer this when explicitly enabled.
+#[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
+mod os_kernel;
+#[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
+pub use os_kernel::{set_default_target, supports_service_routing, KernelClient, KernelServer};
+
 // no_std OS-lite backend (OpenHarmony LiteIPC-like), enabled via feature flag
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+#[cfg(all(nexus_env = "os", feature = "os-lite", not(feature = "kernel-ipc")))]
 mod os_lite;
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+#[cfg(all(nexus_env = "os", feature = "os-lite", not(feature = "kernel-ipc")))]
 pub use os_lite::{set_default_target, LiteClient as KernelClient, LiteServer as KernelServer};

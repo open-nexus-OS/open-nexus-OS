@@ -11,16 +11,13 @@
 use alloc::vec::Vec;
 use core::{fmt::Write as _, mem::MaybeUninit};
 
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-// Removed: use crate::arch::riscv; (was only used for wait_for_interrupt)
 use crate::ipc;
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::ipc::header::MessageHeader;
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::{
     cap::{Capability, CapabilityKind, Rights},
     hal::virt::VirtMachine,
     hal::{IrqCtl, Tlb},
+    hal::Timer,
     mm::{AddressSpaceManager, AsHandle},
     sched::{QosClass, Scheduler},
     selftest,
@@ -30,7 +27,6 @@ use crate::{
 
 // (no private selftest stack; kernel stack is provisioned by linker)
 
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 /// Aggregated kernel state initialised during boot.
 struct KernelState {
     hal: VirtMachine,
@@ -44,7 +40,6 @@ struct KernelState {
     syscalls: SyscallTable,
 }
 
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 static mut KERNEL_STATE: MaybeUninit<KernelState> = MaybeUninit::uninit();
 
 #[allow(static_mut_refs)]
@@ -52,8 +47,13 @@ unsafe fn init_kernel_state() -> &'static mut KernelState {
     unsafe { KERNEL_STATE.write(KernelState::new()) }
 }
 
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 impl KernelState {
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    fn new() -> Self {
+        panic!("KernelState::new is only available on riscv64 none target");
+    }
+
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     fn new() -> Self {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
@@ -266,6 +266,34 @@ impl KernelState {
                     }
                 }
             } else {
+                // If nothing is runnable, try waking tasks blocked on deadlines (IPC v1).
+                // Without this, the kernel could spin forever even though a deadline has expired.
+                let now = self.hal.timer().now();
+                let len = self.tasks.len();
+                for pid_usize in 0..len {
+                    let pid = pid_usize as crate::task::Pid;
+                    let Some(t) = self.tasks.task(pid) else { continue };
+                    if !t.is_blocked() {
+                        continue;
+                    }
+                    match t.block_reason() {
+                        Some(crate::task::BlockReason::IpcRecv {
+                            endpoint,
+                            deadline_ns,
+                        }) if deadline_ns != 0 && now >= deadline_ns => {
+                            let _ = self.ipc.remove_recv_waiter(endpoint, pid);
+                            let _ = self.tasks.wake(pid, &mut self.scheduler);
+                        }
+                        Some(crate::task::BlockReason::IpcSend {
+                            endpoint,
+                            deadline_ns,
+                        }) if deadline_ns != 0 && now >= deadline_ns => {
+                            let _ = self.ipc.remove_send_waiter(endpoint, pid);
+                            let _ = self.tasks.wake(pid, &mut self.scheduler);
+                        }
+                        _ => {}
+                    }
+                }
                 // No runnable tasks - spin briefly
                 for _ in 0..1000 {
                     core::hint::spin_loop();
@@ -407,11 +435,18 @@ pub fn kmain() -> ! {
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
     let kernel = unsafe { init_kernel_state() };
+    // Provide the syscall/trap runtime with a stable timer reference. We store it as a raw pointer
+    // to avoid borrowing `kernel.hal` for `'static` (we keep mutating `kernel` afterwards).
+    let timer: &'static dyn crate::hal::Timer = unsafe {
+        let t: &dyn crate::hal::Timer = kernel.hal.timer();
+        &*(t as *const dyn crate::hal::Timer)
+    };
     let _default_trap_domain = crate::trap::install_runtime(
         &mut kernel.scheduler,
         &mut kernel.tasks,
         &mut kernel.ipc,
         &mut kernel.address_spaces,
+        timer,
         &kernel.syscalls,
     );
     kernel

@@ -14,7 +14,13 @@ std = [
     "nexus-ipc/std",
 ]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
-os-lite = ["dep:nexus-service-entry", "dep:nexus-abi"]
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
 
 [dependencies]
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }

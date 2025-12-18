@@ -16,7 +16,14 @@ std = [
     "dep:thiserror",
 ]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
-os-lite = ["dep:nexus-service-entry"]
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+    "dep:exec-payloads",
+    "dep:demo-exit0",
+]
 
 [lib]
 path = "src/lib.rs"
@@ -24,6 +31,7 @@ path = "src/lib.rs"
 [dependencies]
 nexus-abi = { path = "../../../source/libs/nexus-abi" }
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
+demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-loader = { path = "../../../userspace/nexus-loader", optional = true }

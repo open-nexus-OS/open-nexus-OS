@@ -16,7 +16,7 @@ use core::fmt::{self, Write};
 use core::ptr::NonNull;
 use spin::Mutex;
 
-use crate::{ipc, mm::AddressSpaceManager, sched::Scheduler};
+use crate::{hal::Timer, ipc, mm::AddressSpaceManager, sched::Scheduler};
 use crate::{
     mm::{AddressSpaceError, MapError},
     syscall::{api, Args, Error as SysError, SyscallTable},
@@ -218,6 +218,7 @@ struct KernelHandles {
     tasks: NonNull<task::TaskTable>,
     router: NonNull<ipc::Router>,
     spaces: NonNull<AddressSpaceManager>,
+    timer: *const dyn Timer,
 }
 unsafe impl Send for KernelHandles {}
 unsafe impl Sync for KernelHandles {}
@@ -245,6 +246,7 @@ impl TrapRuntime {
         tasks: &mut task::TaskTable,
         router: &mut ipc::Router,
         spaces: &mut AddressSpaceManager,
+        timer: &'static dyn Timer,
     ) -> Self {
         Self {
             kernel: KernelHandles {
@@ -252,6 +254,7 @@ impl TrapRuntime {
                 tasks: NonNull::from(tasks),
                 router: NonNull::from(router),
                 spaces: NonNull::from(spaces),
+                timer: timer as *const dyn Timer,
             },
             domains: Vec::new(),
             default_domain: TrapDomainId::default(),
@@ -278,9 +281,10 @@ pub fn install_runtime(
     tasks: &mut task::TaskTable,
     router: &mut ipc::Router,
     spaces: &mut AddressSpaceManager,
+    timer: &'static dyn Timer,
     syscalls: &SyscallTable,
 ) -> TrapDomainId {
-    let mut runtime = TrapRuntime::new(scheduler, tasks, router, spaces);
+    let mut runtime = TrapRuntime::new(scheduler, tasks, router, spaces, timer);
     let default = runtime.push_domain(syscalls);
     runtime.default_domain = default;
     *TRAP_RUNTIME.lock() = Some(runtime);
@@ -501,6 +505,10 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
     match table.dispatch(number, ctx, &args) {
         Ok(ret) => maybe_ret = Some(ret),
         Err(SysError::TaskExit) => {}
+        // Reschedule means: do not advance SEPC and do not write a return value. Trap-exit will
+        // pick up the next task (SATP switch happens there); when this task runs again it will
+        // retry the same syscall instruction.
+        Err(SysError::Reschedule) => {}
         Err(err) => {
             let _errno_val = encode_error(err);
             uart_dbg_block!({
@@ -518,6 +526,7 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
             maybe_ret = Some(_errno_val);
         }
     }
+
     uart_dbg_block!({
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("HECALL dispatch done maybe=");
@@ -626,23 +635,36 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
 
 const EPERM: usize = 1;
 const ENOMEM: usize = 12;
+const EAGAIN: usize = 11;
 const EINVAL: usize = 22;
 const ENOSPC: usize = 28;
 const ENOSYS: usize = 38;
 const ESRCH: usize = 3;
 const ECHILD: usize = 10;
+const ETIMEDOUT: usize = 110;
 
 #[allow(dead_code)]
 fn encode_error(err: SysError) -> usize {
     match err {
         SysError::InvalidSyscall => errno(ENOSYS),
         SysError::Capability(_) => errno(EPERM),
-        SysError::Ipc(_) => errno(EINVAL),
+        SysError::Ipc(ipc_err) => ipc_errno(&ipc_err),
         SysError::Spawn(spawn) => spawn_errno(&spawn),
         SysError::Transfer(_) => errno(EPERM),
         SysError::AddressSpace(as_err) => address_space_errno(&as_err),
         SysError::Wait(wait) => wait_errno(&wait),
         SysError::TaskExit => errno(EINVAL),
+        SysError::Reschedule => errno(EAGAIN),
+    }
+}
+
+#[allow(dead_code)]
+fn ipc_errno(err: &crate::ipc::IpcError) -> usize {
+    match err {
+        crate::ipc::IpcError::NoSuchEndpoint => errno(ESRCH),
+        crate::ipc::IpcError::QueueFull | crate::ipc::IpcError::QueueEmpty => errno(EAGAIN),
+        crate::ipc::IpcError::PermissionDenied => errno(EPERM),
+        crate::ipc::IpcError::TimedOut => errno(ETIMEDOUT),
     }
 }
 
@@ -1028,17 +1050,14 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             .expect("trap domain not available");
         let table = unsafe { syscalls_ptr.as_ref() };
 
-        struct NullTimer;
-        impl crate::hal::Timer for NullTimer {
-            fn now(&self) -> u64 {
-                0
-            }
-            fn set_wakeup(&self, _deadline: u64) {}
-        }
-        let timer = NullTimer;
+        let timer = unsafe {
+            // SAFETY: `install_runtime()` stores a valid `&dyn Timer` pointer for the life of the
+            // kernel. We only dereference it while TRAP_RUNTIME is installed.
+            &*kernel_handles.timer
+        };
         #[allow(unused_variables)]
         let old_pid = tasks.current_pid();
-        let mut ctx = api::Context::new(scheduler, tasks, router, spaces, &timer);
+        let mut ctx = api::Context::new(scheduler, tasks, router, spaces, timer);
         handle_ecall(frame, table, &mut ctx);
 
         let current_pid = ctx.tasks.current_pid();
@@ -1439,8 +1458,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         let tasks = handles.tasks.as_mut();
                         let spaces = handles.spaces.as_mut();
 
-                        // Kill the faulting task.
+                        // Kill the faulting task and ensure it won't be scheduled again.
+                        let doomed = tasks.current_pid();
                         tasks.exit_current(-22);
+                        scheduler.purge(doomed);
                         scheduler.finish_current();
 
                         // Select a runnable task and switch to it (bounded attempts to avoid loops).
@@ -1457,7 +1478,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 if let Some(handle) = as_handle {
                                     if spaces.activate(handle).is_err() {
                                         // Fail-fast: this task cannot be safely resumed.
+                                        let doomed = tasks.current_pid();
                                         tasks.exit_current(-22);
+                                        scheduler.purge(doomed);
                                         scheduler.finish_current();
                                         continue;
                                     }

@@ -28,6 +28,7 @@ os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
     "dep:nexus-abi",
 ]
 

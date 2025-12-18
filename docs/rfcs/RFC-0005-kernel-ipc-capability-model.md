@@ -1,6 +1,6 @@
 # RFC-0005: Kernel IPC & Capability Model
 
-- Status: Draft
+- Status: In Progress (kernel IPC v1 payload syscalls + QEMU marker done; blocking/deadlines + full runtime wiring still TODO)
 - Owners: Runtime + Kernel Team
 - Created: 2025-12-18
 - Last Updated: 2025-12-18
@@ -8,9 +8,9 @@
 ## Context
 
 RFC-0002 establishes process-per-service isolation and RFC-0004 hardens the loader and memory
-provenance. In the current os-lite bring-up path, many services are still stubs because the IPC
-path is not yet a kernel-enforced capability system: `nexus-ipc` os-lite mode uses a cooperative
-mailbox registry, not kernel IPC endpoints with rights checks.
+provenance. Kernel IPC endpoint routing exists, and IPC v1 payload syscalls are available, but the
+current os-lite bring-up path still uses `nexus-ipc`'s cooperative mailbox registry (in-process),
+so cross-process service IPC is not wired yet.
 
 This RFC should be read alongside the project vision lens (Rust-first, RISC‑V-first, HarmonyOS-like
 device mesh via `softbusd` layering):
@@ -325,7 +325,7 @@ Mapping to `nexus_abi::IpcError` (stable):
 - `EPERM (1)` → `IpcError::PermissionDenied`
 - `ESRCH (3)` → `IpcError::NoSuchEndpoint`
 - `EAGAIN (11)` → `IpcError::{QueueEmpty|QueueFull}` depending on operation
-- `ETIMEDOUT (110)` → `IpcError::QueueEmpty` (timeout waiting for a message)
+- `ETIMEDOUT (110)` → `IpcError::TimedOut`
 - `ENOSYS (38)` → `IpcError::Unsupported`
 - Anything else → `IpcError::Unsupported` (until extended)
 
@@ -470,6 +470,40 @@ On service spawn, the service MUST receive:
 2. A **service identity token** (string or numeric ID) so IPC can be bound to a name without
    trusting userland globals.
 
+Implementation note (current OS bring-up):
+
+- The kernel seeds the child cap table with the parent's bootstrap endpoint in **slot 0** at
+  task creation time. Init must treat slot 0 as reserved and distribute per-service endpoints
+  in deterministic subsequent slots (e.g. slot 1 = request, slot 2 = reply for VFS).
+- `cap_transfer` remains the mechanism for later stages where init (or samgrd) hands out
+  additional endpoints or right-filtered capabilities; it must never amplify rights.
+
+### Bootstrap Routing (init-lite responder, RFC-0005 bring-up)
+
+To avoid hard-coding capability slot numbers in services, init-lite provides a minimal routing
+responder that answers "what slots should I use to talk to service X?" queries.
+
+Current protocol (v0, bring-up only):
+
+- Init-lite transfers two private "control" endpoint capabilities into every service:
+  - **slot 1**: control **REQ** endpoint (**SEND**). Child sends route queries to init-lite.
+  - **slot 2**: control **RSP** endpoint (**RECV**). Child receives route replies from init-lite.
+- Route query frame (child → init-lite, sent on control slot 1):
+  - Byte 0: `ROUTE_GET = 0x40`
+  - Byte 1: `name_len` (u8)
+  - Bytes 2..: UTF-8 service name bytes
+- Route reply frame (init-lite → child, sent on the control reply endpoint, received on slot 2):
+  - Byte 0: `ROUTE_RSP = 0x41`
+  - Byte 1: `status` (`0` = OK, non-zero = unsupported)
+  - Bytes 2..6: `send_slot` (u32 LE)
+  - Bytes 6..10: `recv_slot` (u32 LE)
+
+Security note:
+
+- The control endpoints are per-process and not shared between services, preventing ambient
+  discovery. Init-lite remains the authority that decides which endpoints (and rights) each
+  service receives.
+
 Initial minimal policy:
 
 - init-lite holds the authority to create endpoints and distribute them.
@@ -496,6 +530,16 @@ Initial minimal policy:
   - Rights bit meanings match `nexus-abi::Rights`.
 - Implement kernel IPC transport v1 (copy-in/out), keeping W^X and user-slice validation.
 - Port `nexus-ipc` OS backend (non-os-lite) to use the kernel syscall transport.
+
+Notes (blocking semantics):
+
+- Blocking `ipc_send_v1` / `ipc_recv_v1` and `wait` are implemented as **reschedule + retry**.
+  The syscall handler may request an immediate reschedule without advancing `sepc`, and the
+  syscall is retried when the task runs again. This avoids switching `current_pid` inside a
+  syscall handler without also switching SATP, which would otherwise run code in the wrong
+  address space.
+- This is still **not** a full sleep/wakeup wait-queue; it is a minimal, deterministic bring-up
+  mechanism until proper blocking primitives land.
 
 ### Stage 2 (unstub core services)
 
@@ -754,9 +798,16 @@ single file.
 ### Tests (acceptance)
 
 - **Kernel**
-  - [ ] Syscall-level tests: SEND/RECV rights denial, QueueEmpty/QueueFull behavior
-  - [ ] cap_transfer tests: subset masks and invalid mask rejection
+  - [x] Syscall-level tests: SEND/RECV rights denial, QueueEmpty/QueueFull behavior
+  - [x] cap_transfer tests: subset masks and invalid mask rejection
 
 - **QEMU E2E**
   - [ ] `RUN_UNTIL_MARKER=1` passes with VFS checks running over real IPC
   - [ ] policyd allow/deny is exercised and visible via UART markers
+
+Notes:
+
+- QEMU marker suite currently includes `SELFTEST: ipc payload roundtrip ok` and
+  `SELFTEST: ipc deadline timeout ok` as a minimal proof that IPC v1 payload copy
+  and deadline semantics are working end-to-end. VFS over IPC remains gated on
+  wiring `userspace/nexus-ipc` to kernel IPC v1 across processes.

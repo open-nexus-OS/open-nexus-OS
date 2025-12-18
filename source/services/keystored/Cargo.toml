@@ -19,6 +19,7 @@ os-lite = [
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
 ]
 
 [dependencies]

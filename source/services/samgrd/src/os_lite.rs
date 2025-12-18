@@ -1,10 +1,13 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
+extern crate alloc;
+
 use alloc::boxed::Box;
 
 use core::fmt;
 
 use nexus_abi::{debug_putc, yield_};
+use nexus_ipc::{KernelServer, Server as _, Wait};
 
 /// Result alias surfaced by the lite SAMgr backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -49,8 +52,19 @@ pub fn touch_schemas() {}
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("samgrd: ready (stub)");
+    let server = KernelServer::new_for("samgrd").map_err(|_| ServerError::Unsupported)?;
     loop {
-        let _ = yield_();
+        match server.recv(Wait::Blocking) {
+            Ok(frame) => {
+                // Minimal bring-up protocol: echo back the bytes to prove routing+IPC.
+                let _ = server.send(&frame, Wait::Blocking);
+            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                let _ = yield_();
+            }
+            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
+            Err(_) => return Err(ServerError::Unsupported),
+        }
     }
 }
 

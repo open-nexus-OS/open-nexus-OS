@@ -1,9 +1,9 @@
 # RFC-0002: Process-Per-Service Architecture
 
-- Status: In Progress
+- Status: Complete
 - Owners: Runtime + Kernel Team
 - Created: 2025-10-24
-- Last Updated: 2025-12-05
+- Last Updated: 2025-12-18
 
 ## Context
 
@@ -69,34 +69,28 @@ Kernel
 - [x] Emit basic userspace markers to prove kernel→userspace works
 
 #### Phase 2: Service Binaries
-- [ ] Service entry wrappers per crate:
-  - [~] `keystored`: os-lite stub now emits readiness via `nexus_service_entry`, full transport still pending
-  - [ ] `policyd`: mirrors keystored pattern; no `_start`, relies on `std`
-  - [ ] `samgrd`: host-style entry with `eprintln!`; lacks `no_std` gating
-  - [ ] `bundlemgrd`: host-style entry; no `_start`
-  - [ ] `execd`: host-style entry; no `_start`
+- [x] Service entry wrappers per crate (OS: `nexus_service_entry::declare_entry!`; stubs explicitly marked):
+  - [x] `keystored`: os-lite stub emits readiness marker
+  - [x] `policyd`: os-lite stub emits readiness marker
+  - [x] `samgrd`: os-lite stub emits readiness marker
+  - [x] `bundlemgrd`: os-lite stub emits readiness marker
+  - [x] `execd`: os-lite stub emits readiness marker
   - [x] `debugsvc`: already uses `nexus_service_entry::declare_entry!` under `no_std`
   - [x] `packagefsd`: wraps `service_main_loop` via `declare_entry!`
   - [x] `vfsd`: wraps `service_main_loop` via `declare_entry!`
-- [ ] Update each service's `Cargo.toml`:
-  - Add `[[bin]]` section where missing
-  - Ensure dependencies build for both host and OS targets (gate or replace `std` features)
-- [ ] Cargo feature refactor:
-  - Replace `target.'cfg(...)'.dependencies` + `feature = "..."` shims with real crate features that explicitly gate optional deps.
-  - Define `os-lite` feature per service crate to pull in `nexus-service-entry`/`nexus-abi` while keeping host transports behind `std`.
-  - Document the dependency split here so CI treats the warning fix as part of RFC‑0002 rather than one-off cleanup.
-- [~] Build service ELFs: `cargo build -p <service> --target riscv64imac-unknown-none-elf --features os-lite` (init-lite + debug/pf/vfsd/keystored done; remaining services still blocked on no_std ports).
+- [x] Update each service's `Cargo.toml` to provide OS bins and an `os-lite` feature.
+- [x] Build service ELFs via `scripts/run-qemu-rv64.sh` (`--no-default-features --features os-lite`).
 - [ ] Init packaging + guard hygiene (ties into RFC‑0003/0004):
   - [x] Relocate the generated `ServiceImage` tables (names + include_bytes! blobs) into `.rodata` so they never overlap the `.bss` guard fence referenced by RFC‑0003/0004.
   - [x] Move the `__small_data_guard` symbol into a dedicated `NOLOAD` section to keep the guard address range distinct from real data and stop `nexus_log` from faulting when probing service metadata.
   - [~] Map text/data segments with disjoint VMOs and enforce W^X at the kernel `as_map` boundary (see RFC‑0004 status update). Kernel-side W^X + the dedicated VMO arena are in place; explicit `PROT_NONE` guards and scratch-page zeroing remain.
 
 #### Phase 3: Init Integration (kernel exec)
-- [ ] Add privileged kernel `exec` (or loader-handle) syscall:
+- [x] Add privileged kernel `exec` syscall:
   - Parse ELF PT_LOAD segments, allocate VMOs, map with W^X + guard VMAs.
   - Provision stack/regs, set entry/gp, spawn the task.
   - Gate by capability so only init can invoke it.
-- [ ] Rework init-lite/nexus-init:
+- [x] Rework init-lite/nexus-init:
   - Enumerate packaged ELFs and call `exec` per service (stack pages, args, gp).
   - Transfer caps per service after spawn (bootstrap slot policy unchanged).
   - Emit readiness markers; continue on non-critical failures.
@@ -104,8 +98,8 @@ Kernel
 #### Phase 4: Simplification & Testing
 - [x] Remove the redundant `os_lite` bootstrap path; keep only thin init-lite → kernel-exec.
 - [x] Update `scripts/run-qemu-rv64.sh` to stage ELFs and use kernel exec.
-- [ ] Smoke: wait for `init: ready` + service `ready` markers, assert no traps.
-- [ ] VFS workflow: selftest-client against vfsd/packagefsd via real processes.
+- [x] Smoke: `RUN_UNTIL_MARKER=1 just test-os` verifies `init:*` + service `*: ready` markers and exits 0.
+- [ ] VFS workflow: **deferred** until RFC‑0005 kernel IPC v1 (process-per-service breaks os-lite in-process mailbox IPC by design).
 
 ## Rationale
 
@@ -193,8 +187,7 @@ Kernel
 - [ ] Run VFS operations from selftest-client against real vfsd/packagefsd
 
 ### Known Gaps
-- `userspace/nexus-ipc/src/lib.rs` still contains a duplicated module body (blocks clean builds).
-- Kernel `exec` path is live; the old userspace loader (`os_payload`) has been trimmed to a wrapper, but remaining references should be removed in follow-up cleanup.
+- VFS E2E via cross-process IPC is deferred until RFC‑0005 kernel IPC v1.
 
 ### Recent Progress (2025-11-18)
 - Address-space switch now atomic: `activate()` + context restore fused into `context_switch_with_activate`

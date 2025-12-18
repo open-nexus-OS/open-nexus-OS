@@ -129,6 +129,18 @@ monitor_uart() {
   local saw_child_exit_start=0
   local saw_exit_log=0
   local saw_child_exit_ok=0
+  local saw_ipc_payload_roundtrip=0
+  local saw_ipc_deadline_timeout=0
+  local saw_nexus_ipc_kernel_loopback=0
+  local saw_ipc_routing=0
+  local saw_ipc_routing_pkg=0
+  local saw_ipc_routing_policyd=0
+  local saw_ipc_routing_bundlemgrd=0
+  local saw_ipc_routing_samgrd=0
+  local saw_samgrd_ping=0
+  local saw_ipc_routing_execd=0
+  local saw_ipc_routing_keystored=0
+  local saw_keystored_ping=0
   local saw_pkgfs_ready=0
   local saw_vfsd_ready=0
   local saw_init_up_keystored=0
@@ -143,6 +155,7 @@ monitor_uart() {
   local saw_vfs_stat=0
   local saw_vfs_read=0
   local saw_vfs_ebadf=0
+  local saw_selftest_end=0
     while IFS= read -r line; do
     # Generic single-marker short-circuit: if RUN_UNTIL_MARKER is a non-zero,
     # non-"1" string, stop as soon as the line contains it.
@@ -226,6 +239,42 @@ monitor_uart() {
       *"SELFTEST: child exit ok"*)
         saw_child_exit_ok=1
         ;;
+      *"SELFTEST: ipc payload roundtrip ok"*)
+        saw_ipc_payload_roundtrip=1
+        ;;
+      *"SELFTEST: ipc deadline timeout ok"*)
+        saw_ipc_deadline_timeout=1
+        ;;
+      *"SELFTEST: nexus-ipc kernel loopback ok"*)
+        saw_nexus_ipc_kernel_loopback=1
+        ;;
+      *"SELFTEST: ipc routing policyd ok"*)
+        saw_ipc_routing_policyd=1
+        ;;
+      *"SELFTEST: ipc routing bundlemgrd ok"*)
+        saw_ipc_routing_bundlemgrd=1
+        ;;
+      *"SELFTEST: ipc routing samgrd ok"*)
+        saw_ipc_routing_samgrd=1
+        ;;
+      *"SELFTEST: samgrd ping ok"*)
+        saw_samgrd_ping=1
+        ;;
+      *"SELFTEST: ipc routing execd ok"*)
+        saw_ipc_routing_execd=1
+        ;;
+      *"SELFTEST: ipc routing keystored ok"*)
+        saw_ipc_routing_keystored=1
+        ;;
+      *"SELFTEST: keystored ping ok"*)
+        saw_keystored_ping=1
+        ;;
+      *"SELFTEST: ipc routing ok"*)
+        saw_ipc_routing=1
+        ;;
+      *"SELFTEST: ipc routing packagefsd ok"*)
+        saw_ipc_routing_pkg=1
+        ;;
       *"SELFTEST: policy allow ok"*)
         saw_policy_allow=1
         ;;
@@ -240,6 +289,9 @@ monitor_uart() {
         ;;
       *"SELFTEST: vfs ebadf ok"*)
         saw_vfs_ebadf=1
+        ;;
+      *"SELFTEST: end"*)
+        saw_selftest_end=1
         ;;
       *"I: after selftest"*|*"KSELFTEST: spawn ok"*|*"SELFTEST: ipc ok"*|*"SELFTEST: end"*)
         if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
@@ -272,7 +324,20 @@ monitor_uart() {
         && "$saw_ready" -eq 1 && "$saw_pkgfs_ready" -eq 1 && "$saw_vfsd_ready" -eq 1 \
         && "$saw_elf_ok" -eq 1 && "$saw_exec_selftest" -eq 1 && "$saw_child" -eq 1 && "$saw_child_exit_start" -eq 1 \
         && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 && "$saw_policy_allow" -eq 1 && "$saw_policy_deny" -eq 1 \
-        && "$saw_vfs_stat" -eq 1 && "$saw_vfs_read" -eq 1 && "$saw_vfs_ebadf" -eq 1 ]]; then
+        && "$saw_ipc_payload_roundtrip" -eq 1 \
+        && "$saw_ipc_deadline_timeout" -eq 1 \
+        && "$saw_nexus_ipc_kernel_loopback" -eq 1 \
+        && "$saw_ipc_routing_policyd" -eq 1 \
+        && "$saw_ipc_routing_bundlemgrd" -eq 1 \
+        && "$saw_ipc_routing_keystored" -eq 1 \
+        && "$saw_keystored_ping" -eq 1 \
+        && "$saw_ipc_routing_samgrd" -eq 1 \
+        && "$saw_samgrd_ping" -eq 1 \
+        && "$saw_ipc_routing_execd" -eq 1 \
+        && "$saw_ipc_routing" -eq 1 \
+        && "$saw_ipc_routing_pkg" -eq 1 \
+        && "$saw_vfs_stat" -eq 1 && "$saw_vfs_read" -eq 1 && "$saw_vfs_ebadf" -eq 1 \
+        && "$saw_selftest_end" -eq 1 ]]; then
       echo "[info] Success marker detected – stopping QEMU" >&2
       pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
       break

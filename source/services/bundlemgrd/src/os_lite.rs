@@ -1,10 +1,13 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
+extern crate alloc;
+
 use alloc::boxed::Box;
 
 use core::fmt;
 
 use nexus_abi::{debug_putc, yield_};
+use nexus_ipc::{KernelServer, Server as _, Wait};
 
 /// Result type surfaced by the lite bundle manager shim.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -60,8 +63,19 @@ pub fn touch_schemas() {}
 pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> LiteResult<()> {
     notifier.notify();
     emit_line("bundlemgrd: ready (stub)");
+    let server = KernelServer::new_for("bundlemgrd").map_err(|_| ServerError::Unsupported)?;
     loop {
-        let _ = yield_();
+        match server.recv(Wait::Blocking) {
+            Ok(frame) => {
+                // Minimal protocol: echo requests back to caller.
+                let _ = server.send(&frame, Wait::Blocking);
+            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                let _ = yield_();
+            }
+            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
+            Err(_) => return Err(ServerError::Unsupported),
+        }
     }
 }
 

@@ -53,7 +53,7 @@ pub unsafe fn init_global_pointer() {
 #[inline(always)]
 /// Emits a single diagnostic marker directly to the debug UART.
 pub unsafe fn write_boot_marker(byte: u8) {
-    let _ = byte;
+    let _ = nexus_abi::debug_putc(byte);
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

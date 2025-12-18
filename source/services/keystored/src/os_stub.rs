@@ -1,9 +1,12 @@
+extern crate alloc;
+
 use alloc::boxed::Box;
 
 use core::fmt;
 use core::marker::PhantomData;
 
 use nexus_abi::{debug_putc, yield_};
+use nexus_ipc::{KernelServer, Server as _, Wait};
 
 /// Result type surfaced by the lite keystored shim.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -103,8 +106,18 @@ pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> L
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("keystored: ready (stub)");
+    let server = KernelServer::new_for("keystored").map_err(|_| ServerError::Unsupported("ipc"))?;
     loop {
-        let _ = yield_();
+        match server.recv(Wait::Blocking) {
+            Ok(frame) => {
+                let _ = server.send(&frame, Wait::Blocking);
+            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                let _ = yield_();
+            }
+            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported("ipc")),
+            Err(_) => return Err(ServerError::Unsupported("ipc")),
+        }
     }
 }
 

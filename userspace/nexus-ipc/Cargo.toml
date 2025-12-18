@@ -9,6 +9,7 @@ authors = ["Open Nexus OS Contributors"]
 default = ["std"]
 std = ["dep:parking_lot"]
 os-lite = []
+kernel-ipc = []
 
 [dependencies]
 nexus-abi = { path = "../../source/libs/nexus-abi" }

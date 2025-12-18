@@ -749,6 +749,7 @@ name = "execd"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "demo-exit0",
  "exec-payloads",
  "nexus-abi",
  "nexus-idl-runtime",

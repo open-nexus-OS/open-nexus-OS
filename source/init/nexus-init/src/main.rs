@@ -22,19 +22,28 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 
-use nexus_init::touch_schemas;
+#[cfg(any(feature = "std-server", feature = "os-lite"))]
 use nexus_init::{service_main_loop, ReadyNotifier};
+#[cfg(feature = "std-server")]
+use nexus_init::touch_schemas;
 
 /// Entrypoint for the init binary. Delegates to the selected backend and keeps
 /// the process alive once service bootstrapping finishes.
+#[cfg(any(feature = "std-server", feature = "os-lite"))]
 fn main() -> ! {
-    #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+    #[cfg(all(
+        feature = "std-server",
+        not(all(nexus_env = "os", feature = "os-lite"))
+    ))]
     touch_schemas();
 
     #[cfg(all(nexus_env = "os", feature = "os-lite"))]
     {
         if let Err(_err) = service_main_loop(ReadyNotifier::new(|| ())) {
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             uart_println("init: fail runtime");
+            #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+            eprintln!("init: fail runtime");
         }
     }
 
@@ -45,6 +54,15 @@ fn main() -> ! {
         }
     }
 
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+// If no backend feature is enabled (or `os-payload` is selected for library-only usage),
+// provide a trivial stub so tooling can type-check the workspace under different cfg sets.
+#[cfg(not(any(feature = "std-server", feature = "os-lite")))]
+fn main() -> ! {
     loop {
         core::hint::spin_loop();
     }

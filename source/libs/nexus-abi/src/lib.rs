@@ -29,6 +29,8 @@ pub enum IpcError {
     QueueEmpty,
     /// Caller lacks permission to perform the requested operation.
     PermissionDenied,
+    /// Blocking IPC operation hit its deadline.
+    TimedOut,
     /// IPC is not supported for this configuration.
     Unsupported,
 }
@@ -87,6 +89,153 @@ impl MsgHeader {
             len,
         }
     }
+}
+
+// ——— IPC v1 syscalls (OS build) ———
+
+/// Syscall flags for IPC v1 operations.
+#[cfg(nexus_env = "os")]
+pub const IPC_SYS_NONBLOCK: u32 = 1 << 0;
+/// Permit payload truncation on receive.
+#[cfg(nexus_env = "os")]
+pub const IPC_SYS_TRUNCATE: u32 = 1 << 1;
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn decode_ipc_send(value: usize) -> Result<usize> {
+    if (value as isize) < 0 {
+        match -(value as isize) as usize {
+            1 => Err(IpcError::PermissionDenied), // EPERM
+            3 => Err(IpcError::NoSuchEndpoint),   // ESRCH
+            11 => Err(IpcError::QueueFull),       // EAGAIN
+            110 => Err(IpcError::TimedOut),       // ETIMEDOUT
+            _ => Err(IpcError::Unsupported),
+        }
+    } else {
+        Ok(value)
+    }
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn decode_ipc_recv(value: usize) -> Result<usize> {
+    if (value as isize) < 0 {
+        match -(value as isize) as usize {
+            1 => Err(IpcError::PermissionDenied), // EPERM
+            3 => Err(IpcError::NoSuchEndpoint),   // ESRCH
+            11 => Err(IpcError::QueueEmpty),      // EAGAIN
+            110 => Err(IpcError::TimedOut),       // ETIMEDOUT
+            _ => Err(IpcError::Unsupported),
+        }
+    } else {
+        Ok(value)
+    }
+}
+
+/// Sends an IPC v1 message to the endpoint referenced by `slot` (payload copy-in).
+///
+/// `sys_flags` uses [`IPC_SYS_NONBLOCK`]. When `sys_flags` does not include NONBLOCK, the
+/// kernel may block until the queue has capacity or the optional `deadline_ns` expires.
+///
+/// `deadline_ns=0` means “no deadline”.
+#[cfg(nexus_env = "os")]
+pub fn ipc_send_v1(
+    slot: Cap,
+    header: &MsgHeader,
+    payload: &[u8],
+    sys_flags: u32,
+    deadline_ns: u64,
+) -> Result<usize> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_IPC_SEND_V1: usize = 14;
+        let header_ptr = header as *const MsgHeader as usize;
+        let payload_ptr = payload.as_ptr() as usize;
+        let payload_len = payload.len();
+        let sys_flags = sys_flags as usize;
+        let deadline_ns = deadline_ns as usize;
+        let raw = unsafe {
+            ecall6(
+                SYSCALL_IPC_SEND_V1,
+                slot as usize,
+                header_ptr,
+                payload_ptr,
+                payload_len,
+                sys_flags,
+                deadline_ns,
+            )
+        };
+        decode_ipc_send(raw)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (slot, header, payload, sys_flags, deadline_ns);
+        Err(IpcError::Unsupported)
+    }
+}
+
+/// Convenience helper: non-blocking send with no deadline.
+#[cfg(nexus_env = "os")]
+pub fn ipc_send_v1_nb(slot: Cap, header: &MsgHeader, payload: &[u8]) -> Result<usize> {
+    ipc_send_v1(slot, header, payload, IPC_SYS_NONBLOCK, 0)
+}
+
+/// Receives an IPC v1 message from the endpoint referenced by `slot` (payload copy-out).
+///
+/// Returns the number of bytes written into `payload_out`.
+///
+/// `sys_flags` uses [`IPC_SYS_NONBLOCK`] and [`IPC_SYS_TRUNCATE`]. When `sys_flags` does not
+/// include NONBLOCK, the kernel may block until a message arrives or the optional
+/// `deadline_ns` expires.
+///
+/// `deadline_ns=0` means “no deadline”.
+#[cfg(nexus_env = "os")]
+pub fn ipc_recv_v1(
+    slot: Cap,
+    header_out: &mut MsgHeader,
+    payload_out: &mut [u8],
+    sys_flags: u32,
+    deadline_ns: u64,
+) -> Result<usize> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_IPC_RECV_V1: usize = 18;
+        let header_out_ptr = header_out as *mut MsgHeader as usize;
+        let payload_out_ptr = payload_out.as_mut_ptr() as usize;
+        let payload_out_max = payload_out.len();
+        let sys_flags = sys_flags as usize;
+        let deadline_ns = deadline_ns as usize;
+        let raw = unsafe {
+            ecall6(
+                SYSCALL_IPC_RECV_V1,
+                slot as usize,
+                header_out_ptr,
+                payload_out_ptr,
+                payload_out_max,
+                sys_flags,
+                deadline_ns,
+            )
+        };
+        decode_ipc_recv(raw)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (slot, header_out, payload_out, sys_flags, deadline_ns);
+        Err(IpcError::Unsupported)
+    }
+}
+
+/// Convenience helper: non-blocking receive (optionally truncating) with no deadline.
+#[cfg(nexus_env = "os")]
+pub fn ipc_recv_v1_nb(
+    slot: Cap,
+    header_out: &mut MsgHeader,
+    payload_out: &mut [u8],
+    truncate: bool,
+) -> Result<usize> {
+    let mut flags = IPC_SYS_NONBLOCK;
+    if truncate {
+        flags |= IPC_SYS_TRUNCATE;
+    }
+    ipc_recv_v1(slot, header_out, payload_out, flags, 0)
 }
 
 // ——— Task and capability primitives (OS build) ———
@@ -155,18 +304,18 @@ pub enum AbiError {
 impl AbiError {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     fn from_raw(value: usize) -> Option<Self> {
-        match value {
-            usize::MAX => Some(Self::InvalidSyscall),
-            val if val == usize::MAX - 1 => Some(Self::CapabilityDenied),
-            val if val == usize::MAX - 2 => Some(Self::IpcFailure),
-            val if val == usize::MAX - 3 => Some(Self::SpawnFailed),
-            val if val == usize::MAX - 4 => Some(Self::TransferFailed),
-            _ if (value as isize) < 0 => match -(value as isize) as usize {
-                10 => Some(Self::ChildUnavailable),
-                3 => Some(Self::NoSuchPid),
-                22 => Some(Self::InvalidArgument),
-                _ => None,
-            },
+        if (value as isize) >= 0 {
+            return None;
+        }
+        // Kernel returns negative errno values for syscall failures.
+        match -(value as isize) as usize {
+            38 => Some(Self::InvalidSyscall),     // ENOSYS
+            1 => Some(Self::CapabilityDenied),   // EPERM
+            22 => Some(Self::InvalidArgument),   // EINVAL
+            10 => Some(Self::ChildUnavailable),  // ECHILD
+            3 => Some(Self::NoSuchPid),          // ESRCH
+            12 => Some(Self::SpawnFailed),       // ENOMEM (best-effort mapping)
+            28 => Some(Self::SpawnFailed),       // ENOSPC (best-effort mapping)
             _ => None,
         }
     }
@@ -185,6 +334,21 @@ pub fn yield_() -> SysResult<()> {
             ecall0(SYSCALL_YIELD)
         };
         decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Returns the current monotonic time in nanoseconds (kernel timer).
+#[cfg(nexus_env = "os")]
+pub fn nsec() -> SysResult<u64> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_NSEC: usize = 1;
+        let raw = unsafe { ecall0(SYSCALL_NSEC) };
+        decode_syscall(raw).map(|v| v as u64)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
@@ -251,6 +415,42 @@ pub fn exec(elf: &[u8], stack_pages: usize, global_pointer: u64) -> SysResult<Pi
     }
 }
 
+/// Loads and spawns a process from an ELF blob using the kernel exec loader (v2).
+///
+/// v2 additionally provides a per-service name string that the kernel copies into a read-only
+/// mapping in the child address space (RFC-0004 provenance floor).
+#[cfg(nexus_env = "os")]
+pub fn exec_v2(elf: &[u8], stack_pages: usize, global_pointer: u64, service_name: &str) -> SysResult<Pid> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_EXEC_V2: usize = 17;
+        if stack_pages == 0 || elf.is_empty() {
+            return Err(AbiError::InvalidArgument);
+        }
+        // Keep the ABI bounded (kernel enforces too).
+        if service_name.len() > 64 {
+            return Err(AbiError::InvalidArgument);
+        }
+        let raw = unsafe {
+            ecall6(
+                SYSCALL_EXEC_V2,
+                elf.as_ptr() as usize,
+                elf.len(),
+                stack_pages,
+                global_pointer as usize,
+                service_name.as_ptr() as usize,
+                service_name.len(),
+            )
+        };
+        decode_syscall(raw).map(|pid| pid as Pid)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (elf, stack_pages, global_pointer, service_name);
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Terminates the current task with the provided exit `status`.
 #[cfg(nexus_env = "os")]
 pub fn exit(status: i32) -> ! {
@@ -308,6 +508,27 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Creates a new kernel IPC endpoint and returns a capability slot for it.
+///
+/// This syscall is currently privileged (bootstrap task only).
+#[cfg(nexus_env = "os")]
+pub fn ipc_endpoint_create(queue_depth: usize) -> SysResult<Cap> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_IPC_ENDPOINT_CREATE: usize = 19;
+        if queue_depth == 0 {
+            return Err(AbiError::InvalidArgument);
+        }
+        let raw = unsafe { ecall1(SYSCALL_IPC_ENDPOINT_CREATE, queue_depth) };
+        decode_syscall(raw).map(|slot| slot as Cap)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = queue_depth;
         Err(AbiError::Unsupported)
     }
 }

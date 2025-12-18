@@ -141,10 +141,6 @@ fn encode_addi(rd: u8, rs1: u8, imm: i32) -> u32 {
     encode_i_type(0x13, rd, rs1, imm, 0)
 }
 
-fn encode_andi(rd: u8, rs1: u8, imm: i32) -> u32 {
-    encode_i_type(0x13, rd, rs1, imm, 0b111)
-}
-
 fn encode_lbu(rd: u8, rs1: u8, imm: i32) -> u32 {
     encode_i_type(0x03, rd, rs1, imm, 0b100)
 }
@@ -152,20 +148,6 @@ fn encode_lbu(rd: u8, rs1: u8, imm: i32) -> u32 {
 fn encode_i_type(opcode: u32, rd: u8, rs1: u8, imm: i32, funct3: u32) -> u32 {
     let imm_masked = (imm as u32) & 0xfff;
     (imm_masked << 20) | ((rs1 as u32) << 15) | (funct3 << 12) | ((rd as u32) << 7) | opcode
-}
-
-fn encode_lui(rd: u8, imm20: i32) -> u32 {
-    ((imm20 as u32) << 12) | ((rd as u32) << 7) | 0x37
-}
-
-fn encode_sb(rs2: u8, rs1: u8, imm: i32) -> u32 {
-    let imm_u = imm as u32;
-    (((imm_u >> 5) & 0x7f) << 25)
-        | ((rs2 as u32) << 20)
-        | ((rs1 as u32) << 15)
-        | (0b000 << 12)
-        | ((imm_u & 0x1f) << 7)
-        | 0x23
 }
 
 fn encode_beq(rs1: u8, rs2: u8, offset: i32) -> u32 {

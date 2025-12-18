@@ -43,6 +43,7 @@ pub struct Scheduler {
 impl Scheduler {
     /// Creates an empty scheduler.
     pub fn new() -> Self {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
@@ -50,6 +51,7 @@ impl Scheduler {
         }
         // Read deterministic timeslice guarded and fall back to constant if needed
         let ts = crate::determinism::fixed_tick_ns();
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
@@ -66,6 +68,7 @@ impl Scheduler {
             current: None,
             timeslice_ns: ts,
         };
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
@@ -77,14 +80,17 @@ impl Scheduler {
     /// Enqueues a task with the provided QoS class.
     pub fn enqueue(&mut self, id: TaskId, qos: QosClass) {
         // Debug: log only the first few enqueues to avoid UART flood
-        const LOG_LIMIT: usize = 32;
-        static ENQ_COUNT: core::sync::atomic::AtomicUsize =
-            core::sync::atomic::AtomicUsize::new(0);
-        let count = ENQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if count < LOG_LIMIT {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id, qos);
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            const LOG_LIMIT: usize = 32;
+            static ENQ_COUNT: core::sync::atomic::AtomicUsize =
+                core::sync::atomic::AtomicUsize::new(0);
+            let count = ENQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if count < LOG_LIMIT {
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id, qos);
+            }
         }
 
         let task = Task { id, qos };
@@ -101,12 +107,11 @@ impl Scheduler {
             core::sync::atomic::AtomicUsize::new(0);
         let count = NEXT_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let log_now = count < LOG_LIMIT;
-        #[allow(unused_mut)]
-        let mut u = if log_now {
-            Some(crate::uart::raw_writer())
-        } else {
-            None
-        };
+        let mut u: Option<crate::uart::RawUart> = None;
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        if log_now {
+            u = Some(crate::uart::raw_writer());
+        }
         if let Some(ref mut w) = u {
             use core::fmt::Write as _;
             let _ = writeln!(
@@ -152,6 +157,16 @@ impl Scheduler {
     /// Marks the current task as finished without re-enqueuing it.
     pub fn finish_current(&mut self) {
         self.current = None;
+    }
+
+    /// Removes all queued references to `id` and clears it if currently running.
+    pub fn purge(&mut self, id: TaskId) {
+        for q in &mut self.queues {
+            q.retain(|t| t.id != id);
+        }
+        if self.current.as_ref().is_some_and(|t| t.id == id) {
+            self.current = None;
+        }
     }
 
     fn queue_for(&mut self, qos: QosClass) -> &mut VecDeque<Task> {

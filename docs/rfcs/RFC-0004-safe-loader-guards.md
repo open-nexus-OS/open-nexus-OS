@@ -2,7 +2,7 @@
 
 - Status: In Progress
 - Authors: Runtime Team
-- Last Updated: 2025-11-29
+- Last Updated: 2025-12-18
 
 ## Summary
 
@@ -51,7 +51,8 @@ relies on, and crash diagnostics can trust pointer provenance.
 ## Implementation Plan
 
 ### Completion snapshot (2025-12-12)
-- Overall: ~55% complete. Kernel `exec` now owns ELF mapping, W^X, and guard VMAs; scratch-page sharing removed. Per-service metadata VMOs and post-spawn zero/unmap plus kernel trap telemetry remain to finish Phase 0/1.
+
+- Overall: ~65% complete. Kernel `exec` owns ELF mapping, enforces W^X, and maintains guarded stacks. The user VMO arena is now **zero-initialized by construction** (no stale bytes leak across allocations), and a kernel selftest asserts this property (`KSELFTEST: vmo zero ok`). Per-service metadata VMOs and richer trap telemetry remain to finish Phase 0/1.
 
 ### Phase 0 – Immediate Hardening (Current Quarter)
 
@@ -93,11 +94,22 @@ relies on, and crash diagnostics can trust pointer provenance.
   ring buffer or per-service staging area).
 
 ## Current Status
+
 - Phase 0: **In progress.** Guard logic in `nexus-log` already rejects
   pointers that escape the `.rodata`/`.data` fences. On the loader side we
   now:
   - Allocate per-service VMOs from a dedicated 16 MiB arena that is identity
     mapped behind the kernel stacks so user payloads can never alias kernel RAM.
+  - Zero-initialize all arena allocations (VMOs, exec PT_LOAD backing, stacks) to
+    prevent stale bytes and pointer remnants leaking across services/allocations.
+  - Zero freshly allocated spawn stacks and identity-map the stack pool so the kernel can clear it
+    deterministically (no stale user stack contents).
+  - `exec_v2` syscall can copy the service name into a per-service, read-only metadata page mapped
+    into the child address space (kernel emits `EXEC-META` telemetry during boot).
+  - The kernel also maps a **read-only bootstrap info page** (struct `BootstrapInfo`) at a stable
+    VA adjacent to the stack mapping. This page provides `meta_name_ptr/meta_name_len` so early
+    services (and later IPC bootstrap) can find provenance-safe metadata without shared scratch
+    pages.
   - Enforce W^X at the syscall boundary (`sys_as_map`) and in the page-table
     layer, so writable aliases to executable segments are rejected up front.
   - Wire `sys_vmo_write` with a real copy path that validates user pointers
@@ -137,6 +149,7 @@ been retired; the relevant bits remain in the kernel loader:
 - Extend the shared loader tests (`nexus-init` os-lite backend, invoked via the
   init-lite wrapper) to assert that every service metadata pointer resides inside the per-service VMO (`cargo test -p nexus-init` on
   the host side).
+- Kernel selftest: `KSELFTEST: vmo zero ok` asserts that `vmo_create` returns zeroed backing bytes (QEMU marker-driven).
 - Integration test: boot `neuron-boot` with the service list enabled and
   assert that no `[USER-PF]` traces occur due to logging pointers.
 - Manual trap-review: verify trap dumps now identify guard failures

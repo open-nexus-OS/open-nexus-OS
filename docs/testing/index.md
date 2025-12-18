@@ -3,12 +3,15 @@
 Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercised with fast host tools, leaving QEMU for end-to-end smoke coverage only. This document explains the layers, expectations, and day-to-day workflow for contributors.
 
 ## Philosophy
+
 - Prioritise fast feedback by writing unit, property, and contract tests in userspace crates first.
 - Keep kernel selftests focused on syscall, IPC, and VMO surface validation; they should advertise success through UART markers that CI can detect.
 - Reserve QEMU for smoke and integration validation. Runs are bounded by a timeout and produce trimmed logs to avoid multi-gigabyte artefacts.
 
 ## Testing layers
+
 ### Kernel (`source/kernel/neuron`)
+
 - `#![no_std]` runtime with selftests that emit UART markers such as `SELFTEST: begin`, `SELFTEST: time ok`, `KSELFTEST: spawn ok`, and `SELFTEST: end`.
 - Exercise hardware-adjacent code paths (traps, scheduler, IPC router, spawn). Golden vectors capture ABI and wire format expectations.
 - Stage policy: OS early boot prints minimal raw UART only; selftests run on a private stack with canary guard, timer IRQs masked.
@@ -17,6 +20,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
   - Opt-in: `selftest_ipc`, `selftest_caps`, `selftest_sched`, `trap_symbols` (enables in-kernel symbolization on traps).
 
 ### Userspace libraries (`userspace/`)
+
 - All crates compile with `#![forbid(unsafe_code)]` and are structured to run on the host toolchain.
 - Userspace crates use `#[cfg(nexus_env = "host")]` for in-memory test backends and `#[cfg(nexus_env = "os")]` for syscall stubs.
 - The default build environment is `nexus_env="host"` (set via `.cargo/config.toml`).
@@ -28,6 +32,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
   - The `just build-nexus-log-os` / `just build-init-lite-os` targets wrap these commands and keep the flags consistent with CI.
 
 ### Services and daemons (`source/services/*d`)
+
 - Daemons are thin IPC adapters that translate requests into calls to userspace libraries. They must avoid `unwrap`/`expect` in favour of rich error types.
 - Provide IDL round-trip and contract tests using the local runner tools. Keep business logic in the userspace crates so daemons stay lean.
 
@@ -43,6 +48,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness now waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), the policy allow/deny probes, and the VFS checks before stopping. Logs are trimmed to keep artefacts small. |
 
 ## Workflow checklist
+
 1. Extend userspace tests first and run `cargo test --workspace` until green.
 2. Execute Miri for host-compatible crates.
 3. Refresh Golden Vectors (IDL frames, ABI structs) and bump SemVer when contracts change.
@@ -80,37 +86,42 @@ the runner validates in order:
 2. `init: start` – init process begins bootstrapping services
 3. `init: start keystored` – os-lite init launching the keystore daemon
 4. `init: up keystored` – os-lite init observed the keystore daemon reach readiness
-5. `keystored: ready` – key store stub ready
-6. `init: start policyd` – os-lite init launching the policy daemon
-7. `init: up policyd` – os-lite init observed the policy daemon reach readiness
-8. `policyd: ready` – policy stub ready
-9. `init: start samgrd` – os-lite init launching the service manager
-10. `init: up samgrd` – os-lite init observed the service manager reach readiness
-11. `samgrd: ready` – service manager daemon ready
-12. `init: start bundlemgrd` – os-lite init launching the bundle manager
-13. `init: up bundlemgrd` – os-lite init observed the bundle manager reach readiness
-14. `bundlemgrd: ready` – bundle manager daemon ready
-15. `init: start packagefsd` – os-lite init launching the package FS daemon
-16. `init: up packagefsd` – os-lite init observed the package FS daemon reach readiness
-17. `packagefsd: ready` – package file system daemon registered
-18. `init: start vfsd` – os-lite init launching the VFS dispatcher
-19. `init: up vfsd` – os-lite init observed the VFS dispatcher reach readiness
-20. `vfsd: ready` – VFS dispatcher ready to serve requests
-21. `init: start execd` – os-lite init launching the exec daemon
-22. `init: up execd` – os-lite init observed the exec daemon reach readiness
-23. `init: ready` – init completed baseline bring-up
-24. `execd: elf load ok` – loader mapped the embedded ELF into the child address space
-25. `child: hello-elf` – spawned task from the ELF payload started and yielded control back to the kernel
-26. `SELFTEST: e2e exec-elf ok` – selftest client observed the ELF loader path end-to-end
-27. `child: exit0 start` – demo payload exercising `exit(0)` began execution
-28. `execd: child exited pid=… code=0` – supervisor reaped the exit0 child and logged its status
-29. `SELFTEST: child exit ok` – selftest client observed the lifecycle markers from execd
-30. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
-31. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
-32. `SELFTEST: vfs stat ok` – selftest exercised read-only stat via the userspace VFS
-33. `SELFTEST: vfs read ok` – selftest read bundle payload bytes via the VFS client
-34. `SELFTEST: vfs ebadf ok` – selftest confirmed closed handles are rejected by the VFS
-35. `SELFTEST: end` – concluding marker from the host-side selftest client
+5. `init: start policyd` – os-lite init launching the policy daemon
+6. `init: up policyd` – os-lite init observed the policy daemon reach readiness
+7. `init: start samgrd` – os-lite init launching the service manager
+8. `init: up samgrd` – os-lite init observed the service manager reach readiness
+9. `init: start bundlemgrd` – os-lite init launching the bundle manager
+10. `init: up bundlemgrd` – os-lite init observed the bundle manager reach readiness
+11. `init: start packagefsd` – os-lite init launching the package FS daemon
+12. `init: up packagefsd` – os-lite init observed the package FS daemon reach readiness
+13. `init: start vfsd` – os-lite init launching the VFS dispatcher
+14. `init: up vfsd` – os-lite init observed the VFS dispatcher reach readiness
+15. `init: start execd` – os-lite init launching the exec daemon
+16. `init: up execd` – os-lite init observed the exec daemon reach readiness
+17. `init: ready` – init completed baseline bring-up
+18. `keystored: ready` – keystore daemon ready (emitted by service process)
+19. `policyd: ready` – policy daemon ready
+20. `samgrd: ready` – service manager daemon ready
+21. `bundlemgrd: ready` – bundle manager daemon ready
+22. `packagefsd: ready` – package file system daemon registered
+23. `vfsd: ready` – VFS dispatcher ready to serve requests
+24. `execd: ready` – exec daemon ready (may be stubbed during bring-up)
+25. `execd: elf load ok` – exec syscall mapped the embedded ELF into the child address space
+26. `child: hello-elf` – spawned task from the ELF payload started and yielded control back to the kernel
+27. `SELFTEST: e2e exec-elf ok` – selftest client observed the ELF loader path end-to-end
+28. `child: exit0 start` – demo payload exercising `exit(0)` began execution
+29. `execd: child exited pid=… code=0` – selftest client observed the exit status (marker name kept for compatibility)
+30. `SELFTEST: child exit ok` – selftest client observed the lifecycle markers
+31. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
+32. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
+33. `SELFTEST: ipc payload roundtrip ok` – kernel IPC v1 payload copy-in/out roundtrip succeeded
+34. `SELFTEST: ipc deadline timeout ok` – kernel IPC v1 deadline semantics: past deadline returns `TimedOut` deterministically
+35. `SELFTEST: nexus-ipc kernel loopback ok` – `nexus-ipc` OS backend exercised kernel IPC v1 syscalls (loopback on bootstrap endpoint)
+36. `SELFTEST: ipc routing ok` – `nexus-ipc` resolved a named service target via the init-lite routing responder
+37. `SELFTEST: vfs stat ok` – VFS over IPC: stat succeeded
+38. `SELFTEST: vfs read ok` – VFS over IPC: open/read succeeded
+39. `SELFTEST: vfs ebadf ok` – VFS over IPC: EBADF behavior verified
+40. `SELFTEST: end` – concluding marker from the selftest client
 
 ### OS E2E: exec-elf (service path)
 
@@ -146,18 +157,21 @@ hand-off the OS build will use later. Execute the tests with
 `cargo test -p remote_e2e`—they finish in a few seconds and require no QEMU. (Note: the DSoftBus OS backend is stubbed until kernel networking is available.)
 
 ## Environment parity & prerequisites
+
 - Toolchain pinned via `rust-toolchain.toml`; install the listed version before building.
 - Targets required: `rustup target add riscv64imac-unknown-none-elf`.
 - System dependencies: `qemu-system-misc`, `capnproto`, and supporting build packages. The Podman container image installs the same dependencies for CI parity.
 - Do not rely on host-only tools—update `recipes/` or container definitions when new packages are needed.
 
 ## House rules
+
 - No `unwrap`/`expect` in daemons; propagate errors with context.
 - Userspace crates must keep `#![forbid(unsafe_code)]` enabled and pass Clippy’s denied lints.
 - No blanket `#[allow(dead_code)]` or `#[allow(unused)]`. Use the `tools/deadcode-scan.sh` guard, gate WIP APIs behind features, or add time-boxed entries to `config/deadcode.allow`.
 - CI enforces architecture guards, UART markers, and formatting; keep commits green locally before pushing.
 
 ## Troubleshooting tips
+
 - QEMU runs are bounded by the `RUN_TIMEOUT` environment variable (default `45s`). Increase it only when debugging: `RUN_TIMEOUT=120s just qemu`. During kernel bring-up we rely on marker-driven early exit and strict triage: the kernel prints `map kernel segments ok` once linker-derived mappings are active and `AS: post-satp OK` after each SATP switch; illegal-instruction traps print `sepc/scause/stval` and instruction bytes; optional symbolization (`trap_symbols`) resolves `sepc` to `name+offset`; RX-sanity failures panic with the offending PC before the switch.
 - CI log filters fail the run on `PANIC`, `EXC:`, `ILLEGAL`, `rx guard:`, or missing marker sequences and retain deterministic seeds plus the trimmed UART/QEMU artefacts for post-mortem analysis.
 - Logs are trimmed post-run. Override caps with `QEMU_LOG_MAX` or `UART_LOG_MAX` if you need to preserve more context. Each run drops three auto-generated artefacts (all ignored by Git) in the workspace root: `uart.log`, `uart_ecall_chars.log`, and `neuron-boot.map`. Keep the map around while triaging traps—agents rely on it to resolve `sepc` offsets without rerunning the build. Use `tools/uart-filter.py --strip-escape uart.log` to decode the escape-prefixed probe lines or `--grep init:` to focus on readiness markers.

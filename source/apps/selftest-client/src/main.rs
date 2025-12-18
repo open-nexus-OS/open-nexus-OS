@@ -31,6 +31,8 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
+    // Minimal marker before `alloc` heavy work (debugging bring-up).
+    let _ = nexus_abi::debug_println("selftest-client: entry");
     os_lite::run()
 }
 
@@ -54,42 +56,164 @@ mod os_lite {
 
     use demo_exit0::DEMO_EXIT0_ELF;
     use exec_payloads::HELLO_ELF;
-    use nexus_abi::{debug_putc, exec, wait, yield_, Pid};
+    use nexus_abi::{
+        debug_putc, exec, ipc_recv_v1, ipc_recv_v1_nb, ipc_send_v1_nb, wait, yield_, MsgHeader,
+        Pid,
+    };
     use nexus_ipc::Client as _;
     use nexus_ipc::{KernelClient, Wait as IpcWait};
 
-    pub fn run() -> core::result::Result<(), ()> {
-        // Policy E2E markers (policy daemon wiring is staged; keep markers deterministic).
-        emit_line("SELFTEST: policy allow ok");
-        emit_line("SELFTEST: policy deny ok");
+    fn samgr_ping(client: &KernelClient) -> core::result::Result<(), ()> {
+        let payload: &[u8] = b"samgrd ping";
+        client
+            .send(payload, IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        let rsp = client
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        if rsp.as_slice() == payload {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
 
-        // Exec-ELF E2E: spawn hello payload.
+    fn keystored_ping(client: &KernelClient) -> core::result::Result<(), ()> {
+        let payload: &[u8] = b"keystored ping";
+        client
+            .send(payload, IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        let rsp = client
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        if rsp.as_slice() == payload {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn execd_spawn(execd: &KernelClient, which: u8) -> core::result::Result<Pid, ()> {
+        const OPCODE_SPAWN: u8 = 1;
+        let frame = [OPCODE_SPAWN, which];
+        execd
+            .send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        let rsp = execd
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        if rsp.len() < 6 || rsp[0] != OPCODE_SPAWN || rsp[1] != 1 {
+            return Err(());
+        }
+        let pid = u32::from_le_bytes([rsp[2], rsp[3], rsp[4], rsp[5]]);
+        if pid == 0 {
+            return Err(());
+        }
+        Ok(pid)
+    }
+
+    fn policy_check(client: &KernelClient, subject: &str) -> core::result::Result<bool, ()> {
+        const OPCODE_CHECK: u8 = 1;
+        let name = subject.as_bytes();
+        if name.len() > 48 {
+            return Err(());
+        }
+        let mut frame = Vec::with_capacity(2 + name.len());
+        frame.push(OPCODE_CHECK);
+        frame.push(name.len() as u8);
+        frame.extend_from_slice(name);
+        client.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        let rsp = client
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        if rsp.len() < 2 || rsp[0] != OPCODE_CHECK {
+            return Err(());
+        }
+        Ok(rsp[1] != 0)
+    }
+
+    pub fn run() -> core::result::Result<(), ()> {
+        // keystored ping (routing + echo)
+        let keystored = KernelClient::new_for("keystored").map_err(|_| ())?;
+        emit_line("SELFTEST: ipc routing keystored ok");
+        if keystored_ping(&keystored).is_ok() {
+            emit_line("SELFTEST: keystored ping ok");
+        } else {
+            emit_line("SELFTEST: keystored ping FAIL");
+        }
+
+        // samgrd ping (routing + echo)
+        let samgrd = KernelClient::new_for("samgrd").map_err(|_| ())?;
+        emit_line("SELFTEST: ipc routing samgrd ok");
+        if samgr_ping(&samgrd).is_ok() {
+            emit_line("SELFTEST: samgrd ping ok");
+        } else {
+            emit_line("SELFTEST: samgrd ping FAIL");
+        }
+
+        // Policy E2E via policyd (minimal IPC protocol).
+        let policyd = KernelClient::new_for("policyd").map_err(|_| ())?;
+        emit_line("SELFTEST: ipc routing policyd ok");
+        let _ = KernelClient::new_for("bundlemgrd").map_err(|_| ())?;
+        emit_line("SELFTEST: ipc routing bundlemgrd ok");
+        if policy_check(&policyd, "samgrd").unwrap_or(false) {
+            emit_line("SELFTEST: policy allow ok");
+        } else {
+            emit_line("SELFTEST: policy allow FAIL");
+        }
+        if !policy_check(&policyd, "demo.testsvc").unwrap_or(true) {
+            emit_line("SELFTEST: policy deny ok");
+        } else {
+            emit_line("SELFTEST: policy deny FAIL");
+        }
+
+        // Exec-ELF E2E via execd service (spawns hello payload).
+        let execd_client = KernelClient::new_for("execd").map_err(|_| ())?;
+        emit_line("SELFTEST: ipc routing execd ok");
         emit_line("HELLOHDR");
         log_hello_elf_header();
-        let _hello_pid = exec(HELLO_ELF, 8, 0).map_err(|_| ())?;
-        emit_line("execd: elf load ok");
-        // Allow the child to run and print "child: hello-elf".
+        let _hello_pid = execd_spawn(&execd_client, 1)?;
+        // Allow the child to run and print "child: hello-elf" before we emit the marker.
         for _ in 0..64 {
             let _ = yield_();
         }
+        emit_line("execd: elf load ok");
         emit_line("SELFTEST: e2e exec-elf ok");
 
         // Exit lifecycle: spawn exit0 payload, wait for termination, and print markers.
-        let exit_pid = exec(DEMO_EXIT0_ELF, 8, 0).map_err(|_| ())?;
+        let exit_pid = execd_spawn(&execd_client, 2)?;
         // Wait for exit; child prints "child: exit0 start" itself.
         let status = wait_for_pid(exit_pid).unwrap_or(-1);
         emit_line_with_pid_status(exit_pid, status);
         emit_line("SELFTEST: child exit ok");
 
-        // Userspace VFS proof via vfsd mailbox protocol (opcodes match vfsd os-lite).
-        //
-        // NOTE: The os-lite IPC backend is still staged; treat VFS checks as best-effort
-        // but always emit the UART markers so CI can validate the boot sequence.
+        // Kernel IPC v1 payload copy roundtrip (RFC-0005):
+        // send payload via `SYSCALL_IPC_SEND_V1`, then recv it back via `SYSCALL_IPC_RECV_V1`.
+        if ipc_payload_roundtrip().is_ok() {
+            emit_line("SELFTEST: ipc payload roundtrip ok");
+        } else {
+            emit_line("SELFTEST: ipc payload roundtrip FAIL");
+        }
+
+        // Kernel IPC v1 deadline semantics (RFC-0005): a past deadline should time out immediately.
+        if ipc_deadline_timeout_probe().is_ok() {
+            emit_line("SELFTEST: ipc deadline timeout ok");
+        } else {
+            emit_line("SELFTEST: ipc deadline timeout FAIL");
+        }
+
+        // Exercise `nexus-ipc` kernel backend (NOT service routing) deterministically:
+        // send to bootstrap endpoint and receive our own message back.
+        if nexus_ipc_kernel_loopback_probe().is_ok() {
+            emit_line("SELFTEST: nexus-ipc kernel loopback ok");
+        } else {
+            emit_line("SELFTEST: nexus-ipc kernel loopback FAIL");
+        }
+
+        // Userspace VFS probe over kernel IPC v1 (cross-process).
         if verify_vfs().is_err() {
-            emit_line("^vfs unavailable - emitting markers");
-            emit_line("SELFTEST: vfs stat ok");
-            emit_line("SELFTEST: vfs read ok");
-            emit_line("SELFTEST: vfs ebadf ok");
+            emit_line("SELFTEST: vfs FAIL");
         }
 
         emit_line("SELFTEST: end");
@@ -97,6 +221,59 @@ mod os_lite {
         // Stay alive (cooperative).
         loop {
             let _ = yield_();
+        }
+    }
+
+    fn ipc_payload_roundtrip() -> core::result::Result<(), ()> {
+        // NOTE: Slot 0 is the bootstrap endpoint capability passed by init-lite (SEND|RECV).
+        const BOOTSTRAP_EP: u32 = 0;
+        const TY: u16 = 0x5a5a;
+        const FLAGS: u16 = 0;
+        let payload: &[u8] = b"nexus-ipc-v1 roundtrip";
+
+        let header = MsgHeader::new(0, 0, TY, FLAGS, payload.len() as u32);
+        ipc_send_v1_nb(BOOTSTRAP_EP, &header, payload).map_err(|_| ())?;
+
+        // Be robust against minor scheduling variance: retry a few times if queue is empty.
+        let mut out_hdr = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut out_buf = [0u8; 64];
+        for _ in 0..32 {
+            match ipc_recv_v1_nb(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, true) {
+                Ok(n) => {
+                    let n = n as usize;
+                    if out_hdr.ty != TY {
+                        return Err(());
+                    }
+                    if out_hdr.len as usize != payload.len() {
+                        return Err(());
+                    }
+                    if n != payload.len() {
+                        return Err(());
+                    }
+                    if &out_buf[..n] != payload {
+                        return Err(());
+                    }
+                    return Ok(());
+                }
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+        }
+        Err(())
+    }
+
+    fn ipc_deadline_timeout_probe() -> core::result::Result<(), ()> {
+        // Blocking recv with a deadline in the past must return TimedOut deterministically.
+        const BOOTSTRAP_EP: u32 = 0;
+        let mut out_hdr = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut out_buf = [0u8; 8];
+        let sys_flags = 0; // blocking
+        let deadline_ns = 1; // effectively always in the past
+        match ipc_recv_v1(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, sys_flags, deadline_ns) {
+            Err(nexus_abi::IpcError::TimedOut) => Ok(()),
+            _ => Err(()),
         }
     }
 
@@ -166,8 +343,12 @@ mod os_lite {
         const OPCODE_CLOSE: u8 = 3;
         const OPCODE_STAT: u8 = 4;
 
-        nexus_ipc::set_default_target("vfsd");
-        let client = KernelClient::new().map_err(|_| ())?;
+        // RFC-0005: name-based routing (slots are assigned by init-lite; lookup happens over a
+        // private control endpoint).
+        let client = KernelClient::new_for("vfsd").map_err(|_| ())?;
+        emit_line("SELFTEST: ipc routing ok");
+        let _ = KernelClient::new_for("packagefsd").map_err(|_| ())?;
+        emit_line("SELFTEST: ipc routing packagefsd ok");
 
         // stat
         let stat_path = b"pkg:/demo.hello/manifest.json";
@@ -227,6 +408,26 @@ mod os_lite {
         } else {
             Err(())
         }
+    }
+
+    fn nexus_ipc_kernel_loopback_probe() -> core::result::Result<(), ()> {
+        // NOTE: Service routing is not wired; this probes only the kernel-backed `KernelClient`
+        // implementation by sending to the bootstrap endpoint queue and receiving the same frame.
+        let client = KernelClient::new_with_slots(0, 0).map_err(|_| ())?;
+        let payload: &[u8] = b"nexus-ipc kernel loopback";
+        client.send(payload, IpcWait::NonBlocking).map_err(|_| ())?;
+        // Bounded wait (avoid hangs): tolerate that the scheduler may reorder briefly.
+        for _ in 0..128 {
+            match client.recv(IpcWait::NonBlocking) {
+                Ok(msg) if msg.as_slice() == payload => return Ok(()),
+                Ok(_) => return Err(()),
+                Err(nexus_ipc::IpcError::WouldBlock) => {
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+        }
+        Err(())
     }
 
     fn emit_line(s: &str) {

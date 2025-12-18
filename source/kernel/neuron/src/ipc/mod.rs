@@ -23,6 +23,12 @@ use header::MessageHeader;
 /// Identifier for a kernel endpoint.
 pub type EndpointId = u32;
 
+/// Waiter identifier stored in endpoint wait queues.
+///
+/// In practice this is a userspace task PID (`task::Pid`), but we keep IPC primitives
+/// independent from the task table by using a plain integer here.
+pub type WaiterId = u32;
+
 /// Error returned by router operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IpcError {
@@ -34,6 +40,8 @@ pub enum IpcError {
     QueueEmpty,
     /// Permission denied for the requested operation.
     PermissionDenied,
+    /// Blocking IPC operation hit its deadline.
+    TimedOut,
 }
 
 /// Representation of an endpoint queue.
@@ -41,6 +49,8 @@ pub enum IpcError {
 struct Endpoint {
     queue: VecDeque<Message>,
     depth: usize,
+    recv_waiters: VecDeque<WaiterId>,
+    send_waiters: VecDeque<WaiterId>,
 }
 
 impl Endpoint {
@@ -48,6 +58,8 @@ impl Endpoint {
         Self {
             queue: VecDeque::new(),
             depth,
+            recv_waiters: VecDeque::new(),
+            send_waiters: VecDeque::new(),
         }
     }
 
@@ -61,6 +73,40 @@ impl Endpoint {
 
     fn pop(&mut self) -> Result<Message, IpcError> {
         self.queue.pop_front().ok_or(IpcError::QueueEmpty)
+    }
+
+    fn register_recv_waiter(&mut self, pid: WaiterId) {
+        if self.recv_waiters.iter().any(|p| *p == pid) {
+            return;
+        }
+        self.recv_waiters.push_back(pid);
+    }
+
+    fn register_send_waiter(&mut self, pid: WaiterId) {
+        if self.send_waiters.iter().any(|p| *p == pid) {
+            return;
+        }
+        self.send_waiters.push_back(pid);
+    }
+
+    fn pop_recv_waiter(&mut self) -> Option<WaiterId> {
+        self.recv_waiters.pop_front()
+    }
+
+    fn pop_send_waiter(&mut self) -> Option<WaiterId> {
+        self.send_waiters.pop_front()
+    }
+
+    fn remove_recv_waiter(&mut self, pid: WaiterId) -> bool {
+        let before = self.recv_waiters.len();
+        self.recv_waiters.retain(|p| *p != pid);
+        before != self.recv_waiters.len()
+    }
+
+    fn remove_send_waiter(&mut self, pid: WaiterId) -> bool {
+        let before = self.send_waiters.len();
+        self.send_waiters.retain(|p| *p != pid);
+        before != self.send_waiters.len()
     }
 }
 
@@ -129,6 +175,9 @@ impl Router {
                 Err(IpcError::PermissionDenied) => {
                     log_debug!(target: "ipc", "send permission denied")
                 }
+                Err(IpcError::TimedOut) => {
+                    log_debug!(target: "ipc", "send timed out (unexpected)")
+                }
             }
         }
         res
@@ -157,9 +206,76 @@ impl Router {
                 Err(IpcError::PermissionDenied) => {
                     log_debug!(target: "ipc", "recv permission denied (unexpected)")
                 }
+                Err(IpcError::TimedOut) => {
+                    log_debug!(target: "ipc", "recv timed out (unexpected)")
+                }
             }
         }
         res
+    }
+
+    /// Registers `pid` as a waiter for `recv` on endpoint `id` (queue empty, blocking).
+    pub fn register_recv_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<(), IpcError> {
+        let ep = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?;
+        ep.register_recv_waiter(pid);
+        Ok(())
+    }
+
+    /// Registers `pid` as a waiter for `send` on endpoint `id` (queue full, blocking).
+    pub fn register_send_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<(), IpcError> {
+        let ep = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?;
+        ep.register_send_waiter(pid);
+        Ok(())
+    }
+
+    /// Pops one waiter for `recv` on endpoint `id`.
+    pub fn pop_recv_waiter(&mut self, id: EndpointId) -> Result<Option<WaiterId>, IpcError> {
+        let ep = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?;
+        Ok(ep.pop_recv_waiter())
+    }
+
+    /// Pops one waiter for `send` on endpoint `id`.
+    pub fn pop_send_waiter(&mut self, id: EndpointId) -> Result<Option<WaiterId>, IpcError> {
+        let ep = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?;
+        Ok(ep.pop_send_waiter())
+    }
+
+    /// Removes `pid` from the recv waiter list, if present.
+    pub fn remove_recv_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<bool, IpcError> {
+        let ep = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?;
+        Ok(ep.remove_recv_waiter(pid))
+    }
+
+    /// Removes `pid` from the send waiter list, if present.
+    pub fn remove_send_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<bool, IpcError> {
+        let ep = self
+            .endpoints
+            .get_mut(id as usize)
+            .ok_or(IpcError::NoSuchEndpoint)?;
+        Ok(ep.remove_send_waiter(pid))
+    }
+
+    /// Creates a new kernel endpoint and returns its identifier.
+    pub fn create_endpoint(&mut self, depth: usize) -> EndpointId {
+        let depth = depth.clamp(1, 256);
+        let id = self.endpoints.len() as EndpointId;
+        self.endpoints.push(Endpoint::with_depth(depth));
+        id
     }
 }
 

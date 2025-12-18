@@ -8,6 +8,15 @@
 //! INVARIANTS: repr(C) layout frozen (golden vectors), LE byte order for tests
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
+/// Bootstrap flags shared across kernel and early user tasks.
+///
+/// These flags are part of the stable bootstrap protocol. They are intentionally additive.
+pub mod flags {
+    /// `argv_ptr` points to a read-only `BootstrapInfo` page in the child's address space.
+    #[allow(dead_code)] // used by docs + future IPC bootstrap delivery (RFC-0005)
+    pub const HAS_INFO_PAGE: u32 = 1 << 0;
+}
+
 /// Message delivered to the child's bootstrap endpoint after [`spawn`](crate::syscall)
 /// succeeds.
 ///
@@ -52,6 +61,44 @@ impl BootstrapMsg {
         bytes[24..28].copy_from_slice(&self.cap_seed_ep.to_le_bytes());
         bytes[28..32].copy_from_slice(&self.flags.to_le_bytes());
         bytes
+    }
+}
+
+/// Read-only bootstrap info page mapped into the child's address space.
+///
+/// This is the preferred, provenance-safe way to publish small pieces of metadata from the kernel
+/// to the child without relying on pointers to mutable/shared buffers.
+///
+/// When [`flags::HAS_INFO_PAGE`] is set in [`BootstrapMsg::flags`], `argv_ptr` MUST point to this
+/// structure in the child's VA space.
+///
+/// Current v1 content (RFC-0004):
+/// - `meta_name_ptr/meta_name_len` describe the NUL-terminated service name bytes in a dedicated
+///   read-only mapping.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BootstrapInfo {
+    /// Version of this structure (starts at 1).
+    pub version: u32,
+    /// Reserved for future expansion; must be zero.
+    pub reserved: u32,
+    /// Child VA of the service name bytes (NUL-terminated when space permits).
+    pub meta_name_ptr: u64,
+    /// Length of the name bytes (excluding NUL).
+    pub meta_name_len: u32,
+    /// Reserved for future expansion; must be zero.
+    pub reserved2: u32,
+}
+
+#[cfg(test)]
+mod info_tests {
+    use super::BootstrapInfo;
+    use core::mem::{align_of, size_of};
+
+    #[test]
+    fn layout_is_stable() {
+        assert_eq!(size_of::<BootstrapInfo>(), 24);
+        assert_eq!(align_of::<BootstrapInfo>(), 8);
     }
 }
 

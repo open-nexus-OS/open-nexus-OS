@@ -11,6 +11,8 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> execd::LiteResult<()> {
+    // Minimal marker before any heap use (debugging bring-up).
+    let _ = nexus_abi::debug_println("execd: entry");
     execd::service_main_loop(execd::ReadyNotifier::new(|| {}))
 }
 

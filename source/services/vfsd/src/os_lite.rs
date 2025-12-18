@@ -116,10 +116,9 @@ struct FileHandle {
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Result<()> {
     debug_print("vfsd: ready\n");
     notifier.notify();
-    // OS-lite IPC server identity comes from the per-task default target.
-    // Set it explicitly so `KernelServer::new()` binds this server as "vfsd".
-    nexus_ipc::set_default_target("vfsd");
-    let server = KernelServer::new().map_err(|_| Error::Transport)?;
+    // RFC-0005: For kernel IPC v1, init transfers vfs request/reply endpoints into deterministic
+    // slots. Use name-based construction so call sites don't hardcode slot numbers.
+    let server = KernelServer::new_for("vfsd").map_err(|_| Error::Transport)?;
     let namespace = seed_namespace();
     run_loop(server, namespace)
 }

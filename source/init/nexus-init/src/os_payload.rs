@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use alloc::vec::Vec;
 use core::fmt;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -46,7 +47,20 @@ mod abi_compat {
         Err(AbiError::Unsupported)
     }
 
+pub fn exec_v2(
+    _elf: &[u8],
+    _stack_pages: usize,
+    _global_pointer: u64,
+    _service_name: &str,
+) -> SysResult<u32> {
+    Err(AbiError::Unsupported)
+}
+
     pub fn cap_transfer(_pid: u32, _slot: u32, _rights: Rights) -> SysResult<()> {
+        Err(AbiError::Unsupported)
+    }
+
+    pub fn ipc_endpoint_create(_queue_depth: usize) -> SysResult<u32> {
         Err(AbiError::Unsupported)
     }
 
@@ -217,8 +231,41 @@ mod log_topics {
 
 type Result<T> = core::result::Result<T, InitError>;
 
-const BOOTSTRAP_SLOT: u32 = 0;
 static PROBE_ENABLED: AtomicBool = AtomicBool::new(false);
+
+// RFC-0005: per-service bootstrap routing protocol (init-lite responder over a private control EP).
+const CTRL_EP_DEPTH: usize = 4;
+const CTRL_CHILD_SEND_SLOT: u32 = 1; // First cap_transfer into a freshly spawned task (slot 0 is reserved).
+const CTRL_CHILD_RECV_SLOT: u32 = 2; // Second cap_transfer (paired reply endpoint).
+const ROUTE_GET: u8 = 0x40;
+const ROUTE_RSP: u8 = 0x41;
+
+#[derive(Clone, Copy)]
+struct CtrlChannel {
+    /// Service PID owning the control endpoint in child-space.
+    pid: u32,
+    /// Capability slot in init-lite that references the request endpoint (child sends, init receives).
+    ctrl_req_parent_slot: u32,
+    /// Capability slot in init-lite that references the reply endpoint (init sends, child receives).
+    ctrl_rsp_parent_slot: u32,
+    /// Optional routing for target "vfsd" from the perspective of this PID:
+    /// - send_slot: where this PID should send requests/replies
+    /// - recv_slot: where this PID should receive replies/requests
+    vfs_send_slot: Option<u32>,
+    vfs_recv_slot: Option<u32>,
+    pkg_send_slot: Option<u32>,
+    pkg_recv_slot: Option<u32>,
+    pol_send_slot: Option<u32>,
+    pol_recv_slot: Option<u32>,
+    bnd_send_slot: Option<u32>,
+    bnd_recv_slot: Option<u32>,
+    sam_send_slot: Option<u32>,
+    sam_recv_slot: Option<u32>,
+    exe_send_slot: Option<u32>,
+    exe_recv_slot: Option<u32>,
+    key_send_slot: Option<u32>,
+    key_recv_slot: Option<u32>,
+}
 
 /// Optional bring-up watchdog to force a panic if init spins forever.
 fn watchdog_limit_ticks() -> Option<usize> {
@@ -307,14 +354,6 @@ fn debug_write_str(s: &str) {
     debug_write_bytes(s.as_bytes());
 }
 
-fn debug_write_hex_byte(byte: u8) {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let hi = HEX[(byte >> 4) as usize];
-    let lo = HEX[(byte & 0xF) as usize];
-    debug_write_byte(hi);
-    debug_write_byte(lo);
-}
-
 fn debug_write_hex(value: usize) {
     const NIBBLES: usize = core::mem::size_of::<usize>() * 2;
     for shift in (0..NIBBLES).rev() {
@@ -370,17 +409,6 @@ fn log_str_ptr(tag: &str, value: &str) {
         line.hex(value.as_ptr() as u64);
         line.text(" len=");
         line.dec(value.len() as u64);
-    });
-}
-
-fn log_invalid_str(tag: &str, ptr: usize, len: usize) {
-    nexus_log::trace_topic("init", log_topics::SERVICE_META, |line| {
-        line.text_ref(StrRef::from(tag));
-        line.text(" ptr=");
-        line.hex(ptr as u64);
-        line.text(" len=");
-        line.dec(len as u64);
-        line.text(" invalid-range");
     });
 }
 
@@ -450,33 +478,11 @@ impl<'a> ServiceNameGuard<'a> {
         Self { value, ptr, len }
     }
 
-    fn log_probe(&self, tag: &str) {
-        if let Some(value) = self.value {
-            log_str_ptr(tag, value);
-        } else {
-            log_invalid_str(tag, self.ptr, self.len);
-        }
-    }
-
     fn trace_metadata(&self) {
         if !probes_enabled() {
             return;
         }
         debug_write_bytes(b"!svc-meta\n");
-    }
-
-    #[allow(dead_code)]
-    fn write(&self, line: &mut nexus_log::LineBuilder<'_, '_>) {
-        if let Some(value) = self.value {
-            raw_probe_str("guard-write", value);
-            line.text_ref(StrRef::from_unchecked(value));
-        } else {
-            line.text("[svc@0x");
-            line.hex(self.ptr as u64);
-            line.text("/");
-            line.hex(self.len as u64);
-            line.text("]");
-        }
     }
 }
 
@@ -484,7 +490,7 @@ impl<'a> ServiceNameGuard<'a> {
 pub fn bootstrap_service_images<F>(
     images: &'static [ServiceImage],
     notifier: ReadyNotifier<F>,
-) -> Result<()>
+) -> Result<Vec<CtrlChannel>>
 where
     F: FnOnce() + Send,
 {
@@ -505,7 +511,34 @@ where
         debug_write_byte(b'\n');
     }
 
-    for (idx, image) in images.iter().enumerate() {
+    // RFC-0005: Service IPC capability distribution (minimal VFS wiring).
+    //
+    // Create one request endpoint and one response endpoint for selftest-client <-> vfsd.
+    // Each spawned process receives the bootstrap cap in slot 0; these transfers will land in
+    // slot 1 and slot 2 deterministically (CapTable::allocate).
+    let vfs_req = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    let vfs_rsp = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    // Create one request endpoint and one response endpoint for selftest-client <-> packagefsd.
+    let pkg_req = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    let pkg_rsp = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    // Create one request endpoint and one response endpoint for selftest-client <-> policyd.
+    let pol_req = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    let pol_rsp = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    // Create one request endpoint and one response endpoint for selftest-client <-> bundlemgrd.
+    let bnd_req = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    let bnd_rsp = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    // Create one request endpoint and one response endpoint for selftest-client <-> samgrd.
+    let sam_req = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    let sam_rsp = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    // Create one request endpoint and one response endpoint for selftest-client <-> execd.
+    let exe_req = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    let exe_rsp = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    // Create one request endpoint and one response endpoint for selftest-client <-> keystored.
+    let key_req = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+    let key_rsp = nexus_abi::ipc_endpoint_create(8).map_err(InitError::Abi)?;
+
+    let mut ctrl_channels: Vec<CtrlChannel> = Vec::new();
+    for (_idx, image) in images.iter().enumerate() {
         if probes_enabled() {
             debug_write_bytes(b"!svc-loop\n");
         }
@@ -528,6 +561,156 @@ where
         debug_write_byte(b'\n');
         match spawn_service(image, &name) {
             Ok(pid) => {
+                // Create private control endpoints (REQ/RSP) for this service and transfer them first.
+                // This ensures a deterministic slot assignment in the child (slots 1 and 2).
+                let ctrl_req_parent_slot =
+                    nexus_abi::ipc_endpoint_create(CTRL_EP_DEPTH).map_err(InitError::Abi)?;
+                let ctrl_rsp_parent_slot =
+                    nexus_abi::ipc_endpoint_create(CTRL_EP_DEPTH).map_err(InitError::Abi)?;
+                let child_send_slot =
+                    nexus_abi::cap_transfer(pid, ctrl_req_parent_slot, Rights::SEND)
+                        .map_err(InitError::Abi)?;
+                let child_recv_slot =
+                    nexus_abi::cap_transfer(pid, ctrl_rsp_parent_slot, Rights::RECV)
+                        .map_err(InitError::Abi)?;
+                if probes_enabled()
+                    && (child_send_slot != CTRL_CHILD_SEND_SLOT || child_recv_slot != CTRL_CHILD_RECV_SLOT)
+                {
+                    debug_write_bytes(b"!route-warn ctrl-child-slots send=0x");
+                    debug_write_hex(child_send_slot as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(child_recv_slot as usize);
+                    debug_write_bytes(b" expected send=0x");
+                    debug_write_hex(CTRL_CHILD_SEND_SLOT as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(CTRL_CHILD_RECV_SLOT as usize);
+                    debug_write_byte(b'\n');
+                }
+
+                let mut ctrl = CtrlChannel {
+                    pid,
+                    ctrl_req_parent_slot,
+                    ctrl_rsp_parent_slot,
+                    vfs_send_slot: None,
+                    vfs_recv_slot: None,
+                    pkg_send_slot: None,
+                    pkg_recv_slot: None,
+                    pol_send_slot: None,
+                    pol_recv_slot: None,
+                    bnd_send_slot: None,
+                    bnd_recv_slot: None,
+                    sam_send_slot: None,
+                    sam_recv_slot: None,
+                    exe_send_slot: None,
+                    exe_recv_slot: None,
+                    key_send_slot: None,
+                    key_recv_slot: None,
+                };
+
+                // Minimal wiring for VFS E2E over kernel IPC:
+                // - vfsd receives requests and sends replies
+                // - selftest-client sends requests and receives replies
+                if let Some(svc) = name.value {
+                    if svc == "vfsd" {
+                        let recv_slot = nexus_abi::cap_transfer(pid, vfs_req, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        let send_slot = nexus_abi::cap_transfer(pid, vfs_rsp, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        ctrl.vfs_send_slot = Some(send_slot);
+                        ctrl.vfs_recv_slot = Some(recv_slot);
+                    } else if svc == "packagefsd" {
+                        let recv_slot = nexus_abi::cap_transfer(pid, pkg_req, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        let send_slot = nexus_abi::cap_transfer(pid, pkg_rsp, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        ctrl.pkg_send_slot = Some(send_slot);
+                        ctrl.pkg_recv_slot = Some(recv_slot);
+                    } else if svc == "selftest-client" {
+                        let send_slot = nexus_abi::cap_transfer(pid, vfs_req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        let recv_slot = nexus_abi::cap_transfer(pid, vfs_rsp, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        ctrl.vfs_send_slot = Some(send_slot);
+                        ctrl.vfs_recv_slot = Some(recv_slot);
+                        let send_slot = nexus_abi::cap_transfer(pid, pkg_req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        let recv_slot = nexus_abi::cap_transfer(pid, pkg_rsp, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        ctrl.pkg_send_slot = Some(send_slot);
+                        ctrl.pkg_recv_slot = Some(recv_slot);
+                        let send_slot = nexus_abi::cap_transfer(pid, pol_req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        let recv_slot = nexus_abi::cap_transfer(pid, pol_rsp, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        ctrl.pol_send_slot = Some(send_slot);
+                        ctrl.pol_recv_slot = Some(recv_slot);
+                        let send_slot = nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        let recv_slot = nexus_abi::cap_transfer(pid, bnd_rsp, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        ctrl.bnd_send_slot = Some(send_slot);
+                        ctrl.bnd_recv_slot = Some(recv_slot);
+                        let send_slot = nexus_abi::cap_transfer(pid, sam_req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        let recv_slot = nexus_abi::cap_transfer(pid, sam_rsp, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        ctrl.sam_send_slot = Some(send_slot);
+                        ctrl.sam_recv_slot = Some(recv_slot);
+                        let send_slot = nexus_abi::cap_transfer(pid, exe_req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        let recv_slot = nexus_abi::cap_transfer(pid, exe_rsp, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        ctrl.exe_send_slot = Some(send_slot);
+                        ctrl.exe_recv_slot = Some(recv_slot);
+                        let send_slot = nexus_abi::cap_transfer(pid, key_req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        let recv_slot = nexus_abi::cap_transfer(pid, key_rsp, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        ctrl.key_send_slot = Some(send_slot);
+                        ctrl.key_recv_slot = Some(recv_slot);
+                    }
+                    if svc == "policyd" {
+                        let recv_slot = nexus_abi::cap_transfer(pid, pol_req, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        let send_slot = nexus_abi::cap_transfer(pid, pol_rsp, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        ctrl.pol_send_slot = Some(send_slot);
+                        ctrl.pol_recv_slot = Some(recv_slot);
+                    }
+                    if svc == "bundlemgrd" {
+                        let recv_slot = nexus_abi::cap_transfer(pid, bnd_req, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        let send_slot = nexus_abi::cap_transfer(pid, bnd_rsp, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        ctrl.bnd_send_slot = Some(send_slot);
+                        ctrl.bnd_recv_slot = Some(recv_slot);
+                    }
+                    if svc == "samgrd" {
+                        let recv_slot = nexus_abi::cap_transfer(pid, sam_req, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        let send_slot = nexus_abi::cap_transfer(pid, sam_rsp, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        ctrl.sam_send_slot = Some(send_slot);
+                        ctrl.sam_recv_slot = Some(recv_slot);
+                    }
+                    if svc == "execd" {
+                        let recv_slot = nexus_abi::cap_transfer(pid, exe_req, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        let send_slot = nexus_abi::cap_transfer(pid, exe_rsp, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        ctrl.exe_send_slot = Some(send_slot);
+                        ctrl.exe_recv_slot = Some(recv_slot);
+                    }
+                    if svc == "keystored" {
+                        let recv_slot = nexus_abi::cap_transfer(pid, key_req, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                        let send_slot = nexus_abi::cap_transfer(pid, key_rsp, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        ctrl.key_send_slot = Some(send_slot);
+                        ctrl.key_recv_slot = Some(recv_slot);
+                    }
+                }
+                ctrl_channels.push(ctrl);
                 if probes_enabled() {
                     debug_write_bytes(b"!spawn ok pid=0x");
                     debug_write_hex(pid as usize);
@@ -579,7 +762,7 @@ where
     debug_write_byte(b'\n');
     debug_write_bytes(b"!init-lite ready\n");
     let _ = nexus_abi::yield_();
-    Ok(())
+    Ok(ctrl_channels)
 }
 
 /// Same as [`bootstrap_service_images`] but keeps the init task alive forever.
@@ -590,10 +773,89 @@ pub fn service_main_loop_images<F>(
 where
     F: FnOnce() + Send,
 {
-    bootstrap_service_images(images, notifier)?;
+    let ctrl_channels = bootstrap_service_images(images, notifier)?;
     let watchdog = watchdog_limit_ticks();
     let mut ticks: usize = 0;
     loop {
+        // RFC-0005: routing responder loop (per-service private control endpoints).
+        // Services query init-lite to learn which capability slots were assigned for a target.
+        for chan in &ctrl_channels {
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 64];
+            let n = match nexus_abi::ipc_recv_v1(
+                chan.ctrl_req_parent_slot,
+                &mut hdr,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => n as usize,
+                Err(nexus_abi::IpcError::QueueEmpty) => continue,
+                Err(_) => continue,
+            };
+            if n < 2 {
+                continue;
+            }
+            if buf[0] != ROUTE_GET {
+                continue;
+            }
+            let name_len = buf[1] as usize;
+            if 2 + name_len > n {
+                continue;
+            }
+            let name = &buf[2..2 + name_len];
+            let (status, send_slot, recv_slot) = if name == b"vfsd" {
+                match (chan.vfs_send_slot, chan.vfs_recv_slot) {
+                    (Some(send), Some(recv)) => (0u8, send, recv),
+                    _ => (1u8, 0u32, 0u32),
+                }
+            } else if name == b"packagefsd" {
+                match (chan.pkg_send_slot, chan.pkg_recv_slot) {
+                    (Some(send), Some(recv)) => (0u8, send, recv),
+                    _ => (1u8, 0u32, 0u32),
+                }
+            } else if name == b"policyd" {
+                match (chan.pol_send_slot, chan.pol_recv_slot) {
+                    (Some(send), Some(recv)) => (0u8, send, recv),
+                    _ => (1u8, 0u32, 0u32),
+                }
+            } else if name == b"bundlemgrd" {
+                match (chan.bnd_send_slot, chan.bnd_recv_slot) {
+                    (Some(send), Some(recv)) => (0u8, send, recv),
+                    _ => (1u8, 0u32, 0u32),
+                }
+            } else if name == b"samgrd" {
+                match (chan.sam_send_slot, chan.sam_recv_slot) {
+                    (Some(send), Some(recv)) => (0u8, send, recv),
+                    _ => (1u8, 0u32, 0u32),
+                }
+            } else if name == b"execd" {
+                match (chan.exe_send_slot, chan.exe_recv_slot) {
+                    (Some(send), Some(recv)) => (0u8, send, recv),
+                    _ => (1u8, 0u32, 0u32),
+                }
+            } else if name == b"keystored" {
+                match (chan.key_send_slot, chan.key_recv_slot) {
+                    (Some(send), Some(recv)) => (0u8, send, recv),
+                    _ => (1u8, 0u32, 0u32),
+                }
+            } else {
+                (1u8, 0u32, 0u32)
+            };
+            let mut rsp = [0u8; 1 + 1 + 4 + 4];
+            rsp[0] = ROUTE_RSP;
+            rsp[1] = status;
+            rsp[2..6].copy_from_slice(&send_slot.to_le_bytes());
+            rsp[6..10].copy_from_slice(&recv_slot.to_le_bytes());
+            let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
+            let _ = nexus_abi::ipc_send_v1(
+                chan.ctrl_rsp_parent_slot,
+                &rh,
+                &rsp,
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            );
+        }
         let _ = nexus_abi::yield_();
         if let Some(limit) = watchdog {
             ticks = ticks.saturating_add(1);
@@ -615,34 +877,16 @@ fn spawn_service(image: &ServiceImage, _name: &ServiceNameGuard<'_>) -> Result<u
         debug_write_str(image.name);
         debug_write_byte(b'\n');
     }
-    let pid =
-        nexus_abi::exec(image.elf, stack_pages, image.global_pointer).map_err(InitError::Abi)?;
+    let pid = nexus_abi::exec_v2(image.elf, stack_pages, image.global_pointer, image.name)
+        .map_err(InitError::Abi)?;
     if probes_enabled() {
         debug_write_bytes(b"!exec ret\n");
     }
 
-    // Transfer bootstrap capability slot 0 (SEND|RECV) to child for IPC bootstrap.
-    if probes_enabled() {
-        debug_write_bytes(b"!cap-transfer parent-slot=0 child=0x");
-        debug_write_hex(pid as usize);
-        debug_write_byte(b'\n');
-    }
-    if probes_enabled() {
-        debug_write_bytes(b"!cap-xfer call\n");
-    }
-    match nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND | Rights::RECV) {
-        Ok(_) => {}
-        Err(err) => {
-            debug_write_str("init: warn cap-transfer fail child=0x");
-            debug_write_hex(pid as usize);
-            debug_write_str(" err=0x");
-            debug_write_hex(err as usize);
-            debug_write_byte(b'\n');
-        }
-    }
-    if probes_enabled() {
-        debug_write_bytes(b"!cap-xfer done\n");
-    }
+    // NOTE: Child bootstrap endpoint is already seeded at slot 0 by `spawn`/`exec_v2`
+    // (TaskTable::spawn copies the parent's bootstrap slot into the child cap table).
+    // Do NOT cap_transfer it again here, otherwise it shifts deterministic slot assignment
+    // for service endpoints (e.g. VFS req/rsp slots 1/2).
 
     Ok(pid)
 }
@@ -684,25 +928,6 @@ pub fn describe_init_error(line: &mut LineBuilder<'_, '_>, err: &InitError) {
     }
 }
 
-fn log_image_bounds() {
-    let ro_start = unsafe { &__rodata_start as *const u8 as usize };
-    let ro_end = unsafe { &__rodata_end as *const u8 as usize };
-    let guard = unsafe { &__small_data_guard as *const u8 as usize };
-    let image_end = unsafe { &__image_end as *const u8 as usize };
-    // Keep image-bound diagnostics probe-only; boot markers must not depend on nexus_log.
-    if probes_enabled() {
-        debug_write_bytes(b"!image ro_start=0x");
-        debug_write_hex(ro_start);
-        debug_write_bytes(b" ro_end=0x");
-        debug_write_hex(ro_end);
-        debug_write_bytes(b" guard=0x");
-        debug_write_hex(guard);
-        debug_write_bytes(b" image_end=0x");
-        debug_write_hex(image_end);
-        debug_write_byte(b'\n');
-    }
-}
-
 fn abi_error_label(err: AbiError) -> &'static str {
     match err {
         AbiError::InvalidSyscall => "invalid-syscall",
@@ -723,6 +948,7 @@ fn ipc_error_label(err: IpcError) -> &'static str {
         IpcError::QueueFull => "queue-full",
         IpcError::QueueEmpty => "queue-empty",
         IpcError::PermissionDenied => "permission-denied",
+        IpcError::TimedOut => "timed-out",
         IpcError::Unsupported => "unsupported",
     }
 }
