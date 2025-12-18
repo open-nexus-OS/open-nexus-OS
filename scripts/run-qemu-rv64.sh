@@ -42,7 +42,7 @@ set_env_var() {
 
 declare -a SERVICES=()
 
-DEFAULT_SERVICE_LIST="keystored,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd"
+DEFAULT_SERVICE_LIST="keystored,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,selftest-client"
 
 prepare_service_payloads() {
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then

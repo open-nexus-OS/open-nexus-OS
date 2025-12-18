@@ -8,6 +8,9 @@
 //! TEST_COVERAGE: No tests
 //! ADR: docs/adr/0007-executable-payloads-architecture.md
 
+#![no_std]
+#![forbid(unsafe_code)]
+
 /// Prebuilt ELF payload for the `demo.exit0` bundle.
 pub const DEMO_EXIT0_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-exit0.elf"));
 

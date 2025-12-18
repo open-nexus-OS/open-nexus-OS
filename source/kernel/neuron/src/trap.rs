@@ -1432,8 +1432,59 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                 }
 
-                // TODO: Properly kill task and return to scheduler
-                // For now, just hang this task by looping on same instruction
+                // Fail-fast: kill the offending user task and hand control back to the scheduler.
+                // Leaving the task alive produces an infinite fault storm and blocks boot markers.
+                if let Some(mut handles) = runtime_kernel_handles() {
+                    unsafe {
+                        let scheduler = handles.scheduler.as_mut();
+                        let tasks = handles.tasks.as_mut();
+                        let spaces = handles.spaces.as_mut();
+
+                        // Kill the faulting task.
+                        tasks.exit_current(-22);
+                        scheduler.finish_current();
+
+                        // Select a runnable task and switch to it (bounded attempts to avoid loops).
+                        for _ in 0..8 {
+                            let Some(next) = scheduler.schedule_next() else {
+                                break;
+                            };
+                            let next_pid = next as u32;
+                            tasks.set_current(next_pid);
+
+                            #[cfg(not(feature = "selftest_no_satp"))]
+                            {
+                                let as_handle = tasks.task(next_pid).and_then(|t| t.address_space());
+                                if let Some(handle) = as_handle {
+                                    if spaces.activate(handle).is_err() {
+                                        // Fail-fast: this task cannot be safely resumed.
+                                        tasks.exit_current(-22);
+                                        scheduler.finish_current();
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            if let Some(task) = tasks.task(next_pid) {
+                                *frame = *task.frame();
+                                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                                riscv::register::sscratch::write(frame.x[2]);
+                                return;
+                            }
+                        }
+
+                        // Fallback: return to PID 0 if possible.
+                        tasks.set_current(0);
+                        if let Some(task) = tasks.task(0) {
+                            *frame = *task.frame();
+                            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                            riscv::register::sscratch::write(frame.x[2]);
+                            return;
+                        }
+                    }
+                }
+
+                // If runtime handles are unavailable, safest is to stop here.
                 return;
             }
 

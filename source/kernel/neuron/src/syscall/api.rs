@@ -682,6 +682,15 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     if e_phoff >= elf.len() {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
+    {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let _ = write!(
+            u,
+            "[INFO exec] EXEC-ELF hdr entry=0x{:x} phoff=0x{:x} phentsz={} phnum={}\n",
+            e_entry, e_phoff, e_phentsize, e_phnum
+        );
+    }
 
     const PT_LOAD: u32 = 1;
     const PF_R: u32 = 4;
@@ -691,6 +700,11 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let as_handle = ctx.address_spaces.create()?;
 
     // Map PT_LOAD segments
+    //
+    // We also capture the first RW PT_LOAD vaddr so we can derive a sensible
+    // RISC-V `gp` when userspace does not provide one. Most RISC-V linkers
+    // define `__global_pointer$` as `RW_SEGMENT_VADDR + 0x800`.
+    let mut first_rw_vaddr: Option<usize> = None;
     for i in 0..e_phnum {
         let off = e_phoff
             .checked_add(i * e_phentsize)
@@ -707,6 +721,25 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         let p_vaddr = read_u64_le(elf, off + 16)? as usize;
         let p_filesz = read_u64_le(elf, off + 32)? as usize;
         let p_memsz = read_u64_le(elf, off + 40)? as usize;
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let first4 = if p_offset + 4 <= elf.len() {
+                u32::from_le_bytes([
+                    elf[p_offset],
+                    elf[p_offset + 1],
+                    elf[p_offset + 2],
+                    elf[p_offset + 3],
+                ])
+            } else {
+                0
+            };
+            let _ = write!(
+                u,
+                "[INFO exec] EXEC-ELF phdr load off=0x{:x} vaddr=0x{:x} filesz=0x{:x} memsz=0x{:x} first4=0x{:08x}\n",
+                p_offset, p_vaddr, p_filesz, p_memsz, first4
+            );
+        }
 
         if p_memsz == 0 {
             continue;
@@ -722,6 +755,11 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
         if (p_flags & PF_W != 0) && (p_flags & PF_X != 0) {
             return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
+        }
+
+        // Capture the first RW load segment base for gp derivation (if needed).
+        if first_rw_vaddr.is_none() && (p_flags & PF_W != 0) {
+            first_rw_vaddr = Some(p_vaddr);
         }
 
         let page_off = p_vaddr & (PAGE_SIZE - 1);
@@ -776,6 +814,34 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 .ok_or(AddressSpaceError::InvalidArgs)?;
             ctx.address_spaces.map_page(as_handle, va, pa, flags)?;
         }
+    }
+
+    // Choose a global pointer for the new task.
+    //
+    // - Prefer the userspace-provided value (init-lite service table extracts it from ELFs).
+    // - Otherwise, derive it from the first RW PT_LOAD segment (common RISC-V convention).
+    // - As a last resort, fall back to entry + 0x800 to avoid gp=0 crashes in tiny images.
+    const RISCV_GP_BIAS: usize = 0x800;
+    let derived_gp = first_rw_vaddr
+        .and_then(|vaddr| vaddr.checked_add(RISCV_GP_BIAS))
+        .or_else(|| e_entry.checked_add(RISCV_GP_BIAS))
+        .unwrap_or(0);
+    let gp = if typed.global_pointer != 0 {
+        typed.global_pointer
+    } else {
+        derived_gp
+    };
+    {
+        use core::fmt::Write as _;
+        let mut u = crate::uart::raw_writer();
+        let src = if typed.global_pointer != 0 {
+            "arg"
+        } else if first_rw_vaddr.is_some() {
+            "rw+0x800"
+        } else {
+            "entry+0x800"
+        };
+        let _ = write!(u, "[INFO exec] EXEC-ELF gp=0x{:x} src={}\n", gp, src);
     }
 
     // Stack
@@ -856,7 +922,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         entry_pc,
         Some(stack_sp),
         Some(as_handle),
-        typed.global_pointer,
+        gp,
         bootstrap_slot,
         ctx.scheduler,
         ctx.router,

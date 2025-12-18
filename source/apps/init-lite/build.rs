@@ -84,6 +84,9 @@ fn generate_service_table(out: &std::path::Path) {
                 )
             }
         };
+        // IMPORTANT: the build script must rerun whenever the service ELF changes,
+        // otherwise init-lite can embed stale copies even though the service crates were rebuilt.
+        println!("cargo:rerun-if-changed={}", src_path);
 
         let stack_var = format!("INIT_LITE_SERVICE_{}_STACK_PAGES", upper);
         println!("cargo:rerun-if-env-changed={}", stack_var);

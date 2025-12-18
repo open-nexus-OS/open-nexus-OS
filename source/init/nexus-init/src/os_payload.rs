@@ -389,13 +389,10 @@ fn trace_guard_str(event: &str, ptr: usize, len: usize, truncated: bool) {
         return;
     }
     // Keep probe output minimal and robust: no long hex prints during boot.
-    let _ = (event, ptr, len, truncated);
-    debug_write_bytes(b"!guard\n");
-    return;
     if GUARD_STR_PROBE_COUNT.fetch_add(1, Ordering::Relaxed) >= GUARD_STR_PROBE_LIMIT {
         return;
     }
-    debug_write_byte(b'!');
+    debug_write_bytes(b"!guard ");
     debug_write_str(event);
     if truncated {
         debug_write_bytes(b" trunc");

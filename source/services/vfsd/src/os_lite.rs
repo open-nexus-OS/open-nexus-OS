@@ -96,7 +96,7 @@ impl Namespace {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Bundle {
     entries: BTreeMap<String, Entry>,
 }
@@ -116,6 +116,9 @@ struct FileHandle {
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Result<()> {
     debug_print("vfsd: ready\n");
     notifier.notify();
+    // OS-lite IPC server identity comes from the per-task default target.
+    // Set it explicitly so `KernelServer::new()` binds this server as "vfsd".
+    nexus_ipc::set_default_target("vfsd");
     let server = KernelServer::new().map_err(|_| Error::Transport)?;
     let namespace = seed_namespace();
     run_loop(server, namespace)
@@ -248,12 +251,15 @@ fn seed_namespace() -> Namespace {
             bytes: Vec::new(),
         },
     );
-    namespace.bundles.insert(
-        "demo.hello@1.0.0".to_string(),
-        Bundle {
-            entries: hello_entries,
-        },
-    );
+    // Publish both a versioned and unversioned bundle key so clients can use either
+    // `pkg:/demo.hello@1.0.0/...` or `pkg:/demo.hello/...`.
+    let hello_bundle = Bundle {
+        entries: hello_entries,
+    };
+    namespace
+        .bundles
+        .insert("demo.hello@1.0.0".to_string(), hello_bundle.clone());
+    namespace.bundles.insert("demo.hello".to_string(), hello_bundle);
 
     let mut exit_entries = BTreeMap::new();
     exit_entries.insert(
@@ -280,12 +286,11 @@ fn seed_namespace() -> Namespace {
             bytes: Vec::new(),
         },
     );
-    namespace.bundles.insert(
-        "demo.exit0@1.0.0".to_string(),
-        Bundle {
-            entries: exit_entries,
-        },
-    );
+    let exit_bundle = Bundle { entries: exit_entries };
+    namespace
+        .bundles
+        .insert("demo.exit0@1.0.0".to_string(), exit_bundle.clone());
+    namespace.bundles.insert("demo.exit0".to_string(), exit_bundle);
 
     namespace
 }

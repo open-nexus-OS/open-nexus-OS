@@ -5,23 +5,47 @@ edition = "2021"
 publish = false
 
 [features]
-default = []
-os-lite = ["nexus-init"]
+default = ["std"]
+std = [
+    "dep:anyhow",
+    "dep:policy",
+    "dep:bundlemgrd",
+    "dep:nexus-idl-runtime",
+    "dep:capnp",
+    "dep:nexus-vfs",
+    "dep:keystored",
+    "dep:policyd",
+    "dep:samgrd",
+    "dep:packagefsd",
+    "dep:vfsd",
+    "dep:execd",
+    "dep:nexus-init",
+]
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "dep:exec-payloads",
+    "dep:demo-exit0",
+]
 
 [dependencies]
-anyhow = "1"
-execd = { path = "../../../source/services/execd" }
-policy = { path = "../../../userspace/policy" }
-bundlemgrd = { path = "../../../source/services/bundlemgrd" }
-nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-nexus-ipc = { path = "../../../userspace/nexus-ipc" }
-exec-payloads = { path = "../../../userspace/exec-payloads" }
-demo-exit0 = { path = "../../../userspace/apps/demo-exit0" }
-capnp = "0.19"
-nexus-vfs = { path = "../../../userspace/nexus-vfs", features = ["idl-capnp"] }
-keystored = { path = "../../../source/services/keystored" }
-policyd = { path = "../../../source/services/policyd" }
-samgrd = { path = "../../../source/services/samgrd" }
-packagefsd = { path = "../../../source/services/packagefsd" }
-vfsd = { path = "../../../source/services/vfsd" }
+anyhow = { version = "1", optional = true }
+policy = { path = "../../../userspace/policy", optional = true }
+bundlemgrd = { path = "../../../source/services/bundlemgrd", optional = true }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
+capnp = { version = "0.19", optional = true }
+nexus-vfs = { path = "../../../userspace/nexus-vfs", features = ["idl-capnp"], optional = true }
+keystored = { path = "../../../source/services/keystored", optional = true }
+policyd = { path = "../../../source/services/policyd", optional = true }
+samgrd = { path = "../../../source/services/samgrd", optional = true }
+packagefsd = { path = "../../../source/services/packagefsd", optional = true }
+vfsd = { path = "../../../source/services/vfsd", optional = true }
+execd = { path = "../../../source/services/execd", optional = true }
 nexus-init = { path = "../../../source/init/nexus-init", features = ["os-lite"], optional = true }
+
+nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../../source/libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite"], optional = true }
+exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
+demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }

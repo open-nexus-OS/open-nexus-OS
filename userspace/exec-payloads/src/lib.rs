@@ -1,14 +1,8 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-#![cfg_attr(
-    not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
-    no_std
-)]
-#![cfg_attr(
-    not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
-    forbid(unsafe_code)
-)]
+#![no_std]
+#![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]
 
 //! CONTEXT: Executable payloads for system testing and bootstrap
@@ -72,12 +66,10 @@ pub extern "C" fn hello_child_entry(bootstrap: *const BootstrapMsg) -> ! {
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn read_bootstrap_once(ptr: *const BootstrapMsg) -> Option<BootstrapMsg> {
-    if ptr.is_null() {
-        None
-    } else {
-        // SAFETY: the kernel passes a valid pointer to an immutable BootstrapMsg.
-        unsafe { ptr.as_ref().copied() }
-    }
+    // Keep exec-payloads `unsafe_code`-free: the bootstrap message is optional
+    // and not required for the marker-based hello payload.
+    let _ = ptr;
+    None
 }
 
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]

@@ -65,63 +65,62 @@ fn build_elf(text: &[u8]) -> Vec<u8> {
 }
 
 fn build_text() -> Vec<u8> {
-    const MSG_OFFSET: i32 = 0x44;
-    const LABEL_PUTS: i32 = 0x1c;
-    const LABEL_DONE: i32 = 0x40;
-    const LABEL_WAIT_READY: i32 = 0x28;
+    // This payload runs in U-mode, so it must NOT touch the UART MMIO directly.
+    // Instead, print via the kernel debug_putc syscall and then exit(0).
+    //
+    // Syscalls:
+    //   - a7=16: debug_putc(a0=byte)
+    //   - a7=11: exit(a0=status)
+    const SYSCALL_DEBUG_PUTC: i32 = 16;
+    const SYSCALL_EXIT: i32 = 11;
+
+    // Layout: code first, then message bytes. We use AUIPC to get PC-relative address.
+    // Code size is 12 instructions = 48 bytes, so the message starts at 0x30.
+    const MSG_OFFSET: i32 = 0x30;
+    const LABEL_LOOP: i32 = 0x08;
+    const LABEL_DONE: i32 = 0x20;
 
     let mut text = Vec::new();
     let mut pc = 0i32;
 
-    push(&mut text, encode_auipc(10, 0));
+    // s0 (x8) holds the message pointer across syscalls.
+    push(&mut text, encode_auipc(8, 0));
     pc += 4;
 
-    push(&mut text, encode_addi(10, 10, MSG_OFFSET));
+    push(&mut text, encode_addi(8, 8, MSG_OFFSET));
     pc += 4;
 
-    push(&mut text, encode_jal(1, LABEL_PUTS - pc));
+    // loop:
+    //   a0 = *(u8*)s0
+    //   if a0==0 goto done
+    //   a7 = debug_putc; ecall
+    //   s0++; goto loop
+    push(&mut text, encode_lbu(10, 8, 0));
     pc += 4;
 
-    push(&mut text, encode_addi(10, 0, 0));
+    push(&mut text, encode_beq(10, 0, LABEL_DONE - pc));
     pc += 4;
 
-    push(&mut text, encode_addi(17, 0, 11));
+    push(&mut text, encode_addi(17, 0, SYSCALL_DEBUG_PUTC));
     pc += 4;
 
     push(&mut text, 0x00000073); // ecall
     pc += 4;
 
-    push(&mut text, 0x0000006f); // jal x0, 0
+    push(&mut text, encode_addi(8, 8, 1));
     pc += 4;
 
-    push(&mut text, encode_lbu(5, 10, 0));
+    push(&mut text, encode_jal(0, LABEL_LOOP - pc));
     pc += 4;
 
-    push(&mut text, encode_beq(5, 0, LABEL_DONE - pc));
+    // done: exit(0)
+    push(&mut text, encode_addi(10, 0, 0)); // a0=status
     pc += 4;
-
-    push(&mut text, encode_lui(6, 0x10000));
+    push(&mut text, encode_addi(17, 0, SYSCALL_EXIT));
     pc += 4;
-
-    push(&mut text, encode_lbu(7, 6, 5));
+    push(&mut text, 0x00000073); // ecall
     pc += 4;
-
-    push(&mut text, encode_andi(7, 7, 0x20));
-    pc += 4;
-
-    push(&mut text, encode_beq(7, 0, LABEL_WAIT_READY - pc));
-    pc += 4;
-
-    push(&mut text, encode_sb(5, 6, 0));
-    pc += 4;
-
-    push(&mut text, encode_addi(10, 10, 1));
-    pc += 4;
-
-    push(&mut text, encode_jal(0, LABEL_PUTS - pc));
-    pc += 4;
-
-    push(&mut text, 0x00008067); // jalr x0, 0(x1)
+    push(&mut text, 0x0000006f); // jal x0, 0 (should never return)
     pc += 4;
 
     assert_eq!(pc, MSG_OFFSET, "message offset mismatch");
