@@ -32,6 +32,8 @@ bitflags! {
 pub enum CapabilityKind {
     /// Kernel message endpoint.
     Endpoint(EndpointId),
+    /// Endpoint-factory authority (Phase-2 hardening): holder may create new endpoints.
+    EndpointFactory,
     /// Virtual memory object.
     Vmo { base: usize, len: usize },
     /// Interrupt binding.
@@ -61,6 +63,8 @@ pub enum CapError {
     InvalidSlot,
     /// Insufficient rights for the requested operation.
     PermissionDenied,
+    /// No free capability slots are available in the table.
+    NoSpace,
 }
 
 /// Per-task capability table.
@@ -94,7 +98,8 @@ impl CapTable {
             let mut u = crate::uart::raw_writer();
             let _ = write!(u, "CAP: new enter\n");
         }
-        let table = Self::with_capacity(32);
+        // Keep this bounded to avoid untrusted inputs forcing unbounded growth (DoS).
+        let table = Self::with_capacity(64);
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
@@ -136,9 +141,7 @@ impl CapTable {
                 return Ok(index);
             }
         }
-        // Grow the table by one when no free slot is available.
-        self.slots.push(Some(cap));
-        Ok(self.slots.len() - 1)
+        Err(CapError::NoSpace)
     }
 
     /// Returns a capability without consuming it.
@@ -147,6 +150,15 @@ impl CapTable {
             .get(slot)
             .and_then(|entry| *entry)
             .ok_or(CapError::InvalidSlot)
+    }
+
+    /// Removes and returns the capability stored in `slot`.
+    pub fn take(&mut self, slot: usize) -> Result<Capability, CapError> {
+        let entry = self
+            .slots
+            .get_mut(slot)
+            .ok_or(CapError::InvalidSlot)?;
+        entry.take().ok_or(CapError::InvalidSlot)
     }
 
     /// Derives a new capability with intersected rights.

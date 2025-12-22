@@ -25,6 +25,7 @@ os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-abi",
     "dep:nexus-ipc",
+    "dep:nexus-vfs",
     "dep:exec-payloads",
     "dep:demo-exit0",
 ]
@@ -35,7 +36,7 @@ policy = { path = "../../../userspace/policy", optional = true }
 bundlemgrd = { path = "../../../source/services/bundlemgrd", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.19", optional = true }
-nexus-vfs = { path = "../../../userspace/nexus-vfs", features = ["idl-capnp"], optional = true }
+nexus-vfs = { path = "../../../userspace/nexus-vfs", default-features = false, features = ["os-kernel"], optional = true }
 keystored = { path = "../../../source/services/keystored", optional = true }
 policyd = { path = "../../../source/services/policyd", optional = true }
 samgrd = { path = "../../../source/services/samgrd", optional = true }

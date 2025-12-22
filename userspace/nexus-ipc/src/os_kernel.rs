@@ -34,22 +34,23 @@ pub fn supports_service_routing() -> bool {
 
 const CTRL_SEND_SLOT: u32 = 1; // init-lite transfers control REQ (child SEND) into slot 1.
 const CTRL_RECV_SLOT: u32 = 2; // init-lite transfers control RSP (child RECV) into slot 2.
-const ROUTE_GET: u8 = 0x40;
-const ROUTE_RSP: u8 = 0x41;
+
+// Routing queries can be policy-gated inside init-lite (policyd roundtrip). Keep this comfortably
+// above the policyd control-plane deadline to avoid flaky bring-up under QEMU.
+const ROUTE_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     let name = target.as_bytes();
-    if name.is_empty() || name.len() > 48 {
+    if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
         return Err(IpcError::Unsupported);
     }
-    let mut req = Vec::with_capacity(2 + name.len());
-    req.push(ROUTE_GET);
-    req.push(name.len() as u8);
-    req.extend_from_slice(name);
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
+    let req_len =
+        nexus_abi::routing::encode_route_get(name, &mut req).ok_or(IpcError::Unsupported)?;
 
     let (flags, deadline_ns) = wait_to_sys(wait)?;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-    nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req, flags, deadline_ns)
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+    nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], flags, deadline_ns)
         .map_err(|e| map_send_err(e, wait))?;
 
     let (flags, deadline_ns) = wait_to_sys(wait)?;
@@ -58,15 +59,11 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     let mut buf = [0u8; 32];
     let n = nexus_abi::ipc_recv_v1(CTRL_RECV_SLOT, &mut rh, &mut buf, sys_flags, deadline_ns)
         .map_err(|e| map_recv_err(e, wait))? as usize;
-    if n < 10 || buf[0] != ROUTE_RSP {
+    let (status, send_slot, recv_slot) =
+        nexus_abi::routing::decode_route_rsp(&buf[..n]).ok_or(IpcError::Unsupported)?;
+    if status != nexus_abi::routing::STATUS_OK {
         return Err(IpcError::Unsupported);
     }
-    let status = buf[1];
-    if status != 0 {
-        return Err(IpcError::Unsupported);
-    }
-    let send_slot = u32::from_le_bytes([buf[2], buf[3], buf[4], buf[5]]);
-    let recv_slot = u32::from_le_bytes([buf[6], buf[7], buf[8], buf[9]]);
     Ok((send_slot, recv_slot))
 }
 
@@ -92,6 +89,7 @@ fn map_send_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
     match err {
         nexus_abi::IpcError::QueueFull if matches!(wait, Wait::NonBlocking) => IpcError::WouldBlock,
         nexus_abi::IpcError::TimedOut => IpcError::Timeout,
+        nexus_abi::IpcError::NoSpace => IpcError::NoSpace,
         other => IpcError::Kernel(other),
     }
 }
@@ -100,6 +98,7 @@ fn map_recv_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
     match err {
         nexus_abi::IpcError::QueueEmpty if matches!(wait, Wait::NonBlocking) => IpcError::WouldBlock,
         nexus_abi::IpcError::TimedOut => IpcError::Timeout,
+        nexus_abi::IpcError::NoSpace => IpcError::NoSpace,
         other => IpcError::Kernel(other),
     }
 }
@@ -121,13 +120,48 @@ impl KernelClient {
 
     /// Creates a client for a specific target.
     pub fn new_for(target: &str) -> Result<Self> {
-        let (send_slot, recv_slot) = query_route(target, Wait::Timeout(Duration::from_millis(100)))?;
+        let (send_slot, recv_slot) = query_route(target, Wait::Timeout(ROUTE_QUERY_TIMEOUT))?;
         Ok(Self { send_slot, recv_slot })
     }
 
     /// Creates a client using explicit capability slot numbers for send/recv.
     pub fn new_with_slots(send_slot: u32, recv_slot: u32) -> Result<Self> {
         Ok(Self { send_slot, recv_slot })
+    }
+
+    /// Returns the raw capability slots backing this client (send_slot, recv_slot).
+    ///
+    /// This is intended for low-level bring-up tests.
+    pub fn slots(&self) -> (u32, u32) {
+        (self.send_slot, self.recv_slot)
+    }
+
+    /// Sends a frame and moves one capability alongside the message.
+    ///
+    /// `cap_slot_to_move` is a cap slot in the caller that will be consumed by the kernel and
+    /// delivered to the receiver.
+    pub fn send_with_cap_move(&self, frame: &[u8], cap_slot_to_move: u32) -> Result<()> {
+        self.send_with_cap_move_wait(frame, cap_slot_to_move, Wait::NonBlocking)
+    }
+
+    /// Sends a frame and moves one capability alongside the message, with the given wait policy.
+    pub fn send_with_cap_move_wait(
+        &self,
+        frame: &[u8],
+        cap_slot_to_move: u32,
+        wait: Wait,
+    ) -> Result<()> {
+        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let hdr = nexus_abi::MsgHeader::new(
+            cap_slot_to_move,
+            0,
+            0,
+            nexus_abi::ipc_hdr::CAP_MOVE,
+            frame.len() as u32,
+        );
+        nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, flags, deadline_ns)
+            .map(|_| ())
+            .map_err(|e| map_send_err(e, wait))
     }
 }
 
@@ -157,10 +191,30 @@ impl Client for KernelClient {
 
 /// Server backed by kernel IPC v1 syscalls.
 ///
-/// NOTE: Reply routing is not implemented yet; treat this as a minimal request receiver only.
 pub struct KernelServer {
     recv_slot: u32,
     send_slot: u32,
+}
+
+/// Reply capability passed via CAP_MOVE (one-shot).
+pub struct ReplyCap {
+    slot: u32,
+}
+
+impl ReplyCap {
+    /// Sends `frame` on the reply cap and then closes it (one-shot).
+    pub fn reply_and_close(self, frame: &[u8]) -> Result<()> {
+        KernelServer::send_on_cap_wait(self.slot, frame, Wait::NonBlocking)?;
+        let _ = nexus_abi::cap_close(self.slot);
+        Ok(())
+    }
+
+    /// Sends `frame` on the reply cap (with wait policy) and then closes it (one-shot).
+    pub fn reply_and_close_wait(self, frame: &[u8], wait: Wait) -> Result<()> {
+        KernelServer::send_on_cap_wait(self.slot, frame, wait)?;
+        let _ = nexus_abi::cap_close(self.slot);
+        Ok(())
+    }
 }
 
 impl KernelServer {
@@ -182,8 +236,78 @@ impl KernelServer {
     /// Creates a server bound to a named service target.
     pub fn new_for(service: &str) -> Result<Self> {
         // Routing reply is (send_slot, recv_slot) from the caller's perspective.
-        let (send_slot, recv_slot) = query_route(service, Wait::Timeout(Duration::from_millis(100)))?;
+        let (send_slot, recv_slot) = query_route(service, Wait::Timeout(ROUTE_QUERY_TIMEOUT))?;
         Self::new_with_slots(recv_slot, send_slot)
+    }
+
+    /// Receives a frame and returns it alongside the raw kernel IPC header.
+    ///
+    /// If the sender used CAP_MOVE, the returned header's `src` contains the allocated cap slot
+    /// in the receiver.
+    pub fn recv_with_header(&self, wait: Wait) -> Result<(nexus_abi::MsgHeader, Vec<u8>)> {
+        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 512];
+        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, &mut buf, sys_flags, deadline_ns)
+            .map_err(|e| map_recv_err(e, wait))?;
+        let n = n as usize;
+        let mut out = Vec::with_capacity(n);
+        out.extend_from_slice(&buf[..n]);
+        Ok((hdr, out))
+    }
+
+    /// Receives a frame and returns it alongside the raw kernel IPC header and sender service id.
+    ///
+    /// The sender service id is derived by the kernel at `exec_v2` time and attached to each
+    /// message at send-time (cannot be spoofed by the sender).
+    pub fn recv_with_header_meta(
+        &self,
+        wait: Wait,
+    ) -> Result<(nexus_abi::MsgHeader, u64, Vec<u8>)> {
+        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut sid: u64 = 0;
+        let mut buf = [0u8; 512];
+        let n = nexus_abi::ipc_recv_v2(
+            self.recv_slot,
+            &mut hdr,
+            &mut buf,
+            &mut sid,
+            sys_flags,
+            deadline_ns,
+        )
+        .map_err(|e| map_recv_err(e, wait))?;
+        let n = n as usize;
+        let mut out = Vec::with_capacity(n);
+        out.extend_from_slice(&buf[..n]);
+        Ok((hdr, sid, out))
+    }
+
+    /// Receives a request and (optionally) a one-shot reply capability moved with the message.
+    pub fn recv_request(&self, wait: Wait) -> Result<(Vec<u8>, Option<ReplyCap>)> {
+        let (hdr, frame) = self.recv_with_header(wait)?;
+        if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+            Ok((frame, Some(ReplyCap { slot: hdr.src })))
+        } else {
+            Ok((frame, None))
+        }
+    }
+
+    /// Sends a frame on an arbitrary endpoint capability slot (e.g. one received via CAP_MOVE).
+    pub fn send_on_cap(cap_slot: u32, frame: &[u8]) -> Result<()> {
+        Self::send_on_cap_wait(cap_slot, frame, Wait::NonBlocking)
+    }
+
+    /// Sends a frame on an arbitrary endpoint capability slot (e.g. one received via CAP_MOVE),
+    /// using the given wait policy.
+    pub fn send_on_cap_wait(cap_slot: u32, frame: &[u8], wait: Wait) -> Result<()> {
+        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+        nexus_abi::ipc_send_v1(cap_slot, &hdr, frame, flags, deadline_ns)
+            .map(|_| ())
+            .map_err(|e| map_send_err(e, wait))
     }
 }
 

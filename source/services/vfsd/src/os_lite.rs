@@ -1,12 +1,10 @@
 use alloc::collections::BTreeMap;
-use alloc::format;
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use core::fmt;
 
 use nexus_abi;
-use nexus_ipc::{IpcError, KernelServer, Server, Wait};
+use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Server, Wait};
 
 const OPCODE_STAT: u8 = 4;
 const OPCODE_OPEN: u8 = 1;
@@ -59,46 +57,52 @@ impl<F: FnOnce() + Send> ReadyNotifier<F> {
 }
 
 #[derive(Default)]
-struct Namespace {
-    bundles: BTreeMap<String, Bundle>,
-}
+struct Namespace;
 
 impl Namespace {
+    fn packagefs_resolve(&self, path: &str) -> Result<Entry> {
+        // Forward resolution to packagefsd over IPC (real data path).
+        const PKGFS_OPCODE_RESOLVE: u8 = 2;
+        let rel = path.strip_prefix("pkg:/").ok_or(Error::InvalidPath)?;
+        let client = KernelClient::new_for("packagefsd").map_err(|_| Error::Transport)?;
+        let mut frame = Vec::with_capacity(1 + rel.len());
+        frame.push(PKGFS_OPCODE_RESOLVE);
+        frame.extend_from_slice(rel.as_bytes());
+        client.send(&frame, Wait::Blocking).map_err(|_| Error::Transport)?;
+        let rsp = client.recv(Wait::Blocking).map_err(|_| Error::Transport)?;
+        if rsp.len() < 1 + 8 + 2 || rsp[0] != 1 {
+            return Err(Error::NotFound);
+        }
+        let size = u64::from_le_bytes([
+            rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8],
+        ]);
+        let kind = u16::from_le_bytes([rsp[9], rsp[10]]);
+        let bytes = rsp[11..].to_vec();
+        Ok(Entry { kind, size, bytes })
+    }
+
     fn stat(&self, path: &str) -> Result<Entry> {
-        let entry = self.resolve(path)?.clone();
-        Ok(entry)
+        // Prefer real data from packagefsd for pkg:/ paths.
+        if path.starts_with("pkg:/") {
+            return self.packagefs_resolve(path);
+        }
+        Err(Error::InvalidPath)
     }
 
     fn open(&self, path: &str) -> Result<FileHandle> {
-        let entry = self.resolve(path)?;
+        // Prefer real data from packagefsd for pkg:/ paths.
+        let entry = if path.starts_with("pkg:/") {
+            self.packagefs_resolve(path)?
+        } else {
+            return Err(Error::InvalidPath);
+        };
         if entry.kind != KIND_FILE {
             return Err(Error::InvalidPath);
         }
         Ok(FileHandle {
-            bytes: entry.bytes.clone(),
+            bytes: entry.bytes,
         })
     }
-
-    fn resolve(&self, path: &str) -> Result<&Entry> {
-        let path = path.strip_prefix("pkg:/").ok_or(Error::InvalidPath)?;
-        let (bundle, rest) = path.split_once('/').ok_or(Error::InvalidPath)?;
-        let (bundle_name, version) = if let Some((name, ver)) = bundle.split_once('@') {
-            (name, ver)
-        } else {
-            let bundle = self.bundles.get(bundle).ok_or(Error::NotFound)?;
-            return bundle.entries.get(rest).ok_or(Error::NotFound);
-        };
-        let key = format!("{bundle_name}@{version}");
-        self.bundles
-            .get(&key)
-            .and_then(|bundle| bundle.entries.get(rest))
-            .ok_or(Error::NotFound)
-    }
-}
-
-#[derive(Default, Clone)]
-struct Bundle {
-    entries: BTreeMap<String, Entry>,
 }
 
 #[derive(Clone)]
@@ -119,8 +123,8 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
     // RFC-0005: For kernel IPC v1, init transfers vfs request/reply endpoints into deterministic
     // slots. Use name-based construction so call sites don't hardcode slot numbers.
     let server = KernelServer::new_for("vfsd").map_err(|_| Error::Transport)?;
-    let namespace = seed_namespace();
-    run_loop(server, namespace)
+    // VFS bring-up: proxy pkg:/ reads to packagefsd (real data). Non-pkg schemes are unsupported.
+    run_loop(server, Namespace::default())
 }
 
 fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
@@ -221,81 +225,6 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
         }
     }
 }
-
-fn seed_namespace() -> Namespace {
-    let mut namespace = Namespace::default();
-
-    let mut hello_entries = BTreeMap::new();
-    hello_entries.insert(
-        "manifest.json".to_string(),
-        Entry {
-            kind: KIND_FILE,
-            size: 64,
-            bytes: b"{\"name\":\"demo.hello\"}".to_vec(),
-        },
-    );
-    hello_entries.insert(
-        "payload.elf".to_string(),
-        Entry {
-            kind: KIND_FILE,
-            size: HELLO_ELF.len() as u64,
-            bytes: HELLO_ELF.to_vec(),
-        },
-    );
-    hello_entries.insert(
-        ".".to_string(),
-        Entry {
-            kind: KIND_DIRECTORY,
-            size: 0,
-            bytes: Vec::new(),
-        },
-    );
-    // Publish both a versioned and unversioned bundle key so clients can use either
-    // `pkg:/demo.hello@1.0.0/...` or `pkg:/demo.hello/...`.
-    let hello_bundle = Bundle {
-        entries: hello_entries,
-    };
-    namespace
-        .bundles
-        .insert("demo.hello@1.0.0".to_string(), hello_bundle.clone());
-    namespace.bundles.insert("demo.hello".to_string(), hello_bundle);
-
-    let mut exit_entries = BTreeMap::new();
-    exit_entries.insert(
-        "manifest.json".to_string(),
-        Entry {
-            kind: KIND_FILE,
-            size: 48,
-            bytes: b"{\"name\":\"demo.exit0\"}".to_vec(),
-        },
-    );
-    exit_entries.insert(
-        "payload.elf".to_string(),
-        Entry {
-            kind: KIND_FILE,
-            size: EXIT_ELF.len() as u64,
-            bytes: EXIT_ELF.to_vec(),
-        },
-    );
-    exit_entries.insert(
-        ".".to_string(),
-        Entry {
-            kind: KIND_DIRECTORY,
-            size: 0,
-            bytes: Vec::new(),
-        },
-    );
-    let exit_bundle = Bundle { entries: exit_entries };
-    namespace
-        .bundles
-        .insert("demo.exit0@1.0.0".to_string(), exit_bundle.clone());
-    namespace.bundles.insert("demo.exit0".to_string(), exit_bundle);
-
-    namespace
-}
-
-const HELLO_ELF: &[u8] = b"HELLO_ELF_PAYLOAD";
-const EXIT_ELF: &[u8] = b"EXIT0_ELF_PAYLOAD";
 
 fn debug_print(s: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

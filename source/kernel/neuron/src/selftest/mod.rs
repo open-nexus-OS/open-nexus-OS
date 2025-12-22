@@ -30,7 +30,8 @@ use crate::{
     sched::Scheduler,
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
-        SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_WAIT, SYSCALL_YIELD,
+        SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
+        SYSCALL_YIELD,
     },
     task::TaskTable,
 };
@@ -194,7 +195,15 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
         rights: Rights::MAP,
     };
     let caps = tasks.bootstrap_mut().caps_mut();
-    let _ = caps.set(2, cap);
+    // Reserve bootstrap cap slots:
+    // - slot 0: bootstrap endpoint
+    // - slot 1: identity VMO
+    // - slot 2: EndpointFactory (Phase-2 hardening)
+    //
+    // Use slot 4 for this selftest-only VMO:
+    // - slot 3 is used by the VMO-zero-initialization selftest below.
+    const DATA_VMO_SLOT: usize = 4;
+    let _ = caps.set(DATA_VMO_SLOT, cap);
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -252,14 +261,33 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             } else {
                 log_info!(target: "selftest", "KSELFTEST: vmo zero FAIL");
             }
+
+            // RFC-0004: pointer provenance / user range guard.
+            // `sys_vmo_write` must reject user pointers outside the Sv39 user range deterministically,
+            // without attempting to touch them.
+            const USER_VADDR_LIMIT: usize = 0x8000_0000;
+            let bad_write = table.dispatch(
+                SYSCALL_VMO_WRITE,
+                &mut sys_ctx,
+                &Args::new([VMO_SLOT, 0, USER_VADDR_LIMIT, 1, 0, 0]),
+            );
+            match bad_write {
+                Err(crate::syscall::Error::AddressSpace(crate::mm::AddressSpaceError::InvalidArgs)) => {
+                    log_info!(target: "selftest", "KSELFTEST: userptr guard ok");
+                }
+                other => {
+                    panic!("KSELFTEST: userptr guard FAIL: {:?}", other);
+                }
+            }
         }
 
         const PROT_READ: usize = 1 << 0;
         const PROT_WRITE: usize = 1 << 1;
         const MAP_FLAG_USER: usize = 1 << 0;
+        const DATA_VMO_SLOT: usize = 4;
         let map_args = Args::new([
             handle_raw,
-            2,
+            DATA_VMO_SLOT,
             CHILD_TEST_VA,
             PAGE_SIZE,
             PROT_READ,
@@ -564,6 +592,15 @@ fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
 pub fn entry(ctx: &mut Context<'_>) {
     CHILD_HEARTBEAT.store(0, Ordering::SeqCst);
     run_address_space_selftests(ctx);
+    run_ipc_queue_full_selftest(ctx);
+    run_ipc_bytes_full_selftest(ctx);
+    run_ipc_global_bytes_budget_selftest();
+    run_ipc_owner_bytes_budget_selftest();
+    run_ipc_waiter_fifo_selftests(ctx);
+    run_ipc_send_unblocks_after_recv_selftest(ctx);
+    run_ipc_endpoint_quota_selftest(ctx);
+    run_ipc_close_wakes_waiters_selftest(ctx);
+    run_ipc_owner_exit_wakes_waiters_selftest(ctx);
     // Ensure subsequent lifecycle tests run as the bootstrap task (PID 0)
     // so parent/child linkage during spawn and wait behaves deterministically.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -573,6 +610,395 @@ pub fn entry(ctx: &mut Context<'_>) {
     // Spawn embedded init process
     #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
     spawn_init_process(ctx);
+}
+
+fn run_ipc_queue_full_selftest(ctx: &mut Context<'_>) {
+    use alloc::vec::Vec;
+    use crate::ipc::header::MessageHeader;
+
+    // This is a kernel-side sanity check that endpoint depth limits are enforced.
+    // It complements syscall-level unit tests in `syscall/api.rs`.
+    let ep = ctx.router.create_endpoint(1, None).unwrap();
+    let hdr = MessageHeader::new(0, ep, 0, 0, 0);
+    let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
+    let _ = ctx.router.send(ep, msg.clone());
+    match ctx.router.send(ep, msg) {
+        Err(crate::ipc::IpcError::QueueFull) => {
+            log_info!(target: "selftest", "KSELFTEST: ipc queue full ok");
+        }
+        other => {
+            log_error!(target: "selftest", "KSELFTEST: ipc queue full FAIL: {:?}", other);
+        }
+    }
+}
+
+fn run_ipc_bytes_full_selftest(ctx: &mut Context<'_>) {
+    use alloc::{vec, vec::Vec};
+    use crate::ipc::header::MessageHeader;
+
+    // Endpoint with depth=1 => max_queued_bytes = 512 (see ipc/mod.rs).
+    //
+    // NOTE: For syscall-driven traffic, payloads are bounded to 512 bytes at entry, which makes the
+    // per-endpoint bytes budget mostly redundant with queue depth. This selftest intentionally uses
+    // a direct router send with an oversized payload to deterministically trigger NoSpace.
+    let ep = ctx.router.create_endpoint(1, None).unwrap();
+    let hdr = MessageHeader::new(0, ep, 0, 0, 513);
+    let msg = crate::ipc::Message::new(hdr, vec![0u8; 513], None);
+    match ctx.router.send(ep, msg) {
+        Err(crate::ipc::IpcError::NoSpace) => {
+            let hdr3 = MessageHeader::new(0, ep, 0, 0, 1);
+            let msg3 = crate::ipc::Message::new(hdr3, Vec::new(), None);
+            match ctx.router.send(ep, msg3) {
+                Ok(()) => log_info!(target: "selftest", "KSELFTEST: ipc bytes full ok"),
+                other => log_error!(target: "selftest", "KSELFTEST: ipc bytes full FAIL: {:?}", other),
+            }
+        }
+        other => {
+            log_error!(target: "selftest", "KSELFTEST: ipc bytes full FAIL: {:?}", other);
+        }
+    }
+}
+
+fn run_ipc_global_bytes_budget_selftest() {
+    use alloc::{vec, vec::Vec};
+    use crate::ipc::header::MessageHeader;
+
+    // Validate global router queued-bytes budget using an isolated local router instance.
+    // Global budget=512, but endpoint budget (depth=2) would allow 1024 bytes. The second send
+    // must fail with NoSpace due to the global cap.
+    let mut local = crate::ipc::Router::new_with_global_bytes_budget(0, 512);
+    let ep = local.create_endpoint(2, None).unwrap();
+
+    let hdr = MessageHeader::new(0, ep, 0, 0, 512);
+    let msg = crate::ipc::Message::new(hdr, vec![0u8; 512], None);
+    let _ = local.send(ep, msg);
+
+    let hdr2 = MessageHeader::new(0, ep, 0, 0, 1);
+    let msg2 = crate::ipc::Message::new(hdr2, vec![0u8; 1], None);
+    match local.send(ep, msg2) {
+        Err(crate::ipc::IpcError::NoSpace) => {
+            // Drain frees bytes; subsequent send should work.
+            let _ = local.recv(ep);
+            let hdr3 = MessageHeader::new(0, ep, 0, 0, 1);
+            let msg3 = crate::ipc::Message::new(hdr3, Vec::new(), None);
+            match local.send(ep, msg3) {
+                Ok(()) => log_info!(target: "selftest", "KSELFTEST: ipc global bytes budget ok"),
+                other => log_error!(target: "selftest", "KSELFTEST: ipc global bytes budget FAIL: {:?}", other),
+            }
+        }
+        other => log_error!(target: "selftest", "KSELFTEST: ipc global bytes budget FAIL: {:?}", other),
+    }
+}
+
+fn run_ipc_owner_bytes_budget_selftest() {
+    use alloc::{vec, vec::Vec};
+    use crate::ipc::header::MessageHeader;
+
+    // Owner budget=512 bytes; global budget is large enough not to interfere.
+    let mut local = crate::ipc::Router::new_with_bytes_budgets(0, 4096, 512);
+    let owner: u32 = 7;
+    let ep1 = local.create_endpoint(2, Some(owner)).unwrap();
+    let ep2 = local.create_endpoint(2, Some(owner)).unwrap();
+
+    // Fill owner budget with one 512-byte message on ep1.
+    let hdr = MessageHeader::new(0, ep1, 0, 0, 512);
+    let msg = crate::ipc::Message::new(hdr, vec![0u8; 512], None);
+    let _ = local.send(ep1, msg);
+
+    // Next send to a different endpoint owned by same PID must fail due to owner cap.
+    let hdr2 = MessageHeader::new(0, ep2, 0, 0, 1);
+    let msg2 = crate::ipc::Message::new(hdr2, vec![0u8; 1], None);
+    match local.send(ep2, msg2) {
+        Err(crate::ipc::IpcError::NoSpace) => {
+            // Drain frees bytes; subsequent send should work.
+            let _ = local.recv(ep1);
+            let hdr3 = MessageHeader::new(0, ep2, 0, 0, 1);
+            let msg3 = crate::ipc::Message::new(hdr3, Vec::new(), None);
+            match local.send(ep2, msg3) {
+                Ok(()) => log_info!(target: "selftest", "KSELFTEST: ipc owner bytes budget ok"),
+                other => log_error!(target: "selftest", "KSELFTEST: ipc owner bytes budget FAIL: {:?}", other),
+            }
+        }
+        other => log_error!(target: "selftest", "KSELFTEST: ipc owner bytes budget FAIL: {:?}", other),
+    }
+}
+
+fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
+    use alloc::vec::Vec;
+    use crate::ipc::header::MessageHeader;
+    use crate::task::BlockReason;
+
+    // --- recv waiters FIFO ---
+    let ep = ctx.router.create_endpoint(1, None).unwrap();
+    let r1 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let r2 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let r3 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+
+    for pid in [r1, r2, r3] {
+        ctx.tasks.set_current(pid);
+        let _ = ctx.router.register_recv_waiter(ep, pid as u32);
+        ctx.tasks.block_current(
+            BlockReason::IpcRecv {
+                endpoint: ep,
+                deadline_ns: 0,
+            },
+            ctx.scheduler,
+        );
+    }
+
+    // Send one message, then wake the next recv waiter and check it is r1.
+    let hdr = MessageHeader::new(0, ep, 0, 0, 0);
+    let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
+    let _ = ctx.router.send(ep, msg);
+    let fifo_ok = match ctx.router.pop_recv_waiter(ep) {
+        Ok(Some(w)) if w == r1 as u32 => true,
+        _ => false,
+    };
+    if fifo_ok {
+        log_info!(target: "selftest", "KSELFTEST: ipc recv waiter fifo ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: ipc recv waiter fifo FAIL");
+    }
+
+    // --- send waiters FIFO ---
+    let ep2 = ctx.router.create_endpoint(1, None).unwrap();
+    // Fill the queue so future sends would block.
+    let hdr_fill = MessageHeader::new(0, ep2, 0, 0, 0);
+    let fill = crate::ipc::Message::new(hdr_fill, Vec::new(), None);
+    let _ = ctx.router.send(ep2, fill);
+
+    let s1 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let s2 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let s3 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+
+    for pid in [s1, s2, s3] {
+        ctx.tasks.set_current(pid);
+        let _ = ctx.router.register_send_waiter(ep2, pid as u32);
+        ctx.tasks.block_current(
+            BlockReason::IpcSend {
+                endpoint: ep2,
+                deadline_ns: 0,
+            },
+            ctx.scheduler,
+        );
+    }
+
+    // Drain one message, then wake the next send waiter and check it is s1.
+    let _ = ctx.router.recv(ep2);
+    let fifo_ok = match ctx.router.pop_send_waiter(ep2) {
+        Ok(Some(w)) if w == s1 as u32 => true,
+        _ => false,
+    };
+    if fifo_ok {
+        log_info!(target: "selftest", "KSELFTEST: ipc send waiter fifo ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: ipc send waiter fifo FAIL");
+    }
+}
+
+fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
+    use alloc::vec::Vec;
+    use crate::ipc::header::MessageHeader;
+    use crate::task::BlockReason;
+
+    // Create two lightweight dummy tasks (no AS/stack allocation) that we can block/wake.
+    let sender_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let recv_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+
+    // Endpoint with depth=1 and one message already enqueued => "full".
+    let ep = ctx.router.create_endpoint(1, None).unwrap();
+    let hdr = MessageHeader::new(0, ep, 0, 0, 0);
+    let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
+    let _ = ctx.router.send(ep, msg);
+
+    // Simulate sender hitting QueueFull in blocking mode: register waiter + block task.
+    ctx.tasks.set_current(sender_pid);
+    let _ = ctx.router.register_send_waiter(ep, sender_pid as u32);
+    ctx.tasks.block_current(
+        BlockReason::IpcSend {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
+    let blocked_ok = ctx
+        .tasks
+        .task(sender_pid)
+        .map(|t| t.is_blocked())
+        .unwrap_or(false);
+
+    // Receiver drains one message and wakes one send-waiter (same as sys_ipc_recv_v1 does).
+    ctx.tasks.set_current(recv_pid);
+    let _ = ctx.router.recv(ep);
+    if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(ep) {
+        let _ = ctx.tasks.wake(waiter as crate::task::Pid, ctx.scheduler);
+    }
+    let woke_ok = ctx
+        .tasks
+        .task(sender_pid)
+        .map(|t| !t.is_blocked())
+        .unwrap_or(false);
+
+    if blocked_ok && woke_ok {
+        log_info!(target: "selftest", "KSELFTEST: ipc send unblock ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: ipc send unblock FAIL: blocked_ok={} woke_ok={}",
+            blocked_ok,
+            woke_ok
+        );
+    }
+}
+
+fn run_ipc_endpoint_quota_selftest(ctx: &mut Context<'_>) {
+    let _ = ctx;
+    // IMPORTANT: Do not consume the global router endpoints during boot; init-lite needs to create
+    // endpoints for services. Validate the quota using an isolated local router instance.
+    let mut local = crate::ipc::Router::new(0);
+    let mut created: usize = 0;
+    loop {
+        match local.create_endpoint(1, None) {
+            Ok(_) => {
+                created += 1;
+                if created > 4096 {
+                    log_error!(target: "selftest", "KSELFTEST: ipc endpoint quota FAIL: runaway");
+                    return;
+                }
+            }
+            Err(crate::ipc::IpcError::NoSpace) => {
+                log_info!(
+                    target: "selftest",
+                    "KSELFTEST: ipc endpoint quota ok (created={})",
+                    created
+                );
+                return;
+            }
+            Err(other) => {
+                log_error!(
+                    target: "selftest",
+                    "KSELFTEST: ipc endpoint quota FAIL: {:?}",
+                    other
+                );
+                return;
+            }
+        }
+    }
+}
+
+fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
+    use crate::task::BlockReason;
+    // Create a real endpoint in the global router, register blocked send/recv waiters, then close it
+    // and ensure both waiters are woken.
+    let recv_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let send_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+
+    let ep = match ctx.router.create_endpoint(1, None) {
+        Ok(id) => id,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: ipc close wakes FAIL: {:?}", e);
+            return;
+        }
+    };
+
+    ctx.tasks.set_current(recv_pid);
+    let _ = ctx.router.register_recv_waiter(ep, recv_pid as u32);
+    ctx.tasks.block_current(
+        BlockReason::IpcRecv {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
+
+    ctx.tasks.set_current(send_pid);
+    let _ = ctx.router.register_send_waiter(ep, send_pid as u32);
+    ctx.tasks.block_current(
+        BlockReason::IpcSend {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
+
+    let waiters = match ctx.router.close_endpoint(ep) {
+        Ok(w) => w,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: ipc close wakes FAIL: {:?}", e);
+            return;
+        }
+    };
+    for pid in waiters {
+        let _ = ctx.tasks.wake(pid as crate::task::Pid, ctx.scheduler);
+    }
+
+    let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
+    let send_ok = ctx.tasks.task(send_pid).map(|t| !t.is_blocked()).unwrap_or(false);
+    if recv_ok && send_ok {
+        log_info!(target: "selftest", "KSELFTEST: ipc close wakes ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: ipc close wakes FAIL: recv_ok={} send_ok={}",
+            recv_ok,
+            send_ok
+        );
+    }
+}
+
+fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
+    use crate::task::BlockReason;
+    // Close-on-exit semantics are implemented by closing all endpoints owned by the exiting PID.
+    // Verify that draining wakes registered send/recv waiters.
+    let owner: u32 = 7;
+    let recv_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let send_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+
+    let ep = match ctx.router.create_endpoint(1, Some(owner)) {
+        Ok(id) => id,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: ipc owner-exit wakes FAIL: {:?}", e);
+            return;
+        }
+    };
+
+    ctx.tasks.set_current(recv_pid);
+    let _ = ctx.router.register_recv_waiter(ep, recv_pid as u32);
+    ctx.tasks.block_current(
+        BlockReason::IpcRecv {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
+
+    ctx.tasks.set_current(send_pid);
+    let _ = ctx.router.register_send_waiter(ep, send_pid as u32);
+    ctx.tasks.block_current(
+        BlockReason::IpcSend {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
+
+    let waiters = ctx.router.close_endpoints_for_owner(owner);
+    for pid in waiters {
+        let _ = ctx.tasks.wake(pid as crate::task::Pid, ctx.scheduler);
+    }
+
+    let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
+    let send_ok = ctx.tasks.task(send_pid).map(|t| !t.is_blocked()).unwrap_or(false);
+    if recv_ok && send_ok {
+        log_info!(target: "selftest", "KSELFTEST: ipc owner-exit wakes ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: ipc owner-exit wakes FAIL: recv_ok={} send_ok={}",
+            recv_ok,
+            send_ok
+        );
+    }
 }
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
@@ -609,6 +1035,10 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     );
 
     // Spawn init process with the loaded code
+    // Ensure init-lite is a direct child of the bootstrap task (PID 0) so that early
+    // capability/lifecycle gates (RFC-0005 hardening) can reliably treat init-lite as
+    // the temporary authority during bring-up.
+    sys_ctx.tasks.set_current(0);
     let spawn_args = Args::new([
         entry_pc,
         stack_top,
@@ -626,6 +1056,24 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     };
 
     log_info!(target: "selftest", "KSELFTEST: spawn ok pid={}", init_pid);
+
+    // RFC-0005 Phase-2 hardening: EndpointFactory is now injected by the kernel when PID 0 spawns
+    // the init-lite userspace task. (See `TaskTable::spawn_inner`.)
+
+    // Bind a stable identity token to init-lite.
+    // NOTE: init-lite is currently started via `SYSCALL_SPAWN` (not `exec_v2`), so we must set
+    // the service_id explicitly for channel-bound policy checks.
+    let init_lite_id: u64 = {
+        let mut h: u64 = 0xcbf29ce484222325u64;
+        for &b in b"init-lite" {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100000001b3u64);
+        }
+        h
+    };
+    if let Some(t) = sys_ctx.tasks.task_mut(init_pid as u32) {
+        t.set_service_id(init_lite_id);
+    }
 
     // Verify init task state
     let init_pid_u32 = init_pid as u32;

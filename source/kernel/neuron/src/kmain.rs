@@ -142,6 +142,14 @@ impl KernelState {
                     rights: Rights::MAP,
                 },
             );
+            // Slot 2: endpoint-factory authority (init-lite receives a derived copy).
+            let _ = caps.set(
+                2,
+                Capability {
+                    kind: CapabilityKind::EndpointFactory,
+                    rights: Rights::MANAGE,
+                },
+            );
         }
         // Bind kernel AS handle to bootstrap task
         tasks.bootstrap_mut().address_space = Some(kernel_as);
@@ -184,7 +192,7 @@ impl KernelState {
         let header = MessageHeader::new(0, 0, 0x100, 0, 0);
         if self
             .ipc
-            .send(0, ipc::Message::new(header, Vec::new()))
+            .send(0, ipc::Message::new(header, Vec::new(), None))
             .is_ok()
         {
             let _ = self.ipc.recv(0);

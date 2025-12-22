@@ -1,14 +1,17 @@
 # Documentation Implementation Guide
 
 ## Overview
+
 This document describes the implementation of documentation standards across the Open Nexus OS codebase, including the process used to standardize CONTEXT headers, create ADRs, and update CODEOWNERS.
 
 ## Implementation Process
 
 ### Phase 1: Header Standardization
+
 **Objective**: Convert all existing documentation to standardized CONTEXT header format
 
 **Process**:
+
 1. **Scan all Rust files** for existing documentation
 2. **Identify patterns** in current documentation
 3. **Create standard format** with required fields
@@ -16,21 +19,25 @@ This document describes the implementation of documentation standards across the
 5. **Add missing information** (STATUS, TEST_COVERAGE, ADR references)
 
 **Key Decisions**:
+
 - Use 5-line format for simple modules
 - Use extended format for complex modules with many dependencies
 - Replace marketing language with accurate technical status
 - Count actual tests for TEST_COVERAGE field
 
 ### Phase 2: ADR Creation and Reference
+
 **Objective**: Create specific ADRs for each module and update references
 
 **Process**:
+
 1. **Identify modules** needing specific ADRs
 2. **Create ADR documents** with architectural decisions
 3. **Update references** from generic to specific ADRs
 4. **Ensure consistency** between ADR content and implementation
 
 **Created ADRs**:
+
 - `0002-nexus-loader-architecture.md`: ELF64/RISC-V loader
 - `0003-ipc-runtime-architecture.md`: IPC runtime abstractions
 - `0004-idl-runtime-architecture.md`: IDL runtime and Cap'n Proto
@@ -46,15 +53,18 @@ This document describes the implementation of documentation standards across the
 - `0014-policy-architecture.md`: Policy and access control
 
 ### Phase 3: CODEOWNERS Update
+
 **Objective**: Ensure proper code ownership for all paths
 
 **Process**:
+
 1. **Review existing CODEOWNERS** structure
 2. **Add missing paths** (services, userspace, docs)
 3. **Define team responsibilities** clearly
 4. **Ensure coverage** of all relevant directories
 
 **Updated Structure**:
+
 ```bash
 /source/kernel/neuron/** @kernel-team
 /source/libs/** @runtime
@@ -67,10 +77,12 @@ This document describes the implementation of documentation standards across the
 ## Implementation Details
 
 ### Header Format Evolution
+
 **Before**: Inconsistent documentation with varying formats
 **After**: Standardized CONTEXT headers with required fields
 
 **Example Transformation**:
+
 ```rust
 // Before
 //! Enterprise-grade virtual file system client library
@@ -95,42 +107,53 @@ This document describes the implementation of documentation standards across the
 ```
 
 ### Status Categories
+
 **Functional**: Fully implemented and tested
+
 - Examples: `nexus-loader`, `clipboard`, `keystore`
 - Characteristics: Complete implementation, working tests
 
 **Experimental**: Works but API may change
+
 - Examples: `dsoftbus` (host backend), `samgr` (host backend)
 - Characteristics: Functional but unstable API
 
 **Placeholder**: Only stubs, not functional
+
 - Examples: `nexus-vfs`, `nexus-packagefs`, `search`
 - Characteristics: Interface defined but not implemented
 
 **Deprecated**: Will be removed/replaced
+
 - Examples: None currently
 - Characteristics: Marked for removal
 
 ### Test Coverage Accuracy
+
 **Principle**: TEST_COVERAGE must reflect actual tests
+
 - Count unit tests in `lib.rs`
 - Count integration tests in `tests/` directory
 - Count CLI tests in `cli.rs`
 - Use "No tests" when no tests exist
 
 **Examples**:
+
 - `nexus-loader`: "11 tests" (actual count)
 - `clipboard`: "1 unit test, 1 integration test"
 - `nexus-vfs`: "No tests"
 - `samgr`: "5 unit tests in lib.rs, 2 in cli.rs, 1 integration test"
 
 ### ADR Reference Strategy
+
 **Principle**: Each module should have specific ADR reference
+
 - Replace generic `0001-runtime-roles-and-boundaries.md` with specific ADRs
 - Create new ADRs for modules without specific documentation
 - Ensure ADR content matches module implementation
 
 **Reference Mapping**:
+
 - Bundle Manager → `0009-bundle-manager-architecture.md`
 - Policy → `0014-policy-architecture.md`
 - Time Sync → `0012-time-sync-architecture.md`
@@ -140,6 +163,7 @@ This document describes the implementation of documentation standards across the
 ## Quality Assurance
 
 ### Validation Process
+
 1. **Header Presence**: All `lib.rs` and `main.rs` files have CONTEXT headers
 2. **Field Completeness**: All required fields present
 3. **ADR Validity**: All ADR references point to existing documents
@@ -147,6 +171,7 @@ This document describes the implementation of documentation standards across the
 5. **Test Count**: TEST_COVERAGE matches actual test count
 
 ### Consistency Checks
+
 - Copyright headers in all files
 - Consistent team assignments (@runtime, @kernel-team)
 - Accurate status reporting
@@ -155,14 +180,18 @@ This document describes the implementation of documentation standards across the
 ## Tools and Automation
 
 ### CI Integration
+
 The CI system checks for:
+
 - CONTEXT header presence in key files
 - Valid ADR references
 - Copyright compliance
 - Consistent formatting
 
 ### Future Automation
+
 Potential improvements:
+
 - Automatic test counting
 - Status validation against implementation
 - ADR reference validation
@@ -171,6 +200,7 @@ Potential improvements:
 ## Maintenance Guidelines
 
 ### For New Modules
+
 1. Create CONTEXT header with all required fields
 2. Determine appropriate ADR reference
 3. Set accurate STATUS based on implementation
@@ -178,12 +208,14 @@ Potential improvements:
 5. Ensure OWNERS field matches CODEOWNERS
 
 ### For Existing Modules
+
 1. Update CONTEXT header when implementation changes
 2. Update STATUS when implementation matures
 3. Update TEST_COVERAGE when tests are added/removed
 4. Update ADR references when architectural decisions change
 
 ### For Documentation Updates
+
 1. Update ADR when architectural decisions change
 2. Update CONTEXT headers when implementation changes
 3. Update CODEOWNERS when team responsibilities change
@@ -203,23 +235,37 @@ security boundary:
 ## Lessons Learned
 
 ### What Worked Well
+
 - Standardized format improved consistency
 - Accurate status reporting increased transparency
 - Specific ADR references improved documentation quality
 - Test coverage accuracy helped with maintenance
 
 ### Challenges Encountered
+
 - Some modules had extensive documentation that needed simplification
 - Test counting required manual verification
 - ADR creation required understanding of architectural decisions
 - Status determination required careful analysis
 
 ### Best Practices
+
 - Start with simple format, extend only when necessary
 - Be honest about implementation status
 - Count tests accurately
 - Create specific ADRs for complex modules
 - Maintain consistency across all files
+
+### Avoiding copy/paste helper drift (diagnostics/markers)
+
+When adding temporary diagnostics (e.g. UART marker helpers in `no_std` services/apps):
+
+1. **Centralize helpers** in a dedicated module (`markers.rs`, `diag.rs`, etc.) instead of defining
+   ad-hoc functions inline in `main.rs`.
+2. **Prefer reuse** over duplication. If a helper is used in 2+ places inside the crate, it must be
+   moved into that module.
+3. **Keep the surface minimal** (no allocation, deterministic output) and document the intent in the
+   module CONTEXT header.
 
 ## Conclusion
 

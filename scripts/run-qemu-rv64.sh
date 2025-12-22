@@ -129,18 +129,40 @@ monitor_uart() {
   local saw_child_exit_start=0
   local saw_exit_log=0
   local saw_child_exit_ok=0
+  local saw_execd_malformed=0
+  local saw_exec_denied=0
   local saw_ipc_payload_roundtrip=0
   local saw_ipc_deadline_timeout=0
   local saw_nexus_ipc_kernel_loopback=0
+  local saw_ipc_cap_move_reply=0
+  local saw_ipc_sender_pid=0
+  local saw_ipc_sender_service_id=0
+  local saw_keystored_capmove=0
+  local saw_kselftest_ipc_queue_full=0
+  local saw_kselftest_ipc_bytes_full=0
+  local saw_kselftest_ipc_global_bytes_budget=0
+  local saw_kselftest_ipc_owner_bytes_budget=0
+  local saw_kselftest_ipc_recv_waiter_fifo=0
+  local saw_kselftest_ipc_send_waiter_fifo=0
+  local saw_kselftest_ipc_send_unblock=0
+  local saw_kselftest_ipc_endpoint_quota=0
+  local saw_kselftest_ipc_close_wakes=0
+  local saw_kselftest_ipc_owner_exit_wakes=0
   local saw_ipc_routing=0
   local saw_ipc_routing_pkg=0
   local saw_ipc_routing_policyd=0
   local saw_ipc_routing_bundlemgrd=0
   local saw_ipc_routing_samgrd=0
-  local saw_samgrd_ping=0
+  local saw_samgrd_lookup=0
+  local saw_samgrd_unknown=0
+  local saw_samgrd_malformed=0
+  local saw_samgrd_register=0
   local saw_ipc_routing_execd=0
   local saw_ipc_routing_keystored=0
-  local saw_keystored_ping=0
+  local saw_keystored_v1=0
+  local saw_bundlemgrd_list=0
+  local saw_bundlemgrd_malformed=0
+  local saw_bundlemgrd_route_execd_denied=0
   local saw_pkgfs_ready=0
   local saw_vfsd_ready=0
   local saw_init_up_keystored=0
@@ -152,6 +174,8 @@ monitor_uart() {
   local saw_init_up_execd=0
   local saw_policy_allow=0
   local saw_policy_deny=0
+  local saw_policy_spoof_denied=0
+  local saw_policy_malformed=0
   local saw_vfs_stat=0
   local saw_vfs_read=0
   local saw_vfs_ebadf=0
@@ -239,6 +263,12 @@ monitor_uart() {
       *"SELFTEST: child exit ok"*)
         saw_child_exit_ok=1
         ;;
+      *"SELFTEST: execd malformed ok"*)
+        saw_execd_malformed=1
+        ;;
+      *"SELFTEST: exec denied ok"*)
+        saw_exec_denied=1
+        ;;
       *"SELFTEST: ipc payload roundtrip ok"*)
         saw_ipc_payload_roundtrip=1
         ;;
@@ -247,6 +277,15 @@ monitor_uart() {
         ;;
       *"SELFTEST: nexus-ipc kernel loopback ok"*)
         saw_nexus_ipc_kernel_loopback=1
+        ;;
+      *"SELFTEST: ipc cap move reply ok"*)
+        saw_ipc_cap_move_reply=1
+        ;;
+      *"SELFTEST: ipc sender pid ok"*)
+        saw_ipc_sender_pid=1
+        ;;
+      *"SELFTEST: ipc sender service_id ok"*)
+        saw_ipc_sender_service_id=1
         ;;
       *"SELFTEST: ipc routing policyd ok"*)
         saw_ipc_routing_policyd=1
@@ -257,8 +296,26 @@ monitor_uart() {
       *"SELFTEST: ipc routing samgrd ok"*)
         saw_ipc_routing_samgrd=1
         ;;
-      *"SELFTEST: samgrd ping ok"*)
-        saw_samgrd_ping=1
+      *"SELFTEST: samgrd v1 lookup ok"*)
+        saw_samgrd_lookup=1
+        ;;
+      *"SELFTEST: samgrd v1 register ok"*)
+        saw_samgrd_register=1
+        ;;
+      *"SELFTEST: samgrd v1 unknown ok"*)
+        saw_samgrd_unknown=1
+        ;;
+      *"SELFTEST: samgrd v1 malformed ok"*)
+        saw_samgrd_malformed=1
+        ;;
+      *"SELFTEST: bundlemgrd v1 list ok"*)
+        saw_bundlemgrd_list=1
+        ;;
+      *"SELFTEST: bundlemgrd v1 malformed ok"*)
+        saw_bundlemgrd_malformed=1
+        ;;
+      *"SELFTEST: bundlemgrd route execd denied ok"*)
+        saw_bundlemgrd_route_execd_denied=1
         ;;
       *"SELFTEST: ipc routing execd ok"*)
         saw_ipc_routing_execd=1
@@ -266,8 +323,41 @@ monitor_uart() {
       *"SELFTEST: ipc routing keystored ok"*)
         saw_ipc_routing_keystored=1
         ;;
-      *"SELFTEST: keystored ping ok"*)
-        saw_keystored_ping=1
+      *"SELFTEST: keystored v1 ok"*)
+        saw_keystored_v1=1
+        ;;
+      *"SELFTEST: keystored capmove ok"*)
+        saw_keystored_capmove=1
+        ;;
+      *"KSELFTEST: ipc queue full ok"*)
+        saw_kselftest_ipc_queue_full=1
+        ;;
+      *"KSELFTEST: ipc bytes full ok"*)
+        saw_kselftest_ipc_bytes_full=1
+        ;;
+      *"KSELFTEST: ipc global bytes budget ok"*)
+        saw_kselftest_ipc_global_bytes_budget=1
+        ;;
+      *"KSELFTEST: ipc owner bytes budget ok"*)
+        saw_kselftest_ipc_owner_bytes_budget=1
+        ;;
+      *"KSELFTEST: ipc recv waiter fifo ok"*)
+        saw_kselftest_ipc_recv_waiter_fifo=1
+        ;;
+      *"KSELFTEST: ipc send waiter fifo ok"*)
+        saw_kselftest_ipc_send_waiter_fifo=1
+        ;;
+      *"KSELFTEST: ipc send unblock ok"*)
+        saw_kselftest_ipc_send_unblock=1
+        ;;
+      *"KSELFTEST: ipc endpoint quota ok"*)
+        saw_kselftest_ipc_endpoint_quota=1
+        ;;
+      *"KSELFTEST: ipc close wakes ok"*)
+        saw_kselftest_ipc_close_wakes=1
+        ;;
+      *"KSELFTEST: ipc owner-exit wakes ok"*)
+        saw_kselftest_ipc_owner_exit_wakes=1
         ;;
       *"SELFTEST: ipc routing ok"*)
         saw_ipc_routing=1
@@ -280,6 +370,12 @@ monitor_uart() {
         ;;
       *"SELFTEST: policy deny ok"*)
         saw_policy_deny=1
+        ;;
+      *"SELFTEST: policyd requester spoof denied ok"*)
+        saw_policy_spoof_denied=1
+        ;;
+      *"SELFTEST: policy malformed ok"*)
+        saw_policy_malformed=1
         ;;
       *"SELFTEST: vfs stat ok"*)
         saw_vfs_stat=1
@@ -323,16 +419,36 @@ monitor_uart() {
         && "$saw_init_up_packagefsd" -eq 1 && "$saw_init_up_vfsd" -eq 1 && "$saw_init_up_execd" -eq 1 \
         && "$saw_ready" -eq 1 && "$saw_pkgfs_ready" -eq 1 && "$saw_vfsd_ready" -eq 1 \
         && "$saw_elf_ok" -eq 1 && "$saw_exec_selftest" -eq 1 && "$saw_child" -eq 1 && "$saw_child_exit_start" -eq 1 \
-        && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 && "$saw_policy_allow" -eq 1 && "$saw_policy_deny" -eq 1 \
+        && "$saw_exit_log" -eq 1 && "$saw_child_exit_ok" -eq 1 && "$saw_exec_denied" -eq 1 && "$saw_execd_malformed" -eq 1 && "$saw_policy_allow" -eq 1 && "$saw_policy_deny" -eq 1 && "$saw_policy_spoof_denied" -eq 1 && "$saw_policy_malformed" -eq 1 \
         && "$saw_ipc_payload_roundtrip" -eq 1 \
         && "$saw_ipc_deadline_timeout" -eq 1 \
         && "$saw_nexus_ipc_kernel_loopback" -eq 1 \
+        && "$saw_ipc_cap_move_reply" -eq 1 \
+        && "$saw_ipc_sender_pid" -eq 1 \
+        && "$saw_ipc_sender_service_id" -eq 1 \
+        && "$saw_keystored_capmove" -eq 1 \
+        && "$saw_kselftest_ipc_queue_full" -eq 1 \
+        && "$saw_kselftest_ipc_bytes_full" -eq 1 \
+        && "$saw_kselftest_ipc_global_bytes_budget" -eq 1 \
+        && "$saw_kselftest_ipc_owner_bytes_budget" -eq 1 \
+        && "$saw_kselftest_ipc_recv_waiter_fifo" -eq 1 \
+        && "$saw_kselftest_ipc_send_waiter_fifo" -eq 1 \
+        && "$saw_kselftest_ipc_send_unblock" -eq 1 \
+        && "$saw_kselftest_ipc_endpoint_quota" -eq 1 \
+        && "$saw_kselftest_ipc_close_wakes" -eq 1 \
+        && "$saw_kselftest_ipc_owner_exit_wakes" -eq 1 \
         && "$saw_ipc_routing_policyd" -eq 1 \
         && "$saw_ipc_routing_bundlemgrd" -eq 1 \
+        && "$saw_bundlemgrd_list" -eq 1 \
+        && "$saw_bundlemgrd_malformed" -eq 1 \
+        && "$saw_bundlemgrd_route_execd_denied" -eq 1 \
         && "$saw_ipc_routing_keystored" -eq 1 \
-        && "$saw_keystored_ping" -eq 1 \
+        && "$saw_keystored_v1" -eq 1 \
         && "$saw_ipc_routing_samgrd" -eq 1 \
-        && "$saw_samgrd_ping" -eq 1 \
+        && "$saw_samgrd_register" -eq 1 \
+        && "$saw_samgrd_lookup" -eq 1 \
+        && "$saw_samgrd_unknown" -eq 1 \
+        && "$saw_samgrd_malformed" -eq 1 \
         && "$saw_ipc_routing_execd" -eq 1 \
         && "$saw_ipc_routing" -eq 1 \
         && "$saw_ipc_routing_pkg" -eq 1 \

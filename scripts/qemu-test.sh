@@ -71,21 +71,29 @@ expected_sequence=(
   # Service readiness markers are emitted asynchronously by the spawned processes.
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
   # services report `*: ready` after `init: ready`.
-  "keystored: ready (stub)"
-  "policyd: ready (stub)"
-  "samgrd: ready (stub)"
-  "bundlemgrd: ready (stub)"
+  "keystored: ready"
+  "policyd: ready"
+  "samgrd: ready"
+  "bundlemgrd: ready"
   "packagefsd: ready"
   "vfsd: ready"
-  "execd: ready (stub)"
+  "execd: ready"
   "SELFTEST: ipc routing keystored ok"
-  "SELFTEST: keystored ping ok"
+  "SELFTEST: keystored v1 ok"
   "SELFTEST: ipc routing samgrd ok"
-  "SELFTEST: samgrd ping ok"
+  "SELFTEST: samgrd v1 register ok"
+  "SELFTEST: samgrd v1 lookup ok"
+  "SELFTEST: samgrd v1 unknown ok"
+  "SELFTEST: samgrd v1 malformed ok"
   "SELFTEST: ipc routing policyd ok"
   "SELFTEST: ipc routing bundlemgrd ok"
+  "SELFTEST: bundlemgrd v1 list ok"
+  "SELFTEST: bundlemgrd v1 image ok"
+  "SELFTEST: bundlemgrd v1 malformed ok"
   "SELFTEST: policy allow ok"
   "SELFTEST: policy deny ok"
+  "SELFTEST: policyd requester spoof denied ok"
+  "SELFTEST: policy malformed ok"
   "SELFTEST: ipc routing execd ok"
   "child: hello-elf"
   "execd: elf load ok"
@@ -93,13 +101,18 @@ expected_sequence=(
   "child: exit0 start"
   "execd: child exited"
   "SELFTEST: child exit ok"
+  "SELFTEST: exec denied ok"
+  "SELFTEST: execd malformed ok"
   "SELFTEST: ipc payload roundtrip ok"
   "SELFTEST: ipc deadline timeout ok"
   "SELFTEST: nexus-ipc kernel loopback ok"
+  "SELFTEST: ipc sender pid ok"
+  "SELFTEST: ipc sender service_id ok"
   "SELFTEST: ipc routing ok"
   "SELFTEST: ipc routing packagefsd ok"
   "SELFTEST: vfs stat ok"
   "SELFTEST: vfs read ok"
+  "SELFTEST: vfs real data ok"
   "SELFTEST: vfs ebadf ok"
   "SELFTEST: end"
 )
@@ -139,7 +152,7 @@ for marker in "${expected_sequence[@]}"; do
   prev=$line
 done
 
-for policy_marker in "SELFTEST: policy allow ok" "SELFTEST: policy deny ok"; do
+for policy_marker in "SELFTEST: policy allow ok" "SELFTEST: policy deny ok" "SELFTEST: policy malformed ok" "SELFTEST: bundlemgrd route execd denied ok"; do
   if ! grep -aFq "$policy_marker" "$UART_LOG"; then
     echo "Missing UART marker: $policy_marker" >&2
     exit 1

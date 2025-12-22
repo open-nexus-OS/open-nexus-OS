@@ -6,11 +6,13 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [features]
-default = ["idl-capnp"]
-idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+default = []
+# Host backend uses Cap'n Proto IDL frames over the loopback transport.
+idl-capnp = ["dep:capnp", "dep:nexus-idl-runtime", "nexus-idl-runtime/capnp", "nexus-ipc/std"]
+# OS backend uses raw bring-up frames over kernel IPC v1 (OPCODE_* protocol implemented by vfsd os-lite).
+os-kernel = ["nexus-ipc/os-lite", "nexus-ipc/kernel-ipc"]
 
 [dependencies]
-thiserror = "1"
-nexus-ipc = { path = "../nexus-ipc" }
-nexus-idl-runtime = { path = "../nexus-idl-runtime" }
+nexus-ipc = { path = "../nexus-ipc", default-features = false }
+nexus-idl-runtime = { path = "../nexus-idl-runtime", optional = true }
 capnp = { version = "0.19", optional = true }

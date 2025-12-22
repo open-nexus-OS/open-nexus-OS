@@ -20,18 +20,18 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
+#![cfg_attr(nexus_env = "os", no_std)]
 
 //! Userspace Virtual File System client helpers.
 //!
-//! The client exposes a minimal API that maps directly to the Cap'n Proto VFS
-//! service. Host builds talk to the in-process loopback transport leveraged by
-//! tests, while OS builds will forward requests to the kernel IPC channel once
-//! the syscall surface is available. Until then the OS backend returns
-//! [`Error::Unsupported`].
+//! Host builds use Cap'n Proto (IDL) frames over loopback transport.
+//! OS builds use the bring-up opcode protocol over kernel IPC v1 (see `vfsd` os-lite).
 
-use std::fmt;
+extern crate alloc;
 
-use thiserror::Error;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt;
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -39,9 +39,10 @@ compile_error!("nexus_env: both 'host' and 'os' set");
 #[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
 compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
-#[cfg(not(feature = "idl-capnp"))]
-compile_error!("Enable the `idl-capnp` feature to build the VFS client.");
+#[cfg(all(nexus_env = "host", not(feature = "idl-capnp")))]
+compile_error!("Enable the `idl-capnp` feature for host builds of nexus-vfs.");
 
+#[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
 use nexus_idl_runtime::vfs_capnp::{
     close_request, close_response, open_request, open_response, read_request, read_response,
     stat_request, stat_response,
@@ -56,29 +57,36 @@ const OPCODE_STAT: u8 = 4;
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Errors produced by the VFS client helpers.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// Requested path does not exist.
-    #[error("path not found")]
     NotFound,
     /// The provided file handle is invalid or has been closed already.
-    #[error("invalid file handle")]
     InvalidHandle,
     /// The provided path is not valid.
-    #[error("invalid path")]
     InvalidPath,
     /// Failed to encode a Cap'n Proto request.
-    #[error("failed to encode request")]
     Encode,
     /// Failed to decode a Cap'n Proto response.
-    #[error("failed to decode response")]
     Decode,
     /// The underlying transport rejected the operation.
-    #[error("ipc error: {0}")]
     Ipc(String),
     /// Backend is not implemented for this build configuration.
-    #[error("backend unsupported")]
     Unsupported,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotFound => f.write_str("path not found"),
+            Self::InvalidHandle => f.write_str("invalid file handle"),
+            Self::InvalidPath => f.write_str("invalid path"),
+            Self::Encode => f.write_str("failed to encode request"),
+            Self::Decode => f.write_str("failed to decode response"),
+            Self::Ipc(s) => write!(f, "ipc error: {s}"),
+            Self::Unsupported => f.write_str("backend unsupported"),
+        }
+    }
 }
 
 /// Handle identifying an opened file in the VFS service.
@@ -172,6 +180,23 @@ impl VfsClient {
 
     /// Opens a file located at `path`.
     pub fn open(&self, path: &str) -> Result<FileHandle> {
+        #[cfg(nexus_env = "os")]
+        {
+            if !path.starts_with("pkg:/") {
+                return Err(Error::InvalidPath);
+            }
+            let mut frame = Vec::with_capacity(1 + path.len());
+            frame.push(OPCODE_OPEN);
+            frame.extend_from_slice(path.as_bytes());
+            let rsp = self.backend.call(frame)?;
+            if rsp.len() < 1 + 4 || rsp[0] != 1 {
+                return Err(Error::NotFound);
+            }
+            let fh = u32::from_le_bytes([rsp[1], rsp[2], rsp[3], rsp[4]]);
+            return Ok(FileHandle::from_raw(fh));
+        }
+        #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
+        {
         let mut message = capnp::message::Builder::new_default();
         {
             let mut request = message.init_root::<open_request::Builder<'_>>();
@@ -193,10 +218,26 @@ impl VfsClient {
             return Err(Error::NotFound);
         }
         Ok(FileHandle::from_raw(response.get_fh()))
+        }
     }
 
     /// Reads up to `len` bytes from file handle `fh` starting at offset `off`.
     pub fn read(&self, fh: FileHandle, off: u64, len: usize) -> Result<Vec<u8>> {
+        #[cfg(nexus_env = "os")]
+        {
+            let mut frame = Vec::with_capacity(1 + 4 + 8 + 4);
+            frame.push(OPCODE_READ);
+            frame.extend_from_slice(&fh.raw().to_le_bytes());
+            frame.extend_from_slice(&off.to_le_bytes());
+            frame.extend_from_slice(&(len.min(u32::MAX as usize) as u32).to_le_bytes());
+            let rsp = self.backend.call(frame)?;
+            if rsp.first().copied() != Some(1) {
+                return Err(Error::InvalidHandle);
+            }
+            return Ok(rsp[1..].to_vec());
+        }
+        #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
+        {
         let mut message = capnp::message::Builder::new_default();
         {
             let mut request = message.init_root::<read_request::Builder<'_>>();
@@ -223,10 +264,24 @@ impl VfsClient {
             .get_bytes()
             .map(|data| data.to_vec())
             .map_err(|_| Error::Decode)
+        }
     }
 
     /// Closes the provided file handle.
     pub fn close(&self, fh: FileHandle) -> Result<()> {
+        #[cfg(nexus_env = "os")]
+        {
+            let mut frame = Vec::with_capacity(1 + 4);
+            frame.push(OPCODE_CLOSE);
+            frame.extend_from_slice(&fh.raw().to_le_bytes());
+            let rsp = self.backend.call(frame)?;
+            if rsp.first().copied() == Some(1) {
+                return Ok(());
+            }
+            return Err(Error::InvalidHandle);
+        }
+        #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
+        {
         let mut message = capnp::message::Builder::new_default();
         {
             let mut request = message.init_root::<close_request::Builder<'_>>();
@@ -249,10 +304,31 @@ impl VfsClient {
         } else {
             Err(Error::InvalidHandle)
         }
+        }
     }
 
     /// Retrieves metadata for the provided `path`.
     pub fn stat(&self, path: &str) -> Result<Metadata> {
+        #[cfg(nexus_env = "os")]
+        {
+            if !path.starts_with("pkg:/") {
+                return Err(Error::InvalidPath);
+            }
+            let mut frame = Vec::with_capacity(1 + path.len());
+            frame.push(OPCODE_STAT);
+            frame.extend_from_slice(path.as_bytes());
+            let rsp = self.backend.call(frame)?;
+            if rsp.len() < 1 + 8 + 2 || rsp[0] != 1 {
+                return Err(Error::NotFound);
+            }
+            let size = u64::from_le_bytes([
+                rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8],
+            ]);
+            let kind = u16::from_le_bytes([rsp[9], rsp[10]]);
+            return Ok(Metadata::new(size, FileKind::from_raw(kind)));
+        }
+        #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
+        {
         let mut message = capnp::message::Builder::new_default();
         {
             let mut request = message.init_root::<stat_request::Builder<'_>>();
@@ -277,8 +353,10 @@ impl VfsClient {
             response.get_size(),
             FileKind::from_raw(response.get_kind()),
         ))
+        }
     }
 
+    #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
     fn dispatch(
         &self,
         opcode: u8,
@@ -363,6 +441,8 @@ mod host {
 
 #[cfg(nexus_env = "os")]
 mod os {
+    use alloc::{format, vec::Vec};
+
     use super::{Error, Result};
     use nexus_ipc::{Client as _, KernelClient, Wait};
 
@@ -373,7 +453,8 @@ mod os {
 
     impl Client {
         pub fn new() -> Result<Self> {
-            let ipc = KernelClient::new().map_err(map_ipc_error)?;
+            // Route to the vfsd service (init-lite responder).
+            let ipc = KernelClient::new_for("vfsd").map_err(map_ipc_error)?;
             Ok(Self { ipc })
         }
 

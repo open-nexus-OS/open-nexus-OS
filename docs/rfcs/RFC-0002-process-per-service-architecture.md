@@ -1,9 +1,19 @@
 # RFC-0002: Process-Per-Service Architecture
 
-- Status: Complete
+- Status: Complete (Phase 0 complete; later phases ongoing/deferred)
 - Owners: Runtime + Kernel Team
 - Created: 2025-10-24
 - Last Updated: 2025-12-18
+
+## Status at a Glance
+
+- **Phase 0 (Process-per-service + kernel exec as sole loader path)**: Complete ✅
+- **Phase 1 (Service maturity / full orchestration)**: In progress / deferred (tracked in RFC‑0005 and service proto work)
+
+Definition:
+
+- In this RFC, “Complete” means the architecture decision is fully implemented: services are separate
+  ELFs, kernel `exec`/`exec_v2` is the sole loader path, and `init-lite` is a minimal wrapper/packager.
 
 ## Context
 

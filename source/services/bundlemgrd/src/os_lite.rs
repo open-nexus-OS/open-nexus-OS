@@ -6,7 +6,7 @@ use alloc::boxed::Box;
 
 use core::fmt;
 
-use nexus_abi::{debug_putc, yield_};
+use nexus_abi::{debug_putc, yield_, MsgHeader};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 /// Result type surfaced by the lite bundle manager shim.
@@ -59,16 +59,32 @@ impl fmt::Display for ServerError {
 /// No-op schema warmer retained for API parity.
 pub fn touch_schemas() {}
 
+const MAGIC0: u8 = nexus_abi::bundlemgrd::MAGIC0;
+const MAGIC1: u8 = nexus_abi::bundlemgrd::MAGIC1;
+const VERSION: u8 = nexus_abi::bundlemgrd::VERSION;
+
+const OP_LIST: u8 = nexus_abi::bundlemgrd::OP_LIST;
+const OP_ROUTE_STATUS: u8 = nexus_abi::bundlemgrd::OP_ROUTE_STATUS;
+const OP_FETCH_IMAGE: u8 = nexus_abi::bundlemgrd::OP_FETCH_IMAGE;
+
+const STATUS_OK: u8 = nexus_abi::bundlemgrd::STATUS_OK;
+const STATUS_MALFORMED: u8 = nexus_abi::bundlemgrd::STATUS_MALFORMED;
+const STATUS_UNSUPPORTED: u8 = nexus_abi::bundlemgrd::STATUS_UNSUPPORTED;
+
 /// Main service loop used by the lite shim.
 pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> LiteResult<()> {
     notifier.notify();
-    emit_line("bundlemgrd: ready (stub)");
+    emit_line("bundlemgrd: ready");
     let server = KernelServer::new_for("bundlemgrd").map_err(|_| ServerError::Unsupported)?;
     loop {
-        match server.recv(Wait::Blocking) {
-            Ok(frame) => {
-                // Minimal protocol: echo requests back to caller.
-                let _ = server.send(&frame, Wait::Blocking);
+        match server.recv_request(Wait::Blocking) {
+            Ok((frame, reply)) => {
+                let rsp = handle_frame_vec(frame.as_slice());
+                if let Some(reply) = reply {
+                    let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);
+                } else {
+                    let _ = server.send(&rsp, Wait::Blocking);
+                }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
@@ -77,6 +93,149 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
             Err(_) => return Err(ServerError::Unsupported),
         }
     }
+}
+
+const CTRL_SEND_SLOT: u32 = 1;
+const CTRL_RECV_SLOT: u32 = 2;
+
+fn route_status(target: &str) -> Option<u8> {
+    let name = target.as_bytes();
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
+    let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
+    let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
+    let deadline = match nexus_abi::nsec() {
+        Ok(now) => now.saturating_add(200_000_000),
+        Err(_) => 0,
+    };
+    let _ = nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, deadline).ok()?;
+    let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 32];
+    let n = nexus_abi::ipc_recv_v1(
+        CTRL_RECV_SLOT,
+        &mut rh,
+        &mut buf,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    )
+    .ok()? as usize;
+    let (status, _send, _recv) = nexus_abi::routing::decode_route_rsp(&buf[..n])?;
+    Some(status)
+}
+
+fn handle_frame(frame: &[u8]) -> [u8; 8] {
+    // LIST request: [B, N, ver, OP_LIST]
+    // LIST response: [B, N, ver, OP_LIST|0x80, status:u8, count:u16le, _reserved:u8]
+    //
+    // ROUTE_STATUS request: [B, N, ver, OP_ROUTE_STATUS, name_len:u8, name...]
+    // ROUTE_STATUS response:
+    //   [B, N, ver, OP_ROUTE_STATUS|0x80, status:u8, route_status:u8, _reserved:u8, _reserved:u8]
+    //
+    // FETCH_IMAGE request: [B, N, ver, OP_FETCH_IMAGE]
+    // FETCH_IMAGE response: [B, N, ver, OP_FETCH_IMAGE|0x80, status:u8, len:u32le, bytes...]
+    if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
+        return rsp(OP_LIST, STATUS_MALFORMED, 0);
+    }
+    if frame[2] != VERSION {
+        return rsp(frame[3], STATUS_UNSUPPORTED, 0);
+    }
+    let op = frame[3];
+    match op {
+        OP_LIST => {
+            if frame.len() != 4 {
+                return rsp(op, STATUS_MALFORMED, 0);
+            }
+            // Bring-up: one deterministic bundle image is available.
+            rsp(op, STATUS_OK, 1)
+        }
+        OP_ROUTE_STATUS => {
+            if frame.len() < 5 {
+                return rsp2(op, STATUS_MALFORMED, 0);
+            }
+            let n = frame[4] as usize;
+            if n == 0 || n > nexus_abi::routing::MAX_SERVICE_NAME_LEN || frame.len() != 5 + n {
+                return rsp2(op, STATUS_MALFORMED, 0);
+            }
+            let name = core::str::from_utf8(&frame[5..]).unwrap_or("");
+            let code = route_status(name).unwrap_or(nexus_abi::routing::STATUS_MALFORMED);
+            rsp2(op, STATUS_OK, code)
+        }
+        OP_FETCH_IMAGE => {
+            if frame.len() != 4 {
+                return rsp(op, STATUS_MALFORMED, 0);
+            }
+            // For now, we return OK and let the caller fetch the static image from a separate
+            // service endpoint (see handle_frame_vec).
+            rsp(op, STATUS_OK, 0)
+        }
+        _ => rsp(op, STATUS_UNSUPPORTED, 0),
+    }
+}
+
+fn handle_frame_vec(frame: &[u8]) -> alloc::vec::Vec<u8> {
+    use alloc::vec::Vec;
+
+    if frame.len() >= 4 && frame[0] == MAGIC0 && frame[1] == MAGIC1 && frame[2] == VERSION {
+        if frame[3] == OP_FETCH_IMAGE {
+            // Static read-only image: NXBI v1 with one entry system@1.0.0/build.prop
+            const BUILD_PROP: &[u8] = b"ro.nexus.build=dev\n";
+            // Encode image inline (small and deterministic).
+            let mut img = Vec::new();
+            img.extend_from_slice(b"NXBI");
+            img.push(1); // VERSION
+            img.extend_from_slice(&1u16.to_le_bytes()); // entry_count
+            // entry:
+            img.push(6); // "system"
+            img.extend_from_slice(b"system");
+            img.push(5); // "1.0.0"
+            img.extend_from_slice(b"1.0.0");
+            let path = b"build.prop";
+            img.extend_from_slice(&(path.len() as u16).to_le_bytes());
+            img.extend_from_slice(path);
+            img.extend_from_slice(&0u16.to_le_bytes()); // KIND_FILE
+            img.extend_from_slice(&(BUILD_PROP.len() as u32).to_le_bytes());
+            img.extend_from_slice(BUILD_PROP);
+
+            let mut out = Vec::with_capacity(9 + img.len());
+            out.push(MAGIC0);
+            out.push(MAGIC1);
+            out.push(VERSION);
+            out.push(OP_FETCH_IMAGE | 0x80);
+            out.push(STATUS_OK);
+            out.extend_from_slice(&(img.len() as u32).to_le_bytes());
+            out.extend_from_slice(&img);
+            return out;
+        }
+    }
+    // Fallback: fixed-size responses.
+    let rsp = handle_frame(frame);
+    let mut out = Vec::with_capacity(rsp.len());
+    out.extend_from_slice(&rsp);
+    out
+}
+
+fn rsp(op: u8, status: u8, count: u16) -> [u8; 8] {
+    let mut out = [0u8; 8];
+    out[0] = MAGIC0;
+    out[1] = MAGIC1;
+    out[2] = VERSION;
+    out[3] = op | 0x80;
+    out[4] = status;
+    out[5..7].copy_from_slice(&count.to_le_bytes());
+    out[7] = 0;
+    out
+}
+
+fn rsp2(op: u8, status: u8, route_status: u8) -> [u8; 8] {
+    let mut out = [0u8; 8];
+    out[0] = MAGIC0;
+    out[1] = MAGIC1;
+    out[2] = VERSION;
+    out[3] = op | 0x80;
+    out[4] = status;
+    out[5] = route_status;
+    out[6] = 0;
+    out[7] = 0;
+    out
 }
 
 fn emit_line(message: &str) {

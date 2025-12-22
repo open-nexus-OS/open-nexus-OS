@@ -137,7 +137,9 @@ impl From<IpcError> for TransportError {
             IpcError::WouldBlock | IpcError::Timeout => {
                 Self::Other("operation timed out".to_string())
             }
+            IpcError::NoSpace => Self::Other("ipc ran out of resources".to_string()),
             IpcError::Kernel(err) => Self::Other(format!("kernel error: {err:?}")),
+            _ => Self::Other(format!("ipc error: {value:?}")),
         }
     }
 }

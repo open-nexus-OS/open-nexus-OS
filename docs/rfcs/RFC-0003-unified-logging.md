@@ -4,6 +4,36 @@
 - Authors: Runtime Team
 - Last Updated: 2025-11-29
 
+## Status at a Glance
+
+- **Phase 0 (Deterministic bring-up logging + guards)**: In progress
+- **Phase 1 (Kernel sink parity / delegation)**: Planned
+- **Phase 2 (Routing, buffers, advanced controls)**: Planned
+
+Definition:
+
+- This RFC is considered “Complete” only when both userspace and kernel use the same facade/sink
+  semantics for severity/target, and the panic-safe fallback path is consistent across domains.
+
+## Role in the RFC stack (how RFC-0003 fits with RFC-0004/0005)
+
+RFC‑0003 is **supporting infrastructure**, not a blocker for RFC‑0004/0005:
+
+- **RFC‑0004 depends on RFC‑0003 (minimal)** for provenance-safe, deterministic logging so guard
+  violations can be surfaced without dereferencing untrusted pointers.
+- **RFC‑0005 depends on RFC‑0003 (minimal)** for honest QEMU markers and actionable diagnostics
+  during IPC/policy/routing bring-up.
+
+Practical rule:
+
+- We implement only what we need for **deterministic markers + guard visibility**, and defer the
+  “full logging control plane” (buffers/routing) unless it unblocks security or correctness.
+
+“Done enough for now” criteria:
+
+- Core services and init-lite can emit deterministic markers without duplicated helpers.
+- Logging guards remain strict (reject non-provenance-safe pointers deterministically).
+
 ## Summary
 
 Neuron currently mixes several ad-hoc logging styles (raw UART loops in the
@@ -48,6 +78,7 @@ future routing (buffers, tracing).
 ## Implementation Status
 
 ### Completion snapshot (2025-12-12)
+
 - Overall: ~60% complete. Unified facade + topic gating landed; hybrid guard track partially rolled out; kernel sink adoption and full StrRef/VMO provenance still pending.
 
 | Component | Status | Notes |

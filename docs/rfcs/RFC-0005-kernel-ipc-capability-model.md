@@ -1,16 +1,67 @@
 # RFC-0005: Kernel IPC & Capability Model
 
-- Status: In Progress (kernel IPC v1 payload syscalls + QEMU marker done; blocking/deadlines + full runtime wiring still TODO)
+- Status: In Progress (Phase 0/1 complete; Phase 2 in progress; ABI freeze pending)
 - Owners: Runtime + Kernel Team
 - Created: 2025-12-18
-- Last Updated: 2025-12-18
+- Last Updated: 2025-12-22
+
+## Status at a Glance
+
+- **Phase 0 (Kernel IPC v1 + bring-up floor)**: Complete ✅
+- **Phase 1 (Bootstrap + proto stabilization)**: Complete ✅
+- **Phase 2 (Hardening + lifecycle)**: In progress ✅ (major items implemented; remaining “production-grade” gaps listed below)
+- **ABI freeze (compat guarantee)**: Not yet declared (we keep the versioned/descriptor patterns, but do not promise “never change” yet)
+
+Definition:
+
+- In this RFC, “Phase 0 complete” means: kernel IPC v1 syscalls work end-to-end, `userspace/nexus-ipc`
+  is wired to the kernel backend, init-lite routing responder works, and the marker-driven QEMU E2E
+  run is honest green.
+
+Phase 2 note:
+
+- Endpoint lifecycle is now defined for bring-up: endpoints created via `SYSCALL_IPC_ENDPOINT_CREATE`
+  are **owned by the creating task** and are **closed on task exit**, waking any blocked waiters.
+  Subsequent operations on closed endpoints fail deterministically (`IpcError::NoSuchEndpoint`).
+- Explicit close is supported via two operations:
+  - `cap_close(slot)`: drops the caller’s capability slot (local drop).
+  - `ipc_endpoint_close(slot)`: requires `Rights::MANAGE` on an endpoint capability and performs a
+    **global close** (revocation-by-close), waking blocked waiters.
+
+## What’s still missing (to call RFC‑0005 “Complete”)
+
+This section lists the remaining work to go from “bring-up complete” to “production-grade complete”.
+Items here should be backed by either kernel selftests, QEMU markers, or unit tests.
+
+### Phase 2 (Hardening) — remaining gaps
+
+- **Capability lifecycle**
+  - [ ] Cap revocation beyond “close endpoint”: define and implement a general revocation story (if needed), or explicitly scope it out
+  - [ ] Clarify/lock “cap table full” behavior across all syscalls that allocate caps (clone/recv/CAP_MOVE)
+
+- **Identity binding completeness**
+  - [ ] Apply channel-bound identity checks to all security-critical service protocols (eliminate “trust requester string/id” patterns everywhere)
+  - [ ] Document (and/or enforce) init-lite “proxy authority” rules as a first-class concept (not ad-hoc service-name allowlist)
+
+- **IPC production-grade**
+  - [ ] Stress/soak + fuzz: randomized send/recv/CAP_MOVE/close/exit sequences (no deadlocks, no leaks, no starvation)
+  - [ ] Fairness policy documented (FIFO is implemented; define starvation bounds or QoS behavior)
+
+### ABI freeze (compat guarantee) — required before “Complete”
+
+- **Syscall ABI**
+  - [ ] Publish a stable ABI contract: what is frozen, what is versioned, and what can evolve
+  - [ ] Golden vectors / compatibility tests for all on-wire frames we claim stable (routing v*, policyd v*, execd v1, bundleimg v1)
+
+- **Userspace API**
+  - [ ] “Blessed” request/reply patterns (ReplyCap / CAP_MOVE) documented as the recommended style, with service migrations tracked
 
 ## Context
 
 RFC-0002 establishes process-per-service isolation and RFC-0004 hardens the loader and memory
-provenance. Kernel IPC endpoint routing exists, and IPC v1 payload syscalls are available, but the
-current os-lite bring-up path still uses `nexus-ipc`'s cooperative mailbox registry (in-process),
-so cross-process service IPC is not wired yet.
+provenance. Kernel IPC endpoint routing exists, IPC v1 payload syscalls are available, and the
+os-lite bring-up path is now wired cross-process via `userspace/nexus-ipc`'s kernel backend plus an
+init-lite routing responder.
 
 This RFC should be read alongside the project vision lens (Rust-first, RISC‑V-first, HarmonyOS-like
 device mesh via `softbusd` layering):
@@ -39,6 +90,35 @@ those RFCs too large and encourages drift. We need one stable, explicit contract
 - A full service manager design (handled by `samgrd` once IPC exists).
 - A generalized logging control plane (RFC-0003).
 - Long-term distributed IPC (out of scope; see distributed docs).
+
+## Roadmap (how we continue from here)
+
+We implement RFC‑0005 in small, proofable increments. The guiding dependency chain is:
+
+- **RFC‑0004 (security floor)**: pointer provenance + W^X + deterministic cleanup guarantees that
+  IPC syscalls can safely copy in/out of user memory without implicit trust.
+- **RFC‑0003 (logging)**: keep logs/markers deterministic and provenance-safe so IPC/policy failures
+  are debuggable without adding “always-on” noisy infrastructure.
+
+Next focus (Phase 2 hardening):
+
+- **Ownership correctness**: anything created “for service X” should be owned by X (close-on-exit).
+  Bring-up now supports `ipc_endpoint_create_for(factory, owner_pid, depth)` for this purpose.
+  Init-lite uses this for **service request endpoints** so the receiver service owns the endpoint
+  lifetime even when init-lite performs the initial capability distribution.
+- **Per-requester endpoint pairs**: init-lite should not reuse a single endpoint pair for multiple
+  requesters. Each requester→service link gets its own request/response endpoints, with ownership
+  set to the receiver side for correct close-on-exit semantics (e.g. bundlemgrd→execd uses a
+  dedicated pair, not the selftest-client↔execd channels).
+- **Authority rule for `create_for`**: even with an `EndpointFactory`, a task may only create
+  endpoints owned by **itself** or by one of its **direct children** (init-lite → spawned services).
+- **Lifecycle tightening**: ensure closed endpoints and task exit wake any blocked peers and never
+  leave waiters stuck; add negative tests for disconnected paths.
+- **Authority tightening**: Endpoint creation remains authorized by `EndpointFactory`; the next
+  step is to make factory distribution policy-controlled (policyd/samgrd), replacing “bootstrap is
+  special” scaffolding over time.
+- **Factory distribution rule (current hardening)**: `EndpointFactory` is not generally transferable.
+  Only bootstrap (PID 0) may transfer it to init-lite (PID 1). Services do not receive factory caps.
 
 ## Decision
 
@@ -96,6 +176,55 @@ discipline, while staying ergonomic for Rust.
 Key invariants:
 
 - **No raw pointers in IPC payloads.** Any buffer/data reference must be by capability/handle id.
+
+### Capability passing (Phase 2 / bring-up scalability)
+
+To avoid hard-coding per-client reply channels, IPC v1 supports moving **one capability** alongside
+an IPC message:
+
+- Sender sets `nexus_abi::ipc_hdr::CAP_MOVE` in `MsgHeader.flags` and places the capability slot to
+  move into `MsgHeader.src`.
+- Kernel **consumes** that cap slot on send, carries it in the queued message, and on receive
+  **allocates** it into the receiver cap table.
+- On receive, `MsgHeader.src` is overwritten with the newly allocated receiver slot.
+
+Security floor:
+
+- In-band cap move does not permit moving `Rights::MANAGE` authority (and never allows moving the
+  `EndpointFactory`).
+- CAP_MOVE supports non-blocking, blocking, and timeout send semantics. The kernel MUST ensure the
+  moved capability is only consumed on a successful enqueue and MUST be rolled back on failure so
+  syscall retry/reschedule never “loses” the cap.
+- If the receiver cannot allocate a capability slot for a moved cap, the receive MUST fail with
+  `ENOSPC` (`IpcError::NoSpace`) and the message MUST NOT be lost (it remains queued).
+
+Bring-up routing note:
+
+- Init-lite exposes a requester-local reply inbox via routing name **`@reply`**, returning
+  `(send_slot, recv_slot)` for a capability pair referencing the same endpoint (SEND vs RECV).
+  Clients can CAP_MOVE the SEND cap to a server and then receive the reply on the RECV cap.
+
+Related primitive:
+
+- `cap_clone(slot)` duplicates a cap locally. This allows clients to keep a long-lived SEND handle
+  while CAP_MOVE-ing short-lived clones for individual requests.
+
+Example (samgrd RPC style):
+
+- Client resolves `@reply` to get `(reply_send, reply_recv)`.
+- For each request: `cap_clone(reply_send)` → CAP_MOVE the clone to `samgrd` → receive the reply on
+  `reply_recv`.
+
+Recommended userspace pattern:
+
+- Servers should prefer `recv_request()` (frame + optional one-shot `ReplyCap`) and, when present,
+  reply via that cap and close it. This keeps reply routing explicit, avoids per-client server-side
+  state, and composes cleanly with `@reply` for bring-up.
+
+Userspace convenience API note:
+
+- `userspace/nexus-ipc` kernel backend exposes `send_with_cap_move_wait(...)` and
+  `ReplyCap::reply_and_close_wait(...)` so CAP_MOVE can use blocking/timeout waits when needed.
 - **“Handle ids” carried in IDL are capability slot indices.** On OS builds, a `vmoHandle` value
   is the integer capability slot for a VMO-capability in the sender’s task; it is only meaningful
   if the receiver also has (or is granted) the corresponding capability.
@@ -277,7 +406,8 @@ For “big bytes”, use the following pattern:
 3. Producer transfers the VMO capability to the consumer (today: via `cap_transfer`; future: may be
    integrated into message passing).
 4. Consumer maps the VMO with `Rights::MAP` and consumes the bytes.
-5. Consumer closes/drops its capability when done (cap close/revocation semantics are a follow-up).
+5. Consumer closes/drops its capability when done (explicit cap close/revocation semantics are a follow-up;
+   endpoint close-on-exit exists as a minimal lifecycle rule).
 
 ### Blocking semantics
 
@@ -293,6 +423,56 @@ Blocking MUST yield scheduler ownership in-kernel (no busy loops in userland for
 
 - Send to a full queue returns `QueueFull` (or blocks if requested).
 - Recv from an empty queue returns `QueueEmpty` (or blocks if requested).
+
+Queue depth is enforced per endpoint (created with `ipc_endpoint_create_v2/_for(..., depth)` and clamped to 1..256):
+
+- If the endpoint queue is full:
+  - **Non-blocking send** fails with `EAGAIN` (`IpcError::QueueFull`).
+  - **Blocking/timeout send** blocks the sender (wait-queue) until space is available or deadline
+    expires (`ETIMEDOUT` / `IpcError::TimedOut`).
+
+### Resource exhaustion (DoS hardening)
+
+- Endpoint creation is bounded (router quota). If the kernel cannot allocate a new endpoint, endpoint
+  creation returns `ENOSPC` (`IpcError::NoSpace`).
+- Endpoint creation is also bounded per owner PID (per-owner quota) to prevent a single compromised
+  service from exhausting the global endpoint table.
+
+Blocking correctness proof (wait queues):
+
+- `KSELFTEST: ipc send unblock ok`
+- `KSELFTEST: ipc close wakes ok`
+- `KSELFTEST: ipc owner-exit wakes ok`
+
+What is still missing for “production grade” blocking:
+
+- **Fairness/starvation**: define ordering guarantees for waiter queues; avoid priority inversions.
+- **Accounting**: memory/bytes accounting per endpoint (not only queue depth), plus stable OOM/ENOSPC behavior.
+- **Soak/fuzz**: long-running randomized scheduling tests + adversarial patterns (close/exit races, heavy CAP_MOVE).
+
+Queued-bytes accounting (DoS hardening):
+
+- In addition to **queue depth**, each endpoint has a bounded **queued-bytes budget**.
+- If a send would exceed this budget, it fails with **`ENOSPC` / `IpcError::NoSpace`** (deterministic).
+- Depth exhaustion remains **`EAGAIN` / `IpcError::QueueFull`**.
+- The router also enforces a **global queued-bytes budget** across all endpoints to bound total memory use.
+- The router also enforces a **per-owner queued-bytes budget** across endpoints owned by the same PID (service inbox cap).
+
+Proof:
+
+- `KSELFTEST: ipc bytes full ok`
+- `KSELFTEST: ipc global bytes budget ok`
+- `KSELFTEST: ipc owner bytes budget ok`
+
+Wait-queue fairness (current scope):
+
+- Recv waiters are woken in **FIFO order** (registration order).
+- Send waiters are woken in **FIFO order** (registration order).
+
+Proof:
+
+- `KSELFTEST: ipc recv waiter fifo ok`
+- `KSELFTEST: ipc send waiter fifo ok`
 
 ## Syscall ABI (proposed)
 
@@ -323,11 +503,15 @@ Contract:
 Mapping to `nexus_abi::IpcError` (stable):
 
 - `EPERM (1)` → `IpcError::PermissionDenied`
-- `ESRCH (3)` → `IpcError::NoSuchEndpoint`
+- `ESRCH (3)` → `IpcError::NoSuchEndpoint` (also used for “disconnected/closed endpoint” cases)
 - `EAGAIN (11)` → `IpcError::{QueueEmpty|QueueFull}` depending on operation
+- `ENOSPC (28)` → `IpcError::NoSpace` (e.g. receiver cannot allocate CAP_MOVE capability slot)
 - `ETIMEDOUT (110)` → `IpcError::TimedOut`
 - `ENOSYS (38)` → `IpcError::Unsupported`
 - Anything else → `IpcError::Unsupported` (until extended)
+
+Note: `ENOSPC` may also be returned by capability-management syscalls (e.g. `cap_clone`) when the
+current task has no free capability slots (bounded cap table hardening).
 
 ### Kernel IPC syscalls (current)
 
@@ -483,26 +667,115 @@ Implementation note (current OS bring-up):
 To avoid hard-coding capability slot numbers in services, init-lite provides a minimal routing
 responder that answers "what slots should I use to talk to service X?" queries.
 
-Current protocol (v0, bring-up only):
+Current protocol (v1, bring-up):
 
 - Init-lite transfers two private "control" endpoint capabilities into every service:
   - **slot 1**: control **REQ** endpoint (**SEND**). Child sends route queries to init-lite.
   - **slot 2**: control **RSP** endpoint (**RECV**). Child receives route replies from init-lite.
+
+Rights note:
+
+- Init-lite transfers **SEND-only** / **RECV-only** endpoint capabilities whenever possible (instead
+  of ambient SEND|RECV), so services cannot accidentally use the reverse direction of a channel.
+- `Rights::MANAGE` is treated as **close authority** for endpoints. For the current security floor,
+  `MANAGE` is **not transferable via `cap_transfer`**; global close must come from the original
+  holder (or future explicit policy-controlled distribution).
+
+Endpoint factory (Phase 2 hardening):
+
+- Endpoint creation is authorized via an explicit **EndpointFactory** capability. Init-lite holds
+  this capability during bring-up and uses `ipc_endpoint_create_v2(factory_slot, depth)` to mint
+  endpoints.
+- As a security floor, `Rights::MANAGE` remains non-transferable **except** for transferring the
+  EndpointFactory capability into init-lite.
+- Current bring-up mechanism: the kernel injects `EndpointFactory(MANAGE)` into init-lite when the
+  bootstrap task (PID 0) spawns the init-lite userspace task. Concretely: bootstrap carries the
+  factory in cap **slot 2**, and the kernel places a derived copy into init-lite cap **slot 1**
+  (where init-lite expects it for `ipc_endpoint_create_v2`). This is temporary scaffolding until
+  samgrd/policyd become authoritative distributors.
+- Endpoint ownership during bring-up: init-lite can create control endpoints owned by a spawned
+  service PID via `ipc_endpoint_create_for(factory, owner_pid, depth)` so that close-on-exit cleanup
+  follows the service lifetime (even though init-lite retains the creator cap for distribution).
 - Route query frame (child → init-lite, sent on control slot 1):
-  - Byte 0: `ROUTE_GET = 0x40`
-  - Byte 1: `name_len` (u8)
-  - Bytes 2..: UTF-8 service name bytes
+  - Bytes 0..2: magic `RT` (`0x52,0x54`)
+  - Byte 2: `version = 1`
+  - Byte 3: `OP_ROUTE_GET = 0x40`
+  - Byte 4: `name_len` (u8)
+  - Bytes 5..: UTF-8 service name bytes
 - Route reply frame (init-lite → child, sent on the control reply endpoint, received on slot 2):
-  - Byte 0: `ROUTE_RSP = 0x41`
-  - Byte 1: `status` (`0` = OK, non-zero = unsupported)
-  - Bytes 2..6: `send_slot` (u32 LE)
-  - Bytes 6..10: `recv_slot` (u32 LE)
+  - Bytes 0..2: magic `RT` (`0x52,0x54`)
+  - Byte 2: `version = 1`
+  - Byte 3: `OP_ROUTE_RSP = 0x41`
+  - Byte 4: `status` (`0` = OK, `1` = NOT_FOUND, `2` = MALFORMED, `3` = DENIED)
+  - Bytes 5..9: `send_slot` (u32 LE)
+  - Bytes 9..13: `recv_slot` (u32 LE)
+
+Implementation note:
+
+- The encode/decode helpers live in `nexus-abi::routing` so init-lite and `userspace/nexus-ipc`
+  share one routing frame contract.
 
 Security note:
 
 - The control endpoints are per-process and not shared between services, preventing ambient
   discovery. Init-lite remains the authority that decides which endpoints (and rights) each
   service receives.
+- In bring-up, init-lite may consult `policyd` to **deny routing** for specific (requester,target)
+  pairs and respond with `STATUS_DENIED` instead of returning capability slots.
+
+Bring-up proof note:
+
+- The `bundlemgrd -> execd` denial used by the QEMU selftest is **policyd-gated** (not hardcoded in
+  init-lite). The underlying route is otherwise present, so the observed `STATUS_DENIED` is a real
+  policy decision rather than a `STATUS_NOT_FOUND`.
+
+### Bundle Image (bring-up)
+
+To move VFS from “embedded bytes” to a realistic packaging flow, `bundlemgrd` serves a small
+read-only **bundle image** to `packagefsd`, which then serves files to `vfsd` over IPC.
+
+- **Image format**: `NXBI` v1 (see `nexus_abi::bundleimg`) containing a list of entries:
+  `(bundle, version, path, kind, data)`.
+- **Transport**: `bundlemgrd` exposes `OP_FETCH_IMAGE` (see `nexus_abi::bundlemgrd`), returning the
+  raw image bytes.
+- **Reply correctness**: `bundlemgrd` supports **CAP_MOVE reply caps** for request/reply so multiple
+  clients do not share a single fixed reply queue.
+
+Bring-up proof:
+
+- `SELFTEST: bundlemgrd v1 image ok`
+
+### Service Identity Token (bring-up)
+
+To avoid trusting user-supplied requester strings for security-sensitive decisions, the kernel
+derives a stable numeric **ServiceId** from the service name provided to `exec_v2` and publishes it
+to the child via the read-only `BootstrapInfo` page:
+
+- `BootstrapInfo.version = 2`
+- `BootstrapInfo.service_id: u64` (FNV‑1a 64 of the service name bytes)
+
+Policy upgrade (policyd v3):
+
+- Init-lite uses ID-based policyd control frames (v3) so routing/exec authorization checks do not
+  depend on userland-provided requester strings.
+- Note: fully binding identity to IPC senders (so servers can attribute messages to a specific
+  requester without out-of-band data) is still a follow-up item.
+
+Sender attribution (bring-up):
+
+- Kernel IPC v1 writes the **sender PID** into `MsgHeader.dst` on receive.
+- This is a transitional mechanism until we bind service identity directly to IPC senders.
+
+Sender identity binding (bring-up):
+
+- Kernel binds a **service_id** to each task at `exec_v2` time (see `BootstrapInfo.service_id`).
+- IPC recv v2 (`ipc_recv_v2`) additionally returns `sender_service_id` (u64) via out-parameter.
+
+Implementation note (policyd control frames):
+
+- Init-lite ↔ `policyd` uses **nonce-correlated v2 frames** for `OP_ROUTE` and `OP_EXEC` so replies
+  can be matched to requests without “drain stale replies” hacks. The legacy v1 policyd service
+  frames remain for bring-up compatibility (e.g. selftest `OP_CHECK`).
 
 Initial minimal policy:
 
@@ -721,6 +994,8 @@ Criteria (when to consider message-attached handles later):
 
 - The kernel enforces rights on held capabilities (fast, local checks).
 - `policyd` handles “who should get which capability” decisions (potentially expensive).
+- Bring-up milestone: `policyd` also gates **exec authorization** for `execd` (deny-by-policy returns
+  a deterministic error and no child PID is spawned).
 - For performance, policy decisions should be cacheable at userland boundaries (e.g., “cap request
   -> allow/deny”) without moving the policy engine into the kernel.
 
@@ -745,40 +1020,56 @@ single file.
 ### Kernel (neuron)
 
 - **Syscall IDs pinned**
-  - [ ] `SYSCALL_SEND = 2` and `SYSCALL_RECV = 3` remain stable (no renumbering)
-  - [ ] `SYSCALL_CAP_TRANSFER = 8` remains stable (no renumbering)
+  - [x] `SYSCALL_SEND = 2` and `SYSCALL_RECV = 3` remain stable (no renumbering)
+  - [x] `SYSCALL_CAP_TRANSFER = 8` remains stable (no renumbering)
+  - [x] IPC v1/v2 syscalls are pinned (see `source/kernel/neuron/src/syscall/mod.rs`)
 
 - **IPC transport v1**
-  - [ ] Implement `SYSCALL_IPC_SEND_V1 = 14` copy-in (header+payload)
-  - [ ] Implement `SYSCALL_IPC_RECV_V1 = 18` copy-out (header+payload)
-  - [ ] Backpressure behavior is observable (`QueueFull`, `QueueEmpty`)
-  - [ ] Non-blocking behavior is supported (no busy-loop requirements in userland)
+  - [x] Implement `SYSCALL_IPC_SEND_V1 = 14` copy-in (header+payload)
+  - [x] Implement `SYSCALL_IPC_RECV_V1 = 18` copy-out (header+payload)
+  - [x] Backpressure behavior is observable (`QueueFull`, `QueueEmpty`, `NoSpace`)
+  - [x] Non-blocking behavior is supported (no busy-loop requirements in userland)
+  - [x] Blocking + deadlines are supported (kernel sleep/wakeup; no lost-wakeup)
+  - [x] CAP_MOVE is supported (incl. blocking/timeout safety + rollback on recv NoSpace)
+
+- **IPC transport v2 (recv metadata)**
+  - [x] `SYSCALL_IPC_RECV_V2` returns `sender_service_id` (u64) via out-parameter (descriptor ABI)
 
 - **Rights enforcement**
-  - [ ] SEND requires `Rights::SEND`
-  - [ ] RECV requires `Rights::RECV`
-  - [ ] Rights cannot be amplified by any syscall path
+  - [x] SEND requires `Rights::SEND`
+  - [x] RECV requires `Rights::RECV`
+  - [x] Rights cannot be amplified by any syscall path
 
 - **Capability transfer**
-  - [ ] `cap_transfer(child, parent_slot, rights_subset)` enforces subset masks
-  - [ ] Invalid rights mask fails deterministically
+  - [x] `cap_transfer(child, parent_slot, rights_subset)` enforces subset masks
+  - [x] Invalid rights mask fails deterministically
+  - [x] `Rights::MANAGE` is non-transferable via `cap_transfer` (except `EndpointFactory` rule)
 
 - **Fault containment**
-  - [ ] User page faults terminate + deschedule the offending task (no fault storms)
+  - [x] User page faults terminate + deschedule the offending task (no fault storms)
+  - [x] Endpoint cleanup on task death prevents stranded waiters (close + waiter removal)
+
+- **DoS / resource exhaustion hardening**
+  - [x] Queue depth enforced (`KSELFTEST: ipc queue full ok`)
+  - [x] Endpoint quotas enforced (`KSELFTEST: ipc endpoint quota ok`)
+  - [x] Payload bytes accounting (endpoint/global/per-owner) enforced (`KSELFTEST: ipc bytes full ok`, `KSELFTEST: ipc global bytes budget ok`, `KSELFTEST: ipc owner bytes budget ok`)
 
 ### User ABI (nexus-abi)
 
 - **Stable error mapping**
-  - [ ] `AbiError::from_raw` mapping is documented and kept stable for IPC-related errors
+  - [x] `AbiError::from_raw` mapping is documented and kept stable for IPC-related errors
+  - [x] IPC errno decoding covers `EAGAIN`/`ETIMEDOUT`/`ENOSPC` → `IpcError::{QueueFull/TimedOut/NoSpace}`
 
 - **IPC wrappers (OS build)**
-  - [ ] Provide `ipc_send`/`ipc_recv` wrappers matching kernel transport v1 (no ad-hoc inline asm in apps)
+  - [x] Provide `ipc_send_v1`/`ipc_recv_v1` wrappers matching kernel transport v1 (no ad-hoc inline asm in apps)
+  - [x] Provide `ipc_recv_v2` wrapper for recv-side metadata (`sender_service_id`)
+  - [x] Provide `cap_clone`, CAP_MOVE flag, and endpoint factory/create syscalls used by init-lite/services
 
 ### IPC runtime (userspace/nexus-ipc)
 
 - **Kernel backend**
-  - [ ] `KernelClient`/`KernelServer` for `nexus_env="os"` uses kernel syscalls (not a local mailbox)
-  - [ ] `Wait::{Blocking, NonBlocking, Timeout}` behavior maps cleanly onto kernel semantics
+  - [x] `KernelClient`/`KernelServer` for `nexus_env="os"` uses kernel syscalls (not a local mailbox)
+  - [x] `Wait::{Blocking, NonBlocking, Timeout}` behavior maps cleanly onto kernel semantics
 
 - **os-lite backend**
   - [ ] Remains available for bring-up, but clearly marked **non-security**
@@ -786,14 +1077,34 @@ single file.
 ### Services (de-stub roadmap)
 
 - **Bootstrap**
-  - [ ] init-lite transfers bootstrap endpoint caps to spawned services
+  - [x] init-lite transfers bootstrap endpoint caps to spawned services
+  - [x] init-lite answers ROUTE_GET queries and returns per-service send/recv slots (bring-up routing responder)
 
 - **policyd**
-  - [ ] Denies unauthorized cap transfers / unauthorized service operations
-  - [ ] Emits stable markers for allow/deny cases used by selftests
+  - [ ] Denies unauthorized cap transfers / unauthorized service operations (authority still TODO)
+  - [x] Emits stable markers for allow/deny cases used by selftests
+  - [x] Rejects malformed frames deterministically (selftest marker)
+  - [x] Rejects spoofed requester identity by binding to sender_service_id (except init-lite proxy)
+
+- **samgrd**
+  - [x] Implements minimal registry proto v1 (REGISTER/LOOKUP of per-client slot tuples) over real IPC
+  - [x] Rejects malformed frames deterministically (selftest marker)
+
+- **bundlemgrd**
+  - [x] Implements minimal bundle proto v1 (LIST, returns 0 for now) over real IPC
+  - [x] Rejects malformed frames deterministically (selftest marker)
+
+- **keystored**
+  - [x] Implements minimal keystore proto v1 (PUT/GET/DEL) over real IPC
+  - [x] Rejects malformed frames deterministically (selftest marker)
+
+- **execd**
+  - [x] Implements minimal exec proto v1 (exec image selector) over real IPC (bring-up)
+  - [x] Rejects malformed frames deterministically (selftest marker)
+  - [x] Binds requester identity to IPC sender channel (rejects spoofed `requester` field)
 
 - **vfsd**
-  - [ ] Implements `stat/open/read/close` over real IPC
+  - [x] Implements `stat/open/read/close` over real IPC (see `SELFTEST: vfs * ok` / `SELFTEST: vfs real data ok`)
 
 ### Tests (acceptance)
 
@@ -802,12 +1113,18 @@ single file.
   - [x] cap_transfer tests: subset masks and invalid mask rejection
 
 - **QEMU E2E**
-  - [ ] `RUN_UNTIL_MARKER=1` passes with VFS checks running over real IPC
-  - [ ] policyd allow/deny is exercised and visible via UART markers
+  - [x] `RUN_UNTIL_MARKER=1` passes with VFS checks running over real IPC
+  - [x] policyd allow/deny is exercised and visible via UART markers
+  - [x] policyd requester spoof denial is exercised (`SELFTEST: policyd requester spoof denied ok`)
+  - [x] policyd malformed-frame negative case is exercised and visible via UART marker
+  - [x] keystored proto v1 is exercised and visible via UART marker
+  - [x] execd proto v1 is exercised and visible via UART marker
+  - [x] policyd-gated exec denial is exercised (`SELFTEST: exec denied ok`)
+  - [x] Sender identity binding is exercised (`SELFTEST: ipc sender service_id ok`)
 
 Notes:
 
-- QEMU marker suite currently includes `SELFTEST: ipc payload roundtrip ok` and
-  `SELFTEST: ipc deadline timeout ok` as a minimal proof that IPC v1 payload copy
-  and deadline semantics are working end-to-end. VFS over IPC remains gated on
-  wiring `userspace/nexus-ipc` to kernel IPC v1 across processes.
+- QEMU marker suite includes `SELFTEST: ipc payload roundtrip ok` and
+  `SELFTEST: ipc deadline timeout ok` as minimal proof that IPC v1 payload copy
+  and deadline semantics are working end-to-end, plus routing + VFS checks over
+  real cross-process kernel IPC.

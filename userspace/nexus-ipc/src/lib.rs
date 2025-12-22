@@ -81,6 +81,8 @@ pub enum IpcError {
     Timeout,
     /// The opposite endpoint disconnected.
     Disconnected,
+    /// The kernel could not allocate required resources (e.g. receiver cap table full).
+    NoSpace,
     /// Kernel returned an IPC failure.
     Kernel(nexus_abi::IpcError),
     /// IPC is not available under the current build.
@@ -93,6 +95,7 @@ impl fmt::Display for IpcError {
             Self::WouldBlock => write!(f, "operation would block"),
             Self::Timeout => write!(f, "operation timed out"),
             Self::Disconnected => write!(f, "peer disconnected"),
+            Self::NoSpace => write!(f, "ipc ran out of resources"),
             Self::Kernel(err) => write!(f, "kernel rejected ipc request: {err:?}"),
             Self::Unsupported => write!(f, "ipc not supported for this configuration"),
         }
@@ -104,7 +107,10 @@ impl std::error::Error for IpcError {}
 
 impl From<nexus_abi::IpcError> for IpcError {
     fn from(err: nexus_abi::IpcError) -> Self {
-        Self::Kernel(err)
+        match err {
+            nexus_abi::IpcError::NoSpace => Self::NoSpace,
+            other => Self::Kernel(other),
+        }
     }
 }
 

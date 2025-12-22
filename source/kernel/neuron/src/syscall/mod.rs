@@ -63,6 +63,20 @@ pub const SYSCALL_DEBUG_PUTC: usize = 16;
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).
 pub const SYSCALL_IPC_ENDPOINT_CREATE: usize = 19;
+/// Drops a capability slot; if the capability has `Rights::MANAGE` and is an endpoint, closes it.
+pub const SYSCALL_CAP_CLOSE: usize = 20;
+/// Closes a kernel IPC endpoint referenced by a capability slot with `Rights::MANAGE`.
+pub const SYSCALL_IPC_ENDPOINT_CLOSE: usize = 21;
+/// Creates a new IPC endpoint using an explicit endpoint-factory capability (Phase-2 hardening).
+pub const SYSCALL_IPC_ENDPOINT_CREATE_V2: usize = 22;
+/// Creates a new IPC endpoint on behalf of `owner_pid` (init-lite bootstrap helper).
+pub const SYSCALL_IPC_ENDPOINT_CREATE_FOR: usize = 23;
+/// Clones a capability slot locally (creates a second reference in the caller).
+pub const SYSCALL_CAP_CLONE: usize = 24;
+/// Returns the current task PID.
+pub const SYSCALL_GETPID: usize = 25;
+/// Receives an IPC message and additionally returns sender service identity metadata (v2).
+pub const SYSCALL_IPC_RECV_V2: usize = 26;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

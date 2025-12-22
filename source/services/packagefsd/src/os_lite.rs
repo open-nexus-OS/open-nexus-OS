@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use nexus_ipc::Server;
-use nexus_ipc::{IpcError, KernelServer, Wait};
+use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Wait};
 
 const OPCODE_RESOLVE: u8 = 2;
 const KIND_FILE: u16 = 0;
@@ -117,7 +117,7 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
     // RFC-0005: name-based routing; init-lite assigns per-service endpoint caps and answers route
     // queries over a private control channel, so services don't hardcode slot numbers.
     let server = KernelServer::new_for("packagefsd").map_err(|_| LiteError::Transport)?;
-    let registry = seed_registry();
+    let registry = load_registry_from_bundlemgrd().unwrap_or_else(seed_registry);
     run_loop(&server, &registry)
 }
 
@@ -191,6 +191,72 @@ fn seed_registry() -> BundleRegistry {
     registry.publish("demo.exit0", "1.0.0", &exit_entries);
 
     registry
+}
+
+fn load_registry_from_bundlemgrd() -> Option<BundleRegistry> {
+    // NOTE: This is a bring-up path to replace embedded bytes with a read-only bundle image.
+    // packagefsd talks to bundlemgrd using CAP_MOVE replies via its reply inbox (@reply).
+    let bundle = KernelClient::new_for("bundlemgrd").ok()?;
+    let reply = KernelClient::new_for("@reply").ok()?;
+    let (reply_send_slot, _reply_recv_slot) = reply.slots();
+    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
+
+    // Best-effort LIST proof: ensure bundlemgrd reports exactly one bundle in bring-up.
+    // Use CAP_MOVE reply caps to avoid polluting other clients' response endpoints.
+    let reply_send_clone2 = nexus_abi::cap_clone(reply_send_slot).ok()?;
+    let mut list = [0u8; 4];
+    nexus_abi::bundlemgrd::encode_list(&mut list);
+    bundle
+        .send_with_cap_move_wait(
+            &list,
+            reply_send_clone2,
+            Wait::Timeout(core::time::Duration::from_secs(1)),
+        )
+        .ok()?;
+    let rsp = bundle.recv(Wait::Timeout(core::time::Duration::from_secs(1))).ok()?;
+    let (_st, _count) = nexus_abi::bundlemgrd::decode_list_rsp(&rsp)?;
+
+    // Fetch the read-only image.
+    let mut req = [0u8; 4];
+    nexus_abi::bundlemgrd::encode_fetch_image(&mut req);
+    bundle
+        .send_with_cap_move_wait(&req, reply_send_clone, Wait::Timeout(core::time::Duration::from_secs(1)))
+        .ok()?;
+    let rsp = bundle.recv(Wait::Timeout(core::time::Duration::from_secs(1))).ok()?;
+    let (status, img) = nexus_abi::bundlemgrd::decode_fetch_image_rsp(&rsp)?;
+    if status != nexus_abi::bundlemgrd::STATUS_OK {
+        return None;
+    }
+
+    let (count, mut off) = nexus_abi::bundleimg::decode_header(img)?;
+    let mut groups: BTreeMap<String, Vec<(String, Entry)>> = BTreeMap::new();
+    let mut versions: BTreeMap<String, String> = BTreeMap::new();
+    for _ in 0..count {
+        let e = nexus_abi::bundleimg::decode_next(img, &mut off)?;
+        if e.kind != nexus_abi::bundleimg::KIND_FILE {
+            continue;
+        }
+        let bundle_name = core::str::from_utf8(e.bundle).ok()?.to_string();
+        let version = core::str::from_utf8(e.version).ok()?.to_string();
+        let path = core::str::from_utf8(e.path).ok()?.to_string();
+        let key = format!("{bundle_name}@{version}");
+        groups
+            .entry(key)
+            .or_insert_with(|| vec![(".".to_string(), Entry::directory())])
+            .push((path, Entry::file(e.data)));
+        versions.insert(bundle_name, version);
+    }
+
+    let mut registry = BundleRegistry::default();
+    for (canonical, entries) in groups {
+        let (bundle, version) = canonical.split_once('@')?;
+        registry.publish(bundle, version, &entries);
+    }
+    // Ensure active versions are set even if a bundle had only the "." directory synthesized.
+    for (b, v) in versions {
+        registry.active.insert(b, v);
+    }
+    Some(registry)
 }
 
 fn debug_print(s: &str) {

@@ -517,6 +517,19 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_EXEC_V2, sys_exec_v2);
     table.register(SYSCALL_IPC_RECV_V1, sys_ipc_recv_v1);
     table.register(SYSCALL_IPC_ENDPOINT_CREATE, sys_ipc_endpoint_create);
+    table.register(crate::syscall::SYSCALL_CAP_CLOSE, sys_cap_close);
+    table.register(crate::syscall::SYSCALL_CAP_CLONE, sys_cap_clone);
+    table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CLOSE, sys_ipc_endpoint_close);
+    table.register(
+        crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_V2,
+        sys_ipc_endpoint_create_v2,
+    );
+    table.register(
+        crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR,
+        sys_ipc_endpoint_create_for,
+    );
+    table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
+    table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
@@ -535,30 +548,117 @@ pub fn install_handlers(table: &mut SyscallTable) {
     }
 }
 
+fn sys_getpid(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    Ok(ctx.tasks.current_pid() as usize)
+}
+
 fn sys_ipc_endpoint_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    // Privileged operation for now: only userspace processes (spawned with a bootstrap endpoint)
-    // may create endpoints. This is a temporary bring-up rule until an explicit endpoint-factory
-    // capability exists.
-    let current = ctx.tasks.current_pid();
-    let is_userspace = ctx
-        .tasks
-        .task(current)
-        .and_then(|t| t.bootstrap_slot())
-        .is_some();
-    if !is_userspace {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    let depth = args.get(0);
+    // Deprecated ABI: keep deterministic failure (use v2 with endpoint-factory cap).
+    let _ = (ctx, args);
+    Err(Error::Capability(CapError::PermissionDenied))
+}
+
+fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let factory_slot = args.get(0);
+    let depth = args.get(1);
     if depth == 0 || depth > 256 {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
-    let id = ctx.router.create_endpoint(depth);
-    let cap = Capability {
+    let current = ctx.tasks.current_pid();
+    let cap_table = ctx
+        .tasks
+        .caps_of(current)
+        .ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let cap = cap_table.get(factory_slot)?;
+    if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    let id = ctx.router.create_endpoint(depth, Some(current))?;
+    let ep_cap = Capability {
         kind: CapabilityKind::Endpoint(id),
-        rights: Rights::SEND | Rights::RECV,
+        rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
     };
-    let slot = ctx.tasks.current_caps_mut().allocate(cap)?;
+    let slot = ctx.tasks.current_caps_mut().allocate(ep_cap)?;
     Ok(slot)
+}
+
+fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let factory_slot = args.get(0);
+    let owner_pid = args.get(1) as task::Pid;
+    let depth = args.get(2);
+    if depth == 0 || depth > 256 {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+
+    // Validate factory authority in the current task.
+    let current = ctx.tasks.current_pid();
+    let cap_table = ctx
+        .tasks
+        .caps_of(current)
+        .ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let cap = cap_table.get(factory_slot)?;
+    if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+
+    // Validate the target owner exists.
+    if ctx.tasks.task(owner_pid).is_none() {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+
+    // Phase-2 hardening (authority tightening):
+    // Even with an EndpointFactory, a task may only create endpoints owned by itself or by one of
+    // its direct children. This prevents a compromised factory-holder from minting endpoints on
+    // behalf of unrelated PIDs.
+    if owner_pid != current {
+        let parent = ctx.tasks.task(owner_pid).and_then(|t| t.parent());
+        if parent != Some(current) {
+            return Err(Error::Capability(CapError::PermissionDenied));
+        }
+    }
+
+    let id = ctx.router.create_endpoint(depth, Some(owner_pid))?;
+    let ep_cap = Capability {
+        kind: CapabilityKind::Endpoint(id),
+        rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
+    };
+    let slot = ctx.tasks.current_caps_mut().allocate(ep_cap)?;
+    Ok(slot)
+}
+fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    // Local drop only: remove the capability slot from the caller.
+    //
+    // Global endpoint close is handled by `sys_ipc_endpoint_close` (requires `Rights::MANAGE`).
+    let _ = ctx.tasks.current_caps_mut().take(slot)?;
+    Ok(0)
+}
+
+fn sys_cap_clone(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    // Security floor: EndpointFactory must not be duplicable.
+    if cap.kind == CapabilityKind::EndpointFactory {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    let new_slot = ctx.tasks.current_caps_mut().allocate(cap)?;
+    Ok(new_slot)
+}
+
+fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let cap = ctx.tasks.current_caps_mut().take(slot)?;
+    let CapabilityKind::Endpoint(id) = cap.kind else {
+        return Err(Error::Capability(CapError::InvalidSlot));
+    };
+    if !cap.rights.contains(Rights::MANAGE) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    let waiters = ctx.router.close_endpoint(id)?;
+    for pid in waiters {
+        let _ = ctx.tasks.wake(pid as task::Pid, ctx.scheduler);
+    }
+    Ok(0)
 }
 
 fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -611,7 +711,7 @@ fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     );
     let payload = Vec::new();
     ctx.router
-        .send(endpoint, ipc::Message::new(header, payload))?;
+        .send(endpoint, ipc::Message::new(header, payload, None))?;
     Ok(typed.len as usize)
 }
 
@@ -639,6 +739,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     if (typed.sys_flags & !(IPC_SYS_NONBLOCK)) != 0 {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
+    let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
 
     let cap = ctx
         .tasks
@@ -659,6 +760,13 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     let user_hdr = MessageHeader::from_le_bytes(hdr_bytes);
 
+    // IPC v1 extension: move one capability alongside the message.
+    // When set, `user_hdr.src` is treated as a cap slot in the sender, which is consumed (taken)
+    // and delivered to the receiver. On receive, `header_out.src` is overwritten with the newly
+    // allocated cap slot in the receiver.
+    const IPC_MSG_FLAG_CAP_MOVE: u16 = 1 << 0;
+    let cap_move = (user_hdr.flags & IPC_MSG_FLAG_CAP_MOVE) != 0;
+
     // Enforce header/payload agreement.
     if user_hdr.len as usize != typed.payload_len {
         return Err(AddressSpaceError::InvalidArgs.into());
@@ -676,24 +784,38 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
     }
 
-    // Kernel-defined src/dst; user-defined ty/flags.
+    let cap_move_slot = if cap_move { Some(user_hdr.src as usize) } else { None };
+
+    // Sender attribution: kernel sets `dst` to the sender PID so receivers can attribute messages.
+    // `src` is reserved for CAP_MOVE return value on receive.
     let header = MessageHeader::new(
-        typed.slot.0 as u32,
-        endpoint,
+        0,
+        ctx.tasks.current_pid() as u32,
         user_hdr.ty,
         user_hdr.flags,
         typed.payload_len as u32,
     );
 
-    let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
     if !nonblock && typed.deadline_ns != 0 {
         ctx.timer.set_wakeup(typed.deadline_ns);
     }
     loop {
-        match ctx
-            .router
-            .send(endpoint, ipc::Message::new(header, payload.clone()))
-        {
+        // If CAP_MOVE is set, take the cap for this attempt. If the attempt fails (QueueFull,
+        // NoSuchEndpoint, etc.) we restore it before returning/rescheduling.
+        let moved_cap = if let Some(slot) = cap_move_slot {
+            let cap = ctx.tasks.current_caps_mut().take(slot)?;
+            // Security floor: never allow moving MANAGE authority in-band.
+            if cap.rights.contains(Rights::MANAGE) || cap.kind == CapabilityKind::EndpointFactory {
+                let _ = ctx.tasks.current_caps_mut().set(slot, cap);
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
+            Some(cap)
+        } else {
+            None
+        };
+        let mut msg = ipc::Message::new(header, payload.clone(), moved_cap);
+        msg.sender_service_id = ctx.tasks.current_service_id();
+        match ctx.router.send_returning_message(endpoint, msg) {
             Ok(()) => {
                 // Wake one receiver blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
@@ -701,12 +823,19 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 }
                 return Ok(typed.payload_len);
             }
-            Err(ipc::IpcError::QueueFull) if !nonblock => {
+            Err((ipc::IpcError::QueueFull, msg)) if !nonblock => {
+                // Roll back moved cap before blocking/rescheduling.
+                if let Some(slot) = cap_move_slot {
+                    if let Some(cap) = msg.moved_cap {
+                        let _ = ctx.tasks.current_caps_mut().set(slot, cap);
+                    }
+                }
                 if typed.deadline_ns != 0 && ctx.timer.now() >= typed.deadline_ns {
                     return Err(Error::Ipc(ipc::IpcError::TimedOut));
                 }
                 let cur = ctx.tasks.current_pid();
-                let _ = ctx.router.register_send_waiter(endpoint, cur);
+                // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
+                ctx.router.register_send_waiter(endpoint, cur)?;
                 ctx.tasks.block_current(
                     BlockReason::IpcSend {
                         endpoint,
@@ -724,7 +853,15 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 let _ = ctx.tasks.wake(cur, ctx.scheduler);
                 return Err(Error::Reschedule);
             }
-            Err(e) => return Err(e.into()),
+            Err((e, msg)) => {
+                // Roll back the moved cap on any error so the caller does not lose it.
+                if let Some(slot) = cap_move_slot {
+                    if let Some(cap) = msg.moved_cap {
+                        let _ = ctx.tasks.current_caps_mut().set(slot, cap);
+                    }
+                }
+                return Err(e.into());
+            }
         }
     }
 }
@@ -751,7 +888,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     if !nonblock && typed.deadline_ns != 0 {
         ctx.timer.set_wakeup(typed.deadline_ns);
     }
-    let msg = loop {
+    let mut msg = loop {
         match ctx.router.recv(endpoint) {
             Ok(msg) => {
                 // Receiving frees queue capacity; wake one sender blocked on this endpoint (if any).
@@ -765,7 +902,8 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     return Err(Error::Ipc(ipc::IpcError::TimedOut));
                 }
                 let cur = ctx.tasks.current_pid();
-                let _ = ctx.router.register_recv_waiter(endpoint, cur);
+                // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
+                ctx.router.register_recv_waiter(endpoint, cur)?;
                 ctx.tasks.block_current(
                     BlockReason::IpcRecv {
                         endpoint,
@@ -786,6 +924,23 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Err(e) => return Err(e.into()),
         }
     };
+
+    // If the message carries a moved capability, allocate it into the receiver now and write the
+    // allocated slot into the returned header's `src` field.
+    if let Some(cap) = msg.moved_cap.take() {
+        match ctx.tasks.current_caps_mut().allocate(cap) {
+            Ok(slot) => {
+                msg.header.src = slot as u32;
+            }
+            Err(_) => {
+                // Roll back: receiver cannot accept a moved cap right now (e.g. no free cap slots).
+                // Re-queue the message and surface a stable syscall error (ENOSPC).
+                msg.moved_cap = Some(cap);
+                let _ = ctx.router.requeue_front(endpoint, msg);
+                return Err(Error::Ipc(ipc::IpcError::NoSpace));
+            }
+        }
+    }
 
     // Copy-out header (always).
     let hdr = msg.header.to_le_bytes();
@@ -812,6 +967,162 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         );
     }
 
+    ctx.last_message = Some(msg);
+    Ok(n)
+}
+
+// IPC recv v2: descriptor-based syscall to return additional sender identity metadata without
+// being limited by a0-a5 register count.
+//
+// Descriptor layout is versioned to keep the ABI extensible.
+const IPC_RECV_V2_MAGIC: u32 = 0x4E_58_49_32; // 'N''X''I''2'
+const IPC_RECV_V2_VERSION: u32 = 1;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct IpcRecvV2Desc {
+    magic: u32,
+    version: u32,
+    slot: u32,
+    _pad0: u32,
+    header_out_ptr: u64,
+    payload_out_ptr: u64,
+    payload_out_max: u64,
+    sender_service_id_out_ptr: u64,
+    sys_flags: u32,
+    _pad1: u32,
+    deadline_ns: u64,
+}
+
+fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let desc_ptr = args.get(0);
+    // Defensive: require the descriptor itself to be a valid user slice.
+    ensure_user_slice(desc_ptr, core::mem::size_of::<IpcRecvV2Desc>())?;
+    let mut raw = [0u8; core::mem::size_of::<IpcRecvV2Desc>()];
+    unsafe {
+        core::ptr::copy_nonoverlapping(desc_ptr as *const u8, raw.as_mut_ptr(), raw.len());
+    }
+
+    let magic = read_u32_le(&raw, 0)?;
+    let version = read_u32_le(&raw, 4)?;
+    if magic != IPC_RECV_V2_MAGIC || version != IPC_RECV_V2_VERSION {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    let slot = read_u32_le(&raw, 8)? as u32;
+    let header_out_ptr = read_u64_le(&raw, 16)? as usize;
+    let payload_out_ptr = read_u64_le(&raw, 24)? as usize;
+    let payload_out_max = read_u64_le(&raw, 32)? as usize;
+    let sender_service_id_out_ptr = read_u64_le(&raw, 40)? as usize;
+    let sys_flags = read_u32_le(&raw, 48)? as usize;
+    let deadline_ns = read_u64_le(&raw, 56)?;
+
+    // Validate pointers up-front (RFC-0004 style provenance).
+    ensure_user_slice(header_out_ptr, 16)?;
+    const MAX_FRAME_BYTES: usize = 512;
+    if payload_out_max > MAX_FRAME_BYTES {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    if payload_out_max != 0 {
+        ensure_user_slice(payload_out_ptr, payload_out_max)?;
+    }
+    ensure_user_slice(sender_service_id_out_ptr, 8)?;
+
+    if (sys_flags & !(IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE)) != 0 {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+
+    // Derive endpoint.
+    let cap = ctx
+        .tasks
+        .current_caps_mut()
+        .derive(slot as usize, Rights::RECV)?;
+    let endpoint = match cap.kind {
+        CapabilityKind::Endpoint(id) => id,
+        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    };
+
+    let truncate = (sys_flags & IPC_SYS_TRUNCATE) != 0;
+    let nonblock = (sys_flags & IPC_SYS_NONBLOCK) != 0;
+    if !nonblock && deadline_ns != 0 {
+        ctx.timer.set_wakeup(deadline_ns);
+    }
+
+    let mut msg = loop {
+        match ctx.router.recv(endpoint) {
+            Ok(msg) => {
+                if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
+                    let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                }
+                break msg;
+            }
+            Err(ipc::IpcError::QueueEmpty) if !nonblock => {
+                if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
+                    return Err(Error::Ipc(ipc::IpcError::TimedOut));
+                }
+                let cur = ctx.tasks.current_pid();
+                ctx.router.register_recv_waiter(endpoint, cur)?;
+                ctx.tasks.block_current(
+                    BlockReason::IpcRecv {
+                        endpoint,
+                        deadline_ns,
+                    },
+                    ctx.scheduler,
+                );
+                wake_expired_blocked(ctx);
+                if let Some(next) = ctx.scheduler.schedule_next() {
+                    ctx.tasks.set_current(next as task::Pid);
+                    return Err(Error::Reschedule);
+                }
+                let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                let _ = ctx.tasks.wake(cur, ctx.scheduler);
+                return Err(Error::Reschedule);
+            }
+            Err(e) => return Err(e.into()),
+        }
+    };
+
+    // CAP_MOVE allocation (same semantics as v1).
+    if let Some(cap) = msg.moved_cap.take() {
+        match ctx.tasks.current_caps_mut().allocate(cap) {
+            Ok(slot) => {
+                msg.header.src = slot as u32;
+            }
+            Err(_) => {
+                msg.moved_cap = Some(cap);
+                let _ = ctx.router.requeue_front(endpoint, msg);
+                return Err(Error::Ipc(ipc::IpcError::NoSpace));
+            }
+        }
+    }
+
+    // Copy-out header.
+    let hdr = msg.header.to_le_bytes();
+    unsafe {
+        core::ptr::copy_nonoverlapping(hdr.as_ptr(), header_out_ptr as *mut u8, hdr.len());
+    }
+
+    // Copy-out sender service id (kernel-derived).
+    let sid = msg.sender_service_id.to_le_bytes();
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            sid.as_ptr(),
+            sender_service_id_out_ptr as *mut u8,
+            sid.len(),
+        );
+    }
+
+    let total = msg.payload.len();
+    if total == 0 || payload_out_max == 0 {
+        ctx.last_message = Some(msg);
+        return Ok(0);
+    }
+    if total > payload_out_max && !truncate {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    let n = core::cmp::min(total, payload_out_max);
+    unsafe {
+        core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), payload_out_ptr as *mut u8, n);
+    }
     ctx.last_message = Some(msg);
     Ok(n)
 }
@@ -956,7 +1267,13 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let status = args.get(0) as i32;
     let exiting = ctx.tasks.current_pid();
+    // RFC-0005 lifecycle: close endpoints owned by this task and wake any blocked peers.
+    let waiters = ctx.router.close_endpoints_for_owner(exiting);
+    ctx.router.remove_waiter_from_all(exiting);
     ctx.tasks.exit_current(status);
+    for pid in waiters {
+        let _ = ctx.tasks.wake(pid, ctx.scheduler);
+    }
     ctx.tasks.wake_parent_waiter(exiting, ctx.scheduler);
     ctx.scheduler.finish_current();
     if let Some(next) = ctx.scheduler.schedule_next() {
@@ -1307,6 +1624,14 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         ctx.address_spaces,
     )?;
 
+    // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
+    if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
+        t.set_user_guard_info(task::UserGuardInfo {
+            stack_guard_va: mapped_top,
+            info_guard_va: None,
+        });
+    }
+
     Ok(pid as usize)
 }
 
@@ -1351,6 +1676,17 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
     let mut first_rw_vaddr: Option<usize> = None;
     let mut max_end_va: usize = 0;
+
+    // Track mapped PT_LOAD ranges to assert that any existing page-aligned gaps stay unmapped.
+    // This is best-effort: we do NOT reject valid ELFs that have no gaps, but we do ensure we
+    // never accidentally "inflate" a mapping into a gap.
+    #[derive(Clone, Copy)]
+    struct LoadRange {
+        start: usize,
+        end: usize, // page-aligned end
+        writable: bool,
+    }
+    let mut load_ranges: alloc::vec::Vec<LoadRange> = alloc::vec::Vec::new();
 
     for i in 0..e_phnum {
         let off = e_phoff
@@ -1436,6 +1772,31 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             .checked_add(alloc_len)
             .ok_or(AddressSpaceError::InvalidArgs)?;
         max_end_va = core::cmp::max(max_end_va, seg_end);
+
+        load_ranges.push(LoadRange {
+            start: aligned_vaddr,
+            end: seg_end,
+            writable: (p_flags & PF_W) != 0,
+        });
+    }
+
+    // Assert best-effort guard gaps between PT_LOAD mappings (if a gap exists).
+    if let Ok(space) = ctx.address_spaces.get(as_handle) {
+        load_ranges.sort_by_key(|r| r.start);
+        for (idx, r) in load_ranges.iter().enumerate() {
+            if !r.writable {
+                continue;
+            }
+            let next_start = load_ranges
+                .get(idx + 1)
+                .map(|n| n.start)
+                .unwrap_or(usize::MAX);
+            if next_start >= r.end.saturating_add(PAGE_SIZE) && r.end < USER_VADDR_LIMIT {
+                if space.page_table().lookup(r.end).is_some() {
+                    panic!("exec_v2: PT_LOAD gap page unexpectedly mapped at 0x{:x}", r.end);
+                }
+            }
+        }
     }
 
     // CRITICAL (RISC-V): Ensure the I-cache sees freshly loaded user text.
@@ -1506,10 +1867,18 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
 
     let (meta_pa, _meta_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
+    let mut service_id: u64 = 0;
     if typed.name_len != 0 {
         // SAFETY: checked in ExecV2ArgsTyped::check.
         let name_bytes =
             unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
+        // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
+        // This is deterministic, does not allocate, and can be recomputed by userland for display.
+        service_id = 0xcbf29ce484222325u64;
+        for &b in name_bytes {
+            service_id ^= b as u64;
+            service_id = service_id.wrapping_mul(0x100000001b3u64);
+        }
         unsafe {
             ptr::copy_nonoverlapping(name_bytes.as_ptr(), meta_pa as *mut u8, name_bytes.len());
             if name_bytes.len() < PAGE_SIZE {
@@ -1524,11 +1893,12 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let (info_pa, _info_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
     {
         let info = crate::BootstrapInfo {
-            version: 1,
+            version: 2,
             reserved: 0,
             meta_name_ptr: meta_va as u64,
             meta_name_len: typed.name_len as u32,
             reserved2: 0,
+            service_id,
         };
         unsafe {
             ptr::copy_nonoverlapping(
@@ -1540,6 +1910,16 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     let info_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
     ctx.address_spaces.map_page(as_handle, info_va, info_pa, info_flags)?;
+
+    // Guard page above the bootstrap info page must remain unmapped.
+    if let Ok(space) = ctx.address_spaces.get(as_handle) {
+        let guard_va = info_va
+            .checked_add(PAGE_SIZE)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        if guard_va < USER_VADDR_LIMIT && space.page_table().lookup(guard_va).is_some() {
+            panic!("exec_v2: info guard page mapped at 0x{:x}", guard_va);
+        }
+    }
 
     // Proof marker: log the mapping entry (leaf flags must not include WRITE).
     if let Ok(space) = ctx.address_spaces.get(as_handle) {
@@ -1579,6 +1959,19 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         ctx.router,
         ctx.address_spaces,
     )?;
+
+    // Bind identity to the spawned task (kernel-derived): used for IPC sender attribution.
+    if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
+        t.set_service_id(service_id);
+        // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
+        let guard_va = info_va
+            .checked_add(PAGE_SIZE)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        t.set_user_guard_info(task::UserGuardInfo {
+            stack_guard_va: mapped_top,
+            info_guard_va: Some(guard_va),
+        });
+    }
 
     // Future-facing: once IPC copy-out exists (RFC-0005), we will deliver a BootstrapMsg with
     // `flags::HAS_INFO_PAGE` and `argv_ptr=info_va`. For now, the info/meta pages are at stable
@@ -1638,6 +2031,40 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = CapTransferArgsTyped::decode(args)?;
     let rights = typed.check()?;
     let parent = ctx.tasks.current_pid();
+    // RFC-0005 Phase 2 (hardening): `Rights::MANAGE` is not transferable for endpoints.
+    //
+    // Exception: allow transferring MANAGE for the EndpointFactory capability, so init-lite can
+    // hold endpoint-create authority without relying on PID/parentage checks.
+    if rights.contains(Rights::MANAGE) {
+        let parent_caps = ctx
+            .tasks
+            .caps_of(parent)
+            .ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
+        let base = parent_caps.get(typed.parent_slot.0).map_err(|e| {
+            Error::Transfer(task::TransferError::Capability(e))
+        })?;
+        if base.kind != CapabilityKind::EndpointFactory {
+            return Err(Error::Transfer(task::TransferError::Capability(
+                CapError::PermissionDenied,
+            )));
+        }
+    }
+
+    // Phase-2 hardening (factory distribution): EndpointFactory is not a general transferable cap.
+    // Until policyd-gated distribution exists, only bootstrap (PID 0) may transfer it into init-lite (PID 1).
+    // This keeps endpoint-mint authority centralized in init-lite during bring-up.
+    if let Ok(parent_caps) = ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent)) {
+        // (This block is structured as "check then act" to keep denial deterministic.)
+        if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
+            if base.kind == CapabilityKind::EndpointFactory {
+                if !(parent == 0 && typed.child == 1) {
+                    return Err(Error::Transfer(task::TransferError::Capability(
+                        CapError::PermissionDenied,
+                    )));
+                }
+            }
+        }
+    }
     let slot = ctx
         .tasks
         .transfer_cap(parent, typed.child, typed.parent_slot.0, rights)?;
@@ -1738,6 +2165,7 @@ fn ensure_user_slice(ptr: usize, len: usize) -> Result<(), Error> {
     if len == 0 {
         return Ok(());
     }
+
     // Host tests run the kernel logic in-process; pointers won't fall under the Sv39 user VA range.
     // For tests, accept any non-overflowing slice address and rely on Rust/host memory safety.
     #[cfg(test)]
@@ -1747,16 +2175,24 @@ fn ensure_user_slice(ptr: usize, len: usize) -> Result<(), Error> {
             .ok_or(AddressSpaceError::InvalidArgs)?;
         return Ok(());
     }
-    if ptr >= USER_VADDR_LIMIT {
-        return Err(AddressSpaceError::InvalidArgs.into());
+
+    // Non-test (real kernel): enforce Sv39 user VA range and reject null pointers.
+    #[cfg(not(test))]
+    {
+        if ptr == 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        if ptr >= USER_VADDR_LIMIT {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        let last = ptr
+            .checked_add(len - 1)
+            .ok_or(AddressSpaceError::InvalidArgs)?;
+        if last >= USER_VADDR_LIMIT {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        Ok(())
     }
-    let last = ptr
-        .checked_add(len - 1)
-        .ok_or(AddressSpaceError::InvalidArgs)?;
-    if last >= USER_VADDR_LIMIT {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-    Ok(())
 }
 
 fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -1764,7 +2200,6 @@ fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(handle.to_raw() as usize)
 }
 
-// TODO: Enforce W^X policy consistently for user mappings when flags/prot are extended.
 fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = AsMapArgsTyped::decode(args)?;
     typed.check()?; // Check phase
@@ -1804,6 +2239,11 @@ fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     if typed.flags & MAP_FLAG_USER != 0 {
         flags |= PageFlags::USER;
+    }
+
+    // RFC-0004: enforce W^X at the syscall boundary for user mappings.
+    if flags.contains(PageFlags::WRITE) && flags.contains(PageFlags::EXECUTE) {
+        return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
     }
 
     #[cfg(feature = "debug_uart")]
@@ -2008,6 +2448,236 @@ mod tests {
     }
 
     #[test]
+    fn ipc_v1_send_queue_full_nonblock() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Create a depth-1 endpoint and grant SEND rights in slot 0.
+        let endpoint = router.create_endpoint(1, None).unwrap();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(endpoint),
+                    rights: Rights::SEND,
+                },
+            )
+            .unwrap();
+        }
+
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+
+        // Minimal valid header: len=0 (matches payload_len=0).
+        let mut hdr = crate::ipc::header::MessageHeader::new(0, 0, 0, 0, 0).to_le_bytes();
+        let args = Args::new([
+            0,                       // cap slot
+            hdr.as_mut_ptr() as usize, // header_ptr
+            0,                       // payload_ptr (len=0)
+            0,                       // payload_len
+            IPC_SYS_NONBLOCK,        // sys_flags
+            0,                       // deadline_ns
+        ]);
+
+        // First send fills the queue.
+        assert!(sys_ipc_send_v1(&mut ctx, &args).is_ok());
+
+        // Second send must fail with QueueFull (mapped to EAGAIN by trap.rs).
+        match sys_ipc_send_v1(&mut ctx, &args) {
+            Err(Error::Ipc(ipc::IpcError::QueueFull)) => {}
+            other => panic!("expected QueueFull, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ipc_v1_cap_move_blocking_deadline_times_out_and_preserves_cap() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        timer.set_now(100);
+
+        // Endpoint depth=1, fill it so subsequent send hits QueueFull.
+        let endpoint = router.create_endpoint(1, None).unwrap();
+        let hdr0 = crate::ipc::header::MessageHeader::new(0, endpoint, 0, 0, 0);
+        router
+            .send(endpoint, crate::ipc::Message::new(hdr0, alloc::vec::Vec::new(), None))
+            .unwrap();
+
+        // Sender has SEND on endpoint in slot 0.
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(endpoint),
+                    rights: Rights::SEND,
+                },
+            )
+            .unwrap();
+            // Movable cap in slot 3 (no MANAGE).
+            caps.set(
+                3,
+                Capability {
+                    kind: CapabilityKind::Endpoint(123),
+                    rights: Rights::SEND,
+                },
+            )
+            .unwrap();
+        }
+
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+
+        // CAP_MOVE header: src=3, flags=CAP_MOVE, len=0.
+        const IPC_HDR_CAP_MOVE: u16 = 1 << 0;
+        let mut hdr = crate::ipc::header::MessageHeader::new(3, 0, 0, IPC_HDR_CAP_MOVE, 0).to_le_bytes();
+
+        let args = Args::new([
+            0,                        // endpoint cap slot
+            hdr.as_mut_ptr() as usize, // header_ptr
+            0,                        // payload_ptr (len=0)
+            0,                        // payload_len
+            0,                        // sys_flags (blocking)
+            50,                       // deadline_ns (already expired vs now=100)
+        ]);
+
+        match sys_ipc_send_v1(&mut ctx, &args) {
+            Err(Error::Ipc(ipc::IpcError::TimedOut)) => {}
+            other => panic!("expected TimedOut, got {:?}", other),
+        }
+
+        // Cap must still be present in slot 3 (rollback guaranteed).
+        assert!(ctx.tasks.current_caps_mut().get(3).is_ok());
+    }
+
+    #[test]
+    fn ipc_v1_cap_move_recv_no_space_requeues_message() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Endpoint to receive from.
+        let endpoint = router.create_endpoint(2, None).unwrap();
+
+        // Fill all cap slots in the current task so allocation of the moved cap will fail.
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            for i in 0..64 {
+                caps.set(
+                    i,
+                    Capability {
+                        kind: CapabilityKind::Endpoint(i as u32),
+                        rights: Rights::SEND,
+                    },
+                )
+                .unwrap();
+            }
+            // Slot 0 must be a RECV cap for the endpoint we will recv from.
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(endpoint),
+                    rights: Rights::RECV,
+                },
+            )
+            .unwrap();
+        }
+
+        // Enqueue a message carrying a moved cap (some arbitrary endpoint cap).
+        let hdr = crate::ipc::header::MessageHeader::new(0, endpoint, 0, 0, 0);
+        router
+            .send(
+                endpoint,
+                crate::ipc::Message::new(
+                    hdr,
+                    alloc::vec::Vec::new(),
+                    Some(Capability {
+                        kind: CapabilityKind::Endpoint(999),
+                        rights: Rights::SEND,
+                    }),
+                ),
+            )
+            .unwrap();
+
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+
+        let mut out_hdr = [0u8; 16];
+        let mut out_buf = [0u8; 8];
+        let args = Args::new([
+            0,                          // slot 0 (RECV cap)
+            out_hdr.as_mut_ptr() as usize, // header_out_ptr
+            out_buf.as_mut_ptr() as usize,     // payload_out_ptr
+            out_buf.len(),              // payload_out_max
+            0,                          // sys_flags (blocking ok)
+            0,                          // deadline_ns
+        ]);
+
+        match sys_ipc_recv_v1(&mut ctx, &args) {
+            Err(Error::Ipc(ipc::IpcError::NoSpace)) => {}
+            other => panic!("expected NoSpace, got {:?}", other),
+        }
+
+        // Free one cap slot, then retry: recv should succeed and moved cap should be allocated.
+        let _ = ctx.tasks.current_caps_mut().take(1);
+        let n = sys_ipc_recv_v1(&mut ctx, &args).expect("recv after freeing slot");
+        assert_eq!(n, 0);
+        // The moved cap should have been allocated into some free slot (likely 1).
+        assert!(ctx.tasks.current_caps_mut().get(1).is_ok());
+    }
+
+    #[test]
+    fn ipc_endpoint_create_quota_enforced() {
+        let mut router = ipc::Router::new(0);
+        // Keep this aligned with ipc::MAX_ENDPOINTS.
+        for _ in 0..256 {
+            router.create_endpoint(1, None).expect("create");
+        }
+        match router.create_endpoint(1, None) {
+            Err(ipc::IpcError::NoSpace) => {}
+            other => panic!("expected NoSpace, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ipc_endpoint_create_owner_quota_enforced() {
+        let mut router = ipc::Router::new(0);
+        // Keep this aligned with ipc::MAX_ENDPOINTS_PER_OWNER.
+        for _ in 0..64 {
+            router.create_endpoint(1, Some(7)).expect("create");
+        }
+        match router.create_endpoint(1, Some(7)) {
+            Err(ipc::IpcError::NoSpace) => {}
+            other => panic!("expected NoSpace, got {:?}", other),
+        }
+        // Different owner should still be allowed (global limit not hit yet).
+        router.create_endpoint(1, Some(8)).expect("create other owner");
+    }
+
+    #[test]
     fn ipc_v1_rights_denied_send() {
         let mut scheduler = Scheduler::new();
         let mut tasks = TaskTable::new();
@@ -2094,6 +2764,101 @@ mod tests {
             .dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &args)
             .unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    #[test]
+    fn ipc_v1_cap_move_roundtrip_same_task() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
+            )
+            .unwrap();
+            // Slot 3: moveable VMO cap.
+            caps.set(
+                3,
+                Capability {
+                    kind: CapabilityKind::Vmo { base: 0x9000_0000, len: PAGE_SIZE },
+                    rights: Rights::MAP,
+                },
+            )
+            .unwrap();
+        }
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let payload = [1u8, 2, 3, 4];
+        const IPC_HDR_CAP_MOVE: u16 = 1 << 0;
+        let mut send_hdr = crate::ipc::header::MessageHeader::new(
+            3, // cap slot to move (interpreted only when CAP_MOVE is set)
+            0,
+            0x55,
+            IPC_HDR_CAP_MOVE,
+            payload.len() as u32,
+        )
+        .to_le_bytes();
+
+        // Send with CAP_MOVE (nonblocking).
+        let send_args = Args::new([
+            0,                             // endpoint cap slot
+            send_hdr.as_mut_ptr() as usize, // header ptr
+            payload.as_ptr() as usize,      // payload ptr
+            payload.len(),                  // payload len
+            IPC_SYS_NONBLOCK as usize,      // sys_flags
+            0,                              // deadline
+        ]);
+        table
+            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
+            .unwrap();
+
+        // Sender cap slot must be empty after send.
+        assert_eq!(
+            ctx.tasks.bootstrap_mut().caps_mut().get(3).unwrap_err(),
+            CapError::InvalidSlot
+        );
+
+        // Receive and verify the cap was allocated back into slot 3.
+        let mut out_hdr = [0u8; 16];
+        let mut out_payload = [0u8; 8];
+        let recv_args = Args::new([
+            0,
+            out_hdr.as_mut_ptr() as usize,
+            out_payload.as_mut_ptr() as usize,
+            out_payload.len(),
+            IPC_SYS_NONBLOCK as usize,
+            0,
+        ]);
+        let n = table
+            .dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &recv_args)
+            .unwrap();
+        assert_eq!(n, payload.len());
+        assert_eq!(&out_payload[..payload.len()], &payload);
+
+        let hdr = crate::ipc::header::MessageHeader::from_le_bytes(out_hdr);
+        let moved_slot = hdr.src as usize;
+        let cap = ctx.tasks.bootstrap_mut().caps_mut().get(moved_slot).unwrap();
+        assert!(matches!(cap.kind, CapabilityKind::Vmo { .. }));
+        // Original slot remains empty (we moved *out* of slot 3).
+        assert_eq!(
+            ctx.tasks.bootstrap_mut().caps_mut().get(3).unwrap_err(),
+            CapError::InvalidSlot
+        );
     }
 
     #[test]
@@ -2306,5 +3071,549 @@ mod tests {
             err,
             Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
         );
+    }
+
+    #[test]
+    fn cap_close_is_local_drop_only() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        // Seed caps before building a Context (which mutably borrows the task table).
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
+                },
+            )
+            .unwrap();
+            // Also keep a non-MANAGE sender reference to the same endpoint so we can observe
+            // "global close" (router returns NoSuchEndpoint).
+            caps.set(
+                1,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND,
+                },
+            )
+            .unwrap();
+        }
+
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Close the cap: local drop only (endpoint stays alive).
+        table
+            .dispatch(crate::syscall::SYSCALL_CAP_CLOSE, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0]))
+            .unwrap();
+
+        // Endpoint is still alive, so sending on the other cap should succeed.
+        let hdr = crate::ipc::header::MessageHeader::new(0, 0, 1, 0, 0).to_le_bytes();
+        let send_args = Args::new([
+            1,                    // slot 1 (SEND)
+            hdr.as_ptr() as usize, // header_ptr
+            0,
+            0,
+            IPC_SYS_NONBLOCK,
+            0,
+        ]);
+        table
+            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
+            .unwrap();
+    }
+
+    #[test]
+    fn endpoint_close_denied_without_manage() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        // Seed caps before building a Context (which mutably borrows the task table).
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            // Slot 0: endpoint cap WITHOUT MANAGE (attempting endpoint_close should be denied).
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
+            )
+            .unwrap();
+            // Slot 1: a sender ref so we can verify the endpoint is still alive after the denied close.
+            caps.set(
+                1,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND,
+                },
+            )
+            .unwrap();
+        }
+
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let err = table
+            .dispatch(
+                crate::syscall::SYSCALL_IPC_ENDPOINT_CLOSE,
+                &mut ctx,
+                &Args::new([0, 0, 0, 0, 0, 0]),
+            )
+            .unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+
+        // Endpoint should still be alive, so send should succeed.
+        let hdr = crate::ipc::header::MessageHeader::new(0, 0, 1, 0, 0).to_le_bytes();
+        let send_args = Args::new([
+            1,                    // slot 1 (SEND)
+            hdr.as_ptr() as usize, // header_ptr
+            0,
+            0,
+            IPC_SYS_NONBLOCK,
+            0,
+        ]);
+        table
+            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
+            .unwrap();
+    }
+
+    #[test]
+    fn endpoint_close_allowed_with_manage_closes_globally() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            // Slot 0: MANAGE authority to close.
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
+                },
+            )
+            .unwrap();
+            // Slot 1: non-MANAGE sender reference used to observe global close.
+            caps.set(
+                1,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND,
+                },
+            )
+            .unwrap();
+        }
+
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        table
+            .dispatch(
+                crate::syscall::SYSCALL_IPC_ENDPOINT_CLOSE,
+                &mut ctx,
+                &Args::new([0, 0, 0, 0, 0, 0]),
+            )
+            .unwrap();
+
+        let hdr = crate::ipc::header::MessageHeader::new(0, 0, 1, 0, 0).to_le_bytes();
+        let send_args = Args::new([
+            1,                    // slot 1 (still a valid cap, but endpoint should be closed)
+            hdr.as_ptr() as usize, // header_ptr
+            0,
+            0,
+            IPC_SYS_NONBLOCK,
+            0,
+        ]);
+        let err = table
+            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
+            .unwrap_err();
+        assert_eq!(err, Error::Ipc(ipc::IpcError::NoSuchEndpoint));
+    }
+
+    #[test]
+    fn cap_transfer_rejects_manage_right() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
+                },
+            )
+            .unwrap();
+        }
+
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Attempt to transfer MANAGE: should be denied (Phase-2 hardening).
+        let err = table
+            .dispatch(
+                SYSCALL_CAP_TRANSFER,
+                &mut ctx,
+                // Child PID does not need to exist; the rights check rejects first.
+                &Args::new([1, 0, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+            )
+            .unwrap_err();
+        assert_eq!(
+            err,
+            Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
+        );
+    }
+
+    #[test]
+    fn cap_transfer_allows_manage_for_endpoint_factory() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::EndpointFactory,
+                    rights: Rights::MANAGE,
+                },
+            )
+            .unwrap();
+        }
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let err = table
+            .dispatch(
+                SYSCALL_CAP_TRANSFER,
+                &mut ctx,
+                &Args::new([1, 0, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+            )
+            .unwrap_err();
+        // Fails because child doesn't exist, *not* because MANAGE is rejected for EndpointFactory.
+        assert_eq!(err, Error::Transfer(task::TransferError::InvalidChild));
+    }
+
+    #[test]
+    fn cap_clone_duplicates_local_cap() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                3,
+                Capability {
+                    kind: CapabilityKind::Vmo { base: 0x9000_0000, len: PAGE_SIZE },
+                    rights: Rights::MAP,
+                },
+            )
+            .unwrap();
+        }
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let new_slot = table
+            .dispatch(crate::syscall::SYSCALL_CAP_CLONE, &mut ctx, &Args::new([3, 0, 0, 0, 0, 0]))
+            .unwrap();
+        assert_ne!(new_slot, 3);
+        assert!(matches!(
+            ctx.tasks.bootstrap_mut().caps_mut().get(3).unwrap().kind,
+            CapabilityKind::Vmo { .. }
+        ));
+        assert!(matches!(
+            ctx.tasks
+                .bootstrap_mut()
+                .caps_mut()
+                .get(new_slot as usize)
+                .unwrap()
+                .kind,
+            CapabilityKind::Vmo { .. }
+        ));
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    fn cap_transfer_rejects_endpoint_factory_distribution_from_non_bootstrap() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
+            )
+            .unwrap();
+            // Bootstrap holds the endpoint factory in slot 2.
+            caps.set(
+                2,
+                Capability {
+                    kind: CapabilityKind::EndpointFactory,
+                    rights: Rights::MANAGE,
+                },
+            )
+            .unwrap();
+        }
+        let mut router = ipc::Router::new(8);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Spawn pid 1 (init-lite stand-in).
+        let pid1 = table
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
+            .unwrap() as task::Pid;
+        assert_eq!(pid1, 1);
+
+        // PID 0 -> PID 1 transfer is allowed (bootstrap distribution).
+        let factory_slot_pid1 = table
+            .dispatch(
+                SYSCALL_CAP_TRANSFER,
+                &mut ctx,
+                &Args::new([pid1 as usize, 2, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+            )
+            .unwrap();
+        assert_eq!(factory_slot_pid1, 1);
+
+        // Switch to pid 1 and spawn its child pid 2.
+        ctx.tasks.set_current(pid1);
+        let pid2 = table
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
+            .unwrap() as task::Pid;
+        assert_eq!(pid2, 2);
+
+        // PID 1 must NOT be able to distribute EndpointFactory further.
+        let err = table
+            .dispatch(
+                SYSCALL_CAP_TRANSFER,
+                &mut ctx,
+                &Args::new([pid2 as usize, factory_slot_pid1, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+            )
+            .unwrap_err();
+        assert_eq!(
+            err,
+            Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
+        );
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    fn ipc_endpoint_create_for_denies_non_parent_owner() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            // Seed bootstrap endpoint for spawn syscall.
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
+            )
+            .unwrap();
+            // Seed endpoint factory in bootstrap (slot 2) so it can be transferred to pid1.
+            caps.set(
+                2,
+                Capability {
+                    kind: CapabilityKind::EndpointFactory,
+                    rights: Rights::MANAGE,
+                },
+            )
+            .unwrap();
+        }
+        let mut router = ipc::Router::new(8);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Spawn pid 1 (init-lite stand-in) and switch to it.
+        let pid1 = table
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
+            .unwrap() as task::Pid;
+        assert_eq!(pid1, 1);
+        ctx.tasks.set_current(pid1);
+
+        // Transfer EndpointFactory into pid1 slot 1.
+        let factory_slot = table
+            .dispatch(
+                SYSCALL_CAP_TRANSFER,
+                &mut ctx,
+                &Args::new([pid1 as usize, 2, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+            )
+            .unwrap();
+        assert_eq!(factory_slot, 1);
+
+        // Spawn pid 2 (child of pid1) and pid 3 (also child of pid1).
+        let pid2 = table
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
+            .unwrap() as task::Pid;
+        let pid3 = table
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
+            .unwrap() as task::Pid;
+        assert_eq!(pid2, 2);
+        assert_eq!(pid3, 3);
+
+        // Switch to pid2 and attempt to create an endpoint owned by pid3.
+        // Denied because pid2 is not the parent of pid3 (both are siblings under pid1).
+        ctx.tasks.set_current(pid2);
+        // Give pid2 the factory (init-lite would normally hold it; for test we transfer to pid2).
+        let factory_slot_pid2 = table
+            .dispatch(
+                SYSCALL_CAP_TRANSFER,
+                &mut ctx,
+                &Args::new([pid2 as usize, factory_slot, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+            )
+            .unwrap();
+        assert_ne!(factory_slot_pid2, 0);
+
+        let err = table
+            .dispatch(
+                crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR,
+                &mut ctx,
+                &Args::new([factory_slot_pid2, pid3 as usize, 8, 0, 0, 0]),
+            )
+            .unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    fn endpoint_create_is_init_lite_only() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                0,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::SEND | Rights::RECV,
+                },
+            )
+            .unwrap();
+        }
+        let mut router = ipc::Router::new(1);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Spawn pid 1 (init-lite stand-in) and switch to it.
+        let pid1 = table
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
+            .unwrap() as task::Pid;
+        assert_eq!(pid1, 1);
+        ctx.tasks.set_current(pid1);
+
+        // pid 1 may create endpoints.
+        let slot = table
+            .dispatch(
+                SYSCALL_IPC_ENDPOINT_CREATE,
+                &mut ctx,
+                &Args::new([8, 0, 0, 0, 0, 0]),
+            )
+            .unwrap();
+        assert_ne!(slot, 0);
+
+        // Spawn pid 2 (regular service stand-in, child of init-lite) and switch to it.
+        let pid2 = table
+            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
+            .unwrap() as task::Pid;
+        assert_eq!(pid2, 2);
+        ctx.tasks.set_current(pid2);
+
+        // pid 2 is userspace too, but must be denied by the endpoint-factory gate.
+        let err = table
+            .dispatch(
+                SYSCALL_IPC_ENDPOINT_CREATE,
+                &mut ctx,
+                &Args::new([8, 0, 0, 0, 0, 0]),
+            )
+            .unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
 }

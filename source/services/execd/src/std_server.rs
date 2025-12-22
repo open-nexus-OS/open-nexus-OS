@@ -265,9 +265,11 @@ impl From<nexus_ipc::IpcError> for TransportError {
             nexus_ipc::IpcError::WouldBlock | nexus_ipc::IpcError::Timeout => {
                 Self::Other("operation timed out".to_string())
             }
+            nexus_ipc::IpcError::NoSpace => Self::Other("ipc ran out of resources".to_string()),
             nexus_ipc::IpcError::Kernel(inner) => {
                 Self::Other(format!("kernel ipc error: {inner:?}"))
             }
+            _ => Self::Other(format!("ipc error: {err:?}")),
         }
     }
 }

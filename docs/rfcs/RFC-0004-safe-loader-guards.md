@@ -1,8 +1,35 @@
 # RFC-0004: Loader Safety & Shared-Page Guards
 
-- Status: In Progress
+- Status: Phase 0 Complete (Security Floor; maintenance ongoing); Phase 1/2 Deferred
 - Authors: Runtime Team
-- Last Updated: 2025-12-18
+- Last Updated: 2025-12-19
+
+## Status at a Glance
+
+- **Phase 0 (Security Floor)**: Complete ✅
+- **Phase 1 (Runtime Diagnostics)**: Complete ✅
+- **Phase 2 (Deferred Enhancements)**: Not started (optional; deferred)
+
+Definition:
+
+- In this RFC, “Complete” refers to **Phase 0 Security Floor** being complete (loader/mapping
+  invariants enforced + tests/proof). Phase 1/2 are explicitly **non-blocking** follow-ups.
+- Phase 0 “complete” is not “never touch again”: if we discover a new loader/guard invariant that
+  materially raises the security floor (and can be proven via tests/markers), we may land it and
+  update this RFC while still keeping Phase 1/2 deferred.
+
+## Phase 0 Security Floor – Checklist + Proof Matrix
+
+This section is the “what must stay true” contract for RFC‑0004. Each item should have an explicit
+proof signal (unit test, kernel selftest marker, or deterministic boot telemetry).
+
+| Invariant | What it means | Proof |
+| --- | --- | --- |
+| Zeroed allocations | User-visible allocations (VMO backing, exec PT_LOAD backing, spawn stacks) do not leak stale bytes | `KSELFTEST: vmo zero ok` |
+| User-pointer guard | Syscalls that copy from user memory reject pointers outside Sv39 user VA range (and null) deterministically | `KSELFTEST: userptr guard ok` |
+| W^X enforced | No mapping may be writable and executable; RX segments are never writable | `KSELFTEST: w^x enforced` + exec mapper checks |
+| Per-service immutable metadata | Service name and bootstrap metadata are mapped read-only per service; no shared mutable “scratch” pointers | `[INFO exec] EXEC-META: ...` telemetry + `BootstrapInfo` RO mapping |
+| Guard pages remain unmapped | Stack boundary + bootstrap info guard page remain unmapped to catch OOB | `STACK-CHECK` telemetry + `exec_v2` guard assertion |
 
 ## Summary
 
@@ -50,9 +77,9 @@ relies on, and crash diagnostics can trust pointer provenance.
 
 ## Implementation Plan
 
-### Completion snapshot (2025-12-12)
+### Completion snapshot (2025-12-19) — Phase 0 (Security Floor)
 
-- Overall: ~65% complete. Kernel `exec` owns ELF mapping, enforces W^X, and maintains guarded stacks. The user VMO arena is now **zero-initialized by construction** (no stale bytes leak across allocations), and a kernel selftest asserts this property (`KSELFTEST: vmo zero ok`). Per-service metadata VMOs and richer trap telemetry remain to finish Phase 0/1.
+- Phase 0 complete. Kernel `exec_v2` owns ELF mapping, enforces W^X at the syscall boundary and during PT_LOAD mapping, and maintains guarded stacks. The user VMO arena is **zero-initialized by construction** (no stale bytes leak across allocations), and a kernel selftest asserts this property (`KSELFTEST: vmo zero ok`). Per-service metadata is provided via a read-only metadata page plus a read-only `BootstrapInfo` page. Best-effort guard-gap assertions ensure we do not accidentally map into existing page-aligned gaps between PT_LOAD segments, and the page above the `BootstrapInfo` page remains unmapped (guard).
 
 ### Phase 0 – Immediate Hardening (Current Quarter)
 
@@ -81,10 +108,10 @@ relies on, and crash diagnostics can trust pointer provenance.
 
 ### Phase 1 – Runtime Diagnostics
 
-- Add a lightweight kernel-side trap hook that emits which guard rejected
-  a pointer (e.g. logging guard vs. loader provenance).
-- Surface failures in `init-lite` with a concise error tag instead of
-  cascading traps.
+- Complete. Kernel trap handling now emits a concise tag when a user page-fault hits a known loader
+  guard page (e.g. stack guard or bootstrap-info guard), making guard violations immediately
+  attributable during bring-up.
+- Init surfaces failures with concise labels (see `ipc_error_label` / `abi_error_label` in `nexus-init`).
 
 ### Phase 2 – Deferred Enhancements
 
@@ -95,7 +122,7 @@ relies on, and crash diagnostics can trust pointer provenance.
 
 ## Current Status
 
-- Phase 0: **In progress.** Guard logic in `nexus-log` already rejects
+- Phase 0: **Complete.** Guard logic in `nexus-log` already rejects
   pointers that escape the `.rodata`/`.data` fences. On the loader side we
   now:
   - Allocate per-service VMOs from a dedicated 16 MiB arena that is identity
@@ -116,11 +143,14 @@ relies on, and crash diagnostics can trust pointer provenance.
     and writes directly into the arena backing each VMO.
   - Keep the old bootstrap guard page as a `NOLOAD` section, ensuring the new
     metadata copies never overlap it.
-  - Ongoing: zero/unmap the bootstrap scratch page after each spawn and insert
-    explicit `PROT_NONE` guard gaps between writable segments.
+  - Guard pages / gaps:
+    - The page above the `BootstrapInfo` page is kept unmapped (guard).
+    - Page-aligned gaps between PT_LOAD segments remain unmapped; the kernel asserts it does not
+      accidentally map into such gaps during `exec_v2` bring-up (best-effort; ELFs are not rejected
+      if they have no gaps).
   As the loader moves into a kernel `exec` path, these invariants remain
   requirements for the kernel implementation.
-- Phase 1: Not started.
+- Phase 1: Not started (optional diagnostics).
 - Phase 2: Not started.
 
 ### Hybrid Guard Instrumentation (2025-11-29)
@@ -150,6 +180,8 @@ been retired; the relevant bits remain in the kernel loader:
   init-lite wrapper) to assert that every service metadata pointer resides inside the per-service VMO (`cargo test -p nexus-init` on
   the host side).
 - Kernel selftest: `KSELFTEST: vmo zero ok` asserts that `vmo_create` returns zeroed backing bytes (QEMU marker-driven).
+- Kernel selftest: `KSELFTEST: userptr guard ok` asserts that syscalls which copy from user memory
+  reject pointers outside the Sv39 user VA range deterministically (e.g. `SYSCALL_VMO_WRITE`).
 - Integration test: boot `neuron-boot` with the service list enabled and
   assert that no `[USER-PF]` traces occur due to logging pointers.
 - Manual trap-review: verify trap dumps now identify guard failures

@@ -72,9 +72,10 @@ impl BootstrapMsg {
 /// When [`flags::HAS_INFO_PAGE`] is set in [`BootstrapMsg::flags`], `argv_ptr` MUST point to this
 /// structure in the child's VA space.
 ///
-/// Current v1 content (RFC-0004):
+/// Current v2 content (RFC-0005 Service Identity token):
 /// - `meta_name_ptr/meta_name_len` describe the NUL-terminated service name bytes in a dedicated
 ///   read-only mapping.
+/// - `service_id` is a kernel-derived stable identifier computed from the service name bytes.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BootstrapInfo {
@@ -88,6 +89,8 @@ pub struct BootstrapInfo {
     pub meta_name_len: u32,
     /// Reserved for future expansion; must be zero.
     pub reserved2: u32,
+    /// Kernel-derived stable service identifier (FNV-1a 64 of the name bytes).
+    pub service_id: u64,
 }
 
 #[cfg(test)]
@@ -97,7 +100,7 @@ mod info_tests {
 
     #[test]
     fn layout_is_stable() {
-        assert_eq!(size_of::<BootstrapInfo>(), 24);
+        assert_eq!(size_of::<BootstrapInfo>(), 32);
         assert_eq!(align_of::<BootstrapInfo>(), 8);
     }
 }

@@ -13,7 +13,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use crate::{
-    cap::{CapError, CapTable, CapabilityKind, Rights},
+    cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
     ipc::{self, Router},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
     sched::{QosClass, Scheduler},
@@ -239,18 +239,41 @@ pub struct Task {
     block_reason: Option<BlockReason>,
     /// Handle referencing the address space bound to this task.
     pub address_space: Option<AsHandle>,
+    /// Optional user-mode guard metadata (diagnostics only; RFC-0004 Phase 1).
+    user_guard_info: Option<UserGuardInfo>,
+    /// Kernel-derived stable identity for this task's service image (BootstrapInfo v2).
+    ///
+    /// This is set by `exec_v2` (init-lite passes the service name; kernel derives a stable id).
+    service_id: u64,
     bootstrap_slot: Option<usize>,
     children: Vec<Pid>,
+}
+
+/// Minimal guard metadata used by the trap handler to attribute user page faults.
+///
+/// This is *diagnostic only* and must not be relied upon for correctness/security decisions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UserGuardInfo {
+    /// Base VA of the stack guard page (unmapped).
+    pub stack_guard_va: usize,
+    /// Base VA of the bootstrap-info guard page (unmapped).
+    pub info_guard_va: Option<usize>,
 }
 
 impl Task {
     fn bootstrap() -> Self {
         let caps = CapTable::new();
         // Avoid Default impl to minimize any unexpected code paths during bring-up.
+        //
+        // CRITICAL: PID 0 is not a real user task. Ensure it is marked as S-mode (SPP=1) so the
+        // idle loop never attempts to context-switch into it as a userspace process.
+        const SSTATUS_SPIE: usize = 1 << 5;
+        const SSTATUS_SPP: usize = 1 << 8;
+        const SSTATUS_SUM: usize = 1 << 18;
         let zero_frame = TrapFrame {
             x: [0; 32],
             sepc: 0,
-            sstatus: 0,
+            sstatus: SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM,
             scause: 0,
             stval: 0,
         };
@@ -266,6 +289,8 @@ impl Task {
             blocked: false,
             block_reason: None,
             address_space: None,
+            user_guard_info: None,
+            service_id: 0,
             bootstrap_slot: None,
             children: Vec::new(),
         };
@@ -310,6 +335,26 @@ impl Task {
     /// Returns the address-space handle bound to this task, if any.
     pub fn address_space(&self) -> Option<AsHandle> {
         self.address_space
+    }
+
+    /// Returns user guard metadata, if any (diagnostics).
+    pub fn user_guard_info(&self) -> Option<UserGuardInfo> {
+        self.user_guard_info
+    }
+
+    /// Sets user guard metadata (diagnostics).
+    pub fn set_user_guard_info(&mut self, info: UserGuardInfo) {
+        self.user_guard_info = Some(info);
+    }
+
+    /// Returns the kernel-derived service identity for this task.
+    pub fn service_id(&self) -> u64 {
+        self.service_id
+    }
+
+    /// Sets the kernel-derived service identity for this task.
+    pub fn set_service_id(&mut self, id: u64) {
+        self.service_id = id;
     }
 
     /// Returns the trap domain associated with this task.
@@ -378,6 +423,49 @@ impl TaskTable {
     /// Changes the currently running task.
     pub fn set_current(&mut self, pid: Pid) {
         self.current = pid;
+    }
+
+    /// Selftest helper: create a minimal task entry without allocating a new address space or stack.
+    ///
+    /// This is intentionally *not* a general spawn primitive; it exists so kernel selftests can
+    /// exercise block/wake scheduling logic without perturbing memory pressure (e.g. exec PT_LOAD).
+    pub fn selftest_create_dummy_task(&mut self, parent: Pid, scheduler: &mut Scheduler) -> Pid {
+        let parent_index = parent as usize;
+        let parent_task = self
+            .tasks
+            .get(parent_index)
+            .expect("selftest_create_dummy_task: invalid parent");
+        let parent_domain = parent_task.trap_domain();
+
+        let pid = self.tasks.len() as Pid;
+        let task = Task {
+            pid,
+            parent: Some(parent),
+            state: TaskState::Running,
+            exit_code: None,
+            frame: TrapFrame::default(),
+            caps: CapTable::new(),
+            trap_domain: parent_domain,
+            qos: QosClass::PerfBurst,
+            blocked: false,
+            block_reason: None,
+            address_space: None,
+            user_guard_info: None,
+            service_id: 0,
+            bootstrap_slot: None,
+            children: Vec::new(),
+        };
+        self.tasks.push(task);
+        if let Some(parent_task) = self.tasks.get_mut(parent_index) {
+            parent_task.children.push(pid);
+        }
+        scheduler.enqueue(pid, QosClass::PerfBurst);
+        pid
+    }
+
+    /// Returns the kernel-derived service identity for the currently running task.
+    pub fn current_service_id(&self) -> u64 {
+        self.current_task().service_id()
     }
 
     /// Returns the number of allocated task slots (PIDs).
@@ -486,6 +574,32 @@ impl TaskTable {
         let mut child_caps = CapTable::new();
         child_caps.set(slot, bootstrap_cap)?;
 
+        // RFC-0005 Phase 2 hardening: endpoint creation authority is held via an explicit
+        // EndpointFactory capability. During bring-up, the bootstrap task (PID 0) carries this cap
+        // in a fixed slot (2) and we inject a derived copy into its direct userspace child (init-lite).
+        //
+        // This avoids brittle PID/parent gating and avoids relying on external helpers to do
+        // cap_transfer at exactly the right time during boot.
+        if parent == 0 && address_space.is_some() {
+            const FACTORY_PARENT_SLOT: usize = 2;
+            const FACTORY_CHILD_SLOT: usize = 1;
+            if let Ok(factory_cap) = parent_task.caps.get(FACTORY_PARENT_SLOT) {
+                if factory_cap.kind == CapabilityKind::EndpointFactory
+                    && factory_cap.rights.contains(Rights::MANAGE)
+                {
+                    // Deterministic bring-up: init-lite expects the EndpointFactory in slot 1.
+                    // Slot 0 is already populated by the bootstrap endpoint capability.
+                    let _ = child_caps.set(
+                        FACTORY_CHILD_SLOT,
+                        Capability {
+                            kind: CapabilityKind::EndpointFactory,
+                            rights: Rights::MANAGE,
+                        },
+                    );
+                }
+            }
+        }
+
         let mut frame = TrapFrame::default();
         frame.sepc = entry_pc.raw();
 
@@ -545,6 +659,8 @@ impl TaskTable {
             blocked: false,
             block_reason: None,
             address_space: Some(child_as),
+            user_guard_info: None,
+            service_id: 0,
             bootstrap_slot: Some(slot),
             children: Vec::new(),
         };

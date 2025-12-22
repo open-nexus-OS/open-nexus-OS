@@ -1258,7 +1258,6 @@ dependencies = [
  "capnp",
  "nexus-idl-runtime",
  "nexus-ipc",
- "thiserror",
 ]
 
 [[package]]

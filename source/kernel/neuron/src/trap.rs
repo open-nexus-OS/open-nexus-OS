@@ -647,7 +647,10 @@ const ETIMEDOUT: usize = 110;
 fn encode_error(err: SysError) -> usize {
     match err {
         SysError::InvalidSyscall => errno(ENOSYS),
-        SysError::Capability(_) => errno(EPERM),
+        SysError::Capability(cap) => match cap {
+            crate::cap::CapError::NoSpace => errno(ENOSPC),
+            _ => errno(EPERM),
+        },
         SysError::Ipc(ipc_err) => ipc_errno(&ipc_err),
         SysError::Spawn(spawn) => spawn_errno(&spawn),
         SysError::Transfer(_) => errno(EPERM),
@@ -665,6 +668,7 @@ fn ipc_errno(err: &crate::ipc::IpcError) -> usize {
         crate::ipc::IpcError::QueueFull | crate::ipc::IpcError::QueueEmpty => errno(EAGAIN),
         crate::ipc::IpcError::PermissionDenied => errno(EPERM),
         crate::ipc::IpcError::TimedOut => errno(ETIMEDOUT),
+        crate::ipc::IpcError::NoSpace => errno(ENOSPC),
     }
 }
 
@@ -778,6 +782,32 @@ pub fn describe_cause(scause: usize) -> &'static str {
             15 => "StoreAMOPageFault",
             _ => "Exception",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_guard_diag {
+    use crate::task::UserGuardInfo;
+
+    fn classify(stval: usize, info: UserGuardInfo) -> Option<&'static str> {
+        if stval == info.stack_guard_va {
+            Some("STACK")
+        } else if info.info_guard_va == Some(stval) {
+            Some("BOOTINFO")
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn guard_classifier_recognizes_stack_and_bootinfo() {
+        let info = UserGuardInfo {
+            stack_guard_va: 0x2000_1000,
+            info_guard_va: Some(0x2000_3000),
+        };
+        assert_eq!(classify(0x2000_1000, info), Some("STACK"));
+        assert_eq!(classify(0x2000_3000, info), Some("BOOTINFO"));
+        assert_eq!(classify(0x1234_5678, info), None);
     }
 }
 
@@ -1264,6 +1294,32 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
                     write_byte(b'\n');
 
+                    // RFC-0004 Phase 1 diagnostics: if this fault hits a known guard page, emit a tag.
+                    if let Some(handles) = runtime_kernel_handles() {
+                        let tasks = handles.tasks.as_ref();
+                        let current_pid = tasks.current_pid();
+                        if let Some(task) = tasks.task(current_pid) {
+                            if let Some(info) = task.user_guard_info() {
+                                let guard_tag: &[u8] = if stval_now == info.stack_guard_va {
+                                    b"STACK"
+                                } else if info.info_guard_va == Some(stval_now) {
+                                    b"BOOTINFO"
+                                } else {
+                                    b""
+                                };
+                                if !guard_tag.is_empty() {
+                                    for &b in b"[USER-PF] guard=" {
+                                        write_byte(b);
+                                    }
+                                    for &b in guard_tag {
+                                        write_byte(b);
+                                    }
+                                    write_byte(b'\n');
+                                }
+                            }
+                        }
+                    }
+
                     for &b in b"[USER-PF] regs ra=0x" {
                         write_byte(b);
                     }
@@ -1456,10 +1512,18 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     unsafe {
                         let scheduler = handles.scheduler.as_mut();
                         let tasks = handles.tasks.as_mut();
+                        let router = handles.router.as_mut();
                         let spaces = handles.spaces.as_mut();
 
                         // Kill the faulting task and ensure it won't be scheduled again.
                         let doomed = tasks.current_pid();
+                        // RFC-0005 lifecycle hardening: close endpoints owned by the task and wake any blocked peers.
+                        let waiters = router.close_endpoints_for_owner(doomed);
+                        for pid in waiters {
+                            let _ = tasks.wake(pid as crate::task::Pid, scheduler);
+                        }
+                        // Also remove this PID from any waiter queues it may be registered in.
+                        router.remove_waiter_from_all(doomed);
                         tasks.exit_current(-22);
                         scheduler.purge(doomed);
                         scheduler.finish_current();
