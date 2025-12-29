@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+
+# NOTE: Deprecated as a "proof" definition.
+# QEMU/marker proof must come from:
+#   - scripts/qemu-test.sh
+#
+# Do NOT add uart.log greps here. If markers/ordering change, update scripts/qemu-test.sh instead.
+
+RUN_TIMEOUT=${RUN_TIMEOUT:-60s}
+RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
+
 echo "[postflight] build workspace (host)"
 cargo build --workspace --exclude neuron-boot
 
-echo "[postflight] qemu (bounded, early-exit)"
-RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-60s} just test-os
+echo "[postflight] qemu proof (delegated)"
+RUN_TIMEOUT="$RUN_TIMEOUT" RUN_UNTIL_MARKER="$RUN_UNTIL_MARKER" "$ROOT/scripts/qemu-test.sh"
 
-echo "[postflight] kernel markers"
-rg -n 'KSELFTEST: exit ok' uart.log >/dev/null
-rg -n 'KSELFTEST: wait ok' uart.log >/dev/null
-
-echo "[postflight] os markers"
-rg -n 'SELFTEST: child exit ok' uart.log >/dev/null
-
-echo "[postflight] OK"
+echo "[postflight] completed (delegated to scripts/qemu-test.sh)"

@@ -4,19 +4,35 @@
 - Owners: Kernel + Runtime Team
 - Created: 2025-10-24
 
-Context
+## Context
 The NEURON kernel is functionally progressing but navigation and comprehension costs are high. This RFC proposes 10 logic-preserving measures to reduce complexity, improve agent/developer orientation, and surface test scope—without changing runtime behavior.
 
-Goals
+## Goals
 - Faster orientation (clear responsibilities, fewer tokens to grok intent)
 - Explicit invariants, dependencies, and test scope per module
 - Logic-preserving refactors only; zero behavior changes
 
-Non-Goals
+## Non-Goals
 - Performance tuning, algorithmic changes, or broad API redesigns
 - Immediate subcrate split; can be a later follow-up
 
-Measures (1–10)
+## Relationship to upcoming kernel work (why now)
+
+SMP bring-up and scheduling changes (see performance/power tasks) are high-debug-cost. This RFC is
+intentionally **logic-preserving** and is meant to be executed as a preparatory “debugging window”
+before behavioral kernel work lands. The execution checklist lives in a task file (below).
+
+## Tracking (single source of truth)
+
+- **Implementation checklist / execution**: `tasks/TASK-0011-kernel-simplification-phase-a.md`
+- **Follow-up behavioral kernel work** (separate tasks, not part of this RFC):
+  - SMP bring-up: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
+  - QoS + timer coalescing: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
+
+This RFC provides the rationale and the logic-preserving measures. The task is the authoritative
+checklist, scope, and proof definition.
+
+## Measures (1–10)
 1) Module layering and naming
    - Adopt a clear responsibility taxonomy: arch, memory, process, comm, sched, core, utils, test.
    - Keep current file locations for now; only rename modules if strictly beneficial and trivial.
@@ -56,21 +72,22 @@ Measures (1–10)
    - Enumerate debug features and their flags (debug_uart, stack guards, PT verify, trap symbols)
    - No default changes
 
-Migration Plan
-- Phase A (Text-only): Headers, docs, RFC, cross-links, CODEOWNERS verification
-- Phase B (Optional, mechanical): Visibility tightening, constant aliases, minor renames
-- Phase C (Optional, higher cost): Physical reorg or subcrates
+## Migration plan
 
-Risks
+- Phase A (Text-only): **see TASK-0011** (authoritative checklist)
+- Phase B (Optional, mechanical): visibility tightening, constant aliases, minor renames
+- Phase C (Optional, higher cost): physical reorg or subcrates
+
+## Risks
 - Build churn: None in Phase A (text-only)
 - Mislabeling status/coverage: mitigated via review checklist
 
-Validation
+## Validation
 - All modules carry standardized headers
 - Tests list scope/scenarios; coverage counts are accurate
 - ADR references exist and resolve
 
-Open Questions
+## Open questions
 - Do we want a prelude module for common kernel types?
 - When to introduce subcrates for parallel build speed?
 

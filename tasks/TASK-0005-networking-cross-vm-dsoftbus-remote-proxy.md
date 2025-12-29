@@ -1,0 +1,179 @@
+---
+title: TASK-0005 Networking step 3 (OS): cross-VM DSoftBus sessions + remote proxy (samgr/bundlemgr) + 2-VM harness (opt-in)
+status: Draft
+owner: @runtime
+created: 2025-12-22
+links:
+  - Vision: docs/agents/VISION.md
+  - Playbook: docs/agents/PLAYBOOK.md
+  - Depends-on: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
+  - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+---
+
+## Context
+
+Step 1/2 get OS networking and DSoftBus working locally. Step 3 makes it real:
+
+- cross-VM discovery and sessions (OS↔OS) using subnet multicast/broadcast discovery,
+- and a minimal **remote proxy** so a node can call *remote* `samgrd` (resolve) and *remote* `bundlemgrd` (query/list),
+  using an authenticated DSoftBus stream as the transport.
+
+This task is opt-in for CI because it spins up **two QEMU instances**.
+
+## Goal
+
+With **kernel unchanged**, prove in an opt-in 2-VM run:
+
+- Node A discovers Node B and establishes a Noise-authenticated DSoftBus session cross-VM.
+- Node A can remotely resolve a service via Node B’s `samgrd` and query bundles via Node B’s `bundlemgrd`.
+
+## Non-Goals
+
+- Kernel networking changes.
+- Full distributed service graph (global registry, remote capabilities, remote VMO, etc.).
+- mDNS compliance (we only need “mDNS-style” multicast/bcast discovery semantics).
+
+## Constraints / invariants (hard requirements)
+
+- **Kernel untouched**.
+- **No fake success**: cross-VM markers only after real discovery/session + remote call roundtrips.
+- **Determinism**:
+  - marker strings stable;
+  - discovery announce schedule must be deterministic (no RNG jitter); timeouts bounded.
+- **Protocol drift avoidance**:
+  - Remote proxy must reuse the **existing OS-lite on-wire frames** for `samgrd` and `bundlemgrd`
+    (do not invent a parallel Cap’n Proto protocol unless we explicitly choose to migrate).
+- **Proxy authority is explicit and narrow**:
+  - The “remote gateway” is effectively a privileged proxy surface. It must be deny-by-default and
+    only forward the minimal samgr/bundlemgr operations required by this task.
+  - No capability transfer across the DSoftBus boundary in this step (no “remote caps”); only
+    request/response bytes.
+
+## Important feasibility note (2-VM network backend)
+
+Two separate QEMU instances do not automatically share “usernet” (slirp). For a deterministic, rootless
+2-VM harness we should prefer a QEMU backend that actually links the NICs, e.g.:
+
+- `-netdev socket,mcast=239.42.0.1:37020` (both VMs join the same L2 multicast hub), or
+- `-netdev socket,listen=...` / `connect=...` (pair link).
+
+If we rely on slirp/usernet, cross-VM multicast/broadcast will likely not work and the task will be flaky.
+
+## Contract sources (single source of truth)
+
+- **Single-VM marker contract**: `scripts/qemu-test.sh` must remain green by default (no regressions).
+- **OS-lite service protocols (authoritative for this step)**:
+  - `samgrd` v1 frames: `source/services/samgrd/src/os_lite.rs` (`SM` magic)
+  - `bundlemgrd` v1 frames: `source/services/bundlemgrd/src/os_lite.rs` (`BN` magic)
+
+## Stop conditions (Definition of Done)
+
+### Proof (default / single VM)
+
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` remains green (step 1/2 markers intact).
+
+### Proof (opt-in / two VMs)
+
+Provide a new **canonical harness** (not a “postflight”):
+
+- `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+
+The harness must fail unless both VMs produce:
+
+- `dsoftbusd: discovery cross-vm up`
+- `dsoftbusd: cross-vm session ok <peer>`
+- `SELFTEST: remote resolve ok`
+- `SELFTEST: remote query ok`
+
+Marker ownership rules (to keep the harness deterministic):
+
+- `SELFTEST: remote resolve ok` and `SELFTEST: remote query ok` must be emitted by **Node A only**
+  (the “client” VM).
+- `dsoftbusd: cross-vm session ok <peer>` is expected on **both** nodes once the session is up.
+
+## Touched paths (allowlist)
+
+- `userspace/dsoftbus/` (OS backend: cross-VM discovery/session hardening)
+- `source/services/dsoftbusd/` (OS daemon wiring + markers + remote-gateway handler)
+- `source/apps/selftest-client/` (cross-VM mode markers)
+- `tools/os2vm.sh` (2-VM harness; canonical for opt-in proof)
+- `scripts/run-qemu-rv64.sh` (if needed to parameterize per-instance UART logs / netdev args)
+- `docs/` (dsoftbus-os + testing)
+
+## Plan (small PRs)
+
+1. **Cross-VM discovery payload + aging**
+   - Discovery message includes:
+     - device id
+     - advertised host IPv4 (or a “listen addr” field)
+     - TCP port
+     - protocol version
+     - services list (e.g. `["samgrd","bundlemgrd"]`)
+   - Maintain bounded LRU with TTL aging; refresh on new announce.
+   - Marker: `dsoftbusd: discovery cross-vm up` once sockets are bound and RX loop is active.
+
+2. **Cross-VM session establishment**
+   - Prefer TCP to the peer’s advertised IP:port when peer != localhost.
+   - Reuse Noise XK handshake + identity checks from the host backend logic.
+   - Marker: `dsoftbusd: cross-vm session ok <peer>` only after the authenticated stream is established.
+
+3. **Remote proxy (samgr/bundlemgr)**
+   - Implement a small “remote gateway” over DSoftBus streams:
+     - Receives framed requests on an authenticated channel.
+     - Forwards them to local services using existing kernel IPC routing (samgrd/bundlemgrd OS-lite endpoints).
+     - Returns the raw response bytes to the remote peer.
+   - The forwarded request/response bytes are the **existing OS-lite frames**:
+     - `samgrd` v1 (`SM`): resolve/lookup
+     - `bundlemgrd` v1 (`BN`): list/query/image fetch (as supported)
+   - Where to place this:
+     - Preferred: inside `dsoftbusd` as a dedicated channel handler (“remote-gateway”), to avoid modifying
+       samgrd/bundlemgrd in this step.
+
+4. **Selftest: cross-VM mode**
+   - Default mode (single VM) remains unchanged.
+   - Cross-VM mode is enabled via env (e.g. `OS2VM=1`) set by the 2-VM harness.
+   - Selftest waits for a non-self peer, then:
+     - remote resolve via `samgrd` (`SELFTEST: remote resolve ok`)
+     - remote bundle query via `bundlemgrd` (`SELFTEST: remote query ok`)
+
+5. **2-VM harness (opt-in, canonical)**
+   - Add `tools/os2vm.sh` that:
+     - boots **two** QEMU instances with distinct UART logs (e.g. `uart-A.log`, `uart-B.log`)
+     - configures networking via a deterministic, rootless backend (`-netdev socket,mcast=...` preferred)
+     - sets distinct device ids/ports via env/args
+     - waits for the required markers (bounded time), trims logs, exits non-zero on failure
+   - This harness is the single source of truth for the 2-VM proof (no separate “postflight” script).
+
+6. **Docs**
+   - Extend `docs/distributed/dsoftbus-os.md` with a cross-VM section:
+     - discovery payload fields, TTL/aging, session policy
+     - remote gateway semantics and limitations
+   - Extend `docs/testing/index.md`:
+     - how to run `tools/os2vm.sh`, expected logs, troubleshooting
+
+## Acceptance criteria (behavioral)
+
+- Default single-VM run remains green (`scripts/qemu-test.sh` unchanged except for any intentional new markers in step 3 being opt-in only).
+- Opt-in 2-VM run (`RUN_OS2VM=1 tools/os2vm.sh`) proves:
+  - cross-VM discovery + Noise-authenticated session
+  - remote resolve + remote query markers
+- No kernel changes.
+
+## Evidence (to paste into PR)
+
+- Attach `uart-A.log` and `uart-B.log` tails showing:
+  - `dsoftbusd: discovery cross-vm up`
+  - `dsoftbusd: cross-vm session ok ...`
+  - `SELFTEST: remote resolve ok`
+  - `SELFTEST: remote query ok`
+
+## RFC seeds (for later, once green)
+
+- Decisions made:
+  - Cross-VM discovery payload format + TTL semantics.
+  - Rootless 2-VM QEMU networking backend choice and limitations.
+  - Remote-gateway placement (dsoftbusd vs services) and on-wire framing choice.
+- Open questions:
+  - When/if to migrate remote service calls from OS-lite frames to a stable Cap’n Proto IDL.
+  - How to extend beyond samgr/bundlemgr (policy, identity, packagefs/vfs).

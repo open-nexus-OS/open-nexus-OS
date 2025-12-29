@@ -2,8 +2,17 @@
 
 DSoftBus-lite provides the userland-only distributed fabric used by Open Nexus
 OS services. It focuses on host-first development: all transports are
-implemented in Rust, rely on Cap'n Proto for the control-plane, and avoid any
-kernel dependencies. The daemon is responsible for three major tasks:
+implemented in Rust, and avoid any kernel dependencies.
+
+**Hybrid contract (aligns with VISION + RFC-0005):**
+
+- **Control plane (target)**: typed IDL frames (Cap'n Proto) for stable, evolvable service protocols.
+- **Bring-up allowance**: early OS milestones may use compact, versioned **byte-frame** protocols over the
+  same authenticated stream to keep dependencies and debugging surface small.
+- **Data plane**: large payloads stay out-of-band (VMO/filebuffer style). Over DSoftBus this starts as
+  chunked transfers with explicit bounds; later it can map to real VMOs without copying.
+
+The daemon is responsible for three major tasks:
 
 This is aligned with the project vision: distributed behavior is layered in userland (`softbusd`
 later), while the kernel stays minimal and capability-based (see `docs/agents/VISION.md`).

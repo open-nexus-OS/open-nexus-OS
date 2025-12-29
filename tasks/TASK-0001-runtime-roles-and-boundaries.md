@@ -1,57 +1,123 @@
-# TASK-0001: Runtime Roles & Boundaries (Host + OS-lite)
+---
+title: TASK-0001 Runtime roles & boundaries (Host + OS-lite): init/execd/loader single-authority, deprecations, and proof locks
+status: In Progress
+owner: @init-team @runtime
+created: 2025-10-23
+links:
+  - Vision: docs/agents/VISION.md
+  - Playbook: docs/agents/PLAYBOOK.md
+  - RFC: docs/rfcs/RFC-0002-process-per-service-architecture.md
+  - RFC: docs/rfcs/RFC-0004-safe-loader-guards.md
+  - VFS proof (markers dependency): tasks/TASK-0002-userspace-vfs-proof.md
+---
 
-Status: active
-Owner: @init-team @runtime
-Scope: init (nexus-init), execd, userspace/nexus-loader, kernel user_loader, apps/init-lite
+## Context
+
+We need a clear, stable runtime split between **Host** and **OS-lite** that avoids duplicated “authorities”
+and prevents silent drift:
+
+- multiple “init/spawn/load” implementations are easy to accidentally fork,
+- proof markers must remain sourced from real services and `scripts/qemu-test.sh`,
+- the `cfg` split must stay consistent (`nexus_env="host"` / `nexus_env="os"`, OS-lite behind `feature="os-lite"` where applicable).
+
+Repo reality (audit snapshot):
+
+- `nexus-init` selects `std_server` vs `os_lite` (bring-up path).
+- OS-lite bootstrap spawns services and emits init markers (`init: up <svc>`) with cooperative yields.
+- `execd` already uses `userspace/nexus-loader` (`OsMapper`, `StackBuilder`) under `nexus_env="os"`.
+- Kernel `user_loader` still contains ELF mapping logic (duplicate behavior relative to userspace loader).
+- `apps/init-lite` duplicates the init role and is being deprecated/wrapped.
 
 ## Goal
-Establish clear runtime roles for Host and OS-lite paths; freeze duplicates; create a minimal deprecation path. Keep changes iterative and scoped. Preserve production-grade invariants.
 
-## Out of Scope
-- Kernel internals unrelated to user-space spawn ABI
-- Feature additions beyond role consolidation
+Establish and enforce a single-authority runtime model:
 
-## Invariants
-- Preserve UART markers: `packagefsd: ready`, `vfsd: ready`, `SELFTEST`.
-- Host path remains byte-compatible and unchanged where required.
-- OS-lite code is gated behind `cfg(feature = "os-lite")`.
-- Single source of truth per role (no duplicate loaders/spawners).
+- **Init**: `source/init/nexus-init` is the canonical orchestrator (host + OS-lite).
+- **Spawner**: `source/services/execd` is the canonical process spawner.
+- **Loader**: `userspace/nexus-loader` is the canonical load/ELF/ABI library.
+- **Kernel bridge**: kernel loader logic stays a thin ABI bridge only (no duplicated “real loader” logic).
 
-## Roles (target end-state)
-- Init (single): `source/init/nexus-init` handles Host and OS-lite backends.
-- Spawner (single): `source/services/execd` is the task/service spawner.
-- Loader (single library): `userspace/nexus-loader` provides load/ELF/ABI routines.
-- Kernel user loader: `source/kernel/neuron/src/user_loader.rs` is a thin ABI bridge only.
-- Test payloads: `userspace/exec-payloads`, `demo-exit-0` remain tests/fixtures.
-- apps/init-lite: deprecated or wrapper that defers to `nexus-init`.
+## Non-Goals
 
-## Steps (small PRs)
-1. Add file headers to key modules with CONTEXT/OWNERS/API/DEPENDS/INVARIANTS.
-2. Create ADR-0001 documenting roles and boundaries; link from headers.
-3. Mark `apps/init-lite` deprecated with README and pointer to `nexus-init`.
-4. Ensure `execd` depends on and uses `userspace/nexus-loader` for loading.
-5. Keep `kernel::user_loader` minimal; remove duplicate loader logic.
-6. Add boundary configs and CI checks (headers present, forbidden deps, jscpd).
+- Kernel internals unrelated to user-space spawn/exec boundaries.
+- Feature additions beyond role consolidation and deprecation hardening.
+- Designing new ABIs (follow-up tasks/RFCs if needed).
 
-## Entry Points
-- Init: `source/init/nexus-init/src/lib.rs` (std_server, os_lite backends)
-- Execd: `source/services/execd/src/lib.rs`
-- Loader: `userspace/nexus-loader/src/lib.rs`
-- Kernel bridge: `source/kernel/neuron/src/user_loader.rs`
-- Deprecated target: `source/apps/init-lite`
+## Constraints / invariants (hard requirements)
 
-## Stop conditions (for this task)
-- ADR-0001 exists and linked.
-- Deprecation note in `apps/init-lite` committed.
-- At least one concrete call site in `execd` uses `nexus-loader`.
+- **No fake success**: do not add “ready/ok” markers that don’t reflect real behavior.
+- **Determinism**: markers are stable strings; no timestamps/randomness in proof signals.
+- **Role single-authority**: no duplicate init/spawn/loader implementations shipping in parallel.
+- **Cfg split consistency**: `nexus_env="host"` / `nexus_env="os"` remains canonical; OS-lite build gates remain explicit (e.g., `feature="os-lite"`).
+- **Rust hygiene**: no `unwrap/expect` in daemons; avoid new `unsafe` (justify if unavoidable).
 
-## Test plan
-- Host: `cargo test --workspace` remains green.
-- OS-lite: `just test-os` shows init markers and downstream readiness unchanged.
+## Red flags / decision points (track explicitly)
 
-## Audit findings (2025-10-23)
-- Init selection confirmed in `source/init/nexus-init/src/lib.rs` (`std_server` vs `os_lite`).
-- OS-lite bootstrap (`src/os_lite.rs`) spawns seven services via `spawn_service`, emits `init: up <svc>`, yields between launches.
-- `execd` already uses `userspace/nexus-loader` (`OsMapper`, `StackBuilder`) for ELF mapping on `nexus_env="os"`.
-- Kernel `source/kernel/neuron/src/user_loader.rs` implements an ELF mapper in-kernel; treat as temporary bridge (duplicates userspace loader logic), to be trimmed later.
-- `source/apps/init-lite` prints markers and idles; duplicates init role and will be deprecated/wrapped.
+- **RED (blocking / must decide now)**:
+  - If kernel `user_loader` continues to implement a “real loader”, we must explicitly treat it as temporary and keep its scope minimal (RFC-0004 direction).
+- **YELLOW (risky / likely drift / needs follow-up)**:
+  - “Deprecate init-lite” must not break QEMU marker proofs; the deprecation path must preserve the init marker contract.
+- **GREEN (confirmed assumptions)**:
+  - `execd` already depends on `userspace/nexus-loader` in the OS path; we can lock this in with tests/guards rather than rewriting behavior.
+
+## Contract sources (single source of truth)
+
+- **QEMU marker contract**: `scripts/qemu-test.sh`
+- **Runtime entrypoints**:
+  - `source/init/nexus-init/src/lib.rs`
+  - `source/services/execd/src/std_server.rs` and `source/services/execd/src/os_lite.rs`
+  - `userspace/nexus-loader/src/lib.rs`
+  - `source/kernel/neuron/src/user_loader.rs`
+- **VFS proof contract**: `tasks/TASK-0002-userspace-vfs-proof.md`
+
+## Stop conditions (Definition of Done)
+
+- **Proof (tests)**:
+  - Command(s):
+    - `cargo test --workspace`
+- **Proof (QEMU)**:
+  - Command(s):
+    - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - Required behavior:
+    - init marker chain remains intact (no regression relative to `TASK-0002`)
+
+Notes:
+
+- Postflight scripts are not proof unless they only delegate to the canonical harness/tests and do not invent their own “OK”.
+
+## Touched paths (allowlist)
+
+- `source/init/nexus-init/`
+- `source/services/execd/`
+- `userspace/nexus-loader/`
+- `source/kernel/neuron/src/user_loader.rs` (boundary trimming only; no feature expansion)
+- `source/apps/init-lite/` (deprecation/wrapper)
+- `docs/adr/` + `docs/standards/` (role/boundary docs)
+
+## Plan (small PRs)
+
+1. Add `CONTEXT` headers and cross-links in the listed entrypoints (roles/owners/invariants).
+2. Add (or confirm) ADR capturing runtime roles/boundaries and link it from headers.
+3. Deprecate `apps/init-lite` (doc + wrapper behavior) without breaking QEMU marker proofs.
+4. Add “drift guards” (lint/CI or compile-time asserts) that prevent duplicated loader/spawner logic from creeping in.
+
+## Acceptance criteria (behavioral)
+
+- The repo has a single, clearly documented authority for init/spawn/load (as listed in Goal).
+- QEMU marker proofs remain green and do not rely on kernel fallback markers.
+- The OS path uses `userspace/nexus-loader` (and tests/guards prevent regressions).
+
+## Evidence (to paste into PR)
+
+- Tests: `cargo test --workspace` summary
+- QEMU: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` + `uart.log` tail showing init/service readiness markers
+
+## RFC seeds (for later, when the step is complete)
+
+- Decisions made:
+  - canonical runtime authorities (init/spawn/load) and their cfg gates
+  - deprecation policy for `apps/init-lite`
+- Open questions:
+  - if/when kernel `user_loader` can be reduced further without breaking bring-up
+- Stabilized contracts:
+  - `scripts/qemu-test.sh` required marker set for init/service bring-up

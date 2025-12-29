@@ -11,17 +11,12 @@ An `.nxb` directory contains two files:
 
 ```
 <bundle>.nxb/
-├── manifest.toml
+├── manifest.nxb
 └── payload.elf
 ```
 
-- `manifest.toml` follows the minimal schema used by the policy stub:
-  `name = "demo.hello"`, `version = "0.0.1"`, `caps = []`,
-  `abilities = []`, `publisher = "dev"`, `sig = ""`.
-  Signing and policy enforcement happen elsewhere; the field is reserved so the
-  layout stays forward compatible. Long-term, `.nxb` packaging participates in
-  the hybrid security root (verified boot + signed bundles/packages + policy)
-  described in `docs/agents/VISION.md`.
+- `manifest.nxb` is the **canonical, deterministic bundle manifest** (versioned binary encoding).
+  This avoids whitespace/ordering ambiguity and is designed to be signed and verified reliably.
 - `payload.elf` is the ELF64/RISC-V binary. In v1.1 the same payload is staged
   in `bundlemgrd`'s artifact store so the daemon can serve it to `execd` during
   `getPayload`.
@@ -35,8 +30,7 @@ cargo run -p nxb-pack -- path/to/app.elf out/demo.hello.nxb
 ```
 
 The tool copies the input ELF into `payload.elf` and writes a default manifest
-in TOML format. For prototypes you can edit `manifest.toml` manually to tweak
-the advertised capabilities before running policy checks on host.
+in the canonical `manifest.nxb` format.
 
 ## Loader handshake
 

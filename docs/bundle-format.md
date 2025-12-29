@@ -1,6 +1,11 @@
 # Nexus Bundle (`.nxb`) Format
 
-A Nexus Bundle is a tar archive with the following layout:
+NOTE (drift): This document describes an older, tar-based “bundle” concept. The current
+implementation used by the OS bring-up path treats `.nxb` as a deterministic directory containing
+`manifest.*` + `payload.elf` (see `docs/packaging/nxb.md`). Do not use this tar layout as a contract
+for current OS work unless a task explicitly revives it.
+
+A Nexus Bundle (legacy) is a tar archive with the following layout:
 
 ```text
 /manifest/bundle.toml
