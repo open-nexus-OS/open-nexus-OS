@@ -869,6 +869,14 @@ mod os_lite {
             emit_line("SELFTEST: ipc sender service_id FAIL");
         }
 
+        // IPC production-grade smoke: deterministic soak of mixed operations.
+        // Keep this strictly bounded and allocation-light (avoid kernel heap exhaustion).
+        if ipc_soak_probe().is_ok() {
+            emit_line("SELFTEST: ipc soak ok");
+        } else {
+            emit_line("SELFTEST: ipc soak FAIL");
+        }
+
         // Userspace VFS probe over kernel IPC v1 (cross-process).
         if verify_vfs().is_err() {
             emit_line("SELFTEST: vfs FAIL");
@@ -1197,6 +1205,113 @@ mod os_lite {
             }
         }
         Err(())
+    }
+
+    /// Deterministic “soak” probe for IPC production-grade behaviour.
+    ///
+    /// This is not a fuzz engine; it is a bounded, repeatable stress mix intended to catch:
+    /// - CAP_MOVE reply routing regressions
+    /// - deadline/timeout regressions
+    /// - cap_clone/cap_close leaks on common paths
+    /// - execd lifecycle regressions (spawn + wait)
+    fn ipc_soak_probe() -> core::result::Result<(), ()> {
+        // Small deterministic PRNG (xorshift64*).
+        fn next_u64(state: &mut u64) -> u64 {
+            let mut x = *state;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            *state = x;
+            x.wrapping_mul(0x2545F4914F6CDD1D)
+        }
+
+        // Set up a few clients once (avoid repeated route lookups / allocations).
+        let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
+        let execd = KernelClient::new_for("execd").map_err(|_| ())?;
+        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+        let (reply_send_slot, reply_recv_slot) = reply.slots();
+
+        let mut seed: u64 = 0x4E58_534F_414B_0001u64; // "NXSOAK\0\1"
+        // Keep it bounded so QEMU marker runs stay fast/deterministic and do not accumulate kernel heap.
+        for i in 0..96u32 {
+            let r = next_u64(&mut seed);
+            match (r % 5) as u8 {
+                // 0) CAP_MOVE ping to samgrd + reply receive.
+                0 => {
+                    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+                    let mut frame = [0u8; 4];
+                    frame[0] = b'S';
+                    frame[1] = b'M';
+                    frame[2] = 1;
+                    frame[3] = 3; // OP_PING_CAP_MOVE
+                    sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
+
+                    // Receive the PONG (bounded).
+                    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+                    let mut buf = [0u8; 16];
+                    let mut ok = false;
+                    for _ in 0..128 {
+                        match nexus_abi::ipc_recv_v1(
+                            reply_recv_slot,
+                            &mut hdr,
+                            &mut buf,
+                            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                            0,
+                        ) {
+                            Ok(n) => {
+                                let n = n as usize;
+                                ok = n == 4 && &buf[..4] == b"PONG";
+                                break;
+                            }
+                            Err(nexus_abi::IpcError::QueueEmpty) => {
+                                let _ = yield_();
+                            }
+                            Err(_) => return Err(()),
+                        }
+                    }
+                    if !ok {
+                        return Err(());
+                    }
+                }
+                // 1) Deadline semantics probe (must timeout).
+                1 => {
+                    ipc_deadline_timeout_probe()?;
+                }
+                // 2) Bootstrap payload roundtrip.
+                2 => {
+                    ipc_payload_roundtrip()?;
+                }
+                // 3) Execd spawn + wait for exit0 (bounded) every so often.
+                3 => {
+                    // Avoid too many process spawns (keep QEMU time stable).
+                    if (i % 32) == 0 {
+                        let pid = execd_spawn_image(&execd, "selftest-client", 2)?;
+                        let status = wait_for_pid(pid).ok_or(())?;
+                        // In this bring-up flow, exit status is implementation-defined but must complete.
+                        let _ = status;
+                    }
+                }
+                // 4) cap_clone + immediate close (local drop) on reply cap to exercise cap table churn.
+                _ => {
+                    let c = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+                    let _ = nexus_abi::cap_close(c);
+                }
+            }
+
+            // Drain any stray replies so we don't accumulate queued messages if something raced.
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 64];
+            for _ in 0..8 {
+                match ipc_recv_v1_nb(reply_recv_slot, &mut hdr, &mut buf, true) {
+                    Ok(_n) => {}
+                    Err(nexus_abi::IpcError::QueueEmpty) => break,
+                    Err(_) => break,
+                }
+            }
+        }
+
+        // Final sanity: ensure reply inbox still works after churn.
+        cap_move_reply_probe()
     }
 
     fn emit_line(s: &str) {

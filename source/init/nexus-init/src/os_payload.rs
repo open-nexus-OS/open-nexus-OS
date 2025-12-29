@@ -993,6 +993,27 @@ where
                     if let Some((nonce, requester, image_id)) =
                         nexus_abi::policy::decode_exec_check(&buf[..n])
                     {
+                        // Identity-binding hardening:
+                        // - This exec-check control path is a **proxy** from `execd` to `policyd`
+                        //   via init-lite (bring-up topology).
+                        // - The `requester` bytes inside the frame are *not* authoritative; only
+                        //   the control channel identity is. Therefore: only accept these frames
+                        //   on execd's private control channel.
+                        if chan.svc_name != "execd" {
+                            let rsp = nexus_abi::policy::encode_exec_check_rsp(
+                                nonce,
+                                nexus_abi::policy::STATUS_DENY,
+                            );
+                            let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
+                            let _ = nexus_abi::ipc_send_v1(
+                                chan.ctrl_rsp_parent_slot,
+                                &rh,
+                                &rsp,
+                                nexus_abi::IPC_SYS_NONBLOCK,
+                                0,
+                            );
+                            continue;
+                        }
                         let allowed = policyd_exec_allowed(
                             pol_ctl_exec_req,
                             pol_ctl_exec_rsp,

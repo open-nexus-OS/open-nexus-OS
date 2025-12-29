@@ -2650,6 +2650,97 @@ mod tests {
     }
 
     #[test]
+    fn cap_clone_returns_no_space_when_table_full() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Fill all cap slots (64). Ensure there is a valid cap at slot 0 to clone.
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            for i in 0..64 {
+                caps.set(
+                    i,
+                    Capability {
+                        kind: CapabilityKind::Endpoint(i as u32),
+                        rights: Rights::SEND,
+                    },
+                )
+                .unwrap();
+            }
+        }
+
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+
+        match sys_cap_clone(&mut ctx, &Args::new([0, 0, 0, 0, 0, 0])) {
+            Err(Error::Capability(CapError::NoSpace)) => {}
+            other => panic!("expected CapError::NoSpace, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cap_transfer_returns_no_space_when_child_table_full() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Selftest-only child creation avoids full address-space/spawn machinery in host tests.
+        let child = tasks.selftest_create_dummy_task(0, &mut scheduler);
+
+        // Cap to transfer lives in parent slot 3.
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                3,
+                Capability {
+                    kind: CapabilityKind::Endpoint(123),
+                    rights: Rights::SEND,
+                },
+            )
+            .unwrap();
+        }
+
+        // Fill the child's cap table fully so allocation fails.
+        {
+            let child_caps = tasks.task_mut(child).unwrap().caps_mut();
+            for i in 0..64 {
+                let _ = child_caps.set(
+                    i,
+                    Capability {
+                        kind: CapabilityKind::Endpoint(i as u32),
+                        rights: Rights::SEND,
+                    },
+                );
+            }
+        }
+
+        let mut ctx = Context::new(
+            &mut scheduler,
+            &mut tasks,
+            &mut router,
+            &mut as_manager,
+            &timer,
+        );
+
+        // Args: child pid, parent slot, rights mask
+        let args = Args::new([child as usize, 3, Rights::SEND.bits() as usize, 0, 0, 0]);
+        match sys_cap_transfer(&mut ctx, &args) {
+            Err(Error::Transfer(task::TransferError::Capability(CapError::NoSpace))) => {}
+            other => panic!("expected TransferError::Capability(NoSpace), got {:?}", other),
+        }
+    }
+
+    #[test]
     fn ipc_endpoint_create_quota_enforced() {
         let mut router = ipc::Router::new(0);
         // Keep this aligned with ipc::MAX_ENDPOINTS.

@@ -587,4 +587,169 @@ mod tests {
         );
         assert_eq!(router.recv(ep).unwrap_err(), IpcError::NoSuchEndpoint);
     }
+
+    #[test]
+    fn recv_waiters_are_fifo_and_deduped() {
+        let mut router = Router::new(1);
+        let ep = router.create_endpoint(1, Some(1)).unwrap();
+        router.register_recv_waiter(ep, 10).unwrap();
+        router.register_recv_waiter(ep, 11).unwrap();
+        router.register_recv_waiter(ep, 12).unwrap();
+        // Duplicate registration should not change FIFO order.
+        router.register_recv_waiter(ep, 11).unwrap();
+        assert_eq!(router.pop_recv_waiter(ep).unwrap(), Some(10));
+        assert_eq!(router.pop_recv_waiter(ep).unwrap(), Some(11));
+        assert_eq!(router.pop_recv_waiter(ep).unwrap(), Some(12));
+        assert_eq!(router.pop_recv_waiter(ep).unwrap(), None);
+    }
+
+    #[test]
+    fn send_waiters_are_fifo_and_deduped() {
+        let mut router = Router::new(1);
+        let ep = router.create_endpoint(1, Some(1)).unwrap();
+        router.register_send_waiter(ep, 20).unwrap();
+        router.register_send_waiter(ep, 21).unwrap();
+        router.register_send_waiter(ep, 22).unwrap();
+        // Duplicate registration should not change FIFO order.
+        router.register_send_waiter(ep, 21).unwrap();
+        assert_eq!(router.pop_send_waiter(ep).unwrap(), Some(20));
+        assert_eq!(router.pop_send_waiter(ep).unwrap(), Some(21));
+        assert_eq!(router.pop_send_waiter(ep).unwrap(), Some(22));
+        assert_eq!(router.pop_send_waiter(ep).unwrap(), None);
+    }
+
+    #[test]
+    fn state_machine_fuzz_router_invariants_deterministic() {
+        // Deterministic stress mix (NOT a fuzzer framework):
+        // repeatedly mutate router state and assert invariants so accidental regressions show up
+        // in host `cargo test`.
+        fn next_u64(state: &mut u64) -> u64 {
+            // xorshift64*
+            let mut x = *state;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            *state = x;
+            x.wrapping_mul(0x2545F4914F6CDD1D)
+        }
+
+        fn assert_invariants(router: &Router) {
+            // Per-endpoint invariants.
+            for ep in &router.endpoints {
+                if !ep.alive {
+                    continue;
+                }
+                assert!(ep.queue.len() <= ep.depth, "queue depth exceeded");
+                let sum: usize = ep.queue.iter().map(|m| m.payload.len()).sum();
+                assert_eq!(sum, ep.queued_bytes, "queued_bytes mismatch");
+                assert!(ep.queued_bytes <= ep.max_queued_bytes, "endpoint byte budget exceeded");
+
+                // Waiter queues have no duplicates.
+                for w in ep.recv_waiters.iter() {
+                    assert_eq!(
+                        ep.recv_waiters.iter().filter(|x| *x == w).count(),
+                        1,
+                        "duplicate recv waiter"
+                    );
+                }
+                for w in ep.send_waiters.iter() {
+                    assert_eq!(
+                        ep.send_waiters.iter().filter(|x| *x == w).count(),
+                        1,
+                        "duplicate send waiter"
+                    );
+                }
+            }
+
+            // Router accounting invariants.
+            let sum_total: usize = router.endpoints.iter().map(|e| e.queued_bytes).sum();
+            assert_eq!(sum_total, router.queued_bytes_total, "global queued_bytes_total mismatch");
+            assert!(router.queued_bytes_total <= router.max_queued_bytes_total, "global budget exceeded");
+
+            // Per-owner accounting matches endpoints.
+            let mut expected: BTreeMap<WaiterId, usize> = BTreeMap::new();
+            for ep in &router.endpoints {
+                if !ep.alive {
+                    continue;
+                }
+                if let Some(owner) = ep.owner {
+                    *expected.entry(owner).or_insert(0) += ep.queued_bytes;
+                }
+            }
+            // Treat zero entries as optional: some code paths keep owner entries only when non-zero,
+            // while others (e.g. recompute) may insert explicit zeros. For budget enforcement,
+            // missing == 0 is equivalent.
+            let expected_nz: BTreeMap<WaiterId, usize> =
+                expected.into_iter().filter(|(_k, v)| *v != 0).collect();
+            let actual_nz: BTreeMap<WaiterId, usize> =
+                router.owner_queued_bytes.iter().filter(|(_k, v)| **v != 0).map(|(k, v)| (*k, *v)).collect();
+            assert_eq!(expected_nz, actual_nz, "owner_queued_bytes mismatch");
+            for (_owner, bytes) in &router.owner_queued_bytes {
+                assert!(*bytes <= router.max_queued_bytes_per_owner, "owner budget exceeded");
+            }
+        }
+
+        let mut router = Router::new_with_bytes_budgets(0, 4096, 1024);
+        let mut seed: u64 = 0x4E58_4950_435F_465Au64; // "NXIPC_FZ"
+
+        // Start with a few endpoints so recv/send operations have targets.
+        let owners: [WaiterId; 3] = [1, 7, 42];
+        for (i, owner) in owners.iter().enumerate() {
+            let _ = router.create_endpoint(4 + i, Some(*owner)).unwrap();
+        }
+
+        for step in 0..2_000u32 {
+            let r = next_u64(&mut seed);
+            let op = (r % 9) as u8;
+            let ep_count = router.endpoints.len().max(1);
+            let id = (r as usize % ep_count) as EndpointId;
+            let owner = owners[(r as usize >> 8) % owners.len()];
+
+            match op {
+                // create endpoint (bounded by MAX_ENDPOINTS quota internally)
+                0 => {
+                    let depth = 1 + ((r as usize >> 16) % 4);
+                    let _ = router.create_endpoint(depth, Some(owner));
+                }
+                // send small payload
+                1 | 2 => {
+                    let len = ((r as usize >> 24) % 32) as u32;
+                    let hdr = MessageHeader::new(0, id, 1, 0, len);
+                    let payload = vec![0u8; len as usize];
+                    let msg = Message::new(hdr, payload, None);
+                    let _ = router.send(id, msg);
+                }
+                // send max payload (512) to exercise budgets
+                3 => {
+                    let hdr = MessageHeader::new(0, id, 2, 0, 512);
+                    let msg = Message::new(hdr, vec![0u8; 512], None);
+                    let _ = router.send(id, msg);
+                }
+                // recv
+                4 => {
+                    let _ = router.recv(id);
+                }
+                // close endpoint
+                5 => {
+                    let _ = router.close_endpoint(id);
+                }
+                // close by owner (wakes waiters)
+                6 => {
+                    let _ = router.close_endpoints_for_owner(owner);
+                }
+                // register recv waiter
+                7 => {
+                    let pid: WaiterId = 100 + ((step as u32) % 8);
+                    let _ = router.register_recv_waiter(id, pid);
+                }
+                // register send waiter
+                _ => {
+                    let pid: WaiterId = 200 + ((step as u32) % 8);
+                    let _ = router.register_send_waiter(id, pid);
+                }
+            }
+
+            assert_invariants(&router);
+        }
+    }
 }

@@ -295,6 +295,19 @@ impl KernelServer {
         }
     }
 
+    /// Receives a request and returns the kernel-derived sender service id alongside the frame.
+    ///
+    /// If the sender used CAP_MOVE, a one-shot reply capability is returned (to be replied on and
+    /// closed by the callee).
+    pub fn recv_request_with_meta(&self, wait: Wait) -> Result<(Vec<u8>, u64, Option<ReplyCap>)> {
+        let (hdr, sid, frame) = self.recv_with_header_meta(wait)?;
+        if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+            Ok((frame, sid, Some(ReplyCap { slot: hdr.src })))
+        } else {
+            Ok((frame, sid, None))
+        }
+    }
+
     /// Sends a frame on an arbitrary endpoint capability slot (e.g. one received via CAP_MOVE).
     pub fn send_on_cap(cap_slot: u32, frame: &[u8]) -> Result<()> {
         Self::send_on_cap_wait(cap_slot, frame, Wait::NonBlocking)

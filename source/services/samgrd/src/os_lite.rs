@@ -70,7 +70,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("samgrd: ready");
     let server = KernelServer::new_for("samgrd").map_err(|_| ServerError::Unsupported)?;
-    let mut registry: BTreeMap<Vec<u8>, (u32, u32)> = BTreeMap::new();
+    // Identity-binding hardening (bring-up semantics):
+    //
+    // Samgrd v1 currently moves *slot numbers* around (not endpoint caps), which is not a secure
+    // global service registry. To avoid ambient/global poisoning, we scope registrations to the
+    // kernel-derived sender service identity.
+    //
+    // This keeps the selftests honest (register/lookup roundtrip) while preventing one service
+    // from registering entries that another service will observe.
+    let mut registry: BTreeMap<(u64, Vec<u8>), (u32, u32)> = BTreeMap::new();
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
             Ok((hdr, sender_service_id, frame)) => {
@@ -128,7 +136,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     continue;
                 }
 
-                let rsp = handle_frame(&mut registry, frame.as_slice());
+                let rsp = handle_frame(&mut registry, sender_service_id, frame.as_slice());
                 // If a reply cap was moved, reply on it and close it.
                 if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
                     let _ = KernelServer::send_on_cap(hdr.src, &rsp);
@@ -146,7 +154,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
 }
 
-fn handle_frame(registry: &mut BTreeMap<Vec<u8>, (u32, u32)>, frame: &[u8]) -> [u8; 13] {
+fn handle_frame(
+    registry: &mut BTreeMap<(u64, Vec<u8>), (u32, u32)>,
+    sender_service_id: u64,
+    frame: &[u8],
+) -> [u8; 13] {
     // REGISTER request:
     //   [S, M, ver, OP_REGISTER, name_len:u8, send_slot:u32le, recv_slot:u32le, name...]
     // REGISTER response:
@@ -175,7 +187,7 @@ fn handle_frame(registry: &mut BTreeMap<Vec<u8>, (u32, u32)>, frame: &[u8]) -> [
             let send_slot = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
             let recv_slot = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
             let name = &frame[13..];
-            registry.insert(name.to_vec(), (send_slot, recv_slot));
+            registry.insert((sender_service_id, name.to_vec()), (send_slot, recv_slot));
             rsp(op, STATUS_OK, 0, 0)
         }
         OP_LOOKUP => {
@@ -184,7 +196,7 @@ fn handle_frame(registry: &mut BTreeMap<Vec<u8>, (u32, u32)>, frame: &[u8]) -> [
                 return rsp(op, STATUS_MALFORMED, 0, 0);
             }
             let name = &frame[5..];
-            match registry.get(name).copied() {
+            match registry.get(&(sender_service_id, name.to_vec())).copied() {
                 Some((send_slot, recv_slot)) => rsp(op, STATUS_OK, send_slot, recv_slot),
                 None => rsp(op, STATUS_NOT_FOUND, 0, 0),
             }

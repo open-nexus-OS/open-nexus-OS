@@ -174,7 +174,13 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             if frame.len() != tgt_end {
                 return rsp_v1(op, STATUS_MALFORMED);
             }
-            let requester = core::str::from_utf8(&frame[req_start..req_end]).unwrap_or("");
+            let requester_bytes = &frame[req_start..req_end];
+            // Identity-binding hardening (v1):
+            // never trust requester strings inside payloads; bind to sender_service_id unless init-lite is proxy.
+            if !privileged_proxy && nexus_abi::service_id_from_name(requester_bytes) != sender_service_id {
+                return rsp_v1(op, STATUS_DENY);
+            }
+            let requester = core::str::from_utf8(requester_bytes).unwrap_or("");
             let target = core::str::from_utf8(&frame[tgt_start..tgt_end]).unwrap_or("");
             if requester == "demo.testsvc" || (requester == "bundlemgrd" && target == "execd") {
                 rsp_v1(op, STATUS_DENY)
@@ -190,7 +196,13 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             if req_len == 0 || req_len > 48 || frame.len() != 6 + req_len {
                 return rsp_v1(op, STATUS_MALFORMED);
             }
-            let requester = core::str::from_utf8(&frame[5..5 + req_len]).unwrap_or("");
+            let requester_bytes = &frame[5..5 + req_len];
+            // Identity-binding hardening (v1):
+            // never trust requester strings inside payloads; bind to sender_service_id unless init-lite is proxy.
+            if !privileged_proxy && nexus_abi::service_id_from_name(requester_bytes) != sender_service_id {
+                return rsp_v1(op, STATUS_DENY);
+            }
+            let requester = core::str::from_utf8(requester_bytes).unwrap_or("");
             let _image_id = frame[5 + req_len]; // reserved
             if requester == "demo.testsvc" {
                 rsp_v1(op, STATUS_DENY)

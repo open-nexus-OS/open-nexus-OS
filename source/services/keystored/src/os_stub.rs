@@ -109,11 +109,18 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("keystored: ready");
     let server = KernelServer::new_for("keystored").map_err(|_| ServerError::Unsupported("ipc"))?;
-    let mut store: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+    // Identity-binding hardening (bring-up semantics):
+    //
+    // This keystore implementation is a bring-up shim. To avoid cross-service key collisions and
+    // "ambient" overwrites, we scope keys to the kernel-derived sender service identity.
+    //
+    // NOTE: this is not a full policy model; it is a safety floor until policyd-mediated access
+    // control is wired for the keystore protocol.
+    let mut store: BTreeMap<(u64, Vec<u8>), Vec<u8>> = BTreeMap::new();
     loop {
-        match server.recv_request(Wait::Blocking) {
-            Ok((frame, reply)) => {
-                let rsp = handle_frame(&mut store, frame.as_slice());
+        match server.recv_request_with_meta(Wait::Blocking) {
+            Ok((frame, sender_service_id, reply)) => {
+                let rsp = handle_frame(&mut store, sender_service_id, frame.as_slice());
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
                 } else {
@@ -146,7 +153,7 @@ const STATUS_UNSUPPORTED: u8 = 4;
 const MAX_KEY_LEN: usize = 64;
 const MAX_VAL_LEN: usize = 256;
 
-fn handle_frame(store: &mut BTreeMap<Vec<u8>, Vec<u8>>, frame: &[u8]) -> Vec<u8> {
+fn handle_frame(store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     // Request: [K, S, ver, op, key_len:u8, val_len:u16le, key..., val...]
     if frame.len() < 7 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return rsp(OP_GET, STATUS_MALFORMED, &[]);
@@ -170,18 +177,19 @@ fn handle_frame(store: &mut BTreeMap<Vec<u8>, Vec<u8>>, frame: &[u8]) -> Vec<u8>
     let val_end = val_start + val_len;
     let key = &frame[key_start..key_end];
     let val = &frame[val_start..val_end];
+    let scoped_key = (sender_service_id, key.to_vec());
 
     match op {
         OP_PUT => {
-            store.insert(key.to_vec(), val.to_vec());
+            store.insert(scoped_key, val.to_vec());
             rsp(OP_PUT, STATUS_OK, &[])
         }
-        OP_GET => match store.get(key) {
+        OP_GET => match store.get(&scoped_key) {
             Some(v) => rsp(OP_GET, STATUS_OK, v),
             None => rsp(OP_GET, STATUS_NOT_FOUND, &[]),
         },
         OP_DEL => {
-            let existed = store.remove(key).is_some();
+            let existed = store.remove(&scoped_key).is_some();
             rsp(OP_DEL, if existed { STATUS_OK } else { STATUS_NOT_FOUND }, &[])
         }
         _ => rsp(op, STATUS_UNSUPPORTED, &[]),

@@ -66,6 +66,132 @@ pub mod ipc_hdr {
     pub const CAP_MOVE: u16 = 1 << 0;
 }
 
+/// Execd service frames (bring-up) used for OS-lite exec spawning.
+///
+/// This is intentionally minimal and byte-oriented (no IDL) to keep early boot deterministic.
+pub mod execd {
+    /// Frame magic (`'E','X'`).
+    #[doc = "First magic byte (`'E'`)."]
+    pub const MAGIC0: u8 = b'E';
+    #[doc = "Second magic byte (`'X'`)."]
+    pub const MAGIC1: u8 = b'X';
+    /// Protocol version.
+    pub const VERSION: u8 = 1;
+
+    /// Exec image request opcode.
+    pub const OP_EXEC_IMAGE: u8 = 1;
+
+    /// Status: operation succeeded.
+    pub const STATUS_OK: u8 = 0;
+    /// Status: request was malformed.
+    pub const STATUS_MALFORMED: u8 = 1;
+    /// Status: unsupported operation/version.
+    pub const STATUS_UNSUPPORTED: u8 = 2;
+    /// Status: exec failed.
+    pub const STATUS_FAILED: u8 = 3;
+    /// Status: denied by policy.
+    pub const STATUS_DENIED: u8 = 4;
+
+    /// Maximum supported requester-name length (bytes).
+    pub const MAX_REQUESTER_LEN: usize = 48;
+
+    /// Encodes an `execd` v1 exec-image request frame.
+    ///
+    /// Frame: `[E,X,ver,OP_EXEC_IMAGE,image_id,stack_pages:u8, requester_len:u8, requester...]`
+    pub fn encode_exec_image_req(
+        requester: &[u8],
+        image_id: u8,
+        stack_pages: u8,
+        out: &mut [u8],
+    ) -> Option<usize> {
+        if requester.is_empty() || requester.len() > MAX_REQUESTER_LEN || out.len() < 7 + requester.len() {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_EXEC_IMAGE;
+        out[4] = image_id;
+        out[5] = stack_pages;
+        out[6] = requester.len() as u8;
+        out[7..7 + requester.len()].copy_from_slice(requester);
+        Some(7 + requester.len())
+    }
+
+    /// Decodes an `execd` v1 exec-image request frame.
+    pub fn decode_exec_image_req(frame: &[u8]) -> Option<(u8, u8, &[u8])> {
+        if frame.len() < 7 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        if frame[3] != OP_EXEC_IMAGE {
+            return None;
+        }
+        let image_id = frame[4];
+        let stack_pages = frame[5];
+        let n = frame[6] as usize;
+        if n == 0 || n > MAX_REQUESTER_LEN || frame.len() != 7 + n {
+            return None;
+        }
+        Some((image_id, stack_pages, &frame[7..]))
+    }
+
+    /// Encodes an `execd` v1 response frame.
+    ///
+    /// Frame: `[E,X,ver,OP_EXEC_IMAGE|0x80,status:u8,pid:u32le]`
+    pub fn encode_exec_image_rsp(status: u8, pid: u32) -> [u8; 9] {
+        let mut out = [0u8; 9];
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_EXEC_IMAGE | 0x80;
+        out[4] = status;
+        out[5..9].copy_from_slice(&pid.to_le_bytes());
+        out
+    }
+
+    /// Decodes an `execd` v1 response frame and returns (status, pid).
+    pub fn decode_exec_image_rsp(frame: &[u8]) -> Option<(u8, u32)> {
+        if frame.len() != 9 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        if frame[3] != (OP_EXEC_IMAGE | 0x80) {
+            return None;
+        }
+        let status = frame[4];
+        let pid = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
+        Some((status, pid))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn execd_req_golden() {
+            let requester = b"selftest-client";
+            let mut buf = [0u8; 64];
+            let n = encode_exec_image_req(requester, 1, 19, &mut buf).unwrap();
+            const GOLDEN_PREFIX: [u8; 7] = [b'E', b'X', 1, 1, 1, 19, 15];
+            assert_eq!(&buf[..7], &GOLDEN_PREFIX);
+            assert_eq!(&buf[7..n], requester);
+            let (img, sp, req) = decode_exec_image_req(&buf[..n]).unwrap();
+            assert_eq!(img, 1);
+            assert_eq!(sp, 19);
+            assert_eq!(req, requester);
+        }
+
+        #[test]
+        fn execd_rsp_golden() {
+            let frame = encode_exec_image_rsp(STATUS_OK, 0x1122_3344);
+            const GOLDEN: [u8; 9] = [b'E', b'X', 1, 0x81, 0, 0x44, 0x33, 0x22, 0x11];
+            assert_eq!(frame, GOLDEN);
+            let (status, pid) = decode_exec_image_rsp(&frame).unwrap();
+            assert_eq!(status, STATUS_OK);
+            assert_eq!(pid, 0x1122_3344);
+        }
+    }
+}
+
 /// Bootstrap routing protocol frames shared between init-lite and services (RFC-0005).
 pub mod routing {
     /// Frame magic bytes (`'R','T'`) to avoid accidental collisions with other message formats.
@@ -154,11 +280,36 @@ pub mod routing {
         use super::*;
 
         #[test]
+        fn route_get_golden() {
+            let name = b"vfsd";
+            let mut buf = [0u8; 32];
+            let n = encode_route_get(name, &mut buf).expect("encode");
+            const GOLDEN: [u8; 9] = [b'R', b'T', 1, 0x40, 4, b'v', b'f', b's', b'd'];
+            assert_eq!(&buf[..n], &GOLDEN);
+            assert_eq!(decode_route_get(&buf[..n]).unwrap(), name);
+        }
+
+        #[test]
         fn route_get_roundtrip() {
             let name = b"vfsd";
             let mut buf = [0u8; 32];
             let n = encode_route_get(name, &mut buf).expect("encode");
             assert_eq!(decode_route_get(&buf[..n]).unwrap(), name);
+        }
+
+        #[test]
+        fn route_rsp_golden() {
+            let frame = encode_route_rsp(STATUS_OK, 0x1122_3344, 0xAABB_CCDD);
+            const GOLDEN: [u8; 13] = [
+                b'R', b'T', 1, 0x41, 0, // status OK
+                0x44, 0x33, 0x22, 0x11, // send_slot LE
+                0xDD, 0xCC, 0xBB, 0xAA, // recv_slot LE
+            ];
+            assert_eq!(frame, GOLDEN);
+            let (status, send, recv) = decode_route_rsp(&frame).unwrap();
+            assert_eq!(status, STATUS_OK);
+            assert_eq!(send, 0x1122_3344);
+            assert_eq!(recv, 0xAABB_CCDD);
         }
 
         #[test]
@@ -251,6 +402,29 @@ pub mod bundlemgrd {
         }
         Some((status, &frame[9..]))
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn list_req_golden() {
+            let mut req = [0u8; 4];
+            encode_list(&mut req);
+            const GOLDEN: [u8; 4] = [b'B', b'N', 1, 1];
+            assert_eq!(req, GOLDEN);
+            assert_eq!(decode_request_op(&req).unwrap(), OP_LIST);
+        }
+
+        #[test]
+        fn fetch_image_req_golden() {
+            let mut req = [0u8; 4];
+            encode_fetch_image(&mut req);
+            const GOLDEN: [u8; 4] = [b'B', b'N', 1, 3];
+            assert_eq!(req, GOLDEN);
+            assert_eq!(decode_request_op(&req).unwrap(), OP_FETCH_IMAGE);
+        }
+    }
 }
 
 /// Read-only bundle image format used in OS bring-up (served by bundlemgrd, consumed by packagefsd).
@@ -326,6 +500,43 @@ pub mod bundleimg {
             kind,
             data,
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        // Golden image used by bring-up (mirrors bundlemgrd os-lite image):
+        // NXBI v1 with one entry: system@1.0.0/build.prop => "ro.nexus.build=dev\n"
+        const GOLDEN_IMG: &[u8] = &[
+            b'N', b'X', b'B', b'I', 1, 1, 0, // magic + version + count=1
+            6, b's', b'y', b's', b't', b'e', b'm', // bundle "system"
+            5, b'1', b'.', b'0', b'.', b'0', // version "1.0.0"
+            10, 0, b'b', b'u', b'i', b'l', b'd', b'.', b'p', b'r', b'o', b'p', // path len=10 + "build.prop"
+            0, 0, // kind=KIND_FILE
+            19, 0, 0, 0, // data_len=19
+            b'r', b'o', b'.', b'n', b'e', b'x', b'u', b's', b'.', b'b', b'u', b'i', b'l', b'd', b'=', b'd',
+            b'e', b'v', b'\n',
+        ];
+
+        #[test]
+        fn header_golden() {
+            let (count, off) = decode_header(GOLDEN_IMG).unwrap();
+            assert_eq!(count, 1);
+            assert_eq!(off, 7);
+        }
+
+        #[test]
+        fn entry_golden() {
+            let (_count, mut off) = decode_header(GOLDEN_IMG).unwrap();
+            let e = decode_next(GOLDEN_IMG, &mut off).unwrap();
+            assert_eq!(e.bundle, b"system");
+            assert_eq!(e.version, b"1.0.0");
+            assert_eq!(e.path, b"build.prop");
+            assert_eq!(e.kind, KIND_FILE);
+            assert_eq!(e.data, b"ro.nexus.build=dev\n");
+            assert_eq!(off, GOLDEN_IMG.len());
+        }
     }
 }
 
@@ -706,6 +917,57 @@ pub mod policyd {
         use super::*;
 
         #[test]
+        fn route_v3_id_golden() {
+            let mut buf = [0u8; 32];
+            let n = encode_route_v3_id(0x11223344, 0x0102_0304_0506_0708, 0xA0A1_A2A3_A4A5_A6A7, &mut buf).unwrap();
+            const GOLDEN: [u8; 24] = [
+                b'P', b'O', 3, 2, // magic + ver + OP_ROUTE
+                0x44, 0x33, 0x22, 0x11, // nonce LE
+                0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, // requester_id LE
+                0xA7, 0xA6, 0xA5, 0xA4, 0xA3, 0xA2, 0xA1, 0xA0, // target_id LE
+            ];
+            assert_eq!(&buf[..n], &GOLDEN);
+            let (nonce, req, tgt) = decode_route_v3_id(&buf[..n]).unwrap();
+            assert_eq!(nonce, 0x11223344);
+            assert_eq!(req, 0x0102_0304_0506_0708);
+            assert_eq!(tgt, 0xA0A1_A2A3_A4A5_A6A7);
+        }
+
+        #[test]
+        fn exec_v3_id_golden() {
+            let mut buf = [0u8; 32];
+            let n = encode_exec_v3_id(0x01020304, 0x1122_3344_5566_7788, 9, &mut buf).unwrap();
+            const GOLDEN: [u8; 17] = [
+                b'P', b'O', 3, 3, // magic + ver + OP_EXEC
+                0x04, 0x03, 0x02, 0x01, // nonce LE
+                0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // requester_id LE
+                9, // image_id
+            ];
+            assert_eq!(&buf[..n], &GOLDEN);
+            let (nonce, req, img) = decode_exec_v3_id(&buf[..n]).unwrap();
+            assert_eq!(nonce, 0x01020304);
+            assert_eq!(req, 0x1122_3344_5566_7788);
+            assert_eq!(img, 9);
+        }
+
+        #[test]
+        fn rsp_v3_golden() {
+            let frame = encode_rsp_v3(OP_ROUTE, 0xAABBCCDD, STATUS_DENY);
+            const GOLDEN: [u8; 10] = [
+                b'P', b'O', 3, (2 | 0x80),
+                0xDD, 0xCC, 0xBB, 0xAA,
+                1, // STATUS_DENY
+                0,
+            ];
+            assert_eq!(frame, GOLDEN);
+            let (ver, op, nonce, status) = decode_rsp_v2_or_v3(&frame).unwrap();
+            assert_eq!(ver, VERSION_V3);
+            assert_eq!(op, OP_ROUTE);
+            assert_eq!(nonce, 0xAABBCCDD);
+            assert_eq!(status, STATUS_DENY);
+        }
+
+        #[test]
         fn route_v2_roundtrip() {
             let mut buf = [0u8; 128];
             let n = encode_route_v2(0x12345678, b"bundlemgrd", b"execd", &mut buf).unwrap();
@@ -923,7 +1185,10 @@ pub fn ipc_recv_v1(
 }
 
 /// IPC recv v2 descriptor (extensible ABI for recv-side metadata).
-#[cfg(nexus_env = "os")]
+///
+/// This struct is part of the **kernel/userspace syscall ABI** and is therefore treated as
+/// layout-stable. Host builds keep the definition available so we can run layout tests without
+/// needing an OS test runner.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct IpcRecvV2Desc {
@@ -951,6 +1216,11 @@ pub struct IpcRecvV2Desc {
     pub deadline_ns: u64,
 }
 
+/// `IpcRecvV2Desc` magic (`'N''X''I''2'`).
+pub const IPC_RECV_V2_DESC_MAGIC: u32 = 0x4E_58_49_32;
+/// `IpcRecvV2Desc` version.
+pub const IPC_RECV_V2_DESC_VERSION: u32 = 1;
+
 /// Receives an IPC message and additionally returns the sender's kernel-derived service identity.
 ///
 /// This is a descriptor-based syscall (v2) so we can extend metadata without being limited by
@@ -967,11 +1237,9 @@ pub fn ipc_recv_v2(
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_IPC_RECV_V2: usize = 26;
-        const MAGIC: u32 = 0x4E_58_49_32; // 'N''X''I''2'
-        const VERSION: u32 = 1;
         let desc = IpcRecvV2Desc {
-            magic: MAGIC,
-            version: VERSION,
+            magic: IPC_RECV_V2_DESC_MAGIC,
+            version: IPC_RECV_V2_DESC_VERSION,
             slot: slot as u32,
             _pad0: 0,
             header_out_ptr: header_out as *mut MsgHeader as u64,
@@ -1750,7 +2018,7 @@ unsafe fn ecall6(
 
 #[cfg(test)]
 mod tests {
-    use super::MsgHeader;
+    use super::{IpcRecvV2Desc, MsgHeader};
     use core::mem::{align_of, size_of};
 
     #[test]
@@ -1760,8 +2028,47 @@ mod tests {
     }
 
     #[test]
+    fn header_golden_vector() {
+        // Inline golden vector (LE):
+        // src=0x01020304, dst=0x11223344, ty=0x5566, flags=0x7788, len=0x99aabbcc
+        const VECTOR: [u8; 16] = [
+            0x04, 0x03, 0x02, 0x01, 0x44, 0x33, 0x22, 0x11, 0x66, 0x55, 0x88, 0x77, 0xCC, 0xBB,
+            0xAA, 0x99,
+        ];
+        let header = MsgHeader::new(0x0102_0304, 0x1122_3344, 0x5566, 0x7788, 0x99aa_bbcc);
+        assert_eq!(
+            header.to_le_bytes(),
+            VECTOR,
+            "golden vector out of date; expected bytes: {:02x?}",
+            header.to_le_bytes()
+        );
+        assert_eq!(MsgHeader::from_le_bytes(VECTOR), header);
+    }
+
+    #[test]
     fn round_trip() {
         let header = MsgHeader::new(1, 2, 3, 4, 5);
         assert_eq!(header, MsgHeader::from_le_bytes(header.to_le_bytes()));
+    }
+
+    #[test]
+    fn recv_v2_desc_layout() {
+        use core::mem::offset_of;
+
+        assert_eq!(size_of::<IpcRecvV2Desc>(), 64);
+        assert_eq!(align_of::<IpcRecvV2Desc>(), 8);
+
+        // Offsets are part of the descriptor ABI contract.
+        assert_eq!(offset_of!(IpcRecvV2Desc, magic), 0);
+        assert_eq!(offset_of!(IpcRecvV2Desc, version), 4);
+        assert_eq!(offset_of!(IpcRecvV2Desc, slot), 8);
+        assert_eq!(offset_of!(IpcRecvV2Desc, _pad0), 12);
+        assert_eq!(offset_of!(IpcRecvV2Desc, header_out_ptr), 16);
+        assert_eq!(offset_of!(IpcRecvV2Desc, payload_out_ptr), 24);
+        assert_eq!(offset_of!(IpcRecvV2Desc, payload_out_max), 32);
+        assert_eq!(offset_of!(IpcRecvV2Desc, sender_service_id_out_ptr), 40);
+        assert_eq!(offset_of!(IpcRecvV2Desc, sys_flags), 48);
+        assert_eq!(offset_of!(IpcRecvV2Desc, _pad1), 52);
+        assert_eq!(offset_of!(IpcRecvV2Desc, deadline_ns), 56);
     }
 }

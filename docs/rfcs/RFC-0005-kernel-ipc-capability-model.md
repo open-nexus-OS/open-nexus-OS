@@ -43,9 +43,69 @@ Items here should be backed by either kernel selftests, QEMU markers, or unit te
   - [ ] Apply channel-bound identity checks to all security-critical service protocols (eliminate “trust requester string/id” patterns everywhere)
   - [ ] Document (and/or enforce) init-lite “proxy authority” rules as a first-class concept (not ad-hoc service-name allowlist)
 
+### Identity-binding inventory (snapshot)
+
+This table is a **bring-up checklist** to ensure no security-critical protocol trusts requester identity inside payload bytes.
+For each protocol we record where identity comes from:
+
+- **Channel-bound**: caller identity is derived from `sender_service_id` returned by `ipc_recv_v2` (`KernelServer::recv_with_header_meta`).
+- **No requester fields**: protocol does not carry requester identity; authority is the endpoint capability and policy gating (where applicable).
+- **Proxy**: init-lite may act as a privileged proxy; this must be explicit and narrowly scoped.
+
+| Component / protocol | Status | Identity rule |
+| --- | --- | --- |
+| `execd` os-lite (EX v1) | ✅ | **Channel-bound**: requester bytes are display-only; enforce `service_id_from_name(requester) == sender_service_id`. |
+| `policyd` os-lite (PO v1/v2/v3) | ✅ | **Channel-bound** (except init-lite proxy): reject spoofed requester (v1/v2) or mismatch `requester_id` (v3). |
+| init-lite exec-check proxy (`policy::OP_EXEC_CHECK`) | ✅ | **Proxy**: accept only on `execd`’s private control channel; payload requester is non-authoritative. |
+| `samgrd` os-lite (SM v1) | ✅ | **Channel-scoped registry**: registrations/lookups are namespaced by `sender_service_id` (no ambient poisoning). |
+| `keystored` os-lite shim (KS v1) | ✅ (bring-up floor) | **Channel-scoped store**: keys are scoped by `sender_service_id` (not a full policy model). |
+| `bundlemgrd` os-lite (BN v1) | ✅ | **No requester fields**: bring-up protocol; decisions rely on policyd gating where applicable (route-status proof). |
+| `packagefsd` os-lite | ✅ | **No requester fields**: serve bundle entries; authority is service endpoint capability. |
+| `vfsd` os-lite | ✅ | **No requester fields**: serve VFS ops; authority is service endpoint capability (future policy/rights apply). |
+
 - **IPC production-grade**
-  - [ ] Stress/soak + fuzz: randomized send/recv/CAP_MOVE/close/exit sequences (no deadlocks, no leaks, no starvation)
-  - [ ] Fairness policy documented (FIFO is implemented; define starvation bounds or QoS behavior)
+  - [ ] Stress/soak + fuzz (partial):
+    - [x] Deterministic soak mix exists (`SELFTEST: ipc soak ok`) and exercises send/recv/CAP_MOVE/clone/close/timeout/spawn+wait.
+    - [x] Host deterministic state-machine stress exists (kernel router invariants): `ipc::tests::state_machine_fuzz_router_invariants_deterministic`
+    - [ ] True fuzz/state-machine exploration still pending (more coverage across close/exit/CAP_MOVE failure edges + longer runs).
+  - [x] Fairness policy documented (FIFO is implemented; starvation bound/QoS beyond per-endpoint FIFO remains an open question)
+
+### Fairness policy (current) + regression proofs
+
+Current kernel policy (Phase 2):
+
+- **Wait queues are FIFO** per endpoint, for both `recv_waiters` and `send_waiters`.
+- **No duplicate waiters**: a task is not enqueued twice in the same waiter queue.
+
+Proof / regression coverage (today):
+
+- **Host unit tests** (kernel router):
+  - `ipc::tests::recv_waiters_are_fifo_and_deduped`
+  - `ipc::tests::send_waiters_are_fifo_and_deduped`
+- **QEMU E2E** (userspace stress mix, bounded + deterministic):
+  - `SELFTEST: ipc soak ok` exercises mixed send/recv, CAP_MOVE reply routing, cap_clone/cap_close churn, deadline timeouts, and repeated execd spawn/wait.
+
+Open question (still tracked as “missing” above):
+
+- Define an explicit starvation bound / QoS rule for multi-endpoint contention (beyond FIFO within a single endpoint), and add a targeted proof once the scheduler QoS policy is finalized.
+
+### Cap-table-full behaviour (contract + proofs)
+
+Contract (Phase 2):
+
+- **`cap_clone`**:
+  - If the destination (caller) cap table has no free slots, return **`CapError::NoSpace`** (mapped to `ENOSPC`).
+- **`cap_transfer`**:
+  - If the destination (child) cap table has no free slots, return **`TransferError::Capability(CapError::NoSpace)`** (mapped to `ENOSPC`).
+- **IPC `CAP_MOVE` receive**:
+  - If the receiver cannot allocate a slot for the moved cap, `ipc_recv_v1` returns **`IpcError::NoSpace`** (`ENOSPC`) and the message is **re-queued** (not lost); retry after freeing a slot must succeed.
+
+Proof (today):
+
+- Host kernel tests:
+  - `syscall::api::tests::cap_clone_returns_no_space_when_table_full`
+  - `syscall::api::tests::cap_transfer_returns_no_space_when_child_table_full`
+  - `syscall::api::tests::ipc_v1_cap_move_recv_no_space_requeues_message`
 
 ### ABI freeze (compat guarantee) — required before “Complete”
 
@@ -55,6 +115,42 @@ Items here should be backed by either kernel selftests, QEMU markers, or unit te
 
 - **Userspace API**
   - [ ] “Blessed” request/reply patterns (ReplyCap / CAP_MOVE) documented as the recommended style, with service migrations tracked
+
+### ABI Freeze Plan (proposed, Phase 2 → “ABI freeze” gate)
+
+We do **not** declare ABI freeze until the following surfaces are explicitly listed as stable *and* have tests that fail on accidental change.
+
+#### What is frozen (“stable ABI surface”)
+
+- **Syscall ID numbers** for:
+  - IPC v1: `SYSCALL_IPC_SEND_V1`, `SYSCALL_IPC_RECV_V1`
+  - IPC recv v2: `SYSCALL_IPC_RECV_V2`
+  - Capability primitives used by IPC flows: `SYSCALL_CAP_TRANSFER`, `SYSCALL_CAP_CLOSE`, `SYSCALL_CAP_CLONE`
+  - Endpoint lifecycle: `SYSCALL_IPC_ENDPOINT_CREATE*`, `SYSCALL_IPC_ENDPOINT_CLOSE`
+- **IPC header ABI**:
+  - `MsgHeader` / `MessageHeader`: **16 bytes**, `repr(C, align(4))`, little-endian field encoding
+  - `CAP_MOVE` flag semantics (consume-on-send, allocate-on-recv, rollback-safe)
+- **Recv-side metadata ABI**:
+  - `IpcRecvV2Desc` layout: `repr(C)`, **64 bytes**, fixed offsets, `magic='NXI2'`, `version=1`
+  - `sender_service_id` returned via out-pointer is authoritative identity, not payload-provided requester fields
+- **Bring-up on-wire protocol frames** (byte-level stable, versioned):
+  - `routing` v1 (`RT` magic, versioned)
+  - `policyd` v2/v3 frames (`PO` magic, versioned; v3 uses ids)
+  - `bundlemgrd` v1 (`BN` magic, versioned)
+  - `bundleimg` v1 (`NXBI` image format, versioned)
+
+#### What is explicitly NOT frozen yet
+
+- Phase‑2+ extensions that add new metadata fields, new capability kinds, new rights splits (e.g. MAP→READ/WRITE), or generalized revocation.
+- Any “host backend emulation” behavior that is not part of the OS build meaning.
+
+#### ABI freeze tests (“must fail on change”)
+
+- **Struct/layout tests** (host-run):
+  - `source/libs/nexus-abi`: `MsgHeader` golden bytes + `IpcRecvV2Desc` size/offsets tests.
+- **Golden vectors for on-wire frames** (host-run):
+  - Inline byte vectors for `routing` v1, `policyd` v2/v3, `bundlemgrd` v1, and `bundleimg` v1.
+  - These should be “compat tests” and must not be replaced with only encode/decode roundtrips.
 
 ## Context
 
