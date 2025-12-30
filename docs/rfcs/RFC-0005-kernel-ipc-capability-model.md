@@ -1,22 +1,23 @@
 # RFC-0005: Kernel IPC & Capability Model
 
-- Status: In Progress (Phase 0/1 complete; Phase 2 in progress; ABI freeze pending)
+- Status: Complete (contract seed; future extensions tracked in tasks)
 - Owners: Runtime + Kernel Team
 - Created: 2025-12-18
-- Last Updated: 2025-12-22
+- Last Updated: 2025-12-30
 
 ## Status at a Glance
 
 - **Phase 0 (Kernel IPC v1 + bring-up floor)**: Complete ✅
 - **Phase 1 (Bootstrap + proto stabilization)**: Complete ✅
-- **Phase 2 (Hardening + lifecycle)**: In progress ✅ (major items implemented; remaining “production-grade” gaps listed below)
-- **ABI freeze (compat guarantee)**: Not yet declared (we keep the versioned/descriptor patterns, but do not promise “never change” yet)
+- **Phase 2 (Hardening + lifecycle)**: Complete ✅ (bring-up hardening floor)
+- **ABI freeze (compat guarantee)**: Deferred (we have compat tests for the claimed stable surfaces; formal freeze declaration is task-driven)
 
 Definition:
 
-- In this RFC, “Phase 0 complete” means: kernel IPC v1 syscalls work end-to-end, `userspace/nexus-ipc`
-  is wired to the kernel backend, init-lite routing responder works, and the marker-driven QEMU E2E
-  run is honest green.
+- This RFC is “Complete” when the **contract seed** is stable and non-drifting:
+  - kernel IPC + capability semantics are defined in one place,
+  - error model + identity-binding rules are explicit,
+  - and any further work is tracked in tasks (execution truth) rather than as drifting narrative inside the contract.
 
 Phase 2 note:
 
@@ -28,93 +29,26 @@ Phase 2 note:
   - `ipc_endpoint_close(slot)`: requires `Rights::MANAGE` on an endpoint capability and performs a
     **global close** (revocation-by-close), waking blocked waiters.
 
-## What’s still missing (to call RFC‑0005 “Complete”)
+## Normative contract (design seed)
 
-This section lists the remaining work to go from “bring-up complete” to “production-grade complete”.
-Items here should be backed by either kernel selftests, QEMU markers, or unit tests.
+This section is the **normative** contract seed for kernel IPC and capabilities. It should be
+stable in intent and wording, and must not drift with day-to-day implementation progress.
 
-### Phase 2 (Hardening) — remaining gaps
+Execution truth:
 
-- **Capability lifecycle**
-  - [ ] Cap revocation beyond “close endpoint”: define and implement a general revocation story (if needed), or explicitly scope it out
-  - [ ] Clarify/lock “cap table full” behavior across all syscalls that allocate caps (clone/recv/CAP_MOVE)
+- Concrete progress, remaining gaps, and proof checklists live in tasks (`tasks/TASK-*.md`).
+- This RFC defines the contract; tasks implement and prove it.
 
-- **Identity binding completeness**
-  - [ ] Apply channel-bound identity checks to all security-critical service protocols (eliminate “trust requester string/id” patterns everywhere)
-  - [ ] Document (and/or enforce) init-lite “proxy authority” rules as a first-class concept (not ad-hoc service-name allowlist)
+If you are looking for “what’s still missing / what’s next”, see **Appendix A (non‑normative)**.
 
-### Identity-binding inventory (snapshot)
+### Extension policy (anti-drift, required for future tasks)
 
-This table is a **bring-up checklist** to ensure no security-critical protocol trusts requester identity inside payload bytes.
-For each protocol we record where identity comes from:
+Any task that needs IPC/capability changes MUST follow these rules:
 
-- **Channel-bound**: caller identity is derived from `sender_service_id` returned by `ipc_recv_v2` (`KernelServer::recv_with_header_meta`).
-- **No requester fields**: protocol does not carry requester identity; authority is the endpoint capability and policy gating (where applicable).
-- **Proxy**: init-lite may act as a privileged proxy; this must be explicit and narrowly scoped.
-
-| Component / protocol | Status | Identity rule |
-| --- | --- | --- |
-| `execd` os-lite (EX v1) | ✅ | **Channel-bound**: requester bytes are display-only; enforce `service_id_from_name(requester) == sender_service_id`. |
-| `policyd` os-lite (PO v1/v2/v3) | ✅ | **Channel-bound** (except init-lite proxy): reject spoofed requester (v1/v2) or mismatch `requester_id` (v3). |
-| init-lite exec-check proxy (`policy::OP_EXEC_CHECK`) | ✅ | **Proxy**: accept only on `execd`’s private control channel; payload requester is non-authoritative. |
-| `samgrd` os-lite (SM v1) | ✅ | **Channel-scoped registry**: registrations/lookups are namespaced by `sender_service_id` (no ambient poisoning). |
-| `keystored` os-lite shim (KS v1) | ✅ (bring-up floor) | **Channel-scoped store**: keys are scoped by `sender_service_id` (not a full policy model). |
-| `bundlemgrd` os-lite (BN v1) | ✅ | **No requester fields**: bring-up protocol; decisions rely on policyd gating where applicable (route-status proof). |
-| `packagefsd` os-lite | ✅ | **No requester fields**: serve bundle entries; authority is service endpoint capability. |
-| `vfsd` os-lite | ✅ | **No requester fields**: serve VFS ops; authority is service endpoint capability (future policy/rights apply). |
-
-- **IPC production-grade**
-  - [ ] Stress/soak + fuzz (partial):
-    - [x] Deterministic soak mix exists (`SELFTEST: ipc soak ok`) and exercises send/recv/CAP_MOVE/clone/close/timeout/spawn+wait.
-    - [x] Host deterministic state-machine stress exists (kernel router invariants): `ipc::tests::state_machine_fuzz_router_invariants_deterministic`
-    - [ ] True fuzz/state-machine exploration still pending (more coverage across close/exit/CAP_MOVE failure edges + longer runs).
-  - [x] Fairness policy documented (FIFO is implemented; starvation bound/QoS beyond per-endpoint FIFO remains an open question)
-
-### Fairness policy (current) + regression proofs
-
-Current kernel policy (Phase 2):
-
-- **Wait queues are FIFO** per endpoint, for both `recv_waiters` and `send_waiters`.
-- **No duplicate waiters**: a task is not enqueued twice in the same waiter queue.
-
-Proof / regression coverage (today):
-
-- **Host unit tests** (kernel router):
-  - `ipc::tests::recv_waiters_are_fifo_and_deduped`
-  - `ipc::tests::send_waiters_are_fifo_and_deduped`
-- **QEMU E2E** (userspace stress mix, bounded + deterministic):
-  - `SELFTEST: ipc soak ok` exercises mixed send/recv, CAP_MOVE reply routing, cap_clone/cap_close churn, deadline timeouts, and repeated execd spawn/wait.
-
-Open question (still tracked as “missing” above):
-
-- Define an explicit starvation bound / QoS rule for multi-endpoint contention (beyond FIFO within a single endpoint), and add a targeted proof once the scheduler QoS policy is finalized.
-
-### Cap-table-full behaviour (contract + proofs)
-
-Contract (Phase 2):
-
-- **`cap_clone`**:
-  - If the destination (caller) cap table has no free slots, return **`CapError::NoSpace`** (mapped to `ENOSPC`).
-- **`cap_transfer`**:
-  - If the destination (child) cap table has no free slots, return **`TransferError::Capability(CapError::NoSpace)`** (mapped to `ENOSPC`).
-- **IPC `CAP_MOVE` receive**:
-  - If the receiver cannot allocate a slot for the moved cap, `ipc_recv_v1` returns **`IpcError::NoSpace`** (`ENOSPC`) and the message is **re-queued** (not lost); retry after freeing a slot must succeed.
-
-Proof (today):
-
-- Host kernel tests:
-  - `syscall::api::tests::cap_clone_returns_no_space_when_table_full`
-  - `syscall::api::tests::cap_transfer_returns_no_space_when_child_table_full`
-  - `syscall::api::tests::ipc_v1_cap_move_recv_no_space_requeues_message`
-
-### ABI freeze (compat guarantee) — required before “Complete”
-
-- **Syscall ABI**
-  - [ ] Publish a stable ABI contract: what is frozen, what is versioned, and what can evolve
-  - [ ] Golden vectors / compatibility tests for all on-wire frames we claim stable (routing v*, policyd v*, execd v1, bundleimg v1)
-
-- **Userspace API**
-  - [ ] “Blessed” request/reply patterns (ReplyCap / CAP_MOVE) documented as the recommended style, with service migrations tracked
+- **No ad-hoc contracts**: do not introduce new “secret” wire formats in services without documenting them here (or in a referenced ADR) and versioning them.
+- **Versioned evolution**: add new fields/flags by versioning, never by silently changing existing layouts.
+- **Proof gate**: if a surface is claimed stable (syscall ABI, descriptor layout, on-wire frame), add/extend “must-fail-on-change” tests (layout + golden vectors).
+- **Identity binding**: security-critical protocols must derive requester identity from `sender_service_id` (or use an explicit, narrowly-scoped proxy rule).
 
 ### ABI Freeze Plan (proposed, Phase 2 → “ABI freeze” gate)
 
@@ -187,7 +121,42 @@ those RFCs too large and encourages drift. We need one stable, explicit contract
 - A generalized logging control plane (RFC-0003).
 - Long-term distributed IPC (out of scope; see distributed docs).
 
-## Roadmap (how we continue from here)
+## Scope boundaries (anti-drift) + TASK-0002 alignment
+
+RFC‑0005 is the **contract seed** for the kernel IPC + capability model that binds services together.
+To avoid “contract drift” across RFCs and tasks:
+
+- **RFC‑0005 owns**:
+  - IPC syscall semantics + ABI, including on-wire frame stability claims and ABI-freeze gates.
+  - Capability kinds/rights, transfer/clone/close behavior, and error mappings.
+  - Bootstrap patterns between `init-lite` and services (endpoint distribution, ReplyCap/CAP_MOVE patterns).
+  - Identity-binding rules for security-critical protocols (channel-bound `sender_service_id` and explicit proxy rules).
+- **RFC‑0005 explicitly does NOT own**:
+  - Process-per-service topology and the loader path (`exec`/`exec_v2`) → RFC‑0002.
+  - Loader/mapping security floor (W^X, provenance, zero-init, guard pages) → RFC‑0004.
+  - Logging control plane design beyond deterministic markers and guard visibility → RFC‑0003.
+  - Device/MMIO access model (virtio-blk, GPU, etc.), persistence/statefs, SMP bring-up, OOM, driver tracks → these live in `tasks/` and get their own RFCs only once the contracts are proven.
+
+### Relationship to tasks (execution truth)
+
+- Tasks (`tasks/TASK-*.md`) define **stop conditions + proof**.
+- This RFC defines the IPC/capability contract; tasks implement and prove it.
+
+### TASK-0002 (Userspace VFS Proof): boundary
+
+For TASK‑0002, RFC‑0005 is only required to provide:
+
+- enough IPC/capability semantics to run `packagefsd` + `vfsd` cross-process and prove VFS E2E markers via real IPC, and
+- enough identity-binding rules to prevent requester spoofing during bring-up.
+
+TASK‑0002 does **not** expand RFC‑0005 to cover:
+
+- SMP/bring-up (`TASK-0247`), virtio-blk MMIO access model (`TASK-0010`/`TASK-0246`), persistence/statefs (`TASK-0009`), or OOM (`TASK-0228`).
+
+## Non-normative roadmap (task-driven)
+
+This section is **not part of the contract**. It is a narrative guide; concrete plans, stop
+conditions, and proofs live in tasks (`tasks/TASK-*.md`).
 
 We implement RFC‑0005 in small, proofable increments. The guiding dependency chain is:
 
@@ -1108,10 +1077,102 @@ Criteria (when to consider message-attached handles later):
 - This keeps the kernel ABI stable across device classes and avoids baking “network semantics” into
   local IPC syscalls.
 
-## Appendix: Implementation checklist
+## Appendix A: Bring-up progress + proofs (non-normative, task-driven)
 
-This is a **dev-facing execution checklist** embedded here intentionally so RFC‑0005 remains a
-single file.
+This appendix is **not the contract**. Treat it as a snapshot that must stay aligned with the
+task planning docs (execution truth) but is allowed to evolve faster than the normative contract.
+
+### Remaining work (future extensions / hardening)
+
+This list tracks follow-up work beyond the current bring-up hardening floor.
+Items here should be backed by either kernel selftests, QEMU markers, or unit tests.
+
+#### Phase 2 (Hardening) — remaining gaps
+
+- **Capability lifecycle**
+  - [ ] Cap revocation beyond “close endpoint”: define and implement a general revocation story (if needed), or explicitly scope it out
+  - [x] Clarify/lock “cap table full” behavior across all syscalls that allocate caps (clone/recv/CAP_MOVE)
+
+- **Identity binding completeness**
+  - [x] Apply channel-bound identity checks to all security-critical service protocols (eliminate “trust requester string/id” patterns everywhere)
+  - [x] Document init-lite “proxy authority” rules as an explicit concept (narrow proxy rules; no ambient trust)
+
+- **IPC production-grade**
+  - [ ] Stress/soak + fuzz:
+    - [x] Deterministic soak mix exists (`SELFTEST: ipc soak ok`) and exercises send/recv/CAP_MOVE/clone/close/timeout/spawn+wait.
+    - [x] Host deterministic state-machine stress exists (kernel router invariants): `ipc::tests::state_machine_fuzz_router_invariants_deterministic`
+    - [ ] True fuzz/state-machine exploration still pending (more coverage across close/exit/CAP_MOVE failure edges + longer runs).
+  - [x] Fairness policy documented (FIFO is implemented; starvation bound/QoS beyond per-endpoint FIFO remains an open question)
+
+#### Identity-binding inventory (snapshot)
+
+This table is a bring-up checklist to ensure no security-critical protocol trusts requester identity inside payload bytes.
+For each protocol we record where identity comes from:
+
+- **Channel-bound**: caller identity is derived from `sender_service_id` returned by `ipc_recv_v2` (`KernelServer::recv_with_header_meta`).
+- **No requester fields**: protocol does not carry requester identity; authority is the endpoint capability and policy gating (where applicable).
+- **Proxy**: init-lite may act as a privileged proxy; this must be explicit and narrowly scoped.
+
+| Component / protocol | Status | Identity rule |
+| --- | --- | --- |
+| `execd` os-lite (EX v1) | ✅ | **Channel-bound**: requester bytes are display-only; enforce `service_id_from_name(requester) == sender_service_id`. |
+| `policyd` os-lite (PO v1/v2/v3) | ✅ | **Channel-bound** (except init-lite proxy): reject spoofed requester (v1/v2) or mismatch `requester_id` (v3). |
+| init-lite exec-check proxy (`policy::OP_EXEC_CHECK`) | ✅ | **Proxy**: accept only on `execd`’s private control channel; payload requester is non-authoritative. |
+| `samgrd` os-lite (SM v1) | ✅ | **Channel-scoped registry**: registrations/lookups are namespaced by `sender_service_id` (no ambient poisoning). |
+| `keystored` os-lite shim (KS v1) | ✅ (bring-up floor) | **Channel-scoped store**: keys are scoped by `sender_service_id` (not a full policy model). |
+| `bundlemgrd` os-lite (BN v1) | ✅ | **No requester fields**: bring-up protocol; decisions rely on policyd gating where applicable (route-status proof). |
+| `packagefsd` os-lite | ✅ | **No requester fields**: serve bundle entries; authority is service endpoint capability. |
+| `vfsd` os-lite | ✅ | **No requester fields**: serve VFS ops; authority is service endpoint capability (future policy/rights apply). |
+
+#### Fairness policy (current) + regression proofs
+
+Current kernel policy (Phase 2):
+
+- **Wait queues are FIFO** per endpoint, for both `recv_waiters` and `send_waiters`.
+- **No duplicate waiters**: a task is not enqueued twice in the same waiter queue.
+
+Proof / regression coverage (today):
+
+- **Host unit tests** (kernel router):
+  - `ipc::tests::recv_waiters_are_fifo_and_deduped`
+  - `ipc::tests::send_waiters_are_fifo_and_deduped`
+- **QEMU E2E** (userspace stress mix, bounded + deterministic):
+  - `SELFTEST: ipc soak ok` exercises mixed send/recv, CAP_MOVE reply routing, cap_clone/cap_close churn, deadline timeouts, and repeated execd spawn/wait.
+
+Open question:
+
+- Define an explicit starvation bound / QoS rule for multi-endpoint contention (beyond FIFO within a single endpoint), and add a targeted proof once the scheduler QoS policy is finalized.
+
+#### Cap-table-full behaviour (contract + proofs)
+
+Contract (Phase 2):
+
+- **`cap_clone`**:
+  - If the destination (caller) cap table has no free slots, return **`CapError::NoSpace`** (mapped to `ENOSPC`).
+- **`cap_transfer`**:
+  - If the destination (child) cap table has no free slots, return **`TransferError::Capability(CapError::NoSpace)`** (mapped to `ENOSPC`).
+- **IPC `CAP_MOVE` receive**:
+  - If the receiver cannot allocate a slot for the moved cap, `ipc_recv_v1` returns **`IpcError::NoSpace`** (`ENOSPC`) and the message is **re-queued** (not lost); retry after freeing a slot must succeed.
+
+Proof (today):
+
+- Host kernel tests:
+  - `syscall::api::tests::cap_clone_returns_no_space_when_table_full`
+  - `syscall::api::tests::cap_transfer_returns_no_space_when_child_table_full`
+  - `syscall::api::tests::ipc_v1_cap_move_recv_no_space_requeues_message`
+
+#### ABI freeze (compat guarantee) — future tightening
+
+- **Syscall ABI**
+  - [x] Publish a stable ABI surface list (what is frozen, what is versioned, what can evolve)
+  - [x] Golden vectors / compatibility tests for the on-wire frames we claim stable (routing v1, policyd v2/v3, execd v1, bundlemgrd v1, bundleimg v1)
+
+- **Userspace API**
+  - [x] “Blessed” request/reply patterns (ReplyCap / CAP_MOVE) are documented as the recommended style
+
+### Implementation checklist (snapshot)
+
+This is a dev-facing execution checklist embedded here intentionally so RFC‑0005 remains a single file.
 
 ### Kernel (neuron)
 

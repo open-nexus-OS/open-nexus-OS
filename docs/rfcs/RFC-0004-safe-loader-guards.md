@@ -1,14 +1,14 @@
 # RFC-0004: Loader Safety & Shared-Page Guards
 
-- Status: Phase 0 Complete (Security Floor; maintenance ongoing); Phase 1/2 Deferred
+- Status: Complete (Security Floor + Diagnostics; deferred enhancements out of scope)
 - Authors: Runtime Team
-- Last Updated: 2025-12-19
+- Last Updated: 2025-12-30
 
 ## Status at a Glance
 
 - **Phase 0 (Security Floor)**: Complete ✅
 - **Phase 1 (Runtime Diagnostics)**: Complete ✅
-- **Phase 2 (Deferred Enhancements)**: Not started (optional; deferred)
+- **Phase 2 (Deferred Enhancements)**: Deferred (optional; out of scope for “complete”)
 
 Definition:
 
@@ -74,6 +74,24 @@ relies on, and crash diagnostics can trust pointer provenance.
   routing (tracked in RFC-0003).
 - Defining the kernel IPC and capability semantics for services (tracked in RFC-0005).
   This RFC focuses on loader/mapping/guard safety and provenance constraints that IPC must obey.
+
+## Scope boundary (anti-drift) + TASK-0002 note
+
+RFC‑0004 defines the **loader security floor** (W^X, zero-init, provenance, guard VMAs) and how it is proven.
+
+- **RFC‑0004 owns**: loader/mapping/guard invariants and their proofs (unit tests + `KSELFTEST` markers).
+- **RFC‑0004 does NOT own**:
+  - process-per-service topology and init/service roles (RFC‑0002),
+  - IPC/capability semantics or on-wire protocols (RFC‑0005),
+  - logging control plane beyond what is required to make guard failures visible (RFC‑0003),
+  - unrelated bring-up tasks (SMP/virtio/persistence/oom/etc).
+
+TASK‑0002 (Userspace VFS Proof) depends on RFC‑0004 only insofar as the loader must remain safe while spawning many services.
+
+### Relationship to tasks (execution truth)
+
+- Tasks (`tasks/TASK-*.md`) define **stop conditions + proof**.
+- This RFC defines the loader/guard contract; tasks implement and prove it.
 
 ## Implementation Plan
 
@@ -150,8 +168,8 @@ relies on, and crash diagnostics can trust pointer provenance.
       if they have no gaps).
   As the loader moves into a kernel `exec` path, these invariants remain
   requirements for the kernel implementation.
-- Phase 1: Not started (optional diagnostics).
-- Phase 2: Not started.
+- Phase 1: **Complete.** Trap-time diagnostics attribute guard faults deterministically during bring-up.
+- Phase 2: Deferred (optional enhancements; tracked as tasks if/when needed).
 
 ### Hybrid Guard Instrumentation (2025-11-29)
 
@@ -187,11 +205,9 @@ been retired; the relevant bits remain in the kernel loader:
 - Manual trap-review: verify trap dumps now identify guard failures
   explicitly once Phase 1 is implemented.
 
-## Open Questions
+## Checklist (complete)
 
-- Should the scratch page be unmapped between service loads to catch
-  remaining references eagerly?
-- Do we want to introduce a dedicated loader capability type for metadata
-  VMOs, or is documenting the provenance sufficient for now?
-- How should we expose guard failures to higher level tooling
-  (e.g. integrate with the planned logging control plane in RFC-0003)?
+- [x] Loader security floor is defined as a small set of invariants with explicit proofs (unit tests and/or `KSELFTEST` markers).
+- [x] W^X, zero-init, and user-pointer guard behavior is covered by deterministic proofs.
+- [x] Guard pages / provenance rules are documented and attributable in diagnostics.
+- [x] Deferred enhancements are explicitly non-blocking and tracked as tasks if they become necessary.
