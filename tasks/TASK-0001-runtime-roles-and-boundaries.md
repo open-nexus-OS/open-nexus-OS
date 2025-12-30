@@ -1,6 +1,6 @@
 ---
 title: TASK-0001 Runtime roles & boundaries (Host + OS-lite): init/execd/loader single-authority, deprecations, and proof locks
-status: In Progress
+status: Done
 owner: @init-team @runtime
 created: 2025-10-23
 links:
@@ -25,7 +25,7 @@ Repo reality (audit snapshot):
 - `nexus-init` selects `std_server` vs `os_lite` (bring-up path).
 - OS-lite bootstrap spawns services and emits init markers (`init: up <svc>`) with cooperative yields.
 - `execd` already uses `userspace/nexus-loader` (`OsMapper`, `StackBuilder`) under `nexus_env="os"`.
-- Kernel `user_loader` still contains ELF mapping logic (duplicate behavior relative to userspace loader).
+- Kernel loader behavior is owned by kernel `exec` / `exec_v2` (see RFC‑0002/RFC‑0004); do not reintroduce a parallel “userspace real loader” path.
 - `apps/init-lite` duplicates the init role and is being deprecated/wrapped.
 
 ## Goal
@@ -67,7 +67,7 @@ Establish and enforce a single-authority runtime model:
   - `source/init/nexus-init/src/lib.rs`
   - `source/services/execd/src/std_server.rs` and `source/services/execd/src/os_lite.rs`
   - `userspace/nexus-loader/src/lib.rs`
-  - `source/kernel/neuron/src/user_loader.rs`
+  - kernel `exec`/`exec_v2` path (see RFC‑0002/RFC‑0004)
 - **VFS proof contract**: `tasks/TASK-0002-userspace-vfs-proof.md`
 
 ## Stop conditions (Definition of Done)
@@ -109,8 +109,8 @@ Notes:
 
 ## Evidence (to paste into PR)
 
-- Tests: `cargo test --workspace` summary
-- QEMU: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` + `uart.log` tail showing init/service readiness markers
+- Tests: `cargo test --workspace` (Exit 0)
+- QEMU: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (Exit 0)
 
 ## RFC seeds (for later, when the step is complete)
 

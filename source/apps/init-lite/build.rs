@@ -22,9 +22,20 @@ fn main() {
     let out = path_buf_from_env("OUT_DIR");
     let dst = out.join("link.ld");
     std::fs::copy("link.ld", &dst).expect("copy link.ld");
-    println!("cargo:rustc-link-arg=-T{}", dst.display());
-    println!("cargo:rustc-check-cfg=cfg(nexus_env, values(\"os\"))");
-    println!("cargo:rustc-cfg=nexus_env=\"os\"");
+    // IMPORTANT:
+    // init-lite is an OS-only binary; however, `cargo test --workspace` builds and *runs* a host
+    // test harness for every bin target. If we pass an OS linker script on the host, the binary
+    // can be linked at invalid addresses and crash at runtime (SIGSEGV).
+    //
+    // So: only apply OS-only linker/config when we are actually building the OS target.
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let is_os_target = target_arch == "riscv64" && target_os == "none";
+    if is_os_target {
+        println!("cargo:rustc-link-arg=-T{}", dst.display());
+        println!("cargo:rustc-check-cfg=cfg(nexus_env, values(\"os\"))");
+        println!("cargo:rustc-cfg=nexus_env=\"os\"");
+    }
     println!("cargo:rerun-if-env-changed=INIT_LITE_LOG_TOPICS");
     match std::env::var("INIT_LITE_LOG_TOPICS") {
         Ok(spec) => println!("cargo::rustc-env=INIT_LITE_LOG_TOPICS={spec}"),
