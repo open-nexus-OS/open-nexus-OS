@@ -53,9 +53,10 @@ Deliver:
 ## Non-Goals
 
 - Kernel changes.
-- UI document picker and “Open With…” UI (v11c).
+- UI document picker and "Open With…" UI (v11c).
 - Thumbnail generation (v11b).
 - Full cloud integration (demo-cloud is a deterministic stub only).
+- Durable write semantics (atomic create/replace, temp+commit, fsync barriers) or crash-recovery (handled by `TASK-0264`/`TASK-0265` as an extension; this task focuses on content provider API with stream handles).
 
 ## Constraints / invariants (hard requirements)
 

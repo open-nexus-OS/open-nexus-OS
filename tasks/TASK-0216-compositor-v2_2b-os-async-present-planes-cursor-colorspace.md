@@ -119,3 +119,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, plane planning, async present queue behavior, cursor plane markers, and colorspace toggles are proven deterministically via selftest markers.
+

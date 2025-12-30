@@ -11,6 +11,7 @@ links:
   - Renderer abstraction (Scene-IR + cpu2d goldens): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - Renderer OS wiring (windowd): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - L10n/font fallback (optional for text): tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
+  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -74,6 +75,9 @@ Follow-up note (v1.1 features):
 
 - Determinism: stable output DOM IR and stable Scene-IR rendering results.
 - Bounded parsing: cap input bytes, cap nodes, cap CSS tokens.
+- Parallelism (optional):
+  - sanitizer/control renderer may use internal worker threads for parsing/transform passes, but must follow `TASK-0276`:
+    deterministic partitioning, canonical output ordering, bounded queues, and proofs that `workers=1` vs `workers=N` outputs match.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points (track explicitly)

@@ -86,3 +86,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove localhost UDP discovery under devnet; OS remains honest and loopback-only unless networking is unblocked.
+

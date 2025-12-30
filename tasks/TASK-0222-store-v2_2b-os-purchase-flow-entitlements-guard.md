@@ -120,3 +120,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, trial/buy/refund/parental flows are proven deterministically via selftests; paid SKU install is denied without entitlement and allowed with it.
+

@@ -13,6 +13,7 @@ links:
   - Policy as Code (permissions): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Logging/audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - UI v1a renderer: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -58,6 +59,7 @@ Deliver:
 - Real display output or virtio-gpu integration.
 - Real input routing and focus (stubs only in v1).
 - A full plugin ABI system (v1 can keep it simple).
+- Simplefb framebuffer output (handled by `TASK-0250`/`TASK-0251` as an extension; this task focuses on headless present with VMO buffers).
 
 ## Constraints / invariants (hard requirements)
 
@@ -71,6 +73,9 @@ Deliver:
   - cap pixel dimensions and total bytes.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - Deterministic markers in QEMU.
+- Parallelism (optional):
+  - `windowd` may later parallelize composition/raster work (e.g. tiles), but must follow `TASK-0276`
+    (fixed workers, deterministic partitioning, canonical merge order, bounded queues, proof parity workers=1 vs N).
 
 ## Red flags / decision points
 

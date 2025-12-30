@@ -146,3 +146,4 @@ Once OS prerequisites exist, extend `scripts/qemu-test.sh` with:
 - VMO bulk backfill once:
   - VMO sharing is proven (TASK-0031) and
   - mux v2 can carry bulk descriptors safely (TASK-0020 extension).
+

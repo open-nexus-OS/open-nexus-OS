@@ -12,6 +12,7 @@ links:
   - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Config broker (budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy as Code (limits): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -27,6 +28,12 @@ The core is compositor-side work reduction:
 - present pacing + basic perf markers (jank/idle mode switches).
 
 This is v4a: compositor perf foundation. Gestures and accessibility semantics live in v4b (`TASK-0061`).
+
+Parallelism note (non-ideological):
+
+- v4a does not require worker threads, but its **tile partitioning** is the canonical hookpoint for safe parallelism later.
+- If/when parallel tile raster is introduced, it must follow `TASK-0276`:
+  deterministic partitioning + canonical merge order + bounded queues + proofs (`workers=1` vs `workers=N` outputs match).
 
 ## Goal
 

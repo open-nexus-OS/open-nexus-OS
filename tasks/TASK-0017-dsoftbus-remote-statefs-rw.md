@@ -98,3 +98,4 @@ Prove in QEMU:
    - emit audit record for PUT/DEL.
 3. Implement client lib + host tests.
 4. Add OS selftest: `SELFTEST: remote statefs rw ok`.
+

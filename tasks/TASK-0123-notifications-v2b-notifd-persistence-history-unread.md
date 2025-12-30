@@ -97,3 +97,4 @@ UART markers include at least:
 1. notifd: model + IDL (or on-wire contract) + markers
 2. persistence: channels + history ring (JSONL) with bounds
 3. unread counts + host tests
+

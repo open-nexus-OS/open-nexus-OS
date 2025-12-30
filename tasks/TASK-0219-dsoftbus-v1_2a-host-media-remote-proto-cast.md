@@ -101,3 +101,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove media remote discovery/control, transfer, group sync, and share fallback.
+

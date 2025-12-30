@@ -58,6 +58,7 @@ Deliver:
 - Kernel changes.
 - Capability enforcement beyond recording/registration (sandboxing/enforcement is separate work).
 - Full multi-asset bundles unless/until NXB contract expands beyond `manifest.nxb` + `payload.elf`.
+- Atomic A/B activation per app, SemVer migrations, or licensed entitlement gates (handled by `TASK-0238`/`TASK-0239`).
 
 ## Constraints / invariants (hard requirements)
 

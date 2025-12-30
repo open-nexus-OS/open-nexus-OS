@@ -58,6 +58,7 @@ Deliver:
 - Kernel changes.
 - Introducing a zip-based `.nxb` contract.
 - Full asset packaging (`assets/**`, `lib/**`) unless the repo explicitly revives multi-file bundles (separate task).
+- Alternative bundle format names (use NXB only; see `TASK-0238`).
 
 ## Constraints / invariants (hard requirements)
 

@@ -128,3 +128,4 @@ Once statefs exists, selftest proves:
 
 5. **Docs**
    - Document this as OTA v2 userspace state machine with “bootchain integration pending”.
+

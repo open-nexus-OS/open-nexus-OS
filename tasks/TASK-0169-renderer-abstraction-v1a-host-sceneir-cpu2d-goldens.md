@@ -12,6 +12,7 @@ links:
   - Text stack integration contract: tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
   - L10n/i18n + font fallback core: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
   - Perf tracer (optional host hooks): tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -86,6 +87,9 @@ Font fallback note:
   - fixed pixel format pipeline (v1 chooses one canonical format; document it)
   - explicit rounding rules and integer math where feasible
   - no host filesystem ordering dependence in tests
+- Parallelism (optional):
+  - cpu2d may later use internal worker threads (e.g. tile/scanline partitioning), but must follow `TASK-0276`
+    (fixed workers, deterministic partitioning, canonical reduction, workers=1 vs N output equivalence proofs).
 - Bounded memory and node limits.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 

@@ -6,6 +6,7 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - IME/text-input plumbing baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - Later IME candidate UI/OSK: tasks/TASK-0096-ui-v15c-ime-candidate-ui-osk.md
   - Policy focus guards (future): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -27,8 +28,11 @@ Repo reality today:
   and keymaps into a dedicated, testable slice.
 - Full CJK engines, shaping/bidi, and rich candidate UI are deferred (follow-up tasks).
 - There is an existing placeholder service crate at `source/services/ime/` that currently prints `ime: ready`
-  and performs a trivial uppercase transform. IME v2 tasks standardize on `imed`; the placeholder must be
-  retired or renamed to avoid parallel IME daemons and marker drift.
+  and performs a trivial uppercase transform. IME v2 standardizes on **`imed` as the canonical IME authority**
+  (see `tasks/TRACK-AUTHORITY-NAMING.md`). The placeholder must be retired, renamed, or turned into a thin shim
+  to avoid parallel IME daemons and marker drift.
+  - Repo reality closure: the first IME v2 implementation step is to **rename/replace** `source/services/ime/`
+    to `source/services/imed/` so authority + markers match the registry.
 
 ## Goal
 
@@ -55,6 +59,7 @@ Deliver:
 - Full IME engines (JP/KR/ZH), dictionaries, or language models (Part 2).
 - Full shaping/bidi/line breaking (Part 2).
 - On-screen keyboard UI (Part 1b).
+- Low-level input device drivers (HID/touch) or input event pipeline (handled by `TASK-0252`/`TASK-0253`; this task focuses on IME keymaps for IME engine).
 
 ## Constraints / invariants (hard requirements)
 

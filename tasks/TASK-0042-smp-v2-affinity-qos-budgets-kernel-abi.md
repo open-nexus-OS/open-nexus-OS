@@ -88,3 +88,4 @@ With SMP enabled (TASK-0012), provide:
 3. Userspace: `execd` reads `recipes/sched/*.toml` and applies hints on spawn.
 4. Kernel: make scheduler consult fields in a minimal, testable way.
 5. Selftest: coarse ratio tests (shares) and placement assertions (affinity).
+

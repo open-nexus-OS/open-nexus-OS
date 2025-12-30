@@ -25,6 +25,36 @@ DSL v0.2 adds “real app mechanics” on top of v0.1:
 This task (v0.2a) focuses on language + IR + interpreter runtime foundations. Service-call stubs and the
 master-detail demo app are handled in v0.2b (`TASK-0078`).
 
+## Device/profile environment contract (v0.2a)
+
+To support “one DSL across phone/tablet/desktop/TV/auto/foldable” deterministically, the runtime exposes a small,
+read-only device environment. Host tests provide fixtures; OS wiring provides real values later.
+
+Expose (read-only):
+
+- `device.profile`: enum `{ phone, tablet, desktop, tv, auto, foldable }`
+- `device.posture`: enum `{ flat, half_fold, tent, book }` (optional; only valid when `profile==foldable`)
+- `device.sizeClass`: enum `{ compact, regular, wide }`
+- `device.dpiClass`: enum `{ low, normal, high }`
+- `device.input`: flags `{ touch, mouse, kbd, remote, rotary }`
+
+## Profile overrides (path-based; no auto-import)
+
+Tooling may support *deterministic* profile overrides via a fixed resolution order (no globbing at runtime):
+
+- If present, `ui/platform/<profile>/pages/<Page>.nx` overrides `ui/pages/<Page>.nx`
+- If present, `ui/platform/<profile>/components/<Comp>.nx` overrides `ui/components/<Comp>.nx`
+- Otherwise, fall back to the base file.
+
+Override resolution must be:
+
+- deterministic (fixed precedence; no filesystem iteration order dependence),
+- explicit (missing override falls back cleanly),
+- linted (ambiguity/conflicts are errors).
+
+Inline branching (`@when device.profile==... { ... }`) is allowed, but must lower to deterministic IR with bounded
+branch evaluation (no hidden time-based switching).
+
 ## Goal
 
 Deliver:
@@ -46,6 +76,7 @@ Deliver:
    - store runtime: dispatch → reduce → schedule effects (effect steps are abstract in v0.2a)
    - navigation runtime: history push/replace/back, param parsing, subtree mount/unmount
    - i18n runtime: locale packs loader + `t(key)` lookup + locale switch signal
+   - device env runtime: fixture-backed on host; plumbed from OS later
    - markers:
      - `dsl: store runtime on`
      - `dsl: nav runtime on`
@@ -77,14 +108,17 @@ Deliver:
 - store runtime: dispatch event updates state deterministically
 - navigation runtime: route push/params parse/replace/back behavior deterministic
 - i18n: required_keys extracted from IR; locale switch updates `t(key)` values deterministically (host fixture packs)
+- device env: `device.profile` fixture changes branch selection deterministically (no layout/IR drift beyond the intended variant)
 
 ## Touched paths (allowlist)
 
 - `userspace/dsl/nx_syntax/` (extend)
 - `userspace/dsl/nx_ir/` (extend)
 - `userspace/dsl/nx_interp/` (extend: store/nav/i18n runtimes)
+- `userspace/dsl/nx_env/` (new or in `nx_interp`: device env types + host fixtures)
 - `tests/dsl_v0_2a_host/` (new)
 - `docs/dsl/state.md` + `docs/dsl/navigation.md` + `docs/dsl/i18n.md` (new/extend)
+- `docs/dsl/profiles.md` (new: device env + override resolution rules)
 
 ## Plan (small PRs)
 

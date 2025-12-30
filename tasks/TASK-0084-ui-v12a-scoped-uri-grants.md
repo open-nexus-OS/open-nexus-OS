@@ -24,6 +24,11 @@ The security boundary is userspace:
 
 This is v12a (grants + enforcement). File operations/trash and the Files app are v12b/v12c.
 
+Terminology note:
+
+- Some prompts refer to these flows as “SAF” (Storage Access Framework). In this repo, SAF is a **UX flow label**
+  over `docpicker` + `grantsd` + `contentd` enforcement; we do not introduce a separate “saf*” daemon.
+
 ## Goal
 
 Deliver:
@@ -56,6 +61,9 @@ Deliver:
 - Bounded state:
   - cap number of stored grants per subject,
   - cap token length and URI length.
+- Authority clarity:
+  - `grantsd` issues and persists grants; `contentd` enforces at open boundaries.
+  - Do not add a second grants DB inside `contentd`.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)

@@ -42,6 +42,10 @@ Deliver:
    - generated API: `mount_<page>(...) -> ViewRootHandle`
    - router generation for routes
    - marker string: `dsl: aot codegen on`
+   - profile semantics:
+     - AOT must preserve the same `device.*` environment contract as interpreter mode (`TASK-0077`)
+     - if IR contains `@when device.*` branches, codegen must emit deterministic branch evaluation and must not
+       change behavior between interpreter and AOT (goldens prove parity)
 3. Incremental rebuilds & tree-shaking:
    - content hashes per module
    - stable file paths per component/page
@@ -55,7 +59,7 @@ Deliver:
    - marker: `dsl: assets embedded (svg=<n> locales=<m>)`
 5. `nx dsl` CLI upgrades (host-first):
    - `nx dsl build <appdir> --aot [--release]`
-   - `nx dsl run <appdir> --aot ...` (headless run)
+   - `nx dsl run <appdir> --aot ... --profile ...` (headless run)
    - `nx dsl watch <appdir> --aot` (fs notify loop)
    - structured outputs under `target/nxir/`
 6. Host tests for determinism and incremental behavior (no QEMU):
@@ -92,6 +96,7 @@ Deliver:
 - incremental: single-leaf change regenerates only expected module(s)
 - tree-shaking: removing a route increases “shaken” count and drops generated modules
 - assets: hash mismatch makes `build.rs` fail deterministically
+- parity: for a fixture app/page, interpreter snapshot and AOT snapshot match for the same `{locale, profile}` inputs
 
 ## Touched paths (allowlist)
 

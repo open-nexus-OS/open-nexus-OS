@@ -84,3 +84,4 @@ Deliver:
 1. fileopsd core (copy/move/rename/mkdir) + progress + markers
 2. trashd core + sidecar format + markers
 3. integrate fileopsd trash/restore + host tests + docs
+

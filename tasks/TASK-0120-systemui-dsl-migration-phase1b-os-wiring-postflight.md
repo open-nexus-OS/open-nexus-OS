@@ -36,6 +36,9 @@ Deliver:
    - `nx dsl build --systemui` (interp default)
    - `nx dsl watch --systemui`
    - optional `--aot` wiring once codegen is present
+   - profile wiring:
+     - SystemUI passes a stable `device.profile` into the DSL runtime (from platform detection; deterministic in QEMU fixtures)
+     - host tests and QEMU selftests may force `profile=desktop|tv` via fixtures to keep proofs deterministic
 3. OS selftests:
    - wait for mount markers
    - open an app from DSL Launcher and confirm app launch marker

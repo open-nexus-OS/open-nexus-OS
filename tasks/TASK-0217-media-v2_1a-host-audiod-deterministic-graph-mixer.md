@@ -60,7 +60,8 @@ Deliver:
 
 - Kernel changes.
 - Real ALSA/JACK output.
-- “Perfect” psychoacoustic correctness; this is a deterministic stub engine.
+- "Perfect" psychoacoustic correctness; this is a deterministic stub engine.
+- I²S/codec device layer stubs or mediasessiond hooks (handled by `TASK-0254`/`TASK-0255` as an extension; this task focuses on session/graph based mixer).
 
 ## Constraints / invariants (hard requirements)
 

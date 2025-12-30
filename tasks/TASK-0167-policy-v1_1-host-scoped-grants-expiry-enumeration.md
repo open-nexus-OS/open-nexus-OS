@@ -111,3 +111,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests prove scoped grants + expiry + enumeration/revocation deterministically.
+

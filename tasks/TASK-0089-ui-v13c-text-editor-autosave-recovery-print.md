@@ -90,3 +90,4 @@ UART markers:
 2. autosave/recovery + host tests
 3. clipboard v3 paste handling + print integration
 4. docs
+

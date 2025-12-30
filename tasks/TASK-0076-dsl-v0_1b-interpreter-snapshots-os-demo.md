@@ -37,6 +37,10 @@ Deliver:
 2. `nx dsl snapshot`:
    - render headless scenes via interpreter into PNGs
    - store under `target/nxir/snapshots/`
+   - allow deterministic “device env” fixtures (profile/sizeClass/dpi) so the same page can be snapshotted as:
+     - `profile=desktop` (baseline),
+     - `profile=tv` (10-foot scaling),
+     - `profile=foldable` (posture variants, if used).
 3. Example app `dsl_hello`:
    - a page with a TextField, cards/grid, and one button
    - demonstrates state binding and a computed signal
@@ -67,6 +71,7 @@ Deliver:
 
 - IR → interpreter snapshot PNGs match goldens (pixel-exact preferred; SSIM threshold if needed and documented)
 - two-way binding: simulated TextField input updates state and causes deterministic re-render
+- profile fixtures: at least one page produces stable goldens across two profiles (e.g. desktop vs tv)
 
 ### Proof (OS/QEMU) — gated
 

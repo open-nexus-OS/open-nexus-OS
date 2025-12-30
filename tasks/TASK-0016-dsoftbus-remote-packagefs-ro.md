@@ -97,3 +97,4 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
    - emit `dsoftbusd: remote packagefs served` on first successful request.
 3. Implement client lib and host tests.
 4. Add OS selftest marker: `SELFTEST: remote pkgfs read ok`.
+

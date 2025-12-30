@@ -134,3 +134,4 @@ Deliver:
 
 - Host tests prove deterministic NBK behavior; OS/QEMU selftests prove create/verify/restore/retention markers.
 - Any missing dependencies (`/state`, keystored seal/unseal) are handled explicitly without “ok” markers.
+

@@ -104,3 +104,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Developers can run `nx sdk doctor` and `nx sdk new app ...` and get a compiling project deterministically.
+

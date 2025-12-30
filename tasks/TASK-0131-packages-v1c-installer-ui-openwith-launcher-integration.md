@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - bundlemgrd install pipeline: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - Installer v1.1 (atomic A/B, migrations, entitlements): tasks/TASK-0238-installer-v1_1a-host-nab-semver-migrations-policy-deterministic.md, tasks/TASK-0239-installer-v1_1b-os-pkgr-atomic-ab-bundlemgr-registry-licensed-selftests.md
   - MIME/Open-With + picker: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - Files app integration: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
   - SystemUI→DSL migration: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md

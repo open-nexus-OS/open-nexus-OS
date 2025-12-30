@@ -24,6 +24,11 @@ This task introduces **true enforcement** in the NEURON kernel syscall entry pat
 
 This is kernel work by design.
 
+Related planning:
+
+- If we want policy-authored sysfilter profiles compiled into a compact, OS-friendly artifact (rather than hand-coded tables),
+  that snapshot output is tracked in `TASK-0229` (must not introduce a parallel policy authority).
+
 ## Goal
 
 Deliver:

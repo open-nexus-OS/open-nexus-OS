@@ -114,3 +114,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - CI can run deterministic perf scenarios and fail with stable summaries when budgets are exceeded.
+

@@ -69,3 +69,4 @@ Deliver:
 1. implement WAV + Vorbis + resampler + tests
 2. implement GIF/APNG/MJPEG + tests
 3. docs + marker
+

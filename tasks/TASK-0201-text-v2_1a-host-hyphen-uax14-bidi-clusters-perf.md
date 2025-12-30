@@ -91,3 +91,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove hyphenation, line breaks, bidi runs, and cluster safety for emoji ZWJ.
+

@@ -112,3 +112,4 @@ Deliver, host-first:
 
 - Host tests deterministically prove lifecycle + non-exportable use.
 - No OS/QEMU markers are claimed in this task.
+

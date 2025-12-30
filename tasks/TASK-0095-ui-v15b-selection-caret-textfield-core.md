@@ -81,3 +81,4 @@ UART markers:
 1. textedit_core engine + host tests
 2. TextField integration + context menu + markers
 3. docs and OS selftest hook (later tasks use it)
+

@@ -102,3 +102,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, semantic-lite reindex/query/tag filtering/hybrid explain behaviors are proven deterministically via selftest markers.
+

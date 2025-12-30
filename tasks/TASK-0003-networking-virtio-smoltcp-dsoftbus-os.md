@@ -48,6 +48,7 @@ Boot in QEMU and prove:
 - DHCP, DNS, mDNS, routing robustness, congestion control tuning.
 - Multi-device discovery across multiple QEMU VMs (future step).
 - Offline simulated network control-plane (netcfgd/dnsd/timesyncd) — tracked separately as `TASK-0138`/`TASK-0139`.
+- Lightweight DHCP stub or loopback-only networking (handled by `TASK-0248`/`TASK-0249` as a bring-up alternative).
 
 ## Constraints / invariants (hard requirements)
 

@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
+  - Kernel SMP/parallelism policy (normative): tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
   - Depends-on (orientation): tasks/TASK-0011-kernel-simplification-phase-a.md
   - Testing contract: scripts/qemu-test.sh
 ---
@@ -38,12 +39,14 @@ Boot with SMP enabled (e.g. QEMU `-smp 2`) and prove:
 - QoS ABI and userland QoS policy (handled in TASK-0013).
 - Interrupt-driven virtio; polling is fine.
 - Advanced load balancing / fairness / starvation guarantees beyond simple stealing.
+- RISC-V-specific SBI HSM/IPI or per-hart timer programming (handled by `TASK-0247` as an extension).
 
 ## Constraints / invariants (hard requirements)
 
 - Preserve existing single-hart behavior when SMP=1.
 - Deterministic markers for boot + selftests.
 - Avoid unbounded logging and debug-only flood.
+- SMP implementation must follow the kernel parallelism policy `TASK-0277` (ownership model, lock rules, deterministic invariant proofs).
 
 ## Red flags / decision points
 

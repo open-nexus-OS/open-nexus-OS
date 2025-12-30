@@ -91,3 +91,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU (when unblocked), selftest proves install + launch of a signed local bundle without any host tooling.
+

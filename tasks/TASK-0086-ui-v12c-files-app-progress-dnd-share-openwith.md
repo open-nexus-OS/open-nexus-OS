@@ -30,6 +30,9 @@ Deliver:
    - breadcrumbs and search (delegates to `contentd.query`)
    - grid/list view with thumbnails via `thumbd`
    - multi-select and actions toolbar (new folder, rename, delete→trash, restore, open-with, share)
+   - polish views (v1.2):
+     - Home (curated roots), Recent (from `recentsd`), Downloads/Pictures (provider-backed folders), Trash (from `trashd`)
+     - info pane shows bounded metadata (uri, mime, size, modified) and active grant presence (if any)
 2. Operations + progress UI:
    - background queue via `fileopsd` and progress drawer with cancel
 3. Scoped grants UX:

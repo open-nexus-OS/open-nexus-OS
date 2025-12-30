@@ -100,3 +100,4 @@ UART markers:
 2. Greeter login flow + session switch wiring + markers
 3. Accounts app + keychain UI + markers
 4. Selftests + postflight + docs
+

@@ -56,6 +56,7 @@ Deliver:
 - Kernel changes.
 - Real display output and GPU acceleration.
 - Full present scheduler / fences semantics beyond v1 (tracked in UI v2+ tasks).
+- Simplefb framebuffer backend (handled by `TASK-0250`/`TASK-0251` as an extension; this task focuses on headless present with VMO buffers).
 
 ## Constraints / invariants (hard requirements)
 

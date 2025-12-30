@@ -105,3 +105,8 @@ UART markers (order tolerant):
 3. notifd + SystemUI toast host + rate limiting + markers
 4. demo app `notes` + launcher WM binding (minimal)
 5. tests + OS selftest + docs + postflight
+
+## Follow-ups
+
+- Ability/Lifecycle v1.1 (backoff/crash-loop/kill reasons/FG-BG policies): `TASK-0234` (host-first) and `TASK-0235` (OS extension of appmgrd).
+

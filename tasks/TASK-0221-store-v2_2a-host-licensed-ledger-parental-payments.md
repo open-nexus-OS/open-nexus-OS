@@ -115,3 +115,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove trial/purchase/refund/revocation/parental behaviors and stable verification outcomes.
+

@@ -126,3 +126,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU (when unblocked by SecureFS + /state), IME personalization adapts deterministically and export/import/toggle are proven by selftest markers.
+

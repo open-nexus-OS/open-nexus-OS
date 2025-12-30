@@ -156,3 +156,4 @@ Notes:
 
 6. **Docs**
    - Threat model: what this does and does not protect against under “kernel unchanged”.
+

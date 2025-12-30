@@ -35,6 +35,7 @@ Prove in QEMU:
 
 - Perfect energy model or advanced QoS policies.
 - Replacing all sleeps in the system (only a few call sites + selftest proof).
+- Power governor, wake locks, or app standby (handled by `TASK-0236`/`TASK-0237`; `timed` provides coalescing only).
 
 ## Constraints / invariants (hard requirements)
 

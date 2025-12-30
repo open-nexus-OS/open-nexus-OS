@@ -12,6 +12,7 @@ links:
   - Search v2 UI execution (OS): tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
   - Config broker: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Quotas model (for later OS persistence): tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -85,6 +86,9 @@ Deliver:
 
 - Deterministic behavior across runs given the same fixtures and injected time.
 - Bounded memory usage: caps on docs per kind, token lengths, and posting lists.
+- Parallelism (optional):
+  - indexing/reindex may use worker threads (e.g. shard-by-doc-id) if it follows `TASK-0276`:
+    deterministic sharding, canonical merge order, bounded queues, and proofs that outputs match for `workers=1` vs `workers=N`.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - No fake success markers: do not emit “query ok” markers unless query actually ran.
 

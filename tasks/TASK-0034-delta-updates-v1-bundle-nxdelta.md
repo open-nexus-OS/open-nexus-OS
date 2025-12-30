@@ -145,3 +145,4 @@ Notes:
 
 - System-set delta container + updated orchestration (see TASK-0035).
 - VMO fast path for apply once VMO sharing/transfer is proven.
+

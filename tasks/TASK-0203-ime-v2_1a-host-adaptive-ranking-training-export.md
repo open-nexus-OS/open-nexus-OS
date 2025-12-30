@@ -106,3 +106,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove adaptive ranking, training updates, forget semantics, export/import, and quota eviction.
+

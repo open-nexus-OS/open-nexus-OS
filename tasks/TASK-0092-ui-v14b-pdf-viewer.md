@@ -86,3 +86,4 @@ UART markers:
 1. pdf app skeleton + open + page nav + markers
 2. find/highlight via text-map helper + host tests
 3. export/share + Open With wiring + docs
+

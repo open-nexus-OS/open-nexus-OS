@@ -114,3 +114,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, store/updater accept valid fixtures and deterministically reject tampered/downgrade fixtures with no partial writes.
+

@@ -96,3 +96,4 @@ UART markers:
 2. commands + undo/redo + clipboard paste mapping
 3. app + autosave + export html/pdf
 4. tests + docs
+

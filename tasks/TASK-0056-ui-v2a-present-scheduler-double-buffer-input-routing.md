@@ -56,6 +56,7 @@ Deliver:
 - Kernel changes.
 - Text shaping and SVG (v2b).
 - Real HW vsync; v2 uses a timer-driven vsync spine.
+- Low-level input device drivers (HID/touch) or input event pipeline (handled by `TASK-0252`/`TASK-0253`; this task focuses on input routing within windowd).
 
 ## Constraints / invariants (hard requirements)
 

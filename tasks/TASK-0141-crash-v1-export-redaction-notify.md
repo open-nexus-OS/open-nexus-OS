@@ -66,6 +66,11 @@ Deliver:
 - Multi-report bundling (can be a follow-up once single-report export is stable).
 - Full UI (handled by `TASK-0142`).
 
+Related follow-up:
+
+- Deterministic “bugreport bundles” and `nx diagnose` orchestration are planned in `TASK-0227`
+  (reuses `.nxcd.zst`; no new crash formats).
+
 ## Constraints / invariants (hard requirements)
 
 - Offline-only: no network egress.

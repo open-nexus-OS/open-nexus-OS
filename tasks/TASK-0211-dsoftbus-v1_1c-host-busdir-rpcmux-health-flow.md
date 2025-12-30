@@ -111,3 +111,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove directory/watch, RPC mux parallelism, keepalive health transitions, and bounded flow-control behavior.
+

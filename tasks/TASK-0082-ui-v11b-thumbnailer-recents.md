@@ -11,6 +11,7 @@ links:
   - Theme/text baseline (TXT thumbnail): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
 ---
 
 ## Context
@@ -55,6 +56,9 @@ Deliver:
 - Strict budgets and bounded decode:
   - cap max input bytes read from stream,
   - cap max pixels produced.
+- Parallelism (optional):
+  - `thumbd` may use internal worker threads for parallel decode/raster, but must follow `TASK-0276`:
+    fixed worker count, bounded job queue, deterministic output equivalence `workers=1` vs `workers=N`.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)

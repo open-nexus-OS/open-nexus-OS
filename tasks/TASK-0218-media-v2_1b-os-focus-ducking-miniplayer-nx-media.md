@@ -123,3 +123,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, deterministic audio stub + focus/ducking + per-app volume/mute are proven via selftest markers and audiod metrics.
+

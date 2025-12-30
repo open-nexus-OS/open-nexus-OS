@@ -140,3 +140,4 @@ Update `docs/distributed/dsoftbus-transport.md`:
 - define `udp-sec` transport kind and selection policy (`auto|udp-sec|tcp`),
 - PMTU/timeout defaults,
 - security caveats (RNG requirement, key derivation).
+

@@ -120,3 +120,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, WebView proves history/find/CSP strict and file chooser returns resolvable content:// URIs deterministically.
+

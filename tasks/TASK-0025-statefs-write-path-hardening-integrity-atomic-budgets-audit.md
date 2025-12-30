@@ -148,3 +148,4 @@ Notes:
 - `docs/storage/statefs.md`: envelope format, atomic semantics, budgets, error codes.
 - `docs/security/abi-filters.md`: best practices for allowlisting state prefixes (StatePutAtomic).
 - `docs/testing/index.md`: run host tests and interpret OS markers once enabled.
+

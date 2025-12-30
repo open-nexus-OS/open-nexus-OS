@@ -96,3 +96,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove swapchain/fence ordering, pacing, and HiDPI mapping semantics.
+

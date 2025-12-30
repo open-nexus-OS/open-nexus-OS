@@ -126,3 +126,4 @@ Deliver:
 
 - In QEMU, localSim pairing + msg stream roundtrip + byte stream transfer are proven by selftest markers.
 - Any missing dependencies (`/state`, `permsd`) are handled explicitly with `stub/placeholder` behavior and do not produce “ok” markers.
+

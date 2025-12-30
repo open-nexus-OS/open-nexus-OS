@@ -112,3 +112,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, Media Remote discovery/control/transfer/group/disconnect are proven deterministically in loopback mode via selftest markers.
+

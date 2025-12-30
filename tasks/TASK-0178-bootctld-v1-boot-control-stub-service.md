@@ -94,3 +94,4 @@ Markers:
 ## Acceptance criteria (behavioral)
 
 - `bootctld` API is stable and deterministic; QEMU shows readiness and a bootctl API smoke-test marker.
+

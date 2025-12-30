@@ -42,6 +42,7 @@ Deliver:
 - Kernel changes.
 - Full repair and OTA workflow (TASK-0051).
 - Multi-user and networking in recovery (optional future).
+- Image flashing or provisioning (handled by `TASK-0260`/`TASK-0261` as an extension; this task focuses on boot target, minimal shell, and diagnostics).
 
 ## Constraints / invariants (hard requirements)
 

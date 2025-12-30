@@ -87,3 +87,4 @@ Once `/state` exists in QEMU and statefsd is real:
 2. Implement mount read-only view semantics
 3. Implement bounded GC/compaction triggers + markers
 4. Add host tests + docs + OS markers (gated)
+

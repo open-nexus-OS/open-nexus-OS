@@ -30,6 +30,10 @@ Deliver:
 1. SystemUI Document Picker overlay:
    - Open dialog (providers, breadcrumb, grid/list with thumbnails, MIME filter, search via `contentd.query`)
    - Save dialog (filename field, MIME selector, create via `contentd.create` then write to stream)
+   - Folder dialog (select folder) for “pick destination folder” flows (returns a folder URI)
+   - “Remember access” UX (gated on `/state`):
+     - checkbox requests a **persistable scoped grant** for the selected URI
+     - delegates to `grantsd` (see `TASK-0084`), and must not invent a parallel grant store
    - keyboard and basic gesture navigation
    - returns `(uri, mime)` to caller
    - markers:

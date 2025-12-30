@@ -43,6 +43,7 @@ Deliver:
 
 - Kernel changes.
 - Real ALSA/JACK output.
+- I²S/codec device layer stubs or mediasessiond hooks (handled by `TASK-0254`/`TASK-0255` as an extension; this task focuses on per-app stream mixer).
 
 ## Constraints / invariants
 

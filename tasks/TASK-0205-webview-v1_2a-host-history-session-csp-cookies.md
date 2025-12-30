@@ -99,3 +99,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove history/session/CSP export/cookie dev toggle behavior.
+

@@ -22,6 +22,14 @@ We want deterministic crash artifacts for userland processes:
 The prompt proposes execd capturing registers/stack of a dead child and symbolizing DWARF on-device.
 Given the current kernel/userspace ABI, that is not fully feasible without new kernel support.
 
+This repo also already has a v2 crash pipeline direction (`TASK-0048/0049`) and explicitly avoids
+format/tool drift. Therefore:
+
+- v1 here is intentionally minimal and does **not** introduce a new “NXMD” format name or a parallel
+  `libcrash`/`coredumpd` service plan.
+- Offline “bugreport bundle” orchestration is a follow-up (`TASK-0227`) and should reuse the crash
+  artifacts from v1/v2 rather than inventing a second container.
+
 ## Goal
 
 Provide a v1 crashdump pipeline that works **without kernel changes**:

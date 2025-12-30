@@ -120,3 +120,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, session switching and handoff behavior are proven deterministically; notification controls are proven only when notif actions are available.
+

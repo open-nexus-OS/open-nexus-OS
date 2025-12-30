@@ -99,3 +99,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host goldens and metrics prove that damage/occlusion/input routing work deterministically.
+

@@ -112,3 +112,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Running `ci/sdk_gates.sh` is deterministic and fails on any breaking v1 schema drift.
+

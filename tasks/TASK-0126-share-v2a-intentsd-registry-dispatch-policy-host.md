@@ -58,6 +58,7 @@ Deliver:
 - SystemUI chooser UI (follow-up).
 - Built-in targets/providers (follow-up).
 - App sender wiring and OS selftests/postflight (follow-up).
+- Ability lifecycle state machine (handled by `appmgrd` + `TASK-0234`/`TASK-0235`; `intentsd` only routes intents, not manages ability states).
 
 ## Constraints / invariants (hard requirements)
 

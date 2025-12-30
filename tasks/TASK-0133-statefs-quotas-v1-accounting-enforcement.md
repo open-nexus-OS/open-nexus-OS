@@ -77,3 +77,4 @@ Once `/state` and subject identity propagation exist:
 1. Decide enforcement point (statefsd vs contentd state provider vs vfsd namespace) and document tradeoffs
 2. Implement accounting + enforcement + markers
 3. Host tests + docs
+

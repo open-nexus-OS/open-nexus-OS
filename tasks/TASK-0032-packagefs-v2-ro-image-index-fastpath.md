@@ -138,3 +138,4 @@ Once OS can provide the image (via existing `bundlemgrd.fetch_image` or blk-back
 
 - VMO splice from package image (requires VMO transfer semantics and budgets).
 - blk-backed mount on OS once virtio-blk MMIO access exists (TASK-0010).
+

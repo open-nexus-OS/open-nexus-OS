@@ -90,6 +90,7 @@ Deliver:
 - Kernel changes.
 - Real external networking in OS/QEMU.
 - A full browser with tabs/history/download shelf UI (separate tasks).
+- Loopback/echo networking or DHCP stub (handled by `TASK-0248`/`TASK-0249` as a bring-up alternative; this task focuses on offline fixtures for webview).
 
 Follow-up:
 

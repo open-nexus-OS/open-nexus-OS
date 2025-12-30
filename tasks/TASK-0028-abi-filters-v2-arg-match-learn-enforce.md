@@ -151,3 +151,4 @@ Update `docs/security/abi-filters.md`:
 - v2 schema, precedence, determinism notes
 - learn vs enforce semantics (and why learn is not a policy)
 - generator workflow and best practices (tighten prefixes, avoid regex when possible).
+

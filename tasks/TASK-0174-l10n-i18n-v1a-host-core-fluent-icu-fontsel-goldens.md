@@ -67,6 +67,7 @@ Deliver:
 - Kernel changes.
 - Shipping full ICU datasets or full locale coverage (minimal set only).
 - Full RTL shaping correctness beyond the existing text stack plan (bidi/hit-test remains `TASK-0094/0148` scope).
+- Compiled catalog format (`.lc`) or ICU-lite (handled by `TASK-0240`/`TASK-0241` as a lightweight alternative).
 
 ## Constraints / invariants (hard requirements)
 

@@ -121,3 +121,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, Settings deep links work, settings entries are searchable and activate, and guided cards resolve deterministically.
+

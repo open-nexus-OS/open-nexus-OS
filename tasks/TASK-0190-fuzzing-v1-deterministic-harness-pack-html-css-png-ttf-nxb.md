@@ -24,6 +24,11 @@ We have multiple parser-heavy surfaces where memory safety and denial-of-service
 We want deterministic, offline fuzz *smoke* runs to catch panics and invariants violations early.
 This is host-only by design.
 
+Related planning:
+
+- Some security prompts require “fuzz gates” without external engines. For those surfaces we use deterministic corpus-driven tests
+  (plain `cargo test`) as a complement to `cargo-fuzz` smoke; tracked in `TASK-0231`.
+
 ## Goal
 
 Deliver:

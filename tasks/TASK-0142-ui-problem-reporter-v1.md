@@ -83,3 +83,4 @@ UART markers:
 1. UI skeleton (list/detail) + a11y + markers
 2. export wiring + notification deep-link
 3. host snapshots/tests + docs; OS markers once deps exist
+

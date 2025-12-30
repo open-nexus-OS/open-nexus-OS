@@ -80,6 +80,8 @@ Deliver Policy as Code v1 such that:
   - v1 can keep “guardrails” (ABI filters, vfsd enforcement) but they must consult the unified policy tree.
 - **YELLOW (schema format choice)**:
   - If we keep policy files as TOML, we still need a canonical intermediate representation (canonical JSON tree) for hashing and schema validation.
+  - Avoid introducing a parallel “YAML → JSON → bin” policy compiler as a separate authority. If we need a compact OS-friendly artifact,
+    it must be produced as a **snapshot output** of the same policy tree (tracked in `TASK-0229`).
 - **YELLOW (adapters migration)**:
   - Migration must be incremental: do not require converting all policies at once.
   - Each adapter must preserve existing behavior until the new evaluator proves parity.
@@ -141,6 +143,7 @@ Notes:
 - `tools/policy-gen/` (optional generator)
 - `tests/`
 - `docs/security/policy-as-code.md`
+ - Policy snapshot artifacts (stable JSON + compact binary) are a follow-up tracked in `TASK-0229`.
 
 ## Plan (small PRs)
 

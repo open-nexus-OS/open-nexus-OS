@@ -119,3 +119,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove signature-chain verification, translog inclusion checks, SBOM validation, and stable report outputs.
+

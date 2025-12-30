@@ -96,3 +96,4 @@ UART markers include:
 1. chooser overlay UI + markers
 2. clipboard/save/notes targets + registration + markers
 3. grants plumbing end-to-end + host tests
+

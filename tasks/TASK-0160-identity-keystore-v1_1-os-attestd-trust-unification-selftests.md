@@ -120,3 +120,4 @@ Deliver:
 
 - OS/QEMU selftests prove sign/rotate/seal/attest markers deterministically.
 - Trust store consumption is unified (one code path), and persistence is gated explicitly on `/state`.
+

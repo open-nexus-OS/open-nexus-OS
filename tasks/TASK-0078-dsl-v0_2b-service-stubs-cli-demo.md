@@ -12,6 +12,7 @@ links:
   - Search service (example stub target): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
   - App lifecycle launch (demo integration): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - Virtualized list (demo uses it if present): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
+  - DSL query objects (optional data ergonomics): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -30,7 +31,7 @@ Deliver:
    - mock mode for host tests
    - effect runner integration: `Call(ServiceFn)` with timeouts and error mapping
 2. `nx dsl` CLI upgrades:
-   - `nx dsl run <appdir> --route ... --locale ...` (headless run; OS mount optional)
+   - `nx dsl run <appdir> --route ... --locale ... --profile ...` (headless run; OS mount optional)
    - `nx dsl i18n extract <appdir> -o i18n/en.json`
    - stronger lint rules (reducers pure, routes unique, i18n coverage)
 3. Example app: `dsl_masterdetail`
@@ -48,6 +49,7 @@ Deliver:
 - Kernel changes.
 - Full codegen and schema-driven stub generation (manual stubs only in v0.2b).
 - Full service coverage.
+- DB query objects / paging tokens / lazy loading contract (tracked in `TASK-0274`/`TASK-0275`).
 
 ## Constraints / invariants (hard requirements)
 
@@ -66,6 +68,7 @@ Deliver:
 - navigation to `/detail/7` mounts correct route subtree and snapshot matches golden
 - locale switch changes rendered strings deterministically
 - `nx dsl run` prints expected markers and exits 0
+- profile fixtures: `--profile desktop` vs `--profile tv` produces deterministically different (but stable) snapshots for the demo app
 
 ### Proof (OS/QEMU) — gated
 

@@ -72,6 +72,7 @@ Deliver:
 - Kernel changes.
 - Full locale coverage and full ICU datasets.
 - Full RTL layout engine correctness (separate text/layout tasks).
+- `l10nd` service or compiled catalog format (`.lc`) (handled by `TASK-0241` as a lightweight alternative; this task uses prefs + broadcast).
 
 ## Constraints / invariants (hard requirements)
 

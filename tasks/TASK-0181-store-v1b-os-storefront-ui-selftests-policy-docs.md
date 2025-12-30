@@ -131,3 +131,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU (when unblocked), Storefront can install/update/remove a signed local bundle from the offline feed, and ratings stub works when `/state` exists.
+

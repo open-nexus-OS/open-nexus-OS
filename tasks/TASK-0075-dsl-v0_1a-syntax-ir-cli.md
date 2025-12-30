@@ -24,6 +24,20 @@ deterministic foundations:
 
 Interpreter + snapshots + OS demo is deferred to v0.1b (`TASK-0076`).
 
+## Canonical UI project layout (v0.x convention; no auto-import)
+
+This DSL is intended to support a Nuxt-like *project structure* (without auto-import magic).
+The loader and tooling must behave deterministically given the same file set.
+
+Recommended layout (apps and SystemUI can both follow this shape):
+
+- `ui/pages/**.nx` — top-level pages/screens
+- `ui/components/**.nx` — reusable components
+- `ui/composables/**.nx` — stores/reducers/effects helpers (no IO; pure helpers only)
+- `ui/themes/**.nxtheme` — theme/token mappings (read-only in v0.1)
+- `ui/platform/<profile>/**` — profile overrides (resolution rules are defined in v0.2; see `TASK-0077`)
+- `ui/tests/**` — host fixtures / goldens / interaction scripts (format is tracked separately)
+
 ## Goal
 
 Deliver:
@@ -45,11 +59,17 @@ Deliver:
    - AST→IR golden JSON stability
    - diagnostics for missing @key and missing a11y label hints
 
+5. Module resolution (no auto-import; deterministic):
+   - explicit `import "..."`
+   - optional stable alias roots (e.g. `@app/...`) configured by tooling (documented in `docs/dsl/cli.md`)
+   - stable conflict errors (same symbol defined in two imports is an error with deterministic ordering)
+
 ## Non-Goals
 
 - Kernel changes.
 - Codegen.
 - Interpreter bridge / rendering / snapshots / SystemUI demo (v0.1b).
+- Profile/override semantics beyond parsing (tracked in v0.2; see `TASK-0077`).
 
 ## Constraints / invariants (hard requirements)
 

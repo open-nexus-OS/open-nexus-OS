@@ -114,3 +114,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests prove deterministic allow/deny decisions for IPC and VFS; OS selftests prove denies with stable markers.
+

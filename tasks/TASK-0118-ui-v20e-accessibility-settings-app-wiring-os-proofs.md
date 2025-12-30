@@ -80,3 +80,4 @@ UART markers:
 1. settings pages + prefs wiring + marker
 2. app wiring hardening (roles/actions/focus events)
 3. OS selftests + postflight + docs
+

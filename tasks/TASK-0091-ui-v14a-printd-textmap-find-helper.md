@@ -71,3 +71,4 @@ Deliver:
 1. printd: add withTextMap option + marker
 2. helper crate: parse/search/highlight + tests
 3. docs update
+

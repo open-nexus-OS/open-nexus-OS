@@ -46,6 +46,9 @@ Deliver:
    - deterministic, bounded error handling and no `unwrap/expect`
 3. Host-first proof:
    - deterministic snapshot goldens for Launcher and Quick Settings (light/dark/HC)
+   - optional profile fixtures (host-only) to prepare TV/desktop divergence without forking the DSL:
+     - `profile=desktop` baseline
+     - `profile=tv` (10-foot spacing/typography), if SystemUI chooses to branch on `device.profile`
    - interaction tests:
      - search filters app list deterministically
      - toggles write prefs and roundtrip to initial state
@@ -74,6 +77,7 @@ Deliver:
 - snapshot goldens for:
   - Launcher (light/dark/high-contrast)
   - Quick Settings (light/dark/high-contrast)
+- if profile fixtures are used, add goldens for at least one additional profile (e.g. `tv`) and document the intended deltas
 - interactions:
   - search reduces visible apps list deterministically
   - toggles update prefs and can be restored in teardown

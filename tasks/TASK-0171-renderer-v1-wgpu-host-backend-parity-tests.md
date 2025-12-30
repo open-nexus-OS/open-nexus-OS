@@ -107,3 +107,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - With `--features renderer_wgpu`, host parity tests pass; without it, the workspace remains unchanged and cpu2d stays default.
+

@@ -88,3 +88,4 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove typed validation, canonicalization, atomic persistence, and provider apply hooks.
+

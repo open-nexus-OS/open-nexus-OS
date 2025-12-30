@@ -9,6 +9,7 @@ links:
   - UI v5a runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
   - UI v3b scroll/clip baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v4a tiling baseline (perf): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - Lazy loading contract (virtual list ↔ paging): tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
   - Config broker (theme overrides): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy as Code (audit theme changes): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Testing contract: scripts/qemu-test.sh
@@ -22,6 +23,9 @@ After v5a establishes a reactive runtime and timeline, v5b adds two “productiv
 - theme tokens v1 (light/dark) with live switching via config.
 
 This task is v5b (components + theming). It assumes scroll/clip and present scheduler exist.
+
+Note: v5b delivers the **virtualization primitive** (recycling + stable visible range). A deterministic “lazy loading”
+integration pattern (paged providers, viewport-triggered requests) is tracked as `TASK-0275`.
 
 ## Goal
 
