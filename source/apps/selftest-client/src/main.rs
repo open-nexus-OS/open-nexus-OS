@@ -24,7 +24,10 @@
     no_std,
     no_main
 )]
-#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite")),
+    forbid(unsafe_code)
+)]
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 mod markers;
@@ -55,15 +58,35 @@ fn main() {
 mod os_lite {
     extern crate alloc;
 
+    use alloc::vec;
     use alloc::vec::Vec;
 
     use exec_payloads::HELLO_ELF;
     use nexus_abi::{ipc_recv_v1, ipc_recv_v1_nb, ipc_send_v1_nb, wait, yield_, MsgHeader, Pid};
     use nexus_ipc::Client as _;
     use nexus_ipc::{KernelClient, Wait as IpcWait};
+    use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
+    use nexus_net::{NetSocketAddrV4, NetStack as _, TcpListener as _, TcpStream as _, UdpSocket as _};
+    use nexus_net_os::SmoltcpVirtioNetStack;
+    use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
+    use smoltcp::time::Instant;
+    use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address};
 
     use crate::markers;
     use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_i64, emit_u64};
+
+    struct MmioBus {
+        base: usize,
+    }
+
+    impl nexus_hal::Bus for MmioBus {
+        fn read(&self, addr: usize) -> u32 {
+            unsafe { core::ptr::read_volatile((self.base + addr) as *const u32) }
+        }
+        fn write(&self, addr: usize, value: u32) {
+            unsafe { core::ptr::write_volatile((self.base + addr) as *mut u32, value) }
+        }
+    }
 
     fn routing_v1_get(target: &str) -> core::result::Result<(u8, u32, u32), ()> {
         // Routing v1 (init-lite responder) using control slots 1/2:
@@ -877,9 +900,35 @@ mod os_lite {
             emit_line("SELFTEST: ipc soak FAIL");
         }
 
+        // TASK-0010: userspace MMIO capability mapping proof (virtio-mmio magic register).
+        if mmio_map_probe().is_ok() {
+            emit_line("SELFTEST: mmio map ok");
+        } else {
+            emit_line("SELFTEST: mmio map FAIL");
+        }
+        // Pre-req for virtio DMA: userland can query (base,len) for address-bearing caps.
+        if cap_query_mmio_probe().is_ok() {
+            emit_line("SELFTEST: cap query mmio ok");
+        } else {
+            emit_line("SELFTEST: cap query mmio FAIL");
+        }
+        if cap_query_vmo_probe().is_ok() {
+            emit_line("SELFTEST: cap query vmo ok");
+        } else {
+            emit_line("SELFTEST: cap query vmo FAIL");
+        }
         // Userspace VFS probe over kernel IPC v1 (cross-process).
         if verify_vfs().is_err() {
             emit_line("SELFTEST: vfs FAIL");
+        }
+
+        // TASK-0003: DSoftBus OS transport bring-up via netstackd facade.
+        if dsoftbus_os_transport_probe().is_ok() {
+            emit_line("SELFTEST: dsoftbus os connect ok");
+            emit_line("SELFTEST: dsoftbus ping ok");
+        } else {
+            emit_line("SELFTEST: dsoftbus os connect FAIL");
+            emit_line("SELFTEST: dsoftbus ping FAIL");
         }
 
         emit_line("SELFTEST: end");
@@ -888,6 +937,930 @@ mod os_lite {
         loop {
             let _ = yield_();
         }
+    }
+
+    fn mmio_map_probe() -> core::result::Result<(), ()> {
+        // Capability is injected by the kernel exec_v2 path for bring-up (TASK-0010).
+        const MMIO_CAP_SLOT: u32 = 48;
+        // Choose a VA in the same region already used by the exec_v2 stack/meta/info mappings to
+        // avoid allocating additional page-table levels (keeps kernel heap usage bounded).
+        const MMIO_VA: usize = 0x2000_e000;
+        const SLOT_STRIDE: usize = 0x1000;
+        const MAX_SLOTS: usize = 8;
+
+        fn emit_mmio_err(stage: &str, err: nexus_abi::AbiError) {
+            emit_bytes(b"SELFTEST: mmio ");
+            emit_bytes(stage.as_bytes());
+            emit_bytes(b" err=");
+            // Stable enum-to-string mapping (no alloc).
+            let s = match err {
+                nexus_abi::AbiError::InvalidSyscall => "InvalidSyscall",
+                nexus_abi::AbiError::CapabilityDenied => "CapabilityDenied",
+                nexus_abi::AbiError::IpcFailure => "IpcFailure",
+                nexus_abi::AbiError::SpawnFailed => "SpawnFailed",
+                nexus_abi::AbiError::TransferFailed => "TransferFailed",
+                nexus_abi::AbiError::ChildUnavailable => "ChildUnavailable",
+                nexus_abi::AbiError::NoSuchPid => "NoSuchPid",
+                nexus_abi::AbiError::InvalidArgument => "InvalidArgument",
+                nexus_abi::AbiError::Unsupported => "Unsupported",
+            };
+            emit_bytes(s.as_bytes());
+            emit_byte(b'\n');
+        }
+
+        // Step 1 (TASK-0010): prove we can map a MMIO window and read a known register.
+        match nexus_abi::mmio_map(MMIO_CAP_SLOT, MMIO_VA, 0) {
+            Ok(()) => {}
+            Err(e) => {
+                emit_mmio_err("map0", e);
+                return Err(());
+            }
+        }
+        let magic0 = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
+        if magic0 != VIRTIO_MMIO_MAGIC {
+            emit_bytes(b"SELFTEST: mmio magic0=0x");
+            emit_hex_u64(magic0 as u64);
+            emit_byte(b'\n');
+            return Err(());
+        }
+
+        // Step 2 (TASK-0003 Track B seed): attempt to locate a virtio-net slot (device_id == 1)
+        // within the built-in QEMU `virt` virtio-mmio window. This must remain bounded and
+        // must not probe outside the known virtio-mmio slot range.
+        let mut found_net_slot: Option<usize> = None;
+        for slot in 0..MAX_SLOTS {
+            let off = slot * SLOT_STRIDE;
+            let va = MMIO_VA + off;
+            // Slot 0 is already mapped above; avoid overlapping map requests.
+            if slot != 0 {
+                match nexus_abi::mmio_map(MMIO_CAP_SLOT, va, off) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        emit_mmio_err("mapN", e);
+                        return Err(());
+                    }
+                }
+            }
+
+            // VirtIO MMIO registers (v2):
+            // 0x000 magic, 0x004 version, 0x008 device_id, 0x00c vendor_id.
+            let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
+            if magic != VIRTIO_MMIO_MAGIC {
+                continue;
+            }
+            let version = unsafe { core::ptr::read_volatile((va + 0x004) as *const u32) };
+            let device_id = unsafe { core::ptr::read_volatile((va + 0x008) as *const u32) };
+            let _vendor_id = unsafe { core::ptr::read_volatile((va + 0x00c) as *const u32) };
+
+            // QEMU may expose either legacy (version=1) or modern (version=2) virtio-mmio.
+            if (version == 1 || version == 2) && device_id == VIRTIO_DEVICE_ID_NET {
+                found_net_slot = Some(slot);
+                break;
+            }
+        }
+
+        if let Some(slot) = found_net_slot {
+            // TASK-0010 proof scope: MMIO map + safe register reads only.
+            //
+            // Networking ownership is moving to `netstackd` (TASK-0003 Track B), so this client
+            // must NOT bring up virtio queues or smoltcp when netstackd is present.
+            let dev_va = MMIO_VA + slot * SLOT_STRIDE;
+            let dev = VirtioNetMmio::new(MmioBus { base: dev_va });
+            let info = match dev.probe() {
+                Ok(info) => info,
+                Err(_) => {
+                    emit_line("SELFTEST: virtio-net probe FAIL");
+                    return Err(());
+                }
+            };
+            emit_bytes(b"SELFTEST: virtio-net mmio ver=");
+            emit_u64(info.version as u64);
+            emit_byte(b'\n');
+        }
+
+        // TASK-0010 proof remains: mapping + reading known register succeeded.
+        Ok(())
+    }
+
+    fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
+        use nexus_ipc::{KernelClient, Wait as IpcWait};
+
+        const MAGIC0: u8 = b'N';
+        const MAGIC1: u8 = b'S';
+        const VERSION: u8 = 1;
+        const OP_CONNECT: u8 = 3;
+        const OP_READ: u8 = 4;
+        const OP_WRITE: u8 = 5;
+        const STATUS_OK: u8 = 0;
+        const STATUS_WOULD_BLOCK: u8 = 3;
+
+        fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
+            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let (reply_send_slot, reply_recv_slot) = reply.slots();
+            let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+            client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 512];
+            for _ in 0..5_000 {
+                match nexus_abi::ipc_recv_v1(
+                    reply_recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(_n) => return Ok(buf),
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = yield_();
+                    }
+                    Err(_) => return Err(()),
+                }
+            }
+            Err(())
+        }
+
+        let net = KernelClient::new_for("netstackd").map_err(|_| ())?;
+
+        // Connect to dsoftbusd session port.
+        let port: u16 = 34_567;
+        let mut sid: Option<u32> = None;
+        for _ in 0..50_000 {
+            let mut c = [0u8; 10];
+            c[0] = MAGIC0;
+            c[1] = MAGIC1;
+            c[2] = VERSION;
+            c[3] = OP_CONNECT;
+            c[4..8].copy_from_slice(&[10, 0, 2, 15]);
+            c[8..10].copy_from_slice(&port.to_le_bytes());
+            let rsp = rpc(&net, &c)?;
+            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_CONNECT | 0x80) {
+                if rsp[4] == STATUS_OK {
+                    sid = Some(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
+                    break;
+                }
+                if rsp[4] != STATUS_WOULD_BLOCK {
+                    return Err(());
+                }
+            }
+            let _ = yield_();
+        }
+        let sid = sid.ok_or(())?;
+
+        // AUTH handshake: send magic + static pubkey, await ack.
+        const AUTH_MAGIC: &[u8; 4] = b"NOI1";
+        // Client pubkey (what we present).
+        const CLIENT_PUB: [u8; 32] = [
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+            0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10,
+            0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98,
+            0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x1e,
+        ];
+        // Server pubkey (bind response to both ends).
+        const SERVER_PUB: [u8; 32] = [
+            0x7a, 0x6b, 0x5c, 0x4d, 0x3e, 0x2f, 0x1a, 0x0b,
+            0x9c, 0x8d, 0x7e, 0x6f, 0x5a, 0x4b, 0x3c, 0x2d,
+            0x1e, 0x0f, 0xfa, 0xeb, 0xdc, 0xcd, 0xbe, 0xaf,
+            0x90, 0x81, 0x72, 0x63, 0x54, 0x45, 0x36, 0x27,
+        ];
+        const AUTH_SECRET: [u8; 64] = [
+            0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb, 0xcc, 0xdd,
+            0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40,
+            0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0,
+            0xd0, 0xe0, 0xf0, 0x0f, 0x1a, 0x2b, 0x3c, 0x4d,
+            0x5e, 0x6f, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf,
+            0xda, 0xeb, 0xfc, 0x0d, 0x1e, 0x2f, 0x3a, 0x4b,
+            0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0xab, 0xbc, 0xcd,
+            0xde, 0xef, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff,
+        ];
+
+        // AUTH1: send magic + pubkey
+        let mut w = [0u8; 10 + 36];
+        w[0] = MAGIC0;
+        w[1] = MAGIC1;
+        w[2] = VERSION;
+        w[3] = OP_WRITE;
+        w[4..8].copy_from_slice(&sid.to_le_bytes());
+        w[8..10].copy_from_slice(&(36u16).to_le_bytes());
+        w[10..14].copy_from_slice(AUTH_MAGIC);
+        w[14..46].copy_from_slice(&CLIENT_PUB);
+        let _ = rpc(&net, &w)?;
+
+        // CHALLENGE: read nonce + server pub
+        let mut nonce = [0u8; 8];
+        let mut server_seen = [0u8; 32];
+        for _ in 0..50_000 {
+            let mut r = [0u8; 10];
+            r[0] = MAGIC0;
+            r[1] = MAGIC1;
+            r[2] = VERSION;
+            r[3] = OP_READ;
+            r[4..8].copy_from_slice(&sid.to_le_bytes());
+            r[8..10].copy_from_slice(&(54u16).to_le_bytes());
+            let rsp = rpc(&net, &r)?;
+            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
+                if rsp[4] == STATUS_OK {
+                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                    if n == 44 && &rsp[7..11] == b"CHAL" {
+                        server_seen.copy_from_slice(&rsp[11..43]);
+                        if server_seen != SERVER_PUB {
+                            return Err(());
+                        }
+                        nonce.copy_from_slice(&rsp[43..51]);
+                        break;
+                    } else {
+                        return Err(());
+                    }
+                }
+                if rsp[4] != STATUS_WOULD_BLOCK {
+                    return Err(());
+                }
+            }
+            let _ = yield_();
+        }
+
+        // AUTH2: send magic + response tag (derived from nonce + secret + both pubs)
+        let mut tag = [0u8; 64];
+        for (i, b) in tag.iter_mut().enumerate() {
+            *b = AUTH_SECRET[i]
+                ^ CLIENT_PUB[i % CLIENT_PUB.len()]
+                ^ SERVER_PUB[i % SERVER_PUB.len()]
+                ^ nonce[i % nonce.len()];
+        }
+        let mut w2 = [0u8; 10 + 68];
+        w2[0] = MAGIC0;
+        w2[1] = MAGIC1;
+        w2[2] = VERSION;
+        w2[3] = OP_WRITE;
+        w2[4..8].copy_from_slice(&sid.to_le_bytes());
+        w2[8..10].copy_from_slice(&(68u16).to_le_bytes());
+        w2[10..14].copy_from_slice(AUTH_MAGIC);
+        w2[14..78].copy_from_slice(&tag);
+        let _ = rpc(&net, &w2)?;
+
+        // READ auth ack "AUTHOK"
+        for _ in 0..50_000 {
+            let mut r = [0u8; 10];
+            r[0] = MAGIC0;
+            r[1] = MAGIC1;
+            r[2] = VERSION;
+            r[3] = OP_READ;
+            r[4..8].copy_from_slice(&sid.to_le_bytes());
+            r[8..10].copy_from_slice(&(6u16).to_le_bytes());
+            let rsp = rpc(&net, &r)?;
+            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
+                if rsp[4] == STATUS_OK {
+                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                    if n == 6 && &rsp[7..13] == b"AUTHOK" {
+                        break;
+                    } else {
+                        return Err(());
+                    }
+                }
+                if rsp[4] != STATUS_WOULD_BLOCK {
+                    return Err(());
+                }
+            }
+            let _ = yield_();
+        }
+
+        // WRITE "PING"
+        let mut w = [0u8; 14];
+        w[0] = MAGIC0;
+        w[1] = MAGIC1;
+        w[2] = VERSION;
+        w[3] = OP_WRITE;
+        w[4..8].copy_from_slice(&sid.to_le_bytes());
+        w[8..10].copy_from_slice(&(4u16).to_le_bytes());
+        w[10..14].copy_from_slice(b"PING");
+        let _ = rpc(&net, &w)?;
+
+        // READ "PONG"
+        for _ in 0..50_000 {
+            let mut r = [0u8; 10];
+            r[0] = MAGIC0;
+            r[1] = MAGIC1;
+            r[2] = VERSION;
+            r[3] = OP_READ;
+            r[4..8].copy_from_slice(&sid.to_le_bytes());
+            r[8..10].copy_from_slice(&(4u16).to_le_bytes());
+            let rsp = rpc(&net, &r)?;
+            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
+                if rsp[4] == STATUS_OK {
+                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                    if n == 4 && &rsp[7..11] == b"PONG" {
+                        return Ok(());
+                    }
+                }
+            }
+            let _ = yield_();
+        }
+        Err(())
+    }
+
+    fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
+        const MMIO_CAP_SLOT: u32 = 48;
+        let mut info = nexus_abi::CapQuery {
+            kind_tag: 0,
+            reserved: 0,
+            base: 0,
+            len: 0,
+        };
+        nexus_abi::cap_query(MMIO_CAP_SLOT, &mut info).map_err(|_| ())?;
+        // 2 = DeviceMmio
+        if info.kind_tag != 2 || info.base == 0 || info.len == 0 {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
+        // Allocate a small VMO and ensure we can query its physical window deterministically.
+        let vmo = nexus_abi::vmo_create(4096).map_err(|_| ())?;
+        let mut info = nexus_abi::CapQuery {
+            kind_tag: 0,
+            reserved: 0,
+            base: 0,
+            len: 0,
+        };
+        nexus_abi::cap_query(vmo, &mut info).map_err(|_| ())?;
+        // 1 = VMO
+        if info.kind_tag != 1 || info.base == 0 || info.len < 4096 {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    // ——— smoltcp bring-up over virtio-net (bounded, deterministic-ish) ———
+
+    const VIRTQ_DESC_F_NEXT: u16 = 1;
+    const VIRTQ_DESC_F_WRITE: u16 = 2;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct VqDesc {
+        addr: u64,
+        len: u32,
+        flags: u16,
+        next: u16,
+    }
+
+    #[repr(C)]
+    struct VqAvail<const N: usize> {
+        flags: u16,
+        idx: u16,
+        ring: [u16; N],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct VqUsedElem {
+        id: u32,
+        len: u32,
+    }
+
+    #[repr(C)]
+    struct VqUsed<const N: usize> {
+        flags: u16,
+        idx: u16,
+        ring: [VqUsedElem; N],
+    }
+
+    struct VirtioQueues<const N: usize> {
+        // RX
+        rx_desc: *mut VqDesc,
+        rx_avail: *mut VqAvail<N>,
+        rx_used: *mut VqUsed<N>,
+        rx_last_used: u16,
+        // TX
+        tx_desc: *mut VqDesc,
+        tx_avail: *mut VqAvail<N>,
+        tx_used: *mut VqUsed<N>,
+        tx_last_used: u16,
+
+        // Buffers (one page each, includes virtio-net hdr prefix).
+        rx_buf_va: [usize; N],
+        rx_buf_pa: [u64; N],
+        tx_buf_va: [usize; N],
+        tx_buf_pa: [u64; N],
+
+        // Free TX descriptors.
+        tx_free: [bool; N],
+
+        // Minimal diagnostics (bounded, no allocation).
+        rx_packets: u32,
+        tx_packets: u32,
+        tx_drops: u32,
+    }
+
+    impl<const N: usize> VirtioQueues<N> {
+        fn rx_replenish(&mut self, dev: &VirtioNetMmio<MmioBus>, count: usize) {
+            // Post the first `count` RX buffers once.
+            let count = core::cmp::min(count, N);
+            unsafe {
+                let avail = &mut *self.rx_avail;
+                avail.flags = 0;
+                for i in 0..count {
+                    let d = &mut *self.rx_desc.add(i);
+                    d.addr = self.rx_buf_pa[i];
+                    d.len = 4096;
+                    d.flags = VIRTQ_DESC_F_WRITE;
+                    d.next = 0;
+                    avail.ring[i] = i as u16;
+                }
+                avail.idx = count as u16;
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            }
+            dev.notify_queue(0);
+        }
+
+        fn rx_poll(&mut self) -> Option<(usize, usize)> {
+            unsafe {
+                let used = &*self.rx_used;
+                let used_idx = core::ptr::read_volatile(&used.idx);
+                if used_idx == self.rx_last_used {
+                    return None;
+                }
+                let elem = used.ring[(self.rx_last_used as usize) % N];
+                self.rx_last_used = self.rx_last_used.wrapping_add(1);
+                let id = elem.id as usize;
+                let len = elem.len as usize;
+                self.rx_packets = self.rx_packets.saturating_add(1);
+                Some((id, len))
+            }
+        }
+
+        fn rx_requeue(&mut self, dev: &VirtioNetMmio<MmioBus>, id: usize) {
+            unsafe {
+                let avail = &mut *self.rx_avail;
+                let idx = avail.idx as usize;
+                avail.ring[idx % N] = id as u16;
+                avail.idx = avail.idx.wrapping_add(1);
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            }
+            dev.notify_queue(0);
+        }
+
+        fn tx_poll_reclaim(&mut self) {
+            unsafe {
+                let used = &*self.tx_used;
+                let used_idx = core::ptr::read_volatile(&used.idx);
+                while self.tx_last_used != used_idx {
+                    let elem = used.ring[(self.tx_last_used as usize) % N];
+                    self.tx_last_used = self.tx_last_used.wrapping_add(1);
+                    let id = elem.id as usize;
+                    if id < N {
+                        self.tx_free[id] = true;
+                    }
+                }
+            }
+        }
+
+        fn tx_send(&mut self, dev: &VirtioNetMmio<MmioBus>, frame: &[u8]) -> bool {
+            self.tx_poll_reclaim();
+            let mut slot: Option<usize> = None;
+            for i in 0..N {
+                if self.tx_free[i] {
+                    slot = Some(i);
+                    self.tx_free[i] = false;
+                    break;
+                }
+            }
+            let Some(i) = slot else { return false };
+
+            const HDR_LEN: usize = 10;
+            if frame.len() + HDR_LEN > 4096 {
+                self.tx_free[i] = true;
+                return false;
+            }
+            unsafe {
+                // zero header
+                for b in 0..HDR_LEN {
+                    core::ptr::write_volatile((self.tx_buf_va[i] + b) as *mut u8, 0);
+                }
+                core::ptr::copy_nonoverlapping(
+                    frame.as_ptr(),
+                    (self.tx_buf_va[i] + HDR_LEN) as *mut u8,
+                    frame.len(),
+                );
+                let d = &mut *self.tx_desc.add(i);
+                d.addr = self.tx_buf_pa[i];
+                d.len = (HDR_LEN + frame.len()) as u32;
+                d.flags = 0;
+                d.next = 0;
+                let avail = &mut *self.tx_avail;
+                let idx = avail.idx as usize;
+                avail.ring[idx % N] = i as u16;
+                avail.idx = avail.idx.wrapping_add(1);
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            }
+            dev.notify_queue(1);
+            self.tx_packets = self.tx_packets.saturating_add(1);
+            true
+        }
+    }
+
+    struct SmolVirtio<const N: usize> {
+        dev: *const VirtioNetMmio<MmioBus>,
+        q: *mut VirtioQueues<N>,
+    }
+
+    struct SmolRxToken<'a, const N: usize> {
+        dev: *const VirtioNetMmio<MmioBus>,
+        q: *mut VirtioQueues<N>,
+        id: usize,
+        len: usize,
+        _lt: core::marker::PhantomData<&'a mut ()>,
+    }
+
+    impl<'a, const N: usize> RxToken for SmolRxToken<'a, N> {
+        fn consume<R, F>(self, f: F) -> R
+        where
+            F: FnOnce(&mut [u8]) -> R,
+        {
+            const HDR_LEN: usize = 10;
+            let q = unsafe { &mut *self.q };
+            let dev = unsafe { &*self.dev };
+            let payload_len = self.len.saturating_sub(HDR_LEN).min(4096 - HDR_LEN);
+            let payload = unsafe {
+                core::slice::from_raw_parts_mut(
+                    (q.rx_buf_va[self.id] + HDR_LEN) as *mut u8,
+                    payload_len,
+                )
+            };
+            let r = f(payload);
+            q.rx_requeue(dev, self.id);
+            r
+        }
+    }
+
+    struct SmolTxToken<'a, const N: usize> {
+        dev: *const VirtioNetMmio<MmioBus>,
+        q: *mut VirtioQueues<N>,
+        _lt: core::marker::PhantomData<&'a mut ()>,
+    }
+
+    impl<'a, const N: usize> TxToken for SmolTxToken<'a, N> {
+        fn consume<R, F>(self, len: usize, f: F) -> R
+        where
+            F: FnOnce(&mut [u8]) -> R,
+        {
+            // Provide a temporary buffer backed by a stack scratch, then transmit.
+            // This keeps borrow/lifetime simple for bring-up.
+            let mut buf = [0u8; 1536];
+            let n = core::cmp::min(len, buf.len());
+            let r = f(&mut buf[..n]);
+            let q = unsafe { &mut *self.q };
+            let dev = unsafe { &*self.dev };
+            if !q.tx_send(dev, &buf[..n]) {
+                q.tx_drops = q.tx_drops.saturating_add(1);
+            }
+            r
+        }
+    }
+
+    impl<const N: usize> Device for SmolVirtio<N> {
+        type RxToken<'b>
+            = SmolRxToken<'b, N>
+        where
+            Self: 'b;
+        type TxToken<'b>
+            = SmolTxToken<'b, N>
+        where
+            Self: 'b;
+
+        fn capabilities(&self) -> DeviceCapabilities {
+            let mut caps = DeviceCapabilities::default();
+            caps.max_transmission_unit = 1500;
+            caps.medium = Medium::Ethernet;
+            caps
+        }
+
+        fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+            let q = unsafe { &mut *self.q };
+            if let Some((id, len)) = q.rx_poll() {
+                Some((
+                    SmolRxToken {
+                        dev: self.dev,
+                        q: self.q,
+                        id,
+                        len,
+                        _lt: core::marker::PhantomData,
+                    },
+                    SmolTxToken {
+                        dev: self.dev,
+                        q: self.q,
+                        _lt: core::marker::PhantomData,
+                    },
+                ))
+            } else {
+                None
+            }
+        }
+
+        fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+            Some(SmolTxToken {
+                dev: self.dev,
+                q: self.q,
+                _lt: core::marker::PhantomData,
+            })
+        }
+    }
+
+    fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
+        // Minimal bring-up: create an interface and attempt an ICMP echo to the QEMU usernet gateway.
+        //
+        // NOTE: This is best-effort and bounded; the marker is emitted only on success.
+        const MMIO_CAP_SLOT: u32 = 48;
+        const MMIO_VA: usize = 0x2000_e000;
+        const SLOT_STRIDE: usize = 0x1000;
+        const MAX_SLOTS: usize = 8;
+
+        // Find virtio-net slot.
+        //
+        // NOTE: `mmio_map_probe()` may have already mapped this window earlier in the selftest.
+        // Treat InvalidArgument as "already mapped" rather than a hard failure.
+        let mmio_map_ok = |va: usize, off: usize| -> core::result::Result<(), ()> {
+            match nexus_abi::mmio_map(MMIO_CAP_SLOT, va, off) {
+                Ok(()) => Ok(()),
+                Err(nexus_abi::AbiError::InvalidArgument) => Ok(()),
+                Err(_) => Err(()),
+            }
+        };
+        mmio_map_ok(MMIO_VA, 0)?;
+        let mut found: Option<usize> = None;
+        for slot in 0..MAX_SLOTS {
+            let off = slot * SLOT_STRIDE;
+            let va = MMIO_VA + off;
+            if slot != 0 {
+                if mmio_map_ok(va, off).is_err() {
+                    continue;
+                }
+            }
+            let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
+            if magic != VIRTIO_MMIO_MAGIC {
+                continue;
+            }
+            let device_id = unsafe { core::ptr::read_volatile((va + 0x008) as *const u32) };
+            if device_id == VIRTIO_DEVICE_ID_NET {
+                found = Some(slot);
+                break;
+            }
+        }
+        let Some(slot) = found else {
+            emit_line("SELFTEST: smoltcp no virtio-net");
+            return Err(());
+        };
+        let dev_va = MMIO_VA + slot * SLOT_STRIDE;
+        let dev = VirtioNetMmio::new(MmioBus { base: dev_va });
+        if dev.probe().is_err() {
+            emit_line("SELFTEST: smoltcp probe FAIL");
+            return Err(());
+        }
+        // Do NOT reset/re-negotiate here: mmio_map_probe already brought the device up, and
+        // we must not invalidate earlier "net up" markers in the same selftest run.
+
+        // Read MAC from virtio-net config space (offset 0x100).
+        let mac = {
+            let w0 = unsafe { core::ptr::read_volatile((dev_va + 0x100) as *const u32) };
+            let w1 = unsafe { core::ptr::read_volatile((dev_va + 0x104) as *const u32) };
+            [
+                (w0 & 0xff) as u8,
+                ((w0 >> 8) & 0xff) as u8,
+                ((w0 >> 16) & 0xff) as u8,
+                ((w0 >> 24) & 0xff) as u8,
+                (w1 & 0xff) as u8,
+                ((w1 >> 8) & 0xff) as u8,
+            ]
+        };
+
+        // Allocate queue memory and buffers close to existing mappings to avoid kernel PT heap blowups.
+        const N: usize = 8;
+        const QUEUE_VA: usize = 0x2004_0000;
+        const BUF_VA: usize = 0x2006_0000;
+        const Q_PAGES_PER_QUEUE: usize = 1;
+        const TOTAL_Q_PAGES: usize = Q_PAGES_PER_QUEUE * 2; // rx+tx
+
+        let q_vmo = match nexus_abi::vmo_create(TOTAL_Q_PAGES * 4096) {
+            Ok(v) => v,
+            Err(_) => {
+                emit_line("SELFTEST: smoltcp qvmo FAIL");
+                return Err(());
+            }
+        };
+        let flags = nexus_abi::page_flags::VALID
+            | nexus_abi::page_flags::USER
+            | nexus_abi::page_flags::READ
+            | nexus_abi::page_flags::WRITE;
+        for page in 0..TOTAL_Q_PAGES {
+            let va = QUEUE_VA + page * 4096;
+            let off = page * 4096;
+            if nexus_abi::vmo_map_page(q_vmo, va, off, flags).is_err() {
+                emit_line("SELFTEST: smoltcp qmap FAIL");
+                return Err(());
+            }
+        }
+        let mut q_info = nexus_abi::CapQuery {
+            kind_tag: 0,
+            reserved: 0,
+            base: 0,
+            len: 0,
+        };
+        if nexus_abi::cap_query(q_vmo, &mut q_info).is_err() {
+            emit_line("SELFTEST: smoltcp qquery FAIL");
+            return Err(());
+        }
+        let q_base_pa = q_info.base;
+
+        // Layout for legacy (queue_align=4): desc at base, then avail, then used (same page).
+        let align4 = |x: usize| (x + 3) & !3usize;
+        let rx_desc_va = QUEUE_VA + 0;
+        let rx_avail_va = rx_desc_va + core::mem::size_of::<VqDesc>() * N;
+        let rx_used_va = rx_desc_va
+            + align4(core::mem::size_of::<VqDesc>() * N + core::mem::size_of::<VqAvail<N>>());
+        let tx_desc_va = QUEUE_VA + Q_PAGES_PER_QUEUE * 4096;
+        let tx_avail_va = tx_desc_va + core::mem::size_of::<VqDesc>() * N;
+        let tx_used_va = tx_desc_va
+            + align4(core::mem::size_of::<VqDesc>() * N + core::mem::size_of::<VqAvail<N>>());
+
+        let rx_desc_pa = q_base_pa + 0;
+        let tx_desc_pa = q_base_pa + (Q_PAGES_PER_QUEUE as u64) * 4096;
+
+        // Setup queues (legacy uses PFN of desc base).
+        if dev
+            .setup_queue(
+            0,
+            &net_virtio::QueueSetup {
+                size: N as u16,
+                desc_paddr: rx_desc_pa,
+                avail_paddr: 0,
+                used_paddr: 0,
+            },
+            )
+            .is_err()
+        {
+            emit_line("SELFTEST: smoltcp q0 FAIL");
+            return Err(());
+        }
+        if dev
+            .setup_queue(
+            1,
+            &net_virtio::QueueSetup {
+                size: N as u16,
+                desc_paddr: tx_desc_pa,
+                avail_paddr: 0,
+                used_paddr: 0,
+            },
+            )
+            .is_err()
+        {
+            emit_line("SELFTEST: smoltcp q1 FAIL");
+            return Err(());
+        }
+
+        // Buffers: N rx + N tx pages.
+        let buf_vmo = match nexus_abi::vmo_create((N * 2) * 4096) {
+            Ok(v) => v,
+            Err(_) => {
+                emit_line("SELFTEST: smoltcp bvmo FAIL");
+                return Err(());
+            }
+        };
+        for page in 0..(N * 2) {
+            let va = BUF_VA + page * 4096;
+            let off = page * 4096;
+            if nexus_abi::vmo_map_page(buf_vmo, va, off, flags).is_err() {
+                emit_line("SELFTEST: smoltcp bmap FAIL");
+                return Err(());
+            }
+        }
+        let mut bq = nexus_abi::CapQuery {
+            kind_tag: 0,
+            reserved: 0,
+            base: 0,
+            len: 0,
+        };
+        if nexus_abi::cap_query(buf_vmo, &mut bq).is_err() {
+            emit_line("SELFTEST: smoltcp bquery FAIL");
+            return Err(());
+        }
+
+        let mut q = VirtioQueues::<N> {
+            rx_desc: rx_desc_va as *mut VqDesc,
+            rx_avail: rx_avail_va as *mut VqAvail<N>,
+            rx_used: rx_used_va as *mut VqUsed<N>,
+            rx_last_used: 0,
+            tx_desc: tx_desc_va as *mut VqDesc,
+            tx_avail: tx_avail_va as *mut VqAvail<N>,
+            tx_used: tx_used_va as *mut VqUsed<N>,
+            tx_last_used: 0,
+            rx_buf_va: [0; N],
+            rx_buf_pa: [0; N],
+            tx_buf_va: [0; N],
+            tx_buf_pa: [0; N],
+            tx_free: [true; N],
+            rx_packets: 0,
+            tx_packets: 0,
+            tx_drops: 0,
+        };
+        for i in 0..N {
+            q.rx_buf_va[i] = BUF_VA + i * 4096;
+            q.rx_buf_pa[i] = bq.base + (i as u64) * 4096;
+            q.tx_buf_va[i] = BUF_VA + (N + i) * 4096;
+            q.tx_buf_pa[i] = bq.base + ((N + i) as u64) * 4096;
+        }
+        // Zero rings
+        unsafe {
+            core::ptr::write_bytes(QUEUE_VA as *mut u8, 0, TOTAL_Q_PAGES * 4096);
+        }
+        q.rx_replenish(&dev, N);
+        dev.set_driver_ok();
+
+        // smoltcp iface
+        let hw = HardwareAddress::Ethernet(EthernetAddress(mac));
+        let mut cfg = smoltcp::iface::Config::new(hw);
+        cfg.random_seed = 0x1234_5678;
+        let mut phy = SmolVirtio::<N> {
+            dev: &dev as *const _,
+            q: &mut q as *mut _,
+        };
+        let mut iface =
+            smoltcp::iface::Interface::new(cfg, &mut phy, Instant::from_millis(0));
+        iface.update_ip_addrs(|addrs| {
+            addrs.push(IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)), 24))
+                .ok();
+        });
+        // Route to the QEMU usernet gateway.
+        if iface
+            .routes_mut()
+            .add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2))
+            .is_err()
+        {
+            emit_line("SELFTEST: smoltcp route FAIL");
+            return Err(());
+        }
+
+        // ICMP socket
+        let rx_meta = [smoltcp::socket::icmp::PacketMetadata::EMPTY; 4];
+        let tx_meta = [smoltcp::socket::icmp::PacketMetadata::EMPTY; 4];
+        let rx_buf = smoltcp::socket::icmp::PacketBuffer::new(rx_meta, vec![0u8; 256]);
+        let tx_buf = smoltcp::socket::icmp::PacketBuffer::new(tx_meta, vec![0u8; 256]);
+        let mut icmp = smoltcp::socket::icmp::Socket::new(rx_buf, tx_buf);
+        if icmp
+            .bind(smoltcp::socket::icmp::Endpoint::Ident(0x1234))
+            .is_err()
+        {
+            emit_line("SELFTEST: smoltcp bind FAIL");
+            return Err(());
+        }
+        let mut sockets = smoltcp::iface::SocketSet::new(vec![]);
+        let handle = sockets.add(icmp);
+
+        let target = IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 2));
+        let checksum = smoltcp::phy::ChecksumCapabilities::default();
+        let mut sent = false;
+        let mut send_err = false;
+        // Bounded poll loop.
+        for _ in 0..2000 {
+            let now_ns = nexus_abi::nsec().map_err(|_| ())?;
+            let ts = Instant::from_millis((now_ns / 1_000_000) as i64);
+            {
+                let _ = iface.poll(ts, &mut phy, &mut sockets);
+            }
+            {
+                let sock = sockets.get_mut::<smoltcp::socket::icmp::Socket>(handle);
+                if !sent && sock.can_send() {
+                    // Craft an ICMPv4 EchoRequest packet and send it.
+                    let mut bytes = [0u8; 24]; // 8 header + 16 payload
+                    let mut pkt = smoltcp::wire::Icmpv4Packet::new_unchecked(&mut bytes);
+                    let repr = smoltcp::wire::Icmpv4Repr::EchoRequest {
+                        ident: 0x1234,
+                        seq_no: 1,
+                        data: &[0u8; 16],
+                    };
+                    repr.emit(&mut pkt, &checksum);
+                    if sock.send_slice(pkt.into_inner(), target).is_err() {
+                        send_err = true;
+                    }
+                    sent = true;
+                }
+                if sock.can_recv() {
+                    let _ = sock.recv();
+                    return Ok(());
+                }
+            }
+            let _ = yield_();
+        }
+        if send_err {
+            emit_line("SELFTEST: smoltcp send FAIL");
+        }
+        emit_bytes(b"SELFTEST: smoltcp diag rx=");
+        emit_u64(q.rx_packets as u64);
+        emit_bytes(b" tx=");
+        emit_u64(q.tx_packets as u64);
+        emit_bytes(b" drop=");
+        emit_u64(q.tx_drops as u64);
+        emit_byte(b'\n');
+        Err(())
     }
 
     fn ipc_payload_roundtrip() -> core::result::Result<(), ()> {

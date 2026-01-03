@@ -240,6 +240,13 @@ impl KernelServer {
         Self::new_with_slots(recv_slot, send_slot)
     }
 
+    /// Returns the raw capability slots backing this server (recv_slot, send_slot).
+    ///
+    /// This is intended for low-level bring-up services that want to avoid heap allocations.
+    pub fn slots(&self) -> (u32, u32) {
+        (self.recv_slot, self.send_slot)
+    }
+
     /// Receives a frame and returns it alongside the raw kernel IPC header.
     ///
     /// If the sender used CAP_MOVE, the returned header's `src` contains the allocated cap slot

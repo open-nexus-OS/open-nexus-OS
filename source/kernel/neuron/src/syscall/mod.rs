@@ -77,6 +77,15 @@ pub const SYSCALL_CAP_CLONE: usize = 24;
 pub const SYSCALL_GETPID: usize = 25;
 /// Receives an IPC message and additionally returns sender service identity metadata (v2).
 pub const SYSCALL_IPC_RECV_V2: usize = 26;
+/// Maps a device MMIO capability window into the caller's address space (USER|RW, never EXEC).
+///
+/// This is the kernel primitive required for userspace virtio drivers on QEMU `virt`.
+pub const SYSCALL_MMIO_MAP: usize = 27;
+/// Queries a capability slot and writes (kind_tag, base, len) to a user buffer.
+///
+/// This is a small introspection primitive needed by userspace drivers to obtain physical
+/// addresses for DMA-capable resources (e.g., VMOs) without exposing ambient physical memory.
+pub const SYSCALL_CAP_QUERY: usize = 28;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

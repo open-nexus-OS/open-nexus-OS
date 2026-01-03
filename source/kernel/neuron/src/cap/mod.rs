@@ -36,6 +36,12 @@ pub enum CapabilityKind {
     EndpointFactory,
     /// Virtual memory object.
     Vmo { base: usize, len: usize },
+    /// Device MMIO window (physical base + length), mapped into userspace only via a dedicated
+    /// syscall that enforces USER|RW and never EXEC.
+    ///
+    /// Rationale: userspace virtio frontends on QEMU `virt` require MMIO access; this capability
+    /// keeps the exposed range fixed and bounded (no ambient physical mappings).
+    DeviceMmio { base: usize, len: usize },
     /// Interrupt binding.
     Irq(u32),
 }

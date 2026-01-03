@@ -1,8 +1,11 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: DSoftBus-lite distributed service fabric
 //! OWNERS: @runtime
 //! STATUS: Functional (host backend), Placeholder (OS backend - pending kernel transport)
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 1 integration test
+//! TEST_COVERAGE: 13 integration tests (host transport + discovery packet vectors + facade discovery)
 //!
 //! PUBLIC API:
 //!   - Announcement: Service discovery announcement
@@ -238,6 +241,26 @@ mod host;
 
 #[cfg(nexus_env = "host")]
 pub use host::{HostAuthenticator, HostDiscovery, HostSession, HostStream};
+
+#[cfg(nexus_env = "host")]
+mod inproc;
+
+#[cfg(nexus_env = "host")]
+pub use inproc::{InProcAuthenticator, InProcSession, InProcStream};
+
+#[cfg(nexus_env = "host")]
+mod net_facade;
+
+#[cfg(nexus_env = "host")]
+pub use net_facade::{FacadeAuthenticator, FacadeSession, FacadeStream};
+
+#[cfg(nexus_env = "host")]
+mod facade_discovery;
+
+#[cfg(nexus_env = "host")]
+pub use facade_discovery::{FacadeAnnouncementStream, FacadeDiscovery};
+
+pub mod discovery_packet;
 
 #[cfg(nexus_env = "os")]
 mod os;

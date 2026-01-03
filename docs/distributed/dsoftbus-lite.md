@@ -42,11 +42,18 @@ The `userspace/dsoftbus` crate exposes the high level traits used by the daemon.
 Two backends exist today:
 
 - `cfg(nexus_env = "host")` implements discovery, Noise handshakes, and framed
-  streams using TCP loopback sockets. The discovery registry is process-local so
-  multiple nodes can run inside a single integration test.
-- `cfg(nexus_env = "os")` exposes stub modules with `todo!()` markers. They
-  compile as placeholders until the kernel gains socket support and the
-  transport can be wired to virtio-net.
+  streams with deterministic, host-first transports:
+  - An in-process transport for socketless tests (`InProcAuthenticator`).
+  - A sockets-facade-backed transport (`FacadeAuthenticator`) layered over
+    `userspace/nexus-net` (using `FakeNet` in tests).
+  - The UDP discovery announce payload has a versioned, bounded byte layout with golden vectors
+    (`userspace/dsoftbus/src/discovery_packet.rs`, `userspace/dsoftbus/tests/discovery_packet.rs`).
+  The discovery registry is process-local so multiple nodes can run inside a
+  single integration test.
+- `cfg(nexus_env = "os")` exposes stub modules that return deterministic
+  `Unsupported`/placeholder errors. The OS transport is gated until networking
+  exists (see `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` and
+  `tasks/TASK-0010-device-mmio-access-model.md`).
 
 By keeping the kernel unaware of IDL parsing or Cap'n Proto framing we preserve
 its minimal trusted computing base. Only the userland daemon deals with schema

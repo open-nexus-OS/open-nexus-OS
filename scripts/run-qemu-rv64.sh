@@ -42,7 +42,7 @@ set_env_var() {
 
 declare -a SERVICES=()
 
-DEFAULT_SERVICE_LIST="keystored,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,selftest-client"
+DEFAULT_SERVICE_LIST="keystored,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
 
 prepare_service_payloads() {
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
@@ -511,6 +511,11 @@ COMMON_ARGS=(
   -icount 1,sleep=on
   -bios default
   -kernel "$KERNEL_BIN"
+  # Networking: attach a virtio-net device on the virtio-mmio bus.
+  # This is self-contained (user-mode net), requires no host TAP and remains deterministic enough
+  # for marker-driven bring-up.
+  -netdev user,id=n0
+  -device virtio-net-device,netdev=n0
 )
 
 # Enable heavy QEMU tracing only when explicitly requested

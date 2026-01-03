@@ -1,6 +1,6 @@
 ---
 title: TASK-0010 Device access model v1: safe userspace MMIO for virtio devices (enables virtio-net/virtio-blk)
-status: Draft
+status: In Progress
 owner: @kernel-team @runtime
 created: 2025-12-22
 links:
@@ -66,11 +66,23 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 - QEMU selftest marker proving a userspace driver can map its MMIO window and read a known virtio register:
   - `SELFTEST: mmio map ok`
 
+## Current state
+
+- Kernel cap kind exists: `CapabilityKind::DeviceMmio { base, len }` (bounded physical window).
+- Kernel syscall exists: `SYSCALL_MMIO_MAP` enforcing **USER|RW** and **never EXEC** for device mappings.
+- OS selftest exercises the path end-to-end and emits:
+  - `SELFTEST: mmio map ok`
+- Canonical QEMU harness now requires the marker (no silent “green”).
+- **Bring-up caveat**: current virtio-net testing uses a temporary “selftest-client injection” path.
+  For `TASK-0003` to complete, capability distribution must target the **networking owner service**
+  (e.g. `netstackd` / `virtionetd`), not only selftests.
+
 ## Touched paths (allowlist)
 
 - `source/kernel/neuron/` (minimal new capability kind and mapping syscall support)
 - `source/libs/nexus-abi/` (userspace wrapper for the new capability/map primitive)
 - `source/apps/selftest-client/` (MMIO map proof marker)
+- `scripts/qemu-test.sh` (canonical marker harness)
 - `docs/` (document the device access model + security invariants)
 
 ## Plan (small PRs)
@@ -85,3 +97,7 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 - Userspace can map only the granted device MMIO window, not arbitrary addresses.
 - Mapping is non-executable and respects W^X enforcement at the boundary.
 - QEMU marker proves the mapping works.
+
+## Evidence (to paste into PR)
+
+- `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (marker present: `SELFTEST: mmio map ok`)

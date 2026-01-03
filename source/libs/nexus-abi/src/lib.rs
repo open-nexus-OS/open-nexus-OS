@@ -1762,8 +1762,11 @@ pub fn vmo_create(_len: usize) -> Result<Handle> {
         const SYSCALL_VMO_CREATE: usize = 5;
         let slot = usize::MAX;
         let len = _len;
-        let ret = ecall3(SYSCALL_VMO_CREATE, slot, len, 0);
-        Ok(ret as Handle)
+        let raw = ecall3(SYSCALL_VMO_CREATE, slot, len, 0);
+        match decode_syscall(raw) {
+            Ok(slot) => Ok(slot as Handle),
+            Err(_) => Err(IpcError::Unsupported),
+        }
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
@@ -1799,12 +1802,130 @@ pub fn vmo_map(_handle: Handle, _va: usize, _flags: u32) -> Result<()> {
     unsafe {
         const SYSCALL_MAP: usize = 4;
         // Offset=0 for the minimal path; flags passed as fourth arg.
-        let _ = ecall4(SYSCALL_MAP, _handle as usize, _va, 0, _flags as usize);
-        Ok(())
+        let raw = ecall4(SYSCALL_MAP, _handle as usize, _va, 0, _flags as usize);
+        match decode_syscall(raw) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(IpcError::Unsupported),
+        }
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
         Err(IpcError::Unsupported)
+    }
+}
+
+/// Page-table leaf flags for user mappings (Sv39).
+///
+/// These constants match `source/kernel/neuron/src/mm/page_table.rs` `PageFlags` bits.
+#[cfg(nexus_env = "os")]
+pub mod page_flags {
+    /// Entry is valid.
+    pub const VALID: u32 = 1 << 0;
+    /// Readable.
+    pub const READ: u32 = 1 << 1;
+    /// Writable.
+    pub const WRITE: u32 = 1 << 2;
+    /// Executable.
+    pub const EXECUTE: u32 = 1 << 3;
+    /// User accessible.
+    pub const USER: u32 = 1 << 4;
+}
+
+/// Maps one page of a VMO into the caller's address space at virtual address `va`.
+///
+/// - `va` must be 4096-byte aligned.
+/// - `offset` is a byte offset into the VMO (page-aligned by the kernel).
+/// - `flags` uses `page_flags::*` bits.
+#[cfg(nexus_env = "os")]
+pub fn vmo_map_page(_handle: Handle, _va: usize, _offset: usize, _flags: u32) -> Result<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        const SYSCALL_MAP: usize = 4;
+        let raw = ecall4(
+            SYSCALL_MAP,
+            _handle as usize,
+            _va,
+            _offset,
+            _flags as usize,
+        );
+        match decode_syscall(raw) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(IpcError::Unsupported),
+        }
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_handle, _va, _offset, _flags);
+        Err(IpcError::Unsupported)
+    }
+}
+
+/// Like [`vmo_map_page`] but returns the raw syscall error (`AbiError`) for diagnostics.
+#[cfg(nexus_env = "os")]
+pub fn vmo_map_page_sys(_handle: Handle, _va: usize, _offset: usize, _flags: u32) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_MAP: usize = 4;
+        let raw = unsafe { ecall4(SYSCALL_MAP, _handle as usize, _va, _offset, _flags as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_handle, _va, _offset, _flags);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Maps a device MMIO window capability into the caller's address space at virtual address `va`.
+///
+/// Security invariants (enforced by kernel):
+/// - mapping is USER + RW
+/// - mapping is never executable
+/// - mapping is bounded to the capability window
+#[cfg(nexus_env = "os")]
+pub fn mmio_map(_handle: Handle, _va: usize, _offset: usize) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_MMIO_MAP: usize = 27;
+        let raw = unsafe { ecall3(SYSCALL_MMIO_MAP, _handle as usize, _va, _offset) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_handle, _va, _offset);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Information about an address-bearing capability (VMO or device MMIO window).
+#[cfg(nexus_env = "os")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CapQuery {
+    /// 1 = VMO, 2 = DeviceMmio.
+    pub kind_tag: u32,
+    /// Reserved for future expansion (must be zero).
+    pub reserved: u32,
+    /// Physical base address for the capability's window.
+    pub base: u64,
+    /// Length in bytes of the capability's window.
+    pub len: u64,
+}
+
+/// Queries a capability slot and writes the result into `out`.
+#[cfg(nexus_env = "os")]
+pub fn cap_query(_cap: Cap, _out: &mut CapQuery) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_CAP_QUERY: usize = 28;
+        let out_ptr = (_out as *mut CapQuery) as usize;
+        let raw = unsafe { ecall2(SYSCALL_CAP_QUERY, _cap as usize, out_ptr) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_cap, _out);
+        Err(AbiError::Unsupported)
     }
 }
 
@@ -1916,6 +2037,25 @@ unsafe fn ecall1_pair(n: usize, a0: usize) -> (usize, usize) {
     );
     (r0, r1)
 }
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
+#[inline(always)]
+unsafe fn ecall2(n: usize, a0: usize, a1: usize) -> usize {
+    let mut r0 = a0;
+    let mut r1 = a1;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a1") r1,
+        inout("a7") r7,
+        clobber_abi("C"),
+        options(nostack)
+    );
+    r0
+}
+
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 #[allow(unused_assignments)]
 #[inline(always)]

@@ -8,13 +8,15 @@
 //!
 //! The helpers defined here spin up a pair of service nodes (identityd,
 //! samgrd, bundlemgrd, and dsoftbusd equivalents) entirely in-process. The
-//! nodes communicate using the `userspace/dsoftbus` host backend and forward
-//! Cap'n Proto frames to the existing daemons, providing a realistic control
-//! plane without booting QEMU.
+//! nodes communicate using `userspace/dsoftbus` host-first transports layered
+//! over the `userspace/nexus-net` sockets facade contract (`FakeNet`), including
+//! on-wire discovery announce packets (v1) and Noise-authenticated sessions.
+//! Cap'n Proto frames are forwarded to the existing daemons, providing a
+//! realistic control plane without booting QEMU.
 
 #![forbid(unsafe_code)]
 
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -25,8 +27,8 @@ use bundlemgrd::{self, run_with_transport as bundle_run_with_transport, Artifact
 use capnp::message::{Builder, ReaderOptions};
 use capnp::serialize;
 use dsoftbus::{
-    Announcement, Authenticator, Discovery, FramePayload, HostAuthenticator, HostDiscovery,
-    HostStream, Session, Stream,
+    Announcement, Authenticator, Discovery, FacadeAuthenticator, FacadeDiscovery, FramePayload,
+    HostDiscovery, InProcAuthenticator, Session, Stream,
 };
 use identity::{DeviceId, Identity};
 use nexus_idl_runtime::bundlemgr_capnp::{
@@ -41,6 +43,8 @@ use rand::Rng;
 use samgr::Registry;
 use samgrd::serve_with_registry as samgr_serve_with_registry;
 use thiserror::Error;
+
+use nexus_net::fake::FakeNet;
 
 const CHAN_SAMGR: u32 = 1;
 const CHAN_BUNDLEMGR: u32 = 2;
@@ -77,10 +81,21 @@ pub enum HarnessError {
     Protocol(String),
 }
 
+#[derive(Clone)]
+enum AuthBackend {
+    InProc(Arc<InProcAuthenticator>),
+    Facade(Arc<FacadeAuthenticator<FakeNet>>),
+}
+
+enum DiscoveryBackend {
+    Host(HostDiscovery),
+    Facade(FacadeDiscovery<FakeNet>),
+}
+
 /// Represents a running host node exposing DSoftBus-lite services.
 pub struct Node {
-    authenticator: Arc<HostAuthenticator>,
-    discovery: HostDiscovery,
+    authenticator: AuthBackend,
+    discovery: DiscoveryBackend,
     announcement: Announcement,
     samgr_client: Arc<LoopbackClient>,
     #[allow(dead_code)]
@@ -91,7 +106,7 @@ pub struct Node {
     samgr_thread: Option<JoinHandle<()>>,
     bundle_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
-    listen_addr: SocketAddr,
+    listen_port: u16,
 }
 
 impl Node {
@@ -100,18 +115,17 @@ impl Node {
     pub fn start(listen_port: u16, services: Vec<String>) -> Result<Self> {
         let identity = Identity::generate().context("generate identity")?;
         let listen_addr = SocketAddr::from(([127, 0, 0, 1], listen_port));
-        let authenticator = HostAuthenticator::bind(listen_addr, identity.clone())
+        let authenticator = InProcAuthenticator::bind(listen_addr, identity.clone())
             .context("bind host authenticator")?;
         let discovery = HostDiscovery::new();
+        let published_port = authenticator.local_port();
         let announcement = Announcement::new(
             identity.device_id().clone(),
             services,
-            listen_port,
+            published_port,
             authenticator.local_noise_public(),
         );
-        discovery
-            .announce(announcement.clone())
-            .context("announce local node")?;
+        discovery.announce(announcement.clone()).context("announce local node")?;
 
         // samgrd loopback transport and server thread
         let (samgr_client, samgr_server) = samgrd::loopback_transport();
@@ -138,7 +152,7 @@ impl Node {
         let bundle_client = Arc::new(bundle_client);
 
         let shutdown = Arc::new(AtomicBool::new(false));
-        let acceptor = authenticator.clone();
+        let acceptor = Arc::new(authenticator);
         let samgr_bridge = Arc::clone(&samgr_client);
         let bundle_bridge = Arc::clone(&bundle_client);
         let store_bridge = artifacts.clone();
@@ -153,7 +167,7 @@ impl Node {
                             let store = store_bridge.clone();
                             thread::spawn(move || {
                                 if let Err(err) =
-                                    handle_session(stream, samgr_client, bundle_client, store)
+                                    handle_session(Box::new(stream), samgr_client, bundle_client, store)
                                 {
                                     eprintln!("dsoftbus session ended with error: {err}");
                                 }
@@ -169,8 +183,8 @@ impl Node {
         });
 
         Ok(Self {
-            authenticator: Arc::new(authenticator),
-            discovery,
+            authenticator: AuthBackend::InProc(acceptor),
+            discovery: DiscoveryBackend::Host(discovery),
             announcement,
             samgr_client,
             bundle_client,
@@ -179,13 +193,122 @@ impl Node {
             samgr_thread: Some(samgr_thread),
             bundle_thread: Some(bundle_thread),
             shutdown,
-            listen_addr,
+            listen_port: published_port,
+        })
+    }
+
+    /// Boots a node that uses DSoftBus over the sockets facade contract (`nexus-net`).
+    ///
+    /// This is host-first and deterministic when paired with `nexus_net::fake::FakeNet`.
+    pub fn start_facade(net: FakeNet, listen_port: u16, services: Vec<String>) -> Result<Self> {
+        let identity = Identity::generate().context("generate identity")?;
+        let listen_addr = SocketAddr::from(([127, 0, 0, 1], listen_port));
+
+        let net_for_auth = net.clone();
+        let net_for_disc = net;
+
+        // Build a facade-backed authenticator and adapt it through the in-proc style surface by
+        // using the dsoftbus facade transport directly for sessions.
+        //
+        // For `remote_e2e` we only need connect/accept + into_stream; the server-side session loop
+        // is already transport-agnostic via `Stream`.
+        let authenticator = FacadeAuthenticator::new(net_for_auth, listen_addr, identity.clone())
+            .context("bind facade authenticator")?;
+
+        // Discovery bus (host-first): all nodes bind the same UDP address and broadcast to it.
+        // Deterministic under FakeNet; proves the on-wire announce packet.
+        let bus = SocketAddr::from(([127, 0, 0, 1], 37020));
+        let discovery = FacadeDiscovery::new(net_for_disc, bus, bus)
+            .context("bind facade discovery")?;
+        let published_port = authenticator.local_port();
+        let announcement = Announcement::new(
+            identity.device_id().clone(),
+            services,
+            published_port,
+            authenticator.local_noise_public(),
+        );
+        discovery.announce(announcement.clone()).context("announce local node")?;
+
+        // samgrd loopback transport and server thread
+        let (samgr_client, samgr_server) = samgrd::loopback_transport();
+        let registry = Registry::new();
+        let samgr_thread = thread::spawn(move || {
+            let mut transport = samgr_server;
+            if let Err(err) = samgr_serve_with_registry(&mut transport, registry) {
+                eprintln!("samgrd loop terminated: {err}");
+            }
+        });
+        let samgr_client = Arc::new(samgr_client);
+
+        // bundlemgrd loopback transport and server thread
+        let (bundle_client, bundle_server) = bundlemgrd::loopback_transport();
+        let artifacts = ArtifactStore::new();
+        let artifact_clone = artifacts.clone();
+        let bundle_thread = thread::spawn(move || {
+            let mut transport = bundle_server;
+            if let Err(err) = bundle_run_with_transport(&mut transport, artifact_clone, None, None)
+            {
+                eprintln!("bundlemgrd loop terminated: {err}");
+            }
+        });
+        let bundle_client = Arc::new(bundle_client);
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let acceptor = Arc::new(authenticator);
+        let samgr_bridge = Arc::clone(&samgr_client);
+        let bundle_bridge = Arc::clone(&bundle_client);
+        let store_bridge = artifacts.clone();
+        let stop_flag = Arc::clone(&shutdown);
+        let accept_thread = thread::spawn(move || {
+            while !stop_flag.load(Ordering::SeqCst) {
+                match acceptor.accept() {
+                    Ok(session) => match session.into_stream() {
+                        Ok(stream) => {
+                            let samgr_client = Arc::clone(&samgr_bridge);
+                            let bundle_client = Arc::clone(&bundle_bridge);
+                            let store = store_bridge.clone();
+                            thread::spawn(move || {
+                                if let Err(err) = handle_session(
+                                    Box::new(stream),
+                                    samgr_client,
+                                    bundle_client,
+                                    store,
+                                ) {
+                                    eprintln!("dsoftbus session ended with error: {err}");
+                                }
+                            });
+                        }
+                        Err(err) => eprintln!("stream negotiation failed: {err}"),
+                    },
+                    Err(err) => {
+                        eprintln!("accept error: {err}");
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            authenticator: AuthBackend::Facade(acceptor),
+            discovery: DiscoveryBackend::Facade(discovery),
+            announcement,
+            samgr_client,
+            bundle_client,
+            artifact_store: artifacts,
+            accept_thread: Some(accept_thread),
+            samgr_thread: Some(samgr_thread),
+            bundle_thread: Some(bundle_thread),
+            shutdown,
+            listen_port: published_port,
         })
     }
 
     /// Returns the device identifier assigned to this node.
     pub fn device_id(&self) -> DeviceId {
-        self.authenticator.identity().device_id().clone()
+        match &self.authenticator {
+            AuthBackend::InProc(auth) => auth.identity().device_id().clone(),
+            AuthBackend::Facade(auth) => auth.identity().device_id().clone(),
+        }
     }
 
     /// Returns a clone of the local announcement payload.
@@ -194,17 +317,19 @@ impl Node {
     }
 
     /// Returns a discovery iterator seeded with the current registry state.
-    pub fn watch(&self) -> Result<impl Iterator<Item = Announcement>> {
-        self.discovery
-            .watch()
-            .map_err(|err| anyhow!(err.to_string()))
+    pub fn watch(&self) -> Result<Box<dyn Iterator<Item = Announcement>>> {
+        match &self.discovery {
+            DiscoveryBackend::Host(d) => Ok(Box::new(d.watch().map_err(|err| anyhow!(err.to_string()))?)),
+            DiscoveryBackend::Facade(d) => Ok(Box::new(d.watch().map_err(|err| anyhow!(err.to_string()))?)),
+        }
     }
 
     /// Attempts to retrieve an announcement for `device` from the registry.
     pub fn get_announcement(&self, device: &DeviceId) -> Result<Option<Announcement>> {
-        self.discovery
-            .get(device)
-            .map_err(|err| anyhow!(err.to_string()))
+        match &self.discovery {
+            DiscoveryBackend::Host(d) => d.get(device).map_err(|err| anyhow!(err.to_string())),
+            DiscoveryBackend::Facade(d) => d.get(device).map_err(|err| anyhow!(err.to_string())),
+        }
     }
 
     /// Registers a local service name with the SAMGR daemon.
@@ -230,20 +355,18 @@ impl Node {
 
     /// Connects to `peer` and returns a handle used for remote operations.
     pub fn connect(&self, peer: &Announcement) -> Result<RemoteConnection> {
-        let session = self
-            .authenticator
-            .connect(peer)
-            .context("connect to remote peer")?;
+        let session = match &self.authenticator {
+            AuthBackend::InProc(auth) => auth.connect(peer).context("connect to remote peer")?,
+            AuthBackend::Facade(auth) => auth.connect(peer).context("connect to remote peer")?,
+        };
         let stream = session.into_stream().context("stream negotiation")?;
-        Ok(RemoteConnection::new(stream))
+        Ok(RemoteConnection::new(Box::new(stream)))
     }
 }
 
 impl Drop for Node {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
-        // Wake the blocking accept call by connecting once to the listener.
-        let _ = TcpStream::connect(self.listen_addr);
         if let Some(h) = self.accept_thread.take() {
             let _ = h.join();
         }
@@ -254,7 +377,7 @@ impl Drop for Node {
 }
 
 fn handle_session(
-    mut stream: HostStream,
+    mut stream: Box<dyn Stream + Send>,
     samgr: Arc<LoopbackClient>,
     bundle: Arc<LoopbackClient>,
     artifacts: ArtifactStore,
@@ -482,11 +605,11 @@ fn parse_bundle_query(bytes: &[u8]) -> Result<Option<String>> {
 
 /// Represents an established remote connection over DSoftBus.
 pub struct RemoteConnection {
-    stream: Mutex<HostStream>,
+    stream: Mutex<Box<dyn Stream + Send>>,
 }
 
 impl RemoteConnection {
-    fn new(stream: HostStream) -> Self {
+    fn new(stream: Box<dyn Stream + Send>) -> Self {
         Self {
             stream: Mutex::new(stream),
         }

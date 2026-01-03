@@ -10,6 +10,7 @@ capnp = "0.19"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 identity = { path = "../identity" }
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }
+nexus-net = { path = "../nexus-net" }
 once_cell = "1"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }

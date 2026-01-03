@@ -354,6 +354,29 @@ impl MapArgsTyped {
 }
 
 #[derive(Copy, Clone)]
+struct MmioMapArgsTyped {
+    slot: SlotIndex,
+    va: VirtAddr,
+    offset: usize,
+}
+
+impl MmioMapArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self {
+            slot: SlotIndex::decode(args.get(0)),
+            va: VirtAddr::page_aligned(args.get(1)).ok_or(AddressSpaceError::InvalidArgs)?,
+            offset: args.get(2),
+        })
+    }
+    #[inline]
+    fn check(&self) -> Result<(), Error> {
+        // Additional bounds checks are performed against the capability window in the handler.
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
 struct VmoCreateArgsTyped {
     slot_raw: usize,
     len: usize,
@@ -428,7 +451,8 @@ use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_TRANSFER,
     SYSCALL_DEBUG_PUTC, SYSCALL_EXIT, SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_MAP, SYSCALL_NSEC,
     SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE,
-    SYSCALL_WAIT, SYSCALL_YIELD, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
+    SYSCALL_WAIT, SYSCALL_YIELD, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_MMIO_MAP,
+    SYSCALL_CAP_QUERY,
     SYSCALL_IPC_SEND_V1,
 };
 
@@ -504,6 +528,8 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_SEND, sys_send);
     table.register(SYSCALL_RECV, sys_recv);
     table.register(SYSCALL_MAP, sys_map);
+    table.register(SYSCALL_MMIO_MAP, sys_mmio_map);
+    table.register(SYSCALL_CAP_QUERY, sys_cap_query);
     table.register(SYSCALL_VMO_CREATE, sys_vmo_create);
     table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
     table.register(SYSCALL_SPAWN, sys_spawn);
@@ -1165,6 +1191,74 @@ fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
     }
+}
+
+fn sys_mmio_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let typed = MmioMapArgsTyped::decode(args)?;
+    typed.check()?;
+
+    let cap = ctx
+        .tasks
+        .current_caps_mut()
+        .derive(typed.slot.0, Rights::MAP)?;
+
+    let (base, len) = match cap.kind {
+        CapabilityKind::DeviceMmio { base, len } => (base, len),
+        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    };
+
+    if typed.offset >= len {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+
+    let handle = ctx
+        .tasks
+        .current_task()
+        .address_space()
+        .ok_or(AddressSpaceError::InvalidHandle)?;
+
+    // Enforce the security floor at the boundary:
+    // - USER + RW only
+    // - never EXEC
+    let flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
+
+    let pa = base
+        .checked_add(typed.offset & !(PAGE_SIZE - 1))
+        .ok_or(AddressSpaceError::InvalidArgs)?;
+
+    ctx.address_spaces
+        .map_page(handle, typed.va.raw(), pa, flags)?;
+    Ok(0)
+}
+
+fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = SlotIndex::decode(args.get(0));
+    let out_ptr = args.get(1);
+    // out layout (LE):
+    // - u32 kind_tag (1=vmo, 2=device_mmio)
+    // - u32 reserved
+    // - u64 base
+    // - u64 len
+    const OUT_LEN: usize = 24;
+    ensure_user_slice(out_ptr, OUT_LEN)?;
+
+    // Capability gate: require MAP rights to introspect address-bearing caps.
+    let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
+    let (kind_tag, base, len) = match cap.kind {
+        CapabilityKind::Vmo { base, len } => (1u32, base as u64, len as u64),
+        CapabilityKind::DeviceMmio { base, len } => (2u32, base as u64, len as u64),
+        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    };
+
+    let mut out = [0u8; OUT_LEN];
+    out[0..4].copy_from_slice(&kind_tag.to_le_bytes());
+    out[4..8].copy_from_slice(&0u32.to_le_bytes());
+    out[8..16].copy_from_slice(&base.to_le_bytes());
+    out[16..24].copy_from_slice(&len.to_le_bytes());
+    unsafe {
+        core::ptr::copy_nonoverlapping(out.as_ptr(), out_ptr as *mut u8, OUT_LEN);
+    }
+    Ok(0)
 }
 
 fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
@@ -1868,10 +1962,14 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
     let (meta_pa, _meta_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
     let mut service_id: u64 = 0;
+    let mut is_selftest_client = false;
+    let mut is_netstackd = false;
     if typed.name_len != 0 {
         // SAFETY: checked in ExecV2ArgsTyped::check.
         let name_bytes =
             unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
+        is_selftest_client = name_bytes == b"selftest-client";
+        is_netstackd = name_bytes == b"netstackd";
         // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
         // This is deterministic, does not allocate, and can be recomputed by userland for display.
         service_id = 0xcbf29ce484222325u64;
@@ -1961,8 +2059,30 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     )?;
 
     // Bind identity to the spawned task (kernel-derived): used for IPC sender attribution.
-    if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
+        if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
         t.set_service_id(service_id);
+            if is_selftest_client || is_netstackd {
+            // TASK-0010 bring-up: grant selftest-client a fixed, bounded virtio-mmio window so it
+            // can prove userspace MMIO mapping works on QEMU `virt`.
+            //
+            // NOTE: this is intentionally minimal and wired for bring-up. A follow-up will route
+            // device capabilities via a policy/service boundary rather than a name check.
+            const SELFTEST_MMIO_SLOT: usize = 48;
+            const VIRTIO_MMIO0_BASE: usize = 0x1000_1000;
+            // Expose a bounded window large enough to cover the built-in virtio-mmio slots on
+            // QEMU `virt` (8 * 4KiB).
+            const VIRTIO_MMIO_LEN: usize = 0x8000;
+            t.caps_mut().set(
+                SELFTEST_MMIO_SLOT,
+                Capability {
+                    kind: CapabilityKind::DeviceMmio {
+                        base: VIRTIO_MMIO0_BASE,
+                        len: VIRTIO_MMIO_LEN,
+                    },
+                    rights: Rights::MAP,
+                },
+            )?;
+        }
         // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
         let guard_va = info_va
             .checked_add(PAGE_SIZE)

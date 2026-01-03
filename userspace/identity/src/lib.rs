@@ -2,7 +2,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional (host backend), Placeholder (OS backend - provide stubs that will be wired later)
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 2 unit tests, 1 integration test
+//! TEST_COVERAGE: 2 unit tests, 2 integration tests
 //!
 //! PUBLIC API:
 //!   - Identity: Device identity with signing capabilities
@@ -67,6 +67,20 @@ impl DeviceId {
         hasher.update(key.to_bytes());
         let digest = hasher.finalize();
         DeviceId(hex::encode(digest))
+    }
+
+    /// Parses a stable device id string (expected SHA-256 hex, 64 chars).
+    ///
+    /// This is used by host-first transports that receive a device id as bytes
+    /// (e.g. discovery announce packets) and need to materialize a `DeviceId`.
+    pub fn from_hex_sha256(s: &str) -> Result<Self, IdentityError> {
+        if s.len() != 64 {
+            return Err(IdentityError::Deserialize("device id length".into()));
+        }
+        if !s.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
+            return Err(IdentityError::Deserialize("device id not hex".into()));
+        }
+        Ok(DeviceId(s.to_string()))
     }
 
     /// Returns the underlying identifier as a string slice.

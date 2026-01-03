@@ -67,6 +67,10 @@ expected_sequence=(
   "init: up vfsd"
   "init: start execd"
   "init: up execd"
+  "init: start netstackd"
+  "init: up netstackd"
+  "init: start dsoftbusd"
+  "init: up dsoftbusd"
   "init: ready"
   # Service readiness markers are emitted asynchronously by the spawned processes.
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
@@ -78,9 +82,19 @@ expected_sequence=(
   "packagefsd: ready"
   "vfsd: ready"
   "execd: ready"
+  "netstackd: ready"
+  "net: virtio-net up"
+  "SELFTEST: net iface ok"
+  "net: smoltcp iface up 10.0.2.15"
+  "SELFTEST: net ping ok"
+  "dsoftbusd: ready"
+  "SELFTEST: net udp dns ok"
+  "SELFTEST: net tcp listen ok"
+  "netstackd: facade up"
   "SELFTEST: ipc routing keystored ok"
   "SELFTEST: keystored v1 ok"
   "SELFTEST: ipc routing samgrd ok"
+  "dsoftbusd: os transport up (udp+tcp)"
   "SELFTEST: samgrd v1 register ok"
   "SELFTEST: samgrd v1 lookup ok"
   "SELFTEST: samgrd v1 unknown ok"
@@ -108,12 +122,19 @@ expected_sequence=(
   "SELFTEST: nexus-ipc kernel loopback ok"
   "SELFTEST: ipc sender pid ok"
   "SELFTEST: ipc sender service_id ok"
+  "SELFTEST: mmio map ok"
+  "SELFTEST: cap query mmio ok"
+  "SELFTEST: cap query vmo ok"
   "SELFTEST: ipc routing ok"
   "SELFTEST: ipc routing packagefsd ok"
   "SELFTEST: vfs stat ok"
   "SELFTEST: vfs read ok"
   "SELFTEST: vfs real data ok"
   "SELFTEST: vfs ebadf ok"
+  "dsoftbusd: auth ok"
+  "dsoftbusd: os session ok"
+  "SELFTEST: dsoftbus os connect ok"
+  "SELFTEST: dsoftbus ping ok"
   "SELFTEST: end"
 )
 
@@ -130,12 +151,18 @@ if ! grep -aFq "init: start" "$UART_LOG"; then
 fi
 
 missing=0
+missing_marker=""
 for marker in "${expected_sequence[@]}"; do
   if ! grep -aFq "$marker" "$UART_LOG"; then
     missing=1
+    missing_marker="$marker"
     break
   fi
 done
+if [[ "$missing" -ne 0 ]]; then
+  echo "[error] Missing UART marker: $missing_marker" >&2
+  exit 1
+fi
 
 prev=-1
 for marker in "${expected_sequence[@]}"; do

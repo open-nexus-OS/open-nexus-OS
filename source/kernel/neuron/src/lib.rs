@@ -29,7 +29,10 @@ use spin::Mutex;
 
 // Global allocator using spin::Mutex instead of lock_api to avoid HPM CSR access
 
-const HEAP_SIZE: usize = 1024 * 1024; // 1 MiB heap for page tables and stacks
+// Kernel heap backs page-table allocations, kernel stacks, and early bring-up metadata.
+// NOTE: This region lives in `.bss.heap` and must not overlap the page-table pool range.
+// Keep it large enough to avoid ALLOC-FAIL during bring-up selftests, but below the pool base.
+const HEAP_SIZE: usize = 1408 * 1024; // 1.375 MiB
 
 #[repr(align(4096))]
 struct HeapRegion([u8; HEAP_SIZE]);

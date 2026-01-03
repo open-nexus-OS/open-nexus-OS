@@ -1,8 +1,9 @@
 [package]
-name = "dsoftbusd"
+name = "netstackd"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+publish = false
 
 [features]
 default = ["std"]
@@ -12,9 +13,11 @@ os-lite = []
 [dependencies]
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
-dsoftbus = { path = "../../../userspace/dsoftbus" }
+# Host stub for now (this service is OS-first).
 
 [target.'cfg(all(target_os = "none", target_arch = "riscv64"))'.dependencies]
 nexus-service-entry = { path = "../../libs/nexus-service-entry" }
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"] }
+nexus-net = { path = "../../../userspace/nexus-net" }
+nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"] }

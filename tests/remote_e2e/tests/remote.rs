@@ -7,6 +7,7 @@
 #![cfg(nexus_env = "host")]
 
 use dsoftbus::Announcement;
+use nexus_net::fake::FakeNet;
 use remote_e2e::{random_port, ArtifactKind, Node};
 
 const MANIFEST: &str = r#"name = "demo"
@@ -20,17 +21,21 @@ sig = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 #[test]
 fn remote_roundtrip_and_negative_handshake() {
+    let net = FakeNet::new();
+    let port_a = random_port();
+    let node_a = Node::start_facade(net.clone(), port_a, vec!["samgrd".into()]).unwrap();
+
+    eprintln!("[remote_e2e] watching for node B announcement");
+    let mut announcements = node_a.watch().expect("watch registry");
+
+    eprintln!("[remote_e2e] starting node B");
     let port_b = random_port();
-    let node_b = Node::start(port_b, vec!["samgrd".into(), "bundlemgrd".into()]).unwrap();
+    let node_b =
+        Node::start_facade(net, port_b, vec!["samgrd".into(), "bundlemgrd".into()]).unwrap();
     node_b
         .register_service("bundlemgrd", 7)
         .expect("register bundlemgrd");
 
-    let port_a = random_port();
-    let node_a = Node::start(port_a, vec!["samgrd".into()]).unwrap();
-
-    eprintln!("[remote_e2e] waiting for node B announcement");
-    let mut announcements = node_a.watch().expect("watch registry");
     let remote = announcements
         .find(|ann| ann.device_id() == &node_b.device_id())
         .expect("discover node b");

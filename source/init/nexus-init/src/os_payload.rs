@@ -343,6 +343,8 @@ struct CtrlChannel {
     exe_recv_slot: Option<u32>,
     key_send_slot: Option<u32>,
     key_recv_slot: Option<u32>,
+    net_send_slot: Option<u32>,
+    net_recv_slot: Option<u32>,
     /// Self reply-inbox slots (only populated for requesters that need CAP_MOVE reply routing).
     reply_send_slot: Option<u32>,
     reply_recv_slot: Option<u32>,
@@ -689,6 +691,8 @@ where
                     exe_recv_slot: None,
                     key_send_slot: None,
                     key_recv_slot: None,
+                    net_send_slot: None,
+                    net_recv_slot: None,
                     reply_send_slot: None,
                     reply_recv_slot: None,
                 };
@@ -753,6 +757,8 @@ where
     let vfsd_pid = find_pid(&ctrl_channels, "vfsd").ok_or(InitError::MissingElf)?;
     let packagefsd_pid = find_pid(&ctrl_channels, "packagefsd").ok_or(InitError::MissingElf)?;
     let policyd_pid = find_pid(&ctrl_channels, "policyd").ok_or(InitError::MissingElf)?;
+    let netstackd_pid = find_pid(&ctrl_channels, "netstackd").ok_or(InitError::MissingElf)?;
+    let dsoftbusd_pid = find_pid(&ctrl_channels, "dsoftbusd").ok_or(InitError::MissingElf)?;
     let bundlemgrd_pid = find_pid(&ctrl_channels, "bundlemgrd").ok_or(InitError::MissingElf)?;
     let samgrd_pid = find_pid(&ctrl_channels, "samgrd").ok_or(InitError::MissingElf)?;
     let execd_pid = find_pid(&ctrl_channels, "execd").ok_or(InitError::MissingElf)?;
@@ -800,6 +806,21 @@ where
     let reply_ep =
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8).map_err(InitError::Abi)?;
 
+    // DSoftBusd reply-inbox endpoint (for CAP_MOVE request/reply).
+    let dsoft_reply_ep =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, dsoftbusd_pid, 8).map_err(InitError::Abi)?;
+
+    // Netstackd service endpoints (request/response).
+    let net_req =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, netstackd_pid, 8).map_err(InitError::Abi)?;
+    let net_rsp =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, netstackd_pid, 8).map_err(InitError::Abi)?;
+    // Client-side netstackd receive endpoints (currently unused by the CAP_MOVE protocol but required for routing).
+    let net_selftest_rsp =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8).map_err(InitError::Abi)?;
+    let net_dsoft_rsp =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, dsoftbusd_pid, 8).map_err(InitError::Abi)?;
+
     // packagefsd reply-inbox endpoint (for CAP_MOVE request/reply to other services, e.g. bundlemgrd):
     let pkg_reply_ep =
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, packagefsd_pid, 8).map_err(InitError::Abi)?;
@@ -813,6 +834,35 @@ where
     for chan in &mut ctrl_channels {
         let pid = chan.pid;
         match chan.svc_name {
+            "netstackd" => {
+                // Provide netstackd its own request/response endpoints (server side).
+                let recv_slot = nexus_abi::cap_transfer(pid, net_req, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, net_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                chan.net_send_slot = Some(send_slot);
+                chan.net_recv_slot = Some(recv_slot);
+                if probes_enabled() && (recv_slot != 3 || send_slot != 4) {
+                    debug_write_bytes(b"!route-warn netstackd-svc-slots recv=0x");
+                    debug_write_hex(recv_slot as usize);
+                    debug_write_bytes(b" send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_byte(b'\n');
+                }
+            }
+            "dsoftbusd" => {
+                // Allow dsoftbusd to send requests to netstackd (and optionally receive on a dedicated inbox).
+                let send_slot = nexus_abi::cap_transfer(pid, net_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, net_dsoft_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.net_send_slot = Some(send_slot);
+                chan.net_recv_slot = Some(recv_slot);
+
+                // Reply inbox: provide both RECV (stay with client) and SEND (to be moved to servers).
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, dsoft_reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, dsoft_reply_ep, Rights::SEND).map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+            }
             "vfsd" => {
                 let recv_slot = nexus_abi::cap_transfer(pid, vfs_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, vfs_rsp, Rights::SEND).map_err(InitError::Abi)?;
@@ -925,6 +975,13 @@ where
                     nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+
+                // Allow selftest-client to send requests to netstackd.
+                let send_slot = nexus_abi::cap_transfer(pid, net_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, net_selftest_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.net_send_slot = Some(send_slot);
+                chan.net_recv_slot = Some(recv_slot);
             }
             _ => {}
         }
@@ -1124,6 +1181,11 @@ where
                 }
             } else if name == b"keystored" {
                 match (chan.key_send_slot, chan.key_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"netstackd" {
+                match (chan.net_send_slot, chan.net_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }

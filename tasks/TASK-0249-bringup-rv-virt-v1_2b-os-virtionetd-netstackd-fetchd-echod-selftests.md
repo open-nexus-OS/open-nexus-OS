@@ -22,7 +22,14 @@ We need OS/QEMU integration for RISC-V Bring-up v1.2:
 - `echod` server (optional UDP echo),
 - TAP setup/teardown.
 
-The prompt proposes these services. `TASK-0003` already plans virtio-net + smoltcp for DSoftBus. This task delivers a **lightweight bring-up alternative** that focuses on deterministic DHCP stub and loopback, complementing the smoltcp-based system.
+The prompt proposes these services. `TASK-0003` already plans virtio-net + smoltcp for DSoftBus.
+
+**Important extraction note (anti-drift):**
+
+- `TASK-0003` now explicitly requires a **minimal networking ownership slice** (a `netstackd`-style owner that
+  allows other services like `dsoftbusd` to use networking without owning MMIO).
+- This task (`TASK-0249`) remains a **bring-up alternative/expansion** (TAP + DHCP stub + loopback + fetch/echo),
+  and MUST NOT become an implicit prerequisite for completing `TASK-0003`.
 
 ## Goal
 
@@ -73,7 +80,8 @@ On OS/QEMU:
 ## Constraints / invariants (hard requirements)
 
 - **No duplicate virtio-net authority**: `virtionetd` uses the library from `TASK-0248`. `TASK-0003` uses smoltcp for DSoftBus. If both coexist, they must share MMIO access and not conflict. Document the relationship explicitly.
-- **No duplicate network stack authority**: `netstackd` is a lightweight alternative to smoltcp (`TASK-0003`). If both coexist, they must not conflict. Document the relationship explicitly.
+- **No duplicate network stack authority**: this task's `netstackd`/loopback/DHCP stack is a bring-up alternative
+  to the smoltcp-based system path in `TASK-0003`. If both exist, document which one is authoritative for the boot profile.
 - **Determinism**: virtio-net operations, DHCP stub, and loopback must be stable given the same inputs.
 - **Bounded resources**: DHCP stub is in-process only; loopback is bounded.
 - **Device MMIO gating**: userspace virtio-net requires `TASK-0010` (device MMIO access model).

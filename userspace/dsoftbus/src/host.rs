@@ -1,6 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Host backend implementation for DSoftBus-lite distributed service fabric
 //!
 //! OWNERS: @runtime
+//! STATUS: Functional (host-only transport; deterministic tests)
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: Covered by integration tests (host/inproc/facade + multi-node harness)
 //!
 //! PUBLIC API:
 //!   - struct HostDiscovery: In-process service discovery registry
@@ -47,16 +53,10 @@
 //!   - Device identity validation
 //!   - Frame-based message transport
 //!
-//! TEST SCENARIOS:
-//!   - test_discovery_registry(): Service announcement and discovery
-//!   - test_noise_handshake(): Noise XK protocol handshake
-//!   - test_encrypted_transport(): Encrypted frame transport
-//!   - test_device_validation(): Device identity validation
-//!   - test_channel_multiplexing(): Multiple logical channels
-//!   - test_connection_rejection(): Peer connection rejection
-//!   - test_crypto_failures(): Cryptographic operation failures
-//!   - test_network_failures(): Network I/O failures and timeouts
-//!   - test_concurrent_sessions(): Multiple concurrent sessions
+//! TEST SCENARIOS (implemented):
+//!   - `userspace/dsoftbus/tests/host_transport.rs`: handshake happy path + ping/pong; auth-failure
+//!   - `userspace/dsoftbus/tests/facade_transport.rs`: same flows over `userspace/nexus-net` (`FakeNet`)
+//!   - `tests/remote_e2e`: multi-node harness over sockets facade (`FakeNet`)
 //!
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 use std::collections::HashMap;
@@ -64,7 +64,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use capnp::message::{Builder, ReaderOptions};
 use capnp::serialize;
@@ -81,6 +81,7 @@ use identity::{DeviceId, Identity};
 use nexus_idl_runtime::dsoftbus_capnp::{connect_request, connect_response, frame};
 
 const MAX_MESSAGE: usize = 64 * 1024;
+const DEFAULT_FRAME_DEADLINE: Duration = Duration::from_secs(5);
 struct Registry {
     announcements: HashMap<String, Announcement>,
     watchers: Vec<mpsc::Sender<Announcement>>,
@@ -173,9 +174,41 @@ fn noise_params() -> NoiseParams {
     }
 }
 
-fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>, std::io::Error> {
+pub(crate) fn read_frame<R: Read>(stream: &mut R) -> Result<Vec<u8>, std::io::Error> {
+    read_frame_with_deadline(stream, DEFAULT_FRAME_DEADLINE)
+}
+
+pub(crate) fn read_frame_with_deadline<R: Read>(
+    stream: &mut R,
+    deadline: Duration,
+) -> Result<Vec<u8>, std::io::Error> {
+    let until = Instant::now() + deadline;
     let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf)?;
+    loop {
+        match stream.read_exact(&mut len_buf) {
+            Ok(()) => break,
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() > until {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "timed out waiting for frame length",
+                    ));
+                }
+                std::thread::yield_now();
+                continue;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
+                if Instant::now() > until {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "timed out waiting for frame length",
+                    ));
+                }
+                continue;
+            }
+            Err(err) => return Err(err),
+        }
+    }
     let len = u32::from_be_bytes(len_buf) as usize;
     if len > MAX_MESSAGE {
         return Err(std::io::Error::new(
@@ -184,16 +217,41 @@ fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>, std::io::Error> {
         ));
     }
     let mut buf = vec![0u8; len];
-    stream.read_exact(&mut buf)?;
+    loop {
+        match stream.read_exact(&mut buf) {
+            Ok(()) => break,
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() > until {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "timed out waiting for frame bytes",
+                    ));
+                }
+                std::thread::yield_now();
+                continue;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
+                if Instant::now() > until {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "timed out waiting for frame bytes",
+                    ));
+                }
+                continue;
+            }
+            Err(err) => return Err(err),
+        }
+    }
     Ok(buf)
 }
 
-fn try_read_frame(stream: &mut TcpStream) -> Result<Option<Vec<u8>>, std::io::Error> {
+pub(crate) fn try_read_frame<R: Read>(stream: &mut R) -> Result<Option<Vec<u8>>, std::io::Error> {
     let mut len_buf = [0u8; 4];
     match stream.read_exact(&mut len_buf) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
         Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => return Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::TimedOut => return Ok(None),
         Err(err) => return Err(err),
     }
     let len = u32::from_be_bytes(len_buf) as usize;
@@ -208,7 +266,7 @@ fn try_read_frame(stream: &mut TcpStream) -> Result<Option<Vec<u8>>, std::io::Er
     Ok(Some(buf))
 }
 
-fn write_frame(stream: &mut TcpStream, payload: &[u8]) -> Result<(), std::io::Error> {
+pub(crate) fn write_frame<W: Write>(stream: &mut W, payload: &[u8]) -> Result<(), std::io::Error> {
     let len = payload.len() as u32;
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(payload)?;
@@ -249,7 +307,10 @@ fn parse_signature(bytes: &[u8]) -> Result<Signature, AuthError> {
     Ok(Signature::from_bytes(&array))
 }
 
-fn decrypt_payload(state: &mut TransportState, frame: &[u8]) -> Result<Vec<u8>, StreamError> {
+pub(crate) fn decrypt_payload(
+    state: &mut TransportState,
+    frame: &[u8],
+) -> Result<Vec<u8>, StreamError> {
     let mut buf = vec![0u8; frame.len()];
     let len = state
         .read_message(frame, &mut buf)
@@ -258,7 +319,10 @@ fn decrypt_payload(state: &mut TransportState, frame: &[u8]) -> Result<Vec<u8>, 
     Ok(buf)
 }
 
-fn encrypt_payload(state: &mut TransportState, data: &[u8]) -> Result<Vec<u8>, StreamError> {
+pub(crate) fn encrypt_payload(
+    state: &mut TransportState,
+    data: &[u8],
+) -> Result<Vec<u8>, StreamError> {
     let mut buf = vec![0u8; data.len() + 64];
     let len = state
         .write_message(data, &mut buf)
@@ -300,7 +364,7 @@ fn deserialize_connect_request(bytes: &[u8]) -> Result<String, AuthError> {
         .to_string())
 }
 
-fn deserialize_frame(bytes: &[u8]) -> Result<FramePayload, StreamError> {
+pub(crate) fn deserialize_frame(bytes: &[u8]) -> Result<FramePayload, StreamError> {
     let mut cursor = std::io::Cursor::new(bytes);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| StreamError::Protocol(err.to_string()))?;
@@ -316,7 +380,7 @@ fn deserialize_frame(bytes: &[u8]) -> Result<FramePayload, StreamError> {
     })
 }
 
-fn serialize_frame(channel: u32, payload: &[u8]) -> Result<Vec<u8>, StreamError> {
+pub(crate) fn serialize_frame(channel: u32, payload: &[u8]) -> Result<Vec<u8>, StreamError> {
     let mut message = Builder::new_default();
     {
         let mut frame = message.init_root::<frame::Builder<'_>>();
@@ -329,8 +393,8 @@ fn serialize_frame(channel: u32, payload: &[u8]) -> Result<Vec<u8>, StreamError>
     Ok(buf)
 }
 
-fn send_connect_response(
-    stream: &mut TcpStream,
+pub(crate) fn send_connect_response(
+    stream: &mut impl Write,
     state: &mut TransportState,
     ok: bool,
 ) -> Result<(), AuthError> {
@@ -348,8 +412,8 @@ fn send_connect_response(
     Ok(())
 }
 
-fn send_connect_request(
-    stream: &mut TcpStream,
+pub(crate) fn send_connect_request(
+    stream: &mut impl Write,
     state: &mut TransportState,
     device_id: &DeviceId,
 ) -> Result<(), AuthError> {
@@ -363,8 +427,8 @@ fn send_connect_request(
     Ok(())
 }
 
-fn receive_connect_response(
-    stream: &mut TcpStream,
+pub(crate) fn receive_connect_response(
+    stream: &mut impl Read,
     state: &mut TransportState,
 ) -> Result<bool, AuthError> {
     let frame = read_frame(stream)?;
@@ -383,8 +447,8 @@ fn receive_connect_response(
     Ok(reader.get_ok())
 }
 
-fn receive_connect_request(
-    stream: &mut TcpStream,
+pub(crate) fn receive_connect_request(
+    stream: &mut impl Read,
     state: &mut TransportState,
 ) -> Result<String, AuthError> {
     let frame = read_frame(stream)?;
@@ -452,11 +516,11 @@ fn ensure_remote_static(state: &HandshakeState) -> Result<[u8; 32], AuthError> {
     Ok(array)
 }
 
-fn handshake_accept(
+pub(crate) fn handshake_accept(
     identity: &Identity,
     noise_secret: &[u8; 32],
     noise_public: &[u8; 32],
-    stream: &mut TcpStream,
+    stream: &mut (impl Read + Write),
 ) -> Result<(TransportState, DeviceId), AuthError> {
     let mut state = build_responder(noise_secret)?;
     eprintln!("[dsoftbus] accept: waiting for msg1");
@@ -496,12 +560,12 @@ fn handshake_accept(
     Ok((transport, device_id))
 }
 
-fn handshake_connect(
+pub(crate) fn handshake_connect(
     identity: &Identity,
     noise_secret: &[u8; 32],
     noise_public: &[u8; 32],
     announcement: &Announcement,
-    stream: &mut TcpStream,
+    stream: &mut (impl Read + Write),
 ) -> Result<(TransportState, DeviceId), AuthError> {
     let mut state = build_initiator(noise_secret, announcement.noise_static())?;
 
@@ -568,6 +632,17 @@ impl Clone for HostAuthenticator {
 impl HostAuthenticator {
     pub fn local_noise_public(&self) -> [u8; 32] {
         self.noise_public
+    }
+
+    /// Returns the socket address this authenticator is bound to.
+    ///
+    /// This is primarily intended for deterministic host tests that bind port `0`
+    /// and need to publish the assigned port in announcements.
+    pub fn local_addr(&self) -> SocketAddr {
+        match self.listener.local_addr() {
+            Ok(addr) => addr,
+            Err(err) => panic!("host authenticator local_addr failed: {err}"),
+        }
     }
 
     /// Returns the identity backing this authenticator.

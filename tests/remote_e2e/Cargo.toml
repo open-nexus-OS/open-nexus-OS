@@ -15,6 +15,7 @@ dsoftbus = { path = "../../userspace/dsoftbus" }
 identity = { path = "../../userspace/identity" }
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
 nexus-ipc = { path = "../../userspace/nexus-ipc" }
+nexus-net = { path = "../../userspace/nexus-net" }
 samgr = { path = "../../userspace/samgr" }
 samgrd = { path = "../../source/services/samgrd", features = ["idl-capnp"] }
 bundlemgr = { path = "../../userspace/bundlemgr" }
