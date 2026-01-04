@@ -19,7 +19,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::{
@@ -27,10 +27,15 @@ use crate::{
     NetSocketAddrV4, NetStack, TcpListener, TcpStream, UdpSocket,
 };
 
+type UdpDatagram = (Vec<u8>, NetSocketAddrV4);
+type UdpRecvQueue = VecDeque<UdpDatagram>;
+type UdpMultiBind = Vec<UdpRecvQueue>;
+type UdpState = HashMap<NetSocketAddrV4, UdpMultiBind>;
+
 #[derive(Default)]
 struct State {
     // UDP receive queues per bound socket, keyed by local bind address.
-    udp: HashMap<NetSocketAddrV4, Vec<VecDeque<(Vec<u8>, NetSocketAddrV4)>>>,
+    udp: UdpState,
     tcp_listeners: HashMap<NetSocketAddrV4, VecDeque<FakeTcpStream>>,
 }
 
@@ -86,11 +91,7 @@ impl NetStack for FakeNet {
         let slots = s.udp.entry(local).or_default();
         let idx = slots.len();
         slots.push(VecDeque::new());
-        Ok(FakeUdpSocket {
-            state: Arc::clone(&self.state),
-            local,
-            idx,
-        })
+        Ok(FakeUdpSocket { state: Arc::clone(&self.state), local, idx })
     }
 
     fn tcp_listen(
@@ -106,11 +107,7 @@ impl NetStack for FakeNet {
             return Err(NetError::AddrInUse);
         }
         s.tcp_listeners.insert(local, VecDeque::new());
-        Ok(FakeTcpListener {
-            state: Arc::clone(&self.state),
-            local,
-            now: Arc::clone(&self.now),
-        })
+        Ok(FakeTcpListener { state: Arc::clone(&self.state), local, now: Arc::clone(&self.now) })
     }
 
     fn tcp_connect(
@@ -125,27 +122,21 @@ impl NetStack for FakeNet {
             }
         }
         let mut s = self.state.lock().map_err(|_| NetError::Internal("poisoned mutex"))?;
-        let queue = s
-            .tcp_listeners
-            .get_mut(&remote)
-            .ok_or(NetError::InvalidInput("no listener"))?;
+        let queue =
+            s.tcp_listeners.get_mut(&remote).ok_or(NetError::InvalidInput("no listener"))?;
 
         // Create a connected pair (client ↔ server) with bounded mailboxes.
         let a_to_b = Arc::new(Mutex::new(VecDeque::<u8>::new()));
         let b_to_a = Arc::new(Mutex::new(VecDeque::<u8>::new()));
+        let closed = Arc::new(AtomicBool::new(false));
 
         let client = FakeTcpStream {
             rx: Arc::clone(&b_to_a),
             tx: Arc::clone(&a_to_b),
-            closed: false,
+            closed: Arc::clone(&closed),
             now: Arc::clone(&self.now),
         };
-        let server = FakeTcpStream {
-            rx: b_to_a,
-            tx: a_to_b,
-            closed: false,
-            now: Arc::clone(&self.now),
-        };
+        let server = FakeTcpStream { rx: a_to_b, tx: b_to_a, closed, now: Arc::clone(&self.now) };
 
         queue.push_back(server);
         Ok(client)
@@ -166,10 +157,8 @@ impl UdpSocket for FakeUdpSocket {
     fn send_to(&mut self, buf: &[u8], remote: NetSocketAddrV4) -> Result<usize, NetError> {
         validate_udp_payload_len(buf.len())?;
         let mut s = self.state.lock().map_err(|_| NetError::Internal("poisoned mutex"))?;
-        let slots = s
-            .udp
-            .get_mut(&remote)
-            .ok_or(NetError::InvalidInput("udp destination not bound"))?;
+        let slots =
+            s.udp.get_mut(&remote).ok_or(NetError::InvalidInput("udp destination not bound"))?;
         // Broadcast semantics (host-first): deliver to every socket bound to `remote`.
         for q in slots.iter_mut() {
             q.push_back((buf.to_vec(), self.local));
@@ -179,13 +168,8 @@ impl UdpSocket for FakeUdpSocket {
 
     fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, NetSocketAddrV4), NetError> {
         let mut s = self.state.lock().map_err(|_| NetError::Internal("poisoned mutex"))?;
-        let slots = s
-            .udp
-            .get_mut(&self.local)
-            .ok_or(NetError::InvalidInput("udp not bound"))?;
-        let q = slots
-            .get_mut(self.idx)
-            .ok_or(NetError::Internal("udp socket index"))?;
+        let slots = s.udp.get_mut(&self.local).ok_or(NetError::InvalidInput("udp not bound"))?;
+        let q = slots.get_mut(self.idx).ok_or(NetError::Internal("udp socket index"))?;
         match q.pop_front() {
             Some((payload, from)) => {
                 if payload.len() > buf.len() {
@@ -235,13 +219,13 @@ impl TcpListener for FakeTcpListener {
 pub struct FakeTcpStream {
     rx: Arc<Mutex<VecDeque<u8>>>,
     tx: Arc<Mutex<VecDeque<u8>>>,
-    closed: bool,
+    closed: Arc<AtomicBool>,
     now: Arc<AtomicU64>,
 }
 
 impl TcpStream for FakeTcpStream {
     fn read(&mut self, deadline: Option<NetInstant>, buf: &mut [u8]) -> Result<usize, NetError> {
-        if self.closed {
+        if self.closed.load(Ordering::SeqCst) {
             return Err(NetError::Disconnected);
         }
         let now = self.now.load(Ordering::SeqCst);
@@ -268,7 +252,7 @@ impl TcpStream for FakeTcpStream {
     }
 
     fn write(&mut self, deadline: Option<NetInstant>, buf: &[u8]) -> Result<usize, NetError> {
-        if self.closed {
+        if self.closed.load(Ordering::SeqCst) {
             return Err(NetError::Disconnected);
         }
         let now = self.now.load(Ordering::SeqCst);
@@ -286,15 +270,17 @@ impl TcpStream for FakeTcpStream {
     }
 
     fn close(&mut self) {
-        self.closed = true;
+        self.closed.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Drop for FakeTcpStream {
+    fn drop(&mut self) {
+        self.closed.store(true, Ordering::SeqCst);
     }
 }
 
 /// Convenience address helper for tests.
 pub fn loopback(port: u16) -> NetSocketAddrV4 {
-    NetSocketAddrV4 {
-        ip: NetIpAddrV4([127, 0, 0, 1]),
-        port,
-    }
+    NetSocketAddrV4 { ip: NetIpAddrV4([127, 0, 0, 1]), port }
 }
-

@@ -34,6 +34,9 @@ os-lite = [
     "dep:smoltcp",
     "dep:nexus-net-os",
 ]
+# Optional: legacy/bounded smoltcp-over-virtio probe for bring-up debugging.
+# Keep off by default to avoid marker drift and unused-code warnings.
+smoltcp-probe = []
 
 [dependencies]
 anyhow = { version = "1", optional = true }

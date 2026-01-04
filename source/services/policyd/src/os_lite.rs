@@ -87,7 +87,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         match ctl_route.recv_with_header_meta(Wait::NonBlocking) {
             Ok((_hdr, sender_service_id, frame)) => {
                 progressed = true;
-                let rsp = handle_frame(frame.as_slice(), sender_service_id, sender_service_id == init_lite_id);
+                let rsp = handle_frame(
+                    frame.as_slice(),
+                    sender_service_id,
+                    sender_service_id == init_lite_id,
+                );
                 let _ = ctl_route.send(&rsp.buf[..rsp.len], Wait::Blocking);
             }
             Err(nexus_ipc::IpcError::WouldBlock) => {}
@@ -99,7 +103,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         match ctl_exec.recv_with_header_meta(Wait::NonBlocking) {
             Ok((_hdr, sender_service_id, frame)) => {
                 progressed = true;
-                let rsp = handle_frame(frame.as_slice(), sender_service_id, sender_service_id == init_lite_id);
+                let rsp = handle_frame(
+                    frame.as_slice(),
+                    sender_service_id,
+                    sender_service_id == init_lite_id,
+                );
                 let _ = ctl_exec.send(&rsp.buf[..rsp.len], Wait::Blocking);
             }
             Err(nexus_ipc::IpcError::WouldBlock) => {}
@@ -111,7 +119,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         match server.recv_with_header_meta(Wait::NonBlocking) {
             Ok((_hdr, sender_service_id, frame)) => {
                 progressed = true;
-                let rsp = handle_frame(frame.as_slice(), sender_service_id, sender_service_id == init_lite_id);
+                let rsp = handle_frame(
+                    frame.as_slice(),
+                    sender_service_id,
+                    sender_service_id == init_lite_id,
+                );
                 let _ = server.send(&rsp.buf[..rsp.len], Wait::Blocking);
             }
             Err(nexus_ipc::IpcError::WouldBlock) => {}
@@ -177,7 +189,9 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             let requester_bytes = &frame[req_start..req_end];
             // Identity-binding hardening (v1):
             // never trust requester strings inside payloads; bind to sender_service_id unless init-lite is proxy.
-            if !privileged_proxy && nexus_abi::service_id_from_name(requester_bytes) != sender_service_id {
+            if !privileged_proxy
+                && nexus_abi::service_id_from_name(requester_bytes) != sender_service_id
+            {
                 return rsp_v1(op, STATUS_DENY);
             }
             let requester = core::str::from_utf8(requester_bytes).unwrap_or("");
@@ -199,7 +213,9 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             let requester_bytes = &frame[5..5 + req_len];
             // Identity-binding hardening (v1):
             // never trust requester strings inside payloads; bind to sender_service_id unless init-lite is proxy.
-            if !privileged_proxy && nexus_abi::service_id_from_name(requester_bytes) != sender_service_id {
+            if !privileged_proxy
+                && nexus_abi::service_id_from_name(requester_bytes) != sender_service_id
+            {
                 return rsp_v1(op, STATUS_DENY);
             }
             let requester = core::str::from_utf8(requester_bytes).unwrap_or("");
@@ -215,12 +231,15 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 Some(v) => v,
                 None => return rsp_v2(nexus_abi::policyd::OP_ROUTE, 0, STATUS_MALFORMED),
             };
-            if !privileged_proxy && nexus_abi::service_id_from_name(requester) != sender_service_id {
+            if !privileged_proxy && nexus_abi::service_id_from_name(requester) != sender_service_id
+            {
                 return rsp_v2(nexus_abi::policyd::OP_ROUTE, nonce, STATUS_DENY);
             }
             let requester = core::str::from_utf8(requester).unwrap_or("");
             let target = core::str::from_utf8(target).unwrap_or("");
-            let status = if requester == "demo.testsvc" || (requester == "bundlemgrd" && target == "execd") {
+            let status = if requester == "demo.testsvc"
+                || (requester == "bundlemgrd" && target == "execd")
+            {
                 STATUS_DENY
             } else {
                 STATUS_ALLOW
@@ -228,23 +247,31 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             rsp_v2(nexus_abi::policyd::OP_ROUTE, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V3, nexus_abi::policyd::OP_ROUTE) => {
-            let (nonce, requester_id, target_id) = match nexus_abi::policyd::decode_route_v3_id(frame) {
-                Some(v) => v,
-                None => return rsp_v2(nexus_abi::policyd::OP_ROUTE, 0, STATUS_MALFORMED),
-            };
+            let (nonce, requester_id, target_id) =
+                match nexus_abi::policyd::decode_route_v3_id(frame) {
+                    Some(v) => v,
+                    None => return rsp_v2(nexus_abi::policyd::OP_ROUTE, 0, STATUS_MALFORMED),
+                };
             if !privileged_proxy && requester_id != sender_service_id {
-                let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, STATUS_DENY);
+                let buf = nexus_abi::policyd::encode_rsp_v3(
+                    nexus_abi::policyd::OP_ROUTE,
+                    nonce,
+                    STATUS_DENY,
+                );
                 return FrameOut { buf, len: 10 };
             }
             let deny_demo = nexus_abi::service_id_from_name(b"demo.testsvc");
             let deny_bundle = nexus_abi::service_id_from_name(b"bundlemgrd");
             let deny_target = nexus_abi::service_id_from_name(b"execd");
-            let status = if requester_id == deny_demo || (requester_id == deny_bundle && target_id == deny_target) {
+            let status = if requester_id == deny_demo
+                || (requester_id == deny_bundle && target_id == deny_target)
+            {
                 STATUS_DENY
             } else {
                 STATUS_ALLOW
             };
-            let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, status);
+            let buf =
+                nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, status);
             FrameOut { buf, len: 10 }
         }
         (nexus_abi::policyd::VERSION_V2, nexus_abi::policyd::OP_EXEC) => {
@@ -252,7 +279,8 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 Some(v) => v,
                 None => return rsp_v2(nexus_abi::policyd::OP_EXEC, 0, STATUS_MALFORMED),
             };
-            if !privileged_proxy && nexus_abi::service_id_from_name(requester) != sender_service_id {
+            if !privileged_proxy && nexus_abi::service_id_from_name(requester) != sender_service_id
+            {
                 return rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
             let requester = core::str::from_utf8(requester).unwrap_or("");
@@ -260,12 +288,17 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V3, nexus_abi::policyd::OP_EXEC) => {
-            let (nonce, requester_id, _image_id) = match nexus_abi::policyd::decode_exec_v3_id(frame) {
-                Some(v) => v,
-                None => return rsp_v2(nexus_abi::policyd::OP_EXEC, 0, STATUS_MALFORMED),
-            };
+            let (nonce, requester_id, _image_id) =
+                match nexus_abi::policyd::decode_exec_v3_id(frame) {
+                    Some(v) => v,
+                    None => return rsp_v2(nexus_abi::policyd::OP_EXEC, 0, STATUS_MALFORMED),
+                };
             if !privileged_proxy && requester_id != sender_service_id {
-                let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
+                let buf = nexus_abi::policyd::encode_rsp_v3(
+                    nexus_abi::policyd::OP_EXEC,
+                    nonce,
+                    STATUS_DENY,
+                );
                 return FrameOut { buf, len: 10 };
             }
             let deny_demo = nexus_abi::service_id_from_name(b"demo.testsvc");
@@ -296,12 +329,7 @@ pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteRe
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

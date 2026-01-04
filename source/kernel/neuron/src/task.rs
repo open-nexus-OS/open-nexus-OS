@@ -35,17 +35,9 @@ pub enum TaskState {
 /// Scheduler-visible blocking reason for a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockReason {
-    IpcRecv {
-        endpoint: ipc::EndpointId,
-        deadline_ns: u64,
-    },
-    IpcSend {
-        endpoint: ipc::EndpointId,
-        deadline_ns: u64,
-    },
-    WaitChild {
-        target: Option<Pid>,
-    },
+    IpcRecv { endpoint: ipc::EndpointId, deadline_ns: u64 },
+    IpcSend { endpoint: ipc::EndpointId, deadline_ns: u64 },
+    WaitChild { target: Option<Pid> },
 }
 
 /// Errors returned when waiting for child processes.
@@ -72,12 +64,16 @@ struct StackPool {
 
 impl StackPool {
     const fn new() -> Self {
-        Self {
-            cursor: STACK_POOL_LIMIT,
-        }
+        Self { cursor: STACK_POOL_LIMIT }
     }
 
     fn alloc(&mut self, pages: usize) -> Option<usize> {
+        // Robust bring-up: if `.data` initializers are unavailable (or if this static lives in
+        // a NOLOAD region), `cursor` may be zero. Treat zero as "uninitialized" and seed it from
+        // the compile-time limit.
+        if self.cursor == 0 {
+            self.cursor = STACK_POOL_LIMIT;
+        }
         let bytes = pages.checked_mul(PAGE_SIZE)?;
         let next = self.cursor.checked_sub(bytes)?;
         if next < STACK_POOL_BASE {
@@ -124,11 +120,7 @@ fn allocate_guarded_stack(
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
-            let _ = write!(
-                u,
-                "STACK: map idx={} va=0x{:x} pa=0x{:x}\n",
-                page, page_va, page_pa
-            );
+            let _ = write!(u, "STACK: map idx={} va=0x{:x} pa=0x{:x}\n", page, page_va, page_pa);
         }
     }
     #[cfg(feature = "debug_uart")]
@@ -409,10 +401,7 @@ impl TaskTable {
     pub fn new() -> Self {
         let mut tasks_vec: Vec<Task> = Vec::new();
         tasks_vec.push(Task::bootstrap());
-        Self {
-            tasks: tasks_vec,
-            current: 0,
-        }
+        Self { tasks: tasks_vec, current: 0 }
     }
 
     /// Returns the PID of the currently running task.
@@ -431,10 +420,8 @@ impl TaskTable {
     /// exercise block/wake scheduling logic without perturbing memory pressure (e.g. exec PT_LOAD).
     pub fn selftest_create_dummy_task(&mut self, parent: Pid, scheduler: &mut Scheduler) -> Pid {
         let parent_index = parent as usize;
-        let parent_task = self
-            .tasks
-            .get(parent_index)
-            .expect("selftest_create_dummy_task: invalid parent");
+        let parent_task =
+            self.tasks.get(parent_index).expect("selftest_create_dummy_task: invalid parent");
         let parent_domain = parent_task.trap_domain();
 
         let pid = self.tasks.len() as Pid;
@@ -555,10 +542,7 @@ impl TaskTable {
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
         let parent_index = parent as usize;
-        let parent_task = self
-            .tasks
-            .get(parent_index)
-            .ok_or(SpawnError::InvalidParent)?;
+        let parent_task = self.tasks.get(parent_index).ok_or(SpawnError::InvalidParent)?;
 
         ensure_entry_in_kernel_text(entry_pc, address_space)?;
 
@@ -687,19 +671,10 @@ impl TaskTable {
         parent_slot: usize,
         rights: Rights,
     ) -> Result<usize, TransferError> {
-        let parent_task = self
-            .tasks
-            .get(parent as usize)
-            .ok_or(TransferError::InvalidParent)?;
+        let parent_task = self.tasks.get(parent as usize).ok_or(TransferError::InvalidParent)?;
         let derived = parent_task.caps.derive(parent_slot, rights)?;
-        let child_task = self
-            .tasks
-            .get_mut(child as usize)
-            .ok_or(TransferError::InvalidChild)?;
-        child_task
-            .caps_mut()
-            .allocate(derived)
-            .map_err(TransferError::from)
+        let child_task = self.tasks.get_mut(child as usize).ok_or(TransferError::InvalidChild)?;
+        child_task.caps_mut().allocate(derived).map_err(TransferError::from)
     }
 
     /// Marks the current task as exited and transitions it to the zombie state.
@@ -873,17 +848,7 @@ mod tests {
         table.bootstrap_mut().address_space = Some(bootstrap_as);
         let entry = VirtAddr::instr_aligned(0).unwrap();
         let child = table
-            .spawn(
-                0,
-                entry,
-                None,
-                None,
-                0,
-                SlotIndex(0),
-                &mut scheduler,
-                &mut router,
-                &mut spaces,
-            )
+            .spawn(0, entry, None, None, 0, SlotIndex(0), &mut scheduler, &mut router, &mut spaces)
             .unwrap();
 
         let slot = table.transfer_cap(0, child, 0, Rights::RECV).unwrap();

@@ -18,8 +18,6 @@
 //!
 //! ADR: docs/adr/0006-device-identity-architecture.md
 
-use identity::DeviceId;
-
 #[cfg(nexus_env = "host")]
 mod host {
     use identity::DeviceId;
@@ -33,4 +31,3 @@ mod host {
         assert!(DeviceId::from_hex_sha256(&"a".repeat(64)).is_ok());
     }
 }
-

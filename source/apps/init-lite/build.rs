@@ -17,11 +17,14 @@
 //!
 //! ADR: docs/adr/0017-service-architecture.md
 
-fn main() {
+type DynError = Box<dyn std::error::Error + Send + Sync>;
+
+fn main() -> Result<(), DynError> {
     println!("cargo:rerun-if-changed=link.ld");
-    let out = path_buf_from_env("OUT_DIR");
+    let out = path_buf_from_env("OUT_DIR")?;
     let dst = out.join("link.ld");
-    std::fs::copy("link.ld", &dst).expect("copy link.ld");
+    std::fs::copy("link.ld", &dst)
+        .map_err(|err| format!("copy link.ld -> {}: {err}", dst.display()))?;
     // IMPORTANT:
     // init-lite is an OS-only binary; however, `cargo test --workspace` builds and *runs* a host
     // test harness for every bin target. If we pass an OS linker script on the host, the binary
@@ -47,11 +50,12 @@ fn main() {
         Err(_) => println!("cargo::rustc-env=INIT_LITE_FORCE_PROBE="),
     }
 
-    generate_service_table(&out);
+    generate_service_table(&out)?;
+    Ok(())
 }
 
-fn generate_service_table(out: &std::path::Path) {
-    use object::{Object, ObjectSymbol};
+fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
+    use object::{Object, ObjectSection, ObjectSymbol};
 
     let mut services = Vec::new();
     let manifest_env = std::env::var("INIT_LITE_SERVICE_LIST").unwrap_or_default();
@@ -89,10 +93,10 @@ fn generate_service_table(out: &std::path::Path) {
                 if manifest_env.trim().is_empty() {
                     continue;
                 }
-                panic!(
-                    "missing {} while building init-lite (service '{}')",
-                    path_var, name
+                return Err(format!(
+                    "missing {path_var} while building init-lite (service '{name}')"
                 )
+                .into());
             }
         };
         // IMPORTANT: the build script must rerun whenever the service ELF changes,
@@ -101,44 +105,45 @@ fn generate_service_table(out: &std::path::Path) {
 
         let stack_var = format!("INIT_LITE_SERVICE_{}_STACK_PAGES", upper);
         println!("cargo:rerun-if-env-changed={}", stack_var);
-        let stack_pages = std::env::var(&stack_var)
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(8);
+        let stack_pages =
+            std::env::var(&stack_var).ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8);
 
         let dest = out.join(format!("service-{}.elf", name));
-        std::fs::copy(&src_path, &dest).unwrap_or_else(|err| {
-            panic!(
-                "failed to copy service ELF {} -> {}: {}",
-                src_path,
-                dest.display(),
-                err
-            )
-        });
+        std::fs::copy(&src_path, &dest).map_err(|err| {
+            format!("failed to copy service ELF {} -> {}: {err}", src_path, dest.display())
+        })?;
 
-        let elf_bytes = std::fs::read(&dest).unwrap_or_else(|err| {
-            panic!(
-                "failed to read copied service ELF {}: {}",
-                dest.display(),
-                err
-            )
-        });
+        let elf_bytes = std::fs::read(&dest).map_err(|err| {
+            format!("failed to read copied service ELF {}: {err}", dest.display())
+        })?;
         let global_pointer = {
-            let file = object::File::parse(&*elf_bytes).expect("parse service ELF");
-            file.symbols()
-                .find_map(|symbol| {
-                    symbol
-                        .name()
-                        .ok()
-                        .filter(|name| *name == "__global_pointer$")
-                        .map(|_| symbol.address())
-                })
-                .unwrap_or_else(|| {
-                    panic!(
-                        "service {} missing __global_pointer$ symbol (required for RISC-V gp)",
-                        name
-                    )
-                })
+            let file = object::File::parse(&*elf_bytes)
+                .map_err(|err| format!("parse service ELF {}: {err}", dest.display()))?;
+            match file.symbols().find_map(|symbol| {
+                symbol
+                    .name()
+                    .ok()
+                    .filter(|sym| *sym == "__global_pointer$")
+                    .map(|_| symbol.address())
+            }) {
+                Some(addr) => addr,
+                None => {
+                    // Release artifacts for the bare-metal target may be stripped (no `.symtab`).
+                    // Derive gp from small-data base per RISC-V psABI convention:
+                    // `gp = __sdata_begin + 0x800`.
+                    let Some(sdata) = file.section_by_name(".sdata") else {
+                        return Err(format!(
+                            "service {name} missing __global_pointer$ and .sdata section (cannot derive gp)"
+                        )
+                        .into());
+                    };
+                    let gp = sdata.address().saturating_add(0x800);
+                    println!(
+                        "cargo:warning=init-lite: service {name} missing __global_pointer$; using gp=.sdata+0x800 (0x{gp:x})"
+                    );
+                    gp
+                }
+            }
         };
 
         services.push(ServiceBuildEntry {
@@ -150,7 +155,8 @@ fn generate_service_table(out: &std::path::Path) {
     }
 
     let generated = out.join("services.rs");
-    let mut file = std::fs::File::create(&generated).expect("create services.rs");
+    let mut file = std::fs::File::create(&generated)
+        .map_err(|err| format!("create {}: {err}", generated.display()))?;
     use std::io::Write as _;
     let service_count = services.len();
     writeln!(
@@ -159,8 +165,7 @@ fn generate_service_table(out: &std::path::Path) {
 
 pub const SERVICE_IMAGE_TABLE: [ServiceImage; {count}] = [",
         count = service_count
-    )
-    .unwrap();
+    )?;
 
     for entry in &services {
         writeln!(
@@ -175,8 +180,7 @@ pub const SERVICE_IMAGE_TABLE: [ServiceImage; {count}] = [",
             file = entry.file,
             stack = entry.stack_pages,
             gp = entry.global_pointer
-        )
-        .unwrap();
+        )?;
     }
 
     writeln!(
@@ -184,8 +188,8 @@ pub const SERVICE_IMAGE_TABLE: [ServiceImage; {count}] = [",
         "];
 
 pub const SERVICE_IMAGES: &[ServiceImage] = &SERVICE_IMAGE_TABLE;"
-    )
-    .unwrap();
+    )?;
+    Ok(())
 }
 
 struct ServiceBuildEntry {
@@ -195,8 +199,8 @@ struct ServiceBuildEntry {
     global_pointer: u64,
 }
 
-fn path_buf_from_env(key: &str) -> std::path::PathBuf {
+fn path_buf_from_env(key: &str) -> Result<std::path::PathBuf, DynError> {
     std::env::var(key)
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| panic!("missing env var {}", key))
+        .map_err(|_| format!("missing env var {key}").into())
 }

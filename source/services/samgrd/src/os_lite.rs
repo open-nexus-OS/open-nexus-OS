@@ -218,12 +218,7 @@ fn rsp(op: u8, status: u8, send_slot: u32, recv_slot: u32) -> [u8; 13] {
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

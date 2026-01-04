@@ -57,9 +57,7 @@ struct PageTablePage {
 
 impl PageTablePage {
     const fn new() -> Self {
-        Self {
-            entries: [0; PT_ENTRIES],
-        }
+        Self { entries: [0; PT_ENTRIES] }
     }
 }
 
@@ -91,18 +89,12 @@ impl PageTable {
             // early bring-up; higher-level code must ensure single use or add a manager.
             let ptr: *mut PageTablePage = core::ptr::addr_of_mut!(PT_STATIC_ROOT);
             let root = NonNull::new_unchecked(ptr);
-            return Self {
-                root,
-                owned: vec![],
-            };
+            return Self { root, owned: vec![] };
         }
         #[cfg(not(feature = "pt_static_root"))]
         {
             let root = Self::alloc_page();
-            Self {
-                root,
-                owned: vec![root],
-            }
+            Self { root, owned: vec![root] }
         }
     }
 
@@ -426,9 +418,7 @@ impl Drop for PageTable {
     }
 }
 
-const LEAF_PERMS: PageFlags = PageFlags::READ
-    .union(PageFlags::WRITE)
-    .union(PageFlags::EXECUTE);
+const LEAF_PERMS: PageFlags = PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
 
 fn vpn_indices(va: usize) -> [usize; 3] {
     let vpn0 = (va >> 12) & 0x1ff;

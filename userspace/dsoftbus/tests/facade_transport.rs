@@ -39,9 +39,7 @@ mod host {
     ) -> Result<dsoftbus::FramePayload, dsoftbus::StreamError> {
         loop {
             if Instant::now() > deadline {
-                return Err(dsoftbus::StreamError::Protocol(
-                    "timed out waiting for frame".into(),
-                ));
+                return Err(dsoftbus::StreamError::Protocol("timed out waiting for frame".into()));
             }
             if let Some(frame) = stream.recv()? {
                 return Ok(frame);
@@ -83,12 +81,9 @@ mod host {
         });
 
         let client_identity = Identity::generate().expect("client identity");
-        let client_auth = FacadeAuthenticator::new(
-            net,
-            SocketAddr::from(([127, 0, 0, 1], 0)),
-            client_identity,
-        )
-        .expect("bind client");
+        let client_auth =
+            FacadeAuthenticator::new(net, SocketAddr::from(([127, 0, 0, 1], 0)), client_identity)
+                .expect("bind client");
 
         let session = client_auth.connect(&announcement).expect("client connect");
         let mut stream = session.into_stream().expect("client into_stream");
@@ -138,7 +133,13 @@ mod host {
             Ok(_) => panic!("expected connect to fail"),
             Err(err) => err,
         };
-        assert!(err.to_string().contains("server static mismatch"));
+        // Noise XK pins the responder static key. If the announcement contains the wrong key,
+        // the handshake must fail deterministically (either as a Noise failure or as an IO error
+        // after the peer drops the connection).
+        match err {
+            dsoftbus::AuthError::Noise(_) | dsoftbus::AuthError::Io(_) => {}
+            other => panic!("expected connect to fail with Noise/Io error, got: {other}"),
+        }
 
         server_thread.join().expect("server thread join");
     }
@@ -149,8 +150,10 @@ mod host {
         let identity = Identity::generate().expect("identity");
         let auth = FacadeAuthenticator::new(net, SocketAddr::from(([127, 0, 0, 1], 0)), identity)
             .expect("bind");
-        let err = auth.accept().expect_err("expected timeout");
+        let err = match auth.accept() {
+            Ok(_) => panic!("expected timeout"),
+            Err(err) => err,
+        };
         assert!(err.to_string().contains("timed out"), "err={err}");
     }
 }
-

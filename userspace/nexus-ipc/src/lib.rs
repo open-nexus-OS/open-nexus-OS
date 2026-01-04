@@ -23,12 +23,7 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
-    all(
-        feature = "os-lite",
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none"
-    ),
+    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
     no_std
 )]
 
@@ -73,6 +68,11 @@ impl Wait {
 }
 
 /// Errors produced by the IPC runtime.
+///
+/// This enum is marked `#[non_exhaustive]` so downstream crates can keep a future-proof fallback
+/// arm without triggering `unreachable_patterns` warnings, while still surfacing rich diagnostics
+/// for known variants.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IpcError {
     /// Operation could not progress without blocking.

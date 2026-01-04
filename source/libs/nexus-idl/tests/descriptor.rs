@@ -33,4 +33,7 @@ impl sample::Service for Impl {
 #[test]
 fn descriptor_contains_hello() {
     assert_eq!(sample::descriptor(), ["hello"]);
+    // Use the generated trait and implementation so the test also validates the trait surface.
+    let svc: &dyn sample::Service = &Impl;
+    svc.hello();
 }

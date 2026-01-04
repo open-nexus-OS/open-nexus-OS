@@ -38,10 +38,7 @@ pub use std_server::*;
 // These keep tooling/type-checking stable without pretending that init actually booted services.
 #[cfg(not(any(
     all(feature = "os-lite", nexus_env = "os"),
-    all(
-        feature = "std-server",
-        not(all(nexus_env = "os", feature = "os-lite"))
-    )
+    all(feature = "std-server", not(all(nexus_env = "os", feature = "os-lite")))
 )))]
 mod stub {
     use core::fmt;
@@ -90,9 +87,6 @@ mod stub {
 
 #[cfg(not(any(
     all(feature = "os-lite", nexus_env = "os"),
-    all(
-        feature = "std-server",
-        not(all(nexus_env = "os", feature = "os-lite"))
-    )
+    all(feature = "std-server", not(all(nexus_env = "os", feature = "os-lite")))
 )))]
 pub use stub::*;

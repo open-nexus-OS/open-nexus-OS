@@ -11,10 +11,7 @@
 #![cfg_attr(not(test), no_std)]
 // Keep *kernel* builds warning-clean; allow host builds (`cargo test`) to compile modules that are
 // only reachable on the riscv64/none target without turning dead-code into hard errors.
-#![cfg_attr(
-    all(not(test), target_arch = "riscv64", target_os = "none"),
-    deny(warnings)
-)]
+#![cfg_attr(all(not(test), target_arch = "riscv64", target_os = "none"), deny(warnings))]
 #![deny(unsafe_op_in_unsafe_fn)] // deny instead of forbid to allow naked functions
 #![feature(alloc_error_handler)]
 

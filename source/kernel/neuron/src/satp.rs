@@ -12,8 +12,7 @@ use core::fmt::Write;
 #[no_mangle]
 pub extern "C" fn __post_satp_marker() {
     const LOG_LIMIT: usize = 8;
-    static LOG_COUNT: core::sync::atomic::AtomicUsize =
-        core::sync::atomic::AtomicUsize::new(0);
+    static LOG_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     if LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= LOG_LIMIT {
         return;
     }
@@ -28,8 +27,7 @@ pub extern "C" fn __post_satp_marker() {
 pub extern "C" fn satp_switch_island(satp_val: usize) {
     // Log BEFORE satp switch (safe to use formatting here) – rate limited
     const LOG_LIMIT: usize = 8;
-    static LOG_COUNT: core::sync::atomic::AtomicUsize =
-        core::sync::atomic::AtomicUsize::new(0);
+    static LOG_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     if LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT {
         log_info!(target: "as", "AS: trampoline enter val=0x{:x}", satp_val);
     }

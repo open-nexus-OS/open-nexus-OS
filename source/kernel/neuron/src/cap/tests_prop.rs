@@ -20,9 +20,8 @@ fn arb_capability_kind() -> impl Strategy<Value = CapabilityKind> {
             base: base & !0xfff,
             len: (len & !0xfff).max(0x1000),
         }),
-        (any::<usize>(), 1usize..=0x10_0000usize).prop_map(|(base, len)| CapabilityKind::DeviceMmio {
-            base: base & !0xfff,
-            len: (len & !0xfff).max(0x1000),
+        (any::<usize>(), 1usize..=0x10_0000usize).prop_map(|(base, len)| {
+            CapabilityKind::DeviceMmio { base: base & !0xfff, len: (len & !0xfff).max(0x1000) }
         }),
         any::<u32>().prop_map(CapabilityKind::Irq),
     ]

@@ -32,9 +32,7 @@ struct RecordingMapper {
 
 impl RecordingMapper {
     fn new() -> Self {
-        Self {
-            segments: Vec::new(),
-        }
+        Self { segments: Vec::new() }
     }
 }
 
@@ -60,9 +58,7 @@ fn fixture() -> &'static [u8] {
     let mut cursor = std::io::Cursor::new(buf);
     cursor.set_position(16);
     cursor.write_u16::<LittleEndian>(2).unwrap(); // e_type
-    cursor
-        .write_u16::<LittleEndian>(goblin::elf::header::EM_RISCV)
-        .unwrap();
+    cursor.write_u16::<LittleEndian>(goblin::elf::header::EM_RISCV).unwrap();
     cursor.write_u32::<LittleEndian>(1).unwrap(); // e_version
     cursor.write_u64::<LittleEndian>(0x10000).unwrap(); // e_entry
     cursor.write_u64::<LittleEndian>(0x40).unwrap(); // e_phoff
@@ -76,9 +72,7 @@ fn fixture() -> &'static [u8] {
     cursor.write_u16::<LittleEndian>(0).unwrap(); // e_shstrndx
     cursor.set_position(64);
     // First PT_LOAD RX segment
-    cursor
-        .write_u32::<LittleEndian>(goblin::elf::program_header::PT_LOAD)
-        .unwrap();
+    cursor.write_u32::<LittleEndian>(goblin::elf::program_header::PT_LOAD).unwrap();
     cursor
         .write_u32::<LittleEndian>(
             goblin::elf::program_header::PF_R | goblin::elf::program_header::PF_X,
@@ -89,12 +83,8 @@ fn fixture() -> &'static [u8] {
     cursor.write_u64::<LittleEndian>(0x10000).unwrap(); // p_paddr
     cursor.write_u64::<LittleEndian>(0x20).unwrap(); // p_filesz
     cursor.write_u64::<LittleEndian>(0x20).unwrap(); // p_memsz
-    cursor
-        .write_u64::<LittleEndian>(nexus_loader::PAGE_SIZE)
-        .unwrap(); // p_align
-    cursor
-        .write_u32::<LittleEndian>(goblin::elf::program_header::PT_LOAD)
-        .unwrap();
+    cursor.write_u64::<LittleEndian>(nexus_loader::PAGE_SIZE).unwrap(); // p_align
+    cursor.write_u32::<LittleEndian>(goblin::elf::program_header::PT_LOAD).unwrap();
     cursor
         .write_u32::<LittleEndian>(
             goblin::elf::program_header::PF_R | goblin::elf::program_header::PF_W,
@@ -105,9 +95,7 @@ fn fixture() -> &'static [u8] {
     cursor.write_u64::<LittleEndian>(0x20000).unwrap(); // p_paddr
     cursor.write_u64::<LittleEndian>(0x10).unwrap(); // p_filesz
     cursor.write_u64::<LittleEndian>(0x20).unwrap(); // p_memsz
-    cursor
-        .write_u64::<LittleEndian>(nexus_loader::PAGE_SIZE)
-        .unwrap(); // p_align
+    cursor.write_u64::<LittleEndian>(nexus_loader::PAGE_SIZE).unwrap(); // p_align
     let mut data = cursor.into_inner();
     let pad_len = 0x100 - data.len();
     data.extend(std::iter::repeat(0).take(pad_len));

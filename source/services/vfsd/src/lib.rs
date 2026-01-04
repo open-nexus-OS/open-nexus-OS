@@ -5,12 +5,7 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
-    all(
-        feature = "os-lite",
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none"
-    ),
+    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
     no_std
 )]
 
@@ -21,12 +16,7 @@
 //! INVARIANTS: Separate from PackageFs; stable readiness prints
 //! ADR: docs/adr/0017-service-architecture.md
 
-#[cfg(all(
-    feature = "os-lite",
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none"
-))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

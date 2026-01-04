@@ -31,23 +31,8 @@ pub fn emit_line(message: &str) {
 }
 
 /// Emit `prefix` followed by `value` as decimal u8 and a newline.
-pub fn emit_u8_decimal(prefix: &str, value: u8) {
-    for &b in prefix.as_bytes() {
-        emit_byte(b);
-    }
-    // decimal, no alloc
-    let hundreds = value / 100;
-    let tens = (value / 10) % 10;
-    let ones = value % 10;
-    if hundreds != 0 {
-        emit_byte(b'0' + hundreds);
-    }
-    if hundreds != 0 || tens != 0 {
-        emit_byte(b'0' + tens);
-    }
-    emit_byte(b'0' + ones);
-    emit_byte(b'\n');
-}
+// NOTE: keep this module minimal and only include helpers currently used in
+// the marker-driven OS tests (RFC-0003: avoid drifting, duplicated helper sets).
 
 /// Emit an unsigned decimal u64 (no allocation).
 pub fn emit_u64(mut value: u64) {

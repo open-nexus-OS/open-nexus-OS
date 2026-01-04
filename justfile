@@ -39,6 +39,11 @@ help:
     @echo "  just fmt-check           # verify rustfmt formatting"
     @echo "  just arch-check          # userspace/kernel layering guard"
     @echo "  just test-all            # host tests + miri + arch-check + kernel selftests"
+    @echo
+    @echo "[Diagnostics (match rust-analyzer / editor)]"
+    @echo "  just diag-host           # cargo check (host cfg) with check-cfg + warnings"
+    @echo "  just diag-os             # cargo check (os cfg, riscv target) with check-cfg + warnings"
+    @echo "  just diag-kernel         # cargo check neuron (riscv target) with warnings"
 
 # Build the bootable NEURON binary crate
 build-kernel:
@@ -124,3 +129,33 @@ test-all:
     just arch-check
     just build-kernel
     just test-os
+
+# -----------------------------------------------------------------------------
+# Diagnostics (reproduce editor/rust-analyzer output)
+# -----------------------------------------------------------------------------
+
+# Host: enable cfg validation and surface warnings (including unexpected cfg).
+# This intentionally excludes the kernel crates (they require nightly features).
+diag-host:
+    @echo "==> diag-host (toolchain=stable, nexus_env=host)"
+    @rustc +stable -V
+    @cargo +stable -V
+    @env RUSTFLAGS='{{host_rustflags}} -W unexpected_cfgs -W dead_code' cargo +stable check --workspace --exclude neuron --exclude neuron-boot --all-targets --message-format=short
+
+# OS: enable cfg validation and surface warnings for riscv builds (os-lite style).
+# Note: OS builds are a *slice* (kernel + init-lite + OS services). Do not use --all-targets on bare-metal
+# as it pulls in cfg(test) paths and host-only crates which is not representative.
+diag-os:
+    @echo "==> diag-os (toolchain={{toolchain}}, target=riscv64imac-unknown-none-elf, nexus_env=os)"
+    @rustc +{{toolchain}} -V
+    @cargo +{{toolchain}} -V
+    @echo "==> kernel libs (neuron)"
+    @cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+    @echo "==> userspace payload (init-lite)"
+    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
+    @echo "==> OS services (os-lite feature set)"
+    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+
+# Kernel-only: quickest way to see unused/dead_code in neuron.
+diag-kernel:
+    cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short

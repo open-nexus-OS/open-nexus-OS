@@ -16,6 +16,12 @@ core::arch::global_asm!(
     .align 4
 _start:
     la   sp, __stack_top
+    /* RISC-V ABI: initialize gp for small-data accesses (Rust may rely on it).
+     * Use PC-relative addressing (kernel is linked above 2GiB). */
+    .option push
+    .option norelax
+    la   gp, __global_pointer$
+    .option pop
     j    start_rust
 "#
 );

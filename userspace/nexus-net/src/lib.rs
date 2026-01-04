@@ -95,10 +95,7 @@ impl std::error::Error for NetError {}
 
 impl NetSocketAddrV4 {
     pub fn new(ip: [u8; 4], port: u16) -> Self {
-        Self {
-            ip: NetIpAddrV4(ip),
-            port,
-        }
+        Self { ip: NetIpAddrV4(ip), port }
     }
 }
 
@@ -129,8 +126,11 @@ pub trait NetStack {
     fn next_wake(&self) -> Option<NetInstant>;
 
     fn udp_bind(&mut self, local: NetSocketAddrV4) -> Result<Self::Udp, NetError>;
-    fn tcp_listen(&mut self, local: NetSocketAddrV4, backlog: usize)
-        -> Result<Self::TcpListener, NetError>;
+    fn tcp_listen(
+        &mut self,
+        local: NetSocketAddrV4,
+        backlog: usize,
+    ) -> Result<Self::TcpListener, NetError>;
     fn tcp_connect(
         &mut self,
         remote: NetSocketAddrV4,
@@ -264,4 +264,3 @@ mod tests {
         assert_eq!(&buf2[..n2], msg);
     }
 }
-

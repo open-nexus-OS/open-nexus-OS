@@ -12,11 +12,6 @@ trap_ring = ["neuron/trap_ring"]
 trap_symbols = ["neuron/trap_symbols"]
 debug_uart = ["neuron/debug_uart"]
 
-[profile.release]
-lto = "fat"
-codegen-units = 1
-strip = "symbols"
-
 [[bin]]
 name = "neuron-boot"
 path = "src/main.rs"

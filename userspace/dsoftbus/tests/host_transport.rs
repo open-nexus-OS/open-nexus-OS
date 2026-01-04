@@ -28,7 +28,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use dsoftbus::{Announcement, Authenticator, InProcAuthenticator, Session, Stream};
+use dsoftbus::{Announcement, Authenticator, HostAuthenticator, Session, Stream};
 use identity::Identity;
 
 fn recv_with_deadline<S: Stream>(
@@ -37,9 +37,7 @@ fn recv_with_deadline<S: Stream>(
 ) -> Result<dsoftbus::FramePayload, dsoftbus::StreamError> {
     loop {
         if Instant::now() > deadline {
-            return Err(dsoftbus::StreamError::Protocol(
-                "timed out waiting for frame".into(),
-            ));
+            return Err(dsoftbus::StreamError::Protocol("timed out waiting for frame".into()));
         }
         if let Some(frame) = stream.recv()? {
             return Ok(frame);
@@ -53,8 +51,8 @@ fn handshake_happy_path_and_ping_pong_deterministic() {
     let server_identity = Identity::generate().expect("server identity");
     let server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let server_auth =
-        InProcAuthenticator::bind(server_addr, server_identity.clone()).expect("bind server");
-    let server_port = server_auth.local_port();
+        HostAuthenticator::bind(server_addr, server_identity.clone()).expect("bind server");
+    let server_port = server_auth.local_addr().port();
 
     let announcement = Announcement::new(
         server_identity.device_id().clone(),
@@ -96,8 +94,8 @@ fn auth_failure_deterministic_server_static_mismatch() {
     let server_identity = Identity::generate().expect("server identity");
     let server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let server_auth =
-        InProcAuthenticator::bind(server_addr, server_identity.clone()).expect("bind server");
-    let server_port = server_auth.local_port();
+        HostAuthenticator::bind(server_addr, server_identity.clone()).expect("bind server");
+    let server_port = server_auth.local_addr().port();
 
     let mut wrong_static = server_auth.local_noise_public();
     wrong_static[0] ^= 0x01;
@@ -116,18 +114,16 @@ fn auth_failure_deterministic_server_static_mismatch() {
 
     let client_identity = Identity::generate().expect("client identity");
     let client_addr = SocketAddr::from(([127, 0, 0, 1], 0));
-    let client_auth = InProcAuthenticator::bind(client_addr, client_identity).expect("bind client");
+    let client_auth = HostAuthenticator::bind(client_addr, client_identity).expect("bind client");
 
     let err = match client_auth.connect(&bad_announcement) {
         Ok(_) => panic!("expected connect to fail"),
         Err(err) => err,
     };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("server static mismatch"),
-        "unexpected error message: {msg}"
-    );
+    match err {
+        dsoftbus::AuthError::Noise(_) | dsoftbus::AuthError::Io(_) => {}
+        other => panic!("expected connect to fail with Noise/Io error, got: {other}"),
+    }
 
     server_thread.join().expect("server thread join");
 }
-

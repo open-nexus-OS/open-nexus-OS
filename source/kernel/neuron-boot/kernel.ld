@@ -24,7 +24,14 @@ SECTIONS
   .rodata ALIGN(16) : { *(.rodata .rodata.*) } : text
 
   . = ALIGN(16);
-  .data ALIGN(16) : { *(.sdata .sdata.*) *(.data .data.*) } : data
+  .data ALIGN(16) : {
+    /* RISC-V psABI: gp points 0x800 bytes past the start of the small-data region.
+     * We define this symbol explicitly so PC-relative `la gp, __global_pointer$` works even when
+     * the toolchain would otherwise default it to a low address (breaking kernel statics). */
+    __global_pointer$ = . + 0x800;
+    *(.sdata .sdata.*)
+    *(.data .data.*)
+  } : data
 
   . = ALIGN(4096);
   .bss (NOLOAD) : {

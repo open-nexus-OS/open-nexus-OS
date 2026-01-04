@@ -29,32 +29,25 @@ type UartGuard<'a> = crate::sync::dbg_mutex::DbgMutexGuard<'a, KernelUart>;
 type UartGuard<'a> = spin::MutexGuard<'a, KernelUart>;
 
 /// Global UART writer used for boot logs.
-static UART0: UartLock<KernelUart> = UartLock::new(KernelUart::new(UART0_BASE));
+///
+/// NOTE: We deliberately do not store the MMIO base address inside the struct.
+/// The OS loader path and early paging bring-up must be able to log even if
+/// `.data` initializers are not available yet; using a constant base avoids
+/// relying on runtime `.data` copying.
+static UART0: UartLock<KernelUart> = UartLock::new(KernelUart);
 
 /// UART implementation capable of formatted writes.
 #[derive(Clone, Copy)]
-pub struct KernelUart {
-    base: usize,
-}
+pub struct KernelUart;
 
 impl KernelUart {
-    /// Creates a UART abstraction rooted at `base`.
-    pub const fn new(base: usize) -> Self {
-        Self { base }
-    }
-
     /// Returns a guard for the boot UART singleton.
     pub fn lock() -> UartGuard<'static> {
         UART0.lock()
     }
 
     fn write_raw(&self, offset: usize, value: u8) {
-        let addr = (self.base + offset) as *mut u8;
-        unsafe {
-            while core::ptr::read_volatile((self.base + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {
-            }
-            core::ptr::write_volatile(addr, value);
-        }
+        write_raw_mmio(offset, value);
     }
 }
 

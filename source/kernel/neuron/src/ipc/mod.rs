@@ -10,8 +10,8 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
 use alloc::collections::BTreeMap;
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
 #[cfg(feature = "failpoints")]
@@ -191,15 +191,14 @@ pub struct Message {
 
 impl Message {
     /// Creates a message and truncates the payload length to match `header.len`.
-    pub fn new(header: MessageHeader, payload: Vec<u8>, moved_cap: Option<crate::cap::Capability>) -> Self {
+    pub fn new(
+        header: MessageHeader,
+        payload: Vec<u8>,
+        moved_cap: Option<crate::cap::Capability>,
+    ) -> Self {
         let mut payload = payload;
         payload.truncate(header.len as usize);
-        Self {
-            header,
-            payload,
-            moved_cap,
-            sender_service_id: 0,
-        }
+        Self { header, payload, moved_cap, sender_service_id: 0 }
     }
 }
 
@@ -225,9 +224,9 @@ impl Router {
         // Global bytes budget: keep total queued payload bytes bounded across all endpoints.
         // Must be comfortably above boot traffic; per-endpoint budgets still apply.
         const DEFAULT_MAX_QUEUED_BYTES_TOTAL: usize = 1 * 1024 * 1024; // 1 MiB
-        // Per-owner budget: cap total queued bytes into a single service (owner PID) across all
-        // endpoints owned by that PID. This prevents one service inbox from consuming the entire
-        // global budget via many endpoints.
+                                                                       // Per-owner budget: cap total queued bytes into a single service (owner PID) across all
+                                                                       // endpoints owned by that PID. This prevents one service inbox from consuming the entire
+                                                                       // global budget via many endpoints.
         const DEFAULT_MAX_QUEUED_BYTES_PER_OWNER: usize = 256 * 1024; // 256 KiB
         let mut endpoints = Vec::with_capacity(count);
         for _ in 0..count {
@@ -315,10 +314,18 @@ impl Router {
             match res {
                 Ok(()) => log_debug!(target: "ipc", "send ok"),
                 Err((IpcError::QueueFull, _)) => log_debug!(target: "ipc", "send queue full"),
-                Err((IpcError::NoSuchEndpoint, _)) => log_debug!(target: "ipc", "send no such endpoint"),
-                Err((IpcError::QueueEmpty, _)) => log_debug!(target: "ipc", "send queue empty (unexpected)"),
-                Err((IpcError::PermissionDenied, _)) => log_debug!(target: "ipc", "send permission denied"),
-                Err((IpcError::TimedOut, _)) => log_debug!(target: "ipc", "send timed out (unexpected)"),
+                Err((IpcError::NoSuchEndpoint, _)) => {
+                    log_debug!(target: "ipc", "send no such endpoint")
+                }
+                Err((IpcError::QueueEmpty, _)) => {
+                    log_debug!(target: "ipc", "send queue empty (unexpected)")
+                }
+                Err((IpcError::PermissionDenied, _)) => {
+                    log_debug!(target: "ipc", "send permission denied")
+                }
+                Err((IpcError::TimedOut, _)) => {
+                    log_debug!(target: "ipc", "send timed out (unexpected)")
+                }
             }
         }
         res
@@ -326,8 +333,7 @@ impl Router {
 
     /// Sends `msg` to the endpoint referenced by `id` and discards the message on error.
     pub fn send(&mut self, id: EndpointId, msg: Message) -> Result<(), IpcError> {
-        self.send_returning_message(id, msg)
-            .map_err(|(e, _msg)| e)
+        self.send_returning_message(id, msg).map_err(|(e, _msg)| e)
     }
 
     /// Receives the next message from the endpoint `id`.
@@ -335,11 +341,7 @@ impl Router {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "ipc", "recv enter");
         let owner = self.endpoints.get(id as usize).and_then(|ep| ep.owner);
-        let res = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?
-            .pop();
+        let res = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?.pop();
         if let Ok(ref msg) = res {
             self.queued_bytes_total = self.queued_bytes_total.saturating_sub(msg.payload.len());
             if let Some(owner) = owner {
@@ -386,10 +388,8 @@ impl Router {
                 return Err(IpcError::NoSpace);
             }
         }
-        let res = self.endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?
-            .push_front(msg);
+        let res =
+            self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?.push_front(msg);
         if res.is_ok() {
             self.queued_bytes_total = self.queued_bytes_total.saturating_add(msg_len);
             if let Some(owner) = owner {
@@ -401,10 +401,7 @@ impl Router {
 
     /// Registers `pid` as a waiter for `recv` on endpoint `id` (queue empty, blocking).
     pub fn register_recv_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<(), IpcError> {
-        let ep = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?;
+        let ep = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(IpcError::NoSuchEndpoint);
         }
@@ -414,10 +411,7 @@ impl Router {
 
     /// Registers `pid` as a waiter for `send` on endpoint `id` (queue full, blocking).
     pub fn register_send_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<(), IpcError> {
-        let ep = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?;
+        let ep = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(IpcError::NoSuchEndpoint);
         }
@@ -427,10 +421,7 @@ impl Router {
 
     /// Pops one waiter for `recv` on endpoint `id`.
     pub fn pop_recv_waiter(&mut self, id: EndpointId) -> Result<Option<WaiterId>, IpcError> {
-        let ep = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?;
+        let ep = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(IpcError::NoSuchEndpoint);
         }
@@ -439,10 +430,7 @@ impl Router {
 
     /// Pops one waiter for `send` on endpoint `id`.
     pub fn pop_send_waiter(&mut self, id: EndpointId) -> Result<Option<WaiterId>, IpcError> {
-        let ep = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?;
+        let ep = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(IpcError::NoSuchEndpoint);
         }
@@ -451,10 +439,7 @@ impl Router {
 
     /// Removes `pid` from the recv waiter list, if present.
     pub fn remove_recv_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<bool, IpcError> {
-        let ep = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?;
+        let ep = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(IpcError::NoSuchEndpoint);
         }
@@ -463,10 +448,7 @@ impl Router {
 
     /// Removes `pid` from the send waiter list, if present.
     pub fn remove_send_waiter(&mut self, id: EndpointId, pid: WaiterId) -> Result<bool, IpcError> {
-        let ep = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?;
+        let ep = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(IpcError::NoSuchEndpoint);
         }
@@ -474,7 +456,11 @@ impl Router {
     }
 
     /// Creates a new kernel endpoint and returns its identifier.
-    pub fn create_endpoint(&mut self, depth: usize, owner: Option<WaiterId>) -> Result<EndpointId, IpcError> {
+    pub fn create_endpoint(
+        &mut self,
+        depth: usize,
+        owner: Option<WaiterId>,
+    ) -> Result<EndpointId, IpcError> {
         let depth = depth.clamp(1, 256);
         if self.endpoints.len() >= MAX_ENDPOINTS {
             return Err(IpcError::NoSpace);
@@ -513,10 +499,7 @@ impl Router {
 
     /// Closes a single endpoint unconditionally (used by privileged MANAGE holders).
     pub fn close_endpoint(&mut self, id: EndpointId) -> Result<Vec<WaiterId>, IpcError> {
-        let ep = self
-            .endpoints
-            .get_mut(id as usize)
-            .ok_or(IpcError::NoSuchEndpoint)?;
+        let ep = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(IpcError::NoSuchEndpoint);
         }
@@ -564,9 +547,7 @@ mod tests {
         let mut router = Router::new(2);
         let header = MessageHeader::new(1, 0, 42, 0, 4);
         let payload = vec![1, 2, 3, 4];
-        router
-            .send(0, Message::new(header, payload.clone(), None))
-            .unwrap();
+        router.send(0, Message::new(header, payload.clone(), None)).unwrap();
         let received = router.recv(0).unwrap();
         assert_eq!(received.header.ty, 42);
         assert_eq!(received.payload, payload);
@@ -664,7 +645,10 @@ mod tests {
             // Router accounting invariants.
             let sum_total: usize = router.endpoints.iter().map(|e| e.queued_bytes).sum();
             assert_eq!(sum_total, router.queued_bytes_total, "global queued_bytes_total mismatch");
-            assert!(router.queued_bytes_total <= router.max_queued_bytes_total, "global budget exceeded");
+            assert!(
+                router.queued_bytes_total <= router.max_queued_bytes_total,
+                "global budget exceeded"
+            );
 
             // Per-owner accounting matches endpoints.
             let mut expected: BTreeMap<WaiterId, usize> = BTreeMap::new();
@@ -681,8 +665,12 @@ mod tests {
             // missing == 0 is equivalent.
             let expected_nz: BTreeMap<WaiterId, usize> =
                 expected.into_iter().filter(|(_k, v)| *v != 0).collect();
-            let actual_nz: BTreeMap<WaiterId, usize> =
-                router.owner_queued_bytes.iter().filter(|(_k, v)| **v != 0).map(|(k, v)| (*k, *v)).collect();
+            let actual_nz: BTreeMap<WaiterId, usize> = router
+                .owner_queued_bytes
+                .iter()
+                .filter(|(_k, v)| **v != 0)
+                .map(|(k, v)| (*k, *v))
+                .collect();
             assert_eq!(expected_nz, actual_nz, "owner_queued_bytes mismatch");
             for (_owner, bytes) in &router.owner_queued_bytes {
                 assert!(*bytes <= router.max_queued_bytes_per_owner, "owner budget exceeded");

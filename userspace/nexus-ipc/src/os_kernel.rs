@@ -80,9 +80,7 @@ fn wait_to_sys(wait: Wait) -> core::result::Result<(u32, u64), IpcError> {
 }
 
 fn duration_to_ns(d: Duration) -> u64 {
-    d.as_secs()
-        .saturating_mul(1_000_000_000)
-        .saturating_add(d.subsec_nanos() as u64)
+    d.as_secs().saturating_mul(1_000_000_000).saturating_add(d.subsec_nanos() as u64)
 }
 
 fn map_send_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
@@ -96,7 +94,9 @@ fn map_send_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
 
 fn map_recv_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
     match err {
-        nexus_abi::IpcError::QueueEmpty if matches!(wait, Wait::NonBlocking) => IpcError::WouldBlock,
+        nexus_abi::IpcError::QueueEmpty if matches!(wait, Wait::NonBlocking) => {
+            IpcError::WouldBlock
+        }
         nexus_abi::IpcError::TimedOut => IpcError::Timeout,
         nexus_abi::IpcError::NoSpace => IpcError::NoSpace,
         other => IpcError::Kernel(other),
@@ -112,10 +112,7 @@ pub struct KernelClient {
 impl KernelClient {
     /// Creates a new client bound to the bootstrap endpoint (slot 0).
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            send_slot: 0,
-            recv_slot: 0,
-        })
+        Ok(Self { send_slot: 0, recv_slot: 0 })
     }
 
     /// Creates a client for a specific target.
@@ -222,10 +219,7 @@ impl KernelServer {
     ///
     /// NOTE: Defaults to bootstrap endpoint (slot 0), which is only useful for selftests.
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            recv_slot: 0,
-            send_slot: 0,
-        })
+        Ok(Self { recv_slot: 0, send_slot: 0 })
     }
 
     /// Creates a server using explicit capability slot numbers for recv/send.

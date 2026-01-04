@@ -197,27 +197,26 @@ impl VfsClient {
         }
         #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
         {
-        let mut message = capnp::message::Builder::new_default();
-        {
-            let mut request = message.init_root::<open_request::Builder<'_>>();
-            request.set_path(path);
-        }
-        let response = self.dispatch(OPCODE_OPEN, &message)?;
-        let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
-        if *opcode != OPCODE_OPEN {
-            return Err(Error::Decode);
-        }
-        let mut cursor = std::io::Cursor::new(payload);
-        let message =
-            capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
-                .map_err(|_| Error::Decode)?;
-        let response = message
-            .get_root::<open_response::Reader<'_>>()
-            .map_err(|_| Error::Decode)?;
-        if !response.get_ok() {
-            return Err(Error::NotFound);
-        }
-        Ok(FileHandle::from_raw(response.get_fh()))
+            let mut message = capnp::message::Builder::new_default();
+            {
+                let mut request = message.init_root::<open_request::Builder<'_>>();
+                request.set_path(path);
+            }
+            let response = self.dispatch(OPCODE_OPEN, &message)?;
+            let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
+            if *opcode != OPCODE_OPEN {
+                return Err(Error::Decode);
+            }
+            let mut cursor = std::io::Cursor::new(payload);
+            let message =
+                capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
+                    .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<open_response::Reader<'_>>().map_err(|_| Error::Decode)?;
+            if !response.get_ok() {
+                return Err(Error::NotFound);
+            }
+            Ok(FileHandle::from_raw(response.get_fh()))
         }
     }
 
@@ -238,32 +237,28 @@ impl VfsClient {
         }
         #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
         {
-        let mut message = capnp::message::Builder::new_default();
-        {
-            let mut request = message.init_root::<read_request::Builder<'_>>();
-            request.set_fh(fh.raw());
-            request.set_off(off);
-            request.set_len(len.min(u32::MAX as usize) as u32);
-        }
-        let response = self.dispatch(OPCODE_READ, &message)?;
-        let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
-        if *opcode != OPCODE_READ {
-            return Err(Error::Decode);
-        }
-        let mut cursor = std::io::Cursor::new(payload);
-        let message =
-            capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
-                .map_err(|_| Error::Decode)?;
-        let response = message
-            .get_root::<read_response::Reader<'_>>()
-            .map_err(|_| Error::Decode)?;
-        if !response.get_ok() {
-            return Err(Error::InvalidHandle);
-        }
-        response
-            .get_bytes()
-            .map(|data| data.to_vec())
-            .map_err(|_| Error::Decode)
+            let mut message = capnp::message::Builder::new_default();
+            {
+                let mut request = message.init_root::<read_request::Builder<'_>>();
+                request.set_fh(fh.raw());
+                request.set_off(off);
+                request.set_len(len.min(u32::MAX as usize) as u32);
+            }
+            let response = self.dispatch(OPCODE_READ, &message)?;
+            let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
+            if *opcode != OPCODE_READ {
+                return Err(Error::Decode);
+            }
+            let mut cursor = std::io::Cursor::new(payload);
+            let message =
+                capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
+                    .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<read_response::Reader<'_>>().map_err(|_| Error::Decode)?;
+            if !response.get_ok() {
+                return Err(Error::InvalidHandle);
+            }
+            response.get_bytes().map(|data| data.to_vec()).map_err(|_| Error::Decode)
         }
     }
 
@@ -282,28 +277,27 @@ impl VfsClient {
         }
         #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
         {
-        let mut message = capnp::message::Builder::new_default();
-        {
-            let mut request = message.init_root::<close_request::Builder<'_>>();
-            request.set_fh(fh.raw());
-        }
-        let response = self.dispatch(OPCODE_CLOSE, &message)?;
-        let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
-        if *opcode != OPCODE_CLOSE {
-            return Err(Error::Decode);
-        }
-        let mut cursor = std::io::Cursor::new(payload);
-        let message =
-            capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
-                .map_err(|_| Error::Decode)?;
-        let response = message
-            .get_root::<close_response::Reader<'_>>()
-            .map_err(|_| Error::Decode)?;
-        if response.get_ok() {
-            Ok(())
-        } else {
-            Err(Error::InvalidHandle)
-        }
+            let mut message = capnp::message::Builder::new_default();
+            {
+                let mut request = message.init_root::<close_request::Builder<'_>>();
+                request.set_fh(fh.raw());
+            }
+            let response = self.dispatch(OPCODE_CLOSE, &message)?;
+            let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
+            if *opcode != OPCODE_CLOSE {
+                return Err(Error::Decode);
+            }
+            let mut cursor = std::io::Cursor::new(payload);
+            let message =
+                capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
+                    .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<close_response::Reader<'_>>().map_err(|_| Error::Decode)?;
+            if response.get_ok() {
+                Ok(())
+            } else {
+                Err(Error::InvalidHandle)
+            }
         }
     }
 
@@ -329,30 +323,26 @@ impl VfsClient {
         }
         #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
         {
-        let mut message = capnp::message::Builder::new_default();
-        {
-            let mut request = message.init_root::<stat_request::Builder<'_>>();
-            request.set_path(path);
-        }
-        let response = self.dispatch(OPCODE_STAT, &message)?;
-        let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
-        if *opcode != OPCODE_STAT {
-            return Err(Error::Decode);
-        }
-        let mut cursor = std::io::Cursor::new(payload);
-        let message =
-            capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
-                .map_err(|_| Error::Decode)?;
-        let response = message
-            .get_root::<stat_response::Reader<'_>>()
-            .map_err(|_| Error::Decode)?;
-        if !response.get_ok() {
-            return Err(Error::NotFound);
-        }
-        Ok(Metadata::new(
-            response.get_size(),
-            FileKind::from_raw(response.get_kind()),
-        ))
+            let mut message = capnp::message::Builder::new_default();
+            {
+                let mut request = message.init_root::<stat_request::Builder<'_>>();
+                request.set_path(path);
+            }
+            let response = self.dispatch(OPCODE_STAT, &message)?;
+            let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
+            if *opcode != OPCODE_STAT {
+                return Err(Error::Decode);
+            }
+            let mut cursor = std::io::Cursor::new(payload);
+            let message =
+                capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
+                    .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<stat_response::Reader<'_>>().map_err(|_| Error::Decode)?;
+            if !response.get_ok() {
+                return Err(Error::NotFound);
+            }
+            Ok(Metadata::new(response.get_size(), FileKind::from_raw(response.get_kind())))
         }
     }
 
@@ -409,9 +399,7 @@ mod host {
     impl Client {
         /// Wraps an existing loopback client handle.
         pub fn from_loopback(client: LoopbackClient) -> Self {
-            Self {
-                ipc: Arc::new(client),
-            }
+            Self { ipc: Arc::new(client) }
         }
 
         pub fn call(&self, frame: Vec<u8>) -> Result<Vec<u8>> {
@@ -432,9 +420,7 @@ mod host {
     impl super::VfsClient {
         /// Creates a client bound to the provided loopback connection.
         pub fn from_loopback(client: LoopbackClient) -> Self {
-            Self {
-                backend: super::Backend::Host(Client::from_loopback(client)),
-            }
+            Self { backend: super::Backend::Host(Client::from_loopback(client)) }
         }
     }
 }

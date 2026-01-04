@@ -188,7 +188,7 @@ impl From<TransportError> for ServerError {
     }
 }
 
-struct AnchorStore {
+pub(crate) struct AnchorStore {
     ordered: Vec<String>,
     by_id: HashMap<String, PublicKey>,
 }
@@ -222,7 +222,7 @@ impl AnchorStore {
     }
 }
 
-struct KeystoreService {
+pub(crate) struct KeystoreService {
     anchors: AnchorStore,
 }
 
@@ -257,9 +257,8 @@ impl Server {
     #[cfg(feature = "idl-capnp")]
     fn handle_get_anchors(&self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
         let message = read_message(payload)?;
-        let _request: get_anchors_request::Reader<'_> = message
-            .get_root()
-            .map_err(|err| ServerError::Decode(err.to_string()))?;
+        let _request: get_anchors_request::Reader<'_> =
+            message.get_root().map_err(|err| ServerError::Decode(err.to_string()))?;
         let mut message = Builder::new_default();
         {
             let response = message.init_root::<get_anchors_response::Builder<'_>>();
@@ -274,20 +273,17 @@ impl Server {
     #[cfg(feature = "idl-capnp")]
     fn handle_verify(&self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
         let message = read_message(payload)?;
-        let request: verify_request::Reader<'_> = message
-            .get_root()
-            .map_err(|err| ServerError::Decode(err.to_string()))?;
+        let request: verify_request::Reader<'_> =
+            message.get_root().map_err(|err| ServerError::Decode(err.to_string()))?;
         let anchor_id = request
             .get_anchor_id()
             .map_err(|err| ServerError::Decode(err.to_string()))?
             .to_str()
             .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let payload_reader = request
-            .get_payload()
-            .map_err(|err| ServerError::Decode(err.to_string()))?;
-        let signature_reader = request
-            .get_signature()
-            .map_err(|err| ServerError::Decode(err.to_string()))?;
+        let payload_reader =
+            request.get_payload().map_err(|err| ServerError::Decode(err.to_string()))?;
+        let signature_reader =
+            request.get_signature().map_err(|err| ServerError::Decode(err.to_string()))?;
         let payload_bytes: Vec<u8> = payload_reader.to_vec();
         let signature_bytes: Vec<u8> = signature_reader.to_vec();
 
@@ -314,9 +310,8 @@ impl Server {
     #[cfg(feature = "idl-capnp")]
     fn handle_device_id(&self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
         let message = read_message(payload)?;
-        let _request: device_id_request::Reader<'_> = message
-            .get_root()
-            .map_err(|err| ServerError::Decode(err.to_string()))?;
+        let _request: device_id_request::Reader<'_> =
+            message.get_root().map_err(|err| ServerError::Decode(err.to_string()))?;
         let id = self.service.anchors().primary_id().unwrap_or("");
 
         let mut message = Builder::new_default();
@@ -389,20 +384,14 @@ pub(crate) fn serve_with_components<T: Transport>(
     service: KeystoreService,
 ) -> Result<(), ServerError> {
     let server = Server::new(service);
-    while let Some(frame) = transport
-        .recv()
-        .map_err(|err| ServerError::Transport(err.into()))?
-    {
+    while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
         }
-        let (opcode, payload) = frame
-            .split_first()
-            .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+        let (opcode, payload) =
+            frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
         let response = server.handle_frame(*opcode, payload)?;
-        transport
-            .send(&response)
-            .map_err(|err| ServerError::Transport(err.into()))?;
+        transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
     }
     Ok(())
 }
@@ -462,10 +451,8 @@ pub fn daemon_main<R: FnOnce() + Send + 'static>(notify: R) -> ! {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }

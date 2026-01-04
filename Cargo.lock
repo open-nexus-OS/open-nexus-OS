@@ -1103,6 +1103,10 @@ dependencies = [
 [[package]]
 name = "launcher"
 version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+]
 
 [[package]]
 name = "lazy_static"

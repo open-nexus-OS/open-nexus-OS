@@ -14,10 +14,7 @@ fn help() -> &'static str {
 }
 
 fn pack(path: &Path) -> io::Result<PathBuf> {
-    let bundle_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("bundle");
+    let bundle_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("bundle");
     let output = path.with_file_name(format!("{bundle_name}.nxb"));
     let mut file = File::create(&output)?;
     writeln!(file, "NEXUS-BUNDLE {}", bundle_name)?;

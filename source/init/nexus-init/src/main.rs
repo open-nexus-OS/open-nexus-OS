@@ -22,19 +22,16 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 
-#[cfg(any(feature = "std-server", feature = "os-lite"))]
-use nexus_init::{service_main_loop, ReadyNotifier};
 #[cfg(feature = "std-server")]
 use nexus_init::touch_schemas;
+#[cfg(any(feature = "std-server", feature = "os-lite"))]
+use nexus_init::{service_main_loop, ReadyNotifier};
 
 /// Entrypoint for the init binary. Delegates to the selected backend and keeps
 /// the process alive once service bootstrapping finishes.
 #[cfg(any(feature = "std-server", feature = "os-lite"))]
 fn main() -> ! {
-    #[cfg(all(
-        feature = "std-server",
-        not(all(nexus_env = "os", feature = "os-lite"))
-    ))]
+    #[cfg(all(feature = "std-server", not(all(nexus_env = "os", feature = "os-lite"))))]
     touch_schemas();
 
     #[cfg(all(nexus_env = "os", feature = "os-lite"))]
@@ -68,12 +65,7 @@ fn main() -> ! {
     }
 }
 
-#[cfg(all(
-    nexus_env = "os",
-    feature = "os-lite",
-    target_arch = "riscv64",
-    target_os = "none"
-))]
+#[cfg(all(nexus_env = "os", feature = "os-lite", target_arch = "riscv64", target_os = "none"))]
 fn uart_println(s: &str) {
     for b in s.as_bytes() {
         uart_write_byte(*b);
@@ -81,12 +73,7 @@ fn uart_println(s: &str) {
     uart_write_byte(b'\n');
 }
 
-#[cfg(all(
-    nexus_env = "os",
-    feature = "os-lite",
-    target_arch = "riscv64",
-    target_os = "none"
-))]
+#[cfg(all(nexus_env = "os", feature = "os-lite", target_arch = "riscv64", target_os = "none"))]
 fn uart_write_byte(byte: u8) {
     const UART0_BASE: usize = 0x1000_0000;
     const UART_TX: usize = 0x0;

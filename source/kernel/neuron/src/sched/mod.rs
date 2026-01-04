@@ -124,12 +124,8 @@ impl Scheduler {
             );
         }
 
-        for class in [
-            QosClass::PerfBurst,
-            QosClass::Interactive,
-            QosClass::Normal,
-            QosClass::Idle,
-        ] {
+        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
+        {
             if let Some(task) = self.queue_for(class).pop_front() {
                 if let Some(ref mut w) = u {
                     use core::fmt::Write as _;

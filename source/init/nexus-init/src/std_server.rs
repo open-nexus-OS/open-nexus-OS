@@ -33,15 +33,8 @@ use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
 use nexus_ipc::{Client, Wait};
 use std::io::Cursor;
 
-const CORE_SERVICES: [&str; 7] = [
-    "keystored",
-    "policyd",
-    "samgrd",
-    "bundlemgrd",
-    "packagefsd",
-    "vfsd",
-    "execd",
-];
+const CORE_SERVICES: [&str; 7] =
+    ["keystored", "policyd", "samgrd", "bundlemgrd", "packagefsd", "vfsd", "execd"];
 
 #[cfg(nexus_env = "host")]
 const BUNDLE_OPCODE_QUERY: u8 = 2;
@@ -106,9 +99,7 @@ fn run(notifier: Option<ReadyNotifier>) -> Result<(), InitError> {
         handles.push(handle);
     }
 
-    let bundle_client = service_clients
-        .remove("bundlemgrd")
-        .map(BundleManagerClient::new);
+    let bundle_client = service_clients.remove("bundlemgrd").map(BundleManagerClient::new);
     let policy_client = service_clients.remove("policyd").map(PolicyClient::new);
     let exec_client = service_clients.remove("execd").map(ExecClient::new);
 
@@ -116,12 +107,10 @@ fn run(notifier: Option<ReadyNotifier>) -> Result<(), InitError> {
         let bundle_client = bundle_client
             .as_ref()
             .ok_or_else(|| service_error("bundlemgrd", "client unavailable"))?;
-        let policy_client = policy_client
-            .as_ref()
-            .ok_or_else(|| service_error("policyd", "client unavailable"))?;
-        let exec_client = exec_client
-            .as_ref()
-            .ok_or_else(|| service_error("execd", "client unavailable"))?;
+        let policy_client =
+            policy_client.as_ref().ok_or_else(|| service_error("policyd", "client unavailable"))?;
+        let exec_client =
+            exec_client.as_ref().ok_or_else(|| service_error("execd", "client unavailable"))?;
 
         for name in catalog.non_core_names() {
             enforce_and_launch(&name, bundle_client, policy_client, exec_client)?;
@@ -156,10 +145,7 @@ struct ServiceConfig {
 
 impl ServiceConfig {
     fn new<N: Into<String>, E: Into<String>>(name: N, entry: E) -> Self {
-        Self {
-            name: name.into(),
-            entry: entry.into(),
-        }
+        Self { name: name.into(), entry: entry.into() }
     }
 }
 
@@ -171,27 +157,19 @@ impl ServiceCatalog {
     fn load(path: &Path) -> Result<Self, InitError> {
         let mut services = HashMap::new();
         if path.is_dir() {
-            for entry in fs::read_dir(path).map_err(|source| InitError::Io {
-                path: path.to_path_buf(),
-                source,
-            })? {
-                let entry = entry.map_err(|source| InitError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                })?;
+            for entry in fs::read_dir(path)
+                .map_err(|source| InitError::Io { path: path.to_path_buf(), source })?
+            {
+                let entry =
+                    entry.map_err(|source| InitError::Io { path: path.to_path_buf(), source })?;
                 let file_path = entry.path();
                 if file_path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
                     continue;
                 }
-                let raw = fs::read_to_string(&file_path).map_err(|source| InitError::Io {
-                    path: file_path.clone(),
-                    source,
-                })?;
-                let recipe: RawService =
-                    toml::from_str(&raw).map_err(|source| InitError::Parse {
-                        path: file_path.clone(),
-                        source,
-                    })?;
+                let raw = fs::read_to_string(&file_path)
+                    .map_err(|source| InitError::Io { path: file_path.clone(), source })?;
+                let recipe: RawService = toml::from_str(&raw)
+                    .map_err(|source| InitError::Parse { path: file_path.clone(), source })?;
                 let name = recipe.name.ok_or_else(|| InitError::InvalidRecipe {
                     path: file_path.clone(),
                     reason: "missing name".into(),
@@ -208,9 +186,7 @@ impl ServiceCatalog {
 
     fn ensure_core_defaults(&mut self) {
         for name in CORE_SERVICES {
-            self.services
-                .entry(name.to_string())
-                .or_insert_with(|| ServiceConfig::new(name, name));
+            self.services.entry(name.to_string()).or_insert_with(|| ServiceConfig::new(name, name));
         }
     }
 
@@ -263,10 +239,7 @@ impl BundleManagerClient {
             .split_first()
             .ok_or_else(|| service_error("bundlemgrd", "empty query response"))?;
         if *opcode != BUNDLE_OPCODE_QUERY {
-            return Err(service_error(
-                "bundlemgrd",
-                format!("unexpected opcode {opcode}"),
-            ));
+            return Err(service_error("bundlemgrd", format!("unexpected opcode {opcode}")));
         }
         let mut cursor = Cursor::new(payload);
         let message = serialize::read_message(&mut cursor, ReaderOptions::new())
@@ -287,10 +260,7 @@ impl BundleManagerClient {
                 .map_err(|err| service_error("bundlemgrd", format!("cap[{idx}] utf8: {err}")))?;
             caps.push(text.to_string());
         }
-        Ok(BundleQuery {
-            installed: reader.get_installed(),
-            caps,
-        })
+        Ok(BundleQuery { installed: reader.get_installed(), caps })
     }
 }
 
@@ -331,10 +301,7 @@ impl PolicyClient {
             .split_first()
             .ok_or_else(|| service_error("policyd", "empty check response"))?;
         if *opcode != POLICY_OPCODE_CHECK {
-            return Err(service_error(
-                "policyd",
-                format!("unexpected opcode {opcode}"),
-            ));
+            return Err(service_error("policyd", format!("unexpected opcode {opcode}")));
         }
         let mut cursor = Cursor::new(payload);
         let message = serialize::read_message(&mut cursor, ReaderOptions::new())
@@ -387,14 +354,10 @@ impl ExecClient {
             .client
             .recv(Wait::Blocking)
             .map_err(|err| service_error("execd", format!("recv exec: {err}")))?;
-        let (opcode, payload) = response
-            .split_first()
-            .ok_or_else(|| service_error("execd", "empty exec response"))?;
+        let (opcode, payload) =
+            response.split_first().ok_or_else(|| service_error("execd", "empty exec response"))?;
         if *opcode != EXEC_OPCODE_EXEC {
-            return Err(service_error(
-                "execd",
-                format!("unexpected opcode {opcode}"),
-            ));
+            return Err(service_error("execd", format!("unexpected opcode {opcode}")));
         }
         let mut cursor = Cursor::new(payload);
         let message = serialize::read_message(&mut cursor, ReaderOptions::new())
@@ -405,11 +368,7 @@ impl ExecClient {
         if reader.get_ok() {
             Ok(())
         } else {
-            let detail = reader
-                .get_message()
-                .ok()
-                .and_then(|m| m.to_str().ok())
-                .unwrap_or("".into());
+            let detail = reader.get_message().ok().and_then(|m| m.to_str().ok()).unwrap_or("");
             Err(service_error("execd", detail))
         }
     }
@@ -452,10 +411,7 @@ fn encode_frame(opcode: u8, message: &Builder<HeapAllocator>) -> Result<Vec<u8>,
 }
 
 fn service_error(service: &str, detail: impl Into<String>) -> InitError {
-    InitError::ServiceError {
-        service: service.to_string(),
-        detail: detail.into(),
-    }
+    InitError::ServiceError { service: service.to_string(), detail: detail.into() }
 }
 
 /// Error produced by the init runtime while supervising services.
@@ -566,16 +522,8 @@ mod runtime {
         let join = thread::Builder::new()
             .name(format!("svc-{}", &name))
             .spawn(move || service_registry::launch(service, tx))
-            .map_err(|source| InitError::Spawn {
-                name: name.clone(),
-                source,
-            })?;
-        Ok(ServiceHandle {
-            name,
-            ready: rx,
-            join,
-            endpoint: None,
-        })
+            .map_err(|source| InitError::Spawn { name: name.clone(), source })?;
+        Ok(ServiceHandle { name, ready: rx, join, endpoint: None })
     }
 
     pub fn idle(handles: Vec<ServiceHandle>) -> ! {
@@ -692,10 +640,8 @@ mod runtime {
                     }
                 }
                 other => {
-                    let err = InitError::UnsupportedEntry {
-                        service: name,
-                        entry: other.to_string(),
-                    };
+                    let err =
+                        InitError::UnsupportedEntry { service: name, entry: other.to_string() };
                     let _ = ready.send(ServiceStatus::Failed(err));
                 }
             }

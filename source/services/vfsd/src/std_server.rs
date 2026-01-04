@@ -169,8 +169,6 @@ pub enum ServiceError {
 #[derive(Clone)]
 struct HandleEntry {
     bytes: Vec<u8>,
-    size: u64,
-    kind: u16,
 }
 
 impl HandleEntry {
@@ -212,11 +210,7 @@ impl FsProvider for PackageFsProvider {
         if entry.kind() == KIND_DIRECTORY {
             return Err(ServiceError::InvalidPath);
         }
-        Ok(ProviderEntry {
-            bytes: entry.bytes().to_vec(),
-            size: entry.size(),
-            kind: entry.kind(),
-        })
+        Ok(ProviderEntry { bytes: entry.bytes().to_vec(), size: entry.size(), kind: entry.kind() })
     }
 
     fn stat(&self, rel_path: &str) -> core::result::Result<(u64, u16), ServiceError> {
@@ -249,9 +243,7 @@ struct MountTable {
 
 impl MountTable {
     fn new() -> Self {
-        Self {
-            mounts: HashMap::new(),
-        }
+        Self { mounts: HashMap::new() }
     }
 
     fn mount(&mut self, path: &str, provider: Box<dyn FsProvider>) {
@@ -263,10 +255,7 @@ impl MountTable {
         path: &str,
     ) -> core::result::Result<(&'a dyn FsProvider, String), ServiceError> {
         if let Some(rest) = path.strip_prefix("pkg:/") {
-            let provider = self
-                .mounts
-                .get("/packages")
-                .ok_or(ServiceError::InvalidPath)?;
+            let provider = self.mounts.get("/packages").ok_or(ServiceError::InvalidPath)?;
             let rel = rest.trim_start_matches('/');
             if rel.is_empty() {
                 return Err(ServiceError::InvalidPath);
@@ -282,7 +271,7 @@ impl MountTable {
             }
             if path.starts_with(trimmed) {
                 let len = trimmed.len();
-                if best.map_or(true, |(_, best_len)| len > best_len) {
+                if best.is_none_or(|(_, best_len)| len > best_len) {
                     best = Some((provider, len));
                 }
             }
@@ -310,10 +299,7 @@ struct Dispatcher {
 impl Dispatcher {
     fn new(packagefs: Arc<PackageFsClient>) -> Self {
         let mut mounts = MountTable::new();
-        mounts.mount(
-            "/packages",
-            Box::new(PackageFsProvider::new(packagefs.clone())),
-        );
+        mounts.mount("/packages", Box::new(PackageFsProvider::new(packagefs.clone())));
         info!("vfsd: mounted /packages -> packagefs");
         Self {
             mounts: Mutex::new(mounts),
@@ -327,15 +313,12 @@ impl Dispatcher {
         let mut mounts = self.mounts.lock();
         match fs_id {
             "packagefs" => {
-                mounts.mount(
-                    mount_point,
-                    Box::new(PackageFsProvider::new(self.packagefs.clone())),
-                );
+                mounts.mount(mount_point, Box::new(PackageFsProvider::new(self.packagefs.clone())));
                 Ok(())
             }
-            other => Err(ServerError::Service(ServiceError::Provider(format!(
-                "unknown fs id {other}"
-            )))),
+            other => {
+                Err(ServerError::Service(ServiceError::Provider(format!("unknown fs id {other}"))))
+            }
         }
     }
 
@@ -353,14 +336,7 @@ impl Dispatcher {
         let mut next = self.next_handle.lock();
         let handle = *next;
         *next = next.saturating_add(1).max(1);
-        handles.insert(
-            handle,
-            HandleEntry {
-                bytes: entry.bytes.clone(),
-                size: entry.size,
-                kind: entry.kind,
-            },
-        );
+        handles.insert(handle, HandleEntry { bytes: entry.bytes.clone() });
         Ok((handle, entry))
     }
 
@@ -424,9 +400,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<()> {
         // Packagefs client targets the packagefsd service
         let _ = nexus_ipc::set_default_target("packagefsd");
         let packagefs = PackageFsClient::new().map(Arc::new).map_err(|err| {
-            ServerError::Service(ServiceError::Provider(format!(
-                "packagefs client init: {err}"
-            )))
+            ServerError::Service(ServiceError::Provider(format!("packagefs client init: {err}")))
         })?;
         nexus_ipc::set_default_target("vfsd");
         let dispatcher = Arc::new(Dispatcher::new(packagefs));
@@ -436,10 +410,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<()> {
 }
 
 /// Runs the service with an injected transport and packagefs client.
-pub fn run_with_transport<T: Transport>(
-    transport: &mut T,
-    packagefs: Arc<PackageFsClient>,
-) -> Result<()>
+pub fn run_with_transport<T>(transport: &mut T, packagefs: Arc<PackageFsClient>) -> Result<()>
 where
     T: Transport,
 {
@@ -449,10 +420,8 @@ where
 
 /// Creates a loopback transport pair for host tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -462,10 +431,7 @@ where
     T: Transport,
 {
     println!("vfsd: ready");
-    while let Some(frame) = transport
-        .recv()
-        .map_err(|err| ServerError::Transport(err.into()))?
-    {
+    while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
         }
@@ -480,9 +446,8 @@ fn handle_frame<T>(dispatcher: &Dispatcher, transport: &mut T, frame: &[u8]) -> 
 where
     T: Transport,
 {
-    let (opcode, payload) = frame
-        .split_first()
-        .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+    let (opcode, payload) =
+        frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
     let opcode = *opcode;
     let response = match opcode {
         OPCODE_OPEN => handle_open(dispatcher, payload)?,
@@ -495,9 +460,7 @@ where
             return Ok(());
         }
     };
-    transport
-        .send(&response)
-        .map_err(|err| ServerError::Transport(err.into()))
+    transport.send(&response).map_err(|err| ServerError::Transport(err.into()))
 }
 
 fn handle_open(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {

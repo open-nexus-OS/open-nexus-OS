@@ -104,7 +104,10 @@ pub mod execd {
         stack_pages: u8,
         out: &mut [u8],
     ) -> Option<usize> {
-        if requester.is_empty() || requester.len() > MAX_REQUESTER_LEN || out.len() < 7 + requester.len() {
+        if requester.is_empty()
+            || requester.len() > MAX_REQUESTER_LEN
+            || out.len() < 7 + requester.len()
+        {
             return None;
         }
         out[0] = MAGIC0;
@@ -493,13 +496,7 @@ pub mod bundleimg {
         let data = frame.get(i..i + data_len)?;
         i += data_len;
         *off = i;
-        Some(Entry {
-            bundle,
-            version,
-            path,
-            kind,
-            data,
-        })
+        Some(Entry { bundle, version, path, kind, data })
     }
 
     #[cfg(test)]
@@ -512,11 +509,12 @@ pub mod bundleimg {
             b'N', b'X', b'B', b'I', 1, 1, 0, // magic + version + count=1
             6, b's', b'y', b's', b't', b'e', b'm', // bundle "system"
             5, b'1', b'.', b'0', b'.', b'0', // version "1.0.0"
-            10, 0, b'b', b'u', b'i', b'l', b'd', b'.', b'p', b'r', b'o', b'p', // path len=10 + "build.prop"
+            10, 0, b'b', b'u', b'i', b'l', b'd', b'.', b'p', b'r', b'o',
+            b'p', // path len=10 + "build.prop"
             0, 0, // kind=KIND_FILE
             19, 0, 0, 0, // data_len=19
-            b'r', b'o', b'.', b'n', b'e', b'x', b'u', b's', b'.', b'b', b'u', b'i', b'l', b'd', b'=', b'd',
-            b'e', b'v', b'\n',
+            b'r', b'o', b'.', b'n', b'e', b'x', b'u', b's', b'.', b'b', b'u', b'i', b'l', b'd',
+            b'=', b'd', b'e', b'v', b'\n',
         ];
 
         #[test]
@@ -823,7 +821,12 @@ pub mod policyd {
 
     /// Encodes a v3 EXEC request:
     /// [P,O,ver=3,OP_EXEC, nonce:u32le, requester_id:u64le, image_id:u8]
-    pub fn encode_exec_v3_id(nonce: Nonce, requester_id: u64, image_id: u8, out: &mut [u8]) -> Option<usize> {
+    pub fn encode_exec_v3_id(
+        nonce: Nonce,
+        requester_id: u64,
+        image_id: u8,
+        out: &mut [u8],
+    ) -> Option<usize> {
         if out.len() < 17 {
             return None;
         }
@@ -919,7 +922,13 @@ pub mod policyd {
         #[test]
         fn route_v3_id_golden() {
             let mut buf = [0u8; 32];
-            let n = encode_route_v3_id(0x11223344, 0x0102_0304_0506_0708, 0xA0A1_A2A3_A4A5_A6A7, &mut buf).unwrap();
+            let n = encode_route_v3_id(
+                0x11223344,
+                0x0102_0304_0506_0708,
+                0xA0A1_A2A3_A4A5_A6A7,
+                &mut buf,
+            )
+            .unwrap();
             const GOLDEN: [u8; 24] = [
                 b'P', b'O', 3, 2, // magic + ver + OP_ROUTE
                 0x44, 0x33, 0x22, 0x11, // nonce LE
@@ -941,7 +950,7 @@ pub mod policyd {
                 b'P', b'O', 3, 3, // magic + ver + OP_EXEC
                 0x04, 0x03, 0x02, 0x01, // nonce LE
                 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // requester_id LE
-                9, // image_id
+                9,    // image_id
             ];
             assert_eq!(&buf[..n], &GOLDEN);
             let (nonce, req, img) = decode_exec_v3_id(&buf[..n]).unwrap();
@@ -954,8 +963,14 @@ pub mod policyd {
         fn rsp_v3_golden() {
             let frame = encode_rsp_v3(OP_ROUTE, 0xAABBCCDD, STATUS_DENY);
             const GOLDEN: [u8; 10] = [
-                b'P', b'O', 3, (2 | 0x80),
-                0xDD, 0xCC, 0xBB, 0xAA,
+                b'P',
+                b'O',
+                3,
+                (2 | 0x80),
+                0xDD,
+                0xCC,
+                0xBB,
+                0xAA,
                 1, // STATUS_DENY
                 0,
             ];
@@ -1013,13 +1028,7 @@ pub fn service_id_from_name(name: &[u8]) -> u64 {
 impl MsgHeader {
     /// Creates a new header with the provided fields.
     pub const fn new(src: u32, dst: u32, ty: u16, flags: u16, len: u32) -> Self {
-        Self {
-            src,
-            dst,
-            ty,
-            flags,
-            len,
-        }
+        Self { src, dst, ty, flags, len }
     }
 
     /// Serialises the header to a little-endian byte array.
@@ -1040,13 +1049,7 @@ impl MsgHeader {
         let ty = u16::from_le_bytes([bytes[8], bytes[9]]);
         let flags = u16::from_le_bytes([bytes[10], bytes[11]]);
         let len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        Self {
-            src,
-            dst,
-            ty,
-            flags,
-            len,
-        }
+        Self { src, dst, ty, flags, len }
     }
 }
 
@@ -1217,7 +1220,7 @@ pub struct IpcRecvV2Desc {
 }
 
 /// `IpcRecvV2Desc` magic (`'N''X''I''2'`).
-pub const IPC_RECV_V2_DESC_MAGIC: u32 = 0x4E_58_49_32;
+pub const IPC_RECV_V2_DESC_MAGIC: u32 = u32::from_be_bytes(*b"NXI2");
 /// `IpcRecvV2Desc` version.
 pub const IPC_RECV_V2_DESC_VERSION: u32 = 1;
 
@@ -1346,13 +1349,13 @@ impl AbiError {
         }
         // Kernel returns negative errno values for syscall failures.
         match -(value as isize) as usize {
-            38 => Some(Self::InvalidSyscall),     // ENOSYS
-            1 => Some(Self::CapabilityDenied),   // EPERM
-            22 => Some(Self::InvalidArgument),   // EINVAL
-            10 => Some(Self::ChildUnavailable),  // ECHILD
-            3 => Some(Self::NoSuchPid),          // ESRCH
-            12 => Some(Self::SpawnFailed),       // ENOMEM (best-effort mapping)
-            28 => Some(Self::SpawnFailed),       // ENOSPC (best-effort mapping)
+            38 => Some(Self::InvalidSyscall),   // ENOSYS
+            1 => Some(Self::CapabilityDenied),  // EPERM
+            22 => Some(Self::InvalidArgument),  // EINVAL
+            10 => Some(Self::ChildUnavailable), // ECHILD
+            3 => Some(Self::NoSuchPid),         // ESRCH
+            12 => Some(Self::SpawnFailed),      // ENOMEM (best-effort mapping)
+            28 => Some(Self::SpawnFailed),      // ENOSPC (best-effort mapping)
             _ => None,
         }
     }
@@ -1472,7 +1475,12 @@ pub fn exec(elf: &[u8], stack_pages: usize, global_pointer: u64) -> SysResult<Pi
 /// v2 additionally provides a per-service name string that the kernel copies into a read-only
 /// mapping in the child address space (RFC-0004 provenance floor).
 #[cfg(nexus_env = "os")]
-pub fn exec_v2(elf: &[u8], stack_pages: usize, global_pointer: u64, service_name: &str) -> SysResult<Pid> {
+pub fn exec_v2(
+    elf: &[u8],
+    stack_pages: usize,
+    global_pointer: u64,
+    service_name: &str,
+) -> SysResult<Pid> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_EXEC_V2: usize = 17;
@@ -1549,12 +1557,7 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
         const SYSCALL_CAP_TRANSFER: usize = 8;
         let raw = unsafe {
             // SAFETY: forwards raw arguments expected by the kernel capability transfer ABI.
-            ecall3(
-                SYSCALL_CAP_TRANSFER,
-                dst_task as usize,
-                cap as usize,
-                rights.bits() as usize,
-            )
+            ecall3(SYSCALL_CAP_TRANSFER, dst_task as usize, cap as usize, rights.bits() as usize)
         };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
@@ -1599,7 +1602,8 @@ pub fn ipc_endpoint_create_v2(factory_cap: Cap, queue_depth: usize) -> SysResult
         if queue_depth == 0 {
             return Err(AbiError::InvalidArgument);
         }
-        let raw = unsafe { ecall3(SYSCALL_IPC_ENDPOINT_CREATE_V2, factory_cap as usize, queue_depth, 0) };
+        let raw =
+            unsafe { ecall3(SYSCALL_IPC_ENDPOINT_CREATE_V2, factory_cap as usize, queue_depth, 0) };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -1615,7 +1619,11 @@ pub fn ipc_endpoint_create_v2(factory_cap: Cap, queue_depth: usize) -> SysResult
 /// by the target service (close-on-exit semantics), while init-lite retains the creator capability
 /// for rights-filtered distribution.
 #[cfg(nexus_env = "os")]
-pub fn ipc_endpoint_create_for(factory_cap: Cap, owner_pid: u32, queue_depth: usize) -> SysResult<Cap> {
+pub fn ipc_endpoint_create_for(
+    factory_cap: Cap,
+    owner_pid: u32,
+    queue_depth: usize,
+) -> SysResult<Cap> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_IPC_ENDPOINT_CREATE_FOR: usize = 23;
@@ -1841,13 +1849,7 @@ pub fn vmo_map_page(_handle: Handle, _va: usize, _offset: usize, _flags: u32) ->
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     unsafe {
         const SYSCALL_MAP: usize = 4;
-        let raw = ecall4(
-            SYSCALL_MAP,
-            _handle as usize,
-            _va,
-            _offset,
-            _flags as usize,
-        );
+        let raw = ecall4(SYSCALL_MAP, _handle as usize, _va, _offset, _flags as usize);
         match decode_syscall(raw) {
             Ok(_) => Ok(()),
             Err(_) => Err(IpcError::Unsupported),

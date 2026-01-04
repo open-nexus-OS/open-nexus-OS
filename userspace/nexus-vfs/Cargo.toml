@@ -6,7 +6,9 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [features]
-default = []
+# Host-first default: enable the Cap'n Proto IDL backend so the crate compiles and is lintable
+# standalone under `nexus_env="host"`.
+default = ["idl-capnp"]
 # Host backend uses Cap'n Proto IDL frames over the loopback transport.
 idl-capnp = ["dep:capnp", "dep:nexus-idl-runtime", "nexus-idl-runtime/capnp", "nexus-ipc/std"]
 # OS backend uses raw bring-up frames over kernel IPC v1 (OPCODE_* protocol implemented by vfsd os-lite).

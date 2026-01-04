@@ -303,10 +303,7 @@ impl ArtifactStore {
 
     /// Stages an asset file to be published alongside the bundle payload.
     pub fn stage_asset(&self, handle: u32, path: &str, bytes: Vec<u8>) {
-        let asset = StagedAsset {
-            path: path.to_string(),
-            bytes,
-        };
+        let asset = StagedAsset { path: path.to_string(), bytes };
         match self.staged_assets.lock() {
             Ok(mut guard) => guard.entry(handle).or_default().push(asset),
             Err(poisoned) => {
@@ -347,10 +344,7 @@ pub fn register_artifact_store(store: &ArtifactStore) {
 
 /// Returns a clone of the globally registered artifact store if available.
 pub fn artifact_store() -> Option<ArtifactStore> {
-    global_artifacts()
-        .lock()
-        .ok()
-        .and_then(|slot| slot.as_ref().cloned())
+    global_artifacts().lock().ok().and_then(|slot| slot.as_ref().cloned())
 }
 
 #[cfg(feature = "idl-capnp")]
@@ -409,9 +403,7 @@ where
             .split_first()
             .ok_or_else(|| KeystoreClientError::Protocol("empty frame".into()))?;
         if *opcode != KEYSTORE_OPCODE_VERIFY {
-            return Err(KeystoreClientError::Protocol(format!(
-                "unexpected opcode {opcode}"
-            )));
+            return Err(KeystoreClientError::Protocol(format!("unexpected opcode {opcode}")));
         }
         let mut cursor = Cursor::new(payload);
         let message = serialize::read_message(&mut cursor, ReaderOptions::new())
@@ -425,7 +417,7 @@ where
 
 #[cfg(feature = "idl-capnp")]
 #[derive(Debug)]
-enum KeystoreClientError {
+pub(crate) enum KeystoreClientError {
     Transport(TransportError),
     Encode(capnp::Error),
     Decode(String),
@@ -507,12 +499,7 @@ impl Server {
         keystore: Option<Box<dyn KeystoreClient>>,
         packagefs: Option<Arc<PackageFsClient>>,
     ) -> Self {
-        Self {
-            service,
-            artifacts,
-            keystore,
-            packagefs,
-        }
+        Self { service, artifacts, keystore, packagefs }
     }
 
     #[cfg(feature = "idl-capnp")]
@@ -596,12 +583,8 @@ impl Server {
         };
 
         // Use manifest payload with the signature line stripped for verification
-        let abilities_list = manifest
-            .abilities
-            .iter()
-            .map(|s| format!("\"{}\"", s))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let abilities_list =
+            manifest.abilities.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", ");
         let caps_list = manifest
             .capabilities
             .iter()
@@ -684,10 +667,7 @@ impl Server {
 
         let assets = self.artifacts.take_staged_assets(handle);
 
-        match self.service.install(DomainInstallRequest {
-            name: &name,
-            manifest: manifest_str,
-        }) {
+        match self.service.install(DomainInstallRequest { name: &name, manifest: manifest_str }) {
             Ok(bundle) => {
                 self.publish_package_to_fs(&bundle, &manifest_bytes, &payload_bytes, &assets);
                 self.artifacts.install_payload(&name, payload_bytes);
@@ -729,9 +709,8 @@ impl Server {
                     builder.set_installed(true);
                     let version = bundle.version.to_string();
                     builder.set_version(&version);
-                    let mut caps = builder
-                        .reborrow()
-                        .init_required_caps(bundle.capabilities.len() as u32);
+                    let mut caps =
+                        builder.reborrow().init_required_caps(bundle.capabilities.len() as u32);
                     for (idx, cap) in bundle.capabilities.iter().enumerate() {
                         caps.set(idx as u32, cap);
                     }
@@ -829,8 +808,7 @@ impl Server {
 impl Server {
     fn restage_assets(&self, handle: u32, assets: &[StagedAsset]) {
         for asset in assets {
-            self.artifacts
-                .stage_asset(handle, &asset.path, asset.bytes.clone());
+            self.artifacts.stage_asset(handle, &asset.path, asset.bytes.clone());
         }
     }
 
@@ -858,15 +836,9 @@ impl Server {
             entries: &entries,
         };
         if let Err(err) = client.publish_bundle(request) {
-            eprintln!(
-                "bundlemgrd: packagefs publish {}@{} failed: {err}",
-                bundle.name, version
-            );
+            eprintln!("bundlemgrd: packagefs publish {}@{} failed: {err}", bundle.name, version);
         } else {
-            println!(
-                "bundlemgrd: published {}@{} to packagefs",
-                bundle.name, version
-            );
+            println!("bundlemgrd: published {}@{} to packagefs", bundle.name, version);
         }
     }
 }
@@ -922,20 +894,14 @@ pub(crate) fn serve_with_components<T: Transport>(
     packagefs: Option<Arc<PackageFsClient>>,
 ) -> Result<(), ServerError> {
     let mut server = Server::new(service, artifacts, keystore, packagefs);
-    while let Some(frame) = transport
-        .recv()
-        .map_err(|err| ServerError::Transport(err.into()))?
-    {
+    while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
         }
-        let (opcode, payload) = frame
-            .split_first()
-            .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+        let (opcode, payload) =
+            frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
         let response = server.handle_frame(*opcode, payload)?;
-        transport
-            .send(&response)
-            .map_err(|err| ServerError::Transport(err.into()))?;
+        transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
     }
     Ok(())
 }
@@ -1023,10 +989,8 @@ pub fn service_main_loop(
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }

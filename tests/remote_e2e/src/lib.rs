@@ -106,7 +106,6 @@ pub struct Node {
     samgr_thread: Option<JoinHandle<()>>,
     bundle_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
-    listen_port: u16,
 }
 
 impl Node {
@@ -153,22 +152,26 @@ impl Node {
 
         let shutdown = Arc::new(AtomicBool::new(false));
         let acceptor = Arc::new(authenticator);
+        let acceptor_thread = Arc::clone(&acceptor);
         let samgr_bridge = Arc::clone(&samgr_client);
         let bundle_bridge = Arc::clone(&bundle_client);
         let store_bridge = artifacts.clone();
         let stop_flag = Arc::clone(&shutdown);
         let accept_thread = thread::spawn(move || {
             while !stop_flag.load(Ordering::SeqCst) {
-                match acceptor.accept() {
+                match acceptor_thread.accept() {
                     Ok(session) => {
                         if let Ok(stream) = session.into_stream() {
                             let samgr_client = Arc::clone(&samgr_bridge);
                             let bundle_client = Arc::clone(&bundle_bridge);
                             let store = store_bridge.clone();
                             thread::spawn(move || {
-                                if let Err(err) =
-                                    handle_session(Box::new(stream), samgr_client, bundle_client, store)
-                                {
+                                if let Err(err) = handle_session(
+                                    Box::new(stream),
+                                    samgr_client,
+                                    bundle_client,
+                                    store,
+                                ) {
                                     eprintln!("dsoftbus session ended with error: {err}");
                                 }
                             });
@@ -193,7 +196,6 @@ impl Node {
             samgr_thread: Some(samgr_thread),
             bundle_thread: Some(bundle_thread),
             shutdown,
-            listen_port: published_port,
         })
     }
 
@@ -218,8 +220,8 @@ impl Node {
         // Discovery bus (host-first): all nodes bind the same UDP address and broadcast to it.
         // Deterministic under FakeNet; proves the on-wire announce packet.
         let bus = SocketAddr::from(([127, 0, 0, 1], 37020));
-        let discovery = FacadeDiscovery::new(net_for_disc, bus, bus)
-            .context("bind facade discovery")?;
+        let discovery =
+            FacadeDiscovery::new(net_for_disc, bus, bus).context("bind facade discovery")?;
         let published_port = authenticator.local_port();
         let announcement = Announcement::new(
             identity.device_id().clone(),
@@ -255,13 +257,14 @@ impl Node {
 
         let shutdown = Arc::new(AtomicBool::new(false));
         let acceptor = Arc::new(authenticator);
+        let acceptor_thread = Arc::clone(&acceptor);
         let samgr_bridge = Arc::clone(&samgr_client);
         let bundle_bridge = Arc::clone(&bundle_client);
         let store_bridge = artifacts.clone();
         let stop_flag = Arc::clone(&shutdown);
         let accept_thread = thread::spawn(move || {
             while !stop_flag.load(Ordering::SeqCst) {
-                match acceptor.accept() {
+                match acceptor_thread.accept() {
                     Ok(session) => match session.into_stream() {
                         Ok(stream) => {
                             let samgr_client = Arc::clone(&samgr_bridge);
@@ -299,7 +302,6 @@ impl Node {
             samgr_thread: Some(samgr_thread),
             bundle_thread: Some(bundle_thread),
             shutdown,
-            listen_port: published_port,
         })
     }
 
@@ -319,8 +321,12 @@ impl Node {
     /// Returns a discovery iterator seeded with the current registry state.
     pub fn watch(&self) -> Result<Box<dyn Iterator<Item = Announcement>>> {
         match &self.discovery {
-            DiscoveryBackend::Host(d) => Ok(Box::new(d.watch().map_err(|err| anyhow!(err.to_string()))?)),
-            DiscoveryBackend::Facade(d) => Ok(Box::new(d.watch().map_err(|err| anyhow!(err.to_string()))?)),
+            DiscoveryBackend::Host(d) => {
+                Ok(Box::new(d.watch().map_err(|err| anyhow!(err.to_string()))?))
+            }
+            DiscoveryBackend::Facade(d) => {
+                Ok(Box::new(d.watch().map_err(|err| anyhow!(err.to_string()))?))
+            }
         }
     }
 
@@ -343,10 +349,7 @@ impl Node {
         );
         let response =
             forward_ipc(&self.samgr_client, frame).map_err(|err| anyhow!(err.to_string()))?;
-        eprintln!(
-            "[remote_e2e] samgr.register got response len={}",
-            response.len()
-        );
+        eprintln!("[remote_e2e] samgr.register got response len={}", response.len());
         if !parse_samgr_register(&response)? {
             return Err(anyhow!("samgr register rejected"));
         }
@@ -355,12 +358,21 @@ impl Node {
 
     /// Connects to `peer` and returns a handle used for remote operations.
     pub fn connect(&self, peer: &Announcement) -> Result<RemoteConnection> {
-        let session = match &self.authenticator {
-            AuthBackend::InProc(auth) => auth.connect(peer).context("connect to remote peer")?,
-            AuthBackend::Facade(auth) => auth.connect(peer).context("connect to remote peer")?,
+        let stream: Box<dyn Stream + Send> = match &self.authenticator {
+            AuthBackend::InProc(auth) => Box::new(
+                auth.connect(peer)
+                    .context("connect to remote peer")?
+                    .into_stream()
+                    .context("stream negotiation")?,
+            ),
+            AuthBackend::Facade(auth) => Box::new(
+                auth.connect(peer)
+                    .context("connect to remote peer")?
+                    .into_stream()
+                    .context("stream negotiation")?,
+            ),
         };
-        let stream = session.into_stream().context("stream negotiation")?;
-        Ok(RemoteConnection::new(Box::new(stream)))
+        Ok(RemoteConnection::new(stream))
     }
 }
 
@@ -395,16 +407,10 @@ fn handle_session(
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
                 }
                 CHAN_BUNDLEMGR => {
-                    eprintln!(
-                        "[remote_e2e] server: CHAN_BUNDLEMGR recv len={}",
-                        bytes.len()
-                    );
+                    eprintln!("[remote_e2e] server: CHAN_BUNDLEMGR recv len={}", bytes.len());
                     let response = forward_ipc(&bundle, bytes)
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
-                    eprintln!(
-                        "[remote_e2e] server: CHAN_BUNDLEMGR rsp len={}",
-                        response.len()
-                    );
+                    eprintln!("[remote_e2e] server: CHAN_BUNDLEMGR rsp len={}", response.len());
                     stream
                         .send(CHAN_BUNDLEMGR, &response)
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
@@ -458,12 +464,8 @@ fn handle_session(
 
 fn forward_ipc(client: &LoopbackClient, frame: Vec<u8>) -> Result<Vec<u8>, HarnessError> {
     eprintln!("[remote_e2e] forward_ipc tx len={}", frame.len());
-    client
-        .send(&frame, Wait::Blocking)
-        .map_err(|err| HarnessError::Forward(err.to_string()))?;
-    let rsp = client
-        .recv(Wait::Blocking)
-        .map_err(|err| HarnessError::Forward(err.to_string()))?;
+    client.send(&frame, Wait::Blocking).map_err(|err| HarnessError::Forward(err.to_string()))?;
+    let rsp = client.recv(Wait::Blocking).map_err(|err| HarnessError::Forward(err.to_string()))?;
     eprintln!("[remote_e2e] forward_ipc rx len={}", rsp.len());
     Ok(rsp)
 }
@@ -498,10 +500,7 @@ fn build_samgr_resolve(name: &str) -> Result<Vec<u8>> {
 }
 
 fn parse_samgr_register(bytes: &[u8]) -> Result<bool> {
-    eprintln!(
-        "[remote_e2e] parse_samgr_register bytes len={}",
-        bytes.len()
-    );
+    eprintln!("[remote_e2e] parse_samgr_register bytes len={}", bytes.len());
     if bytes.is_empty() {
         return Err(anyhow!("empty register response"));
     }
@@ -577,13 +576,10 @@ fn parse_bundle_query(bytes: &[u8]) -> Result<Option<String>> {
     let mut cursor = std::io::Cursor::new(&bytes[1..]);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| anyhow!(err.to_string()))?;
-    let response = message
-        .get_root::<query_response::Reader<'_>>()
-        .map_err(|err| anyhow!(err.to_string()))?;
+    let response =
+        message.get_root::<query_response::Reader<'_>>().map_err(|err| anyhow!(err.to_string()))?;
     if response.get_installed() {
-        let caps = response
-            .get_required_caps()
-            .map_err(|err| anyhow!(err.to_string()))?;
+        let caps = response.get_required_caps().map_err(|err| anyhow!(err.to_string()))?;
         for idx in 0..caps.len() {
             let _ = caps
                 .get(idx)
@@ -610,23 +606,15 @@ pub struct RemoteConnection {
 
 impl RemoteConnection {
     fn new(stream: Box<dyn Stream + Send>) -> Self {
-        Self {
-            stream: Mutex::new(stream),
-        }
+        Self { stream: Mutex::new(stream) }
     }
 
     /// Resolves `service` on the remote node, returning whether it was found.
     pub fn resolve(&self, service: &str) -> Result<bool> {
         let request = build_samgr_resolve(service)?;
         let mut stream = self.stream.lock();
-        eprintln!(
-            "[remote_e2e] client: resolve tx len={} service={}",
-            request.len(),
-            service
-        );
-        stream
-            .send(CHAN_SAMGR, &request)
-            .map_err(|err| anyhow!(err.to_string()))?;
+        eprintln!("[remote_e2e] client: resolve tx len={} service={}", request.len(), service);
+        stream.send(CHAN_SAMGR, &request).map_err(|err| anyhow!(err.to_string()))?;
         let response = stream
             .recv()
             .map_err(|err| anyhow!(err.to_string()))?
@@ -634,10 +622,7 @@ impl RemoteConnection {
         if response.channel != CHAN_SAMGR {
             return Err(anyhow!("unexpected channel {}", response.channel));
         }
-        eprintln!(
-            "[remote_e2e] client: resolve rx len={}",
-            response.bytes.len()
-        );
+        eprintln!("[remote_e2e] client: resolve rx len={}", response.bytes.len());
         parse_samgr_resolve(&response.bytes)
     }
 
@@ -654,9 +639,7 @@ impl RemoteConnection {
             kind.as_u8(),
             bytes.len()
         );
-        stream
-            .send(CHAN_ARTIFACT, &payload)
-            .map_err(|err| anyhow!(err.to_string()))?;
+        stream.send(CHAN_ARTIFACT, &payload).map_err(|err| anyhow!(err.to_string()))?;
         let response = stream
             .recv()
             .map_err(|err| anyhow!(err.to_string()))?
@@ -664,10 +647,7 @@ impl RemoteConnection {
         if response.channel != CHAN_ARTIFACT {
             return Err(anyhow!("artifact ack on unexpected channel"));
         }
-        eprintln!(
-            "[remote_e2e] client: artifact ack len={}",
-            response.bytes.len()
-        );
+        eprintln!("[remote_e2e] client: artifact ack len={}", response.bytes.len());
         Ok(())
     }
 
@@ -682,9 +662,7 @@ impl RemoteConnection {
             handle,
             expected_len
         );
-        stream
-            .send(CHAN_BUNDLEMGR, &request)
-            .map_err(|err| anyhow!(err.to_string()))?;
+        stream.send(CHAN_BUNDLEMGR, &request).map_err(|err| anyhow!(err.to_string()))?;
         let response = stream
             .recv()
             .map_err(|err| anyhow!(err.to_string()))?
@@ -692,10 +670,7 @@ impl RemoteConnection {
         if response.channel != CHAN_BUNDLEMGR {
             return Err(anyhow!("install response on unexpected channel"));
         }
-        eprintln!(
-            "[remote_e2e] client: install rx len={}",
-            response.bytes.len()
-        );
+        eprintln!("[remote_e2e] client: install rx len={}", response.bytes.len());
         parse_bundle_install(&response.bytes)
     }
 
@@ -703,14 +678,8 @@ impl RemoteConnection {
     pub fn query_bundle(&self, name: &str) -> Result<Option<String>> {
         let request = build_bundle_query(name)?;
         let mut stream = self.stream.lock();
-        eprintln!(
-            "[remote_e2e] client: query tx len={} name={}",
-            request.len(),
-            name
-        );
-        stream
-            .send(CHAN_BUNDLEMGR, &request)
-            .map_err(|err| anyhow!(err.to_string()))?;
+        eprintln!("[remote_e2e] client: query tx len={} name={}", request.len(), name);
+        stream.send(CHAN_BUNDLEMGR, &request).map_err(|err| anyhow!(err.to_string()))?;
         let response = stream
             .recv()
             .map_err(|err| anyhow!(err.to_string()))?

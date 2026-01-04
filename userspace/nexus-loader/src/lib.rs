@@ -1,8 +1,5 @@
 #![forbid(unsafe_code)]
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
 //! CONTEXT: ELF64/RISC-V loader library for secure user program execution
 //! OWNERS: @runtime
 //! STATUS: Functional
@@ -132,10 +129,7 @@ pub fn parse_elf64_riscv(bytes: &[u8]) -> Result<LoadPlan, Error> {
         if ph.p_filesz > ph.p_memsz {
             return Err(Error::Oob);
         }
-        let end = ph
-            .p_offset
-            .checked_add(ph.p_filesz)
-            .ok_or(Error::Internal)?;
+        let end = ph.p_offset.checked_add(ph.p_filesz).ok_or(Error::Internal)?;
         if end > bytes.len() as u64 {
             return Err(Error::Truncated);
         }
@@ -153,17 +147,11 @@ pub fn parse_elf64_riscv(bytes: &[u8]) -> Result<LoadPlan, Error> {
     if segments.is_empty() {
         return Err(Error::Unsupported);
     }
-    if segments
-        .windows(2)
-        .any(|window| window[0].vaddr >= window[1].vaddr)
-    {
+    if segments.windows(2).any(|window| window[0].vaddr >= window[1].vaddr) {
         return Err(Error::Unsupported);
     }
 
-    Ok(LoadPlan {
-        entry: elf.header.e_entry,
-        segments,
-    })
+    Ok(LoadPlan { entry: elf.header.e_entry, segments })
 }
 
 fn map_prot(flags: u32) -> Result<Prot, Error> {
@@ -190,9 +178,7 @@ pub fn load_with<M: Mapper>(bytes: &[u8], mapper: &mut M) -> Result<LoadPlan, Er
             &[]
         } else {
             let start = seg.off as usize;
-            let end = start
-                .checked_add(seg.filesz as usize)
-                .ok_or(Error::Internal)?;
+            let end = start.checked_add(seg.filesz as usize).ok_or(Error::Internal)?;
             bytes.get(start..end).ok_or(Error::Truncated)?
         };
         mapper.map_segment(seg, data)?;
@@ -249,9 +235,7 @@ mod tests {
         cursor.write_u32::<LittleEndian>(0).unwrap();
         cursor.write_u16::<LittleEndian>(64).unwrap();
         cursor.write_u16::<LittleEndian>(56).unwrap();
-        cursor
-            .write_u16::<LittleEndian>(if second_segment { 2 } else { 1 })
-            .unwrap();
+        cursor.write_u16::<LittleEndian>(if second_segment { 2 } else { 1 }).unwrap();
         cursor.write_u16::<LittleEndian>(0).unwrap();
         cursor.write_u16::<LittleEndian>(0).unwrap();
         cursor.write_u16::<LittleEndian>(0).unwrap();

@@ -16,8 +16,8 @@ use crate::ipc::header::MessageHeader;
 use crate::{
     cap::{Capability, CapabilityKind, Rights},
     hal::virt::VirtMachine,
-    hal::{IrqCtl, Tlb},
     hal::Timer,
+    hal::{IrqCtl, Tlb},
     mm::{AddressSpaceManager, AsHandle},
     sched::{QosClass, Scheduler},
     selftest,
@@ -87,11 +87,7 @@ impl KernelState {
         }
         // Activate kernel address space immediately to ensure deterministic
         // RX mapping for subsequent code paths.
-        #[cfg(all(
-            target_arch = "riscv64",
-            target_os = "none",
-            feature = "bringup_identity"
-        ))]
+        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "bringup_identity"))]
         if let Err(err) = address_spaces.activate_via_trampoline(kernel_as) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
@@ -135,20 +131,14 @@ impl KernelState {
             let _ = caps.set(
                 1,
                 Capability {
-                    kind: CapabilityKind::Vmo {
-                        base: 0x8000_0000,
-                        len: 0x10_0000,
-                    },
+                    kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 },
                     rights: Rights::MAP,
                 },
             );
             // Slot 2: endpoint-factory authority (init-lite receives a derived copy).
             let _ = caps.set(
                 2,
-                Capability {
-                    kind: CapabilityKind::EndpointFactory,
-                    rights: Rights::MANAGE,
-                },
+                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
             );
         }
         // Bind kernel AS handle to bootstrap task
@@ -166,15 +156,7 @@ impl KernelState {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "kmain", "KS: after VirtMachine::new");
 
-        Self {
-            hal,
-            scheduler,
-            tasks,
-            ipc: router,
-            address_spaces,
-            kernel_as,
-            syscalls,
-        }
+        Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls }
     }
 
     #[allow(dead_code)]
@@ -190,11 +172,7 @@ impl KernelState {
     fn exercise_ipc(&mut self) {
         // Send a bootstrap message to prove IPC wiring works before tasks run.
         let header = MessageHeader::new(0, 0, 0x100, 0, 0);
-        if self
-            .ipc
-            .send(0, ipc::Message::new(header, Vec::new(), None))
-            .is_ok()
-        {
+        if self.ipc.send(0, ipc::Message::new(header, Vec::new(), None)).is_ok() {
             let _ = self.ipc.recv(0);
         }
     }
@@ -221,56 +199,67 @@ impl KernelState {
             if let Some(next_pid) = self.scheduler.schedule_next() {
                 self.tasks.set_current(next_pid);
 
-                if let Some(task) = self.tasks.task(next_pid) {
-                    // ARCHITECTURAL FIX: Only context-switch to REAL USER tasks.
-                    // Requirements: has AS, SPP=0 (U-mode), AND sepc in user space (< 0x80000000)
-                    const SSTATUS_SPP: usize = 1 << 8;
-                    const KERNEL_BASE: usize = 0x80000000;
-                    let frame = task.frame();
-                    let is_umode = (frame.sstatus & SSTATUS_SPP) == 0;
-                    let is_user_addr = frame.sepc < KERNEL_BASE;
+                // Extract scheduling-relevant values without holding an immutable borrow of `self`
+                // across the context-switch call (which needs `&mut self`).
+                let (handle, frame_ptr, is_umode, is_user_addr) = match self.tasks.task(next_pid) {
+                    None => continue,
+                    Some(task) => {
+                        const SSTATUS_SPP: usize = 1 << 8;
+                        const KERNEL_BASE: usize = 0x80000000;
+                        let frame = task.frame();
+                        let is_umode = (frame.sstatus & SSTATUS_SPP) == 0;
+                        let is_user_addr = frame.sepc < KERNEL_BASE;
+                        (task.address_space(), frame as *const crate::trap::TrapFrame, is_umode, is_user_addr)
+                    }
+                };
 
-                    if let Some(handle) = task.address_space() {
-                        if !is_umode {
-                            // Task has AS but is S-mode (kernel selftest task) - skip
-                            if count < 10 {
-                                log_info!(target: "kmain", "KMAIN: skip S-mode task pid={} (SPP=1)", next_pid);
-                            }
+                if let Some(handle) = handle {
+                    if !is_umode {
+                        if count < 10 {
+                            log_info!(target: "kmain", "KMAIN: skip S-mode task pid={} (SPP=1)", next_pid);
+                        }
+                        continue;
+                    }
+                    if !is_user_addr {
+                        if count < 10 {
+                            let frame = unsafe { &*frame_ptr };
+                            log_info!(
+                                target: "kmain",
+                                "KMAIN: skip invalid task pid={} (sepc=0x{:x} in kernel space)",
+                                next_pid,
+                                frame.sepc
+                            );
+                        }
+                        continue;
+                    }
+
+                    // Log BEFORE activating user AS (no logging after AS switch!)
+                    if count < 10 {
+                        let frame = unsafe { &*frame_ptr };
+                        log_info!(
+                            target: "kmain",
+                            "KMAIN: switch to U-mode pid={} sepc=0x{:x} sp=0x{:x}",
+                            next_pid,
+                            frame.sepc,
+                            frame.x[2]
+                        );
+                    }
+
+                    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                    unsafe {
+                        let frame = &*frame_ptr;
+                        activate_and_switch_to_user(self, handle, frame);
+                    }
+                    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+                    {
+                        if let Err(e) = self.address_spaces.activate(handle) {
+                            log_error!(target: "kmain", "KMAIN: AS activate failed {:?}", e);
                             continue;
                         }
-
-                        if !is_user_addr {
-                            // Task has SPP=0 but sepc in kernel space - inconsistent state, skip
-                            if count < 10 {
-                                log_info!(target: "kmain", "KMAIN: skip invalid task pid={} (sepc=0x{:x} in kernel space)",
-                                          next_pid, frame.sepc);
-                            }
-                            continue;
-                        }
-
-                        // Log BEFORE activating user AS (no logging after AS switch!)
-                        if count < 10 {
-                            log_info!(target: "kmain", "KMAIN: switch to U-mode pid={} sepc=0x{:x} sp=0x{:x}",
-                                      next_pid, frame.sepc, frame.x[2]);
-                        }
-
-                        // CRITICAL: Jump to separate function to ensure cleanup happens BEFORE AS switch
-                        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                        unsafe {
-                            activate_and_switch_to_user(&mut self.address_spaces, handle, frame);
-                        }
-                        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-                        {
-                            if let Err(e) = self.address_spaces.activate(handle) {
-                                log_error!(target: "kmain", "KMAIN: AS activate failed {:?}", e);
-                                continue;
-                            }
-                        }
-                    } else {
-                        // Kernel task - skip (should not be in runqueue in production)
-                        if count < 10 {
-                            log_info!(target: "kmain", "KMAIN: skip kernel task pid={} (no AS)", next_pid);
-                        }
+                    }
+                } else {
+                    if count < 10 {
+                        log_info!(target: "kmain", "KMAIN: skip kernel task pid={} (no AS)", next_pid);
                     }
                 }
             } else {
@@ -285,17 +274,15 @@ impl KernelState {
                         continue;
                     }
                     match t.block_reason() {
-                        Some(crate::task::BlockReason::IpcRecv {
-                            endpoint,
-                            deadline_ns,
-                        }) if deadline_ns != 0 && now >= deadline_ns => {
+                        Some(crate::task::BlockReason::IpcRecv { endpoint, deadline_ns })
+                            if deadline_ns != 0 && now >= deadline_ns =>
+                        {
                             let _ = self.ipc.remove_recv_waiter(endpoint, pid);
                             let _ = self.tasks.wake(pid, &mut self.scheduler);
                         }
-                        Some(crate::task::BlockReason::IpcSend {
-                            endpoint,
-                            deadline_ns,
-                        }) if deadline_ns != 0 && now >= deadline_ns => {
+                        Some(crate::task::BlockReason::IpcSend { endpoint, deadline_ns })
+                            if deadline_ns != 0 && now >= deadline_ns =>
+                        {
                             let _ = self.ipc.remove_send_waiter(endpoint, pid);
                             let _ = self.tasks.wake(pid, &mut self.scheduler);
                         }
@@ -320,7 +307,7 @@ impl KernelState {
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 #[inline(never)]
 unsafe fn activate_and_switch_to_user(
-    spaces: &mut crate::mm::AddressSpaceManager,
+    kernel: &mut KernelState,
     handle: crate::mm::AsHandle,
     frame: &crate::trap::TrapFrame,
 ) -> ! {
@@ -348,9 +335,7 @@ unsafe fn activate_and_switch_to_user(
 
     // CRITICAL SECTION: Atomically activate AS and jump to user - NO cleanup code possible
     // Move activate() INTO context_switch to ensure they're truly atomic
-    unsafe {
-        context_switch_with_activate(spaces, handle, frame);
-    }
+    unsafe { context_switch_with_activate(kernel, handle, frame) }
 }
 
 /// Atomically activates the user AS and context switches to the task.
@@ -358,12 +343,29 @@ unsafe fn activate_and_switch_to_user(
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 #[inline(always)]
 unsafe fn context_switch_with_activate(
-    spaces: &mut crate::mm::AddressSpaceManager,
+    kernel: &mut KernelState,
     handle: crate::mm::AsHandle,
     frame: &crate::trap::TrapFrame,
 ) -> ! {
     // Activate user AS - from this point we're in the user's address space
-    let _ = spaces.activate(handle);
+    let _ = kernel.address_spaces.activate(handle);
+
+    // Defensive: some bring-up paths end up with TRAP_RUNTIME not visible after SATP switch.
+    // If missing, (re)install it in the currently active address space so U-mode syscalls work.
+    if !crate::trap::runtime_installed() {
+        let timer: &'static dyn crate::hal::Timer = unsafe {
+            let t: &dyn crate::hal::Timer = kernel.hal.timer();
+            &*(t as *const dyn crate::hal::Timer)
+        };
+        let _ = crate::trap::install_runtime(
+            &mut kernel.scheduler,
+            &mut kernel.tasks,
+            &mut kernel.ipc,
+            &mut kernel.address_spaces,
+            timer,
+            &kernel.syscalls,
+        );
+    }
 
     // IMMEDIATELY jump to assembly - inline(always) ensures no code between activate and asm
     unsafe {
@@ -457,10 +459,7 @@ pub fn kmain() -> ! {
         timer,
         &kernel.syscalls,
     );
-    kernel
-        .tasks
-        .bootstrap_mut()
-        .set_trap_domain(_default_trap_domain);
+    kernel.tasks.bootstrap_mut().set_trap_domain(_default_trap_domain);
     // Touch HAL traits to satisfy imports
     let uart_dev = kernel.hal.uart();
     let _: &dyn crate::hal::Uart = uart_dev;
@@ -530,11 +529,7 @@ pub fn kmain() -> ! {
             }
         }
         // Prefer private selftest stack on OS if enabled; applies to full suite and spawn-only
-        #[cfg(all(
-            feature = "selftest_priv_stack",
-            target_arch = "riscv64",
-            target_os = "none"
-        ))]
+        #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
         selftest::entry_on_private_stack(&mut ctx);
         #[cfg(not(all(
             feature = "selftest_priv_stack",

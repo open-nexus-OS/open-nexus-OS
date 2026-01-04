@@ -11,13 +11,15 @@ use nexus_net::{
     NetStack, TcpListener, TcpStream, UdpSocket,
 };
 
+use net_virtio::{QueueSetup, VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
 use nexus_abi::{cap_query, mmio_map, vmo_create, vmo_map_page_sys, AbiError, CapQuery};
 use nexus_hal::Bus;
-use net_virtio::{QueueSetup, VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Icmpv4Packet, Icmpv4Repr, Ipv4Address};
+use smoltcp::wire::{
+    EthernetAddress, HardwareAddress, Icmpv4Packet, Icmpv4Repr, IpAddress, IpCidr, Ipv4Address,
+};
 
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
@@ -79,12 +81,7 @@ fn mmio_map_ok(mmio_cap_slot: u32, va: usize, off: usize) -> Result<(), NetError
 }
 
 fn cap_query_base_len(slot: u32) -> Result<(u64, u64), NetError> {
-    let mut info = CapQuery {
-        kind_tag: 0,
-        reserved: 0,
-        base: 0,
-        len: 0,
-    };
+    let mut info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     cap_query(slot, &mut info).map_err(|_| NetError::Internal("cap_query failed"))?;
     Ok((info.base, info.len))
 }
@@ -102,7 +99,6 @@ struct Inner {
     dev: VirtioNetMmio<MmioBus>,
 
     // Queue state (fixed to legacy mmio layout for QEMU virt today).
-    q_len: usize,
     rx_desc: *mut VqDesc,
     rx_avail: *mut VqAvail<Q_LEN>,
     rx_used: *mut VqUsed<Q_LEN>,
@@ -242,7 +238,7 @@ impl SmoltcpVirtioNetStack {
         let mut rx_buf_pa = [0u64; ACTIVE_BUFS];
         let mut tx_buf_va = [0usize; ACTIVE_BUFS];
         let mut tx_buf_pa = [0u64; ACTIVE_BUFS];
-        let mut tx_free = [true; ACTIVE_BUFS];
+        let tx_free = [true; ACTIVE_BUFS];
         for i in 0..ACTIVE_BUFS {
             rx_buf_va[i] = BUF_VA + i * 4096;
             rx_buf_pa[i] = buf_base_pa + (i as u64) * 4096;
@@ -294,19 +290,13 @@ impl SmoltcpVirtioNetStack {
 
         let mut iface = Interface::new(cfg, &mut devwrap, Instant::from_millis(0));
         iface.update_ip_addrs(|addrs| {
-            let _ = addrs.push(IpCidr::new(
-                IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)),
-                24,
-            ));
+            let _ = addrs.push(IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)), 24));
         });
-        let _ = iface
-            .routes_mut()
-            .add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2));
+        let _ = iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2));
 
         Ok(Self {
             inner: Rc::new(RefCell::new(Inner {
                 dev,
-                q_len,
                 rx_desc: devwrap.rx_desc,
                 rx_avail: devwrap.rx_avail,
                 rx_used: devwrap.rx_used,
@@ -330,7 +320,11 @@ impl SmoltcpVirtioNetStack {
     /// Best-effort ICMP echo probe to the QEMU usernet gateway (10.0.2.2).
     ///
     /// This is intentionally a bounded proof hook and not part of the public sockets facade.
-    pub fn probe_ping_gateway(&mut self, start_ms: NetInstant, max_polls: usize) -> Result<(), NetError> {
+    pub fn probe_ping_gateway(
+        &mut self,
+        start_ms: NetInstant,
+        max_polls: usize,
+    ) -> Result<(), NetError> {
         let mut inner = self.inner.borrow_mut();
         let rx_meta = [smoltcp::socket::icmp::PacketMetadata::EMPTY; 4];
         let tx_meta = [smoltcp::socket::icmp::PacketMetadata::EMPTY; 4];
@@ -350,17 +344,12 @@ impl SmoltcpVirtioNetStack {
             self.poll(now);
             {
                 let mut inner = self.inner.borrow_mut();
-                let sock = inner
-                    .sockets
-                    .get_mut::<smoltcp::socket::icmp::Socket>(handle);
+                let sock = inner.sockets.get_mut::<smoltcp::socket::icmp::Socket>(handle);
                 if !sent && sock.can_send() {
                     let mut bytes = [0u8; 24];
                     let mut pkt = Icmpv4Packet::new_unchecked(&mut bytes);
-                    let repr = Icmpv4Repr::EchoRequest {
-                        ident: 0x1234,
-                        seq_no: 1,
-                        data: &[0u8; 16],
-                    };
+                    let repr =
+                        Icmpv4Repr::EchoRequest { ident: 0x1234, seq_no: 1, data: &[0u8; 16] };
                     repr.emit(&mut pkt, &checksum);
                     let _ = sock.send_slice(pkt.into_inner(), target);
                     sent = true;
@@ -560,22 +549,11 @@ impl<const ACTIVE: usize> Device for SmolDevice<ACTIVE> {
         caps
     }
 
-    fn receive(
-        &mut self,
-        _timestamp: Instant,
-    ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         if let Some((id, len)) = self.rx_poll() {
             Some((
-                SmolRx {
-                    dev: self as *mut _,
-                    id,
-                    len,
-                    _lt: core::marker::PhantomData,
-                },
-                SmolTx {
-                    dev: self as *mut _,
-                    _lt: core::marker::PhantomData,
-                },
+                SmolRx { dev: self as *mut _, id, len, _lt: core::marker::PhantomData },
+                SmolTx { dev: self as *mut _, _lt: core::marker::PhantomData },
             ))
         } else {
             None
@@ -583,10 +561,7 @@ impl<const ACTIVE: usize> Device for SmolDevice<ACTIVE> {
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        Some(SmolTx {
-            dev: self as *mut _,
-            _lt: core::marker::PhantomData,
-        })
+        Some(SmolTx { dev: self as *mut _, _lt: core::marker::PhantomData })
     }
 }
 
@@ -610,7 +585,7 @@ impl UdpSocket for OsUdpSocket {
             IpAddress::Ipv4(Ipv4Address::from_bytes(&remote.ip.0)),
             remote.port,
         );
-        let mut sock = inner.sockets.get_mut::<smoltcp::socket::udp::Socket>(self.handle);
+        let sock = inner.sockets.get_mut::<smoltcp::socket::udp::Socket>(self.handle);
         if !sock.can_send() {
             return Err(NetError::WouldBlock);
         }
@@ -620,15 +595,13 @@ impl UdpSocket for OsUdpSocket {
 
     fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, NetSocketAddrV4), NetError> {
         let mut inner = self.inner.borrow_mut();
-        let mut sock = inner.sockets.get_mut::<smoltcp::socket::udp::Socket>(self.handle);
+        let sock = inner.sockets.get_mut::<smoltcp::socket::udp::Socket>(self.handle);
         if !sock.can_recv() {
             return Err(NetError::WouldBlock);
         }
         let (n, meta) = sock.recv_slice(buf).map_err(|_| NetError::Internal("udp recv"))?;
-        let from = match meta.endpoint.addr {
-            IpAddress::Ipv4(v4) => NetSocketAddrV4::new(v4.0, meta.endpoint.port),
-            _ => return Err(NetError::InvalidInput("ipv6 unsupported")),
-        };
+        let IpAddress::Ipv4(v4) = meta.endpoint.addr;
+        let from = NetSocketAddrV4::new(v4.0, meta.endpoint.port);
         Ok((n, from))
     }
 }
@@ -654,14 +627,11 @@ impl TcpListener for OsTcpListener {
                 return Err(NetError::TimedOut);
             }
         }
-        let mut sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+        let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
         if !sock.is_active() {
             return Err(NetError::WouldBlock);
         }
-        Ok(OsTcpStream {
-            inner: Rc::clone(&self.inner),
-            handle: self.handle,
-        })
+        Ok(OsTcpStream { inner: Rc::clone(&self.inner), handle: self.handle })
     }
 }
 
@@ -679,7 +649,7 @@ impl TcpStream for OsTcpStream {
                 return Err(NetError::TimedOut);
             }
         }
-        let mut sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+        let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
         if !sock.is_active() {
             return Err(NetError::Disconnected);
         }
@@ -698,7 +668,7 @@ impl TcpStream for OsTcpStream {
                 return Err(NetError::TimedOut);
             }
         }
-        let mut sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+        let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
         if !sock.is_active() {
             return Err(NetError::NotConnected);
         }
@@ -710,7 +680,7 @@ impl TcpStream for OsTcpStream {
 
     fn close(&mut self) {
         let mut inner = self.inner.borrow_mut();
-        let mut sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+        let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
         sock.close();
     }
 }
@@ -770,11 +740,7 @@ impl NetStack for SmoltcpVirtioNetStack {
         let mut sock = smoltcp::socket::udp::Socket::new(rx, tx);
         sock.bind(ep).map_err(|_| NetError::AddrInUse)?;
         let handle = inner.sockets.add(sock);
-        Ok(OsUdpSocket {
-            inner: Rc::clone(&self.inner),
-            handle,
-            local,
-        })
+        Ok(OsUdpSocket { inner: Rc::clone(&self.inner), handle, local })
     }
 
     fn tcp_listen(
@@ -791,11 +757,7 @@ impl NetStack for SmoltcpVirtioNetStack {
         sock.set_keep_alive(Some(smoltcp::time::Duration::from_secs(2)));
         sock.listen(local.port).map_err(|_| NetError::AddrInUse)?;
         let handle = inner.sockets.add(sock);
-        Ok(OsTcpListener {
-            inner: Rc::clone(&self.inner),
-            local,
-            handle,
-        })
+        Ok(OsTcpListener { inner: Rc::clone(&self.inner), local, handle })
     }
 
     fn tcp_connect(
@@ -821,10 +783,6 @@ impl NetStack for SmoltcpVirtioNetStack {
         sock.connect(cx, (local_ip, 40_001), (remote_ip, remote.port))
             .map_err(|_| NetError::InvalidInput("tcp connect"))?;
         let handle = inner.sockets.add(sock);
-        Ok(OsTcpStream {
-            inner: Rc::clone(&self.inner),
-            handle,
-        })
+        Ok(OsTcpStream { inner: Rc::clone(&self.inner), handle })
     }
 }
-

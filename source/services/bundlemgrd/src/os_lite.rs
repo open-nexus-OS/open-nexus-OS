@@ -183,7 +183,7 @@ fn handle_frame_vec(frame: &[u8]) -> alloc::vec::Vec<u8> {
             img.extend_from_slice(b"NXBI");
             img.push(1); // VERSION
             img.extend_from_slice(&1u16.to_le_bytes()); // entry_count
-            // entry:
+                                                        // entry:
             img.push(6); // "system"
             img.extend_from_slice(b"system");
             img.push(5); // "1.0.0"
@@ -239,12 +239,7 @@ fn rsp2(op: u8, status: u8, route_status: u8) -> [u8; 8] {
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

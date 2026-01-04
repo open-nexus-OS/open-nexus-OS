@@ -156,11 +156,11 @@ fn handle_frame(sender_service_id: u64, frame: &[u8]) -> [u8; 9] {
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut rb = [0u8; 16];
-    let rn = match nexus_abi::ipc_recv_v1(2, &mut rh, &mut rb, nexus_abi::IPC_SYS_TRUNCATE, deadline)
-    {
-        Ok(n) => n as usize,
-        Err(_) => return rsp(op, STATUS_FAILED, 0),
-    };
+    let rn =
+        match nexus_abi::ipc_recv_v1(2, &mut rh, &mut rb, nexus_abi::IPC_SYS_TRUNCATE, deadline) {
+            Ok(n) => n as usize,
+            Err(_) => return rsp(op, STATUS_FAILED, 0),
+        };
     let (_rsp_nonce, decision) = nexus_abi::policy::decode_exec_check_rsp(&rb[..rn])
         .unwrap_or((nonce, nexus_abi::policy::STATUS_ALLOW));
     if decision != nexus_abi::policy::STATUS_ALLOW {
@@ -200,12 +200,7 @@ pub fn exec_elf(
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

@@ -27,9 +27,7 @@ pub struct IpcTransport<T> {
 impl<T> IpcTransport<T> {
     /// Constructs the transport wrapper.
     pub fn new(_server: T) -> Self {
-        Self {
-            _marker: PhantomData,
-        }
+        Self { _marker: PhantomData }
     }
 }
 
@@ -99,9 +97,7 @@ pub fn run_default() -> LiteResult<()> {
 
 /// Runs the keystored daemon using the default transport and anchor set (stubbed).
 pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> LiteResult<()> {
-    Err(ServerError::Unsupported(
-        "keystored run_with_transport_default_anchors",
-    ))
+    Err(ServerError::Unsupported("keystored run_with_transport_default_anchors"))
 }
 
 /// Main service loop; notifies readiness and yields cooperatively.
@@ -153,7 +149,11 @@ const STATUS_UNSUPPORTED: u8 = 4;
 const MAX_KEY_LEN: usize = 64;
 const MAX_VAL_LEN: usize = 256;
 
-fn handle_frame(store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
+fn handle_frame(
+    store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>,
+    sender_service_id: u64,
+    frame: &[u8],
+) -> Vec<u8> {
     // Request: [K, S, ver, op, key_len:u8, val_len:u16le, key..., val...]
     if frame.len() < 7 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return rsp(OP_GET, STATUS_MALFORMED, &[]);
@@ -165,11 +165,17 @@ fn handle_frame(store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>, sender_service_id
     }
     let key_len = frame[4] as usize;
     let val_len = u16::from_le_bytes([frame[5], frame[6]]) as usize;
-    let total = 7usize
-        .saturating_add(key_len)
-        .saturating_add(val_len);
+    let total = 7usize.saturating_add(key_len).saturating_add(val_len);
     if key_len == 0 || key_len > MAX_KEY_LEN || val_len > MAX_VAL_LEN || frame.len() != total {
-        return rsp(op, if key_len > MAX_KEY_LEN || val_len > MAX_VAL_LEN { STATUS_TOO_LARGE } else { STATUS_MALFORMED }, &[]);
+        return rsp(
+            op,
+            if key_len > MAX_KEY_LEN || val_len > MAX_VAL_LEN {
+                STATUS_TOO_LARGE
+            } else {
+                STATUS_MALFORMED
+            },
+            &[],
+        );
     }
     let key_start = 7;
     let key_end = key_start + key_len;
@@ -214,12 +220,7 @@ fn rsp(op: u8, status: u8, value: &[u8]) -> Vec<u8> {
 pub fn touch_schemas() {}
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

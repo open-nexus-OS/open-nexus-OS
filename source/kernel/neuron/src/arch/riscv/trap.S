@@ -41,6 +41,14 @@ __trap_vector:
     sd    t2,  2*8(sp)          /* U-mode trap: preserve user SP */
 3:
     sd    gp,   3*8(sp)
+    /* Ensure kernel Rust runs with the kernel GP, not a user-provided GP.
+     * We already saved the trapped GP value into the TrapFrame above; it will be restored on sret.
+     */
+    /* Restore kernel gp for small-data addressing (PC-relative; kernel is linked above 2GiB). */
+    .option push
+    .option norelax
+    la    gp, __global_pointer$
+    .option pop
     sd    tp,   4*8(sp)
     sd    t0,   5*8(sp);  sd  t1,   6*8(sp);  sd  t2,   7*8(sp)
     sd    s0,   8*8(sp);  sd  s1,   9*8(sp)

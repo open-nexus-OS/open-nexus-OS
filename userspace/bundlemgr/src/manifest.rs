@@ -32,15 +32,8 @@ use semver::Version;
 use thiserror::Error;
 use toml::{self, Value};
 
-const KNOWN_KEYS: &[&str] = &[
-    "name",
-    "version",
-    "abilities",
-    "caps",
-    "min_sdk",
-    "publisher",
-    "sig",
-];
+const KNOWN_KEYS: &[&str] =
+    &["name", "version", "abilities", "caps", "min_sdk", "publisher", "sig"];
 
 /// Result alias returned by the parser.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -104,10 +97,7 @@ impl Manifest {
         let name_raw = require_string(table, "name")?;
         let name_trimmed = name_raw.trim();
         if name_trimmed.is_empty() {
-            return Err(Error::InvalidField {
-                field: "name",
-                reason: "must not be empty".into(),
-            });
+            return Err(Error::InvalidField { field: "name", reason: "must not be empty".into() });
         }
         let name = name_trimmed.to_string();
 
@@ -132,35 +122,20 @@ impl Manifest {
         let publisher = parse_publisher(table)?;
         let signature = parse_signature(table)?;
 
-        Ok(Self {
-            name,
-            version,
-            abilities,
-            capabilities,
-            min_sdk,
-            publisher,
-            signature,
-            warnings,
-        })
+        Ok(Self { name, version, abilities, capabilities, min_sdk, publisher, signature, warnings })
     }
 }
 
 fn parse_version(table: &toml::Table, field: &'static str) -> Result<Version> {
     let raw = require_string(table, field)?;
-    Version::parse(raw.trim()).map_err(|err| Error::InvalidField {
-        field,
-        reason: err.to_string(),
-    })
+    Version::parse(raw.trim()).map_err(|err| Error::InvalidField { field, reason: err.to_string() })
 }
 
 fn parse_publisher(table: &toml::Table) -> Result<String> {
     let raw = require_string(table, "publisher")?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(Error::InvalidField {
-            field: "publisher",
-            reason: "must not be empty".into(),
-        });
+        return Err(Error::InvalidField { field: "publisher", reason: "must not be empty".into() });
     }
     if trimmed.len() != 32 || !trimmed.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return Err(Error::InvalidField {
@@ -175,22 +150,13 @@ fn parse_signature(table: &toml::Table) -> Result<Vec<u8>> {
     let raw = require_string(table, "sig")?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(Error::InvalidField {
-            field: "sig",
-            reason: "must not be empty".into(),
-        });
+        return Err(Error::InvalidField { field: "sig", reason: "must not be empty".into() });
     }
-    decode_signature(trimmed).map_err(|reason| Error::InvalidField {
-        field: "sig",
-        reason,
-    })
+    decode_signature(trimmed).map_err(|reason| Error::InvalidField { field: "sig", reason })
 }
 
 fn decode_signature(input: &str) -> core::result::Result<Vec<u8>, String> {
-    let cleaned: String = input
-        .chars()
-        .filter(|ch| !ch.is_ascii_whitespace())
-        .collect();
+    let cleaned: String = input.chars().filter(|ch| !ch.is_ascii_whitespace()).collect();
     if cleaned.len() & 1 == 0 {
         if let Ok(bytes) = hex::decode(&cleaned) {
             if bytes.len() == 64 {
@@ -213,20 +179,16 @@ fn decode_signature(input: &str) -> core::result::Result<Vec<u8>, String> {
 fn require_string(table: &toml::Table, field: &'static str) -> Result<String> {
     match table.get(field) {
         Some(Value::String(value)) => Ok(value.clone()),
-        Some(_) => Err(Error::InvalidField {
-            field,
-            reason: "expected string".into(),
-        }),
+        Some(_) => Err(Error::InvalidField { field, reason: "expected string".into() }),
         None => Err(Error::MissingField(field)),
     }
 }
 
 fn require_string_array(table: &toml::Table, field: &'static str) -> Result<Vec<String>> {
     let raw = table.get(field).ok_or(Error::MissingField(field))?;
-    let array = raw.as_array().ok_or_else(|| Error::InvalidField {
-        field,
-        reason: "expected array of strings".into(),
-    })?;
+    let array = raw
+        .as_array()
+        .ok_or_else(|| Error::InvalidField { field, reason: "expected array of strings".into() })?;
 
     let mut values = Vec::with_capacity(array.len());
     for item in array {
@@ -238,10 +200,7 @@ fn require_string_array(table: &toml::Table, field: &'static str) -> Result<Vec<
             })?
             .trim();
         if value.is_empty() {
-            return Err(Error::InvalidField {
-                field,
-                reason: "entries must not be empty".into(),
-            });
+            return Err(Error::InvalidField { field, reason: "entries must not be empty".into() });
         }
         values.push(value.to_string());
     }

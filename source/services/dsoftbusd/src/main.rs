@@ -1,8 +1,4 @@
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std,
-    no_main
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
 //! CONTEXT: DSoftBus daemon entrypoint
 //! INTENT: Local-only transport milestone over userspace networking
@@ -77,14 +73,8 @@ fn os_entry() -> core::result::Result<(), ()> {
     // UDP discovery socket proof (local-only): bind + loopback send/recv via netstackd.
     // This is *not* claiming on-wire multicast yet; it only proves the UDP facade path works.
     let disc_port: u16 = 37_020;
-    let req = [
-        MAGIC0,
-        MAGIC1,
-        VERSION,
-        OP_UDP_BIND,
-        (disc_port & 0xff) as u8,
-        (disc_port >> 8) as u8,
-    ];
+    let req =
+        [MAGIC0, MAGIC1, VERSION, OP_UDP_BIND, (disc_port & 0xff) as u8, (disc_port >> 8) as u8];
     let rsp = rpc(&net, &req).map_err(|_| ())?;
     if rsp[0] != MAGIC0
         || rsp[1] != MAGIC1
@@ -125,7 +115,11 @@ fn os_entry() -> core::result::Result<(), ()> {
         r[4..8].copy_from_slice(&udp_id.to_le_bytes());
         r[8..10].copy_from_slice(&(32u16).to_le_bytes());
         let rsp = rpc(&net, &r).map_err(|_| ())?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_UDP_RECV_FROM | 0x80) {
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+        {
             match rsp[4] {
                 STATUS_OK => {
                     let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
@@ -135,6 +129,10 @@ fn os_entry() -> core::result::Result<(), ()> {
                     }
                 }
                 STATUS_WOULD_BLOCK => {}
+                STATUS_MALFORMED => {
+                    let _ = nexus_abi::debug_println("dsoftbusd: udp recv MALFORMED");
+                    break;
+                }
                 _ => {
                     let _ = nexus_abi::debug_println("dsoftbusd: udp recv FAIL");
                     break;
@@ -210,16 +208,28 @@ fn os_entry() -> core::result::Result<(), ()> {
         r[4..8].copy_from_slice(&udp_id.to_le_bytes());
         r[8..10].copy_from_slice(&(64u16).to_le_bytes());
         let rsp = rpc(&net, &r).map_err(|_| ())?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_UDP_RECV_FROM | 0x80) {
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+        {
             if rsp[4] == STATUS_OK {
                 let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
                 let base = 13;
-                if n >= 5 && n <= 64 && base + n <= rsp.len() && &rsp[base..base + 4] == b"NXSB" && rsp[base + 4] == 1 {
+                if n >= 5
+                    && n <= 64
+                    && base + n <= rsp.len()
+                    && &rsp[base..base + 4] == b"NXSB"
+                    && rsp[base + 4] == 1
+                {
                     got = true;
                     break;
                 }
             } else if rsp[4] == STATUS_WOULD_BLOCK {
                 // keep polling
+            } else if rsp[4] == STATUS_MALFORMED {
+                let _ = nexus_abi::debug_println("dsoftbusd: udp recv MALFORMED");
+                break;
             } else {
                 let _ = nexus_abi::debug_println("dsoftbusd: udp recv FAIL");
                 break;
@@ -246,7 +256,8 @@ fn os_entry() -> core::result::Result<(), ()> {
         a[3] = OP_ACCEPT;
         a[4..8].copy_from_slice(&lid.to_le_bytes());
         let rsp = rpc(&net, &a).map_err(|_| ())?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80) {
+        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80)
+        {
             if rsp[4] == STATUS_OK {
                 sid = Some(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
                 break;
@@ -267,27 +278,22 @@ fn os_entry() -> core::result::Result<(), ()> {
     const AUTH_MAGIC: &[u8; 4] = b"NOI1";
     // Expected client static pubkey.
     const CLIENT_PUB: [u8; 32] = [
-        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-        0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10,
-        0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98,
-        0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x1e,
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+        0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe,
+        0x0f, 0x1e,
     ];
     // Server static pubkey (for binding).
     const SERVER_PUB: [u8; 32] = [
-        0x7a, 0x6b, 0x5c, 0x4d, 0x3e, 0x2f, 0x1a, 0x0b,
-        0x9c, 0x8d, 0x7e, 0x6f, 0x5a, 0x4b, 0x3c, 0x2d,
-        0x1e, 0x0f, 0xfa, 0xeb, 0xdc, 0xcd, 0xbe, 0xaf,
-        0x90, 0x81, 0x72, 0x63, 0x54, 0x45, 0x36, 0x27,
+        0x7a, 0x6b, 0x5c, 0x4d, 0x3e, 0x2f, 0x1a, 0x0b, 0x9c, 0x8d, 0x7e, 0x6f, 0x5a, 0x4b, 0x3c,
+        0x2d, 0x1e, 0x0f, 0xfa, 0xeb, 0xdc, 0xcd, 0xbe, 0xaf, 0x90, 0x81, 0x72, 0x63, 0x54, 0x45,
+        0x36, 0x27,
     ];
     const AUTH_SECRET: [u8; 64] = [
-        0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb, 0xcc, 0xdd,
-        0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40,
-        0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0,
-        0xd0, 0xe0, 0xf0, 0x0f, 0x1a, 0x2b, 0x3c, 0x4d,
-        0x5e, 0x6f, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf,
-        0xda, 0xeb, 0xfc, 0x0d, 0x1e, 0x2f, 0x3a, 0x4b,
-        0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0xab, 0xbc, 0xcd,
-        0xde, 0xef, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff,
+        0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb, 0xcc, 0xdd, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30,
+        0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0, 0x0f, 0x1a, 0x2b,
+        0x3c, 0x4d, 0x5e, 0x6f, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xda, 0xeb, 0xfc, 0x0d, 0x1e,
+        0x2f, 0x3a, 0x4b, 0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0xab, 0xbc, 0xcd, 0xde, 0xef, 0xfa, 0xfb,
+        0xfc, 0xfd, 0xfe, 0xff,
     ];
     // Step 1: read client hello (magic + pubkey).
     let mut authed = false;

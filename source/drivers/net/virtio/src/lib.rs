@@ -97,11 +97,7 @@ impl<B: Bus> VirtioNetMmio<B> {
             return Err(VirtioError::NotNetDevice);
         }
         let vendor_id = self.bus.read(REG_VENDOR_ID);
-        Ok(DeviceInfo {
-            version,
-            device_id,
-            vendor_id,
-        })
+        Ok(DeviceInfo { version, device_id, vendor_id })
     }
 
     /// Resets the device status to 0.
@@ -114,8 +110,7 @@ impl<B: Bus> VirtioNetMmio<B> {
     /// Bring-up policy: caller typically passes 0 (disable all optional features).
     pub fn negotiate_features(&self, driver_features: u64) -> Result<(), VirtioError> {
         // ACK + DRIVER
-        self.bus
-            .write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+        self.bus.write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
         // Read device features (two 32-bit windows).
         self.bus.write(REG_DEVICE_FEATURES_SEL, 0);
@@ -161,9 +156,19 @@ impl<B: Bus> VirtioNetMmio<B> {
 
         let version = self.bus.read(REG_VERSION);
         if version == VIRTIO_MMIO_VERSION_MODERN {
-            write_u64_mmio(&self.bus, REG_QUEUE_DESC_LOW, cfg.desc_paddr);
-            write_u64_mmio(&self.bus, REG_QUEUE_DRIVER_LOW, cfg.avail_paddr);
-            write_u64_mmio(&self.bus, REG_QUEUE_DEVICE_LOW, cfg.used_paddr);
+            write_u64_mmio_pair(&self.bus, REG_QUEUE_DESC_LOW, REG_QUEUE_DESC_HIGH, cfg.desc_paddr);
+            write_u64_mmio_pair(
+                &self.bus,
+                REG_QUEUE_DRIVER_LOW,
+                REG_QUEUE_DRIVER_HIGH,
+                cfg.avail_paddr,
+            );
+            write_u64_mmio_pair(
+                &self.bus,
+                REG_QUEUE_DEVICE_LOW,
+                REG_QUEUE_DEVICE_HIGH,
+                cfg.used_paddr,
+            );
             self.bus.write(REG_QUEUE_READY, 1);
             Ok(())
         } else if version == VIRTIO_MMIO_VERSION_LEGACY {
@@ -193,11 +198,11 @@ impl<B: Bus> VirtioNetMmio<B> {
     }
 }
 
-fn write_u64_mmio<B: Bus>(bus: &B, low_reg: usize, value: u64) {
+fn write_u64_mmio_pair<B: Bus>(bus: &B, low_reg: usize, high_reg: usize, value: u64) {
     let lo = (value & 0xffff_ffff) as u32;
     let hi = (value >> 32) as u32;
     bus.write(low_reg, lo);
-    bus.write(low_reg + 4, hi);
+    bus.write(high_reg, hi);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

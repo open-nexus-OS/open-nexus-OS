@@ -5,3 +5,5 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
+nexus-abi = { path = "../../libs/nexus-abi", default-features = false }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", default-features = false }

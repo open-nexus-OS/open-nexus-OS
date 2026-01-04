@@ -66,9 +66,7 @@ fn vfs_package_roundtrip() {
 
     let vfs_client = VfsClient::from_loopback(vfs_client_conn);
 
-    let meta = vfs_client
-        .stat("pkg:/demo.hello/manifest.toml")
-        .expect("manifest stat succeeds");
+    let meta = vfs_client.stat("pkg:/demo.hello/manifest.toml").expect("manifest stat succeeds");
     assert_eq!(meta.size(), manifest_bytes.len() as u64);
 
     let canonical = vfs_client
@@ -76,23 +74,14 @@ fn vfs_package_roundtrip() {
         .expect("canonical stat succeeds");
     assert_eq!(canonical.size(), meta.size());
 
-    let fh = vfs_client
-        .open("pkg:/demo.hello/payload.elf")
-        .expect("open payload succeeds");
-    let payload = vfs_client
-        .read(fh, 0, PAYLOAD_BYTES.len())
-        .expect("read payload succeeds");
+    let fh = vfs_client.open("pkg:/demo.hello/payload.elf").expect("open payload succeeds");
+    let payload = vfs_client.read(fh, 0, PAYLOAD_BYTES.len()).expect("read payload succeeds");
     assert_eq!(payload, PAYLOAD_BYTES);
 
     // Out-of-range reads must clamp to the available tail
     let start = PAYLOAD_BYTES.len().saturating_sub(2) as u64;
-    let clamped = vfs_client
-        .read(fh, start, 10)
-        .expect("read beyond end clamps");
-    assert_eq!(
-        clamped,
-        &PAYLOAD_BYTES[PAYLOAD_BYTES.len().saturating_sub(2)..]
-    );
+    let clamped = vfs_client.read(fh, start, 10).expect("read beyond end clamps");
+    assert_eq!(clamped, &PAYLOAD_BYTES[PAYLOAD_BYTES.len().saturating_sub(2)..]);
 
     // Reads starting past EOF should return an empty slice
     let empty = vfs_client
@@ -100,20 +89,13 @@ fn vfs_package_roundtrip() {
         .expect("read past EOF yields empty slice");
     assert!(empty.is_empty());
     vfs_client.close(fh).expect("close succeeds");
-    assert_eq!(
-        vfs_client.read(fh, 0, 1).unwrap_err(),
-        VfsError::InvalidHandle
-    );
+    assert_eq!(vfs_client.read(fh, 0, 1).unwrap_err(), VfsError::InvalidHandle);
 
-    let asset_meta = vfs_client
-        .stat("pkg:/demo.hello/assets/logo.svg")
-        .expect("asset stat succeeds");
+    let asset_meta =
+        vfs_client.stat("pkg:/demo.hello/assets/logo.svg").expect("asset stat succeeds");
     assert_eq!(asset_meta.size(), LOGO_SVG.len() as u64);
 
-    assert_eq!(
-        vfs_client.open("pkg:/demo.hello/missing.txt").unwrap_err(),
-        VfsError::NotFound
-    );
+    assert_eq!(vfs_client.open("pkg:/demo.hello/missing.txt").unwrap_err(), VfsError::NotFound);
 
     // Drop clients in order to allow servers to observe disconnect and exit
     drop(vfs_client);

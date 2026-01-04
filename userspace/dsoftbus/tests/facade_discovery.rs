@@ -26,7 +26,7 @@
 mod host {
     use std::net::SocketAddr;
 
-    use dsoftbus::{Announcement, FacadeDiscovery, Discovery};
+    use dsoftbus::{Announcement, Discovery, FacadeDiscovery};
     use identity::Identity;
     use nexus_net::fake::FakeNet;
 
@@ -123,16 +123,14 @@ mod host {
         let first = w.next().expect("first");
         let second = w.next().expect("second");
 
-        let mut got = vec![first.device_id().as_str().to_string(), second.device_id().as_str().to_string()];
+        let mut got =
+            vec![first.device_id().as_str().to_string(), second.device_id().as_str().to_string()];
         got.sort();
 
-        let mut expected = vec![
-            ann_a.device_id().as_str().to_string(),
-            ann_b.device_id().as_str().to_string(),
-        ];
+        let mut expected =
+            vec![ann_a.device_id().as_str().to_string(), ann_b.device_id().as_str().to_string()];
         expected.sort();
 
         assert_eq!(got, expected);
     }
 }
-

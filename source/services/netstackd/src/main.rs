@@ -25,7 +25,9 @@ nexus_service_entry::declare_entry!(os_entry);
 fn os_entry() -> core::result::Result<(), ()> {
     use nexus_abi::yield_;
     use nexus_ipc::KernelServer;
-    use nexus_net::{NetSocketAddrV4, NetStack as _, TcpListener as _, TcpStream as _, UdpSocket as _};
+    use nexus_net::{
+        NetSocketAddrV4, NetStack as _, TcpListener as _, TcpStream as _, UdpSocket as _,
+    };
     use nexus_net_os::{OsTcpListener, OsTcpStream, SmoltcpVirtioNetStack};
 
     use alloc::vec::Vec;
@@ -79,7 +81,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     q[3] = 0x00; // flags: recursion desired
     q[4] = 0x00;
     q[5] = 0x01; // qdcount
-    // qname: 7 'example' 3 'com' 0
+                 // qname: 7 'example' 3 'com' 0
     let mut p = 12usize;
     q[p] = 7;
     p += 1;
@@ -123,10 +125,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     let _ = nexus_abi::debug_println("SELFTEST: net udp dns ok");
 
     // TCP facade smoke: listen must succeed.
-    if net
-        .tcp_listen(NetSocketAddrV4::new([10, 0, 2, 15], 41_000), 1)
-        .is_ok()
-    {
+    if net.tcp_listen(NetSocketAddrV4::new([10, 0, 2, 15], 41_000), 1).is_ok() {
         let _ = nexus_abi::debug_println("SELFTEST: net tcp listen ok");
     } else {
         let _ = nexus_abi::debug_println("netstackd: tcp listen FAIL");
@@ -172,12 +171,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     impl LoopBuf {
         const fn new() -> Self {
-            Self {
-                buf: [0u8; 128],
-                r: 0,
-                w: 0,
-                len: 0,
-            }
+            Self { buf: [0u8; 128], r: 0, w: 0, len: 0 }
         }
 
         fn push(&mut self, data: &[u8]) -> usize {
@@ -355,12 +349,25 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         rsp[4] = STATUS_OK;
                                         rsp[5..9].copy_from_slice(&sid.to_le_bytes());
                                         reply(&rsp);
-                                        let _ = nexus_abi::debug_println("netstackd: rpc accept ok");
+                                        let _ =
+                                            nexus_abi::debug_println("netstackd: rpc accept ok");
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
-                                        reply(&[MAGIC0, MAGIC1, VERSION, OP_ACCEPT | 0x80, STATUS_WOULD_BLOCK]);
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_ACCEPT | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
                                     }
-                                    Err(_) => reply(&[MAGIC0, MAGIC1, VERSION, OP_ACCEPT | 0x80, STATUS_IO]),
+                                    Err(_) => reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_ACCEPT | 0x80,
+                                        STATUS_IO,
+                                    ]),
                                 }
                             }
                             Listener::Loop { pending } => {
@@ -375,7 +382,13 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     reply(&rsp);
                                     let _ = nexus_abi::debug_println("netstackd: rpc accept ok");
                                 } else {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_ACCEPT | 0x80, STATUS_WOULD_BLOCK]);
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_ACCEPT | 0x80,
+                                        STATUS_WOULD_BLOCK,
+                                    ]);
                                 }
                             }
                         }
@@ -391,14 +404,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                         if ip == [10, 0, 2, 15] && port == LOOPBACK_PORT {
                             // Create paired in-memory streams.
                             let a = (streams.len() + 1) as u32;
-                            streams.push(Some(Stream::Loop {
-                                peer: a + 1,
-                                rx: LoopBuf::new(),
-                            }));
-                            streams.push(Some(Stream::Loop {
-                                peer: a,
-                                rx: LoopBuf::new(),
-                            }));
+                            streams.push(Some(Stream::Loop { peer: a + 1, rx: LoopBuf::new() }));
+                            streams.push(Some(Stream::Loop { peer: a, rx: LoopBuf::new() }));
                             // Queue server side on the loop listener.
                             for l in listeners.iter_mut() {
                                 if let Some(Listener::Loop { pending }) = l {
@@ -435,9 +442,17 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
                                 }
                                 Err(nexus_net::NetError::WouldBlock) => {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_CONNECT | 0x80, STATUS_WOULD_BLOCK]);
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_CONNECT | 0x80,
+                                        STATUS_WOULD_BLOCK,
+                                    ]);
                                 }
-                                Err(_) => reply(&[MAGIC0, MAGIC1, VERSION, OP_CONNECT | 0x80, STATUS_IO]),
+                                Err(_) => {
+                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_CONNECT | 0x80, STATUS_IO])
+                                }
                             }
                         }
                     }
@@ -449,10 +464,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let port = u16::from_le_bytes([req[4], req[5]]);
                         if port == LOOPBACK_UDP_PORT {
-                            udps.push(Some(UdpSock::Loop(LoopUdp {
-                                rx: LoopBuf::new(),
-                                port,
-                            })));
+                            udps.push(Some(UdpSock::Loop(LoopUdp { rx: LoopBuf::new(), port })));
                             let id = udps.len() as u32;
                             let mut rsp = [0u8; 9];
                             rsp[0] = MAGIC0;
@@ -482,13 +494,21 @@ fn os_entry() -> core::result::Result<(), ()> {
                             Err(nexus_net::NetError::AddrInUse) => {
                                 reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_IO]);
                             }
-                            Err(_) => reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_IO]),
+                            Err(_) => {
+                                reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_IO])
+                            }
                         }
                     }
                     OP_UDP_SEND_TO => {
                         // [magic,ver,op, udp_id:u32le, ip[4], port:u16le, len:u16le, payload...]
                         if req.len() < 4 + 4 + 4 + 2 + 2 {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_SEND_TO | 0x80, STATUS_MALFORMED]);
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_UDP_SEND_TO | 0x80,
+                                STATUS_MALFORMED,
+                            ]);
                             let _ = yield_();
                             continue;
                         }
@@ -497,20 +517,38 @@ fn os_entry() -> core::result::Result<(), ()> {
                         let port = u16::from_le_bytes([req[12], req[13]]);
                         let len = u16::from_le_bytes([req[14], req[15]]) as usize;
                         if req.len() != 16 + len {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_SEND_TO | 0x80, STATUS_MALFORMED]);
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_UDP_SEND_TO | 0x80,
+                                STATUS_MALFORMED,
+                            ]);
                             let _ = yield_();
                             continue;
                         }
                         let idx = udp_id.wrapping_sub(1);
                         let Some(Some(sock)) = udps.get(idx) else {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_SEND_TO | 0x80, STATUS_NOT_FOUND]);
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_UDP_SEND_TO | 0x80,
+                                STATUS_NOT_FOUND,
+                            ]);
                             let _ = yield_();
                             continue;
                         };
                         match sock {
                             UdpSock::Udp(_) => {
                                 let Some(Some(UdpSock::Udp(s))) = udps.get_mut(idx) else {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_SEND_TO | 0x80, STATUS_IO]);
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_SEND_TO | 0x80,
+                                        STATUS_IO,
+                                    ]);
                                     let _ = yield_();
                                     continue;
                                 };
@@ -533,19 +571,39 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         OP_UDP_SEND_TO | 0x80,
                                         STATUS_WOULD_BLOCK,
                                     ]),
-                                    Err(_) => reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_SEND_TO | 0x80, STATUS_IO]),
+                                    Err(_) => reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_SEND_TO | 0x80,
+                                        STATUS_IO,
+                                    ]),
                                 }
                             }
-                            UdpSock::Loop(LoopUdp { rx, port: local }) => {
+                            UdpSock::Loop(LoopUdp { rx: _, port: local }) => {
                                 // Only supports loopback to self on the same port.
                                 if ip != [10, 0, 2, 15] || port != *local {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_SEND_TO | 0x80, STATUS_IO]);
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_SEND_TO | 0x80,
+                                        STATUS_IO,
+                                    ]);
                                     let _ = yield_();
                                     continue;
                                 }
                                 // Push into our own RX buffer (loopback).
-                                let Some(Some(UdpSock::Loop(LoopUdp { rx, .. }))) = udps.get_mut(idx) else {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_SEND_TO | 0x80, STATUS_IO]);
+                                let Some(Some(UdpSock::Loop(LoopUdp { rx, .. }))) =
+                                    udps.get_mut(idx)
+                                else {
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_SEND_TO | 0x80,
+                                        STATUS_IO,
+                                    ]);
                                     let _ = yield_();
                                     continue;
                                 };
@@ -574,7 +632,13 @@ fn os_entry() -> core::result::Result<(), ()> {
                     OP_UDP_RECV_FROM => {
                         // [magic,ver,op, udp_id:u32le, max:u16le]
                         if req.len() != 4 + 4 + 2 {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_RECV_FROM | 0x80, STATUS_MALFORMED]);
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_UDP_RECV_FROM | 0x80,
+                                STATUS_MALFORMED,
+                            ]);
                             let _ = yield_();
                             continue;
                         }
@@ -583,14 +647,26 @@ fn os_entry() -> core::result::Result<(), ()> {
                         let max = core::cmp::min(max, 460); // keep reply bounded
                         let idx = udp_id.wrapping_sub(1);
                         let Some(Some(sock)) = udps.get(idx) else {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_RECV_FROM | 0x80, STATUS_NOT_FOUND]);
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_UDP_RECV_FROM | 0x80,
+                                STATUS_NOT_FOUND,
+                            ]);
                             let _ = yield_();
                             continue;
                         };
                         match sock {
                             UdpSock::Udp(_) => {
                                 let Some(Some(UdpSock::Udp(s))) = udps.get_mut(idx) else {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_RECV_FROM | 0x80, STATUS_IO]);
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_RECV_FROM | 0x80,
+                                        STATUS_IO,
+                                    ]);
                                     let _ = yield_();
                                     continue;
                                 };
@@ -616,13 +692,27 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         OP_UDP_RECV_FROM | 0x80,
                                         STATUS_WOULD_BLOCK,
                                     ]),
-                                    Err(_) => reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_RECV_FROM | 0x80, STATUS_IO]),
+                                    Err(_) => reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_RECV_FROM | 0x80,
+                                        STATUS_IO,
+                                    ]),
                                 }
                             }
-                            UdpSock::Loop(LoopUdp { rx, port }) => {
+                            UdpSock::Loop(LoopUdp { rx: _, port: _ }) => {
                                 let mut tmp = [0u8; 460];
-                                let Some(Some(UdpSock::Loop(LoopUdp { rx, port }))) = udps.get_mut(idx) else {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_RECV_FROM | 0x80, STATUS_IO]);
+                                let Some(Some(UdpSock::Loop(LoopUdp { rx, port }))) =
+                                    udps.get_mut(idx)
+                                else {
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_RECV_FROM | 0x80,
+                                        STATUS_IO,
+                                    ]);
                                     let _ = yield_();
                                     continue;
                                 };
@@ -690,21 +780,40 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         reply(&rsp);
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
-                                        reply(&[MAGIC0, MAGIC1, VERSION, OP_WRITE | 0x80, STATUS_WOULD_BLOCK]);
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_WRITE | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
                                     }
-                                    Err(_) => reply(&[MAGIC0, MAGIC1, VERSION, OP_WRITE | 0x80, STATUS_IO]),
+                                    Err(_) => reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_WRITE | 0x80,
+                                        STATUS_IO,
+                                    ]),
                                 }
                             }
                             Stream::Loop { peer, .. } => {
                                 let peer0 = (*peer as usize).wrapping_sub(1);
-                                let Some(Some(Stream::Loop { rx, .. })) = streams.get_mut(peer0) else {
+                                let Some(Some(Stream::Loop { rx, .. })) = streams.get_mut(peer0)
+                                else {
                                     reply(&[MAGIC0, MAGIC1, VERSION, OP_WRITE | 0x80, STATUS_IO]);
                                     let _ = yield_();
                                     continue;
                                 };
                                 let wrote = rx.push(&req[10..]);
                                 if wrote == 0 {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_WRITE | 0x80, STATUS_WOULD_BLOCK]);
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_WRITE | 0x80,
+                                        STATUS_WOULD_BLOCK,
+                                    ]);
                                 } else {
                                     let mut rsp = [0u8; 7];
                                     rsp[0] = MAGIC0;
@@ -749,16 +858,30 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         reply(&rsp[..7 + n]);
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
-                                        reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_WOULD_BLOCK]);
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_READ | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
                                     }
-                                    Err(_) => reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_IO]),
+                                    Err(_) => {
+                                        reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_IO])
+                                    }
                                 }
                             }
                             Stream::Loop { rx, .. } => {
                                 let mut out = [0u8; 480];
                                 let n = rx.pop(&mut out[..max]);
                                 if n == 0 {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_WOULD_BLOCK]);
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_READ | 0x80,
+                                        STATUS_WOULD_BLOCK,
+                                    ]);
                                 } else {
                                     let mut rsp = [0u8; 512];
                                     rsp[0] = MAGIC0;
@@ -783,11 +906,15 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 }
 
-#[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite")))]
+#[cfg(not(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+)))]
 fn main() -> ! {
     // Host builds intentionally do nothing for now.
     loop {
         core::hint::spin_loop();
     }
 }
-

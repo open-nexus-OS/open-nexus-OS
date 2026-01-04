@@ -94,19 +94,11 @@ struct Entry {
 
 impl Entry {
     fn directory() -> Self {
-        Self {
-            size: 0,
-            kind: KIND_DIRECTORY,
-            bytes: Vec::new(),
-        }
+        Self { size: 0, kind: KIND_DIRECTORY, bytes: Vec::new() }
     }
 
     fn file(bytes: &[u8]) -> Self {
-        Self {
-            size: bytes.len() as u64,
-            kind: KIND_FILE,
-            bytes: bytes.to_vec(),
-        }
+        Self { size: bytes.len() as u64, kind: KIND_FILE, bytes: bytes.to_vec() }
     }
 }
 
@@ -144,18 +136,14 @@ fn run_loop(server: &KernelServer, registry: &BundleRegistry) -> LiteResult<()> 
                             response.extend_from_slice(&0u64.to_le_bytes());
                             response.extend_from_slice(&0u16.to_le_bytes());
                         }
-                        server
-                            .send(&response, Wait::Blocking)
-                            .map_err(|_| LiteError::Transport)?;
+                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
                     _ => {
                         response.clear();
                         response.push(0);
                         response.extend_from_slice(&0u64.to_le_bytes());
                         response.extend_from_slice(&0u16.to_le_bytes());
-                        server
-                            .send(&response, Wait::Blocking)
-                            .map_err(|_| LiteError::Transport)?;
+                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
                 }
             }
@@ -172,20 +160,14 @@ fn seed_registry() -> BundleRegistry {
     let mut registry = BundleRegistry::default();
     let hello_entries = vec![
         (".".to_string(), Entry::directory()),
-        (
-            "manifest.json".to_string(),
-            Entry::file(DEMO_HELLO_MANIFEST_JSON),
-        ),
+        ("manifest.json".to_string(), Entry::file(DEMO_HELLO_MANIFEST_JSON)),
         ("payload.elf".to_string(), Entry::file(DEMO_HELLO_PAYLOAD)),
     ];
     registry.publish("demo.hello", "1.0.0", &hello_entries);
 
     let exit_entries = vec![
         (".".to_string(), Entry::directory()),
-        (
-            "manifest.json".to_string(),
-            Entry::file(DEMO_EXIT_MANIFEST_JSON),
-        ),
+        ("manifest.json".to_string(), Entry::file(DEMO_EXIT_MANIFEST_JSON)),
         ("payload.elf".to_string(), Entry::file(DEMO_EXIT_PAYLOAD)),
     ];
     registry.publish("demo.exit0", "1.0.0", &exit_entries);
@@ -220,7 +202,11 @@ fn load_registry_from_bundlemgrd() -> Option<BundleRegistry> {
     let mut req = [0u8; 4];
     nexus_abi::bundlemgrd::encode_fetch_image(&mut req);
     bundle
-        .send_with_cap_move_wait(&req, reply_send_clone, Wait::Timeout(core::time::Duration::from_secs(1)))
+        .send_with_cap_move_wait(
+            &req,
+            reply_send_clone,
+            Wait::Timeout(core::time::Duration::from_secs(1)),
+        )
         .ok()?;
     let rsp = bundle.recv(Wait::Timeout(core::time::Duration::from_secs(1))).ok()?;
     let (status, img) = nexus_abi::bundlemgrd::decode_fetch_image_rsp(&rsp)?;

@@ -65,11 +65,7 @@ pub struct OsMapper {
 
 impl OsMapper {
     pub fn new(as_handle: AsHandle, bundle_vmo: nexus_abi::Handle) -> Self {
-        Self {
-            as_handle,
-            _bundle_vmo: bundle_vmo,
-            segment_vmos: Vec::new(),
-        }
+        Self { as_handle, _bundle_vmo: bundle_vmo, segment_vmos: Vec::new() }
     }
 }
 
@@ -137,10 +133,7 @@ fn build_segment_image(seg: &SegmentPlan, src: &[u8]) -> Result<SegmentImage, Er
     if offset_usize > map_len_usize {
         return Err(Error::Oob);
     }
-    if offset_usize
-        .checked_add(src.len())
-        .map_or(true, |end| end > map_len_usize)
-    {
+    if offset_usize.checked_add(src.len()).map_or(true, |end| end > map_len_usize) {
         return Err(Error::Truncated);
     }
 
@@ -149,11 +142,7 @@ fn build_segment_image(seg: &SegmentPlan, src: &[u8]) -> Result<SegmentImage, Er
         image[offset_usize..offset_usize + src.len()].copy_from_slice(src);
     }
 
-    Ok(SegmentImage {
-        bytes: image,
-        map_base,
-        map_len,
-    })
+    Ok(SegmentImage { bytes: image, map_base, map_len })
 }
 
 #[cfg(test)]
@@ -174,9 +163,7 @@ mod tests {
         assert!(image.bytes.len() >= 0x80);
         let data_start = (seg.vaddr - image.map_base) as usize;
         let bss_start = data_start + src.len();
-        assert!(image.bytes[data_start..data_start + src.len()]
-            .iter()
-            .all(|&b| b == 0xAA));
+        assert!(image.bytes[data_start..data_start + src.len()].iter().all(|&b| b == 0xAA));
         assert!(image.bytes[bss_start..].iter().all(|&b| b == 0));
     }
 }
@@ -200,11 +187,7 @@ impl StackBuilder {
         if top_va % PAGE_SIZE != 0 {
             return Err(Error::Align);
         }
-        Ok(Self {
-            top_va,
-            size,
-            guard,
-        })
+        Ok(Self { top_va, size, guard })
     }
 
     pub fn stack_base(&self) -> u64 {

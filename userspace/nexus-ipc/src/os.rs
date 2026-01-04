@@ -83,14 +83,8 @@ impl Router {
             let (req_tx, req_rx) = mpsc::channel::<Vec<u8>>();
             let (rsp_tx, rsp_rx) = mpsc::channel::<Vec<u8>>();
             (
-                ServiceChannels {
-                    request_rx: Arc::new(Mutex::new(req_rx)),
-                    response_tx: rsp_tx,
-                },
-                ClientChannels {
-                    request_tx: req_tx,
-                    response_rx: Arc::new(Mutex::new(rsp_rx)),
-                },
+                ServiceChannels { request_rx: Arc::new(Mutex::new(req_rx)), response_tx: rsp_tx },
+                ClientChannels { request_tx: req_tx, response_rx: Arc::new(Mutex::new(rsp_rx)) },
             )
         });
         // SAFETY: just inserted or existed
@@ -101,11 +95,7 @@ impl Router {
 
 fn router() -> &'static Mutex<Router> {
     static ROUTER: OnceLock<Mutex<Router>> = OnceLock::new();
-    ROUTER.get_or_init(|| {
-        Mutex::new(Router {
-            services: HashMap::new(),
-        })
-    })
+    ROUTER.get_or_init(|| Mutex::new(Router { services: HashMap::new() }))
 }
 
 // Thread-local default target for clients.
@@ -119,16 +109,13 @@ pub fn set_default_target(name: &str) {
 }
 
 fn current_service_name() -> Option<String> {
-    std::thread::current()
-        .name()
-        .map(|n| n.to_string())
-        .and_then(|n| {
-            if let Some(rest) = n.strip_prefix("svc-") {
-                Some(rest.to_string())
-            } else {
-                Some(n)
-            }
-        })
+    std::thread::current().name().map(|n| n.to_string()).and_then(|n| {
+        if let Some(rest) = n.strip_prefix("svc-") {
+            Some(rest.to_string())
+        } else {
+            Some(n)
+        }
+    })
 }
 
 /// Client backed by kernel IPC. The implementation is provided once the kernel
@@ -142,33 +129,24 @@ impl KernelClient {
     /// Creates a new client bound to the thread's default target service set
     /// via [`set_default_target`].
     pub fn new() -> Result<Self> {
-        let target = DEFAULT_TARGET
-            .with(|slot| slot.borrow().clone())
-            .ok_or(IpcError::Unsupported)?;
+        let target =
+            DEFAULT_TARGET.with(|slot| slot.borrow().clone()).ok_or(IpcError::Unsupported)?;
         let guard = router().lock().unwrap();
         let (_svc, cli) = guard.services.get(&target).ok_or(IpcError::Disconnected)?;
-        Ok(Self {
-            request_tx: cli.request_tx.clone(),
-            response_rx: cli.response_rx.clone(),
-        })
+        Ok(Self { request_tx: cli.request_tx.clone(), response_rx: cli.response_rx.clone() })
     }
 
     /// Creates a client for a specific target service name.
     pub fn new_for(target: &str) -> Result<Self> {
         let guard = router().lock().unwrap();
         let (_svc, cli) = guard.services.get(target).ok_or(IpcError::Disconnected)?;
-        Ok(Self {
-            request_tx: cli.request_tx.clone(),
-            response_rx: cli.response_rx.clone(),
-        })
+        Ok(Self { request_tx: cli.request_tx.clone(), response_rx: cli.response_rx.clone() })
     }
 }
 
 impl Client for KernelClient {
     fn send(&self, frame: &[u8], _wait: Wait) -> Result<()> {
-        self.request_tx
-            .send(frame.to_vec())
-            .map_err(|_| IpcError::Disconnected)
+        self.request_tx.send(frame.to_vec()).map_err(|_| IpcError::Disconnected)
     }
 
     fn recv(&self, wait: Wait) -> Result<Vec<u8>> {
@@ -209,10 +187,7 @@ impl KernelServer {
         let mut guard = router().lock().unwrap();
         let (svc, cli) = guard.get_or_create(&name);
         let _ = cli; // silence unused in some builds
-        Ok(Self {
-            request_rx: svc.request_rx.clone(),
-            response_tx: svc.response_tx.clone(),
-        })
+        Ok(Self { request_rx: svc.request_rx.clone(), response_tx: svc.response_tx.clone() })
     }
 }
 
@@ -241,8 +216,6 @@ impl Server for KernelServer {
     }
 
     fn send(&self, frame: &[u8], _wait: Wait) -> Result<()> {
-        self.response_tx
-            .send(frame.to_vec())
-            .map_err(|_| IpcError::Disconnected)
+        self.response_tx.send(frame.to_vec()).map_err(|_| IpcError::Disconnected)
     }
 }

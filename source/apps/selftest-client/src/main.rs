@@ -58,18 +58,18 @@ fn main() {
 mod os_lite {
     extern crate alloc;
 
-    use alloc::vec;
     use alloc::vec::Vec;
 
     use exec_payloads::HELLO_ELF;
+    use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
     use nexus_abi::{ipc_recv_v1, ipc_recv_v1_nb, ipc_send_v1_nb, wait, yield_, MsgHeader, Pid};
     use nexus_ipc::Client as _;
     use nexus_ipc::{KernelClient, Wait as IpcWait};
-    use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
-    use nexus_net::{NetSocketAddrV4, NetStack as _, TcpListener as _, TcpStream as _, UdpSocket as _};
-    use nexus_net_os::SmoltcpVirtioNetStack;
+    #[cfg(feature = "smoltcp-probe")]
     use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
+    #[cfg(feature = "smoltcp-probe")]
     use smoltcp::time::Instant;
+    #[cfg(feature = "smoltcp-probe")]
     use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address};
 
     use crate::markers;
@@ -100,57 +100,24 @@ mod os_lite {
         let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
         let now = nexus_abi::nsec().map_err(|_| ())?;
         let deadline = now.saturating_add(100_000_000);
-        nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, deadline).map_err(|_| ())?;
+        nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, deadline)
+            .map_err(|_| ())?;
 
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 32];
-        let n = nexus_abi::ipc_recv_v1(CTRL_RECV_SLOT, &mut rh, &mut buf, nexus_abi::IPC_SYS_TRUNCATE, deadline)
-            .map_err(|_| ())? as usize;
+        let n = nexus_abi::ipc_recv_v1(
+            CTRL_RECV_SLOT,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            deadline,
+        )
+        .map_err(|_| ())? as usize;
         let (status, send, recv) = nexus_abi::routing::decode_route_rsp(&buf[..n]).ok_or(())?;
         Ok((status, send, recv))
     }
 
-    fn samgrd_v1_register(
-        client: &KernelClient,
-        name: &str,
-        send_slot: u32,
-        recv_slot: u32,
-    ) -> core::result::Result<u8, ()> {
-        // Samgrd v1 register:
-        // Request: [S,M,ver,OP_REGISTER, name_len:u8, send_slot:u32le, recv_slot:u32le, name...]
-        // Response: [S,M,ver,OP_REGISTER|0x80, status, ...]
-        const MAGIC0: u8 = b'S';
-        const MAGIC1: u8 = b'M';
-        const VERSION: u8 = 1;
-        const OP_REGISTER: u8 = 1;
-        let n = name.as_bytes();
-        if n.is_empty() || n.len() > 48 {
-            return Err(());
-        }
-        let mut req = Vec::with_capacity(13 + n.len());
-        req.push(MAGIC0);
-        req.push(MAGIC1);
-        req.push(VERSION);
-        req.push(OP_REGISTER);
-        req.push(n.len() as u8);
-        req.extend_from_slice(&send_slot.to_le_bytes());
-        req.extend_from_slice(&recv_slot.to_le_bytes());
-        req.extend_from_slice(n);
-        client
-            .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let rsp = client
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        if rsp.len() != 13 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
-            return Err(());
-        }
-        if rsp[3] != (OP_REGISTER | 0x80) {
-            return Err(());
-        }
-        Ok(rsp[4])
-    }
-
+    // NOTE: legacy samgrd v1 helpers removed; the selftest uses the CAP_MOVE variants below.
     fn samgrd_v1_register_cap_move(
         client: &KernelClient,
         reply_send_slot: u32,
@@ -199,43 +166,6 @@ mod os_lite {
             let _ = yield_();
         }
         Err(())
-    }
-
-    fn samgrd_v1_lookup(client: &KernelClient, target: &str) -> core::result::Result<(u8, u32, u32), ()> {
-        // Samgrd v1 lookup:
-        // Request: [S, M, ver, OP_LOOKUP, name_len:u8, name...]
-        // Response: [S, M, ver, OP_LOOKUP|0x80, status, send_slot:u32le, recv_slot:u32le]
-        const MAGIC0: u8 = b'S';
-        const MAGIC1: u8 = b'M';
-        const VERSION: u8 = 1;
-        const OP_LOOKUP: u8 = 2;
-        let name = target.as_bytes();
-        if name.is_empty() || name.len() > 48 {
-            return Err(());
-        }
-        let mut req = Vec::with_capacity(5 + name.len());
-        req.push(MAGIC0);
-        req.push(MAGIC1);
-        req.push(VERSION);
-        req.push(OP_LOOKUP);
-        req.push(name.len() as u8);
-        req.extend_from_slice(name);
-        client
-            .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let rsp = client
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        if rsp.len() != 13 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
-            return Err(());
-        }
-        if rsp[3] != (OP_LOOKUP | 0x80) {
-            return Err(());
-        }
-        let status = rsp[4];
-        let send_slot = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
-        let recv_slot = u32::from_le_bytes([rsp[9], rsp[10], rsp[11], rsp[12]]);
-        Ok((status, send_slot, recv_slot))
     }
 
     fn samgrd_v1_lookup_cap_move(
@@ -300,12 +230,9 @@ mod os_lite {
     fn bundlemgrd_v1_fetch_image(client: &KernelClient) -> core::result::Result<(), ()> {
         let mut req = [0u8; 4];
         nexus_abi::bundlemgrd::encode_fetch_image(&mut req);
-        client
-            .send(&req, IpcWait::Timeout(core::time::Duration::from_secs(1)))
-            .map_err(|_| ())?;
-        let rsp = client
-            .recv(IpcWait::Timeout(core::time::Duration::from_secs(1)))
-            .map_err(|_| ())?;
+        client.send(&req, IpcWait::Timeout(core::time::Duration::from_secs(1))).map_err(|_| ())?;
+        let rsp =
+            client.recv(IpcWait::Timeout(core::time::Duration::from_secs(1))).map_err(|_| ())?;
         let (st, img) = nexus_abi::bundlemgrd::decode_fetch_image_rsp(&rsp).ok_or(())?;
         if st != nexus_abi::bundlemgrd::STATUS_OK {
             return Err(());
@@ -318,7 +245,10 @@ mod os_lite {
         Ok(())
     }
 
-    fn bundlemgrd_v1_route_status(client: &KernelClient, target: &str) -> core::result::Result<(u8, u8), ()> {
+    fn bundlemgrd_v1_route_status(
+        client: &KernelClient,
+        target: &str,
+    ) -> core::result::Result<(u8, u8), ()> {
         // Bundlemgrd v1 route-status:
         // Request: [B, N, ver, OP_ROUTE_STATUS, name_len:u8, name...]
         // Response: [B, N, ver, OP_ROUTE_STATUS|0x80, status:u8, route_status:u8, _, _]
@@ -353,10 +283,6 @@ mod os_lite {
         Ok((rsp[4], rsp[5]))
     }
 
-    fn emit_status_u8(prefix: &str, value: u8) {
-        markers::emit_u8_decimal(prefix, value);
-    }
-
     fn keystored_ping(client: &KernelClient) -> core::result::Result<(), ()> {
         // Keystore IPC v1:
         // Request: [K, S, ver, op, key_len:u8, val_len:u16le, key..., val...]
@@ -387,14 +313,9 @@ mod os_lite {
             req.extend_from_slice(key);
             req.extend_from_slice(val);
             client
-                .send(
-                    &req,
-                    IpcWait::Timeout(core::time::Duration::from_millis(100)),
-                )
+                .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
                 .map_err(|_| ())?;
-            client
-                .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-                .map_err(|_| ())
+            client.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())
         }
 
         fn parse_rsp(rsp: &[u8], expect_op: u8) -> core::result::Result<(u8, &[u8]), ()> {
@@ -442,10 +363,7 @@ mod os_lite {
 
         // Malformed frame should return MALFORMED (wrong magic).
         client
-            .send(
-                b"bad",
-                IpcWait::Timeout(core::time::Duration::from_millis(100)),
-            )
+            .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
         let rsp = client
             .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
@@ -513,7 +431,11 @@ mod os_lite {
         Err(())
     }
 
-    fn execd_spawn_image(execd: &KernelClient, requester: &str, image_id: u8) -> core::result::Result<Pid, ()> {
+    fn execd_spawn_image(
+        execd: &KernelClient,
+        requester: &str,
+        image_id: u8,
+    ) -> core::result::Result<Pid, ()> {
         // Execd IPC v1:
         // Request: [E, X, ver, op, image_id, stack_pages:u8, requester_len:u8, requester...]
         // Response: [E, X, ver, op|0x80, status:u8, pid:u32le]
@@ -540,9 +462,8 @@ mod os_lite {
         execd
             .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        let rsp = execd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let rsp =
+            execd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
         if rsp.len() != 9 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
             return Err(());
         }
@@ -589,9 +510,7 @@ mod os_lite {
         execd
             .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        execd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())
+        execd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())
     }
 
     fn policy_check(client: &KernelClient, subject: &str) -> core::result::Result<bool, ()> {
@@ -613,7 +532,8 @@ mod os_lite {
         frame.push(OP_CHECK);
         frame.push(name.len() as u8);
         frame.extend_from_slice(name);
-        client.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
+        client
+            .send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
         let rsp = client
             .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
@@ -639,7 +559,8 @@ mod os_lite {
         let spoof = nexus_abi::service_id_from_name(b"demo.testsvc");
         let target = nexus_abi::service_id_from_name(b"samgrd");
         let mut frame = [0u8; 64];
-        let n = nexus_abi::policyd::encode_route_v3_id(nonce, spoof, target, &mut frame).ok_or(())?;
+        let n =
+            nexus_abi::policyd::encode_route_v3_id(nonce, spoof, target, &mut frame).ok_or(())?;
         policyd
             .send(&frame[..n], IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
@@ -683,20 +604,29 @@ mod os_lite {
         if st != nexus_abi::routing::STATUS_OK || send == 0 || recv == 0 {
             emit_line("SELFTEST: samgrd v1 register FAIL");
         } else {
-            let reg = samgrd_v1_register_cap_move(&samgrd, reply_send_slot, reply_recv_slot, "vfsd", send, recv)?;
+            let reg = samgrd_v1_register_cap_move(
+                &samgrd,
+                reply_send_slot,
+                reply_recv_slot,
+                "vfsd",
+                send,
+                recv,
+            )?;
             if reg == 0 {
                 emit_line("SELFTEST: samgrd v1 register ok");
             } else {
                 emit_line("SELFTEST: samgrd v1 register FAIL");
             }
         }
-        let (st, got_send, got_recv) = samgrd_v1_lookup_cap_move(&samgrd, reply_send_slot, reply_recv_slot, "vfsd")?;
+        let (st, got_send, got_recv) =
+            samgrd_v1_lookup_cap_move(&samgrd, reply_send_slot, reply_recv_slot, "vfsd")?;
         if st == 0 && got_send == send && got_recv == recv {
             emit_line("SELFTEST: samgrd v1 lookup ok");
         } else {
             emit_line("SELFTEST: samgrd v1 lookup FAIL");
         }
-        let (st, _send, _recv) = samgrd_v1_lookup_cap_move(&samgrd, reply_send_slot, reply_recv_slot, "does.not.exist")?;
+        let (st, _send, _recv) =
+            samgrd_v1_lookup_cap_move(&samgrd, reply_send_slot, reply_recv_slot, "does.not.exist")?;
         if st == 1 {
             emit_line("SELFTEST: samgrd v1 unknown ok");
         } else {
@@ -751,10 +681,7 @@ mod os_lite {
             emit_line("SELFTEST: bundlemgrd v1 image FAIL");
         }
         bundlemgrd
-            .send(
-                b"bad",
-                IpcWait::Timeout(core::time::Duration::from_millis(100)),
-            )
+            .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
         let rsp = bundlemgrd
             .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
@@ -790,10 +717,7 @@ mod os_lite {
 
         // Malformed policyd frame should not produce allow/deny.
         policyd
-            .send(
-                b"bad",
-                IpcWait::Timeout(core::time::Duration::from_millis(100)),
-            )
+            .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
         let rsp = policyd
             .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
@@ -826,7 +750,13 @@ mod os_lite {
 
         // Security: spoofed requester must be denied because execd binds identity to sender_service_id.
         let rsp = execd_spawn_image_raw_requester(&execd_client, "demo.testsvc", 1)?;
-        if rsp.len() == 9 && rsp[0] == b'E' && rsp[1] == b'X' && rsp[2] == 1 && rsp[3] == (1 | 0x80) && rsp[4] == 4 {
+        if rsp.len() == 9
+            && rsp[0] == b'E'
+            && rsp[1] == b'X'
+            && rsp[2] == 1
+            && rsp[3] == (1 | 0x80)
+            && rsp[4] == 4
+        {
             emit_line("SELFTEST: exec denied ok");
         } else {
             emit_line("SELFTEST: exec denied FAIL");
@@ -834,10 +764,7 @@ mod os_lite {
 
         // Malformed execd request should return a structured error response.
         execd_client
-            .send(
-                b"bad",
-                IpcWait::Timeout(core::time::Duration::from_millis(100)),
-            )
+            .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
         let rsp = execd_client
             .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
@@ -1043,8 +970,6 @@ mod os_lite {
     }
 
     fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
-        use nexus_ipc::{KernelClient, Wait as IpcWait};
-
         const MAGIC0: u8 = b'N';
         const MAGIC1: u8 = b'S';
         const VERSION: u8 = 1;
@@ -1093,7 +1018,11 @@ mod os_lite {
             c[4..8].copy_from_slice(&[10, 0, 2, 15]);
             c[8..10].copy_from_slice(&port.to_le_bytes());
             let rsp = rpc(&net, &c)?;
-            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_CONNECT | 0x80) {
+            if rsp[0] == MAGIC0
+                && rsp[1] == MAGIC1
+                && rsp[2] == VERSION
+                && rsp[3] == (OP_CONNECT | 0x80)
+            {
                 if rsp[4] == STATUS_OK {
                     sid = Some(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
                     break;
@@ -1110,26 +1039,21 @@ mod os_lite {
         const AUTH_MAGIC: &[u8; 4] = b"NOI1";
         // Client pubkey (what we present).
         const CLIENT_PUB: [u8; 32] = [
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-            0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10,
-            0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98,
-            0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x1e,
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+            0xff, 0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xa9, 0xba, 0xcb, 0xdc,
+            0xed, 0xfe, 0x0f, 0x1e,
         ];
         // Server pubkey (bind response to both ends).
         const SERVER_PUB: [u8; 32] = [
-            0x7a, 0x6b, 0x5c, 0x4d, 0x3e, 0x2f, 0x1a, 0x0b,
-            0x9c, 0x8d, 0x7e, 0x6f, 0x5a, 0x4b, 0x3c, 0x2d,
-            0x1e, 0x0f, 0xfa, 0xeb, 0xdc, 0xcd, 0xbe, 0xaf,
-            0x90, 0x81, 0x72, 0x63, 0x54, 0x45, 0x36, 0x27,
+            0x7a, 0x6b, 0x5c, 0x4d, 0x3e, 0x2f, 0x1a, 0x0b, 0x9c, 0x8d, 0x7e, 0x6f, 0x5a, 0x4b,
+            0x3c, 0x2d, 0x1e, 0x0f, 0xfa, 0xeb, 0xdc, 0xcd, 0xbe, 0xaf, 0x90, 0x81, 0x72, 0x63,
+            0x54, 0x45, 0x36, 0x27,
         ];
         const AUTH_SECRET: [u8; 64] = [
-            0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb, 0xcc, 0xdd,
-            0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40,
-            0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0,
-            0xd0, 0xe0, 0xf0, 0x0f, 0x1a, 0x2b, 0x3c, 0x4d,
-            0x5e, 0x6f, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf,
-            0xda, 0xeb, 0xfc, 0x0d, 0x1e, 0x2f, 0x3a, 0x4b,
-            0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0xab, 0xbc, 0xcd,
+            0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb, 0xcc, 0xdd, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20,
+            0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0, 0x0f,
+            0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xda, 0xeb,
+            0xfc, 0x0d, 0x1e, 0x2f, 0x3a, 0x4b, 0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0xab, 0xbc, 0xcd,
             0xde, 0xef, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff,
         ];
 
@@ -1157,7 +1081,11 @@ mod os_lite {
             r[4..8].copy_from_slice(&sid.to_le_bytes());
             r[8..10].copy_from_slice(&(54u16).to_le_bytes());
             let rsp = rpc(&net, &r)?;
-            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
+            if rsp[0] == MAGIC0
+                && rsp[1] == MAGIC1
+                && rsp[2] == VERSION
+                && rsp[3] == (OP_READ | 0x80)
+            {
                 if rsp[4] == STATUS_OK {
                     let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
                     if n == 44 && &rsp[7..11] == b"CHAL" {
@@ -1207,7 +1135,11 @@ mod os_lite {
             r[4..8].copy_from_slice(&sid.to_le_bytes());
             r[8..10].copy_from_slice(&(6u16).to_le_bytes());
             let rsp = rpc(&net, &r)?;
-            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
+            if rsp[0] == MAGIC0
+                && rsp[1] == MAGIC1
+                && rsp[2] == VERSION
+                && rsp[3] == (OP_READ | 0x80)
+            {
                 if rsp[4] == STATUS_OK {
                     let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
                     if n == 6 && &rsp[7..13] == b"AUTHOK" {
@@ -1244,7 +1176,11 @@ mod os_lite {
             r[4..8].copy_from_slice(&sid.to_le_bytes());
             r[8..10].copy_from_slice(&(4u16).to_le_bytes());
             let rsp = rpc(&net, &r)?;
-            if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
+            if rsp[0] == MAGIC0
+                && rsp[1] == MAGIC1
+                && rsp[2] == VERSION
+                && rsp[3] == (OP_READ | 0x80)
+            {
                 if rsp[4] == STATUS_OK {
                     let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
                     if n == 4 && &rsp[7..11] == b"PONG" {
@@ -1259,12 +1195,7 @@ mod os_lite {
 
     fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
         const MMIO_CAP_SLOT: u32 = 48;
-        let mut info = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(MMIO_CAP_SLOT, &mut info).map_err(|_| ())?;
         // 2 = DeviceMmio
         if info.kind_tag != 2 || info.base == 0 || info.len == 0 {
@@ -1276,12 +1207,7 @@ mod os_lite {
     fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
         // Allocate a small VMO and ensure we can query its physical window deterministically.
         let vmo = nexus_abi::vmo_create(4096).map_err(|_| ())?;
-        let mut info = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(vmo, &mut info).map_err(|_| ())?;
         // 1 = VMO
         if info.kind_tag != 1 || info.base == 0 || info.len < 4096 {
@@ -1291,10 +1217,16 @@ mod os_lite {
     }
 
     // ——— smoltcp bring-up over virtio-net (bounded, deterministic-ish) ———
+    //
+    // NOTE: Feature-gated to avoid drift and unused-code warnings. The OS selftest uses
+    // `netstackd` for networking by default; enable `smoltcp-probe` only for bring-up debugging.
 
+    #[cfg(feature = "smoltcp-probe")]
     const VIRTQ_DESC_F_NEXT: u16 = 1;
+    #[cfg(feature = "smoltcp-probe")]
     const VIRTQ_DESC_F_WRITE: u16 = 2;
 
+    #[cfg(feature = "smoltcp-probe")]
     #[repr(C)]
     #[derive(Clone, Copy)]
     struct VqDesc {
@@ -1304,6 +1236,7 @@ mod os_lite {
         next: u16,
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     #[repr(C)]
     struct VqAvail<const N: usize> {
         flags: u16,
@@ -1311,6 +1244,7 @@ mod os_lite {
         ring: [u16; N],
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     #[repr(C)]
     #[derive(Clone, Copy)]
     struct VqUsedElem {
@@ -1318,6 +1252,7 @@ mod os_lite {
         len: u32,
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     #[repr(C)]
     struct VqUsed<const N: usize> {
         flags: u16,
@@ -1325,6 +1260,7 @@ mod os_lite {
         ring: [VqUsedElem; N],
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     struct VirtioQueues<const N: usize> {
         // RX
         rx_desc: *mut VqDesc,
@@ -1352,6 +1288,7 @@ mod os_lite {
         tx_drops: u32,
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     impl<const N: usize> VirtioQueues<N> {
         fn rx_replenish(&mut self, dev: &VirtioNetMmio<MmioBus>, count: usize) {
             // Post the first `count` RX buffers once.
@@ -1459,11 +1396,13 @@ mod os_lite {
         }
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     struct SmolVirtio<const N: usize> {
         dev: *const VirtioNetMmio<MmioBus>,
         q: *mut VirtioQueues<N>,
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     struct SmolRxToken<'a, const N: usize> {
         dev: *const VirtioNetMmio<MmioBus>,
         q: *mut VirtioQueues<N>,
@@ -1472,6 +1411,7 @@ mod os_lite {
         _lt: core::marker::PhantomData<&'a mut ()>,
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     impl<'a, const N: usize> RxToken for SmolRxToken<'a, N> {
         fn consume<R, F>(self, f: F) -> R
         where
@@ -1493,12 +1433,14 @@ mod os_lite {
         }
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     struct SmolTxToken<'a, const N: usize> {
         dev: *const VirtioNetMmio<MmioBus>,
         q: *mut VirtioQueues<N>,
         _lt: core::marker::PhantomData<&'a mut ()>,
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     impl<'a, const N: usize> TxToken for SmolTxToken<'a, N> {
         fn consume<R, F>(self, len: usize, f: F) -> R
         where
@@ -1518,6 +1460,7 @@ mod os_lite {
         }
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     impl<const N: usize> Device for SmolVirtio<N> {
         type RxToken<'b>
             = SmolRxToken<'b, N>
@@ -1535,7 +1478,10 @@ mod os_lite {
             caps
         }
 
-        fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        fn receive(
+            &mut self,
+            _timestamp: Instant,
+        ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
             let q = unsafe { &mut *self.q };
             if let Some((id, len)) = q.rx_poll() {
                 Some((
@@ -1546,11 +1492,7 @@ mod os_lite {
                         len,
                         _lt: core::marker::PhantomData,
                     },
-                    SmolTxToken {
-                        dev: self.dev,
-                        q: self.q,
-                        _lt: core::marker::PhantomData,
-                    },
+                    SmolTxToken { dev: self.dev, q: self.q, _lt: core::marker::PhantomData },
                 ))
             } else {
                 None
@@ -1558,14 +1500,11 @@ mod os_lite {
         }
 
         fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-            Some(SmolTxToken {
-                dev: self.dev,
-                q: self.q,
-                _lt: core::marker::PhantomData,
-            })
+            Some(SmolTxToken { dev: self.dev, q: self.q, _lt: core::marker::PhantomData })
         }
     }
 
+    #[cfg(feature = "smoltcp-probe")]
     fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         // Minimal bring-up: create an interface and attempt an ICMP echo to the QEMU usernet gateway.
         //
@@ -1659,12 +1598,7 @@ mod os_lite {
                 return Err(());
             }
         }
-        let mut q_info = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         if nexus_abi::cap_query(q_vmo, &mut q_info).is_err() {
             emit_line("SELFTEST: smoltcp qquery FAIL");
             return Err(());
@@ -1688,13 +1622,13 @@ mod os_lite {
         // Setup queues (legacy uses PFN of desc base).
         if dev
             .setup_queue(
-            0,
-            &net_virtio::QueueSetup {
-                size: N as u16,
-                desc_paddr: rx_desc_pa,
-                avail_paddr: 0,
-                used_paddr: 0,
-            },
+                0,
+                &net_virtio::QueueSetup {
+                    size: N as u16,
+                    desc_paddr: rx_desc_pa,
+                    avail_paddr: 0,
+                    used_paddr: 0,
+                },
             )
             .is_err()
         {
@@ -1703,13 +1637,13 @@ mod os_lite {
         }
         if dev
             .setup_queue(
-            1,
-            &net_virtio::QueueSetup {
-                size: N as u16,
-                desc_paddr: tx_desc_pa,
-                avail_paddr: 0,
-                used_paddr: 0,
-            },
+                1,
+                &net_virtio::QueueSetup {
+                    size: N as u16,
+                    desc_paddr: tx_desc_pa,
+                    avail_paddr: 0,
+                    used_paddr: 0,
+                },
             )
             .is_err()
         {
@@ -1733,12 +1667,7 @@ mod os_lite {
                 return Err(());
             }
         }
-        let mut bq = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut bq = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         if nexus_abi::cap_query(buf_vmo, &mut bq).is_err() {
             emit_line("SELFTEST: smoltcp bquery FAIL");
             return Err(());
@@ -1779,22 +1708,13 @@ mod os_lite {
         let hw = HardwareAddress::Ethernet(EthernetAddress(mac));
         let mut cfg = smoltcp::iface::Config::new(hw);
         cfg.random_seed = 0x1234_5678;
-        let mut phy = SmolVirtio::<N> {
-            dev: &dev as *const _,
-            q: &mut q as *mut _,
-        };
-        let mut iface =
-            smoltcp::iface::Interface::new(cfg, &mut phy, Instant::from_millis(0));
+        let mut phy = SmolVirtio::<N> { dev: &dev as *const _, q: &mut q as *mut _ };
+        let mut iface = smoltcp::iface::Interface::new(cfg, &mut phy, Instant::from_millis(0));
         iface.update_ip_addrs(|addrs| {
-            addrs.push(IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)), 24))
-                .ok();
+            addrs.push(IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)), 24)).ok();
         });
         // Route to the QEMU usernet gateway.
-        if iface
-            .routes_mut()
-            .add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2))
-            .is_err()
-        {
+        if iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2)).is_err() {
             emit_line("SELFTEST: smoltcp route FAIL");
             return Err(());
         }
@@ -1805,10 +1725,7 @@ mod os_lite {
         let rx_buf = smoltcp::socket::icmp::PacketBuffer::new(rx_meta, vec![0u8; 256]);
         let tx_buf = smoltcp::socket::icmp::PacketBuffer::new(tx_meta, vec![0u8; 256]);
         let mut icmp = smoltcp::socket::icmp::Socket::new(rx_buf, tx_buf);
-        if icmp
-            .bind(smoltcp::socket::icmp::Endpoint::Ident(0x1234))
-            .is_err()
-        {
+        if icmp.bind(smoltcp::socket::icmp::Endpoint::Ident(0x1234)).is_err() {
             emit_line("SELFTEST: smoltcp bind FAIL");
             return Err(());
         }
@@ -1979,7 +1896,7 @@ mod os_lite {
     fn verify_vfs() -> Result<(), ()> {
         // RFC-0005: name-based routing (slots are assigned by init-lite; lookup happens over a
         // private control endpoint).
-        let client = KernelClient::new_for("vfsd").map_err(|_| ())?;
+        let _ = KernelClient::new_for("vfsd").map_err(|_| ())?;
         emit_line("SELFTEST: ipc routing ok");
         let _ = KernelClient::new_for("packagefsd").map_err(|_| ())?;
         emit_line("SELFTEST: ipc routing packagefsd ok");
@@ -1992,9 +1909,7 @@ mod os_lite {
         emit_line("SELFTEST: vfs stat ok");
 
         // open
-        let fh = vfs
-            .open("pkg:/system/build.prop")
-            .map_err(|_| ())?;
+        let fh = vfs.open("pkg:/system/build.prop").map_err(|_| ())?;
 
         // read
         let _bytes = vfs.read(fh, 0, 64).map_err(|_| ())?;
@@ -2205,7 +2120,7 @@ mod os_lite {
         let (reply_send_slot, reply_recv_slot) = reply.slots();
 
         let mut seed: u64 = 0x4E58_534F_414B_0001u64; // "NXSOAK\0\1"
-        // Keep it bounded so QEMU marker runs stay fast/deterministic and do not accumulate kernel heap.
+                                                      // Keep it bounded so QEMU marker runs stay fast/deterministic and do not accumulate kernel heap.
         for i in 0..96u32 {
             let r = next_u64(&mut seed);
             match (r % 5) as u8 {
@@ -2296,12 +2211,7 @@ mod os_lite {
 
 #[cfg(all(
     feature = "std",
-    not(all(
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none",
-        feature = "os-lite"
-    ))
+    not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))
 ))]
 fn run() -> anyhow::Result<()> {
     use policy::PolicyDoc;
@@ -2348,12 +2258,7 @@ fn run() -> anyhow::Result<()> {
 
 #[cfg(all(
     not(feature = "std"),
-    not(all(
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none",
-        feature = "os-lite"
-    ))
+    not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))
 ))]
 fn run() -> core::result::Result<(), ()> {
     Ok(())

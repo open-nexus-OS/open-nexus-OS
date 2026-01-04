@@ -41,8 +41,8 @@ fn to_v4(addr: SocketAddr) -> Result<NetSocketAddrV4, DiscoveryError> {
 /// backend (e.g. `FakeNet` in host tests).
 pub struct FacadeDiscovery<N>
 where
-    N: NetStack + Send + 'static,
-    N::Udp: Send + 'static,
+    N: NetStack + Send + Sync + 'static,
+    N::Udp: Send + Sync + 'static,
 {
     net: Arc<Mutex<N>>,
     socket: Arc<Mutex<N::Udp>>,
@@ -53,15 +53,14 @@ where
 
 impl<N> FacadeDiscovery<N>
 where
-    N: NetStack + Send + 'static,
-    N::Udp: Send + 'static,
+    N: NetStack + Send + Sync + 'static,
+    N::Udp: Send + Sync + 'static,
 {
     pub fn new(net: N, bind: SocketAddr, bus: SocketAddr) -> Result<Self, DiscoveryError> {
         let mut net = net;
         let local = to_v4(bind)?;
-        let socket = net
-            .udp_bind(local)
-            .map_err(|e| DiscoveryError::Registry(format!("udp_bind: {e}")))?;
+        let socket =
+            net.udp_bind(local).map_err(|e| DiscoveryError::Registry(format!("udp_bind: {e}")))?;
         Ok(Self {
             net: Arc::new(Mutex::new(net)),
             socket: Arc::new(Mutex::new(socket)),
@@ -78,7 +77,11 @@ where
     }
 }
 
-pub struct FacadeAnnouncementStream<N: NetStack> {
+pub struct FacadeAnnouncementStream<N>
+where
+    N: NetStack + Send + Sync + 'static,
+    N::Udp: Send + Sync + 'static,
+{
     discovery: FacadeDiscovery<N>,
     remaining_ticks: u64,
     seeded: VecDeque<Announcement>,
@@ -86,8 +89,8 @@ pub struct FacadeAnnouncementStream<N: NetStack> {
 
 impl<N> Iterator for FacadeAnnouncementStream<N>
 where
-    N: NetStack + Send + 'static,
-    N::Udp: Send + 'static,
+    N: NetStack + Send + Sync + 'static,
+    N::Udp: Send + Sync + 'static,
 {
     type Item = Announcement;
 
@@ -113,7 +116,8 @@ where
                         Err(_) => continue,
                     };
 
-                    let ann = Announcement::new(device_id, pkt.services, pkt.port, pkt.noise_static);
+                    let ann =
+                        Announcement::new(device_id, pkt.services, pkt.port, pkt.noise_static);
                     self.discovery
                         .cache
                         .lock()
@@ -134,8 +138,8 @@ where
 
 impl<N> Discovery for FacadeDiscovery<N>
 where
-    N: NetStack + Send + 'static,
-    N::Udp: Send + 'static,
+    N: NetStack + Send + Sync + 'static,
+    N::Udp: Send + Sync + 'static,
 {
     type Error = DiscoveryError;
     type Stream = FacadeAnnouncementStream<N>;
@@ -147,7 +151,8 @@ where
             noise_static: *announcement.noise_static(),
             services: announcement.services().to_vec(),
         };
-        let bytes = encode_announce_v1(&pkt).map_err(|e| DiscoveryError::Registry(e.to_string()))?;
+        let bytes =
+            encode_announce_v1(&pkt).map_err(|e| DiscoveryError::Registry(e.to_string()))?;
         self.poll_tick();
         self.socket
             .lock()
@@ -178,4 +183,3 @@ where
         })
     }
 }
-

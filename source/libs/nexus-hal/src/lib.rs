@@ -74,4 +74,10 @@ mod tests {
         let buf = MockBuf([0; 4]);
         assert_eq!(DmaBuffer::len(&buf), 4);
     }
+
+    #[test]
+    fn fence_signal_compiles() {
+        let fence = MockFence;
+        fence.signal();
+    }
 }

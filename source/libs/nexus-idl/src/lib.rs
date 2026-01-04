@@ -47,5 +47,10 @@ mod tests {
     fn descriptor_lists_methods() {
         let names = testsvc::descriptor();
         assert_eq!(names, ["ping", "shutdown"]);
+
+        // Ensure the generated trait is exercised (avoids dead_code warnings and validates surface).
+        let svc: &dyn testsvc::Service = &Stub;
+        assert_eq!(svc.ping(123), 123);
+        svc.shutdown();
     }
 }

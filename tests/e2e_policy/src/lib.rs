@@ -79,9 +79,7 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
         policyd::run_with_transport_ready(&mut policy_server, notifier)
             .expect("policyd exits cleanly");
     });
-    policy_ready_rx
-        .recv_timeout(Duration::from_secs(2))
-        .context("wait policyd ready")?;
+    policy_ready_rx.recv_timeout(Duration::from_secs(2)).context("wait policyd ready")?;
 
     // Install manifests and query required capabilities from bundlemgrd
     let allowed_manifest = allowed_manifest();
@@ -91,12 +89,7 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     store.insert(2, denied_manifest.clone().into_bytes());
     store.stage_payload(2, Vec::new());
     install_bundle(&bundle_client, "samgrd", 1, allowed_manifest.len() as u32)?;
-    install_bundle(
-        &bundle_client,
-        "demo.testsvc",
-        2,
-        denied_manifest.len() as u32,
-    )?;
+    install_bundle(&bundle_client, "demo.testsvc", 2, denied_manifest.len() as u32)?;
     let allowed_caps = query_caps(&bundle_client, "samgrd")?;
     let denied_caps = query_caps(&bundle_client, "demo.testsvc")?;
 
@@ -167,9 +160,7 @@ fn install_bundle(
         request.set_vmo_handle(handle);
     }
     let frame = encode_frame(BUNDLE_OPCODE_INSTALL, &message)?;
-    client
-        .send(&frame, Wait::Blocking)
-        .context("send install")?;
+    client.send(&frame, Wait::Blocking).context("send install")?;
     let response = client.recv(Wait::Blocking).context("recv install")?;
     let (opcode, payload) = response.split_first().context("install opcode")?;
     if *opcode != BUNDLE_OPCODE_INSTALL {
@@ -178,9 +169,7 @@ fn install_bundle(
     let mut cursor = Cursor::new(payload);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("install decode")?;
-    let resp = message
-        .get_root::<install_response::Reader<'_>>()
-        .context("install root")?;
+    let resp = message.get_root::<install_response::Reader<'_>>().context("install root")?;
     if !resp.get_ok() {
         let err = resp.get_err().unwrap_or(InstallError::Einval);
         anyhow::bail!("install failed: {err:?}");
@@ -205,20 +194,14 @@ fn query_caps(client: &nexus_ipc::LoopbackClient, name: &str) -> Result<Vec<Stri
     let mut cursor = Cursor::new(payload);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("query decode")?;
-    let resp = message
-        .get_root::<query_response::Reader<'_>>()
-        .context("query root")?;
+    let resp = message.get_root::<query_response::Reader<'_>>().context("query root")?;
     if !resp.get_installed() {
         anyhow::bail!("bundle {name} not installed");
     }
     let mut caps = Vec::new();
     let list = resp.get_required_caps().context("required caps")?;
     for idx in 0..list.len() {
-        let text = list
-            .get(idx)
-            .context("cap entry")?
-            .to_str()
-            .context("cap utf8")?;
+        let text = list.get(idx).context("cap entry")?.to_str().context("cap utf8")?;
         caps.push(text.to_string());
     }
     Ok(caps)
@@ -263,18 +246,13 @@ fn decode_response(frame: &[u8]) -> Result<(bool, Vec<String>)> {
     let mut cursor = Cursor::new(payload);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("decode message")?;
-    let response = message
-        .get_root::<check_response::Reader<'_>>()
-        .context("check response root")?;
+    let response =
+        message.get_root::<check_response::Reader<'_>>().context("check response root")?;
     let allowed = response.get_allowed();
     let mut missing = Vec::new();
     if let Ok(list) = response.get_missing() {
         for idx in 0..list.len() {
-            let text = list
-                .get(idx)
-                .context("missing entry")?
-                .to_str()
-                .context("missing utf8")?;
+            let text = list.get(idx).context("missing entry")?.to_str().context("missing utf8")?;
             missing.push(text.to_string());
         }
     }

@@ -50,9 +50,9 @@ mod host {
         expected.extend_from_slice(&37020u16.to_be_bytes());
         expected.extend_from_slice(&[0x11; 32]);
         expected.push(2);
-        expected.push(5);
+        expected.push(b"samgrd".len() as u8);
         expected.extend_from_slice(b"samgrd");
-        expected.push(9);
+        expected.push(b"bundlemgrd".len() as u8);
         expected.extend_from_slice(b"bundlemgrd");
 
         assert_eq!(bytes, expected, "announce v1 bytes drifted");
@@ -99,4 +99,3 @@ mod host {
         assert_eq!(decode_announce_v1(bytes), Err(PacketError::Truncated));
     }
 }
-

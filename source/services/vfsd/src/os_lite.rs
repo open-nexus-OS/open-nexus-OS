@@ -12,7 +12,6 @@ const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
 
 const KIND_FILE: u16 = 0;
-const KIND_DIRECTORY: u16 = 1;
 
 /// Result type returned by the os-lite backend.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -73,9 +72,8 @@ impl Namespace {
         if rsp.len() < 1 + 8 + 2 || rsp[0] != 1 {
             return Err(Error::NotFound);
         }
-        let size = u64::from_le_bytes([
-            rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8],
-        ]);
+        let size =
+            u64::from_le_bytes([rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8]]);
         let kind = u16::from_le_bytes([rsp[9], rsp[10]]);
         let bytes = rsp[11..].to_vec();
         Ok(Entry { kind, size, bytes })
@@ -99,9 +97,7 @@ impl Namespace {
         if entry.kind != KIND_FILE {
             return Err(Error::InvalidPath);
         }
-        Ok(FileHandle {
-            bytes: entry.bytes,
-        })
+        Ok(FileHandle { bytes: entry.bytes })
     }
 }
 
@@ -151,9 +147,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     OPCODE_OPEN => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");
@@ -168,9 +162,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                             }
                             Err(_) => reply.push(0),
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     OPCODE_READ => {
                         if frame.len() < 1 + 4 + 8 + 4 {
@@ -193,9 +185,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                             }
                             None => reply.push(0),
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     OPCODE_CLOSE => {
                         if frame.len() < 5 {
@@ -208,9 +198,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         } else {
                             reply.push(0);
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     _ => {
                         let _ = nexus_abi::yield_();

@@ -214,11 +214,9 @@ impl PolicyService {
             let mut cursor = Cursor::new(payload);
             let message = serialize::read_message(&mut cursor, ReaderOptions::new())
                 .map_err(|err| ServerError::Decode(format!("failed to read request: {err}")))?;
-            let reader = message
-                .get_root::<check_request::Reader<'_>>()
-                .map_err(|err| {
-                    ServerError::Decode(format!("failed to read request root: {err}"))
-                })?;
+            let reader = message.get_root::<check_request::Reader<'_>>().map_err(|err| {
+                ServerError::Decode(format!("failed to read request root: {err}"))
+            })?;
 
             let subject = reader
                 .get_subject()
@@ -252,9 +250,8 @@ impl PolicyService {
                     }
                     Err(denied) => {
                         response.set_allowed(false);
-                        let mut missing = response
-                            .reborrow()
-                            .init_missing(denied.missing.len() as u32);
+                        let mut missing =
+                            response.reborrow().init_missing(denied.missing.len() as u32);
                         for (idx, cap) in denied.missing.iter().enumerate() {
                             missing.set(idx as u32, cap);
                         }
@@ -322,15 +319,10 @@ where
     T: Transport,
 {
     loop {
-        match transport
-            .recv()
-            .map_err(|err| ServerError::Transport(err.into()))?
-        {
+        match transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
             Some(frame) => {
                 let response = service.handle_frame(&frame)?;
-                transport
-                    .send(&response)
-                    .map_err(|err| ServerError::Transport(err.into()))?;
+                transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
             }
             None => return Ok(()),
         }
@@ -346,18 +338,12 @@ fn policy_dir() -> PathBuf {
 
 fn count_policy_files(dir: &Path) -> Result<usize, ServerError> {
     let entries = std::fs::read_dir(dir).map_err(|err| {
-        ServerError::Init(format!(
-            "failed to read policy dir {}: {err}",
-            dir.display()
-        ))
+        ServerError::Init(format!("failed to read policy dir {}: {err}", dir.display()))
     })?;
     let mut count = 0;
     for entry in entries {
         let entry = entry.map_err(|err| {
-            ServerError::Init(format!(
-                "failed to read policy dir {}: {err}",
-                dir.display()
-            ))
+            ServerError::Init(format!("failed to read policy dir {}: {err}", dir.display()))
         })?;
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
@@ -399,10 +385,8 @@ pub fn daemon_main<R: FnOnce() + Send + 'static>(notify: R) -> ! {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }

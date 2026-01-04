@@ -168,11 +168,7 @@ fn bundle_install_signed_enforced_via_keystored() {
         publisher
     );
     let sig = sk.sign(signed_payload.as_bytes());
-    let manifest = format!(
-        "{}sig = \"{}\"\n",
-        signed_payload,
-        hex::encode(sig.to_bytes())
-    );
+    let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
     let len = manifest.len() as u32;
     store.insert(77, manifest.into_bytes());
     store.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x01]);
@@ -201,9 +197,7 @@ fn bundle_install_signed_enforced_via_keystored() {
         let mut cur = std::io::Cursor::new(&resp[1..]);
         let dev_msg =
             capnp::serialize::read_message(&mut cur, capnp::message::ReaderOptions::new()).unwrap();
-        let dev = dev_msg
-            .get_root::<device_id_response::Reader<'_>>()
-            .unwrap();
+        let dev = dev_msg.get_root::<device_id_response::Reader<'_>>().unwrap();
         let id = dev.get_id().unwrap().to_str().unwrap().to_string();
 
         // Build manifest by signing canonical content (no sig line) with keystore-provided id
@@ -212,11 +206,7 @@ fn bundle_install_signed_enforced_via_keystored() {
             id
         );
         let sig = sk.sign(signed_payload.as_bytes());
-        let manifest = format!(
-            "{}sig = \"{}\"\n",
-            signed_payload,
-            hex::encode(sig.to_bytes())
-        );
+        let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
         store_clone.insert(77, manifest.into_bytes());
         store_clone.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x02]);
 
@@ -227,11 +217,7 @@ fn bundle_install_signed_enforced_via_keystored() {
     let install = build_install_frame("launcher", 77, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(
-        ok,
-        "install should succeed with valid signature, err={:?}",
-        err
-    );
+    assert!(ok, "install should succeed with valid signature, err={:?}", err);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -299,9 +285,8 @@ fn assert_register_ok(frame: &[u8]) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read register response");
-    let response = message
-        .get_root::<register_response::Reader<'_>>()
-        .expect("register response root");
+    let response =
+        message.get_root::<register_response::Reader<'_>>().expect("register response root");
     assert!(response.get_ok(), "register should succeed");
 }
 
@@ -310,9 +295,8 @@ fn parse_resolve(frame: &[u8]) -> (bool, u32) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read resolve response");
-    let response = message
-        .get_root::<resolve_response::Reader<'_>>()
-        .expect("resolve response root");
+    let response =
+        message.get_root::<resolve_response::Reader<'_>>().expect("resolve response root");
     (response.get_found(), response.get_endpoint())
 }
 
@@ -321,13 +305,9 @@ fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read install response");
-    let response = message
-        .get_root::<install_response::Reader<'_>>()
-        .expect("install response root");
-    (
-        response.get_ok(),
-        response.get_err().unwrap_or(InstallError::Einval),
-    )
+    let response =
+        message.get_root::<install_response::Reader<'_>>().expect("install response root");
+    (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
 }
 
 fn parse_query(frame: &[u8]) -> (bool, String, Vec<String>) {
@@ -335,15 +315,9 @@ fn parse_query(frame: &[u8]) -> (bool, String, Vec<String>) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read query response");
-    let response = message
-        .get_root::<query_response::Reader<'_>>()
-        .expect("query response root");
-    let version = response
-        .get_version()
-        .ok()
-        .and_then(|r| r.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+    let response = message.get_root::<query_response::Reader<'_>>().expect("query response root");
+    let version =
+        response.get_version().ok().and_then(|r| r.to_str().ok()).unwrap_or("").to_string();
     let mut caps = Vec::new();
     if let Ok(list) = response.get_required_caps() {
         for idx in 0..list.len() {
@@ -362,15 +336,11 @@ fn parse_get_payload(frame: &[u8]) -> (bool, Vec<u8>) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read get_payload response");
-    let response = message
-        .get_root::<get_payload_response::Reader<'_>>()
-        .expect("get_payload response root");
+    let response =
+        message.get_root::<get_payload_response::Reader<'_>>().expect("get_payload response root");
     let ok = response.get_ok();
     let bytes = if ok {
-        response
-            .get_bytes()
-            .map(|data| data.to_vec())
-            .unwrap_or_default()
+        response.get_bytes().map(|data| data.to_vec()).unwrap_or_default()
     } else {
         Vec::new()
     };

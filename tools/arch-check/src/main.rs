@@ -10,9 +10,7 @@ use std::process::Command;
 use serde_json::Value;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let output = Command::new("cargo")
-        .args(["metadata", "--format-version", "1"])
-        .output()?;
+    let output = Command::new("cargo").args(["metadata", "--format-version", "1"]).output()?;
     if !output.status.success() {
         return Err(format!("cargo metadata failed: {}", output.status).into());
     }
@@ -41,9 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut violations = Vec::new();
     for member in workspace_members {
-        let id = member
-            .as_str()
-            .ok_or("workspace member entry must be a string")?;
+        let id = member.as_str().ok_or("workspace member entry must be a string")?;
         let Some(info) = packages.get(id) else {
             continue;
         };
@@ -95,10 +91,7 @@ fn build_package_map(metadata: &Value) -> Result<PackageMap, Box<dyn Error>> {
         };
         map.insert(
             id.to_string(),
-            PackageInfo {
-                name: name.to_string(),
-                manifest_path: manifest.to_string(),
-            },
+            PackageInfo { name: name.to_string(), manifest_path: manifest.to_string() },
         );
     }
     Ok(map)

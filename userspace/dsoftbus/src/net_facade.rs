@@ -14,20 +14,20 @@
 
 #![forbid(unsafe_code)]
 
+use parking_lot::Mutex;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
-
-use parking_lot::Mutex;
 
 use identity::{DeviceId, Identity};
 use nexus_net::{NetError, NetInstant, NetSocketAddrV4, NetStack, TcpListener, TcpStream};
 
 use crate::{Announcement, AuthError, Session, SessionError, Stream, StreamError};
 
-const DEFAULT_DEADLINE_TICKS: NetInstant = 200;
+// Tick-based deadlines are deterministic and independent of wall-clock time. Keep this large enough
+// that cross-thread scheduling in host tests cannot exhaust the budget before a peer gets CPU time.
+const DEFAULT_DEADLINE_TICKS: NetInstant = 20_000;
 
 fn to_v4(addr: SocketAddr) -> Result<NetSocketAddrV4, AuthError> {
     match addr.ip() {
@@ -43,10 +43,8 @@ fn neterr_to_io(err: NetError) -> std::io::Error {
         NetError::Disconnected => {
             std::io::Error::new(std::io::ErrorKind::ConnectionReset, "disconnected")
         }
-        NetError::InvalidInput(msg) => {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, msg)
-        }
-        other => std::io::Error::new(std::io::ErrorKind::Other, other.to_string()),
+        NetError::InvalidInput(msg) => std::io::Error::new(std::io::ErrorKind::InvalidInput, msg),
+        other => std::io::Error::other(other.to_string()),
     }
 }
 
@@ -96,13 +94,16 @@ pub struct FacadeAuthenticator<N: NetStack> {
     tick: AtomicU64,
 }
 
-impl<N: NetStack> FacadeAuthenticator<N> {
+impl<N> FacadeAuthenticator<N>
+where
+    N: NetStack + Send + Sync + 'static,
+    N::TcpStream: Send + 'static,
+    N::TcpListener: Send + 'static,
+{
     pub fn new(net: N, bind: SocketAddr, identity: Identity) -> Result<Self, AuthError> {
         let mut net = net;
         let local = to_v4(bind)?;
-        let listener = net
-            .tcp_listen(local, 8)
-            .map_err(|e| AuthError::Io(neterr_to_io(e)))?;
+        let listener = net.tcp_listen(local, 8).map_err(|e| AuthError::Io(neterr_to_io(e)))?;
         let listener_addr = listener.local_addr();
 
         let (noise_secret, noise_public) = crate::derive_noise_keys(&identity);
@@ -129,7 +130,9 @@ impl<N: NetStack> FacadeAuthenticator<N> {
         &self.identity
     }
 
-    pub fn accept(&self) -> Result<FacadeSession<N::TcpStream>, AuthError> {
+    pub fn accept(
+        &self,
+    ) -> Result<FacadeSession<<N::TcpListener as TcpListener>::Stream>, AuthError> {
         let start = self.tick.load(Ordering::SeqCst);
         let deadline = start.saturating_add(DEFAULT_DEADLINE_TICKS);
         loop {
@@ -151,18 +154,13 @@ impl<N: NetStack> FacadeAuthenticator<N> {
                         &self.noise_public,
                         &mut io,
                     )?;
-                    let request_id =
-                        crate::host::receive_connect_request(&mut io, &mut transport)?;
+                    let request_id = crate::host::receive_connect_request(&mut io, &mut transport)?;
                     if request_id != device_id.as_str() {
                         crate::host::send_connect_response(&mut io, &mut transport, false)?;
                         return Err(AuthError::Identity("device mismatch".into()));
                     }
                     crate::host::send_connect_response(&mut io, &mut transport, true)?;
-                    return Ok(FacadeSession {
-                        io,
-                        transport,
-                        remote_device: device_id,
-                    });
+                    return Ok(FacadeSession { io, transport, remote_device: device_id });
                 }
                 Err(NetError::WouldBlock) => {
                     std::thread::yield_now();
@@ -229,23 +227,19 @@ impl<N: NetStack> FacadeAuthenticator<N> {
         if !ok {
             return Err(AuthError::Identity("connection rejected".into()));
         }
-        Ok(FacadeSession {
-            io,
-            transport,
-            remote_device: device_id,
-        })
+        Ok(FacadeSession { io, transport, remote_device: device_id })
     }
 
     // Note: we intentionally model deadlines as ticks (deterministic host-first).
 }
 
-pub struct FacadeSession<S> {
+pub struct FacadeSession<S: TcpStream> {
     io: NetTcpIo<S>,
     transport: snow::TransportState,
     remote_device: DeviceId,
 }
 
-impl<S> Session for FacadeSession<S> {
+impl<S: TcpStream + Send + 'static> Session for FacadeSession<S> {
     type Stream = FacadeStream<S>;
 
     fn remote_device_id(&self) -> &DeviceId {
@@ -253,14 +247,11 @@ impl<S> Session for FacadeSession<S> {
     }
 
     fn into_stream(self) -> Result<Self::Stream, SessionError> {
-        Ok(FacadeStream {
-            io: self.io,
-            transport: self.transport,
-        })
+        Ok(FacadeStream { io: self.io, transport: self.transport })
     }
 }
 
-pub struct FacadeStream<S> {
+pub struct FacadeStream<S: TcpStream> {
     io: NetTcpIo<S>,
     transport: snow::TransportState,
 }
@@ -278,4 +269,3 @@ impl<S: TcpStream> Stream for FacadeStream<S> {
         crate::host::deserialize_frame(&bytes).map(Some)
     }
 }
-

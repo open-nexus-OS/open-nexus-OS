@@ -164,10 +164,7 @@ fn handle_exit(pid: nexus_abi::Pid, status: i32) {
     let _ = nexus_abi::debug_println(&format!("execd: child exited pid={pid} code={status}"));
     let mut restart = None;
     if let Ok(mut guard) = registry().lock() {
-        let key = guard
-            .iter()
-            .find(|(_, entry)| entry.pid == pid)
-            .map(|(name, _)| name.clone());
+        let key = guard.iter().find(|(_, entry)| entry.pid == pid).map(|(name, _)| name.clone());
         if let Some(name) = key {
             if let Some(entry) = guard.remove(&name) {
                 if entry.restart == RestartPolicy::Always {
@@ -188,12 +185,7 @@ fn handle_exit(pid: nexus_abi::Pid, status: i32) {
 
 #[cfg(nexus_env = "os")]
 fn restart_service(request: RestartRequest) {
-    let RestartRequest {
-        name,
-        argv,
-        env,
-        policy,
-    } = request;
+    let RestartRequest { name, argv, env, policy } = request;
     let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
     let env_refs: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
     match exec_elf(&name, &argv_refs, &env_refs, policy) {
@@ -512,21 +504,13 @@ fn run_loaded_elf(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<nexus_abi
 
     let stack_builder =
         StackBuilder::new(CHILD_STACK_TOP, CHILD_STACK_PAGES).map_err(ExecError::Loader)?;
-    let stack_vmo = stack_builder
-        .map_stack(as_handle)
-        .map_err(ExecError::Loader)?;
-    let (stack_sp, argv_ptr, env_ptr) = stack_builder
-        .populate(stack_vmo, argv, env)
-        .map_err(ExecError::Loader)?;
+    let stack_vmo = stack_builder.map_stack(as_handle).map_err(ExecError::Loader)?;
+    let (stack_sp, argv_ptr, env_ptr) =
+        stack_builder.populate(stack_vmo, argv, env).map_err(ExecError::Loader)?;
 
     let argc = argv.len() as u32;
-    let _bootstrap = BootstrapMsg {
-        argc,
-        argv_ptr,
-        env_ptr,
-        cap_seed_ep: BOOTSTRAP_SLOT,
-        flags: 0,
-    };
+    let _bootstrap =
+        BootstrapMsg { argc, argv_ptr, env_ptr, cap_seed_ep: BOOTSTRAP_SLOT, flags: 0 };
 
     let entry_pc = plan.entry;
     // NOTE: This path is not used by the RFC-0002 OS boot flow (which uses kernel `exec`),
@@ -560,9 +544,7 @@ fn request_bundle_payload(name: &str) -> Result<Vec<u8>, ExecError> {
     let mut frame = Vec::with_capacity(1 + body.len());
     frame.push(BUNDLE_OPCODE_GET_PAYLOAD);
     frame.extend_from_slice(&body);
-    client
-        .send(&frame, Wait::Blocking)
-        .map_err(ExecError::Ipc)?;
+    client.send(&frame, Wait::Blocking).map_err(ExecError::Ipc)?;
 
     let response = client.recv(Wait::Blocking).map_err(ExecError::Ipc)?;
     let (opcode, payload) = response
@@ -579,13 +561,10 @@ fn request_bundle_payload(name: &str) -> Result<Vec<u8>, ExecError> {
         .get_root::<get_payload_response::Reader<'_>>()
         .map_err(|err| ExecError::Payload(format!("get_payload root: {err}")))?;
     if !reader.get_ok() {
-        return Err(ExecError::Payload(format!(
-            "bundle {name} payload unavailable"
-        )));
+        return Err(ExecError::Payload(format!("bundle {name} payload unavailable")));
     }
-    let bytes = reader
-        .get_bytes()
-        .map_err(|err| ExecError::Payload(format!("payload bytes: {err}")))?;
+    let bytes =
+        reader.get_bytes().map_err(|err| ExecError::Payload(format!("payload bytes: {err}")))?;
     Ok(bytes.to_vec())
 }
 
@@ -622,7 +601,8 @@ fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
     spawn_reaper_thread();
     let stack_top = child_stack_top();
     let entry_pc = hello_child_entry as usize as u64;
-    let pid = nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT, 0).map_err(ExecError::Spawn)?;
+    let pid =
+        nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT, 0).map_err(ExecError::Spawn)?;
     let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
         .map_err(ExecError::CapTransfer)?;
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
@@ -635,10 +615,7 @@ fn compute_vmo_len(plan: &nexus_loader::LoadPlan, file_len: usize) -> Result<u64
     let mut required =
         align_up(file_len as u64, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)?;
     for seg in &plan.segments {
-        let file_extent = seg
-            .off
-            .checked_add(seg.filesz)
-            .ok_or(ExecError::ImageTooLarge)?;
+        let file_extent = seg.off.checked_add(seg.filesz).ok_or(ExecError::ImageTooLarge)?;
         required = required.max(file_extent);
         let mem_len =
             align_up(seg.memsz, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)?;
@@ -700,15 +677,10 @@ where
     T: Transport,
 {
     loop {
-        match transport
-            .recv()
-            .map_err(|err| ServerError::Transport(err.into()))?
-        {
+        match transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
             Some(frame) => {
                 let response = service.handle_frame(&frame)?;
-                transport
-                    .send(&response)
-                    .map_err(|err| ServerError::Transport(err.into()))?;
+                transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
             }
             None => return Ok(()),
         }
@@ -728,10 +700,8 @@ pub fn daemon_main<R: FnOnce() + Send + 'static>(notify: R) -> ! {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }

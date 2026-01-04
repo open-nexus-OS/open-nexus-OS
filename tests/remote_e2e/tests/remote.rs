@@ -32,40 +32,29 @@ fn remote_roundtrip_and_negative_handshake() {
     let port_b = random_port();
     let node_b =
         Node::start_facade(net, port_b, vec!["samgrd".into(), "bundlemgrd".into()]).unwrap();
-    node_b
-        .register_service("bundlemgrd", 7)
-        .expect("register bundlemgrd");
+    node_b.register_service("bundlemgrd", 7).expect("register bundlemgrd");
 
-    let remote = announcements
-        .find(|ann| ann.device_id() == &node_b.device_id())
-        .expect("discover node b");
+    let remote =
+        announcements.find(|ann| ann.device_id() == &node_b.device_id()).expect("discover node b");
     eprintln!("[remote_e2e] discovered node B at port {}", remote.port());
 
     // Positive resolve path
     eprintln!("[remote_e2e] connecting to node B");
     let connection = node_a.connect(&remote).expect("connect to node b");
-    assert!(connection
-        .resolve("bundlemgrd")
-        .expect("remote resolve succeeds"));
-    assert!(!connection
-        .resolve("missing-service")
-        .expect("missing service resolves to false"));
+    assert!(connection.resolve("bundlemgrd").expect("remote resolve succeeds"));
+    assert!(!connection.resolve("missing-service").expect("missing service resolves to false"));
 
     // Install bundle through the remote bundle manager
     let handle = 42u32;
     connection
         .push_artifact(handle, ArtifactKind::Manifest, MANIFEST.as_bytes())
         .expect("upload manifest");
-    connection
-        .push_artifact(handle, ArtifactKind::Payload, &[0x00])
-        .expect("upload payload");
+    connection.push_artifact(handle, ArtifactKind::Payload, &[0x00]).expect("upload payload");
     assert!(connection
         .install_bundle("demo", handle, MANIFEST.len() as u32)
         .expect("remote install ok"));
-    let version = connection
-        .query_bundle("demo")
-        .expect("query remote bundle")
-        .expect("bundle installed");
+    let version =
+        connection.query_bundle("demo").expect("query remote bundle").expect("bundle installed");
     assert_eq!(version, "1.0.0");
 
     // Tamper with the static key to ensure authentication fails

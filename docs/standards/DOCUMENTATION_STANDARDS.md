@@ -224,6 +224,14 @@ Service files use a specialized format with PUBLIC API and DEPENDS_ON:
 When a change affects architecture, security boundaries, ABI, IPC, capabilities, loader, or testing
 workflow, documentation updates are part of “done”.
 
+### Logging + marker discipline (default)
+
+When introducing or modifying logs/markers:
+
+- Prefer the **shared logging facade** (`nexus-log` / `log_*` macros) and centralized marker helpers.
+- Keep output **deterministic** and **honest** (“no fake success”): only emit `*: ready` / `SELFTEST: ... ok` when the behavior actually happened.
+- Avoid new ad-hoc UART print loops except as a **panic/trap floor** (where allocation/formatting is unsafe).
+
 ### Required updates (rule of thumb)
 
 - **ADRs (`docs/adr/`)**: update the relevant ADR(s) with a short **Current state** section if the
