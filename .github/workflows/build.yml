@@ -1,4 +1,4 @@
-name: Redox Build Check
+name: Open Nexus OS Build Check
 
 on:
   push:
@@ -7,52 +7,142 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  STABLE_TOOLCHAIN: stable
+  NIGHTLY_TOOLCHAIN: nightly-2025-01-15
+  RUSTFLAGS_CHECK_CFG: --check-cfg=cfg(nexus_env,values("host","os"))
+  RUN_OS_SMOKE: "false" # set to "true" to enable the QEMU smoke job
+
 jobs:
-  build-redox:
+  fmt-stable:
+    name: fmt (stable)
     runs-on: ubuntu-latest
-
     steps:
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@v3
-
-      - name: 🧭 Debug - show nexus-assets source contents
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
         run: |
-          set -euxo pipefail
-          ls -la cookbook/recipes/gui/nexus-assets || true
-          ls -la cookbook/recipes/gui/nexus-assets/source || true
+          rustup set profile minimal
+          rustup toolchain install "${STABLE_TOOLCHAIN}"
+          rustup default "${STABLE_TOOLCHAIN}"
+      - name: Cargo fmt check
+        run: cargo fmt --all -- --check
 
-      - name: 🛠 Install Dependencies
+  lint-host:
+    name: lint (host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl build-essential linux-headers-$(uname -r) capnproto
-
-      - name: 🧰 Setup Podman Build Environment
+          sudo apt-get install -y build-essential pkg-config libssl-dev capnproto just
+      - name: Install Rust toolchain
         run: |
-          curl -sf https://gitlab.redox-os.org/redox-os/redox/raw/master/podman_bootstrap.sh -o podman_bootstrap.sh
-          chmod +x podman_bootstrap.sh
-          time bash -e podman_bootstrap.sh <<EOF
-          1
-          1
-          EOF
+          rustup set profile minimal
+          rustup toolchain install "${STABLE_TOOLCHAIN}"
+          rustup default "${STABLE_TOOLCHAIN}"
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-lint-${{ hashFiles('**/Cargo.lock') }}
+      - name: Lint
+        run: just lint
 
-      - name: 🔁 Source Rust Environment
+  tests-host:
+    name: tests (host workspace)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
         run: |
-          source $HOME/.cargo/env
-          rustup show
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev capnproto just
+      - name: Install Rust toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install "${STABLE_TOOLCHAIN}"
+          rustup default "${STABLE_TOOLCHAIN}"
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
+      - name: Host tests (exclude kernel)
+        run: cargo test --workspace --exclude neuron --exclude neuron-boot --exclude nexus-kernel
 
-      - name: ⚙️ Run Initial Setup
+  build-os:
+    name: build (Makefile host mode)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
         run: |
-          chmod +x ./scripts/initial-setup.sh
-          ./scripts/initial-setup.sh
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev capnproto just qemu-system-misc qemu-system-riscv64 mold
+      - name: Install Rust toolchains and targets
+        run: |
+          rustup set profile minimal
+          rustup toolchain install "${STABLE_TOOLCHAIN}"
+          rustup toolchain install "${NIGHTLY_TOOLCHAIN}" --profile minimal
+          rustup target add riscv64imac-unknown-none-elf --toolchain "${STABLE_TOOLCHAIN}"
+          rustup target add riscv64imac-unknown-none-elf --toolchain "${NIGHTLY_TOOLCHAIN}"
+          rustup default "${STABLE_TOOLCHAIN}"
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
+      - name: Make initial-setup
+        run: make initial-setup
+      - name: Make build (host mode)
+        env:
+          CARGO_BIN: cargo
+        run: make build MODE=host
 
-      - name: 🔨 Build OS
+  os-smoke:
+    name: os smoke (QEMU selftest)
+    needs: build-os
+    if: env.RUN_OS_SMOKE == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
         run: |
-          chmod +x ./scripts/build.sh
-          ./scripts/build.sh
-
-      - name: ✅ Check for Build Artifact
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev capnproto just qemu-system-misc qemu-system-riscv64 mold
+      - name: Install Rust toolchains and targets
         run: |
-          if [ ! -f redox/build/x86_64/desktop/harddrive.img ]; then
-            echo "Build artifact missing!"
-            exit 1
-          fi
+          rustup set profile minimal
+          rustup toolchain install "${STABLE_TOOLCHAIN}"
+          rustup toolchain install "${NIGHTLY_TOOLCHAIN}" --profile minimal
+          rustup target add riscv64imac-unknown-none-elf --toolchain "${STABLE_TOOLCHAIN}"
+          rustup target add riscv64imac-unknown-none-elf --toolchain "${NIGHTLY_TOOLCHAIN}"
+          rustup default "${STABLE_TOOLCHAIN}"
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-os-smoke-${{ hashFiles('**/Cargo.lock') }}
+      - name: OS smoke (QEMU selftests)
+        env:
+          RUN_TIMEOUT: 30m
+        run: just test-os
+      - name: Upload uart log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uart-log
+          path: uart.log

@@ -50,8 +50,14 @@ impl InProcDuplex {
         let a_to_b = Arc::new(Mutex::new(VecDeque::<u8>::new()));
         let b_to_a = Arc::new(Mutex::new(VecDeque::<u8>::new()));
 
-        let a = Self { rx: Arc::clone(&b_to_a), tx: Arc::clone(&a_to_b) };
-        let b = Self { rx: a_to_b, tx: b_to_a };
+        let a = Self {
+            rx: Arc::clone(&b_to_a),
+            tx: Arc::clone(&a_to_b),
+        };
+        let b = Self {
+            rx: a_to_b,
+            tx: b_to_a,
+        };
         (a, b)
     }
 }
@@ -60,7 +66,10 @@ impl Read for InProcDuplex {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut rx = self.rx.lock();
         if rx.is_empty() {
-            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no data"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "no data",
+            ));
         }
         let mut n = 0usize;
         while n < buf.len() {
@@ -159,13 +168,26 @@ impl Authenticator for InProcAuthenticator {
         Self::register(port, tx)?;
 
         let (noise_secret, noise_public) = derive_noise_keys(&identity);
-        Ok(Self { port, rx: Mutex::new(rx), identity, noise_secret, noise_public })
+        Ok(Self {
+            port,
+            rx: Mutex::new(rx),
+            identity,
+            noise_secret,
+            noise_public,
+        })
     }
 
     fn accept(&self) -> Result<Self::Session, AuthError> {
-        let mut duplex = self.rx.lock().recv_timeout(Duration::from_secs(5)).map_err(|_| {
-            AuthError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "accept timed out"))
-        })?;
+        let mut duplex = self
+            .rx
+            .lock()
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| {
+                AuthError::Io(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "accept timed out",
+                ))
+            })?;
 
         let (mut transport, device_id) = crate::host::handshake_accept(
             &self.identity,
@@ -181,7 +203,11 @@ impl Authenticator for InProcAuthenticator {
         }
         crate::host::send_connect_response(&mut duplex, &mut transport, true)?;
 
-        Ok(InProcSession { duplex, transport, remote_device: device_id })
+        Ok(InProcSession {
+            duplex,
+            transport,
+            remote_device: device_id,
+        })
     }
 
     fn connect(&self, announcement: &Announcement) -> Result<Self::Session, AuthError> {
@@ -206,7 +232,11 @@ impl Authenticator for InProcAuthenticator {
         if !ok {
             return Err(AuthError::Identity("connection rejected".into()));
         }
-        Ok(InProcSession { duplex: client, transport, remote_device: device_id })
+        Ok(InProcSession {
+            duplex: client,
+            transport,
+            remote_device: device_id,
+        })
     }
 }
 
@@ -224,7 +254,10 @@ impl Session for InProcSession {
     }
 
     fn into_stream(self) -> Result<Self::Stream, SessionError> {
-        Ok(InProcStream { duplex: self.duplex, transport: self.transport })
+        Ok(InProcStream {
+            duplex: self.duplex,
+            transport: self.transport,
+        })
     }
 }
 

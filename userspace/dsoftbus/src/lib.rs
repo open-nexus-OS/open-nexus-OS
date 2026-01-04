@@ -55,7 +55,12 @@ impl Announcement {
         port: u16,
         noise_static: [u8; 32],
     ) -> Self {
-        Self { device_id, services, port, noise_static }
+        Self {
+            device_id,
+            services,
+            port,
+            noise_static,
+        }
     }
 
     /// Returns the announced device id.
@@ -287,8 +292,10 @@ fn host_run() {
     };
 
     // Choose a listening port. Allow override via DSOFTBUS_PORT for integration.
-    let port: u16 =
-        env::var("DSOFTBUS_PORT").ok().and_then(|s| s.parse::<u16>().ok()).unwrap_or(34_567);
+    let port: u16 = env::var("DSOFTBUS_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(34_567);
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
     let authenticator = match HostAuthenticator::bind(addr, identity.clone()) {

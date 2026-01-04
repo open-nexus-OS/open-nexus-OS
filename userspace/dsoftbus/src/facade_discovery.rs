@@ -59,8 +59,9 @@ where
     pub fn new(net: N, bind: SocketAddr, bus: SocketAddr) -> Result<Self, DiscoveryError> {
         let mut net = net;
         let local = to_v4(bind)?;
-        let socket =
-            net.udp_bind(local).map_err(|e| DiscoveryError::Registry(format!("udp_bind: {e}")))?;
+        let socket = net
+            .udp_bind(local)
+            .map_err(|e| DiscoveryError::Registry(format!("udp_bind: {e}")))?;
         Ok(Self {
             net: Arc::new(Mutex::new(net)),
             socket: Arc::new(Mutex::new(socket)),
