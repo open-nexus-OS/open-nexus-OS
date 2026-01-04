@@ -1231,9 +1231,14 @@ fn load_init_elf(
     let mut debug_putc_addr = None;
     let mut debug_write_addr = None;
     // Best-effort symbol resolution: stripped ELFs may not contain `.symtab`.
-    if symtab_offset != 0 && symtab_size != 0 && symtab_entry_size != 0 && strtab_offset != 0 && strtab_size != 0
+    if symtab_offset != 0
+        && symtab_size != 0
+        && symtab_entry_size != 0
+        && strtab_offset != 0
+        && strtab_size != 0
     {
-        if symtab_offset + symtab_size <= bytes.len() && strtab_offset + strtab_size <= bytes.len() {
+        if symtab_offset + symtab_size <= bytes.len() && strtab_offset + strtab_size <= bytes.len()
+        {
             let entry_count = symtab_size / symtab_entry_size;
             for i in 0..entry_count {
                 let entry_off = symtab_offset + i * symtab_entry_size;

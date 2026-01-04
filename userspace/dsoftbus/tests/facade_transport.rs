@@ -26,6 +26,7 @@
 #[cfg(nexus_env = "host")]
 mod host {
     use std::net::SocketAddr;
+    use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -68,6 +69,10 @@ mod host {
             server_auth.local_noise_public(),
         );
 
+        // Determinism guard: avoid a race where the server drops the stream immediately after
+        // sending "pong", and the client observes disconnect before it polls the queued frame.
+        let (ack_tx, ack_rx) = mpsc::channel::<()>();
+
         let server_thread = thread::spawn(move || {
             let session = server_auth.accept().expect("server accept");
             let mut stream = session.into_stream().expect("server into_stream");
@@ -78,6 +83,11 @@ mod host {
             assert_eq!(ping.bytes, b"ping".to_vec());
 
             stream.send(1, b"pong").expect("server send pong");
+
+            // Wait for the client to confirm it received pong before closing the stream.
+            ack_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("server wait pong-ack");
         });
 
         let client_identity = Identity::generate().expect("client identity");
@@ -94,6 +104,7 @@ mod host {
         assert_eq!(pong.channel, 1);
         assert_eq!(pong.bytes, b"pong".to_vec());
 
+        ack_tx.send(()).expect("client send pong-ack");
         server_thread.join().expect("server thread join");
     }
 

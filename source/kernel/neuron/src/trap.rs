@@ -228,8 +228,8 @@ pub fn install_runtime(
     timer: &'static dyn Timer,
     syscalls: &SyscallTable,
 ) -> TrapDomainId {
-    let syscalls_ptr =
-        NonNull::new((syscalls as *const SyscallTable) as *mut SyscallTable).expect("syscall table ptr");
+    let syscalls_ptr = NonNull::new((syscalls as *const SyscallTable) as *mut SyscallTable)
+        .expect("syscall table ptr");
     let runtime = TrapRuntime {
         kernel: KernelHandles {
             scheduler: NonNull::from(scheduler),

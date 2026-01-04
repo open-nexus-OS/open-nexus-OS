@@ -209,7 +209,12 @@ impl KernelState {
                         let frame = task.frame();
                         let is_umode = (frame.sstatus & SSTATUS_SPP) == 0;
                         let is_user_addr = frame.sepc < KERNEL_BASE;
-                        (task.address_space(), frame as *const crate::trap::TrapFrame, is_umode, is_user_addr)
+                        (
+                            task.address_space(),
+                            frame as *const crate::trap::TrapFrame,
+                            is_umode,
+                            is_user_addr,
+                        )
                     }
                 };
 
