@@ -86,6 +86,15 @@ UART markers:
 - `SELFTEST: pkg v1 launch ok`
 - `SELFTEST: pkg v1 uninstall ok`
 
+### Docs gate (keep architecture entrypoints in sync)
+
+- If package install semantics, trust enforcement boundaries, or marker ownership changes, update:
+  - `docs/architecture/04-bundlemgr-manifest.md` (host manifest vs canonical packaging contract, required fields)
+  - `docs/architecture/11-policyd-and-policy-flow.md` (policy/trust gating narrative)
+  - `docs/architecture/12-storage-vfs-packagefs.md` (bundle publication to packagefs/VFS)
+  - `docs/architecture/09-nexus-init.md` (boot-time gating/bring-up where applicable)
+  - and the index `docs/architecture/README.md`
+
 ## Touched paths (allowlist)
 
 - `source/services/bundlemgrd/` (extend)

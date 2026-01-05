@@ -3,53 +3,31 @@
 
 # NEURON Selftest Harness and Continuous Integration
 
-NEURON v0 introduces an in-kernel selftest harness that executes immediately
-after the deterministic boot sequence. The kernel emits a fixed set of UART
-markers to make automated validation straightforward:
+Open Nexus OS follows a **host-first, QEMU-last** testing strategy.
+The OS stack relies on deterministic UART markers as the canonical proof signal for QEMU smoke runs.
 
-```
-NEURON
-boot: ok
-traps: ok
-sys: ok
-SELFTEST: begin
-SELFTEST: time ok
-SELFTEST: ipc ok
-SELFTEST: caps ok
-SELFTEST: map ok
-SELFTEST: sched ok
-SELFTEST: end
-```
-
-The selftest task lives inside the kernel binary and exercises the bootstrap
-scheduler, capability table, IPC router, and Sv39 mapping logic. Dedicated
-assertion macros print failures with a `SELFTEST: fail` prefix so panic
-handling can report the fault and dump register state. Kernel boot and
-selftests consume deterministic time sources: the scheduler slice and timer
-wakeup values are derived from `determinism::fixed_tick_ns()` and any future
-randomised decisions must come from `determinism::seed()`.
+**Important:** this file describes the architecture of the selftest + CI flow.
+The canonical marker contract is implemented by `scripts/qemu-test.sh` and documented in `docs/testing/index.md`.
 
 ## QEMU runner
 
-`scripts/qemu-test.sh` launches the kernel under QEMU in headless mode,
-records UART output to `uart.log`, and asserts that every marker listed above
-is present. The runner also enables tracing (`-d int,mmu,unimp`) and stores
-QEMU diagnostics in `qemu.log`. Setting `DEBUG_QEMU=1` adds a GDB stub so
-kernel failures can be debugged interactively.
+`scripts/qemu-test.sh` is the canonical harness for QEMU smoke:
+
+- boots the OS stack under QEMU headless,
+- records UART output to `uart.log`,
+- records diagnostics to `qemu.log`,
+- and fails if required markers are missing or out-of-order.
+
+Marker details drift quickly; keep them centralized in the harness and the testing guide:
+
+- Marker contract: `scripts/qemu-test.sh`
+- Testing guide (methodology + marker sequence notes): `docs/testing/index.md`
 
 ## CI pipeline
 
-`.github/workflows/ci.yml` wires these checks into the public CI pipeline. The
-workflow performs the following steps on an Ubuntu runner:
+CI lives under `.github/workflows/`:
 
-1. Install the stable Rust toolchain plus the `riscv64imac-unknown-none-elf`
-   target.
-2. Install QEMU (`qemu-system-misc`).
-3. Run `cargo fmt --all --check` and `cargo clippy --all-targets --all-features -D warnings`.
-4. Execute `cargo nextest run --workspace` for fast unit and property tests.
-5. Run Miri on host-first crates via `env RUSTFLAGS='--cfg nexus_env="host"' cargo miri test -p samgr -p bundlemgr`.
-6. Launch `just test-os`, which delegates to the QEMU harness described above.
+- `ci.yml`: host-first checks (fmt/clippy/tests, remote E2E, Miri, deadcode scan) and a bounded QEMU run via `scripts/qemu-test.sh`.
+- `build.yml`: build verification (includes `make initial-setup` and `make build MODE=host`; optional OS smoke job).
 
-On failure the CI workflow uploads `uart.log` and `qemu.log` artifacts to aid
-triage. Deterministic boot guarantees that repeated CI runs remain stable even
-when QEMU timing fluctuates.
+On failure, CI uploads `uart.log` / `qemu.log` to aid triage. Determinism is enforced via stable marker strings and marker-driven early exit.

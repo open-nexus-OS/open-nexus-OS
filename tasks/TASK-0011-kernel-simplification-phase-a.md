@@ -68,6 +68,8 @@ Anything outside these areas is out of scope unless it is a purely mechanical he
 ## Stop conditions (Definition of Done)
 
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` passes with **no marker list changes**.
+- Docs stay in sync:
+  - If any kernel-visible contracts are clarified (syscall names/IDs, scheduler invariants, acceptance marker semantics), update `docs/architecture/01-neuron-kernel.md` and the index `docs/architecture/README.md`.
 
 ## Touched paths (allowlist)
 

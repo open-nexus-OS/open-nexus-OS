@@ -43,3 +43,9 @@ out-of-band via VMOs and `map()`.
 - Don’t touch without RFC/ADR: syscall IDs/ABI, trap prologue/epilogue, kernel memory map/SATP assumptions.
 
 Canonical: this is the single architecture page. For deeper details, read the source files listed above.
+
+## Architecture index (start here for deeper docs)
+
+For onboarding-friendly architecture notes and stable entrypoints into subsystem docs, see:
+
+- `docs/architecture/README.md`

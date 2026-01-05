@@ -64,6 +64,7 @@ Boot with SMP enabled (e.g. QEMU `-smp 2`) and prove:
 
 - `docs/architecture/01-neuron-kernel.md` (scheduler overview + determinism)
 - KSELFTEST marker contract (must be added/updated in kernel selftests)
+- QEMU acceptance harness + marker ordering contract: `scripts/qemu-test.sh` (and `docs/testing/index.md`)
 
 ## Stop conditions (Definition of Done)
 
@@ -73,6 +74,8 @@ Boot with SMP enabled (e.g. QEMU `-smp 2`) and prove:
   - `KSELFTEST: ipi resched ok`
   - `KSELFTEST: work stealing ok`
 - Single-hart run (SMP=1) remains green with existing markers.
+- Docs stay in sync:
+  - Update `docs/architecture/01-neuron-kernel.md` and `docs/architecture/README.md` to reflect any new SMP invariants/markers and any scheduler model changes.
 
 ## Touched paths (allowlist)
 

@@ -129,6 +129,15 @@ Notes:
 - Postflight scripts (if added) must **only** delegate to canonical harness/tests; no `uart.log` greps as “truth”.
  - Update payload containers in this repo should follow the system-set direction from this task (no zip/manifest.json “NUP” contract without an explicit format decision).
 
+### Docs gate (keep architecture entrypoints in sync)
+
+- If packaging/manifest contract, init orchestration for updates, or bundle publication semantics change, update:
+  - `docs/architecture/09-nexus-init.md`
+  - `docs/architecture/15-bundlemgrd.md`
+  - `docs/architecture/04-bundlemgr-manifest.md`
+  - `docs/architecture/07-contracts-map.md`
+  - and the index `docs/architecture/README.md`
+
 ## Touched paths (allowlist)
 
 - `tools/nxb-pack/` (extend manifest output to v1.1 once contract chosen)

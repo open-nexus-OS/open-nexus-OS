@@ -98,6 +98,14 @@ UART markers:
 - `SELFTEST: smp ipi ok`
 - `SELFTEST: pkgfs virtio ro ok`
 
+### Docs gate (keep architecture entrypoints in sync)
+
+- If bring-up sequencing, storage mount semantics, or marker ownership changes, update:
+  - `docs/architecture/06-boot-and-bringup.md` (boot/bring-up pipeline)
+  - `docs/architecture/09-nexus-init.md` (bring-up orchestration)
+  - `docs/architecture/12-storage-vfs-packagefs.md` (packagefs/vfs responsibilities and proofs)
+  - and the index `docs/architecture/README.md`
+
 ## Touched paths (allowlist)
 
 - `pkg://dts/virt-nexus.dts` (extend: SMP harts, virtio-blk device)

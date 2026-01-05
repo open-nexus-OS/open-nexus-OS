@@ -76,6 +76,14 @@ Deliver:
 - `pkgr sign/verify` roundtrips deterministically (using a fixed test key)
 - `pkgr inspect` output is stable (golden)
 
+### Docs gate (keep architecture entrypoints in sync)
+
+- If the canonical `.nxb`/`manifest.nxb` contract, signing semantics, or the relationship between tooling and `bundlemgrd` changes, update:
+  - `docs/architecture/04-bundlemgr-manifest.md` (host-first TOML vs canonical OS packaging contract)
+  - `docs/architecture/10-execd-and-loader.md` (packaging ↔ execution handshake overview)
+  - `docs/architecture/07-contracts-map.md` (contract map pointers)
+  - and the index `docs/architecture/README.md`
+
 ## Touched paths (allowlist)
 
 - `tools/pkgr/` (new)

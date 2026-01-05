@@ -81,6 +81,13 @@ Establish and enforce a single-authority runtime model:
   - Required behavior:
     - init marker chain remains intact (no regression relative to `TASK-0002`)
 
+- **Docs gate (keep architecture entrypoints in sync)**:
+  - If this task is ever revisited or the init/spawn/load authority boundaries change, update (or create) the corresponding architecture landing pages:
+    - `docs/architecture/09-nexus-init.md`
+    - `docs/architecture/10-execd-and-loader.md`
+    - `docs/architecture/05-system-map-and-boundaries.md`
+    - and the index `docs/architecture/README.md`
+
 Notes:
 
 - Postflight scripts are not proof unless they only delegate to the canonical harness/tests and do not invent their own “OK”.

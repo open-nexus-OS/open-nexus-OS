@@ -26,17 +26,30 @@ The system security roadmap is intentionally hybrid:
 
 ## Syscall Surface
 
-| Number | Symbol          | Description |
-| ------ | --------------- | ----------- |
-| 0      | `yield`         | Rotate the scheduler and return the next runnable task id. Activates the target task's address space. |
-| 1      | `nsec`          | Return the monotonic time in nanoseconds derived from the `time` CSR. |
-| 2      | `send`          | Send an IPC message via an endpoint capability. |
-| 3      | `recv`          | Receive the next pending IPC message. |
-| 4      | `map`           | Map a page from a VMO capability into the caller's active address space. |
-| 7      | `spawn`         | Create a child task. The child runs in a dedicated Sv39 address space (fresh by default) with a guarded stack. |
-| 8      | `cap_transfer`  | Duplicate/grant a capability to another task with a rights mask (subset-only). |
-| 9      | `as_create`     | Allocate a new Sv39 address space and return its opaque handle. |
-| 10     | `as_map`        | Map a VMO into a *target* address space identified by handle. Enforces W^X at the syscall boundary. |
+The syscall surface is intentionally small but evolves during bring-up.
+The authoritative list (including numeric IDs) lives in `source/kernel/neuron/src/syscall/mod.rs`.
+
+| Number | Symbol             | Description |
+| ------ | ------------------ | ----------- |
+| 0      | `yield`            | Rotate the scheduler and return the next runnable task id. Activates the target task's address space. |
+| 1      | `nsec`             | Return the monotonic time in nanoseconds derived from the `time` CSR. |
+| 2      | `send`             | Send an IPC message via an endpoint capability. |
+| 3      | `recv`             | Receive the next pending IPC message. |
+| 4      | `map`              | Map a page from a VMO capability into the caller's active address space. |
+| 5      | `vmo_create`       | Create a VMO capability. |
+| 6      | `vmo_write`        | Write bytes into a VMO capability. |
+| 7      | `spawn`            | Create a child task (fresh Sv39 AS by default) with a guarded stack. |
+| 8      | `cap_transfer`     | Duplicate/grant a capability to another task with a rights mask (subset-only). |
+| 9      | `as_create`        | Allocate a new Sv39 address space and return its opaque handle. |
+| 10     | `as_map`           | Map a VMO into a *target* address space identified by handle. Enforces W^X at the syscall boundary. |
+| 11     | `exit`             | Terminate the current task. |
+| 12     | `wait`             | Wait for a child task exit. |
+| 13     | `exec`             | Execute an ELF payload (loader path). |
+| 14     | `ipc_send_v1`      | Kernel IPC v1 send (payload copy-in) (see RFC‑0005). |
+| 18     | `ipc_recv_v1`      | Kernel IPC v1 recv (payload copy-out) (see RFC‑0005). |
+| 19     | `ipc_endpoint_create` | Create a kernel IPC endpoint (privileged) (see RFC‑0005). |
+| 27     | `mmio_map`         | Map a device MMIO capability window into the caller AS (USER|RW, never EXEC). |
+| 28     | `cap_query`        | Query a capability slot (kind/base/len) into a user buffer (driver bring-up primitive). |
 
 Errors follow the conventional POSIX encoding: handlers return
 `-errno` (two's complement) in `a0`. Key codes used by the current
@@ -188,3 +201,8 @@ implementations used by the kernel.
 - `just qemu` (backed by `scripts/run-qemu-rv64.sh`) launches
   `qemu-system-riscv64` with the freshly built kernel archive to confirm
   the boot banner and trap setup execute without crashing.
+
+For deterministic QEMU acceptance (marker contract + ordering), use the canonical harness:
+
+- `scripts/qemu-test.sh` (contract implementation)
+- `docs/testing/index.md` (methodology + marker guidance)

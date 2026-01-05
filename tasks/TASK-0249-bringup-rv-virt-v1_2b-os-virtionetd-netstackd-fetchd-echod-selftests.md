@@ -122,6 +122,14 @@ UART markers:
 - `SELFTEST: net fetch echo ok`
 - `SELFTEST: net udp echo ok`
 
+### Docs gate (keep architecture entrypoints in sync)
+
+- If init sequencing, networking owner boundaries, or marker ownership changes, update (or create):
+  - `docs/architecture/06-boot-and-bringup.md` (boot/bring-up pipeline)
+  - `docs/architecture/09-nexus-init.md` (bring-up orchestration order + init marker ownership)
+  - `docs/architecture/07-contracts-map.md` (contract pointers for networking bring-up vs baseline tasks)
+  - and the index `docs/architecture/README.md`
+
 ## Touched paths (allowlist)
 
 - `pkg://dts/virt-nexus.dts` (extend: virtio-net device)

@@ -97,6 +97,13 @@ Deliver:
     - `SELFTEST: keystore v1.1 seal ok`
     - `SELFTEST: keystore v1.1 attest ok`
 
+- **Docs gate (keep architecture entrypoints in sync)**:
+  - If identity/keystore authority boundaries, trust-store locations, or attestation semantics change, update (or create):
+    - `docs/architecture/13-identity-and-keystore.md`
+    - `docs/architecture/11-policyd-and-policy-flow.md` (capability gates + trust policy)
+    - `docs/architecture/09-nexus-init.md` (boot-time orchestration/gating where applicable)
+    - and the index `docs/architecture/README.md`
+
 ## Touched paths (allowlist)
 
 - `source/services/keystored/`
@@ -120,4 +127,3 @@ Deliver:
 
 - OS/QEMU selftests prove sign/rotate/seal/attest markers deterministically.
 - Trust store consumption is unified (one code path), and persistence is gated explicitly on `/state`.
-

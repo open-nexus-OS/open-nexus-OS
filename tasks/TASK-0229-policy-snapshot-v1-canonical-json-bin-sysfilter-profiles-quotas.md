@@ -91,6 +91,13 @@ Once `policyd` + sysfilter + profile application are real:
 
 - QEMU markers proving the kernel received a sysfilter profile and applied it (`TASK-0188` markers).
 
+## Docs gate (keep architecture entrypoints in sync)
+
+- If policy authority boundaries, snapshot semantics, or “where enforcement happens” changes, update:
+  - `docs/architecture/11-policyd-and-policy-flow.md`
+  - `docs/architecture/07-contracts-map.md` (contract pointers)
+  - and the index `docs/architecture/README.md`
+
 ## Snapshot content (v1 minimum)
 
 - **Header**: magic, version, `tree_sha256[32]`.

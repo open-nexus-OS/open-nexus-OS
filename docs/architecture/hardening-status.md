@@ -17,3 +17,9 @@ This checklist captures the state of the hardening objectives from the October 1
 **Current state note (2025-12-18):** syscall handlers return expected errors as `-errno` in `a0`.
 The kernel may still terminate tasks in true “no forward progress” situations (e.g. repeated
 ECALL storms), but ordinary syscall errors are returned to userspace.
+
+## Related canonical references
+
+- Kernel overview: `docs/architecture/01-neuron-kernel.md`
+- Kernel + layering quick reference: `docs/ARCHITECTURE.md`
+- Testing methodology and CI marker discipline: `docs/testing/index.md` and `scripts/qemu-test.sh`

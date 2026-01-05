@@ -3,8 +3,11 @@
 
 # Service Manager (samgr) Host Backend
 
-The userspace service manager crate (`samgr`) provides a host-first
-implementation of the service registry used by NEURON. When compiled with
+**Scope:** this page documents the **host-first** `userspace/samgr` library.  
+For the OS service manager daemon, see `docs/architecture/14-samgrd-service-manager.md`.
+
+The userspace service manager crate (`userspace/samgr`) provides a **host-first**
+service registry used by tests and host harnesses. When compiled with
 `RUSTFLAGS='--cfg nexus_env="host"'`, it exposes an in-memory registry with the following API:
 
 - `register(name, endpoint) -> ServiceHandle` registers a service if the name
@@ -31,6 +34,9 @@ reject stale handles after a restart. The host backend stores service records
 inside a `parking_lot::Mutex<HashMap<_, _>>`, making it suitable for property
 and unit tests without kernel dependencies.
 
-The OS backend (`nexus_env="os"`) is a stub that always returns
-`Error::Unsupported`. Future work will wire this variant into the actual
-system call layer once the kernel exposes registry primitives.
+## Relationship to the OS
+
+The `samgr` crate is intentionally **not** the OS service manager implementation.
+The OS uses the `samgrd` daemon (see `docs/adr/0017-service-architecture.md`) and routes requests via IPC (`userspace/nexus-ipc`) and IDL bindings (`userspace/nexus-idl-runtime`).
+
+The `nexus_env="os"` backend in `userspace/samgr` remains a stub that returns `Error::Unsupported` to prevent accidental “in-proc registry” drift in OS builds.

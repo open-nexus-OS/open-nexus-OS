@@ -101,6 +101,13 @@ UART markers:
 - `SELFTEST: ability backoff+unblock ok`
 - `SELFTEST: ability intent ok`
 
+### Docs gate (keep architecture entrypoints in sync)
+
+- If `samgrd` hooks / service discovery contracts or `execd` exit-notification contracts change, update (or create):
+  - `docs/architecture/14-samgrd-service-manager.md`
+  - `docs/architecture/10-execd-and-loader.md`
+  - and the index `docs/architecture/README.md`
+
 ## Touched paths (allowlist)
 
 - `source/services/appmgrd/` (extend: lifecycle v1.1 + FG/BG policies; rename/replace `source/services/abilitymgr/` placeholder)
