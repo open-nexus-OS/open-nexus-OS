@@ -1,3 +1,6 @@
+// Copyright 2025 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Tests for nexus_interface! macro descriptor generation
 //! OWNERS: @runtime
 //! STATUS: Functional
@@ -25,9 +28,8 @@ nexus_interface!(interface sample {
 struct Impl;
 
 impl sample::Service for Impl {
-    fn hello(&self) -> () {
-        ()
-    }
+    #[allow(clippy::unused_unit)]
+    fn hello(&self) -> () {}
 }
 
 #[test]

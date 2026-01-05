@@ -1,3 +1,25 @@
+// Copyright 2025 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Host-side unit tests for the VirtIO block driver stub (capacity + read path).
+//! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test
+//!
+//! TEST_SCOPE:
+//!   - Capacity report behavior
+//!   - Read-block call wiring against a stub Bus/DMA buffer
+//!
+//! TEST_SCENARIOS:
+//!   - capacity_and_read(): Capacity is computed and read path is callable
+//!
+//! DEPENDENCIES:
+//!   - nexus_hal::{Bus, DmaBuffer}: test stubs
+//!   - storage_virtio_blk::VirtioBlk: driver under test
+//!
+//! ADR: docs/architecture/01-neuron-kernel.md
+
 use nexus_hal::{Bus, DmaBuffer};
 use storage_virtio_blk::VirtioBlk;
 
@@ -34,7 +56,7 @@ impl DmaBuffer for BufStub {
 #[test]
 fn capacity_and_read() {
     let blk = VirtioBlk::new(BusStub);
-    assert_eq!(blk.capacity(), (1_u64 << 32) | 0);
+    assert_eq!(blk.capacity(), 1_u64 << 32);
     let mut buf = BufStub;
     blk.read_block(&mut buf);
     assert_eq!(buf.len(), 512);

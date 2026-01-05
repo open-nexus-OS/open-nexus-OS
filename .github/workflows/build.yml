@@ -1,3 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: GitHub Actions workflow for Open Nexus OS (fmt, lint, host tests, OS build, optional QEMU smoke).
+# OWNERS: @tools-team
+# STATUS: Functional
+# API_STABILITY: Stable
+# TEST_COVERAGE: No tests
+# ADR: docs/architecture/02-selftest-and-ci.md
+
 name: Open Nexus OS Build Check
 
 on:
@@ -12,6 +21,7 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2025-01-15
   RUSTFLAGS_CHECK_CFG: --check-cfg=cfg(nexus_env,values("host","os"))
   RUN_OS_SMOKE: "false" # set to "true" to enable the QEMU smoke job
+  CARGO_DENY_VERSION: "0.20.10"
 
 jobs:
   fmt-stable:
@@ -105,6 +115,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install cargo-deny (pinned)
+        run: cargo install --locked cargo-deny --version "${CARGO_DENY_VERSION}"
       - name: Make initial-setup
         run: make initial-setup
       - name: Make build (host mode)

@@ -1,6 +1,12 @@
+// Copyright 2025 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg_attr(not(test), no_std)]
 //! CONTEXT: Declarative macro for defining service interfaces and descriptors
 //! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 unit test
 //! PUBLIC API: nexus_interface! macro
 //! DEPENDS_ON: core
 //! INVARIANTS: Macro expands to trait + descriptor() list; no runtime deps
@@ -38,9 +44,8 @@ mod tests {
             token
         }
 
-        fn shutdown(&self) -> () {
-            ()
-        }
+        #[allow(clippy::unused_unit)]
+        fn shutdown(&self) -> () {}
     }
 
     #[test]

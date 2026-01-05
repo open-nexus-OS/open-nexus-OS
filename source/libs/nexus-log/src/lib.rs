@@ -1,11 +1,19 @@
-#![no_std]
+// Copyright 2025 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
 
-//! Minimal logging shim shared by kernel and userspace.
+//! CONTEXT: Unified, deterministic logging facade shared by kernel and userspace.
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/rfcs/RFC-0003-unified-logging.md
 //!
 //! This is the first step toward RFC-0003 (unified logging). For now it only
 //! offers raw line emission with compile-time level gating and a per-domain
 //! prefix. Future work (tracked in the RFC) will layer richer routing,
 //! formatting, and runtime configuration on top.
+
+#![no_std]
 
 use core::fmt;
 use core::ops::{BitOr, BitOrAssign};
@@ -297,7 +305,7 @@ impl BitOrAssign for Topic {
 
 pub const TOPIC_GENERAL: Topic = Topic::bit(0);
 
-impl<'a, 'meta> LineBuilder<'a, 'meta> {
+impl LineBuilder<'_, '_> {
     pub fn text(&mut self, text: &str) {
         self.text_ref(StrRef::new(text));
     }
@@ -412,7 +420,7 @@ impl<'a, 'meta> LineBuilder<'a, 'meta> {
     }
 }
 
-impl<'a> sink::Sink<'a> {
+impl sink::Sink<'_> {
     fn write_str(&mut self, s: &str) {
         self.write_bytes(s.as_bytes());
     }
@@ -863,6 +871,7 @@ mod sink_userspace {
     }
 
     impl<'meta> Sink<'meta> {
+        #[allow(dead_code)]
         pub fn new(level: Level, target: &'meta str, topic: Topic) -> Self {
             Self { level, target, _topic: topic }
         }
@@ -1000,6 +1009,7 @@ mod sink_kernel {
     }
 
     impl<'meta> Sink<'meta> {
+        #[allow(dead_code)]
         pub fn new(level: Level, target: &'meta str, topic: Topic) -> Self {
             Self { level, target, topic }
         }

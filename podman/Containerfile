@@ -1,3 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Containerized build environment for Open Nexus OS (toolchain + QEMU + security/lint tools).
+# OWNERS: @tools-team
+# STATUS: Functional
+# API_STABILITY: Stable
+# TEST_COVERAGE: No tests
+# ADR: docs/architecture/02-selftest-and-ci.md
+
 FROM debian:stable-slim
 
 ARG USER=builder
@@ -30,11 +39,14 @@ ENV RUSTUP_HOME=/home/${USER}/.rustup
 ENV CARGO_HOME=/home/${USER}/.cargo
 ENV PATH=${CARGO_HOME}/bin:${PATH}
 
+ARG CARGO_DENY_VERSION=0.20.10
+
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable
 RUN rustup target add riscv64imac-unknown-none-elf --toolchain nightly-2025-01-15
 RUN rustup toolchain install nightly-2025-01-15 --profile minimal
 RUN rustup target add riscv64imac-unknown-none-elf --toolchain stable
-RUN cargo install cargo-deny cargo-udeps cargo-nextest cargo-fuzz
+RUN cargo install --locked cargo-deny --version ${CARGO_DENY_VERSION}
+RUN cargo install --locked cargo-udeps cargo-nextest cargo-fuzz
 RUN chmod -R a+rx /home/${USER}/.rustup /home/${USER}/.cargo && \
     ln -sf /home/${USER}/.cargo/bin/* /usr/local/bin/
 

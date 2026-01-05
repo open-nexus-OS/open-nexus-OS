@@ -1,9 +1,15 @@
-// CONTEXT: Keystored daemon – loads anchor keys and verifies signatures via Cap'n Proto IPC
-// OWNERS: @services-team
-// PUBLIC API: service_main_loop(), daemon_main(), loopback_transport()
-// DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystore lib
-// INVARIANTS: Separate from SAMgr/BundleMgr roles; stable readiness prints
-// ADR: docs/adr/0017-service-architecture.md
+// Copyright 2025 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Keystored daemon – loads anchor keys and verifies signatures via Cap'n Proto IPC.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test
+//! PUBLIC API: service_main_loop(), daemon_main(), loopback_transport()
+//! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystore lib
+//! INVARIANTS: Separate from SAMgr/BundleMgr roles; stable readiness prints
+//! ADR: docs/adr/0017-service-architecture.md
 
 use std::collections::HashMap;
 use std::env;
@@ -466,8 +472,8 @@ mod tests {
         let mut store = AnchorStore::new(Vec::new());
         assert_eq!(store.len(), 0);
 
-        let key = PublicKey::from_bytes(&[0u8; 32].into()).unwrap();
-        store = AnchorStore::new(vec![key.clone()]);
+        let key = PublicKey::from_bytes(&[0u8; 32]).unwrap();
+        store = AnchorStore::new(vec![key]);
         assert_eq!(store.len(), 1);
         let expected = keystore::device_id(&key);
         assert_eq!(store.primary_id(), Some(expected.as_str()));

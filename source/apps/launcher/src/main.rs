@@ -20,14 +20,6 @@
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 nexus_service_entry::declare_entry!(os_entry);
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn message_constant() {
-        assert_eq!("Launcher started", "Launcher started");
-    }
-}
-
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
 fn main() {
     // Placeholder launcher entrypoint; emits a deterministic message to avoid unused-bin errors.
@@ -39,5 +31,13 @@ fn os_entry() -> core::result::Result<(), ()> {
     let _ = nexus_abi::debug_println("launcher: placeholder (no apps configured)");
     loop {
         let _ = nexus_abi::yield_();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn message_constant() {
+        assert_eq!("Launcher started", "Launcher started");
     }
 }
