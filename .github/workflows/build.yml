@@ -24,8 +24,11 @@ jobs:
           rustup set profile minimal
           rustup toolchain install "${STABLE_TOOLCHAIN}"
           rustup default "${STABLE_TOOLCHAIN}"
-      - name: Cargo fmt check
-        run: cargo fmt --all -- --check
+          rustup toolchain install "${NIGHTLY_TOOLCHAIN}" --profile minimal --component rustfmt
+      - name: Cargo fmt check (stable, all)
+        run: cargo +${STABLE_TOOLCHAIN} fmt --all -- --config-path config/rustfmt.toml --check
+      - name: Cargo fmt check (kernel, nightly)
+        run: cargo +${NIGHTLY_TOOLCHAIN} fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml --check
 
   lint-host:
     name: lint (host)
