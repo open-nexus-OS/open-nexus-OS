@@ -37,9 +37,7 @@ fn recv_with_deadline<S: Stream>(
 ) -> Result<dsoftbus::FramePayload, dsoftbus::StreamError> {
     loop {
         if Instant::now() > deadline {
-            return Err(dsoftbus::StreamError::Protocol(
-                "timed out waiting for frame".into(),
-            ));
+            return Err(dsoftbus::StreamError::Protocol("timed out waiting for frame".into()));
         }
         if let Some(frame) = stream.recv()? {
             return Ok(frame);
