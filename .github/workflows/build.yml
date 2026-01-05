@@ -21,7 +21,7 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2025-01-15
   RUSTFLAGS_CHECK_CFG: --check-cfg=cfg(nexus_env,values("host","os"))
   RUN_OS_SMOKE: "false" # set to "true" to enable the QEMU smoke job
-  CARGO_DENY_VERSION: "0.20.10"
+  CARGO_DENY_VERSION: "0.18.9"
 
 jobs:
   fmt-stable:

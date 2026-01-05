@@ -39,7 +39,7 @@ ENV RUSTUP_HOME=/home/${USER}/.rustup
 ENV CARGO_HOME=/home/${USER}/.cargo
 ENV PATH=${CARGO_HOME}/bin:${PATH}
 
-ARG CARGO_DENY_VERSION=0.20.10
+ARG CARGO_DENY_VERSION=0.18.9
 
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable
 RUN rustup target add riscv64imac-unknown-none-elf --toolchain nightly-2025-01-15
