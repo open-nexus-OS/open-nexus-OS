@@ -50,7 +50,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 )))]
 fn main() {
     if let Err(err) = run() {
-        eprintln!("selftest: {err}");
+        eprintln!("selftest: {err:?}");
     }
 }
 
