@@ -22,6 +22,7 @@ env:
   RUSTFLAGS_CHECK_CFG: --check-cfg=cfg(nexus_env,values("host","os"))
   RUN_OS_SMOKE: "false" # set to "true" to enable the QEMU smoke job
   CARGO_DENY_VERSION: "0.18.9"
+  DENY_TOOLCHAIN: "1.88.0"
 
 jobs:
   fmt-stable:
@@ -115,8 +116,10 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install cargo-deny toolchain (pinned)
+        run: rustup toolchain install "${DENY_TOOLCHAIN}" --profile minimal
       - name: Install cargo-deny (pinned)
-        run: cargo install --locked cargo-deny --version "${CARGO_DENY_VERSION}"
+        run: cargo +"${DENY_TOOLCHAIN}" install --locked cargo-deny --version "${CARGO_DENY_VERSION}"
       - name: Make initial-setup
         run: make initial-setup
       - name: Make build (host mode)

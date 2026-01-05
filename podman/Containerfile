@@ -40,12 +40,14 @@ ENV CARGO_HOME=/home/${USER}/.cargo
 ENV PATH=${CARGO_HOME}/bin:${PATH}
 
 ARG CARGO_DENY_VERSION=0.18.9
+ARG DENY_TOOLCHAIN=1.88.0
 
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable
 RUN rustup target add riscv64imac-unknown-none-elf --toolchain nightly-2025-01-15
 RUN rustup toolchain install nightly-2025-01-15 --profile minimal
 RUN rustup target add riscv64imac-unknown-none-elf --toolchain stable
-RUN cargo install --locked cargo-deny --version ${CARGO_DENY_VERSION}
+RUN rustup toolchain install ${DENY_TOOLCHAIN} --profile minimal
+RUN cargo +${DENY_TOOLCHAIN} install --locked cargo-deny --version ${CARGO_DENY_VERSION}
 RUN cargo install --locked cargo-udeps cargo-nextest cargo-fuzz
 RUN chmod -R a+rx /home/${USER}/.rustup /home/${USER}/.cargo && \
     ln -sf /home/${USER}/.cargo/bin/* /usr/local/bin/
