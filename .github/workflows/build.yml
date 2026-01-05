@@ -112,9 +112,7 @@ jobs:
   os-smoke:
     name: os smoke (QEMU selftest)
     needs: build-os
-    env:
-      RUN_OS_SMOKE: ${{ vars.RUN_OS_SMOKE || 'false' }}
-    if: ${{ env.RUN_OS_SMOKE == 'true' }}
+    if: ${{ vars.RUN_OS_SMOKE == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
