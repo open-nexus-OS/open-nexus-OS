@@ -43,7 +43,7 @@ pub struct SpinLockGuard<'a, T: ?Sized> {
     lock: &'a SpinLock<T>,
 }
 
-impl<'a, T: ?Sized> Deref for SpinLockGuard<'a, T> {
+impl<T: ?Sized> Deref for SpinLockGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -51,13 +51,13 @@ impl<'a, T: ?Sized> Deref for SpinLockGuard<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> DerefMut for SpinLockGuard<'a, T> {
+impl<T: ?Sized> DerefMut for SpinLockGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.lock.value.get() }
     }
 }
 
-impl<'a, T: ?Sized> Drop for SpinLockGuard<'a, T> {
+impl<T: ?Sized> Drop for SpinLockGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.unlock();
     }
