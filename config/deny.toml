@@ -1,2 +1,19 @@
 [licenses]
-allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause"]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "ISC",
+    "Unicode-3.0",
+]
+
+[advisories]
+# Host/bring-up note: we keep cargo-deny strict in CI, but we temporarily ignore
+# atomic-polyfill unmaintained while smoltcp/heapless are still in bring-up.
+ignore = [
+    # atomic-polyfill is archived/unmaintained; transitively via heapless -> smoltcp.
+    # Track removal by upgrading smoltcp/heapless to a portable-atomic based stack.
+    "RUSTSEC-2023-0089",
+]
