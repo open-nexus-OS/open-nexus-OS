@@ -1,9 +1,9 @@
 # RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions over sockets facade)
 
-- Status: In Progress (Phase 0 ✅, Phase 1 loopback ✅ real Noise XK, Phase 1 full → TASK-0004)
+- Status: In Progress (Phase 0 ✅, Phase 1 loopback ✅, Phase 1 full → TASK-0004)
 - Owners: @runtime
 - Created: 2026-01-01
-- Last Updated: 2026-01-07 (real Noise XK handshake implemented)
+- Last Updated: 2026-01-07
 - Links:
   - Tasks (execution + proof): `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
   - Follow-up Noise handshake: `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
@@ -28,7 +28,7 @@
     - `cd /home/jenning/open-nexus-OS && just test-host`
     - `cd /home/jenning/open-nexus-OS && just test-e2e`
 - **Phase 1 (OS/QEMU: UDP discovery + TCP sessions)**: 🟨 (**in progress; networking ownership slice is now proven**)  
-  - `dsoftbusd` now emits a bounded, versioned UDP announce/recv proof over the netstackd facade (loopback scope), performs a bounded challenge/response identity check (client pub + server pub + nonce-derived tag) with marker `dsoftbusd: auth ok`, and keeps the TCP session proof green in `just test-os`.
+  - `dsoftbusd` now emits a bounded, versioned UDP announce/recv proof over the netstackd facade (loopback scope), performs a real **Noise XK** handshake with **identity binding** (bring-up test keys; keystored integration is a follow-up) with marker `dsoftbusd: auth ok`, and keeps the TCP session proof green in `just test-os`.
   - **Done (prerequisites)**:
     - OS/QEMU userspace networking marker gates exist (from RFC‑0006 / `TASK-0003`):
       - `net: smoltcp iface up 10.0.2.15`
@@ -39,7 +39,7 @@
     - `netstackd` owns virtio-net + smoltcp and exports a minimal IPC sockets facade (v0).
     - `dsoftbusd` is wired into os-lite init and proves:
       - **bounded UDP announce/recv v1 (loopback scope)** over the netstackd facade.
-      - **bounded identity gate (pubkey + signature blob) + local-only TCP session** over the same facade.
+      - **Noise XK handshake + identity binding + local-only TCP session** over the same facade.
     - Marker proof exists and is gated in `scripts/qemu-test.sh`:
       - `dsoftbusd: os transport up (udp+tcp)`
       - `dsoftbusd: auth ok`
@@ -57,35 +57,6 @@
 - **Phase 2 (Follow-ups)**: ⬜
   - **Next**:
     - Discovery hardening (rate limits, replay handling policy, negative-case stress) and additional on-wire versions (each with golden vectors).
-    - **RPC Format Migration**: Migrate remote service calls from OS-lite byte frames to schema-based RPC (Cap'n Proto). See "RPC Format Migration Path" below.
-- **Phase 3 (QUIC Transport)**: ⬜
-  - Replace TCP + custom framing with QUIC (IETF RFC 9000) for transport.
-  - Keep Noise XK for handshake crypto (not TLS 1.3).
-  - See TASK-0021 for implementation.
-
-### RPC Format Migration Path (Technical Debt)
-
-**Current state (Phase 1 bring-up):**
-- TASK-0005 remote proxy uses **OS-lite byte frames** (`SM`, `BN` magic)
-- TASK-0016/0017 follow the same pattern (`PK`, statefs frames)
-- This is a **conscious shortcut** to avoid schema dependencies during bring-up
-
-**Target state (Phase 2+):**
-- Migrate to **Cap'n Proto IDL** or equivalent stable schema
-- Benefits: schema evolution, versioning, cross-language tooling
-- Aligns with OpenHarmony DSoftBus IDL and Fuchsia FIDL patterns
-
-**Migration trigger:**
-- When TASK-0020 (Streams v2 Mux) lands — natural refactor point
-- Or when TASK-0021 (QUIC) lands — new transport = new RPC layer
-
-**Affected tasks:**
-- TASK-0005: Remote proxy (samgrd/bundlemgrd)
-- TASK-0016: Remote PackageFS
-- TASK-0017: Remote StateFS
-- Any new remote service
-
-**Tracking:** Create dedicated RFC "DSoftBus RPC Schema v1" when migration begins.
 
 Definition:
 
@@ -337,15 +308,32 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/q
 ### Phase 1 implementation checklist (OS/QEMU transport)
 
 - [x] OS/QEMU networking prerequisite markers are gated in `scripts/qemu-test.sh` (see Phase 1 prereqs above).
-- [ ] `userspace/dsoftbus` compiles for OS (`no_std`/`alloc`) with a real sockets facade backend (no `std::net` / no panics in OS path).
+- [ ] **GAP 4**: `userspace/dsoftbus` compiles for OS (`no_std`/`alloc`) with a real sockets facade backend
+  - **Status (2026-01-07)**: ❌ **NOT FULFILLED** — OS-side `dsoftbusd` does NOT use `userspace/dsoftbus` library
+  - **Code Evidence**: `source/services/dsoftbusd/Cargo.toml` has `dsoftbus` dependency only for `not(target_os = "none")`
+  - **Impact**: OS-side is a separate implementation → code duplication, maintenance drift risk
+  - **Resolution Options**:
+    - **Option A** (recommended): Refactor `userspace/dsoftbus` to support `no_std`/`alloc` and make OS-side `dsoftbusd` use it
+    - **Option B**: Accept separate implementation and update RFC contract to reflect reality (but document drift risk)
 - [x] `dsoftbusd` service is wired into os-lite init and emits:
   - `dsoftbusd: os transport up (udp+tcp)` (bounded announce/recv v1 over netstackd UDP facade; TCP session port)
-  - `dsoftbusd: auth ok` (bounded identity gate: client pub + server pub + nonce-derived tag before session)
+  - `dsoftbusd: auth ok` (Noise XK handshake + identity binding before session)
   - `dsoftbusd: os session ok`
-- [ ] OS backend supports (real DSoftBus transport, not just loopback ping/pong):
-  - UDP discovery announce + receive (local subnet scope; structured v1 payload bounded)
-  - TCP connect + accept (over sockets facade)
-  - Noise XK handshake + identity checks (userland) — deferred to `tasks/TASK-0003B-dsoftbus-noise-xk-os.md` (current milestone uses a bounded client+server-pub + nonce-derived tag gate)
+  - **Note**: Current markers prove TCP loopback session only (see next item for "real transport" gaps)
+- [ ] **GAP 1+2**: OS backend supports (real DSoftBus transport, not just loopback ping/pong):
+  - **Status (2026-01-07)**: ⚠️ **PARTIALLY FULFILLED** — TCP loopback session works, but UDP discovery missing
+  - [ ] **GAP 1**: UDP discovery announce + receive (local subnet scope; structured v1 payload bounded)
+    - **What exists**: Discovery packet v1 format defined and tested on host
+    - **What's missing**: OS-side implementation (UDP socket bind, periodic announce, peer LRU)
+    - **Blocks**: TASK-0004 (dual-node), TASK-0005 (cross-VM)
+  - [x] TCP connect + accept (over sockets facade) — proven for loopback
+  - [ ] **GAP 2**: Discovery-driven session establishment (peer selection from discovery → TCP connect)
+    - **What exists**: Hardcoded loopback connect
+    - **What's missing**: Flow "UDP discovery → peer found → TCP connect to peer.addr:peer.port"
+    - **Blocks**: TASK-0004 (dual-node), TASK-0005 (cross-VM)
+  - [x] Noise XK handshake (userland) — implemented in `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
+  - [ ] **GAP 3**: Identity checks (userland) — handshake works, but identity binding enforcement missing (see TASK-0003B)
 - [x] Selftest performs a bounded connect + ping/pong against the OS backend and emits:
   - `SELFTEST: dsoftbus os connect ok`
   - `SELFTEST: dsoftbus ping ok`
+  - **Note**: Current proof is loopback only (not discovery-driven)
