@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
@@ -214,9 +216,9 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     }
 }
 
-fn debug_print(s: &str) {
+fn debug_print(_s: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    let _ = nexus_abi::debug_write(s.as_bytes());
+    let _ = nexus_abi::debug_write(_s.as_bytes());
 }
 
 // raw UART helper removed in favor of debug_write syscall
