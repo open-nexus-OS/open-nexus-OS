@@ -50,10 +50,29 @@ Two backends exist today:
     (`userspace/dsoftbus/src/discovery_packet.rs`, `userspace/dsoftbus/tests/discovery_packet.rs`).
   The discovery registry is process-local so multiple nodes can run inside a
   single integration test.
-- `cfg(nexus_env = "os")` exposes stub modules that return deterministic
-  `Unsupported`/placeholder errors. The OS transport is gated until networking
-  exists (see `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` and
-  `tasks/TASK-0010-device-mmio-access-model.md`).
+- `cfg(nexus_env = "os")` — **OS transport is now implemented** (as of 2026-01-07):
+  - Networking: virtio-net + smoltcp + IPC sockets facade (`netstackd`)
+  - UDP discovery announce/receive (loopback scope) via `nexus-discovery-packet` + `nexus-peer-lru`
+  - Noise XK handshake (`nexus-noise-xk` library)
+  - TCP sessions over the sockets facade
+  - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
+
+## Current OS Implementation Status (2026-01-07)
+
+| Feature | Status | Task |
+|---------|--------|------|
+| Networking (virtio-net + smoltcp) | ✅ Done | TASK-0003 |
+| Noise XK handshake | ✅ Done | TASK-0003B |
+| UDP discovery (loopback) | ✅ Done | TASK-0003C |
+| Discovery-driven TCP connect | ⬜ Pending | TASK-0004 |
+| Identity binding enforcement | ⬜ Pending | TASK-0004 |
+| Dual-node proof | ⬜ Pending | TASK-0004 |
+| Cross-VM sessions | ⬜ Pending | TASK-0005 |
+
+**RFC Contracts**:
+- RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)
+- RFC-0008: DSoftBus Noise XK v1 (handshake + identity binding)
+- RFC-0009: no_std Dependency Hygiene v1 (OS build policy)
 
 By keeping the kernel unaware of IDL parsing or Cap'n Proto framing we preserve
 its minimal trusted computing base. Only the userland daemon deals with schema

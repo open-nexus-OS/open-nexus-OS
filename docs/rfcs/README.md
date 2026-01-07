@@ -52,3 +52,13 @@ Hard requirements (agents should keep these current):
   - docs/rfcs/RFC-0004-safe-loader-guards.md
 - RFC-0005: Kernel IPC & Capability Model
   - docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+- RFC-0006: Userspace Networking v1 (virtio-net + smoltcp + sockets facade)
+  - docs/rfcs/RFC-0006-userspace-networking-v1.md
+- RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions over sockets facade)
+  - docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
+- RFC-0008: DSoftBus Noise XK v1 (no_std handshake + identity binding)
+  - docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
+- RFC-0009: no_std Dependency Hygiene v1 (OS/QEMU reproducible builds)
+  - docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
+- RFC-0009: no_std Dependency Hygiene v1 (OS/QEMU build policy)
+  - docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md

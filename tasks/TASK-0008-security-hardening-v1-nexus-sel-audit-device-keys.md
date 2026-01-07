@@ -71,6 +71,71 @@ In QEMU, prove:
   - `policyd` already enforces identity binding for ROUTE/EXEC checks and has an init-lite proxy exception.
   - `keystored` os-lite shim already scopes keys by `sender_service_id` and enforces size bounds.
 
+## Security considerations
+
+### Threat model
+- **Policy bypass**: Attacker finds path to sensitive operation that skips `policyd` check
+- **Privilege escalation**: Service obtains capabilities beyond its policy allowance
+- **Identity spoofing**: Attacker forges `service_id` to impersonate another service
+- **Key extraction**: Attacker extracts device private keys from keystored
+- **Audit evasion**: Attacker performs sensitive operations without audit trail
+- **Policy injection**: Attacker modifies policy rules to grant unauthorized access
+- **Side-channel attacks**: Timing or error message differences leak policy decisions
+
+### Security invariants (MUST hold)
+- ALL sensitive operations MUST go through `policyd` (single authority, no bypass)
+- Policy decisions MUST bind to `sender_service_id` from kernel IPC (unforgeable)
+- Device private keys MUST NEVER leave keystored (sign operations return signatures, not keys)
+- ALL policy allow/deny decisions MUST be audit-logged
+- Policy rules MUST be immutable at runtime (loaded at boot from trusted source)
+- Signing operations MUST be policy-gated (deny-by-default)
+- Error messages MUST NOT leak policy configuration details
+
+### DON'T DO
+- DON'T trust subject identity from payload bytes (use kernel-provided `sender_service_id`)
+- DON'T duplicate policy logic in multiple services (single authority: `policyd`)
+- DON'T expose raw private key bytes via any keystored API
+- DON'T allow runtime policy modification without reboot
+- DON'T use deterministic/insecure device keys in production (bring-up only, labeled)
+- DON'T skip audit logging for any policy decision
+
+### Attack surface impact
+- **Critical**: This task defines the core security enforcement layer
+- **Policy engine is the trust anchor**: Bugs here compromise the entire system
+- **Requires thorough security review**: All changes to policyd/keystored must be reviewed
+
+### Mitigations
+- Channel-bound identity via kernel IPC (`sender_service_id` unforgeable)
+- Policy rules loaded from immutable `recipes/policy/base.toml` at boot
+- Keystored performs signing internally; private keys never exposed
+- All policy decisions logged to audit trail (UART or logd)
+- Deny-by-default: operations without explicit policy allow are rejected
+- Bounded input parsing: reject oversized/malformed policy queries
+
+## Security proof
+
+### Audit tests (negative cases)
+- Command(s):
+  - `cargo test -p nexus-sel -- reject --nocapture`
+  - `cargo test -p keystored -- reject --nocapture`
+- Required tests:
+  - `test_reject_forged_service_id` — payload identity ignored, kernel ID used
+  - `test_reject_unpolicied_operation` — no policy rule → denied
+  - `test_reject_key_extraction` — no API path returns raw private key
+  - `test_audit_all_decisions` — every allow/deny produces audit record
+  - `test_reject_oversized_policy_query` — bounded input enforced
+
+### Hardening markers (QEMU)
+- `policyd: deny (subject=<svc> action=<op>)` — deny-by-default works
+- `policyd: allow (subject=<svc> action=<op>)` — explicit allow logged
+- `keystored: sign denied (subject=<svc>)` — policy-gated signing works
+- `SELFTEST: policy deny audit ok` — audit trail verified
+- `SELFTEST: policy allow audit ok` — audit trail verified
+
+### Fuzz coverage (recommended)
+- `cargo +nightly fuzz run fuzz_policy_parser` — policy rule parsing
+- `cargo +nightly fuzz run fuzz_keystored_request` — keystored request parsing
+
 ## Contract sources (single source of truth)
 
 - **Policy check semantics (current)**: `source/services/policyd/src/os_lite.rs` (PO v1/v2/v3 byte frames)

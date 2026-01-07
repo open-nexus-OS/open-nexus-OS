@@ -54,7 +54,8 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
 - **RED**:
   - DSoftBus OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`). This task is blocked until TASK-0005 (or equivalent) makes OS streams real.
 - **YELLOW**:
-  - On-wire encoding: prefer compact versioned byte frames for OS bring-up; Cap’n Proto schemas may exist as documentation but must not be the only contract.
+  - On-wire encoding: prefer compact versioned byte frames for OS bring-up; Cap'n Proto schemas may exist as documentation but must not be the only contract.
+  - **RPC Format Migration**: This task uses OS-lite byte frames (`PK` magic) as a **bring-up shortcut**. When TASK-0020 (Mux v2) or TASK-0021 (QUIC) lands, consider migrating to schema-based RPC (Cap'n Proto or equivalent). See TASK-0005 "Technical Debt" section for details.
 
 ## Contract sources (single source of truth)
 
@@ -97,4 +98,3 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
    - emit `dsoftbusd: remote packagefs served` on first successful request.
 3. Implement client lib and host tests.
 4. Add OS selftest marker: `SELFTEST: remote pkgfs read ok`.
-

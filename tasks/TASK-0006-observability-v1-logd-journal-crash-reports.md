@@ -82,6 +82,40 @@ v1 design constraints to stay compatible:
   - `source/libs/nexus-log` already exists as the unified facade (RFC-0003) and is the right place to attach a logd sink.
   - Kernel provides a `wait()` syscall used in `selftest-client`, so userspace can observe exits without kernel changes.
 
+## Security considerations
+
+### Threat model
+- **Information disclosure via logs**: Secrets, keys, credentials accidentally logged
+- **Log injection**: Malicious service injects fake log entries to hide activity or confuse auditors
+- **Log tampering**: Attacker modifies or deletes log entries to cover tracks
+- **Denial of service via log flooding**: Service floods logd to exhaust memory/storage
+- **Crash report data leakage**: Sensitive data included in crash reports
+
+### Security invariants (MUST hold)
+- Secrets, keys, credentials, and PII MUST NOT appear in log records
+- Log records MUST include authenticated `sender_service_id` (no trusting caller-provided identity)
+- Log buffer overflow MUST drop oldest entries (not crash or reject new entries)
+- Crash reports MUST NOT include full memory dumps or sensitive data
+- Log queries MUST be capability-gated (future: policy integration)
+
+### DON'T DO
+- DON'T log plaintext secrets, private keys, or credentials
+- DON'T trust caller-provided service names or identities in log records
+- DON'T allow unbounded log record sizes (enforce max per record)
+- DON'T include raw stack memory in crash reports (only bounded metadata)
+- DON'T store logs persistently without encryption (future consideration)
+
+### Attack surface impact
+- **Minimal**: Logging is internal infrastructure, not externally exposed
+- **Risk**: Accidental secret logging could enable credential theft if logs are exported
+
+### Mitigations
+- Log records bound to `sender_service_id` via kernel IPC (unforgeable)
+- Record size capped; oversized records rejected
+- Ring buffer with drop-oldest policy prevents memory exhaustion
+- Crash reports include only: service name, pid, exit code, last N log lines (bounded)
+- Future: integrate with `policyd` for log query access control
+
 ## Contract sources (single source of truth)
 
 - **QEMU marker contract**: `scripts/qemu-test.sh`

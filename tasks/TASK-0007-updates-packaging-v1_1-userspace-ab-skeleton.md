@@ -97,6 +97,60 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - **GREEN (confirmed assumptions)**:
   - `bundlemgrd`/`packagefsd` already serve bundle payloads and manifests in OS-lite flows; we can extend that model slot-aware.
 
+## Security considerations
+
+### Threat model
+- **Malicious update injection**: Attacker stages a tampered system-set with malicious bundles
+- **Signature bypass**: Attacker provides update without valid signature or with forged signature
+- **Rollback attack**: Attacker forces rollback to vulnerable older version
+- **Supply chain attack**: Compromised build system produces signed but malicious bundles
+- **Downgrade attack**: Attacker installs older, vulnerable version with valid signature
+- **Health-check manipulation**: Attacker tricks system into marking bad update as healthy
+
+### Security invariants (MUST hold)
+- System-set MUST be signed; signature MUST be verified before staging
+- Per-bundle digests MUST be verified against manifest before installation
+- Rollback MUST NOT be possible to versions older than a defined security baseline
+- Health commit MUST only occur after genuine system stability (not just timeout)
+- Staging MUST be atomic: partial/corrupted updates MUST NOT be bootable
+- All update operations MUST be audit-logged
+
+### DON'T DO
+- DON'T stage updates without signature verification
+- DON'T skip per-bundle digest verification
+- DON'T allow unlimited rollback depth (enforce minimum version floor)
+- DON'T auto-commit health without verifiable stability criteria
+- DON'T store signing keys on the device (verify-only)
+- DON'T accept updates from unauthenticated sources
+
+### Attack surface impact
+- **Significant**: Update system is a critical attack vector for persistent compromise
+- **Supply chain risk**: Compromised updates can persist across reboots
+- **Requires security review**: Any changes to signature verification must be reviewed
+
+### Mitigations
+- Ed25519 signature on system-set index (verified before staging)
+- SHA-256 per-bundle digests in manifest (verified before install)
+- `triesLeft` counter limits boot attempts before auto-rollback
+- Version floor (minimum acceptable version) prevents downgrade attacks (future)
+- Audit log of all stage/switch/health/rollback operations
+
+## Security proof
+
+### Audit tests (negative cases)
+- Command(s):
+  - `cargo test -p updates_host -- reject --nocapture`
+- Required tests:
+  - `test_reject_invalid_signature` — bad signature → stage fails
+  - `test_reject_digest_mismatch` — tampered bundle → stage fails
+  - `test_reject_missing_signature` — unsigned update → rejected
+  - `test_audit_update_operations` — all ops logged
+
+### Hardening markers (QEMU)
+- `updated: stage rejected (signature)` — signature verification works
+- `updated: stage rejected (digest)` — digest verification works
+- `updated: audit (op=stage status=ok/fail)` — audit trail
+
 ## Contract sources (single source of truth)
 
 - **QEMU marker contract**: `scripts/qemu-test.sh`

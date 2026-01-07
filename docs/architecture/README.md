@@ -36,6 +36,18 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **Canonical QEMU harness + marker contract**: `scripts/qemu-test.sh` (do not duplicate marker lists here)
 - **CI workflows**: `.github/workflows/ci.yml`, `.github/workflows/build.yml`
 
+## Networking
+
+- `networking-authority.md` — Canonical vs alternative networking paths, anti-drift rules
+- **RFC-0006**: Userspace Networking v1 (sockets facade)
+- **RFC-0007**: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)
+- **RFC-0008**: DSoftBus Noise XK v1 (handshake + identity binding)
+- **RFC-0009**: no_std Dependency Hygiene v1 (OS build policy)
+
+**Current Status (2026-01-07)**:
+- TASK-0003/3B/3C: ✅ Done (loopback scope)
+- TASK-0004: Next (dual-node + identity binding)
+
 ## Services and contracts
 
 ### Domain libraries (host-first)

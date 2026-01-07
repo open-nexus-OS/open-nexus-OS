@@ -52,13 +52,68 @@ With **kernel unchanged**, prove in an opt-in 2-VM run:
 
 ## Important feasibility note (2-VM network backend)
 
-Two separate QEMU instances do not automatically share “usernet” (slirp). For a deterministic, rootless
+Two separate QEMU instances do not automatically share "usernet" (slirp). For a deterministic, rootless
 2-VM harness we should prefer a QEMU backend that actually links the NICs, e.g.:
 
 - `-netdev socket,mcast=239.42.0.1:37020` (both VMs join the same L2 multicast hub), or
 - `-netdev socket,listen=...` / `connect=...` (pair link).
 
 If we rely on slirp/usernet, cross-VM multicast/broadcast will likely not work and the task will be flaky.
+
+## Security considerations
+
+### Threat model
+- **Cross-VM session hijacking**: Attacker on network intercepts or injects DSoftBus traffic
+- **Unauthorized remote access**: Malicious node attempts to access services without proper authentication
+- **Privilege escalation via remote proxy**: Attacker uses remote gateway to access local services
+- **Data exfiltration**: Sensitive data from `samgrd`/`bundlemgrd` exposed to unauthorized remote nodes
+- **Replay attacks on remote calls**: Old request/response pairs replayed
+- **Man-in-the-middle on 2-VM link**: Attacker on shared L2 segment intercepts traffic
+
+### Security invariants (MUST hold)
+- All cross-VM communication MUST be over Noise XK authenticated streams (no plaintext)
+- Remote proxy MUST verify session authentication before forwarding any request
+- Remote proxy MUST be deny-by-default: only explicitly allowed services (`samgrd`, `bundlemgrd`) are proxied
+- No capability transfer across DSoftBus boundary (request/response bytes only)
+- Remote requests MUST be bounded in size and rate-limited
+- Session keys MUST NOT be logged or exposed in error messages
+
+### DON'T DO
+- DON'T forward requests to services not explicitly allowlisted in remote proxy
+- DON'T transfer kernel capabilities across the network boundary
+- DON'T accept unbounded request sizes from remote peers
+- DON'T log request/response payloads containing potentially sensitive data
+- DON'T skip authentication for "trusted" network segments
+- DON'T allow remote proxy to escalate privileges beyond the authenticated peer's identity
+
+### Attack surface impact
+- **Significant**: Remote gateway is a privileged proxy surface (highest risk in this task)
+- **Significant**: 2-VM harness exposes L2 multicast traffic to potential interception
+- **New attack vector**: Remote `samgrd`/`bundlemgrd` access from external nodes
+
+### Mitigations
+- Noise XK provides authenticated encryption for all cross-VM traffic
+- Remote gateway is deny-by-default with explicit allowlist (`samgrd`, `bundlemgrd` only)
+- Request size bounded; oversized requests rejected
+- All proxied requests logged for audit (service, peer ID, operation)
+- No capability transfer: only request/response bytes cross the boundary
+- Identity binding verified before any remote call is processed
+
+## Security proof
+
+### Audit tests (negative cases)
+- Command(s):
+  - `cargo test -p dsoftbus -- reject_remote --nocapture`
+- Required tests:
+  - `test_reject_unauthenticated_remote_call` — no session → rejected
+  - `test_reject_disallowed_service_proxy` — service not in allowlist → rejected
+  - `test_reject_oversized_remote_request` — bounded input enforced
+  - `test_audit_remote_call_logged` — all remote calls produce audit record
+
+### Hardening markers (QEMU)
+- `dsoftbusd: remote proxy denied (service=<svc>)` — deny-by-default works
+- `dsoftbusd: remote proxy denied (unauthenticated)` — auth required
+- `dsoftbusd: remote proxy ok (peer=<id> service=<svc>)` — audit trail
 
 ## Contract sources (single source of truth)
 
@@ -175,5 +230,33 @@ Marker ownership rules (to keep the harness deterministic):
   - Rootless 2-VM QEMU networking backend choice and limitations.
   - Remote-gateway placement (dsoftbusd vs services) and on-wire framing choice.
 - Open questions:
-  - When/if to migrate remote service calls from OS-lite frames to a stable Cap’n Proto IDL.
+  - When/if to migrate remote service calls from OS-lite frames to a stable Cap'n Proto IDL.
   - How to extend beyond samgr/bundlemgr (policy, identity, packagefs/vfs).
+
+---
+
+## ⚠️ Technical Debt: RPC Format Migration Path
+
+**Current state (bring-up shortcut):**
+- Remote proxy uses **OS-lite byte frames** (`SM`, `BN` magic) for samgrd/bundlemgrd
+- This reuses existing kernel IPC routing without changes
+
+**Target state (production):**
+- Migrate to **Cap'n Proto IDL** or equivalent stable schema
+- Integrate with QUIC transport (RFC-0007 Phase 3)
+
+**Why this matters:**
+- OS-lite frames are undocumented byte formats
+- Cap'n Proto provides schema evolution, versioning, and tooling
+- OpenHarmony and Fuchsia both use stable IDL (DSoftBus IDL / FIDL)
+
+**Migration trigger:**
+- When TASK-0020 (Streams v2 Mux) or TASK-0021 (QUIC) lands
+- Remote proxy should be refactored to use schema-based RPC
+
+**Downstream impact:**
+- TASK-0016 (Remote PackageFS) — uses same pattern
+- TASK-0017 (Remote StateFS) — uses same pattern
+- Any new remote service must follow the same migration
+
+**Tracking:** Add to RFC-0007 Phase 2 or create dedicated RFC for "DSoftBus RPC Schema v1"

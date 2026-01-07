@@ -128,6 +128,7 @@ Notes:
 
 3. **Migrate client/server protocols**
    - Move remote-fs and proxy traffic onto named mux streams with chunking (<= 32KiB per DATA).
+   - **RPC Format Note**: TASK-0005/0016/0017 use OS-lite byte frames as bring-up shortcuts. This task is a good migration point to introduce schema-based RPC (Cap'n Proto) on top of mux streams. See TASK-0005 "Technical Debt" section.
 
 4. **OS integration (gated)**
    - Once OS DSoftBus is real, adopt the same mux session in OS build and add QEMU markers/selftest.
@@ -140,4 +141,3 @@ Notes:
   - priority policy and starvation bound
   - keepalive behavior
   - limits (max streams, max frame size)
-

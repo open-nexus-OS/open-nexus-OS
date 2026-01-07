@@ -1,0 +1,218 @@
+# Open Nexus OS — Cursor Rules
+
+## Project Overview
+
+Open Nexus OS is a modern microkernel-based operating system written in Rust, targeting RISC-V.
+Architecture follows seL4/Fuchsia principles: minimal kernel, userspace services, capability-based security.
+
+## Key Paths
+
+- `source/kernel/neuron/` — Microkernel (no_std, RISC-V)
+- `source/services/` — Userspace daemons (samgrd, bundlemgrd, policyd, keystored, dsoftbusd, etc.)
+- `source/libs/` — Shared libraries (nexus-abi, nexus-ipc, nexus-log, nexus-noise-xk, etc.)
+- `userspace/` — Host-compatible libraries and domain logic
+- `tasks/` — Task definitions (execution truth)
+- `docs/rfcs/` — Design contracts (seeds for tasks)
+- `docs/standards/` — Coding and documentation standards
+
+## Essential Documents
+
+**Read these before implementing:**
+- `docs/agents/PLAYBOOK.md` — Agent workflow and session rules
+- `docs/agents/VISION.md` — Project vision and principles
+- `docs/standards/SECURITY_STANDARDS.md` — Security invariants and testing
+- `docs/standards/BUILD_STANDARDS.md` — Feature gates and dependency hygiene
+- `docs/testing/index.md` — Testing methodology and QEMU markers
+
+---
+
+## File Protection Zones
+
+### PROTECTED (NEVER modify without explicit approval)
+
+These files are critical infrastructure. **Read/analyze is OK, writing requires explicit "yes".**
+
+- `Makefile` — Root build orchestrator
+- `.cargo/config.toml` — Toolchain/target defaults
+- `Cargo.toml` — Workspace definition (root)
+- `config/` — Lint/deny/rustfmt/toolchain/semver configs
+- `scripts/` — Build/run/check scripts
+- `podman/` — Containerfile and entrypoints
+- `docs/rfcs/` — Design decisions (RFC process applies)
+- `source/kernel/**` — Entire kernel tree (explicit approval required)
+- `source/libs/**` — All core libraries (explicit approval required)
+- `recipes/meta/` — Image meta packages (desktop/mobile/minimal)
+- `third-party/` — External patches/notices
+- `vendor/` — Vendored code (if populated)
+
+### CAUTION (modify with deep thinking)
+
+Changes here affect ABI, security, or distributed behavior. Extend tests accordingly.
+
+- `source/libs/nexus-abi/**` — Stable ABI types (SemVer/API-diff required)
+- `source/libs/nexus-idl/**` — IDL/proxy/stub generator
+- `source/libs/nexus-hal/**` — Hardware abstractions (driver contracts)
+- `source/libs/nexus-sel/**` — Policy/entitlements
+- `source/drivers/**` — Userspace drivers (hardware-facing; contract sensitive)
+- `source/services/abilitymgr/**`
+- `source/services/samgr/**`
+- `source/services/bundlemgr/**`
+- `source/services/dsoftbus/**`
+- `source/services/dist-data/**`
+- `source/services/dist-scheduler/**`
+- `source/services/windowd/**`
+- `source/services/compositor/**`
+- `source/services/systemui/**`
+- `recipes/system/**`
+- `recipes/distributed/**`
+- `recipes/graphics/**`
+
+### SAFE TO MODIFY (normal iteration allowed)
+
+- `source/services/**` — User/system services (host-first testable)
+- `recipes/**/recipe.toml` — Recipe configs (not meta images)
+- `**/*.md` — Documentation
+- `docs/**` — Guides/handbook (excluding rfcs/)
+
+---
+
+## Build Commands
+
+```bash
+# Host development
+just diag-host          # Check host builds compile
+cargo test --workspace  # Run host tests
+
+# OS development
+just diag-os           # Check OS services compile for RISC-V
+just dep-gate          # CRITICAL: Fail if forbidden crates in OS graph
+just test-os           # Run QEMU smoke tests
+
+# Before any commit touching OS code
+just dep-gate && just diag-os
+
+# Legacy make commands (still supported)
+make build             # Full build via Podman
+make run               # QEMU run
+make test              # Host tests
+```
+
+---
+
+## Core Invariants
+
+### 1. No Fake Success
+- Markers (`*: ready`, `SELFTEST: * ok`) only after real behavior
+- Stubs emit `stub`/`placeholder` markers, never `ok`
+- Test keys labeled: `// SECURITY: bring-up test keys`
+
+### 2. Security-First
+- **Secrets**: NEVER log keys, credentials, or secrets
+- **Identity**: Use `sender_service_id` from kernel IPC, never payload strings
+- **Input**: Bound all sizes, validate before parsing
+- **Policy**: Route sensitive ops through `policyd`, deny-by-default
+- **Mapping**: MMIO is USER|RW only, NEVER executable
+
+### 3. OS Build Hygiene
+- OS services MUST use `--no-default-features --features os-lite`
+- Forbidden crates: `parking_lot`, `parking_lot_core`, `getrandom`
+- Always run `just dep-gate` before OS commits
+
+### 4. Determinism
+- Marker strings stable and non-random
+- Tests bounded (no infinite loops or unbounded waits)
+- UART output deterministic for CI verification
+
+---
+
+## Security Checklist (for security-relevant code)
+
+When touching crypto, auth, IPC, network, or capabilities:
+
+- [ ] Fill security section in task (threat model, invariants, DON'T DO)
+- [ ] Write `test_reject_*` tests for negative cases
+- [ ] Add QEMU hardening markers proving enforcement
+- [ ] No `unwrap`/`expect` on untrusted input
+- [ ] No secrets in logs or error messages
+- [ ] Audit records for security decisions
+
+---
+
+## DON'T DO (Hard Failures)
+
+### Security
+- DON'T skip identity verification even for localhost
+- DON'T use "warn and continue" on auth failures
+- DON'T duplicate policy logic outside `policyd`
+- DON'T expose private keys via any API
+- DON'T accept unbounded input sizes
+- DON'T use deterministic keys in production builds
+- DON'T add `parking_lot` or `getrandom` to OS crates
+
+### Architecture
+- DON'T introduce Linux/Wayland stacks (our path: windowd + compositor + systemui)
+- DON'T inject non-RISC-V targets
+- DON'T add dependencies outside license allowlist (Apache-2.0, MIT, BSD-2/3)
+- DON'T rename packages or folders without approval
+- DON'T put drivers/policy in kernel (keep kernel minimal: sched/vm/ipc/cap)
+- DON'T add GPU/Wayland/Linux shortcuts
+
+---
+
+## Task Workflow
+
+1. Read task file (`tasks/TASK-*.md`)
+2. Check linked RFCs for contracts
+3. Only modify files in task's "Touched paths"
+4. Fill security section if security-relevant
+5. Write tests (including `test_reject_*` for security)
+6. Run `just dep-gate && just diag-os` for OS changes
+7. Update task status when stop conditions met
+
+---
+
+## QEMU Marker Contract
+
+Markers must appear in order defined by `scripts/qemu-test.sh`.
+Key markers:
+- `init: ready` — init completed bootstrap
+- `*: ready` — service ready (e.g., `samgrd: ready`)
+- `SELFTEST: * ok` — test assertion passed
+- `dsoftbusd: auth ok` — Noise XK handshake succeeded
+
+---
+
+## Code Style
+
+- No `unwrap`/`expect` in daemons (propagate errors with context)
+- Use `#![forbid(unsafe_code)]` in userspace crates
+- No blanket `#[allow(dead_code)]`
+- Follow CONTEXT header format from `docs/standards/DOCUMENTATION_STANDARDS.md`
+- Prefer small, focused PRs matching task plan slices
+- Only core libraries carry the `nexus-` prefix
+- Keep code comments in English; concise docstrings
+
+---
+
+## Architecture Boundaries (Don't Cross Without ADR)
+
+- Kernel ↔ Userspace (syscall ABI)
+- Service ↔ Service (IPC contracts)
+- Host ↔ OS (feature gates)
+- Policy enforcement (policyd is single authority)
+
+---
+
+## Quick Debug Hints
+
+- Boot success: serial output shows `=== NEURON (open-nexus-os) ===`
+- Capture serial log: `make run 2>&1 | tee build/qemu.log`
+- GDB attach: with `DEBUG=1` QEMU exposes a gdb stub
+- QEMU marker debug: `RUN_UNTIL_MARKER=1 just test-os`
+
+---
+
+## Emergency Override
+
+If the user explicitly says "override rules" or "ignore protection",
+proceed with caution and document the override clearly.

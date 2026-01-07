@@ -3,6 +3,10 @@
 ## Overview
 This document defines the documentation standards for Open Nexus OS, including CONTEXT headers, ADR references, and CODEOWNERS structure.
 
+**Related Standards**:
+- `BUILD_STANDARDS.md` — Feature gates, `no_std` dependency hygiene, Makefile/justfile rules
+- `SECURITY_STANDARDS.md` — Security invariants, threat models, testing requirements
+
 ## Quick Reference
 
 ### CONTEXT Header Format

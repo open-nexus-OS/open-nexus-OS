@@ -46,6 +46,91 @@ Keep it short and actionable.
 - **GREEN (confirmed assumptions)**:
   - …
 
+## Security considerations (optional — mark N/A if not security-relevant)
+
+<!-- 
+Fill this section if the task touches:
+- Authentication / Authorization / Identity
+- Cryptography / Key management / Secrets
+- IPC / Capability transfer / Policy enforcement
+- Network protocols / Discovery / Sessions
+- Sensitive data (credentials, PII, device keys)
+- Kernel-userland boundary / Syscalls
+- Parsing untrusted input
+
+See: docs/standards/SECURITY_STANDARDS.md for guidelines
+-->
+
+### Threat model
+- N/A
+<!-- Examples:
+- Spoofed discovery announcements
+- MITM during handshake
+- Replay attacks on sessions
+- Resource exhaustion (DoS via unbounded input)
+- Privilege escalation via IPC
+- Information leakage via logs/markers
+-->
+
+### Security invariants (MUST hold)
+- N/A
+<!-- Examples:
+- Keys/secrets MUST NOT appear in logs, UART, or error messages
+- Authentication MUST complete before any application data is processed
+- All untrusted input MUST be bounded and validated before use
+- Capabilities MUST NOT be transferred without explicit policy check
+- Identity binding MUST be verified before session is accepted
+-->
+
+### DON'T DO (explicit prohibitions)
+- N/A
+<!-- Examples:
+- DON'T use `unwrap`/`expect` on untrusted input (use explicit error handling)
+- DON'T log plaintext secrets, keys, or credentials
+- DON'T accept unbounded input sizes (enforce max lengths)
+- DON'T skip identity/auth verification even in "test mode"
+- DON'T hardcode production keys or use deterministic keys in production
+- DON'T trust `device_id` strings without cryptographic binding
+-->
+
+### Attack surface impact
+- None
+<!-- Or:
+- Minimal: <description>
+- Significant: <description> — requires Security Review before merge
+-->
+
+### Mitigations
+- N/A
+<!-- Examples:
+- Noise XK handshake provides mutual authentication
+- Bounded LRU cache prevents memory exhaustion
+- Identity binding verified against Noise static key
+- Input length checked before parsing
+-->
+
+## Security proof (only for security-relevant tasks — delete if N/A)
+
+<!-- 
+Include this section if the task is security-relevant.
+Security-relevant tasks MUST have negative-case tests that prove security invariants hold.
+-->
+
+### Audit tests (negative cases / attack simulation)
+- Command(s):
+  - `cargo test -p <crate> -- reject --nocapture`
+- Required tests:
+  - `test_reject_*` — rejection of malformed/malicious input
+
+### Hardening markers (QEMU, if applicable)
+<!-- Markers that prove security behavior in OS context -->
+- `*: rejected (reason)` — proof that invalid requests are denied
+- `*: auth failed (reason)` — proof that auth failures are handled
+
+### Fuzz coverage (optional, for parsing/protocol code)
+<!-- Uncomment if fuzz tests exist -->
+<!-- - `cargo +nightly fuzz run fuzz_<target>` -->
+
 ## Contract sources (single source of truth)
 
 List the canonical files that define the contract for this change. The task must *reference* these

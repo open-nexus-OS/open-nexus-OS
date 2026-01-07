@@ -30,8 +30,47 @@ If proof cannot be produced (e.g. missing tooling), the agent MUST state the blo
 Stubs are allowed during bring-up, but MUST be obvious and non-deceptive:
 
 - **Label clearly**: return `Unsupported`/`Placeholder` errors or emit a marker containing `stub`/`placeholder`.
-- **Never fake success**: do not emit “ready/ok” markers or “success” logs for unimplemented behavior.
-- **Document**: update ADR/RFC “Current state” notes when a subsystem is intentionally stubbed.
+- **Never fake success**: do not emit "ready/ok" markers or "success" logs for unimplemented behavior.
+- **Document**: update ADR/RFC "Current state" notes when a subsystem is intentionally stubbed.
+
+## Security-first development
+
+Security is integral to the build process, not an afterthought. See `docs/standards/SECURITY_STANDARDS.md` for full guidelines.
+
+### Security invariants (always enforce)
+
+- **Secrets**: NEVER log plaintext keys, credentials, or secrets
+- **Identity**: Use `sender_service_id` from kernel IPC, never trust payload strings
+- **Input**: Bound all sizes, validate before parsing, no `unwrap` on untrusted data
+- **Policy**: Route sensitive ops through `policyd`, deny-by-default
+- **Mapping**: MMIO is USER|RW only, NEVER executable (W^X)
+
+### Security code requirements
+
+When implementing security-relevant features (crypto, auth, IPC, network, caps):
+
+1. **Fill security section** in task file (threat model, invariants, DON'T DO)
+2. **Write negative tests**: `test_reject_*` functions proving rejection of bad input
+3. **Add hardening markers**: QEMU markers proving security enforcement
+4. **Label test keys**: `// SECURITY: bring-up test keys, NOT production custody`
+
+### DON'T DO list (hard failures)
+
+- DON'T skip identity verification even for localhost/loopback
+- DON'T use "warn and continue" on auth/identity failures
+- DON'T duplicate policy logic outside `policyd`
+- DON'T expose private keys via any API
+- DON'T accept unbounded input sizes
+
+### Security review triggers
+
+Changes to these areas require security review:
+
+- `policyd`, `keystored`, `identityd`
+- Noise XK / DSoftBus authentication
+- Capability transfer paths
+- Kernel syscall handlers
+- Device MMIO mapping
 
 ## Session Checklist
 
@@ -84,3 +123,6 @@ Stubs are allowed during bring-up, but MUST be obvious and non-deceptive:
 - ADR-0001 (Runtime Roles & Boundaries): `docs/adr/0001-runtime-roles-and-boundaries.md`
 - Task index: `tasks/`
 - Agent vision: `docs/agents/VISION.md`
+- Security standards: `docs/standards/SECURITY_STANDARDS.md`
+- Build standards: `docs/standards/BUILD_STANDARDS.md`
+- Testing methodology: `docs/testing/index.md`

@@ -53,7 +53,8 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 2. Execute Miri for host-compatible crates.
 3. Refresh Golden Vectors (IDL frames, ABI structs) and bump SemVer when contracts change.
 4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
-5. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
+5. **Run OS build hygiene checks**: `just diag-os` and `just dep-gate` (catches forbidden dependencies).
+6. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
 
 ## Scaffold sanity
 
@@ -163,12 +164,119 @@ hand-off the OS build will use later. Execute the tests with
 - System dependencies: `qemu-system-misc`, `capnproto`, and supporting build packages. The Podman container image installs the same dependencies for CI parity.
 - Do not rely on host-only tools—update `recipes/` or container definitions when new packages are needed.
 
+## Security testing
+
+Security-relevant code requires additional testing beyond functional tests. See `docs/standards/SECURITY_STANDARDS.md` for full guidelines.
+
+### Negative case tests (required for security code)
+
+Security code MUST include tests that verify rejection of invalid/malicious inputs:
+
+```rust
+// Pattern: test_reject_* functions
+#[test]
+fn test_reject_identity_mismatch() {
+    // Attempt auth with wrong key → verify rejection
+    let result = handshake_with_wrong_key();
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_reject_oversized_input() {
+    let oversized = vec![0u8; MAX_SIZE + 1];
+    let result = parse(&oversized);
+    assert!(result.is_err());
+}
+```
+
+Run security-specific tests:
+```bash
+# All reject tests across workspace
+cargo test -- reject --nocapture
+
+# Specific crate security tests
+cargo test -p dsoftbus -- reject
+cargo test -p keystored -- reject
+cargo test -p nexus-sel -- reject
+```
+
+### Hardening markers (QEMU)
+
+Security behavior must be verifiable via QEMU markers that prove enforcement:
+
+| Marker | Meaning |
+|--------|---------|
+| `dsoftbusd: auth ok` | Handshake + identity binding succeeded |
+| `dsoftbusd: identity mismatch peer=<id>` | Identity binding enforcement works |
+| `dsoftbusd: announce ignored (malformed)` | Input validation works |
+| `policyd: deny (subject=<svc> action=<op>)` | Policy deny-by-default works |
+| `policyd: allow (subject=<svc> action=<op>)` | Explicit allow logged |
+| `keystored: sign denied (subject=<svc>)` | Policy-gated signing works |
+
+### Fuzz testing (recommended for parsers)
+
+For parsing and protocol code:
+
+```bash
+# Install cargo-fuzz if needed
+cargo install cargo-fuzz
+
+# Run fuzz targets (if available)
+cargo +nightly fuzz run fuzz_discovery_packet
+cargo +nightly fuzz run fuzz_noise_handshake
+cargo +nightly fuzz run fuzz_policy_parser
+```
+
+### Security review checklist
+
+Before merging security-relevant PRs, verify:
+
+- [ ] No secrets in logs, markers, or error messages
+- [ ] Test keys labeled `// SECURITY: bring-up test keys`
+- [ ] `sender_service_id` used (not payload strings) for identity
+- [ ] Inputs bounded (max sizes enforced)
+- [ ] No `unwrap`/`expect` on untrusted data
+- [ ] Audit records produced for security decisions
+- [ ] Negative case tests (`test_reject_*`) included
+
+## Build hygiene (OS targets)
+
+Before committing OS-related changes, run these validation gates:
+
+| Command | Purpose |
+|---------|---------|
+| `just diag-os` | Check all OS services compile for `riscv64imac-unknown-none-elf` |
+| `just dep-gate` | **Critical**: Fail if forbidden crates (`parking_lot`, `getrandom`) appear in OS graph |
+| `just diag-host` | Check host builds compile cleanly |
+
+### The `dep-gate` rule
+
+OS services **must** be built with `--no-default-features --features os-lite`. Without these flags, `std`-only dependencies leak into the bare-metal build and cause cryptic errors like:
+
+```
+error: can't find crate for `std`
+  --> parking_lot_core/src/lib.rs
+```
+
+The `just dep-gate` command checks the dependency graph and **fails the build** if forbidden crates appear:
+
+```bash
+# Run before any OS commit
+just dep-gate
+
+# If it fails, check which crate pulled in the forbidden dependency:
+cargo tree --target riscv64imac-unknown-none-elf -p dsoftbusd -i parking_lot
+```
+
+**See also**: `docs/standards/BUILD_STANDARDS.md` for the full feature gate convention.
+
 ## House rules
 
 - No `unwrap`/`expect` in daemons; propagate errors with context.
-- Userspace crates must keep `#![forbid(unsafe_code)]` enabled and pass Clippy’s denied lints.
+- Userspace crates must keep `#![forbid(unsafe_code)]` enabled and pass Clippy's denied lints.
 - No blanket `#[allow(dead_code)]` or `#[allow(unused)]`. Use the `tools/deadcode-scan.sh` guard, gate WIP APIs behind features, or add time-boxed entries to `config/deadcode.allow`.
 - CI enforces architecture guards, UART markers, and formatting; keep commits green locally before pushing.
+- **OS builds must pass `just dep-gate`** to ensure no `std`-only crates leak into bare-metal targets.
 
 ## Troubleshooting tips
 

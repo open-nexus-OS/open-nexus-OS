@@ -56,6 +56,7 @@ Prove in QEMU:
   - Blocked until `statefsd` exists (TASK-0009) and DSoftBus OS streams exist (TASK-0005).
 - **YELLOW**:
   - Audit sink dependency: if TASK-0006 is not landed yet, we must explicitly fall back to UART audit markers and later migrate.
+  - **RPC Format Migration**: This task uses OS-lite byte frames as a **bring-up shortcut**. When TASK-0020 (Mux v2) or TASK-0021 (QUIC) lands, consider migrating to schema-based RPC (Cap'n Proto or equivalent). See TASK-0005 "Technical Debt" section for details.
 
 ## Contract sources (single source of truth)
 
@@ -98,4 +99,3 @@ Prove in QEMU:
    - emit audit record for PUT/DEL.
 3. Implement client lib + host tests.
 4. Add OS selftest: `SELFTEST: remote statefs rw ok`.
-

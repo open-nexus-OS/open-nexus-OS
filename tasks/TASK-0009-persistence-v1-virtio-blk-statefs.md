@@ -72,6 +72,60 @@ Prove (host + QEMU) that:
 - **GREEN (confirmed assumptions)**:
   - We already have a stub virtio-blk crate (`source/drivers/storage/virtio-blk`) that can be reused as low-level scaffolding once access exists.
 
+## Security considerations
+
+### Threat model
+- **Credential theft from /state**: Attacker reads device keys, bootctl secrets from storage
+- **Data tampering**: Attacker modifies stored credentials or boot configuration
+- **Journal corruption**: Attacker corrupts journal to cause data loss or boot failure
+- **Replay attack on journal**: Attacker replays old journal entries to restore revoked keys
+- **Unauthorized access to /state**: Service without proper capability accesses stored secrets
+- **Physical attack on storage**: Attacker with physical access reads unencrypted storage
+
+### Security invariants (MUST hold)
+- Device keys and sensitive credentials MUST only be accessible to authorized services
+- Journal records MUST include integrity checksums (CRC32 minimum, HMAC for authenticity future)
+- Journal replay MUST reject corrupted or tampered records deterministically
+- `statefsd` access MUST be capability-gated (no ambient /state access)
+- Persistent data MUST be integrity-protected against bit-flips and corruption
+- Key paths (`/state/keystore/*`) MUST be restricted to keystored only
+
+### DON'T DO
+- DON'T store secrets in plaintext without integrity protection
+- DON'T allow arbitrary services to read `/state/keystore/*` paths
+- DON'T accept journal records that fail integrity checks
+- DON'T assume storage is reliable (always verify checksums on read)
+- DON'T allow rollback of journal to restore revoked/rotated keys (future: monotonic counter)
+- DON'T skip capability checks for "trusted" services
+
+### Attack surface impact
+- **Significant**: `/state` contains device keys and boot configuration (high-value targets)
+- **Persistence risk**: Compromised keys persist across reboots
+- **Physical access risk**: Unencrypted storage vulnerable to extraction
+
+### Mitigations
+- CRC32 checksums on all journal records (integrity)
+- Capability-gated access to statefsd endpoints
+- Key paths restricted by sender_service_id (keystored only for `/state/keystore/*`)
+- Bounded journal replay: reject malformed records, limit replay depth
+- Future: at-rest encryption for sensitive paths, HMAC for authenticity
+
+## Security proof
+
+### Audit tests (negative cases)
+- Command(s):
+  - `cargo test -p statefs -- reject --nocapture`
+- Required tests:
+  - `test_reject_corrupted_journal` — CRC mismatch → record ignored
+  - `test_reject_unauthorized_keystore_access` — wrong service → denied
+  - `test_reject_malformed_record` — invalid format → rejected
+  - `test_bounded_replay` — replay depth limited
+
+### Hardening markers (QEMU)
+- `statefsd: access denied (path=<p> sender=<svc>)` — capability enforcement
+- `statefsd: crc mismatch (record=<n>)` — integrity verification works
+- `SELFTEST: statefs unauthorized access rejected` — access control verified
+
 ## Contract sources (single source of truth)
 
 - **QEMU marker contract**: `scripts/qemu-test.sh`
