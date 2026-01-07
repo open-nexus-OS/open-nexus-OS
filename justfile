@@ -38,6 +38,7 @@ help:
     @echo "  just lint                # run clippy checks"
     @echo "  just fmt-check           # verify rustfmt formatting"
     @echo "  just arch-check          # userspace/kernel layering guard"
+    @echo "  just deny-check          # cargo-deny license/advisory check"
     @echo "  just test-all            # host tests + miri + arch-check + kernel selftests"
     @echo
     @echo "[Diagnostics (match rust-analyzer / editor)]"
@@ -128,6 +129,7 @@ test-all:
     just miri-strict
     just miri-fs
     just arch-check
+    just deny-check
     just build-kernel
     just test-os
 
@@ -160,6 +162,14 @@ diag-os:
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
     cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+
+# -----------------------------------------------------------------------------
+# License & Advisory Check (cargo-deny)
+# -----------------------------------------------------------------------------
+
+deny-check:
+    @echo "==> cargo-deny check (licenses + advisories)"
+    @cargo deny check --config config/deny.toml
 
 # -----------------------------------------------------------------------------
 # Dependency Hygiene Gate (RFC-0009)
