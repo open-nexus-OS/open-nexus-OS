@@ -18,3 +18,4 @@ dsoftbus = { path = "../../../userspace/dsoftbus" }
 nexus-service-entry = { path = "../../libs/nexus-service-entry" }
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"] }
+nexus-noise-xk = { path = "../../libs/nexus-noise-xk" }

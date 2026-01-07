@@ -1035,125 +1035,179 @@ mod os_lite {
         }
         let sid = sid.ok_or(())?;
 
-        // AUTH handshake: send magic + static pubkey, await ack.
-        const AUTH_MAGIC: &[u8; 4] = b"NOI1";
-        // Client pubkey (what we present).
-        const CLIENT_PUB: [u8; 32] = [
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
-            0xff, 0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xa9, 0xba, 0xcb, 0xdc,
-            0xed, 0xfe, 0x0f, 0x1e,
-        ];
-        // Server pubkey (bind response to both ends).
-        const SERVER_PUB: [u8; 32] = [
-            0x7a, 0x6b, 0x5c, 0x4d, 0x3e, 0x2f, 0x1a, 0x0b, 0x9c, 0x8d, 0x7e, 0x6f, 0x5a, 0x4b,
-            0x3c, 0x2d, 0x1e, 0x0f, 0xfa, 0xeb, 0xdc, 0xcd, 0xbe, 0xaf, 0x90, 0x81, 0x72, 0x63,
-            0x54, 0x45, 0x36, 0x27,
-        ];
-        const AUTH_SECRET: [u8; 64] = [
-            0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb, 0xcc, 0xdd, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20,
-            0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0, 0x0f,
-            0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xda, 0xeb,
-            0xfc, 0x0d, 0x1e, 0x2f, 0x3a, 0x4b, 0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0xab, 0xbc, 0xcd,
-            0xde, 0xef, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff,
-        ];
+        // ============================================================
+        // REAL Noise XK Handshake (RFC-0008) - Initiator side
+        // ============================================================
+        use nexus_noise_xk::{StaticKeypair, Transport, XkInitiator, MSG1_LEN, MSG2_LEN, MSG3_LEN};
 
-        // AUTH1: send magic + pubkey
-        let mut w = [0u8; 10 + 36];
-        w[0] = MAGIC0;
-        w[1] = MAGIC1;
-        w[2] = VERSION;
-        w[3] = OP_WRITE;
-        w[4..8].copy_from_slice(&sid.to_le_bytes());
-        w[8..10].copy_from_slice(&(36u16).to_le_bytes());
-        w[10..14].copy_from_slice(AUTH_MAGIC);
-        w[14..46].copy_from_slice(&CLIENT_PUB);
-        let _ = rpc(&net, &w)?;
+        // SECURITY: bring-up test keys, NOT production custody
+        // These keys are deterministic and derived from port for reproducibility only.
+        // Phase 2 integrates with keystored for real key provisioning.
+        fn derive_test_secret(tag: u8, port: u16) -> [u8; 32] {
+            let mut seed = [0u8; 32];
+            seed[0] = tag;
+            seed[1] = (port >> 8) as u8;
+            seed[2] = (port & 0xff) as u8;
+            // Fill rest with deterministic pattern
+            for i in 3..32 {
+                seed[i] = ((tag as u16).wrapping_mul(port).wrapping_add(i as u16) & 0xff) as u8;
+            }
+            seed
+        }
 
-        // CHALLENGE: read nonce + server pub
-        let mut nonce = [0u8; 8];
-        let mut server_seen = [0u8; 32];
-        for _ in 0..50_000 {
-            let mut r = [0u8; 10];
-            r[0] = MAGIC0;
-            r[1] = MAGIC1;
-            r[2] = VERSION;
-            r[3] = OP_READ;
-            r[4..8].copy_from_slice(&sid.to_le_bytes());
-            r[8..10].copy_from_slice(&(54u16).to_le_bytes());
-            let rsp = rpc(&net, &r)?;
-            if rsp[0] == MAGIC0
-                && rsp[1] == MAGIC1
-                && rsp[2] == VERSION
-                && rsp[3] == (OP_READ | 0x80)
-            {
-                if rsp[4] == STATUS_OK {
-                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                    if n == 44 && &rsp[7..11] == b"CHAL" {
-                        server_seen.copy_from_slice(&rsp[11..43]);
-                        if server_seen != SERVER_PUB {
-                            return Err(());
+        // Client (initiator) static keypair - derived from port with tag 0xB0
+        // SECURITY: bring-up test keys, NOT production custody
+        let client_static = StaticKeypair::from_secret(derive_test_secret(0xB0, port));
+        // Client ephemeral seed - derived from port with tag 0xD0
+        // SECURITY: bring-up test keys, NOT production custody
+        let client_eph_seed = derive_test_secret(0xD0, port);
+        // Expected server static public key (server uses tag 0xA0)
+        // SECURITY: bring-up test keys, NOT production custody
+        let server_static_expected =
+            StaticKeypair::from_secret(derive_test_secret(0xA0, port)).public;
+
+        let mut initiator =
+            XkInitiator::new(client_static, server_static_expected, client_eph_seed);
+
+        // Helper to read exactly N bytes from the session
+        fn stream_read(
+            net: &KernelClient,
+            sid: u32,
+            buf: &mut [u8],
+        ) -> core::result::Result<(), ()> {
+            const MAGIC0: u8 = b'N';
+            const MAGIC1: u8 = b'S';
+            const VERSION: u8 = 1;
+            const OP_READ: u8 = 4;
+            const STATUS_OK: u8 = 0;
+            const STATUS_WOULD_BLOCK: u8 = 3;
+
+            let len = buf.len();
+            for _ in 0..100_000 {
+                let mut r = [0u8; 10];
+                r[0] = MAGIC0;
+                r[1] = MAGIC1;
+                r[2] = VERSION;
+                r[3] = OP_READ;
+                r[4..8].copy_from_slice(&sid.to_le_bytes());
+                r[8..10].copy_from_slice(&(len as u16).to_le_bytes());
+                let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+                let (reply_send_slot, reply_recv_slot) = reply.slots();
+                let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+                net.send_with_cap_move(&r, reply_send_clone).map_err(|_| ())?;
+                let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+                let mut rsp = [0u8; 512];
+                for _ in 0..5_000 {
+                    match nexus_abi::ipc_recv_v1(
+                        reply_recv_slot,
+                        &mut hdr,
+                        &mut rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                        0,
+                    ) {
+                        Ok(_) => {
+                            if rsp[0] == MAGIC0
+                                && rsp[1] == MAGIC1
+                                && rsp[2] == VERSION
+                                && rsp[3] == (OP_READ | 0x80)
+                            {
+                                if rsp[4] == STATUS_OK {
+                                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                                    if n == len && 7 + n <= rsp.len() {
+                                        buf.copy_from_slice(&rsp[7..7 + n]);
+                                        return Ok(());
+                                    }
+                                } else if rsp[4] == STATUS_WOULD_BLOCK {
+                                    break; // retry outer loop
+                                } else {
+                                    return Err(());
+                                }
+                            }
+                            break;
                         }
-                        nonce.copy_from_slice(&rsp[43..51]);
-                        break;
-                    } else {
-                        return Err(());
+                        Err(nexus_abi::IpcError::QueueEmpty) => {
+                            let _ = nexus_abi::yield_();
+                        }
+                        Err(_) => return Err(()),
                     }
                 }
-                if rsp[4] != STATUS_WOULD_BLOCK {
-                    return Err(());
-                }
+                let _ = nexus_abi::yield_();
             }
-            let _ = yield_();
+            Err(())
         }
 
-        // AUTH2: send magic + response tag (derived from nonce + secret + both pubs)
-        let mut tag = [0u8; 64];
-        for (i, b) in tag.iter_mut().enumerate() {
-            *b = AUTH_SECRET[i]
-                ^ CLIENT_PUB[i % CLIENT_PUB.len()]
-                ^ SERVER_PUB[i % SERVER_PUB.len()]
-                ^ nonce[i % nonce.len()];
-        }
-        let mut w2 = [0u8; 10 + 68];
-        w2[0] = MAGIC0;
-        w2[1] = MAGIC1;
-        w2[2] = VERSION;
-        w2[3] = OP_WRITE;
-        w2[4..8].copy_from_slice(&sid.to_le_bytes());
-        w2[8..10].copy_from_slice(&(68u16).to_le_bytes());
-        w2[10..14].copy_from_slice(AUTH_MAGIC);
-        w2[14..78].copy_from_slice(&tag);
-        let _ = rpc(&net, &w2)?;
+        // Helper to write exactly N bytes to the session
+        fn stream_write(net: &KernelClient, sid: u32, data: &[u8]) -> core::result::Result<(), ()> {
+            const MAGIC0: u8 = b'N';
+            const MAGIC1: u8 = b'S';
+            const VERSION: u8 = 1;
+            const OP_WRITE: u8 = 5;
+            const STATUS_OK: u8 = 0;
 
-        // READ auth ack "AUTHOK"
-        for _ in 0..50_000 {
-            let mut r = [0u8; 10];
-            r[0] = MAGIC0;
-            r[1] = MAGIC1;
-            r[2] = VERSION;
-            r[3] = OP_READ;
-            r[4..8].copy_from_slice(&sid.to_le_bytes());
-            r[8..10].copy_from_slice(&(6u16).to_le_bytes());
-            let rsp = rpc(&net, &r)?;
-            if rsp[0] == MAGIC0
-                && rsp[1] == MAGIC1
-                && rsp[2] == VERSION
-                && rsp[3] == (OP_READ | 0x80)
-            {
-                if rsp[4] == STATUS_OK {
-                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                    if n == 6 && &rsp[7..13] == b"AUTHOK" {
-                        break;
-                    } else {
+            let mut w = [0u8; 256];
+            if data.len() + 10 > w.len() {
+                return Err(());
+            }
+            w[0] = MAGIC0;
+            w[1] = MAGIC1;
+            w[2] = VERSION;
+            w[3] = OP_WRITE;
+            w[4..8].copy_from_slice(&sid.to_le_bytes());
+            w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
+            w[10..10 + data.len()].copy_from_slice(data);
+
+            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let (reply_send_slot, reply_recv_slot) = reply.slots();
+            let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+            net.send_with_cap_move(&w[..10 + data.len()], reply_send_clone).map_err(|_| ())?;
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut rsp = [0u8; 64];
+            for _ in 0..5_000 {
+                match nexus_abi::ipc_recv_v1(
+                    reply_recv_slot,
+                    &mut hdr,
+                    &mut rsp,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(_) => {
+                        if rsp[0] == MAGIC0
+                            && rsp[1] == MAGIC1
+                            && rsp[2] == VERSION
+                            && rsp[3] == (OP_WRITE | 0x80)
+                            && rsp[4] == STATUS_OK
+                        {
+                            return Ok(());
+                        }
                         return Err(());
                     }
-                }
-                if rsp[4] != STATUS_WOULD_BLOCK {
-                    return Err(());
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = nexus_abi::yield_();
+                    }
+                    Err(_) => return Err(()),
                 }
             }
-            let _ = yield_();
+            Err(())
         }
+
+        // Step 1: Write msg1 (initiator ephemeral public key, 32 bytes)
+        let mut msg1 = [0u8; MSG1_LEN];
+        initiator.write_msg1(&mut msg1);
+        stream_write(&net, sid, &msg1)?;
+
+        // Step 2: Read msg2 (responder ephemeral + encrypted static + tag, 96 bytes)
+        let mut msg2 = [0u8; MSG2_LEN];
+        stream_read(&net, sid, &mut msg2)?;
+
+        // Step 3: Write msg3 and get transport keys (encrypted initiator static + tag, 64 bytes)
+        let mut msg3 = [0u8; MSG3_LEN];
+        let transport_keys = initiator.read_msg2_write_msg3(&msg2, &mut msg3).map_err(|_| ())?;
+        stream_write(&net, sid, &msg3)?;
+
+        // Create transport for encrypted communication
+        let mut _transport = Transport::new(transport_keys);
+
+        // Handshake complete - server will emit "dsoftbusd: auth ok" after processing msg3
 
         // WRITE "PING"
         let mut w = [0u8; 14];

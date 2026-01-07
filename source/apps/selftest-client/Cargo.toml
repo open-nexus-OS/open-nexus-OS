@@ -32,6 +32,7 @@ os-lite = [
     "dep:exec-payloads",
     "dep:demo-exit0",
     "dep:net-virtio",
+    "dep:nexus-noise-xk",
 ]
 # Optional: legacy/bounded smoltcp-over-virtio probe for bring-up debugging.
 # Keep off by default to avoid marker drift and unused-code warnings.
@@ -60,5 +61,6 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, f
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
 net-virtio = { path = "../../drivers/net/virtio", optional = true }
+nexus-noise-xk = { path = "../../libs/nexus-noise-xk", optional = true }
 smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-icmp", "socket-udp", "medium-ethernet"], optional = true }
 nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"], optional = true }

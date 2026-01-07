@@ -44,6 +44,7 @@ help:
     @echo "  just diag-host           # cargo check (host cfg) with check-cfg + warnings"
     @echo "  just diag-os             # cargo check (os cfg, riscv target) with check-cfg + warnings"
     @echo "  just diag-kernel         # cargo check neuron (riscv target) with warnings"
+    @echo "  just dep-gate            # RFC-0009: check OS graph for forbidden crates"
 
 # Build the bootable NEURON binary crate
 build-kernel:
@@ -154,8 +155,50 @@ diag-os:
     @echo "==> userspace payload (init-lite)"
     @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @echo "==> OS services (os-lite feature set)"
-    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p policyd -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
 
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
     cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+
+# -----------------------------------------------------------------------------
+# Dependency Hygiene Gate (RFC-0009)
+# -----------------------------------------------------------------------------
+
+# Forbidden crates that MUST NOT appear in the OS/QEMU dependency graph.
+# See docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md for rationale.
+forbidden_crates := "parking_lot parking_lot_core getrandom"
+
+# Check OS dependency graph for forbidden crates (RFC-0009 Phase 2 enforcement).
+# Fails with exit code 1 if any forbidden crate is found.
+dep-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> RFC-0009 Dependency Hygiene Gate"
+    echo "    Forbidden crates: {{forbidden_crates}}"
+    echo "    Target: riscv64imac-unknown-none-elf (OS/QEMU slice)"
+    echo ""
+    # OS services to check (must match justfile diag-os and Makefile)
+    services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd"
+    found_forbidden=0
+    for svc in $services; do
+        echo "--- Checking $svc ---"
+        # Get dependency tree for this service with os-lite features
+        tree_output=$(cargo +{{toolchain}} tree -p "$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true)
+        for forbidden in {{forbidden_crates}}; do
+            if echo "$tree_output" | grep -qE "^[│├└ ]*$forbidden "; then
+                echo "[FAIL] Found forbidden crate '$forbidden' in $svc dependency graph!"
+                echo "$tree_output" | grep -E "$forbidden" | head -5
+                found_forbidden=1
+            fi
+        done
+    done
+    echo ""
+    if [[ "$found_forbidden" -eq 1 ]]; then
+        echo "[FAIL] RFC-0009 dependency hygiene violated!"
+        echo "       Fix: Use --no-default-features --features os-lite for all OS crates."
+        echo "       See: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md"
+        exit 1
+    else
+        echo "[PASS] RFC-0009 dependency hygiene: no forbidden crates in OS graph."
+    fi

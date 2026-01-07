@@ -38,7 +38,24 @@ Use the template when creating new RFCs:
 Hard requirements (agents should keep these current):
 
 - **Status at a Glance** section near the top (phase-level progress).
-- **Checklist** section at the end (checkboxes), focused on contract + proof gates, not “implementation chores”.
+- **Checklist** section at the end (checkboxes), focused on contract + proof gates, not "implementation chores".
+
+## Security-relevant RFCs
+
+RFCs touching crypto, auth, identity, capabilities, or sensitive data MUST include:
+
+1. **Threat model**: What attacks are relevant?
+2. **Security invariants**: What MUST always hold?
+3. **DON'T DO list**: Explicit prohibitions
+4. **Proof strategy**: How security is verified (negative tests, hardening markers)
+
+See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
+
+**Security RFCs in this repo:**
+
+- RFC-0005: Kernel IPC & Capability Model (capability-based security)
+- RFC-0008: DSoftBus Noise XK v1 (authentication + identity binding)
+- RFC-0009: no_std Dependency Hygiene v1 (build security)
 
 ## Index
 
@@ -58,7 +75,3 @@ Hard requirements (agents should keep these current):
   - docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
 - RFC-0008: DSoftBus Noise XK v1 (no_std handshake + identity binding)
   - docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
-- RFC-0009: no_std Dependency Hygiene v1 (OS/QEMU reproducible builds)
-  - docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
-- RFC-0009: no_std Dependency Hygiene v1 (OS/QEMU build policy)
-  - docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md

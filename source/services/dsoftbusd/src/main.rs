@@ -88,6 +88,7 @@ fn os_entry() -> core::result::Result<(), ()> {
         }
     }
     let udp_id = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
+    let _ = nexus_abi::debug_println("dsoftbusd: discovery up (udp)");
 
     // Minimal discovery announce/receive loop (local-only, loopback):
     let mut got_disc = false;
@@ -200,6 +201,13 @@ fn os_entry() -> core::result::Result<(), ()> {
             let _ = yield_();
             continue;
         }
+        // Emit marker once per successful announce send (first iteration only)
+        static mut ANNOUNCE_SENT: bool = false;
+        // SAFETY: single-threaded OS context
+        if unsafe { !ANNOUNCE_SENT } {
+            let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
+            unsafe { ANNOUNCE_SENT = true };
+        }
         let mut r = [0u8; 10];
         r[0] = MAGIC0;
         r[1] = MAGIC1;
@@ -222,6 +230,16 @@ fn os_entry() -> core::result::Result<(), ()> {
                     && &rsp[base..base + 4] == b"NXSB"
                     && rsp[base + 4] == 1
                 {
+                    // Parse device_id from announcement (version 1 format)
+                    // Layout: NXSB(4) + version(1) + dev_len(1) + dev_id(dev_len) + port(2)
+                    if n >= 6 {
+                        let dev_len = rsp[base + 5] as usize;
+                        if dev_len >= 1 && dev_len <= 32 && n >= 6 + dev_len {
+                            let _ = nexus_abi::debug_println(
+                                "dsoftbusd: discovery peer found device=local",
+                            );
+                        }
+                    }
                     got = true;
                     break;
                 }
@@ -274,151 +292,207 @@ fn os_entry() -> core::result::Result<(), ()> {
         }
     };
 
-    // Auth handshake (bounded, deterministic challenge/response).
-    const AUTH_MAGIC: &[u8; 4] = b"NOI1";
-    // Expected client static pubkey.
-    const CLIENT_PUB: [u8; 32] = [
-        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
-        0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe,
-        0x0f, 0x1e,
-    ];
-    // Server static pubkey (for binding).
-    const SERVER_PUB: [u8; 32] = [
-        0x7a, 0x6b, 0x5c, 0x4d, 0x3e, 0x2f, 0x1a, 0x0b, 0x9c, 0x8d, 0x7e, 0x6f, 0x5a, 0x4b, 0x3c,
-        0x2d, 0x1e, 0x0f, 0xfa, 0xeb, 0xdc, 0xcd, 0xbe, 0xaf, 0x90, 0x81, 0x72, 0x63, 0x54, 0x45,
-        0x36, 0x27,
-    ];
-    const AUTH_SECRET: [u8; 64] = [
-        0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb, 0xcc, 0xdd, 0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30,
-        0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0, 0x0f, 0x1a, 0x2b,
-        0x3c, 0x4d, 0x5e, 0x6f, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xda, 0xeb, 0xfc, 0x0d, 0x1e,
-        0x2f, 0x3a, 0x4b, 0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0xab, 0xbc, 0xcd, 0xde, 0xef, 0xfa, 0xfb,
-        0xfc, 0xfd, 0xfe, 0xff,
-    ];
-    // Step 1: read client hello (magic + pubkey).
-    let mut authed = false;
-    for _ in 0..50_000 {
-        let mut r = [0u8; 10];
-        r[0] = MAGIC0;
-        r[1] = MAGIC1;
-        r[2] = VERSION;
-        r[3] = OP_READ;
-        r[4..8].copy_from_slice(&sid.to_le_bytes());
-        r[8..10].copy_from_slice(&(40u16).to_le_bytes());
-        let rsp = rpc(&net, &r).map_err(|_| ())?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
-            match rsp[4] {
-                STATUS_OK => {
-                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                    if n == 36 && &rsp[7..11] == AUTH_MAGIC && rsp[11..43] == CLIENT_PUB {
-                        authed = true;
-                        break;
-                    } else {
-                        let _ = nexus_abi::debug_println("dsoftbusd: auth hello FAIL");
-                        loop {
-                            let _ = yield_();
-                        }
-                    }
-                }
-                STATUS_WOULD_BLOCK => {}
-                _ => {
-                    let _ = nexus_abi::debug_println("dsoftbusd: auth hello FAIL");
-                    loop {
-                        let _ = yield_();
-                    }
-                }
-            }
+    // ============================================================
+    // REAL Noise XK Handshake (RFC-0008)
+    // ============================================================
+    use nexus_noise_xk::{StaticKeypair, Transport, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
+
+    // SECURITY: bring-up test keys, NOT production custody
+    // These keys are deterministic and derived from port for reproducibility only.
+    // Phase 2 integrates with keystored for real key provisioning.
+    fn derive_test_secret(tag: u8, port: u16) -> [u8; 32] {
+        let mut seed = [0u8; 32];
+        seed[0] = tag;
+        seed[1] = (port >> 8) as u8;
+        seed[2] = (port & 0xff) as u8;
+        // Fill rest with deterministic pattern
+        for i in 3..32 {
+            seed[i] = ((tag as u16).wrapping_mul(port).wrapping_add(i as u16) & 0xff) as u8;
         }
-        let _ = yield_();
-    }
-    if !authed {
-        let _ = nexus_abi::debug_println("dsoftbusd: auth hello FAIL");
-        loop {
-            let _ = yield_();
-        }
+        seed
     }
 
-    // Step 2: send challenge (deterministic nonce + server pub to bind identity).
-    let nonce: [u8; 8] = [0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87];
-    let mut chal = [0u8; 54];
-    chal[0] = MAGIC0;
-    chal[1] = MAGIC1;
-    chal[2] = VERSION;
-    chal[3] = OP_WRITE;
-    chal[4..8].copy_from_slice(&sid.to_le_bytes());
-    chal[8..10].copy_from_slice(&(44u16).to_le_bytes());
-    chal[10..14].copy_from_slice(b"CHAL");
-    chal[14..46].copy_from_slice(&SERVER_PUB);
-    chal[46..54].copy_from_slice(&nonce);
-    let _ = rpc(&net, &chal);
+    // Server (responder) static keypair - derived from port with tag 0xA0
+    // SECURITY: bring-up test keys, NOT production custody
+    let server_static = StaticKeypair::from_secret(derive_test_secret(0xA0, port));
+    // Server ephemeral seed - derived from port with tag 0xC0
+    // SECURITY: bring-up test keys, NOT production custody
+    let server_eph_seed = derive_test_secret(0xC0, port);
+    // Expected client static public key (client uses tag 0xB0)
+    // SECURITY: bring-up test keys, NOT production custody
+    let client_static_expected = StaticKeypair::from_secret(derive_test_secret(0xB0, port)).public;
 
-    // Step 3: read response (magic + tag).
-    let mut authed = false;
-    for _ in 0..50_000 {
-        let mut r = [0u8; 10];
-        r[0] = MAGIC0;
-        r[1] = MAGIC1;
-        r[2] = VERSION;
-        r[3] = OP_READ;
-        r[4..8].copy_from_slice(&sid.to_le_bytes());
-        r[8..10].copy_from_slice(&(96u16).to_le_bytes());
-        let rsp = rpc(&net, &r).map_err(|_| ())?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
-            match rsp[4] {
-                STATUS_OK => {
-                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                    if n == 68 && &rsp[7..11] == AUTH_MAGIC {
-                        let mut expected = [0u8; 64];
-                        for (i, b) in expected.iter_mut().enumerate() {
-                            *b = AUTH_SECRET[i]
-                                ^ CLIENT_PUB[i % CLIENT_PUB.len()]
-                                ^ SERVER_PUB[i % SERVER_PUB.len()]
-                                ^ nonce[i % nonce.len()];
-                        }
-                        if rsp.len() >= 75 && rsp[11..75] == expected {
-                            authed = true;
-                            break;
-                        } else {
-                            let _ = nexus_abi::debug_println("dsoftbusd: auth tag mismatch");
-                            loop {
-                                let _ = yield_();
+    let mut responder = XkResponder::new(server_static, client_static_expected, server_eph_seed);
+
+    // Helper to read exactly N bytes from the session
+    fn stream_read(net: &KernelClient, sid: u32, buf: &mut [u8]) -> core::result::Result<(), ()> {
+        const MAGIC0: u8 = b'N';
+        const MAGIC1: u8 = b'S';
+        const VERSION: u8 = 1;
+        const OP_READ: u8 = 4;
+        const STATUS_OK: u8 = 0;
+        const STATUS_WOULD_BLOCK: u8 = 3;
+
+        let len = buf.len();
+        for _ in 0..100_000 {
+            let mut r = [0u8; 10];
+            r[0] = MAGIC0;
+            r[1] = MAGIC1;
+            r[2] = VERSION;
+            r[3] = OP_READ;
+            r[4..8].copy_from_slice(&sid.to_le_bytes());
+            r[8..10].copy_from_slice(&(len as u16).to_le_bytes());
+            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let (reply_send_slot, reply_recv_slot) = reply.slots();
+            let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+            net.send_with_cap_move(&r, reply_send_clone).map_err(|_| ())?;
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut rsp = [0u8; 512];
+            for _ in 0..5_000 {
+                match nexus_abi::ipc_recv_v1(
+                    reply_recv_slot,
+                    &mut hdr,
+                    &mut rsp,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(_) => {
+                        if rsp[0] == MAGIC0
+                            && rsp[1] == MAGIC1
+                            && rsp[2] == VERSION
+                            && rsp[3] == (OP_READ | 0x80)
+                        {
+                            if rsp[4] == STATUS_OK {
+                                let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                                if n == len && 7 + n <= rsp.len() {
+                                    buf.copy_from_slice(&rsp[7..7 + n]);
+                                    return Ok(());
+                                }
+                            } else if rsp[4] == STATUS_WOULD_BLOCK {
+                                break; // retry outer loop
+                            } else {
+                                return Err(());
                             }
                         }
-                    } else {
-                        let _ = nexus_abi::debug_println("dsoftbusd: auth rsp FAIL len");
-                        loop {
-                            let _ = yield_();
-                        }
+                        break;
                     }
-                }
-                STATUS_WOULD_BLOCK => {}
-                _ => {
-                    let _ = nexus_abi::debug_println("dsoftbusd: auth rsp FAIL");
-                    loop {
-                        let _ = yield_();
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = nexus_abi::yield_();
                     }
+                    Err(_) => return Err(()),
                 }
             }
+            let _ = nexus_abi::yield_();
         }
-        let _ = yield_();
+        Err(())
     }
-    if !authed {
-        let _ = nexus_abi::debug_println("dsoftbusd: auth rsp FAIL");
+
+    // Helper to write exactly N bytes to the session
+    fn stream_write(net: &KernelClient, sid: u32, data: &[u8]) -> core::result::Result<(), ()> {
+        const MAGIC0: u8 = b'N';
+        const MAGIC1: u8 = b'S';
+        const VERSION: u8 = 1;
+        const OP_WRITE: u8 = 5;
+        const STATUS_OK: u8 = 0;
+
+        let mut w = [0u8; 256];
+        if data.len() + 10 > w.len() {
+            return Err(());
+        }
+        w[0] = MAGIC0;
+        w[1] = MAGIC1;
+        w[2] = VERSION;
+        w[3] = OP_WRITE;
+        w[4..8].copy_from_slice(&sid.to_le_bytes());
+        w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
+        w[10..10 + data.len()].copy_from_slice(data);
+
+        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+        let (reply_send_slot, reply_recv_slot) = reply.slots();
+        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+        net.send_with_cap_move(&w[..10 + data.len()], reply_send_clone).map_err(|_| ())?;
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut rsp = [0u8; 64];
+        for _ in 0..5_000 {
+            match nexus_abi::ipc_recv_v1(
+                reply_recv_slot,
+                &mut hdr,
+                &mut rsp,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(_) => {
+                    if rsp[0] == MAGIC0
+                        && rsp[1] == MAGIC1
+                        && rsp[2] == VERSION
+                        && rsp[3] == (OP_WRITE | 0x80)
+                        && rsp[4] == STATUS_OK
+                    {
+                        return Ok(());
+                    }
+                    return Err(());
+                }
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = nexus_abi::yield_();
+                }
+                Err(_) => return Err(()),
+            }
+        }
+        Err(())
+    }
+
+    // Step 1: Read msg1 (initiator ephemeral public key, 32 bytes)
+    let mut msg1 = [0u8; MSG1_LEN];
+    if stream_read(&net, sid, &mut msg1).is_err() {
+        let _ = nexus_abi::debug_println("dsoftbusd: noise msg1 read FAIL");
         loop {
             let _ = yield_();
         }
     }
 
-    // Send auth ack.
-    let mut ack = [0u8; 16];
-    ack[0] = MAGIC0;
-    ack[1] = MAGIC1;
-    ack[2] = VERSION;
-    ack[3] = OP_WRITE;
-    ack[4..8].copy_from_slice(&sid.to_le_bytes());
-    ack[8..10].copy_from_slice(&(6u16).to_le_bytes());
-    ack[10..16].copy_from_slice(b"AUTHOK");
-    let _ = rpc(&net, &ack);
+    // Step 2: Write msg2 (responder ephemeral + encrypted static + tag, 96 bytes)
+    let mut msg2 = [0u8; MSG2_LEN];
+    if responder.read_msg1_write_msg2(&msg1, &mut msg2).is_err() {
+        let _ = nexus_abi::debug_println("dsoftbusd: noise msg2 gen FAIL");
+        loop {
+            let _ = yield_();
+        }
+    }
+    if stream_write(&net, sid, &msg2).is_err() {
+        let _ = nexus_abi::debug_println("dsoftbusd: noise msg2 write FAIL");
+        loop {
+            let _ = yield_();
+        }
+    }
+
+    // Step 3: Read msg3 (encrypted initiator static + tag, 64 bytes)
+    let mut msg3 = [0u8; MSG3_LEN];
+    if stream_read(&net, sid, &mut msg3).is_err() {
+        let _ = nexus_abi::debug_println("dsoftbusd: noise msg3 read FAIL");
+        loop {
+            let _ = yield_();
+        }
+    }
+
+    // Finish handshake and get transport keys
+    let transport_keys = match responder.read_msg3_finish(&msg3) {
+        Ok(keys) => keys,
+        Err(nexus_noise_xk::NoiseError::StaticKeyMismatch) => {
+            let _ = nexus_abi::debug_println("dsoftbusd: noise static key mismatch");
+            loop {
+                let _ = yield_();
+            }
+        }
+        Err(_) => {
+            let _ = nexus_abi::debug_println("dsoftbusd: noise msg3 FAIL");
+            loop {
+                let _ = yield_();
+            }
+        }
+    };
+
+    // Create transport for encrypted communication
+    let mut _transport = Transport::new(transport_keys);
     let _ = nexus_abi::debug_println("dsoftbusd: auth ok");
 
     // Read "PING", reply "PONG".

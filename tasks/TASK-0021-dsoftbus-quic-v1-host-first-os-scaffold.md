@@ -98,3 +98,17 @@ Notes:
 ## Follow-ups
 
 - QUIC tuning (pacing/CC) + mux priorities load testing: see `TASK-0044`.
+- **RPC Format Migration**: When QUIC transport is stable, migrate remote service calls from OS-lite byte frames to schema-based RPC (Cap'n Proto). See TASK-0005 "Technical Debt" section.
+
+---
+
+## Alignment with RFC-0007 Phase 3
+
+This task implements the **QUIC transport** specified in RFC-0007 Phase 3:
+
+> **Phase 3: QUIC + Noise Transport** — Replace custom UDP-sec with QUIC (IETF RFC 9000) for transport, using Noise XK for the handshake crypto.
+
+**Key design decisions:**
+- QUIC provides multiplexing, flow control, and congestion control (replaces TASK-0020 Mux v2 partially)
+- Noise XK remains the handshake crypto (not TLS 1.3) for consistency with existing identity binding
+- TCP fallback ensures bring-up path remains stable

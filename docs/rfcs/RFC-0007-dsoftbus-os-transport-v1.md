@@ -1,9 +1,9 @@
 # RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions over sockets facade)
 
-- Status: Draft (seed)
+- Status: In Progress (Phase 0 ✅, Phase 1 loopback ✅ real Noise XK, Phase 1 full → TASK-0004)
 - Owners: @runtime
 - Created: 2026-01-01
-- Last Updated: 2026-01-02
+- Last Updated: 2026-01-07 (real Noise XK handshake implemented)
 - Links:
   - Tasks (execution + proof): `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
   - Follow-up Noise handshake: `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
@@ -12,6 +12,7 @@
   - Related RFCs:
     - `docs/rfcs/RFC-0006-userspace-networking-v1.md` (sockets facade)
     - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (extension policy + identity binding rules)
+    - `docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md` (Noise XK handshake + identity binding contract)
 
 ## Status at a Glance
 
@@ -56,6 +57,35 @@
 - **Phase 2 (Follow-ups)**: ⬜
   - **Next**:
     - Discovery hardening (rate limits, replay handling policy, negative-case stress) and additional on-wire versions (each with golden vectors).
+    - **RPC Format Migration**: Migrate remote service calls from OS-lite byte frames to schema-based RPC (Cap'n Proto). See "RPC Format Migration Path" below.
+- **Phase 3 (QUIC Transport)**: ⬜
+  - Replace TCP + custom framing with QUIC (IETF RFC 9000) for transport.
+  - Keep Noise XK for handshake crypto (not TLS 1.3).
+  - See TASK-0021 for implementation.
+
+### RPC Format Migration Path (Technical Debt)
+
+**Current state (Phase 1 bring-up):**
+- TASK-0005 remote proxy uses **OS-lite byte frames** (`SM`, `BN` magic)
+- TASK-0016/0017 follow the same pattern (`PK`, statefs frames)
+- This is a **conscious shortcut** to avoid schema dependencies during bring-up
+
+**Target state (Phase 2+):**
+- Migrate to **Cap'n Proto IDL** or equivalent stable schema
+- Benefits: schema evolution, versioning, cross-language tooling
+- Aligns with OpenHarmony DSoftBus IDL and Fuchsia FIDL patterns
+
+**Migration trigger:**
+- When TASK-0020 (Streams v2 Mux) lands — natural refactor point
+- Or when TASK-0021 (QUIC) lands — new transport = new RPC layer
+
+**Affected tasks:**
+- TASK-0005: Remote proxy (samgrd/bundlemgrd)
+- TASK-0016: Remote PackageFS
+- TASK-0017: Remote StateFS
+- Any new remote service
+
+**Tracking:** Create dedicated RFC "DSoftBus RPC Schema v1" when migration begins.
 
 Definition:
 

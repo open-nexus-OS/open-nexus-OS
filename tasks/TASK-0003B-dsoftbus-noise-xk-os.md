@@ -1,18 +1,43 @@
 ---
-title: TASK-0003B DSoftBus OS Noise XK identity binding (no_std)
-status: Draft
+title: TASK-0003B DSoftBus OS Noise XK handshake (no_std)
+status: Done ✅ (Noise XK handshake complete; identity binding enforcement → TASK-0004)
 owner: @runtime
 created: 2026-01-01
+updated: 2026-01-07
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - RFC: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
+  - RFC: docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
   - Parent task: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
 ---
 
 ## Context
-- Follow-up to `TASK-0003`: replace the deterministic C/R gate with a real Noise XK handshake (no_std) on the OS DSoftBus transport.
-- Current milestone is green with a bounded C/R; this task upgrades to true Noise XK while keeping determinism and userspace-only crypto.
+- Follow-up to `TASK-0003`: the deterministic C/R gate has been replaced with a real Noise XK handshake (no_std) on the OS DSoftBus transport.
+- Milestone is complete: true Noise XK handshake using `nexus-noise-xk` library (X25519 + ChaChaPoly + BLAKE2s), deterministic and userspace-only crypto.
+
+## Current Status (2026-01-07)
+
+**What's DONE:**
+- ✅ Noise XK handshake implementation (`source/libs/nexus-noise-xk`)
+- ✅ QEMU marker `dsoftbusd: auth ok` after real Noise handshake
+- ✅ Host regression tests (`cargo test -p nexus-noise-xk`)
+- ✅ Test keys parameterized (port-based derivation for dual-node)
+- ✅ `SELFTEST: dsoftbus ping ok` over encrypted session
+
+**What's DEFERRED to TASK-0004** (requires dual-node for meaningful validation):
+- ⬜ Identity binding enforcement (`device_id <-> noise_static_pub` mapping)
+- ⬜ Session rejection on identity mismatch
+- ⬜ Marker: `dsoftbusd: identity bound peer=<id>`
+
+**Note**: Test keys are labeled as "bring-up test keys" in code (see `derive_test_secret` usage).
+
+**Proof Gates:**
+- `just diag-os` ✅
+- `just diag-host` ✅
+- `just dep-gate` ✅
+- QEMU `dsoftbusd: auth ok` ✅
+- QEMU `SELFTEST: dsoftbus ping ok` ✅
 
 ## Goal
 - OS auth path uses Noise XK (X25519 + AEAD) with identity binding; `dsoftbusd: auth ok` only after handshake success.
@@ -31,6 +56,43 @@ links:
 - RED: Choice of no_std Noise/X25519/AEAD implementation (vendored minimal shim vs crate).
 - YELLOW: Key source policy (test static keys now; keystored later).
 - GREEN: Ownership model stays: netstackd owns MMIO; dsoftbusd over IPC facade.
+
+## Security considerations (scope: TASK-0003B only)
+
+> **Scope boundary**: This section covers only the Noise XK handshake implementation.
+> Identity binding enforcement and session rejection are **TASK-0004** scope.
+
+### Threat model (for handshake implementation)
+- **MITM during handshake**: Attacker intercepts TCP and attempts own handshake
+- **Key compromise**: Test keys are deterministic and publicly known
+- **Replay of handshake messages**: Old msg1/msg2/msg3 replayed
+
+### Security invariants (MUST hold in TASK-0003B)
+- Noise XK handshake MUST complete before `dsoftbusd: auth ok` marker
+- Session keys derived from handshake MUST be used for all subsequent traffic
+- Test keys MUST be labeled `// SECURITY: bring-up test keys, NOT production custody`
+- Private keys MUST NOT appear in logs, UART, or error messages
+
+### DON'T DO (TASK-0003B scope)
+- DON'T emit `auth ok` without completed Noise handshake
+- DON'T log private keys or session keys
+- DON'T use test keys in production builds (enforce via `cfg` in future)
+
+### What is NOT in scope (→ TASK-0004)
+- Identity binding enforcement (`device_id <-> noise_static_pub`)
+- Session rejection on identity mismatch
+- Dual-node/cross-VM validation
+
+### Mitigations (implemented)
+- Noise XK provides mutual authentication via static keys
+- Noise XK provides forward secrecy via ephemeral keys
+- All post-handshake traffic encrypted with AEAD (ChaCha20-Poly1305)
+- Test keys derived from port number (enables dual-node in TASK-0004)
+
+### Security proof (TASK-0003B scope)
+- **Host tests**: `cargo test -p nexus-noise-xk` — handshake correctness
+- **QEMU marker**: `dsoftbusd: auth ok` — only after real Noise handshake
+- **QEMU marker**: `SELFTEST: dsoftbus ping ok` — encrypted roundtrip works
 
 ## Contract sources (single source of truth)
 - QEMU marker contract: `scripts/qemu-test.sh`

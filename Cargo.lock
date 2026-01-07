@@ -698,6 +698,7 @@ dependencies = [
  "dsoftbus",
  "nexus-abi",
  "nexus-ipc",
+ "nexus-noise-xk",
  "nexus-service-entry",
 ]
 
@@ -1200,6 +1201,10 @@ name = "nexus-alloc"
 version = "0.1.0"
 
 [[package]]
+name = "nexus-discovery-packet"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-e2e"
 version = "0.1.0"
 dependencies = [
@@ -1306,6 +1311,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-noise-xk"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "chacha20poly1305",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "nexus-packagefs"
 version = "0.1.0"
 dependencies = [
@@ -1314,6 +1328,10 @@ dependencies = [
  "nexus-ipc",
  "thiserror 1.0.69",
 ]
+
+[[package]]
+name = "nexus-peer-lru"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-sched"
@@ -1966,6 +1984,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-net",
  "nexus-net-os",
+ "nexus-noise-xk",
  "nexus-service-entry",
  "nexus-vfs",
  "packagefsd",
