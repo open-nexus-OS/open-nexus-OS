@@ -36,6 +36,16 @@ os-lite = []                # Enables no_std-compatible code path
 ```rust
 // In lib.rs or main.rs
 
+// Conditionally enable no_std for OS builds
+#![cfg_attr(
+    all(feature = "os-lite", not(feature = "std"), nexus_env = "os"),
+    no_std
+)]
+
+// REQUIRED: Declare alloc crate in no_std modules that use Vec, BTreeMap, etc.
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+extern crate alloc;
+
 #[cfg(feature = "std")]
 mod host_impl;              // Uses std, parking_lot, getrandom, etc.
 
@@ -44,6 +54,23 @@ mod os_impl;                // Uses no_std + alloc only
 
 #[cfg(all(not(feature = "std"), not(feature = "os-lite")))]
 compile_error!("Either 'std' or 'os-lite' feature must be enabled");
+```
+
+### The `extern crate alloc` Rule
+
+**Critical**: In `no_std` crates that use `alloc` types (`Vec`, `String`, `BTreeMap`, etc.), you MUST declare:
+
+```rust
+extern crate alloc;
+
+use alloc::vec::Vec;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+```
+
+This is different from `std` builds where `alloc` is re-exported automatically. Forgetting this causes:
+```
+error[E0433]: failed to resolve: use of undeclared crate or module `alloc`
 ```
 
 ---
@@ -71,20 +98,57 @@ This command checks the OS dependency graph and **fails if forbidden crates appe
 
 ## Build System Rules
 
+### Nightly Toolchain Requirement
+
+**RISC-V bare-metal builds require the nightly toolchain** for certain unstable features. Always use:
+
+```bash
+cargo +nightly-2025-01-15 build --target riscv64imac-unknown-none-elf ...
+```
+
+The pinned nightly version is defined in:
+- `Makefile`: `NIGHTLY ?= nightly-2025-01-15`
+- `justfile`: `toolchain := "nightly-2025-01-15"`
+
 ### Makefile
 
 When building OS services in `Makefile`:
 
 ```makefile
-# ✅ CORRECT: Build OS services with os-lite
-cargo build --target riscv64imac-unknown-none-elf \
+# ✅ CORRECT: Build OS services with os-lite AND nightly toolchain
+cargo +$(NIGHTLY) build --target riscv64imac-unknown-none-elf \
     --no-default-features --features os-lite \
     -p my-service
 
 # ❌ WRONG: Missing feature flags (pulls in std dependencies!)
 cargo build --target riscv64imac-unknown-none-elf \
     -p my-service
+
+# ❌ WRONG: Missing nightly toolchain
+cargo build --target riscv64imac-unknown-none-elf \
+    --no-default-features --features os-lite \
+    -p my-service
 ```
+
+### Library-Only Crates
+
+Some crates have a binary (`[[bin]]`) that only makes sense on host. For OS builds, build only the library:
+
+```makefile
+# ✅ CORRECT: Build only the library for crates with host-only binaries
+cargo +$(NIGHTLY) build -p nexus-init --lib \
+    --target riscv64imac-unknown-none-elf \
+    --no-default-features --features os-lite
+
+# ❌ WRONG: Building the binary fails on no_std (missing main, panic_handler)
+cargo +$(NIGHTLY) build -p nexus-init \
+    --target riscv64imac-unknown-none-elf \
+    --no-default-features --features os-lite
+```
+
+This is necessary because:
+- `no_std` binaries need `#![no_main]` and a panic handler
+- The actual OS binary is `init-lite`, not `nexus-init`
 
 ### justfile
 
@@ -144,6 +208,44 @@ parking_lot = { version = "0.12", optional = true }
 [target.'cfg(all(target_os = "none", target_arch = "riscv64"))'.dependencies]
 # OS-only dependencies
 spin = "0.9"
+```
+
+### Feature Propagation for Multi-Crate Dependencies
+
+When a crate depends on other crates that have their own `std`/`os-lite` features, you MUST:
+
+1. **Disable default features** with `default-features = false`
+2. **Explicitly enable the required feature** in your feature definition
+
+```toml
+[features]
+default = ["std"]
+std = [
+    "my-dep",
+    "my-dep/default",      # Explicitly enable default for host
+]
+os-lite = [
+    "my-dep",
+    "my-dep/os-lite",      # Propagate os-lite to dependency
+]
+
+[dependencies]
+# CRITICAL: default-features = false allows feature control
+my-dep = { path = "../my-dep", optional = true, default-features = false }
+```
+
+**Without `default-features = false`**, Cargo builds the dependency with its default features, causing `std` dependencies to leak into `os-lite` builds!
+
+Example failure mode:
+```
+# nexus-init depends on samgrd
+samgrd = { path = "../../services/samgrd", optional = true }  # ❌ WRONG
+
+# samgrd has default = ["std", "idl-capnp"]
+# This pulls in serde, capnp, etc. even when nexus-init uses os-lite!
+
+# ✅ CORRECT:
+samgrd = { path = "../../services/samgrd", optional = true, default-features = false }
 ```
 
 ---
@@ -220,9 +322,67 @@ use parking_lot::Mutex;
 use spin::Mutex;
 ```
 
+### Mistake 5: Missing `extern crate alloc`
+
+```rust
+// ❌ WRONG: alloc is not automatically available in no_std
+use alloc::vec::Vec;  // error: use of undeclared crate or module `alloc`
+
+// ✅ CORRECT: explicitly declare alloc crate
+extern crate alloc;
+use alloc::vec::Vec;
+```
+
+### Mistake 6: Unused variables in conditional code
+
+```rust
+// ❌ WRONG: `s` is unused when cfg doesn't match
+fn debug_print(s: &str) {
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64"))]
+    uart_write(s);  // s is unused on host builds
+}
+
+// ✅ CORRECT: prefix with underscore to indicate intentional non-use
+fn debug_print(_s: &str) {
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64"))]
+    uart_write(_s);
+}
+```
+
+### Mistake 7: Feature-gated modules without guard
+
+```rust
+// ❌ WRONG: full_impl uses capnp but is compiled without idl-capnp feature
+mod full_impl;  // Contains: use capnp::...
+
+// ✅ CORRECT: guard the module with the required feature
+#[cfg(feature = "idl-capnp")]
+mod full_impl;
+```
+
 ---
 
 ## History
+
+### 2026-01-07: Feature Propagation Fix
+
+**Problem**: `make build MODE=host` failed with `serde_core` errors on RISC-V target.
+
+**Root Causes**:
+1. `Makefile` was building OS services on x86_64-host without `--target riscv64imac-unknown-none-elf`
+2. `nexus-init/Cargo.toml` referenced services without `default-features = false`
+3. Missing `extern crate alloc;` in `vfsd` and `packagefsd` os_lite modules
+4. `keystored/lib.rs` included `full_impl` module without `idl-capnp` feature guard
+5. `nexus-init` binary was built for RISC-V but lacks `#![no_main]` and panic handler
+
+**Solution**:
+1. Added `--target riscv64imac-unknown-none-elf` to Makefile OS service builds
+2. Added `+$(NIGHTLY)` toolchain selector for RISC-V builds
+3. Added `default-features = false` to all service dependencies in `nexus-init`
+4. Explicit feature propagation: `"samgrd/os-lite"` in feature definitions
+5. Added `--lib` flag for `nexus-init` (binary is host-only)
+6. Added `extern crate alloc;` to os_lite modules
+7. Added `#[cfg(feature = "idl-capnp")]` guard to `keystored/lib.rs`
 
 ### 2026-01-07: RFC-0009 Implementation
 

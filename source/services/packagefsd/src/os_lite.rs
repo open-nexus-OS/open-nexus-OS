@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use core::fmt;
 
 use alloc::collections::BTreeMap;
@@ -245,9 +247,9 @@ fn load_registry_from_bundlemgrd() -> Option<BundleRegistry> {
     Some(registry)
 }
 
-fn debug_print(s: &str) {
+fn debug_print(_s: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    let _ = nexus_abi::debug_write(s.as_bytes());
+    let _ = nexus_abi::debug_write(_s.as_bytes());
 }
 
 // raw UART helper removed in favor of debug_write syscall

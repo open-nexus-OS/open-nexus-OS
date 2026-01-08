@@ -1,9 +1,16 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
-// `os-payload` is used by `init-lite` as a library-only payload backend. It must remain compatible
+// `os-payload` and `os-lite` are used by OS builds. They must remain compatible
 // with `--no-default-features` (no std), while still allowing the regular host/std backend to build
 // when `std-server` is enabled (including in `--all-features` tool runs).
-#![cfg_attr(all(feature = "os-payload", not(feature = "std-server")), no_std)]
+#![cfg_attr(
+    all(
+        any(feature = "os-payload", feature = "os-lite"),
+        not(feature = "std-server"),
+        nexus_env = "os"
+    ),
+    no_std
+)]
 
 //! CONTEXT: Init process selecting Host std backend or OS-lite cooperative bootstrap
 //! OWNERS: @init-team @runtime

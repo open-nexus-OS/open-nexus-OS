@@ -8,14 +8,23 @@ license = "Apache-2.0"
 default = ["std-server"]
 std-server = [
     "samgrd",
+    "samgrd/default",
     "bundlemgrd",
+    "bundlemgrd/default",
     "keystored",
+    "keystored/default",
     "policyd",
+    "policyd/default",
     "execd",
+    "execd/default",
     "nexus-vfs",
+    "nexus-vfs/idl-capnp",
     "packagefsd",
+    "packagefsd/default",
     "vfsd",
+    "vfsd/default",
     "nexus-ipc",
+    "nexus-ipc/std",
     "nexus-sync",
     "serde",
     "toml",
@@ -23,19 +32,40 @@ std-server = [
     "nexus-idl-runtime",
     "capnp",
 ]
-os-lite = ["std-server", "nexus-ipc/os-lite"]
+# os-lite: minimal deps for no_std RISC-V target (no serde/toml/thiserror)
+os-lite = [
+    "samgrd",
+    "samgrd/os-lite",
+    "bundlemgrd",
+    "bundlemgrd/os-lite",
+    "keystored",
+    "keystored/os-lite",
+    "policyd",
+    "policyd/os-lite",
+    "execd",
+    "execd/os-lite",
+    "nexus-vfs",
+    "nexus-vfs/os-kernel",
+    "packagefsd",
+    "packagefsd/os-lite",
+    "vfsd",
+    "vfsd/os-lite",
+    "nexus-ipc",
+    "nexus-ipc/os-lite",
+]
 os-payload = []
 
 [dependencies]
-samgrd = { path = "../../services/samgrd", optional = true }
-bundlemgrd = { path = "../../services/bundlemgrd", optional = true }
-keystored = { path = "../../services/keystored", optional = true }
-policyd = { path = "../../services/policyd", optional = true }
-execd = { path = "../../services/execd", optional = true }
-nexus-vfs = { path = "../../../userspace/nexus-vfs", optional = true }
-packagefsd = { path = "../../services/packagefsd", optional = true }
-vfsd = { path = "../../services/vfsd", optional = true }
-nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true }
+# Services: use default-features = false so we can select std vs os-lite
+samgrd = { path = "../../services/samgrd", optional = true, default-features = false }
+bundlemgrd = { path = "../../services/bundlemgrd", optional = true, default-features = false }
+keystored = { path = "../../services/keystored", optional = true, default-features = false }
+policyd = { path = "../../services/policyd", optional = true, default-features = false }
+execd = { path = "../../services/execd", optional = true, default-features = false }
+nexus-vfs = { path = "../../../userspace/nexus-vfs", optional = true, default-features = false }
+packagefsd = { path = "../../services/packagefsd", optional = true, default-features = false }
+vfsd = { path = "../../services/vfsd", optional = true, default-features = false }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-sync = { path = "../../libs/nexus-sync", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-log = { path = "../../libs/nexus-log", features = ["sink-userspace"] }
