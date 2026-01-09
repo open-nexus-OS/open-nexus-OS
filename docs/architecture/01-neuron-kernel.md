@@ -29,27 +29,25 @@ The system security roadmap is intentionally hybrid:
 The syscall surface is intentionally small but evolves during bring-up.
 The authoritative list (including numeric IDs) lives in `source/kernel/neuron/src/syscall/mod.rs`.
 
-| Number | Symbol             | Description |
-| ------ | ------------------ | ----------- |
-| 0      | `yield`            | Rotate the scheduler and return the next runnable task id. Activates the target task's address space. |
-| 1      | `nsec`             | Return the monotonic time in nanoseconds derived from the `time` CSR. |
-| 2      | `send`             | Send an IPC message via an endpoint capability. |
-| 3      | `recv`             | Receive the next pending IPC message. |
-| 4      | `map`              | Map a page from a VMO capability into the caller's active address space. |
-| 5      | `vmo_create`       | Create a VMO capability. |
-| 6      | `vmo_write`        | Write bytes into a VMO capability. |
-| 7      | `spawn`            | Create a child task (fresh Sv39 AS by default) with a guarded stack. |
-| 8      | `cap_transfer`     | Duplicate/grant a capability to another task with a rights mask (subset-only). |
-| 9      | `as_create`        | Allocate a new Sv39 address space and return its opaque handle. |
-| 10     | `as_map`           | Map a VMO into a *target* address space identified by handle. Enforces W^X at the syscall boundary. |
-| 11     | `exit`             | Terminate the current task. |
-| 12     | `wait`             | Wait for a child task exit. |
-| 13     | `exec`             | Execute an ELF payload (loader path). |
-| 14     | `ipc_send_v1`      | Kernel IPC v1 send (payload copy-in) (see RFC‑0005). |
-| 18     | `ipc_recv_v1`      | Kernel IPC v1 recv (payload copy-out) (see RFC‑0005). |
-| 19     | `ipc_endpoint_create` | Create a kernel IPC endpoint (privileged) (see RFC‑0005). |
-| 27     | `mmio_map`         | Map a device MMIO capability window into the caller AS (USER|RW, never EXEC). |
-| 28     | `cap_query`        | Query a capability slot (kind/base/len) into a user buffer (driver bring-up primitive). |
+- **0 `yield`**: Rotate the scheduler and return the next runnable task id. Activates the target task's address space.
+- **1 `nsec`**: Return the monotonic time in nanoseconds derived from the `time` CSR.
+- **2 `send`**: Send an IPC message via an endpoint capability.
+- **3 `recv`**: Receive the next pending IPC message.
+- **4 `map`**: Map a page from a VMO capability into the caller's active address space.
+- **5 `vmo_create`**: Create a VMO capability.
+- **6 `vmo_write`**: Write bytes into a VMO capability.
+- **7 `spawn`**: Create a child task (fresh Sv39 AS by default) with a guarded stack.
+- **8 `cap_transfer`**: Duplicate/grant a capability to another task with a rights mask (subset-only).
+- **9 `as_create`**: Allocate a new Sv39 address space and return its opaque handle.
+- **10 `as_map`**: Map a VMO into a *target* address space identified by handle. Enforces W^X at the syscall boundary.
+- **11 `exit`**: Terminate the current task.
+- **12 `wait`**: Wait for a child task exit.
+- **13 `exec`**: Execute an ELF payload (loader path).
+- **14 `ipc_send_v1`**: Kernel IPC v1 send (payload copy-in) (see RFC‑0005).
+- **18 `ipc_recv_v1`**: Kernel IPC v1 recv (payload copy-out) (see RFC‑0005).
+- **19 `ipc_endpoint_create`**: Create a kernel IPC endpoint (privileged) (see RFC‑0005).
+- **27 `mmio_map`**: Map a device MMIO capability window into the caller AS (USER+RW, never EXEC).
+- **28 `cap_query`**: Query a capability slot (kind/base/len) into a user buffer (driver bring-up primitive).
 
 Errors follow the conventional POSIX encoding: handlers return
 `-errno` (two's complement) in `a0`. Key codes used by the current
@@ -187,6 +185,75 @@ The scheduler implements a round-robin policy with QoS hints. Tasks are
 queued in four buckets (`Idle`, `Normal`, `Interactive`, `PerfBurst`).
 When `yield` is invoked the current task is placed at the tail of its
 bucket and the highest priority non-empty bucket is dequeued.
+
+### Ownership Model (Rust-Specific)
+
+**Who owns what?**
+
+- **`Scheduler`**: Owns the task queues (`VecDeque<Task>`) and current task state
+  - **Ownership**: Exclusive mutable access (`&mut self` methods)
+  - **Lifetime**: Lives in `KERNEL_STATE` (static lifetime)
+  - **Thread safety**: Single-CPU (v1), per-CPU (SMP v2)
+
+- **`TaskTable`**: Owns all `TaskEntry` structs (PID → task metadata)
+  - **Ownership**: Exclusive mutable access to task lifecycle
+  - **Lifetime**: Static (kernel global)
+  - **Invariant**: Only `TaskTable` can spawn/exit tasks
+
+- **`AddressSpaceManager`**: Owns all page tables and ASID allocator
+  - **Ownership**: Exclusive mutable access to memory mappings
+  - **Lifetime**: Static (kernel global)
+  - **Invariant**: Only `AddressSpaceManager` can modify page tables
+
+- **`IpcRouter`**: Owns all endpoint queues
+  - **Ownership**: Shared mutable access (interior mutability via locks)
+  - **Lifetime**: Static (kernel global)
+  - **Invariant**: Only `IpcRouter` can enqueue/dequeue messages
+
+**Borrowing Rules**:
+
+- Syscall handlers borrow `&mut` references to kernel subsystems
+- No aliasing: only one subsystem can be borrowed mutably at a time
+- Trap handler coordinates borrows (owns all subsystems transitively)
+
+**SMP Implications (TASK-0012)**:
+
+- **Per-CPU Scheduler**: Each CPU owns its local runqueue (no sharing)
+- **Shared TaskTable**: Protected by spinlock (short critical sections)
+- **Shared AddressSpaceManager**: Protected by spinlock (page faults only)
+- **Shared IpcRouter**: Lock-free queues (atomic operations)
+
+See `docs/architecture/16-rust-concurrency-model.md` for detailed SMP ownership design.
+
+### Implemented vs. Aspirational (avoid doc drift)
+
+This section mixes **current structure** and **planned SMP structure**. To keep the docs honest:
+
+- **Implemented today (single-hart bring-up)**:
+  - single `Scheduler` instance,
+  - trap/syscall path is effectively single-threaded,
+  - invariants are proven via deterministic marker/selftests.
+
+- **Planned for SMP v1/v2 (tasks)**:
+  - per-CPU scheduler ownership (TASK-0012),
+  - explicit locking/atomic boundaries for shared state (TASK-0277 policy),
+  - affinity/shares/QoS controls (TASK-0042, TASK-0013) gated by `policyd`.
+
+When implementation differs from the plan, the task (not this doc) is the authority; update this section
+once the implementation lands.
+
+### Construction authority (Rust handles / newtypes)
+
+Rust newtypes are only maximally useful when it is clear **who is allowed to construct them** (authority),
+and when the API makes incorrect construction hard:
+
+- **`Pid`**: constructed by `TaskTable` only (kernel authority).
+- **`Asid`**: allocated/freed by `AddressSpaceManager` only.
+- **`AsHandle`**: created by the `as_create` syscall path; opaque to callers; never reveals the ASID.
+- **`CapSlot`**: indexes a per-task cap table; validated at syscall boundaries.
+
+See `source/kernel/neuron/src/types.rs` for the current newtypes and comments, and keep constructors scoped
+so invariants stay enforceable.
 
 ## HAL Snapshot
 

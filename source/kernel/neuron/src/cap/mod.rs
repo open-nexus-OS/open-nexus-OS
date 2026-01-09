@@ -44,6 +44,12 @@ pub enum CapabilityKind {
     DeviceMmio { base: usize, len: usize },
     /// Interrupt binding.
     Irq(u32),
+    /// Scheduler affinity control (TASK-0042): holder may set CPU affinity for other tasks.
+    ///
+    /// Rationale: Only privileged services (e.g., execd, policyd) should be able to set
+    /// CPU affinity for arbitrary tasks. Tasks can always set their own affinity without
+    /// this capability (within recipe limits).
+    SchedSetAffinity,
 }
 
 /// Capability descriptor stored in the table.

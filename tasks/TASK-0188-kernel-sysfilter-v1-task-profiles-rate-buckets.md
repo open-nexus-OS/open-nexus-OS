@@ -74,6 +74,27 @@ Deliver:
 - **RED (self-hosting risk)**:
   - Default-deny can brick the system if profiles are wrong. Provide a safe “bootstrap profile” for init/execd bring-up.
 
+## Security considerations
+
+### Threat model
+
+- **Syscall abuse/DoS**: tight loops calling syscalls to starve the system (availability)
+- **Privilege escalation via missing allowlist**: unintended syscall availability for a profile
+- **Non-deterministic enforcement**: timing-based tests or refill logic causing flaky or bypassable enforcement
+
+### Security invariants (MUST hold)
+
+- **Default-deny**: profiles are deny-by-default; explicit allowlist required
+- **Deterministic enforcement**: rate buckets refill deterministically using monotonic time
+- **Stable denial semantics**: denied syscalls return `EPERM` deterministically
+- **Bounded logging**: deny/rate markers are rate-limited; no UART flood
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T ship a “debug allow all” profile in production images
+- DON'T make enforcement timing-dependent in tests/proofs
+- DON'T log secrets or high-volume per-deny details in production
+
 ## Stop conditions (Definition of Done)
 
 - **Proof (Host)**:

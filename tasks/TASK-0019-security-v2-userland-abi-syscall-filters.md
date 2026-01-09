@@ -59,6 +59,63 @@ In QEMU, prove:
 - **GREEN (confirmed assumptions)**:
   - Kernel already publishes `BootstrapInfo` with stable `service_id` and name pointer/len (provenance-safe).
 
+## Security considerations
+
+### Threat model
+
+- **Bypass via raw ecall**: Malicious code executes `ecall` directly, bypassing `nexus-abi` wrappers
+- **Profile tampering**: Attacker modifies syscall profile to grant unauthorized access
+- **Audit evasion**: Sensitive operations performed without audit trail
+- **DoS via audit flooding**: Service floods audit log with deny events
+- **Policy injection**: Attacker injects fake profile rules
+
+### Security invariants (MUST hold)
+
+- ALL OS services we ship MUST use `nexus-abi` wrappers (single syscall entry path)
+- Profiles MUST be deterministic and bounded (no unbounded parsing)
+- Deny decisions MUST produce audit events
+- Profiles MUST be deny-by-default
+- Profile distribution MUST use authenticated channels (`sender_service_id`)
+
+### DON'T DO
+
+- DON'T claim this is a security boundary against malicious code
+- DON'T skip audit logging for deny decisions
+- DON'T accept unbounded profile sizes
+- DON'T trust subject identity from payload bytes (use `sender_service_id`)
+- DON'T allow runtime profile modification without reboot
+
+### Attack surface impact
+
+- **NOT a security boundary**: Without kernel enforcement, this is a guardrail for compliant binaries only
+- **Defense-in-depth**: Provides hygiene and audit trail for compliant code
+- **True enforcement**: Requires kernel-level syscall filter (TASK-0188)
+
+### Mitigations
+
+- Single syscall entry path via `nexus-abi` wrappers (for compliant code)
+- Deny-by-default profiles with explicit allow rules
+- Audit trail for all deny decisions (via logd)
+- Profile distribution uses authenticated `sender_service_id`
+- Bounded profile parsing with size limits
+
+### Security proof
+
+#### Audit tests (negative cases)
+
+- Command(s):
+  - `cargo test -p nexus-abi -- reject --nocapture`
+- Required tests:
+  - `test_reject_unbounded_profile` — oversized profile → rejected
+  - `test_audit_deny_decision` — deny produces audit event
+  - `test_default_deny` — no matching rule → denied
+
+#### Hardening markers (QEMU)
+
+- `abi-filterd: deny (subject=<svc> syscall=<op>)` — deny-by-default works
+- `SELFTEST: abi filter deny ok` — deny path verified
+- `SELFTEST: abi filter allow ok` — allow path verified
+
 ## Contract sources (single source of truth)
 
 - Identity token: `source/kernel/neuron/src/bootstrap.rs` (`BootstrapInfo.service_id`)

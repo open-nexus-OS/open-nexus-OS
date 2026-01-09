@@ -14,6 +14,9 @@ links:
   - UI consumer (renderer abstraction): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - UI consumer (windowd wiring): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - NexusGfx SDK track (consumer + future GPU backend): tasks/TRACK-NEXUSGFX-SDK.md
+  - ADR (DriverKit ABI policy): docs/adr/0018-driverkit-abi-versioning-and-stability.md
+  - Extracted (DriverKit core v1): tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
+  - Extracted (DMA buffer ownership prototype): tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
 ---
 
 ## Goal (track-level)
@@ -87,10 +90,7 @@ that prioritizes:
 These are *not* tasks yet; they become real `TASK-XXXX` items only when they can be proven deterministically.
 
 - **CAND-DRV-000: DriverKit core (cross-device)**  
-  - **What**: shared userland libraries for `Queue/Submit`, `Fence/Waitset`, budgets/backpressure, validation hooks, and audit points  
-  - **Depends on**: `TASK-0031` (VMO handles), `TASK-0013` (QoS/timers)  
-  - **Proof idea**: host tests proving bounded queues, deterministic scheduling, and stable error reasons  
-  - **Status**: candidate
+  - **Status**: extracted → `TASK-0280`
 
 - **CAND-DRV-010: GPU device-class service skeleton (brokered MMIO + command validation)**  
   - **What**: a GPU driver service pattern (cap-gated device handles, command buffer validation, reset/recovery hooks) without requiring real hardware yet  
@@ -126,3 +126,4 @@ See also:
   - explicit “minimal v1” vs “future deluxe” boundaries,
   - and no contract drift (no new ad-hoc formats/schemes without a decision task).
 - After extraction, keep only a link and `Status: extracted → TASK-XXXX`.
+  - If the extracted task defines a stable boundary, add/update the relevant ADR (e.g. DriverKit ABI policy).

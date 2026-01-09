@@ -18,12 +18,23 @@ use alloc::collections::VecDeque;
 pub type TaskId = u32;
 
 /// Quality-of-service hints used for prioritisation.
+///
+/// **ABI STABILITY (TASK-0013)**: This enum's discriminant values are part of the stable
+/// userspace ABI once `sys_task_set_qos(qos: u8)` is exposed. Reordering or renumbering
+/// variants is a breaking change. New variants must be appended.
+///
+/// Current discriminants (repr(u8)):
+/// - Idle = 0
+/// - Normal = 1
+/// - Interactive = 2
+/// - PerfBurst = 3
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QosClass {
-    Idle,
-    Normal,
-    Interactive,
-    PerfBurst,
+    Idle = 0,
+    Normal = 1,
+    Interactive = 2,
+    PerfBurst = 3,
 }
 
 /// Metadata maintained per task.
@@ -34,6 +45,20 @@ struct Task {
 }
 
 /// Round-robin scheduler with simple QoS based ordering.
+///
+/// ## Send/Sync Safety (TASK-0011B, TASK-0012)
+///
+/// **Single-CPU (current)**:
+/// - `Scheduler` is `!Send` and `!Sync` (contains `VecDeque`, not thread-safe)
+/// - Lives in `KERNEL_STATE` (single global instance)
+/// - Only accessed from trap handler (single-threaded execution)
+///
+/// **SMP (TASK-0012)**:
+/// - Each CPU will have its own `PerCpuScheduler` (no sharing)
+/// - `PerCpuScheduler` will be `!Send` (CPU-local, never migrates)
+/// - Work stealing will use atomic operations (no direct queue access)
+///
+/// See `docs/architecture/16-rust-concurrency-model.md` for SMP design.
 pub struct Scheduler {
     queues: [VecDeque<Task>; 4],
     current: Option<Task>,

@@ -71,6 +71,26 @@ Deliver on host:
 - **YELLOW (DTB location)**:
   - DTB pointer must be passed from bootloader/OpenSBI to kernel. Document the handoff mechanism explicitly.
 
+## Security considerations
+
+### Threat model
+
+- **Malformed DTB**: crafted DTB causing parser out-of-bounds reads or unbounded work
+- **SBI shim misuse**: incorrect error handling or unsafe argument handling causing undefined behavior
+- **Information leakage**: logs accidentally exposing host-specific or non-deterministic values
+
+### Security invariants (MUST hold)
+
+- **Bounded parsing**: DTB parser is size-bounded and validates offsets/lengths before reading
+- **No panics on untrusted input**: malformed DTB yields deterministic errors (no `unwrap/expect`)
+- **Deterministic behavior**: host tests and parsing results are stable given the same DTB input
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T parse DTB with unbounded recursion or unbounded allocation
+- DON'T treat DTB fields as trusted without bounds checks
+- DON'T use wall-clock or host locale data in conversions/tests
+
 ## Contract sources (single source of truth)
 
 - Testing contract: `scripts/qemu-test.sh`

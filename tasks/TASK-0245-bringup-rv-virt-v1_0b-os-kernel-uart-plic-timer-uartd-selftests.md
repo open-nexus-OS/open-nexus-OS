@@ -77,6 +77,28 @@ On OS/QEMU:
 - **YELLOW (DTB handoff)**:
   - DTB pointer must be passed from OpenSBI to kernel. Document the handoff mechanism explicitly (boot args, register, or memory location).
 
+## Security considerations
+
+### Threat model
+
+- **Malformed DTB**: crafted DTB causing kernel-side out-of-bounds reads during DT parsing
+- **MMIO exposure**: accidentally mapping device MMIO with wrong permissions (must never be executable)
+- **IRQ abuse**: unbounded interrupt logging causing UART/CPU DoS during bring-up
+- **Console takeover**: conflicting UART authority causing confusing/unsafe debug behavior
+
+### Security invariants (MUST hold)
+
+- **DTB bounds**: DT parsing validates offsets/lengths and fails deterministically
+- **MMIO mapping invariants**: device mappings are USER+RW only and never executable (W^X preserved)
+- **Bounded logging**: any IRQ/timer diagnostics are throttled (no UART flood)
+- **Single UART authority**: kernel early printk is boot/panic only; `uartd` becomes canonical after init
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T `unwrap`/`expect` on DTB-derived values in kernel bring-up path
+- DON'T enable executable MMIO mappings
+- DON'T log per-interrupt event lines unboundedly in production builds
+
 ## Contract sources (single source of truth)
 
 - QEMU marker contract: `scripts/qemu-test.sh`

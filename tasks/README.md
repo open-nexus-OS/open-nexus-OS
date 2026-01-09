@@ -4,6 +4,8 @@ This folder is the **execution truth** for the repo:
 
 - **Tasks (`tasks/TASK-*.md`) are authoritative** for scope, stop conditions (DoD), and proof commands.
 - **RFCs are design seeds/contracts**, not backlogs. They must link to tasks for execution and proof.
+- **Implementation order is tracked separately**: see `tasks/IMPLEMENTATION-ORDER.md` (dynamic ordering; tasks stay authoritative).
+- **Status/board view is tracked separately**: see `tasks/STATUS-BOARD.md` (Draft/In Progress/Done + blockers).
 
 ## Core strategy
 
@@ -86,4 +88,3 @@ Every task should have:
 - **Touched paths allowlist**
 - **Notes about gates** (e.g. “gated on TASK-0010”)
 - **Evidence snippet** section for PRs (commands + expected markers)
-

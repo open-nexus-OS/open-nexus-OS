@@ -10,6 +10,8 @@ links:
   - Depends-on (persistence/statefs): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Depends-on (supply-chain digests): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Testing contract: scripts/qemu-test.sh
+  - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (zero-copy DMA buffers for GPU/NPU/VPU/Audio/Camera/ISP)
+  - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (zero-copy packet buffers)
 ---
 
 ## Context
@@ -60,10 +62,83 @@ Provide a userspace “VMO handle” abstraction that:
     - preferred: kernel enforces RO mapping and prevents later write mappings,
     - acceptable v1: library-level convention + only map as RO (documented as not a hard boundary).
 
+## Security considerations
+
+### Threat model
+
+- **VMO content tampering**: Receiver modifies "read-only" VMO if sealing not enforced
+- **Capability leakage**: VMO handle transferred to unauthorized process
+- **Information disclosure**: Sensitive data in VMO leaked to wrong recipient
+- **Use-after-free**: Sender destroys VMO while receiver still holds mapping
+- **Size confusion**: Receiver maps VMO with wrong size, reads beyond bounds
+
+### Security invariants (MUST hold)
+
+- VMO transfer MUST be capability-gated (only holders of VMO cap can transfer)
+- RO-sealed VMOs MUST NOT allow write mappings (kernel-enforced or library convention)
+- VMO mappings MUST respect capability rights (READ/WRITE/MAP)
+- VMO handles MUST be unforgeable (kernel-managed capability slots)
+- VMO size MUST be immutable after creation (no resize after seal)
+
+### DON'T DO
+
+- DON'T allow write mappings of RO-sealed VMOs
+- DON'T transfer VMO capabilities to untrusted processes
+- DON'T include sensitive data in VMOs without access control
+- DON'T allow VMO resize after RO seal
+- DON'T trust receiver-provided size (use VMO's intrinsic size)
+
+### Attack surface impact
+
+- **Significant**: VMO transfer is a trust boundary between processes
+- **Data plane risk**: Large payloads (images, files) may contain sensitive data
+- **Requires clear RO sealing semantics**: Ambiguity could lead to data corruption
+
+### RO Sealing Semantics (Decision Point)
+
+**v1 Decision**: Library-level convention + only map as RO
+
+- VMO marked "sealed" in userspace metadata
+- All mappings use RO flags
+- Kernel does NOT enforce (no "immutable VMO" capability bit in v1)
+- **Documented limitation**: Not a hard security boundary against malicious receiver
+
+**Future (v2+)**: Kernel-enforced RO sealing
+
+- Add `Rights::SEAL` capability bit
+- Kernel rejects write mappings of sealed VMOs
+- Syscall returns `EPERM` on seal violation
+
+### Mitigations
+
+- VMO capabilities managed by kernel (unforgeable handles)
+- Transfer requires explicit `cap_transfer` syscall with rights subset
+- RO mappings enforced at page table level (USER|RO, never WRITE)
+- Size bounds checked at map time (reject oversized mappings)
+- Documentation explicitly states v1 RO sealing is library convention
+
+### Security proof
+
+#### Audit tests (negative cases)
+
+- Command(s):
+  - `cargo test -p nexus-vmo -- reject --nocapture`
+- Required tests:
+  - `test_reject_unauthorized_transfer` — no VMO cap → transfer denied
+  - `test_reject_oversized_mapping` — map beyond VMO size → denied
+  - `test_ro_mapping_enforced` — RO VMO mapped with RO flags only
+
+#### Hardening markers (QEMU)
+
+- `vmo: producer sent handle` — transfer works
+- `vmo: consumer mapped ok` — RO mapping succeeds
+- `vmo: sha256 ok` — zero-copy read verified
+- `SELFTEST: vmo share ok` — end-to-end proof
+
 ## Contract sources (single source of truth)
 
 - ABI surface: `source/libs/nexus-abi/src/lib.rs` (VMO + AS map syscalls, cap_transfer)
-- Vision “data plane VMO/filebuffer”: `docs/agents/VISION.md`
+- Vision "data plane VMO/filebuffer": `docs/agents/VISION.md`
 
 ## Stop conditions (Definition of Done)
 

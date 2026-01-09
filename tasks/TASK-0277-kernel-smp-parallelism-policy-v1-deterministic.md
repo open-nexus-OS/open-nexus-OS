@@ -89,6 +89,54 @@ KSELFTESTs must:
   - simple steal policy.
 - Defer advanced features (tickless idle, complex load balancing) until v1 proofs are stable.
 
+## Security considerations
+
+### Threat model
+- **Data races**: Concurrent access to shared kernel state during SMP operations
+- **IPI attacks**: Malicious tasks attempting to trigger IPIs to cause DoS or information leakage
+- **Lock ordering deadlocks**: Incorrect lock ordering causing deadlocks (security via availability)
+- **Memory ordering bugs**: Weak memory ordering on RISC-V causing stale reads or lost writes
+- **Scheduler bypass**: Tasks attempting to bypass scheduler via direct CPU manipulation
+
+### Security invariants (MUST hold)
+
+- **Per-CPU ownership**: Each CPU owns its runqueue (no cross-CPU mutable access without explicit synchronization)
+- **Lock hierarchy**: Lock ordering is documented and enforced (prevent deadlocks)
+- **No allocation in hot paths**: SMP/IRQ/scheduler paths do not allocate (prevent DoS via heap exhaustion)
+- **Bounded queues**: IPI mailboxes and work stealing queues are bounded (prevent memory exhaustion)
+- **Deterministic proofs**: KSELFTEST markers validate invariants, not timing (prevent flaky security tests)
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T use lock-free datastructures in v1 (prefer simple locks, optimize later)
+- DON'T nest locks without explicit documentation (document lock hierarchy)
+- DON'T allocate in IRQ context (preallocate bounded buffers)
+- DON'T use unbounded logging in SMP paths (throttle and bound)
+- DON'T skip memory barriers on RISC-V (use atomic operations with appropriate ordering)
+
+### Attack surface impact
+
+- **Minimal**: SMP policy reduces attack surface by enforcing per-CPU ownership (fewer locks)
+- **Controlled**: Lock hierarchy prevents deadlocks (availability is security)
+- **Bounded**: No heap growth in hot paths (prevent DoS)
+
+### Mitigations
+
+- **Per-CPU ownership**: Rust's ownership model prevents data races at compile time
+- **Lock hierarchy**: Documented and enforced (scheduler > IPC > MM)
+- **Bounded resources**: Preallocated buffers for SMP/IRQ paths
+- **Deterministic tests**: KSELFTEST markers prove correctness without timing dependencies
+- **Memory barriers**: Atomic operations with appropriate ordering (Acquire/Release/SeqCst)
+
+### SMP security requirements
+
+When implementing SMP features, ensure:
+1. **Lock hierarchy**: Document lock order (e.g., "acquire scheduler lock before IPC lock")
+2. **No nested locks**: Avoid nested locks where possible (document if unavoidable)
+3. **Bounded buffers**: Preallocate IPI mailboxes and work stealing queues
+4. **Memory barriers**: Use atomic operations with appropriate ordering (not Relaxed for synchronization)
+5. **Audit logging**: Throttled logging for SMP events (no unbounded UART flood)
+
 ## Stop conditions (Definition of Done)
 
 Planning-only completion criteria:

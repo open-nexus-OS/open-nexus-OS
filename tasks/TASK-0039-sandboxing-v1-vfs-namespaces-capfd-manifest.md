@@ -71,6 +71,92 @@ Deliver a userspace sandboxing v1 system where:
 - **YELLOW (CapFd authenticity)**:
   - CapFds must be non-forgeable and replay-resistant (nonce + MAC) using a key managed by a trusted service (`keystored` or a dedicated broker key).
 
+## Security considerations
+
+### Threat model
+
+- **Sandbox escape**: Malicious app bypasses VFS namespace confinement
+- **CapFd forgery**: Attacker crafts fake CapFd to access unauthorized paths
+- **Path traversal**: Attacker uses `../` to escape namespace bounds
+- **Capability bypass**: App holds direct caps to filesystem services, bypassing `vfsd`
+- **Manifest spoofing**: Attacker modifies app manifest to grant unauthorized permissions
+- **CapFd replay**: Attacker reuses old CapFd after revocation
+
+### Security invariants (MUST hold)
+
+- Namespace confinement MUST be enforced by `vfsd` (apps cannot escape bounds)
+- CapFds MUST be unforgeable (MAC-protected with nonce)
+- Path traversal (`../`) MUST be rejected deterministically
+- Apps MUST NOT receive direct caps to `packagefsd`/`statefsd` (only `vfsd`)
+- Manifest permissions MUST be signed and integrity-protected
+- CapFd revocation MUST invalidate all copies (nonce/expiry enforced)
+
+### DON'T DO
+
+- DON'T grant direct filesystem service caps to apps (only `vfsd`)
+- DON'T allow path traversal outside namespace bounds
+- DON'T accept unsigned or tampered app manifests
+- DON'T trust CapFd without MAC verification
+- DON'T skip namespace checks for "trusted" apps
+- DON'T claim this is kernel-enforced (it's userspace confinement)
+
+### Attack surface impact
+
+- **NOT a kernel-enforced sandbox**: Apps with raw syscall access can bypass `vfsd`
+- **Userspace confinement only**: Effective for compliant apps, not malicious code
+- **Capability distribution is critical**: Apps must not receive direct filesystem caps
+- **True enforcement**: Requires kernel-level namespace enforcement (future task)
+
+### Real Security Boundary
+
+**v1 Reality**: Userspace confinement for processes that:
+
+- Only hold `vfsd` capability (not direct `packagefsd`/`statefsd` caps)
+- Use `nexus-vfs` client library (not raw syscalls)
+- Are spawned by `execd` with controlled capability grants
+
+**NOT protected against**:
+
+- Malicious code executing raw `ecall` syscalls
+- Apps that receive direct filesystem service capabilities
+- Kernel-level exploits
+
+**Future (kernel-enforced namespaces)**:
+
+- Kernel tracks per-process namespace ID
+- Syscalls validate namespace bounds at kernel level
+- Capability distribution enforced by kernel (not userspace)
+
+### Mitigations
+
+- Namespace confinement enforced by `vfsd` (path prefix checks)
+- CapFds are MAC-protected (HMAC with service-local key)
+- Path traversal rejected via normalization + prefix validation
+- `execd` controls initial capability grants (deny-by-default)
+- App manifests signed and embedded in bundle (integrity-protected)
+- CapFd nonces prevent replay attacks
+
+### Security proof
+
+#### Audit tests (negative cases)
+
+- Command(s):
+  - `cargo test -p vfsd -- reject --nocapture`
+  - `cargo test -p nexus-vfs -- sandbox_reject --nocapture`
+- Required tests:
+  - `test_reject_path_traversal` — `../` escape → denied
+  - `test_reject_forged_capfd` — tampered CapFd → rejected
+  - `test_reject_unauthorized_path` — access outside namespace → denied
+  - `test_reject_write_to_ro_namespace` — write to `pkg:/` → denied
+
+#### Hardening markers (QEMU)
+
+- `vfsd: namespace ready (subject=<app>)` — namespace created
+- `vfsd: capfd grant (subject=<app> path=<p>)` — CapFd issued
+- `vfsd: access denied (subject=<app> path=<p>)` — confinement enforced
+- `SELFTEST: sandbox deny ok` — escape attempt blocked
+- `SELFTEST: capfd read ok` — legitimate access works
+
 ## Contract sources (single source of truth)
 
 - Capability identity binding: `sender_service_id` enforcement patterns (RFC-0005 + existing policyd/os-lite logic).
@@ -156,4 +242,3 @@ Notes:
 
 6. **Docs**
    - Threat model: what this does and does not protect against under “kernel unchanged”.
-

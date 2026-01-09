@@ -111,10 +111,106 @@ Preferred model:
 
 ## Anti-drift rules
 
-- Do not introduce a new “pool per subsystem” framework without documenting it here.
+- Do not introduce a new "pool per subsystem" framework without documenting it here.
 - Prefer a single shared `userspace/libs/workpool` contract if/when we standardize (optional future follow-up).
 - If a task introduces parallel compute, it must link this policy and state:
   - partitioning strategy,
   - reduction order,
   - caps (workers, queue, memory),
   - proof plan (workers=1 vs N equivalence).
+
+## Security considerations
+
+### Threat model
+- **Resource exhaustion**: Unbounded thread pools or job queues causing memory/CPU exhaustion
+- **Timing side-channels**: Non-deterministic parallelism leaking information via timing
+- **Priority inversion**: Low-priority parallel tasks blocking high-priority tasks
+- **Denial of service**: Malicious workloads submitting unbounded jobs to thread pools
+- **Information leakage**: Parallel execution order revealing sensitive data
+
+### Security invariants (MUST hold)
+
+- **Bounded workers**: Thread pool worker count is fixed and bounded (no unbounded thread creation)
+- **Bounded queues**: Job queues are bounded (reject new jobs when full)
+- **Deterministic output**: Parallel execution produces identical output for identical input (no timing-dependent behavior)
+- **Canonical reduction**: Reduction order is deterministic (stable merge order)
+- **No information leakage**: Execution order does not leak sensitive information
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T create unbounded thread pools (fix worker count at initialization)
+- DON'T use unbounded job queues (enforce max queue depth)
+- DON'T rely on execution order for correctness (use deterministic reduction)
+- DON'T expose timing information to untrusted code (use deterministic partitioning)
+- DON'T allow arbitrary code execution in worker threads (validate job types)
+- DON'T share mutable state between workers without synchronization (use message passing)
+
+### Attack surface impact
+
+- **Minimal**: Thread pools are internal to services (not exposed to untrusted code)
+- **Controlled**: Job queues are bounded (no memory exhaustion)
+- **Deterministic**: Output is deterministic (no timing side-channels)
+
+### Mitigations
+
+- **Fixed worker count**: Thread pools initialized with fixed worker count (from config)
+- **Bounded queues**: Job queues have max depth (reject when full with backpressure)
+- **Deterministic partitioning**: Work is partitioned deterministically (fixed tiles, chunks, spans)
+- **Canonical reduction**: Results merged in deterministic order (row-major, key order)
+- **Backpressure**: Bounded queues provide explicit backpressure (drop, coalesce, or slow path)
+- **Audit logging**: Thread pool creation and job submission logged for security analysis
+
+### Parallelism security policy
+
+**Thread pool configuration rules**:
+1. **Worker count**: Fixed at initialization (from config or CPU count)
+   - Host tests: `workers=1` and `workers=4` (determinism proof)
+   - QEMU: Fixed default (e.g., `workers=2`)
+   - Production: Based on CPU count (clamped to reasonable max, e.g., 16)
+2. **Queue depth**: Bounded (e.g., 2x worker count)
+   - Backpressure when full (reject, coalesce, or slow path)
+3. **Job memory**: Bounded per job (e.g., max 1 MB per job)
+   - Reject jobs exceeding memory limit
+
+**Enforcement**:
+- Thread pools validate worker count and queue depth at initialization
+- Job submission checks queue depth (apply backpressure when full)
+- Determinism tests run with `workers=1` vs `workers=N` (assert identical output)
+
+### Recommended patterns
+
+**Safe parallelism patterns**:
+1. **Data-parallel map**: Partition input, map in parallel, reduce deterministically
+   ```rust
+   let results: Vec<_> = input
+       .chunks(CHUNK_SIZE)  // Deterministic partitioning
+       .par_iter()          // Parallel map
+       .map(|chunk| process(chunk))
+       .collect();          // Deterministic reduction (order preserved)
+   ```
+
+2. **Tiled rendering**: Fixed tile grid, parallel rasterize, merge in tile order
+   ```rust
+   let tiles = partition_into_tiles(scene, TILE_SIZE);  // Deterministic
+   let rendered: Vec<_> = tiles
+       .par_iter()
+       .map(|tile| rasterize(tile))
+       .collect();
+   merge_tiles_in_order(rendered);  // Canonical order (row-major)
+   ```
+
+3. **Parallel search**: Shard documents, search in parallel, merge ranked results
+   ```rust
+   let shards = partition_docs(docs, SHARD_SIZE);  // Deterministic
+   let results: Vec<_> = shards
+       .par_iter()
+       .map(|shard| search(shard, query))
+       .collect();
+   merge_ranked_results(results);  // Stable sort (ties broken deterministically)
+   ```
+
+**Unsafe patterns (DON'T DO)**:
+- ❌ Unbounded thread creation (`std::thread::spawn` per job)
+- ❌ Non-deterministic reduction (HashMap iteration order)
+- ❌ Timing-dependent behavior (race conditions)
+- ❌ Shared mutable state without synchronization

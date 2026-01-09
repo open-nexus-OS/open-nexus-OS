@@ -59,6 +59,53 @@ Anything outside these areas is out of scope unless it is a purely mechanical he
 - **GREEN**:
   - RFC-0001 explicitly scopes Phase A as text-only; ideal to land before SMP work.
 
+## Security considerations
+
+### Threat model
+- N/A (text-only documentation changes, no runtime behavior modifications)
+
+### Security invariants (MUST hold)
+All existing kernel security invariants remain unchanged and must be explicitly documented in module headers:
+- **W^X enforcement**: Writable and executable mappings are mutually exclusive (enforced at `SYS_AS_MAP` boundary)
+- **Capability rights**: Rights can only be restricted, never escalated (enforced in `cap_transfer`)
+- **User/Kernel boundary**: No ambient authority; all access requires explicit capabilities
+- **MMIO mappings**: Device memory is USER|RW only, never EXEC (enforced in `mmio_map`)
+- **ASID isolation**: Address spaces are isolated via ASID; no cross-AS access without explicit mapping
+- **Bootstrap integrity**: Child tasks receive only explicitly granted capabilities via `BootstrapMsg`
+
+### DON'T DO (explicit prohibitions)
+- DON'T modify any security-critical code paths (W^X checks, capability validation, MMIO mapping logic)
+- DON'T change UART marker strings that prove security enforcement (e.g., `KSELFTEST: w^x enforced`)
+- DON'T alter capability transfer semantics or rights masking logic
+- DON'T touch syscall error handling that returns `-EPERM` for security violations
+- DON'T modify address space isolation logic (ASID allocation, SATP switching)
+- DON'T change the `BootstrapMsg` layout or capability seeding logic
+
+### Attack surface impact
+- None (documentation-only changes do not modify attack surface)
+
+### Mitigations
+- N/A (no new code paths introduced)
+
+### Documentation requirements (security-specific)
+When adding headers to security-critical modules, explicitly document:
+1. **For `mm/` (Memory Management)**:
+   - W^X enforcement points
+   - ASID isolation guarantees
+   - Guard page placement strategy
+2. **For `cap/` (Capabilities)**:
+   - Rights intersection rules
+   - Capability derivation constraints
+   - Slot allocation limits
+3. **For `syscall/` (Syscall handlers)**:
+   - Which syscalls enforce W^X (`as_map`, `mmio_map`)
+   - Which syscalls check capabilities (`send`, `recv`, `map`)
+   - Error codes for security violations (`-EPERM`, `-EINVAL`)
+4. **For `trap.rs` (Trap handling)**:
+   - User/Kernel mode transitions
+   - Privilege escalation prevention
+   - Trap handler isolation
+
 ## Contract sources (single source of truth)
 
 - `docs/rfcs/RFC-0001-kernel-simplification.md`

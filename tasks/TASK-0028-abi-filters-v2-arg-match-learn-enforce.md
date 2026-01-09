@@ -56,6 +56,63 @@ Prove deterministically:
 - **YELLOW (regex determinism)**:
   - Use a deterministic regex engine and keep patterns bounded. Prefer prefix rules over regex.
 
+## Security considerations
+
+### Threat model
+
+- **Bypass via raw ecall**: Malicious code executes `ecall` directly, bypassing filters (same as TASK-0019)
+- **Learn mode abuse**: Attacker uses learn mode to discover sensitive operations
+- **Policy generator poisoning**: Attacker injects malicious patterns into learn logs
+- **Regex DoS**: Attacker crafts patterns that cause exponential matching time
+- **Argument injection**: Attacker crafts arguments to bypass prefix/range filters
+
+### Security invariants (MUST hold)
+
+- Learn mode MUST NOT bypass deny rules (learn-only, never grants access)
+- Generated policies MUST be reviewed by humans before enforcement
+- Regex patterns MUST be bounded and deterministic
+- Argument matching MUST use longest-prefix-wins precedence
+- Size/deadline bounds MUST be enforced before parsing
+
+### DON'T DO
+
+- DON'T use learn mode as a policy (it's for generating policies only)
+- DON'T auto-apply generated policies without human review
+- DON'T use unbounded regex patterns
+- DON'T trust argument values from untrusted sources
+- DON'T skip size bounds on learned operations
+
+### Attack surface impact
+
+- **NOT a security boundary**: Same as TASK-0019 - userland guardrail only
+- **Learn mode risk**: Could expose sensitive operation patterns if logs leaked
+- **Policy generation risk**: Automated policies may be too permissive
+
+### Mitigations
+
+- Learn mode logs are rate-limited and sampled (not exhaustive)
+- Generated policies are conservative (tighten prefixes, cap sizes)
+- Regex engine is deterministic with bounded backtracking
+- Longest-prefix-wins precedence prevents bypass via path traversal
+- All generated policies require human review before enforcement
+
+### Security proof
+
+#### Audit tests (negative cases)
+
+- Command(s):
+  - `cargo test -p nexus-abi -- v2_reject --nocapture`
+- Required tests:
+  - `test_reject_regex_dos` — exponential pattern → rejected
+  - `test_reject_argument_injection` — path traversal → denied
+  - `test_learn_roundtrip` — learn→generate→enforce deterministic
+
+#### Hardening markers (QEMU)
+
+- `SELFTEST: abi learn collected ok` — learn mode works
+- `SELFTEST: abi enforce allow ok` — enforce mode allows matching ops
+- `SELFTEST: abi enforce deny ok` — enforce mode denies mismatches
+
 ## Contract sources (single source of truth)
 
 - ABI filter v1: TASK-0019
@@ -151,4 +208,3 @@ Update `docs/security/abi-filters.md`:
 - v2 schema, precedence, determinism notes
 - learn vs enforce semantics (and why learn is not a policy)
 - generator workflow and best practices (tighten prefixes, avoid regex when possible).
-

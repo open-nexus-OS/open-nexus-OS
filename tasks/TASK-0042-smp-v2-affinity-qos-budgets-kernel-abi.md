@@ -9,6 +9,7 @@ links:
   - QoS baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
   - Drivers track (alignment): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Testing contract: scripts/qemu-test.sh
+  - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (QoS-aware driver scheduling, CPU affinity for latency-sensitive devices)
 ---
 
 ## Context
@@ -38,8 +39,89 @@ With SMP enabled (TASK-0012), provide:
 ## Constraints / invariants (hard requirements)
 
 - ABI stability: introduce new syscalls without breaking existing IDs/semantics.
-- Determinism: proofs must not rely on “exact timings”; prefer structural/ratio assertions.
+- Determinism: proofs must not rely on "exact timings"; prefer structural/ratio assertions.
 - No `unwrap/expect`; no blanket `allow(dead_code)` in new userspace code.
+
+## Security considerations
+
+### Threat model
+
+- **CPU affinity bypass**: Tasks attempting to escape affinity restrictions to access restricted CPUs
+- **QoS shares manipulation**: Tasks attempting to increase their CPU shares to starve other tasks
+- **Latency hint abuse**: Tasks setting aggressive latency hints to monopolize CPU time
+- **Information leakage**: Affinity masks or CPU shares revealing system topology or other tasks' placement
+- **Resource exhaustion**: Unbounded shares or burst hints causing scheduler overhead
+- **Privilege escalation**: Tasks attempting to set affinity/shares for other tasks without authorization
+
+### Security invariants (MUST hold)
+
+All existing SMP security invariants from TASK-0012 remain unchanged, plus:
+
+- **Affinity enforcement**: Kernel enforces affinity masks (tasks cannot run on disallowed CPUs)
+- **Shares bounds**: CPU shares are bounded (min=1, max=1000) and validated
+- **Privileged setting**: Only privileged services (e.g., `execd`) can set affinity/shares for other tasks
+- **Self-modification allowed**: Tasks can set their own QoS/affinity (but not escalate beyond recipe limits)
+- **Affinity clamping**: Affinity masks are clamped to online CPUs (invalid CPUs are ignored)
+- **No information leakage**: Affinity queries do not reveal offline CPUs or system topology details
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T allow tasks to set affinity for other tasks without explicit capability
+- DON'T accept unbounded shares values (enforce min/max bounds)
+- DON'T bypass affinity restrictions during work stealing (respect affinity masks)
+- DON'T expose raw CPU topology via affinity APIs (abstract as "performance" vs "efficiency" cores)
+- DON'T allow affinity changes for kernel threads (only userspace tasks)
+- DON'T log affinity masks or shares in production (information leakage)
+- DON'T use affinity for security isolation (use address spaces and capabilities instead)
+
+### Attack surface impact
+
+- **Minimal**: Affinity/shares syscalls are privileged (require capability or self-modification only)
+- **Controlled**: Affinity masks are validated and clamped (no invalid CPU IDs)
+- **Bounded**: Shares are bounded (prevent scheduler overhead from extreme values)
+
+### Mitigations
+
+- **Capability checks**: Affinity/shares syscalls require `CAP_SCHED_SETAFFINITY` capability for other tasks
+- **Self-modification allowed**: Tasks can set their own affinity/shares (within recipe limits)
+- **Bounds validation**: Shares clamped to [1, 1000], affinity masks clamped to online CPUs
+- **Recipe limits**: `execd` enforces recipe-specified affinity/shares limits (cannot be exceeded)
+- **Audit logging**: Affinity/shares changes logged to `policyd` for security analysis
+- **Work stealing respects affinity**: Stolen tasks are only migrated to CPUs allowed by their affinity mask
+
+### Affinity security policy
+
+**Affinity assignment rules**:
+
+1. **System services**: Can be pinned to specific CPUs (e.g., `compositord` on CPU 0)
+   - Requires explicit `affinity=0x1` in recipe config
+   - Gated by `policyd` (only allowed for trusted services)
+2. **User apps**: Default affinity is "all CPUs" (no restrictions)
+   - Apps can request "performance" or "efficiency" cores (abstract hints)
+   - Cannot pin to specific CPU IDs (only abstract classes)
+3. **Background tasks**: Can be restricted to "efficiency" cores
+   - Explicitly set by `execd` based on QoS class
+
+**Enforcement**:
+
+- Kernel enforces affinity at scheduling time (only schedule on allowed CPUs)
+- Work stealing respects affinity (no migration to disallowed CPUs)
+- `policyd` gates affinity changes for other tasks (require capability)
+
+### CPU shares security policy
+
+**Shares assignment rules**:
+
+1. **Default shares**: 100 (normal priority)
+2. **Min shares**: 1 (lowest priority, for idle tasks)
+3. **Max shares**: 1000 (highest priority, for system-critical services)
+4. **Validation**: Kernel clamps shares to [1, 1000] range
+
+**Enforcement**:
+
+- Kernel uses shares as weight in round-robin scheduling (within QoS class)
+- `policyd` gates high shares (>500) for non-system services
+- `execd` applies shares from recipe configs (validated by `policyd`)
 
 ## Required kernel changes (explicit)
 
@@ -88,4 +170,3 @@ With SMP enabled (TASK-0012), provide:
 3. Userspace: `execd` reads `recipes/sched/*.toml` and applies hints on spawn.
 4. Kernel: make scheduler consult fields in a minimal, testable way.
 5. Selftest: coarse ratio tests (shares) and placement assertions (affinity).
-

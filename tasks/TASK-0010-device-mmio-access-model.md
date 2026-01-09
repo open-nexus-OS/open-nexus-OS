@@ -9,6 +9,8 @@ links:
   - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Unblocks: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Unblocks: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (GPU/NPU/VPU/Audio/Camera/ISP userspace drivers)
+  - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (virtio-net userspace frontend)
 ---
 
 ## Context

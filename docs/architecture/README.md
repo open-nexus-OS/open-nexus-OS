@@ -28,7 +28,12 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 ## Kernel
 
 - `01-neuron-kernel.md` — NEURON kernel overview (syscalls, memory model, invariants)
+- `16-rust-concurrency-model.md` — Rust ownership & Servo-inspired parallelism (SMP design)
+- `smp-ipi-rate-limiting.md` — IPI rate limiting policy (DoS prevention, TASK-0012/0042)
 - `hardening-status.md` — kernel hardening objectives checklist (status snapshot)
+- `KERNEL-TASK-INVENTORY.md` — Complete inventory of all kernel-touch tasks (security consistency check)
+- `SECURITY-CONSISTENCY-CHECK.md` — Decision points and drift prevention across SMP/QoS/parallelism tasks
+- `RUST-ADVANTAGES.md` — Why Rust is optimal for a consumer-facing OS (comparison with C/C++)
 
 ## Testing + CI
 

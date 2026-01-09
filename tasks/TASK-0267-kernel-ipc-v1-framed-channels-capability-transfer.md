@@ -54,6 +54,31 @@ Implement the **minimum viable kernel IPC** surface (RFC-0005 aligned):
   - backpressure errors are explicit and testable.
 - **No fake success**: every “ok” marker must correspond to a real cross-process send/recv + cap transfer.
 
+## Security considerations
+
+### Threat model
+
+- **Untrusted payload sizes**: oversized frames attempting to trigger OOM or buffer overflows
+- **Capability confusion**: attempting to send the wrong cap kind or escalate rights
+- **Backpressure abuse**: intentional queue flooding to cause DoS
+- **Identity spoofing**: attempting to claim another service identity via payload bytes (must not be trusted)
+
+### Security invariants (MUST hold)
+
+- **Bounded input**: all sizes are validated before copy/parse; max frame size is enforced
+- **Rights non-escalation**: transferred caps cannot gain rights; derivation is subset-only (RFC-0005)
+- **Type checks**: cap kind is validated at syscall boundary; wrong-kind use is rejected deterministically
+- **No ambient identity**: service identity for authorization uses kernel-derived identity (never payload strings)
+- **Backpressure is explicit**: full queues return deterministic errors; no unbounded allocations
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T accept unbounded payload lengths or cap counts
+- DON'T `unwrap`/`expect` on untrusted inputs
+- DON'T log secrets or raw payload bytes in production logs
+- DON'T accept “identity” fields inside payload as authoritative
+- DON'T implement correctness as timing-dependent behavior (use deterministic proofs)
+
 ## Proof (QEMU) — required markers
 
 Add kernel selftests (or userspace smoke via a tiny test service) that emit:

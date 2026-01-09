@@ -63,6 +63,84 @@ On OS/QEMU:
   - Cooperative memstat is not true RSS; document this explicitly and ensure policy language does not claim otherwise.
   - A future “real RSS” path requires a kernel ABI task.
 
+## Security considerations
+
+### Threat model
+
+- **OOM kill bypass**: Malicious process hides memory usage from cooperative memstat
+- **DoS via fake memstat**: Attacker floods `oomd` with fake high-memory reports
+- **Kill authority abuse**: Compromised `oomd` terminates arbitrary processes
+- **Resource exhaustion**: Attacker triggers OOM kill of critical system services
+- **Memstat spoofing**: Process reports false memory usage to avoid termination
+
+### Security invariants (MUST hold)
+
+- `oomd` MUST NOT directly kill processes (must request termination via `execd`/`samgr`)
+- Memstat reports MUST be authenticated via `sender_service_id`
+- Kill decisions MUST be audit-logged before execution
+- `oomd` MUST enforce rate limits on kill requests (prevent DoS)
+- Critical system services MUST be protected from OOM kill (policy-based exemptions)
+
+### DON'T DO
+
+- DON'T implement direct "kill by PID" in `oomd` (use canonical process authority)
+- DON'T trust memstat values from payload bytes (bind to `sender_service_id`)
+- DON'T kill critical services without policy check
+- DON'T skip audit logging for kill decisions
+- DON'T claim this provides kernel-level memory accounting
+
+### Attack surface impact
+
+- **Cooperative memstat limitation**: Malicious processes can bypass by not reporting
+- **NOT kernel RSS**: This is process-reported memory, not kernel-enforced accounting
+- **Kill authority is critical**: `oomd` must not become a privilege escalation vector
+
+### Cooperative Memstat Limitations
+
+**v1 Reality**: Process-reported memory usage
+
+- Processes voluntarily report allocator stats
+- Malicious processes can underreport or not report at all
+- No kernel-enforced memory limits or cgroups
+
+**NOT protected against**:
+
+- Malicious processes that don't use the allocator (mmap directly)
+- Processes that deliberately underreport memory usage
+- Kernel memory leaks or fragmentation
+
+**Future (kernel RSS accounting)**:
+
+- Kernel tracks per-process RSS via page table accounting
+- `oomd` queries kernel for true memory usage (syscall or procfs-like interface)
+- Kernel-enforced memory limits (cgroup-like quotas)
+
+### Mitigations
+
+- Memstat reports authenticated via `sender_service_id` (no spoofing)
+- Kill requests go through canonical process authority (`execd`/`samgr`)
+- Critical services exempted via policy (deny kill for `init`, `samgrd`, `policyd`)
+- Rate limiting on kill requests (max N kills per time window)
+- All kill decisions audit-logged before execution
+- Documentation explicitly states cooperative memstat limitations
+
+### Security proof
+
+#### Audit tests (negative cases)
+
+- Command(s):
+  - `cargo test -p oomd -- reject --nocapture`
+- Required tests:
+  - `test_reject_fake_memstat` — wrong `sender_service_id` → ignored
+  - `test_reject_critical_service_kill` — kill `samgrd` → denied
+  - `test_rate_limit_kills` — excessive kills → throttled
+
+#### Hardening markers (QEMU)
+
+- `oomd: kill denied (subject=<svc> reason=<r>)` — policy protection works
+- `oomd: kill app=<id> bytes=<n>` — legitimate kill executed
+- `SELFTEST: oom kill ok` — kill path verified
+
 ## Contract sources (single source of truth)
 
 - QEMU marker contract: `scripts/qemu-test.sh`

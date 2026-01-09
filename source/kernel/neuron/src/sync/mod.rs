@@ -1,3 +1,6 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Debug-only sync utilities
 //! OWNERS: @kernel-sync-team
 //! PUBLIC API: dbg_mutex (debug builds)

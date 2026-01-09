@@ -74,6 +74,80 @@ On OS/QEMU:
 - **YELLOW (SBI HSM availability)**:
   - SBI HSM (Hart State Management) must be available in OpenSBI. If not, this task must document fallback or gate on OpenSBI version.
 
+## Security considerations
+
+### Threat model
+- **Hart boot hijacking**: Malicious code attempting to start harts with arbitrary entry points
+- **SBI HSM abuse**: Unauthorized hart start/stop operations causing DoS
+- **IPI flooding**: Malicious tasks triggering excessive IPIs to cause DoS
+- **Per-hart timer manipulation**: Tasks attempting to manipulate other harts' timers
+- **Virtio-blk attacks**: Malicious disk images causing buffer overflows or information leakage
+- **Packagefs tampering**: Modified disk images bypassing signature verification
+
+### Security invariants (MUST hold)
+
+All existing SMP security invariants from TASK-0012 and TASK-0277 remain unchanged, plus:
+- **Hart boot authentication**: Only kernel can start secondary harts (SBI HSM is privileged)
+- **Entry point validation**: Hart entry points are validated (must be kernel code, not user-controllable)
+- **IPI sender validation**: IPI sender is hardware hart ID (unforgeable)
+- **Per-hart timer isolation**: Each hart's timer is isolated (no cross-hart timer manipulation)
+- **Virtio-blk read-only**: Virtio-blk device is read-only (no writes allowed)
+- **Packagefs integrity**: Packagefs mount verifies signatures
+  - **Phase 1 (this task)**: Use trusted build artifact (QEMU virt bring-up only)
+  - **Phase 2 (production)**: See `docs/security/signing-and-policy.md` for bundle signing
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T allow user code to call SBI HSM functions (kernel-only)
+- DON'T trust user-provided hart entry points (validate against kernel code range)
+- DON'T allow unbounded IPI sending (enforce rate limits)
+- DON'T allow cross-hart timer manipulation (each hart owns its timer)
+- DON'T enable virtio-blk writes in this task (read-only for packagefs)
+- DON'T mount packagefs without signature verification (unless trusted build)
+- DON'T log hart IDs or timer values in production (information leakage)
+
+### Attack surface impact
+
+- **Minimal**: SBI HSM is privileged (only kernel can call)
+- **Controlled**: Virtio-blk is read-only (no write attacks)
+- **Bounded**: IPI rate limits prevent flooding
+
+### Mitigations
+
+- **SBI HSM privilege**: Only kernel S-mode can call SBI HSM (hardware-enforced)
+- **Entry point validation**: Hart entry points validated against kernel code range
+- **IPI rate limiting**: Kernel enforces max IPIs per hart per second (e.g., 1000/sec)
+- **Per-hart timer ownership**: Each hart owns its timer (no cross-hart access)
+- **Virtio-blk read-only**: Device configured as read-only (no write capability)
+- **Packagefs signature verification**: Mount verifies signatures (or uses trusted build artifact)
+- **Audit logging**: Hart start/stop, IPI, and virtio-blk operations logged
+
+### RISC-V SMP security requirements
+
+When implementing RISC-V SMP features, ensure:
+1. **SBI HSM validation**: Validate hart IDs and entry points before calling SBI HSM
+2. **IPI authentication**: Verify IPI sender is valid hart ID (hardware-enforced)
+3. **Timer isolation**: Each hart's timer is isolated (no shared timer state)
+4. **Virtio-blk bounds**: Validate LBA ranges and sector counts (prevent out-of-bounds reads)
+5. **Packagefs integrity**: Verify packagefs signatures before mounting (or use trusted build)
+
+### Virtio-blk security policy
+
+**Read-only enforcement**:
+- Device configured as read-only at initialization
+- Write requests rejected with error (not silently ignored)
+- Audit logging for write attempts (security violation)
+
+**Bounds validation**:
+- LBA (Logical Block Address) validated against device size
+- Sector count validated (max 256 sectors per request)
+- Buffer size validated (prevent overflows)
+
+**Error handling**:
+- Device errors logged but do not crash kernel
+- Malformed responses rejected (bounds checks on all fields)
+- Timeout on slow responses (prevent DoS)
+
 ## Contract sources (single source of truth)
 
 - QEMU marker contract: `scripts/qemu-test.sh`
