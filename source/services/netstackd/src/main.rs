@@ -265,7 +265,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Local-only loopback for DSoftBus bring-up (QEMU usernet has no TCP self-loopback).
     const LOOPBACK_PORT: u16 = 34_567;
     const LOOPBACK_PORT_B: u16 = 34_568; // Dual-node mode: second node port
-    // Local-only UDP loopback port for discovery bring-up.
+                                         // Local-only UDP loopback port for discovery bring-up.
     const LOOPBACK_UDP_PORT: u16 = 37_020;
 
     #[derive(Clone, Copy)]

@@ -397,8 +397,8 @@ impl SmoltcpVirtioNetStack {
                 let router = config.router;
 
                 // Check if this is a new/changed configuration
-                let is_new_config = inner.dhcp_bound_ip != Some(address)
-                    || inner.dhcp_bound_gateway != router;
+                let is_new_config =
+                    inner.dhcp_bound_ip != Some(address) || inner.dhcp_bound_gateway != router;
 
                 if is_new_config {
                     // Update interface IP addresses

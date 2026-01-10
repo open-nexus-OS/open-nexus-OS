@@ -13,7 +13,9 @@
 mod host {
     use std::net::SocketAddr;
 
-    use dsoftbus::discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1, PacketError};
+    use dsoftbus::discovery_packet::{
+        decode_announce_v1, encode_announce_v1, AnnounceV1, PacketError,
+    };
     use dsoftbus::{Announcement, Discovery, FacadeDiscovery};
     use identity::Identity;
     use nexus_net::fake::FakeNet;

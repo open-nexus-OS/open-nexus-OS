@@ -13,11 +13,11 @@ extern crate alloc;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> core::result::Result<(), ()> {
-    use nexus_abi::yield_;
-    use nexus_ipc::KernelClient;
     use alloc::string::String;
     use alloc::vec::Vec;
+    use nexus_abi::yield_;
     use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
+    use nexus_ipc::KernelClient;
     use nexus_peer_lru::{PeerEntry, PeerLru};
 
     // dsoftbusd must NOT own MMIO; it uses netstackd's IPC facade.
@@ -48,7 +48,6 @@ fn os_entry() -> core::result::Result<(), ()> {
     const STATUS_OK: u8 = 0;
     const STATUS_WOULD_BLOCK: u8 = 3;
     const STATUS_MALFORMED: u8 = 2;
-
 
     fn rpc(net: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
         let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
@@ -164,7 +163,11 @@ fn os_entry() -> core::result::Result<(), ()> {
                 device_id: String::from(node_b_device_id),
                 port: node_b_port,
                 // SECURITY: bring-up test keys, NOT production custody
-                noise_static: nexus_noise_xk::StaticKeypair::from_secret(derive_test_secret(0xD1, node_b_port)).public,
+                noise_static: nexus_noise_xk::StaticKeypair::from_secret(derive_test_secret(
+                    0xD1,
+                    node_b_port,
+                ))
+                .public,
                 services: alloc::vec!["dsoftbusd".into()],
             };
 
@@ -202,13 +205,11 @@ fn os_entry() -> core::result::Result<(), ()> {
                 // Real subnet discovery is covered by follow-on tasks (non-loopback UDP socket backend).
                 send[8..12].copy_from_slice(&LOCAL_IP);
                 let rsp = rpc(net, &send[..hdr_len + bytes.len()])?;
-                Ok(
-                    rsp[0] == MAGIC0
-                        && rsp[1] == MAGIC1
-                        && rsp[2] == VERSION
-                        && rsp[3] == (OP_UDP_SEND_TO | 0x80)
-                        && rsp[4] == STATUS_OK,
-                )
+                Ok(rsp[0] == MAGIC0
+                    && rsp[1] == MAGIC1
+                    && rsp[2] == VERSION
+                    && rsp[3] == (OP_UDP_SEND_TO | 0x80)
+                    && rsp[4] == STATUS_OK)
             }
 
             let ok_b = encode_announce_v1(&ann_b)
@@ -231,7 +232,10 @@ fn os_entry() -> core::result::Result<(), ()> {
         r[4..8].copy_from_slice(&udp_id.to_le_bytes());
         r[8..10].copy_from_slice(&(256u16).to_le_bytes());
         let rsp = rpc(&net, &r).map_err(|_| ())?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
         {
             match rsp[4] {
                 STATUS_OK => {
@@ -304,7 +308,9 @@ fn os_entry() -> core::result::Result<(), ()> {
     // - Node B: new listener on port 34568
     // Node A connects to Node B, completes handshake, proves dual-node session.
 
-    use nexus_noise_xk::{StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
+    use nexus_noise_xk::{
+        StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN,
+    };
 
     // SECURITY: bring-up test keys, NOT production custody
     // These keys are deterministic and derived from port for reproducibility only.
@@ -529,7 +535,11 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut responder = XkResponder::new(node_b_static, node_a_pub_expected, node_b_eph_seed);
 
     // Helper to read from a stream
-    fn dual_stream_read(net: &KernelClient, sid: u32, buf: &mut [u8]) -> core::result::Result<(), ()> {
+    fn dual_stream_read(
+        net: &KernelClient,
+        sid: u32,
+        buf: &mut [u8],
+    ) -> core::result::Result<(), ()> {
         const MAGIC0: u8 = b'N';
         const MAGIC1: u8 = b'S';
         const VERSION: u8 = 1;
@@ -592,7 +602,11 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 
     // Helper to write to a stream
-    fn dual_stream_write(net: &KernelClient, sid: u32, data: &[u8]) -> core::result::Result<(), ()> {
+    fn dual_stream_write(
+        net: &KernelClient,
+        sid: u32,
+        data: &[u8],
+    ) -> core::result::Result<(), ()> {
         const MAGIC0: u8 = b'N';
         const MAGIC1: u8 = b'S';
         const VERSION: u8 = 1;
