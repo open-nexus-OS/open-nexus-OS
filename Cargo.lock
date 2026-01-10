@@ -697,8 +697,10 @@ version = "0.1.0"
 dependencies = [
  "dsoftbus",
  "nexus-abi",
+ "nexus-discovery-packet",
  "nexus-ipc",
  "nexus-noise-xk",
+ "nexus-peer-lru",
  "nexus-service-entry",
 ]
 

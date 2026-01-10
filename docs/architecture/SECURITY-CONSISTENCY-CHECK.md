@@ -8,6 +8,7 @@
 ## Overview
 
 This document tracks security invariants across related tasks to prevent:
+
 - ❌ **Drifts**: Contradictory security requirements
 - ❌ **Duplications**: Same security checks implemented differently
 - ❌ **Gaps**: Missing security coverage
@@ -178,6 +179,7 @@ IPI classes), and must be decided explicitly to prevent later drift.
 ## Potential duplications (NONE FOUND)
 
 ✅ **No duplications detected**. Each task has clear scope:
+
 - **TASK-0012**: SMP baseline (per-CPU, IPIs, work stealing)
 - **TASK-0013**: QoS ABI + timer coalescing
 - **TASK-0042**: Affinity + shares (extends TASK-0012)
@@ -193,7 +195,8 @@ IPI classes), and must be decided explicitly to prevent later drift.
 
 **Issue**: TASK-0042 mentions `CAP_SCHED_SETAFFINITY` capability, but it's not defined in TASK-0011 or kernel capability model.
 
-**Recommendation**: 
+**Recommendation**:
+
 - Define `CAP_SCHED_SETAFFINITY` in `source/kernel/neuron/src/cap/mod.rs`
 - Add to capability kinds enum
 - Document in RFC-0005 (Kernel IPC/Capability Model)
@@ -203,6 +206,7 @@ IPI classes), and must be decided explicitly to prevent later drift.
 ---
 
 ### Gap 2: QoS Class Enum Stability
+
 ## Decision Points (MUST resolve before implementation)
 
 ### Decision 1 — QoS/Affinity authority model (self-modify vs privileged-only)
@@ -213,6 +217,7 @@ Tasks currently imply two compatible-but-different interpretations:
 - **Self-modify within limits**: tasks may set their own QoS/affinity within recipe limits.
 
 **Recommended rule (security + pragmatism)**:
+
 - Unprivileged tasks may **only degrade** their own scheduling (e.g., Normal→Idle), not escalate.
 - Any escalation (Interactive/PerfBurst, shares > default, pinning) is **privileged** via `execd` + `policyd`
   (deny-by-default).
@@ -232,6 +237,7 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 **Issue**: TASK-0013 references `QosClass` enum but doesn't specify ABI stability guarantees.
 
 **Recommendation**:
+
 - Document QoS class enum values as stable ABI
 - Add to `source/libs/nexus-abi/src/sched.rs`
 - Add golden layout tests for QoS enum
@@ -245,6 +251,7 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 **Issue**: TASK-0247 mentions IPI rate limiting (1000/sec) but doesn't specify where it's enforced.
 
 **Recommendation**:
+
 - Add IPI rate limiter to kernel IPI handler
 - Use per-CPU atomic counter (reset every second)
 - Reject IPIs exceeding limit with -EBUSY
@@ -258,6 +265,7 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 **Issue**: TASK-0247 mentions packagefs signature verification but doesn't specify format or implementation.
 
 **Recommendation**:
+
 - Link to TASK-0008 (Security Hardening v1) for signature format
 - Use Ed25519 signatures (consistent with device keys)
 - Verify signature before mounting packagefs
@@ -305,11 +313,13 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 ## Conclusion
 
 ✅ **Security consistency is GOOD**. All tasks have:
+
 - Consistent security invariants (no contradictions)
 - Clear scope boundaries (no duplications)
 - Comprehensive threat models (minimal gaps)
 
 **Next steps**:
+
 1. Address identified gaps (CAP_SCHED_SETAFFINITY, QoS ABI, IPI rate limiting)
 2. Implement TASK-0011 and TASK-0011B (prep work)
 3. Proceed with TASK-0012 (SMP baseline)

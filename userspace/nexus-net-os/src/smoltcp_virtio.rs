@@ -16,6 +16,7 @@ use nexus_abi::{cap_query, mmio_map, vmo_create, vmo_map_page_sys, AbiError, Cap
 use nexus_hal::Bus;
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
+use smoltcp::socket::dhcpv4::{self, Event as DhcpEvent};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
     EthernetAddress, HardwareAddress, Icmpv4Packet, Icmpv4Repr, IpAddress, IpCidr, Ipv4Address,
@@ -116,6 +117,13 @@ struct Inner {
 
     iface: Interface,
     sockets: SocketSet<'static>,
+
+    // DHCP client socket handle
+    dhcp_handle: SocketHandle,
+
+    // DHCP state: bound IP (None until lease acquired)
+    dhcp_bound_ip: Option<smoltcp::wire::Ipv4Cidr>,
+    dhcp_bound_gateway: Option<Ipv4Address>,
 
     // Monotonic tick (backend-defined units; we use ms).
     now: NetInstant,
@@ -266,7 +274,11 @@ impl SmoltcpVirtioNetStack {
         cfg.random_seed = 0x1234_5678;
 
         // Create a socket set with owned storage.
-        let sockets = SocketSet::new(alloc::vec::Vec::new());
+        let mut sockets = SocketSet::new(alloc::vec::Vec::new());
+
+        // Create DHCPv4 socket for automatic IP configuration.
+        let dhcp_socket = dhcpv4::Socket::new();
+        let dhcp_handle = sockets.add(dhcp_socket);
 
         // Temporary device wrapper for iface init.
         let mut devwrap: SmolDevice<ACTIVE_BUFS> = SmolDevice {
@@ -288,11 +300,9 @@ impl SmoltcpVirtioNetStack {
         devwrap.rx_post(ACTIVE_BUFS);
         dev.set_driver_ok();
 
-        let mut iface = Interface::new(cfg, &mut devwrap, Instant::from_millis(0));
-        iface.update_ip_addrs(|addrs| {
-            let _ = addrs.push(IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)), 24));
-        });
-        let _ = iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2));
+        // Initialize interface WITHOUT static IP — DHCP will configure it.
+        let iface = Interface::new(cfg, &mut devwrap, Instant::from_millis(0));
+        // NOTE: No static IP or route added here; DHCP will provide them.
 
         Ok(Self {
             inner: Rc::new(RefCell::new(Inner {
@@ -312,6 +322,9 @@ impl SmoltcpVirtioNetStack {
                 tx_free: devwrap.tx_free,
                 iface,
                 sockets,
+                dhcp_handle,
+                dhcp_bound_ip: None,
+                dhcp_bound_gateway: None,
                 now: 0,
             })),
         })
@@ -364,6 +377,155 @@ impl SmoltcpVirtioNetStack {
         // Keep socket allocated (best-effort); caller will drop the stack anyway.
         Err(NetError::TimedOut)
     }
+
+    /// Poll the DHCP client and handle configuration events.
+    ///
+    /// Returns `Some(DhcpConfig)` when a new lease is acquired or reconfigured.
+    /// Caller should emit the marker `net: dhcp bound <ip>/<prefix> gw=<gw>` on first acquisition.
+    ///
+    /// Note: smoltcp 0.10 handles neighbor cache maintenance automatically when the IP changes.
+    pub fn dhcp_poll(&mut self) -> Option<DhcpConfig> {
+        let mut inner = self.inner.borrow_mut();
+        let dhcp_handle = inner.dhcp_handle;
+
+        // Poll DHCP socket for events
+        let event = inner.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).poll();
+
+        match event {
+            Some(DhcpEvent::Configured(config)) => {
+                let address = config.address;
+                let router = config.router;
+
+                // Check if this is a new/changed configuration
+                let is_new_config = inner.dhcp_bound_ip != Some(address)
+                    || inner.dhcp_bound_gateway != router;
+
+                if is_new_config {
+                    // Update interface IP addresses
+                    inner.iface.update_ip_addrs(|addrs| {
+                        addrs.clear();
+                        let _ = addrs.push(IpCidr::new(
+                            IpAddress::Ipv4(address.address()),
+                            address.prefix_len(),
+                        ));
+                    });
+
+                    // Update routes
+                    inner.iface.routes_mut().remove_default_ipv4_route();
+                    if let Some(gw) = router {
+                        let _ = inner.iface.routes_mut().add_default_ipv4_route(gw);
+                    }
+
+                    // Store bound configuration
+                    inner.dhcp_bound_ip = Some(address);
+                    inner.dhcp_bound_gateway = router;
+
+                    Some(DhcpConfig {
+                        ip: address.address().0,
+                        prefix_len: address.prefix_len(),
+                        gateway: router.map(|gw| gw.0),
+                    })
+                } else {
+                    None
+                }
+            }
+            Some(DhcpEvent::Deconfigured) => {
+                // Lease expired or lost
+                inner.iface.update_ip_addrs(|addrs| {
+                    addrs.clear();
+                });
+                inner.iface.routes_mut().remove_default_ipv4_route();
+                inner.dhcp_bound_ip = None;
+                inner.dhcp_bound_gateway = None;
+                None
+            }
+            None => None,
+        }
+    }
+
+    /// Check if DHCP lease has been acquired.
+    pub fn is_dhcp_bound(&self) -> bool {
+        self.inner.borrow().dhcp_bound_ip.is_some()
+    }
+
+    /// Get the currently bound DHCP configuration, if any.
+    pub fn get_dhcp_config(&self) -> Option<DhcpConfig> {
+        let inner = self.inner.borrow();
+        let address = inner.dhcp_bound_ip?;
+        Some(DhcpConfig {
+            ip: address.address().0,
+            prefix_len: address.prefix_len(),
+            gateway: inner.dhcp_bound_gateway.map(|gw| gw.0),
+        })
+    }
+
+    /// ICMP ping to a target address with cooperative yielding.
+    ///
+    /// Returns Ok(rtt_ms) on success (round-trip time in milliseconds).
+    /// This is a bounded, non-blocking helper for QEMU proof markers.
+    pub fn icmp_ping(
+        &mut self,
+        target_ip: [u8; 4],
+        start_ms: NetInstant,
+        timeout_ms: u64,
+    ) -> Result<u64, NetError> {
+        let mut inner = self.inner.borrow_mut();
+        let rx_meta = [smoltcp::socket::icmp::PacketMetadata::EMPTY; 4];
+        let tx_meta = [smoltcp::socket::icmp::PacketMetadata::EMPTY; 4];
+        let rx_buf = smoltcp::socket::icmp::PacketBuffer::new(rx_meta, alloc::vec![0u8; 256]);
+        let tx_buf = smoltcp::socket::icmp::PacketBuffer::new(tx_meta, alloc::vec![0u8; 256]);
+        let mut icmp = smoltcp::socket::icmp::Socket::new(rx_buf, tx_buf);
+        // Use a deterministic ident for bring-up
+        let ident: u16 = 0x4E58; // "NX"
+        icmp.bind(smoltcp::socket::icmp::Endpoint::Ident(ident))
+            .map_err(|_| NetError::InvalidInput("icmp bind"))?;
+        let handle = inner.sockets.add(icmp);
+        drop(inner);
+
+        let target = IpAddress::Ipv4(Ipv4Address::from_bytes(&target_ip));
+        let checksum = smoltcp::phy::ChecksumCapabilities::default();
+        let mut sent = false;
+        let mut send_time: u64 = 0;
+
+        let max_polls = timeout_ms as usize;
+        for i in 0..max_polls {
+            let now = start_ms.saturating_add(i as u64);
+            self.poll(now);
+            {
+                let mut inner = self.inner.borrow_mut();
+                let sock = inner.sockets.get_mut::<smoltcp::socket::icmp::Socket>(handle);
+                if !sent && sock.can_send() {
+                    let mut bytes = [0u8; 24];
+                    let mut pkt = Icmpv4Packet::new_unchecked(&mut bytes);
+                    let repr = Icmpv4Repr::EchoRequest { ident, seq_no: 1, data: &[0u8; 16] };
+                    repr.emit(&mut pkt, &checksum);
+                    let _ = sock.send_slice(pkt.into_inner(), target);
+                    sent = true;
+                    send_time = now;
+                }
+                if sock.can_recv() {
+                    let _ = sock.recv();
+                    inner.sockets.remove(handle);
+                    let rtt = now.saturating_sub(send_time);
+                    return Ok(rtt);
+                }
+            }
+        }
+        let mut inner = self.inner.borrow_mut();
+        inner.sockets.remove(handle);
+        Err(NetError::TimedOut)
+    }
+}
+
+/// DHCP configuration result for marker output.
+#[derive(Clone, Copy, Debug)]
+pub struct DhcpConfig {
+    /// IPv4 address bytes.
+    pub ip: [u8; 4],
+    /// Prefix length (e.g., 24 for /24).
+    pub prefix_len: u8,
+    /// Gateway address bytes, if provided.
+    pub gateway: Option<[u8; 4]>,
 }
 
 // smoltcp Device wrapper around our virtqueue implementation.

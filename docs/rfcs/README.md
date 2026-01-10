@@ -18,6 +18,13 @@ We keep three document types with clear roles:
 - **RFCs (`docs/rfcs/RFC-*.md`) are design seeds / contracts**
   - They define **architecture decisions**, **interfaces/contracts**, and **what “stable” means** (if applicable).
   - They must not grow into a backlog tracker; link to tasks for implementation and evidence.
+  - **Scope rule (keep RFCs “100% done”)**:
+    - Each RFC should be scoped so it can realistically reach **Status: Complete** as soon as its
+      corresponding task slice(s) are done and proven.
+    - If a follow-on task needs new behavior beyond the existing RFC scope, create a **new RFC**
+      (a new “contract seed”) instead of extending an old RFC into a multi-phase backlog.
+    - When we intentionally defer a capability (e.g. “real subnet discovery”), the current RFC must
+      state that it is **out of scope** and that a **new RFC** will define the next contract when scheduled.
   - If a contract changes, update the RFC *and* link to the task/PR that proves it.
 
 - **ADRs (`docs/adr/*.md`) are narrow decision records**
@@ -28,6 +35,12 @@ We keep three document types with clear roles:
 
 - If a task and an RFC disagree on **architecture/contract**, treat the **RFC as authoritative** and update the task.
 - If they disagree on **progress/plan/proof signals**, treat the **task as authoritative** and update the RFC only if the *contract* changed.
+
+### “Contract seed” rule for follow-on tasks
+
+- Follow-on tasks MUST NOT silently expand old RFC scopes.
+- If a follow-on task requires new contracts, add a new RFC (or ADR if it’s a narrow decision),
+  link it from the new task, and keep the previous RFC marked **Complete**.
 
 ## RFC template (required structure)
 

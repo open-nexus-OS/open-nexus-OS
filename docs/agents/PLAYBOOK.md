@@ -7,6 +7,7 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 - Work in scoped tasks (see `tasks/` files). Do not roam repo-wide.
 - Preserve invariants: UART markers, Host path byte-compatibility, `os-lite` feature gating.
 - Do not introduce cross-layer dependencies. Kernel ↔ Services boundaries are strict.
+- Follow Rust coding policy per `docs/standards/RUST_STANDARDS.md` (layering rules, kernel lint policy, unsafe discipline).
 - Prefer edits over refactors. If refactor spans modules, require an ADR.
 - Keep every touched file’s CONTEXT header in sync with `docs/standards/DOCUMENTATION_STANDARDS.md`. Adjust fields (CONTEXT/OWNERS/STATUS/API_STABILITY/TEST_COVERAGE/ADR) instead of deleting them.
 - Implementations must be **real**: avoid “fake success” logs/markers and avoid returning “Ok” from stub paths unless explicitly documented as a stub.

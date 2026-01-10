@@ -40,7 +40,7 @@ pub use smoltcp_virtio::SmoltcpVirtioNetStack;
     target_os = "none",
     feature = "os-lite"
 ))]
-pub use smoltcp_virtio::{OsTcpListener, OsTcpStream, OsUdpSocket};
+pub use smoltcp_virtio::{DhcpConfig, OsTcpListener, OsTcpStream, OsUdpSocket};
 
 // Non-OS builds intentionally expose no API.
 // Consumers must use the `nexus-net` contract crate on the host.

@@ -118,6 +118,18 @@ where
 
                     let ann =
                         Announcement::new(device_id, pkt.services, pkt.port, pkt.noise_static);
+                    // Reject replay/duplicate announces deterministically: if the cache already has
+                    // an identical announcement for this device id, ignore it (no new yield).
+                    if let Some(prev) =
+                        self.discovery.cache.lock().get(ann.device_id().as_str()).cloned()
+                    {
+                        if prev.services() == ann.services()
+                            && prev.port() == ann.port()
+                            && prev.noise_static() == ann.noise_static()
+                        {
+                            continue;
+                        }
+                    }
                     self.discovery
                         .cache
                         .lock()

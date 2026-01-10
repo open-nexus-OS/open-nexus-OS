@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional (host backend), Placeholder (OS backend - pending kernel transport)
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 13 integration tests (host transport + discovery packet vectors + facade discovery)
+//! TEST_COVERAGE: 14 integration tests (host transport + discovery packet vectors + facade discovery + identity binding)
 //!
 //! PUBLIC API:
 //!   - Announcement: Service discovery announcement

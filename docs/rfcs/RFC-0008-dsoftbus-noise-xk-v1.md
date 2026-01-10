@@ -1,11 +1,11 @@
 # RFC-0008: DSoftBus Noise XK v1 (no_std handshake + identity binding)
 
-- Status: In Progress (Phase 0+1a ✅ real Noise XK, Phase 1b ⬜ identity binding → TASK-0004)
+- Status: Complete (Phase 0+1 ✅)
 - Owners: @runtime
 - Created: 2026-01-07
-- Last Updated: 2026-01-07 (Noise XK handshake implemented in dsoftbusd + selftest-client)
+- Last Updated: 2026-01-10 (Phase 1b proven; host negative tests + QEMU marker harness green)
 - Links:
-  - Tasks (execution + proof): `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
+  - Tasks (execution + proof): `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`, `tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md`
   - ADR: `docs/adr/0005-dsoftbus-architecture.md`
   - Related RFCs:
     - `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md` (OS transport contract)
@@ -15,18 +15,16 @@
 ## Status at a Glance
 
 - **Phase 0 (Contract seed + host proof surface)**: ✅ **COMPLETE**
-- **Phase 1 (OS/QEMU: no_std handshake wired + marker gate)**: 🟨 **SPLIT**
+-- **Phase 1 (OS/QEMU: no_std handshake + identity binding)**: ✅ **COMPLETE**
   - **Phase 1a: Handshake Implementation**: ✅ **COMPLETE** (`TASK-0003B`)
     - **Real Noise XK handshake** using `nexus-noise-xk` library (X25519 + ChaChaPoly + BLAKE2s)
     - QEMU marker `dsoftbusd: auth ok` emitted **only after successful 3-message handshake**
     - Test keys parameterized (port-based derivation, labeled `SECURITY: bring-up test keys`)
     - Host regression tests green (`cargo test -p nexus-noise-xk`)
     - **Implementation**: `source/services/dsoftbusd/src/main.rs`, `source/apps/selftest-client/src/main.rs`
-  - **Phase 1b: Identity Binding Enforcement**: ⬜ **PENDING** → **TASK-0004**
-    - Code that binds `device_id <-> noise_static_pub` (missing)
-    - Requires **dual-node mode** to be meaningfully tested
-    - Session rejection on mismatch (missing)
-    - **Why deferred**: Single-node identity binding is trivial self-verification
+  - **Phase 1b: Identity Binding Enforcement**: ✅ **COMPLETE** (`TASK-0004`)
+    - Host enforces identity mismatch as a hard `AuthError::Identity` reject.
+    - OS/QEMU path enforces binding against discovery mapping and keeps marker semantics honest.
 - **Phase 2 (Multi-tier Trust + Key Management)**: ⬜ **NOT STARTED**
 - **Phase 3 (Enterprise + Ecosystem)**: ⬜ **NOT STARTED**
 
@@ -94,6 +92,80 @@ RFC‑0007 already calls out “Noise-based authentication” at a high level; t
   - handshake logic MUST be parameterizable per node instance (local static + expected remote static + deterministic ephemeral seed),
     so follow-ups (`TASK-0004` dual-node, `TASK-0005` cross-VM, `TASK-0024` QUIC transport) can compose it without rewriting crypto.
   - bring-up mode MUST NOT hardcode a single global keypair; it must be possible to run multiple independent nodes by varying inputs (e.g. per-port derivation).
+
+### Identity binding enforcement (Phase 1b) — normative algorithm
+
+This section defines what “identity bound” means. It is intentionally explicit to avoid drift and “fake green”.
+
+#### Inputs
+
+- **Discovery mapping** for a chosen peer:
+  - `peer.device_id` (stable identifier; from discovery packet)
+  - `peer.noise_static_pub` (32 bytes; from discovery packet)
+  - `peer.addr` + `peer.port` (where to connect)
+- **Handshake result**:
+  - `handshake.remote_static_pub` (the authenticated static key of the remote peer as determined by Noise XK)
+
+#### Rule (MUST)
+
+After completing the Noise XK handshake, the session implementation MUST check:
+
+- `handshake.remote_static_pub == peer.noise_static_pub`
+
+If (and only if) this holds, the session is “identity bound” to `peer.device_id`.
+
+#### Mismatch handling (MUST)
+
+On mismatch:
+
+- MUST reject/abort the session (no partially-authenticated session state)
+- MUST emit `dsoftbusd: identity mismatch peer=<peer.device_id>`
+- MUST NOT emit `dsoftbusd: auth ok` for that session
+
+On match:
+
+- MUST emit `dsoftbusd: identity bound peer=<peer.device_id>`
+- MAY then emit `dsoftbusd: auth ok` (after the identity-bound marker, or combined into one “auth ok” step as long as semantics are preserved)
+
+#### Required negative tests (host)
+
+Host tests MUST cover identity binding as a hard reject:
+
+- `test_reject_identity_mismatch`: when the announcement claims `device_id=A` but the authenticated static key corresponds to `B`, the connect/accept flow must return `AuthError::Identity(...)` (not “Ok(session) but caller can check”).
+
+Status (2026-01-09):
+
+- OS/QEMU bring-up path implements explicit identity binding checks against the discovery mapping and emits the required markers.
+- Host-side hard reject is implemented: identity mismatch is a hard `AuthError::Identity` at the API boundary.
+- Host negative tests exist and are green (`cargo test -p dsoftbus -- reject --nocapture`), including:
+  - `test_reject_identity_mismatch`
+  - `test_reject_malformed_announce`
+  - `test_reject_oversized_announce`
+  - `test_reject_replay_announce`
+
+#### Required proof markers (OS/QEMU)
+
+The canonical QEMU harness must observe (order may be task-defined, but semantics must hold):
+
+- `dsoftbusd: identity bound peer=<id>`
+- `dsoftbusd: auth ok` (meaning identity is bound)
+
+### Implementation notes (quality + “no fake success”)
+
+- **Marker semantics are security-critical**:
+  - `dsoftbusd: auth ok` MUST NOT mean “handshake bytes exchanged”; it MUST mean “Noise completed AND identity bound”.
+- **Binding is not implied**:
+  - A successful handshake alone is not sufficient if the expected remote static key was not sourced from discovery mapping. The code MUST make the mapping explicit and check it.
+- **Mismatch is a hard failure**:
+  - Mismatch MUST become `AuthError::Identity` (or OS equivalent) and MUST terminate the session deterministically.
+- **Do not log secrets**:
+  - Do not print keys, nonces, or transcript hashes in logs/markers.
+
+#### QEMU bring-up note (discovery source constraints)
+
+In Phase 1 OS/QEMU bring-up, the discovery “mapping” used for identity binding may originate from a deterministic UDP loopback path (see RFC‑0007).
+This does **not** weaken the Phase 1b invariant: identity binding is still mandatory and the mismatch behavior is still a hard reject.
+However, it means Phase 1b proofs validate **binding correctness**, not “subnet discovery realism”; subnet discovery is covered by follow-on phases/tasks.
 
 ## Proposed design
 

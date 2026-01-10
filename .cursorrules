@@ -22,6 +22,7 @@ Architecture follows seL4/Fuchsia principles: minimal kernel, userspace services
 - `docs/agents/VISION.md` — Project vision and principles
 - `docs/standards/SECURITY_STANDARDS.md` — Security invariants and testing
 - `docs/standards/BUILD_STANDARDS.md` — Feature gates and dependency hygiene
+- `docs/standards/RUST_STANDARDS.md` — Rust best practices (kernel + OS + userspace layering)
 - `docs/testing/index.md` — Testing methodology and QEMU markers
 
 ---

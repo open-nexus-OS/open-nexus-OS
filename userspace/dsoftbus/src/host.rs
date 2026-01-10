@@ -550,6 +550,12 @@ pub(crate) fn handshake_connect(
     }
 
     let (device_id, _) = validate_proof(proof, HandshakeRole::Server, &remote_static)?;
+    // RFC-0008 Phase 1b: identity binding MUST be explicit at the API boundary.
+    // The announcement is the (device_id -> noise_static_pub) mapping input; the handshake proof
+    // authenticates the remote identity. They must match.
+    if &device_id != announcement.device_id() {
+        return Err(AuthError::Identity("announcement device_id mismatch".into()));
+    }
 
     let message = proof_message(HandshakeRole::Client, noise_public);
     let signature = identity.sign(&message);

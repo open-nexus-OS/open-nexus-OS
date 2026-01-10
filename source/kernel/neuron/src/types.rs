@@ -121,17 +121,26 @@ pub struct Asid(u16);
 impl Asid {
     /// Creates an ASID from a raw value (kernel-internal only).
     #[inline]
+    #[allow(dead_code)]
+    // NOTE: Bring-up: staged API for AddressSpaceManager + sys_as_* plumbing.
+    // REMOVE_WHEN(TASK-0011B): Address space plumbing is fully wired and these helpers are used.
     pub const fn from_raw(raw: u16) -> Self {
         Self(raw)
     }
 
     /// Returns the raw ASID value.
     #[inline]
+    #[allow(dead_code)]
+    // NOTE: Bring-up: used once ASID allocation + SATP switching plumbing lands.
+    // REMOVE_WHEN(TASK-0011B): Address space plumbing uses this for SATP writes.
     pub const fn raw(self) -> u16 {
         self.0
     }
 
     /// Kernel ASID (reserved for kernel identity map).
+    #[allow(dead_code)]
+    // NOTE: Bring-up: referenced once AS manager/VM init is fully connected.
+    // REMOVE_WHEN(TASK-0011B): Kernel ASID is referenced by the live address-space code.
     pub const KERNEL: Self = Self(0);
 }
 
@@ -145,12 +154,18 @@ pub struct AsHandle(u64);
 impl AsHandle {
     /// Creates an address space handle from a raw value.
     #[inline]
+    #[allow(dead_code)]
+    // NOTE: Bring-up: AS handle syscalls are staged; keep this constructor for the kernel API.
+    // REMOVE_WHEN(TASK-0011B): Address-space syscalls use this constructor.
     pub const fn from_raw(raw: u64) -> Self {
         Self(raw)
     }
 
     /// Returns the raw handle value.
     #[inline]
+    #[allow(dead_code)]
+    // NOTE: Bring-up: used by syscall plumbing once AS handles are passed through tables.
+    // REMOVE_WHEN(TASK-0011B): Address-space syscalls and tables use this accessor.
     pub const fn raw(self) -> u64 {
         self.0
     }

@@ -849,6 +849,13 @@ mod os_lite {
             emit_line("SELFTEST: vfs FAIL");
         }
 
+        // TASK-0004: ICMP ping proof via netstackd facade.
+        if icmp_ping_probe().is_ok() {
+            emit_line("SELFTEST: icmp ping ok");
+        } else {
+            emit_line("SELFTEST: icmp ping FAIL");
+        }
+
         // TASK-0003: DSoftBus OS transport bring-up via netstackd facade.
         if dsoftbus_os_transport_probe().is_ok() {
             emit_line("SELFTEST: dsoftbus os connect ok");
@@ -966,6 +973,72 @@ mod os_lite {
         }
 
         // TASK-0010 proof remains: mapping + reading known register succeeded.
+        Ok(())
+    }
+
+    /// ICMP ping proof via netstackd IPC facade (TASK-0004).
+    fn icmp_ping_probe() -> core::result::Result<(), ()> {
+        const MAGIC0: u8 = b'N';
+        const MAGIC1: u8 = b'S';
+        const VERSION: u8 = 1;
+        const OP_ICMP_PING: u8 = 9;
+        const STATUS_OK: u8 = 0;
+
+        fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
+            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let (reply_send_slot, reply_recv_slot) = reply.slots();
+            let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+            client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 512];
+            for _ in 0..10_000 {
+                match nexus_abi::ipc_recv_v1(
+                    reply_recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(_n) => return Ok(buf),
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = yield_();
+                    }
+                    Err(_) => return Err(()),
+                }
+            }
+            Err(())
+        }
+
+        // Connect to netstackd
+        let netstackd = KernelClient::new_for("netstackd").map_err(|_| ())?;
+
+        // Gateway address: 10.0.2.2 (QEMU usernet)
+        let gateway_ip: [u8; 4] = [10, 0, 2, 2];
+        let timeout_ms: u16 = 3000; // 3 second timeout
+
+        // Build ICMP ping request: [magic, magic, ver, op, ip[4], timeout_ms:u16le]
+        let mut req = [0u8; 10];
+        req[0] = MAGIC0;
+        req[1] = MAGIC1;
+        req[2] = VERSION;
+        req[3] = OP_ICMP_PING;
+        req[4..8].copy_from_slice(&gateway_ip);
+        req[8..10].copy_from_slice(&timeout_ms.to_le_bytes());
+
+        let rsp = rpc(&netstackd, &req)?;
+
+        // Validate response: [magic, magic, ver, op|0x80, status, ...]
+        if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+            return Err(());
+        }
+        if rsp[3] != (OP_ICMP_PING | 0x80) {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+
+        // Ping succeeded
         Ok(())
     }
 

@@ -60,6 +60,29 @@ Two separate QEMU instances do not automatically share "usernet" (slirp). For a 
 
 If we rely on slirp/usernet, cross-VM multicast/broadcast will likely not work and the task will be flaky.
 
+## Prerequisites / blocking conditions (make “real subnet” explicit)
+
+TASK-0004 proves discovery/session correctness in **single-VM bring-up** using deterministic **UDP loopback**.
+This task (step 3) explicitly requires **real UDP datagram behavior across two VMs**:
+
+- **QEMU networking backend MUST actually connect the two NICs at L2/L3**
+  - Preferred: `-netdev socket,mcast=239.42.0.1:37020` (both VMs on same multicast hub), or
+  - Alternative: `-netdev socket,listen=...` / `connect=...` (pair link).
+  - **Do NOT** assume slirp/usernet provides cross-VM broadcast/multicast.
+
+- **Guest networking MUST provide real UDP socket semantics for discovery**
+  - Discovery must run over a real UDP socket backend (datagram-framed), not the netstackd UDP loopback byte-ring.
+  - If multicast group join is not supported in the current smoltcp/netstack layer, the task MUST document and use
+    a deterministic fallback (e.g. broadcast on the shared L2, or controlled unicast after first contact) — but still
+    cross-VM, not loopback.
+
+- **Identity binding is mandatory before remote proxy**
+  - Step 3 MUST NOT forward any remote proxy request until the session is Noise-authenticated **and identity bound**
+    (device_id ↔ noise_static_pub mapping enforced).
+
+If any of the above cannot be satisfied without kernel changes, this task is blocked and MUST spin out a new task/RFC
+seed for the missing netstack/multicast/datagram capability, instead of “papering over” with fake-green markers.
+
 ## Security considerations
 
 ### Threat model
@@ -161,10 +184,12 @@ Marker ownership rules (to keep the harness deterministic):
 1. **Cross-VM discovery payload + aging**
    - Discovery message includes:
      - device id
-     - advertised host IPv4 (or a “listen addr” field)
      - TCP port
      - protocol version
      - services list (e.g. `["samgrd","bundlemgrd"]`)
+   - Peer IP SHOULD be taken from the UDP `recv_from` source address where possible (avoid adding new on-wire fields).
+     If we truly need an explicit “advertised IP” field (NAT/backends), that MUST be introduced as a versioned packet
+     update with its own contract seed (do not silently extend the v1 packet).
    - Maintain bounded LRU with TTL aging; refresh on new announce.
    - Marker: `dsoftbusd: discovery cross-vm up` once sockets are bound and RX loop is active.
 

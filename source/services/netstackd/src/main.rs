@@ -28,9 +28,85 @@ fn os_entry() -> core::result::Result<(), ()> {
     use nexus_net::{
         NetSocketAddrV4, NetStack as _, TcpListener as _, TcpStream as _, UdpSocket as _,
     };
-    use nexus_net_os::{OsTcpListener, OsTcpStream, SmoltcpVirtioNetStack};
+    use nexus_net_os::{DhcpConfig, OsTcpListener, OsTcpStream, SmoltcpVirtioNetStack};
 
     use alloc::vec::Vec;
+
+    // Helper to emit DHCP bound marker: "net: dhcp bound <ip>/<prefix> gw=<gw>"
+    fn emit_dhcp_bound_marker(config: &DhcpConfig) {
+        let mut buf = [0u8; 64];
+        let mut pos = 0;
+        // "net: dhcp bound "
+        let prefix = b"net: dhcp bound ";
+        buf[pos..pos + prefix.len()].copy_from_slice(prefix);
+        pos += prefix.len();
+        // IP address
+        pos += write_ip(&config.ip, &mut buf[pos..]);
+        // "/"
+        buf[pos] = b'/';
+        pos += 1;
+        // prefix length
+        pos += write_u8(config.prefix_len, &mut buf[pos..]);
+        // " gw="
+        let gw_prefix = b" gw=";
+        buf[pos..pos + gw_prefix.len()].copy_from_slice(gw_prefix);
+        pos += gw_prefix.len();
+        // gateway (or "none")
+        if let Some(gw) = config.gateway {
+            pos += write_ip(&gw, &mut buf[pos..]);
+        } else {
+            let none = b"none";
+            buf[pos..pos + none.len()].copy_from_slice(none);
+            pos += none.len();
+        }
+        // Null-terminate and emit
+        if let Ok(s) = core::str::from_utf8(&buf[..pos]) {
+            let _ = nexus_abi::debug_println(s);
+        }
+    }
+
+    // Helper to emit smoltcp iface marker with actual IP
+    fn emit_smoltcp_iface_marker(config: &DhcpConfig) {
+        let mut buf = [0u8; 48];
+        let mut pos = 0;
+        let prefix = b"net: smoltcp iface up ";
+        buf[pos..pos + prefix.len()].copy_from_slice(prefix);
+        pos += prefix.len();
+        pos += write_ip(&config.ip, &mut buf[pos..]);
+        if let Ok(s) = core::str::from_utf8(&buf[..pos]) {
+            let _ = nexus_abi::debug_println(s);
+        }
+    }
+
+    // Write IP address as decimal dotted string, return bytes written
+    fn write_ip(ip: &[u8; 4], out: &mut [u8]) -> usize {
+        let mut pos = 0;
+        for (i, octet) in ip.iter().enumerate() {
+            if i > 0 {
+                out[pos] = b'.';
+                pos += 1;
+            }
+            pos += write_u8(*octet, &mut out[pos..]);
+        }
+        pos
+    }
+
+    // Write u8 as decimal string, return bytes written
+    fn write_u8(val: u8, out: &mut [u8]) -> usize {
+        if val >= 100 {
+            out[0] = b'0' + (val / 100);
+            out[1] = b'0' + ((val / 10) % 10);
+            out[2] = b'0' + (val % 10);
+            3
+        } else if val >= 10 {
+            out[0] = b'0' + (val / 10);
+            out[1] = b'0' + (val % 10);
+            2
+        } else {
+            out[0] = b'0' + val;
+            1
+        }
+    }
 
     let _ = nexus_abi::debug_println("netstackd: ready");
 
@@ -45,19 +121,47 @@ fn os_entry() -> core::result::Result<(), ()> {
         }
     };
 
-    // Prove real L3 (gateway ping) — bounded.
+    let _ = nexus_abi::debug_println("net: virtio-net up");
+    let _ = nexus_abi::debug_println("SELFTEST: net iface ok");
+
+    // DHCP lease acquisition loop (bounded, TASK-0004 Step 1)
     let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-    net.poll(start_ms);
-    if net.probe_ping_gateway(start_ms, 4000).is_err() {
+    let mut dhcp_bound = false;
+    for i in 0..8000u64 {
+        let now = start_ms + i;
+        net.poll(now);
+
+        if let Some(config) = net.dhcp_poll() {
+            // Emit DHCP bound marker: net: dhcp bound <ip>/<mask> gw=<gw>
+            emit_dhcp_bound_marker(&config);
+            dhcp_bound = true;
+            break;
+        }
+
+        if (i & 0x3f) == 0 {
+            let _ = yield_();
+        }
+    }
+    if !dhcp_bound {
+        let _ = nexus_abi::debug_println("netstackd: dhcp FAIL");
+        loop {
+            let _ = yield_();
+        }
+    }
+
+    // Emit iface up marker with DHCP-assigned IP
+    if let Some(config) = net.get_dhcp_config() {
+        emit_smoltcp_iface_marker(&config);
+    }
+
+    // Prove real L3 (gateway ping) — bounded.
+    let ping_start = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+    if net.probe_ping_gateway(ping_start, 4000).is_err() {
         let _ = nexus_abi::debug_println("netstackd: net ping FAIL");
         loop {
             let _ = yield_();
         }
     }
-    // Emit the Step-1 networking markers (these are currently consumed by qemu-test.sh).
-    let _ = nexus_abi::debug_println("net: virtio-net up");
-    let _ = nexus_abi::debug_println("SELFTEST: net iface ok");
-    let _ = nexus_abi::debug_println("net: smoltcp iface up 10.0.2.15");
     let _ = nexus_abi::debug_println("SELFTEST: net ping ok");
 
     // Prove UDP send+recv (DNS on QEMU usernet). This is the same proof shape as selftest-client,
@@ -149,15 +253,18 @@ fn os_entry() -> core::result::Result<(), ()> {
     const OP_UDP_BIND: u8 = 6;
     const OP_UDP_SEND_TO: u8 = 7;
     const OP_UDP_RECV_FROM: u8 = 8;
+    const OP_ICMP_PING: u8 = 9;
 
     const STATUS_OK: u8 = 0;
     const STATUS_NOT_FOUND: u8 = 1;
     const STATUS_MALFORMED: u8 = 2;
     const STATUS_WOULD_BLOCK: u8 = 3;
     const STATUS_IO: u8 = 4;
+    const STATUS_TIMED_OUT: u8 = 5;
 
     // Local-only loopback for DSoftBus bring-up (QEMU usernet has no TCP self-loopback).
     const LOOPBACK_PORT: u16 = 34_567;
+    const LOOPBACK_PORT_B: u16 = 34_568; // Dual-node mode: second node port
     // Local-only UDP loopback port for discovery bring-up.
     const LOOPBACK_UDP_PORT: u16 = 37_020;
 
@@ -205,7 +312,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     enum Listener {
         Tcp(OsTcpListener),
-        Loop { pending: Option<u32> },
+        Loop { port: u16, pending: Option<u32> },
     }
 
     enum Stream {
@@ -287,8 +394,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let _ = nexus_abi::debug_println("netstackd: rpc listen");
                         let port = u16::from_le_bytes([req[4], req[5]]);
-                        if port == LOOPBACK_PORT {
-                            listeners.push(Some(Listener::Loop { pending: None }));
+                        if port == LOOPBACK_PORT || port == LOOPBACK_PORT_B {
+                            listeners.push(Some(Listener::Loop { port, pending: None }));
                             let id = listeners.len() as u32;
                             let mut rsp = [0u8; 9];
                             rsp[0] = MAGIC0;
@@ -370,7 +477,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     ]),
                                 }
                             }
-                            Listener::Loop { pending } => {
+                            Listener::Loop { pending, .. } => {
                                 if let Some(sid) = pending.take() {
                                     let mut rsp = [0u8; 9];
                                     rsp[0] = MAGIC0;
@@ -401,15 +508,17 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let ip = [req[4], req[5], req[6], req[7]];
                         let port = u16::from_le_bytes([req[8], req[9]]);
-                        if ip == [10, 0, 2, 15] && port == LOOPBACK_PORT {
+                        if ip == [10, 0, 2, 15]
+                            && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B)
+                        {
                             // Create paired in-memory streams.
                             let a = (streams.len() + 1) as u32;
                             streams.push(Some(Stream::Loop { peer: a + 1, rx: LoopBuf::new() }));
                             streams.push(Some(Stream::Loop { peer: a, rx: LoopBuf::new() }));
                             // Queue server side on the loop listener.
                             for l in listeners.iter_mut() {
-                                if let Some(Listener::Loop { pending }) = l {
-                                    if pending.is_none() {
+                                if let Some(Listener::Loop { port: listen_port, pending }) = l {
+                                    if *listen_port == port && pending.is_none() {
                                         *pending = Some(a + 1);
                                         break;
                                     }
@@ -457,12 +566,18 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                     }
                     OP_UDP_BIND => {
-                        if req.len() != 6 {
+                        // v1: [magic,ver,op, port:u16le]
+                        // v2 (backward compatible): [magic,ver,op, ip[4], port:u16le]
+                        if req.len() != 6 && req.len() != 10 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
-                        let port = u16::from_le_bytes([req[4], req[5]]);
+                        let (bind_ip, port) = if req.len() == 10 {
+                            ([req[4], req[5], req[6], req[7]], u16::from_le_bytes([req[8], req[9]]))
+                        } else {
+                            ([10, 0, 2, 15], u16::from_le_bytes([req[4], req[5]]))
+                        };
                         if port == LOOPBACK_UDP_PORT {
                             udps.push(Some(UdpSock::Loop(LoopUdp { rx: LoopBuf::new(), port })));
                             let id = udps.len() as u32;
@@ -477,7 +592,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let _ = yield_();
                             continue;
                         }
-                        let addr = NetSocketAddrV4::new([10, 0, 2, 15], port);
+                        let addr = NetSocketAddrV4::new(bind_ip, port);
                         match net.udp_bind(addr) {
                             Ok(s) => {
                                 udps.push(Some(UdpSock::Udp(s)));
@@ -893,6 +1008,47 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     rsp[7..7 + n].copy_from_slice(&out[..n]);
                                     reply(&rsp[..7 + n]);
                                 }
+                            }
+                        }
+                    }
+                    OP_ICMP_PING => {
+                        // OP_ICMP_PING: [magic,ver,op, ip[4], timeout_ms:u16le]
+                        if req.len() != 10 {
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_ICMP_PING | 0x80,
+                                STATUS_MALFORMED,
+                            ]);
+                            let _ = yield_();
+                            continue;
+                        }
+                        let target_ip = [req[4], req[5], req[6], req[7]];
+                        let timeout_ms = u16::from_le_bytes([req[8], req[9]]) as u64;
+                        let ping_start = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+
+                        match net.icmp_ping(target_ip, ping_start, timeout_ms) {
+                            Ok(rtt_ms) => {
+                                let mut rsp = [0u8; 11];
+                                rsp[0] = MAGIC0;
+                                rsp[1] = MAGIC1;
+                                rsp[2] = VERSION;
+                                rsp[3] = OP_ICMP_PING | 0x80;
+                                rsp[4] = STATUS_OK;
+                                // Include RTT in response (u16le, capped at 65535)
+                                let rtt_capped = core::cmp::min(rtt_ms, 65535) as u16;
+                                rsp[5..7].copy_from_slice(&rtt_capped.to_le_bytes());
+                                reply(&rsp[..7]);
+                            }
+                            Err(_) => {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_ICMP_PING | 0x80,
+                                    STATUS_TIMED_OUT,
+                                ]);
                             }
                         }
                     }

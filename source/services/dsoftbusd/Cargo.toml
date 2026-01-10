@@ -19,3 +19,5 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry" }
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"] }
 nexus-noise-xk = { path = "../../libs/nexus-noise-xk" }
+nexus-discovery-packet = { path = "../../libs/nexus-discovery-packet" }
+nexus-peer-lru = { path = "../../libs/nexus-peer-lru" }
