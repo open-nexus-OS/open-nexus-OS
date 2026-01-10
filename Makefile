@@ -9,6 +9,7 @@ SELINUX_LABEL := $(shell command -v selinuxenabled >/dev/null 2>&1 && selinuxena
 
 .PHONY: initial-setup build test run pull clean
 .PHONY: run-init-host test-init-host
+.PHONY: dep-gate
 
 initial-setup:
 	@echo "==> Checking podman rootless support"
@@ -38,6 +39,17 @@ ifeq ($(MODE),container)
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd --exclude netstackd && \
 		  echo "[1b/2] cross-compile OS services (riscv64)"; \
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p samgrd -p bundlemgrd -p dsoftbusd -p execd -p keystored -p netstackd -p packagefsd -p policyd -p vfsd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite && \
+		  echo "[1c/2] RFC-0009 dep-gate (OS graph)"; \
+		  forbidden="parking_lot parking_lot_core getrandom"; \
+		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd"; \
+		  found=0; \
+		  for svc in $$services; do \
+		    tree_output=$$($(CARGO_BIN) +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \
+		    for f in $$forbidden; do \
+		      echo "$$tree_output" | grep -qE "^[│├└ ]*$$f " && echo "[FAIL] $$svc pulled forbidden crate $$f" && found=1; \
+		    done; \
+		  done; \
+		  test "$$found" -eq 0 && echo "[PASS] RFC-0009 dep-gate" || (echo "[FAIL] RFC-0009 dep-gate" && exit 1); \
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p nexus-init --lib --target riscv64imac-unknown-none-elf --no-default-features --features os-lite && \
 	                  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite && \
 	                  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release && \
@@ -53,6 +65,7 @@ else
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"' cargo build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd --exclude netstackd
 	@echo "==> Cross-compiling OS services (riscv64)"
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p samgrd -p bundlemgrd -p dsoftbusd -p execd -p keystored -p netstackd -p packagefsd -p policyd -p vfsd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite
+	@$(MAKE) dep-gate
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p nexus-init --lib --target riscv64imac-unknown-none-elf --no-default-features --features os-lite
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release
@@ -73,10 +86,20 @@ ifeq ($(MODE),container)
  		$(CONTAINER_TAG) \
  		sh -lc '\
  		  echo "[tests] host-first only (exclude neuron)"; \
- 		  $(CARGO_BIN) nextest run --workspace --exclude neuron'
+		  if $(CARGO_BIN) nextest --version >/dev/null 2>&1; then \
+		    $(CARGO_BIN) nextest run --workspace --exclude neuron; \
+		  else \
+		    echo "[warn] cargo-nextest not found; falling back to cargo test"; \
+		    $(CARGO_BIN) test --workspace --exclude neuron --exclude neuron-boot; \
+		  fi'
 else
 	@echo "==> Running host-first tests"
-	@cargo nextest run --workspace --exclude neuron
+	@if cargo nextest --version >/dev/null 2>&1; then \
+	  cargo nextest run --workspace --exclude neuron; \
+	else \
+	  echo "[warn] cargo-nextest not found; falling back to cargo test"; \
+	  cargo test --workspace --exclude neuron --exclude neuron-boot; \
+	fi
 endif
 
 run:
@@ -84,7 +107,25 @@ run:
 	@rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal
 	@rustup component add rust-src --toolchain "$(NIGHTLY)" >/dev/null 2>&1 || true
 	@$(CARGO_BIN) +$(NIGHTLY) build --target riscv64imac-unknown-none-elf -p neuron-boot --release
-	@RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh
+	@if [ "$${RUN_UNTIL_MARKER:-0}" = "1" ]; then \
+	  echo "==> RUN_UNTIL_MARKER=1: using scripts/qemu-test.sh (marker-driven early exit)"; \
+	  RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER=1 ./scripts/qemu-test.sh; \
+	else \
+	  RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh; \
+	fi
+
+dep-gate:
+	@echo "==> RFC-0009 Dependency Hygiene Gate (Makefile)"
+	@forbidden="parking_lot parking_lot_core getrandom"; \
+	services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd"; \
+	found=0; \
+	for svc in $$services; do \
+	  tree_output=$$(cargo +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \
+	  for f in $$forbidden; do \
+	    echo "$$tree_output" | grep -qE "^[│├└ ]*$$f " && echo "[FAIL] $$svc pulled forbidden crate $$f" && found=1; \
+	  done; \
+	done; \
+	test "$$found" -eq 0 && echo "[PASS] RFC-0009 dep-gate" || (echo "[FAIL] RFC-0009 dep-gate" && exit 1)
 
 run-init-host:
 	@echo "==> Running host nexus-init (will exit on init: ready)"
