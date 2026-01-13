@@ -3,11 +3,20 @@ title: TASK-0006 Observability v1 (OS): logd journal + nexus-log client sink + e
 status: Draft
 owner: @runtime
 created: 2025-12-22
+updated: 2026-01-13
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - RFC: docs/rfcs/RFC-0003-unified-logging.md
+  - IDL schema: tools/nexus-idl/schemas/log.capnp
   - Testing contract: scripts/qemu-test.sh
+  - Rust standards (newtypes, must-use): docs/standards/RUST_STANDARDS.md
+  - Security standards (error discipline): docs/standards/SECURITY_STANDARDS.md
+follow-up-tasks:
+  - TASK-0014: Observability v2 (metrics/tracing exports via logd)
+  - TASK-0018: Crashdumps v1 (minidump + symbolization; extends crash reports)
+  - TASK-0040: Remote observability v1 (scrape logs/metrics over DSoftBus)
+  - TASK-0141: Crash export/redaction surface (.nxcd.zst artifacts)
 ---
 
 ## Context
@@ -68,8 +77,28 @@ v1 design constraints to stay compatible:
 
 ## Red flags / decision points
 
-- **RED (blocking / must decide now)**:
-  - On-wire contract choice: OS-lite currently prefers small, versioned byte frames. If we want Cap’n Proto to be the *only* contract for logd, we must explicitly decide and prove it works in OS builds; otherwise keep Cap’n Proto as “schema/docs” and make byte frames authoritative for v1.
+- **RED (blocking / must decide now)**: ✅ **RESOLVED 2026-01-13**
+  - **Decision**: Hybrid contract (follows established pattern of all existing services: `samgrd`, `bundlemgrd`, etc.)
+  - **OS backend (`os-lite`)**: Versioned byte frames (authoritative for v1 QEMU proof)
+    - Magic: `LO` (0x4C 0x4F), Version: 1
+    - Ops: APPEND(1), QUERY(2), STATS(3)
+    - Bounded: scope ≤64B, msg ≤256B, fields ≤512B
+  - **Host backend (`std`)**: Cap'n Proto (type-safe tests, schema in `tools/nexus-idl/schemas/log.capnp`)
+  - **Rationale**:
+    - Consistency with all existing services (every service uses this pattern)
+    - Host tests benefit from Cap'n Proto type safety
+    - OS builds stay minimal (no capnp overhead in `os-lite`)
+    - IDL schema serves as documentation + future API evolution
+  - **Alignment with TASK-11B** (Kernel Rust idioms):
+    - Use newtypes: `RecordId`, `TimestampNsec` (prevent confusion)
+    - Add `#[must_use]` on `LogdError` types (security-critical)
+    - Document ownership model (ring buffer, IPC handler)
+    - Type-safe `LogLevel` enum with const accessors
+  - **Data Plane** (v1 inline, v2+ VMO/filebuffer):
+    - **v1 (inline, bounded)**: All query results inline (bounded via `maxCount`), APPEND payloads capped
+    - **UART mirror**: Optional JSONL file sink (debug/export), not a backend pattern
+    - **v2+ (out-of-band)**: Bulk log scrape via VMO (deferred to TASK-0040, follows RFC-0005 bulk buffer pattern)
+    - **Rationale**: v1 payloads small enough for inline; VMO complexity deferred until remote observability needs it
 - **YELLOW (risky / likely drift / needs follow-up)**:
   - Startup ordering: services may log before `logd` is ready. We must choose and document a bounded fallback (UART-only vs small local buffer) and ensure it cannot emit misleading “logged” success.
   - “Structured fields” encoding: JSON vs CBOR affects determinism/size; keep it opaque in v1 and cap sizes.
@@ -85,6 +114,7 @@ v1 design constraints to stay compatible:
 ## Security considerations
 
 ### Threat model
+
 - **Information disclosure via logs**: Secrets, keys, credentials accidentally logged
 - **Log injection**: Malicious service injects fake log entries to hide activity or confuse auditors
 - **Log tampering**: Attacker modifies or deletes log entries to cover tracks
@@ -92,6 +122,7 @@ v1 design constraints to stay compatible:
 - **Crash report data leakage**: Sensitive data included in crash reports
 
 ### Security invariants (MUST hold)
+
 - Secrets, keys, credentials, and PII MUST NOT appear in log records
 - Log records MUST include authenticated `sender_service_id` (no trusting caller-provided identity)
 - Log buffer overflow MUST drop oldest entries (not crash or reject new entries)
@@ -99,6 +130,7 @@ v1 design constraints to stay compatible:
 - Log queries MUST be capability-gated (future: policy integration)
 
 ### DON'T DO
+
 - DON'T log plaintext secrets, private keys, or credentials
 - DON'T trust caller-provided service names or identities in log records
 - DON'T allow unbounded log record sizes (enforce max per record)
@@ -106,10 +138,12 @@ v1 design constraints to stay compatible:
 - DON'T store logs persistently without encryption (future consideration)
 
 ### Attack surface impact
+
 - **Minimal**: Logging is internal infrastructure, not externally exposed
 - **Risk**: Accidental secret logging could enable credential theft if logs are exported
 
 ### Mitigations
+
 - Log records bound to `sender_service_id` via kernel IPC (unforgeable)
 - Record size capped; oversized records rejected
 - Ring buffer with drop-oldest policy prevents memory exhaustion

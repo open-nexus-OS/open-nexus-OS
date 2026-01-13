@@ -64,13 +64,39 @@ These invariants MUST be maintained across all code. Violations are **security b
 - Validate format before parsing
 - Reject malformed input deterministically (no crash)
 - Use explicit error handling (match, not unwrap)
+- Add #[must_use] on security-critical error types
 
 ❌ DON'T:
 - Use unwrap/expect on untrusted input
 - Accept unbounded input sizes
 - Crash on malformed input (DoS vector)
 - Trust caller-provided sizes or lengths
+- Silently ignore security errors (use #[must_use])
 ```
+
+**Error handling discipline** (TASK-11B principles):
+
+All error types representing **security decisions** MUST be marked `#[must_use]`:
+
+```rust
+/// Permission denial MUST be handled (security-critical)
+#[must_use = "permission errors must be handled"]
+pub enum AuthError {
+    PermissionDenied,
+    InvalidCredential,
+    SessionExpired,
+}
+
+/// Input validation MUST be checked (prevents injection)
+#[must_use = "validation errors must be checked"]
+pub enum ValidateError {
+    OversizedInput,
+    Malformed,
+    InvalidEncoding,
+}
+```
+
+This ensures the compiler **prevents accidental silent failures** in security-critical paths.
 
 ### 4. Capability and Policy
 

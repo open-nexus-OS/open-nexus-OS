@@ -32,14 +32,68 @@ If service code starts accumulating “real logic”, that’s usually a sign th
 
 ## How services communicate
 
-The control plane uses Cap’n Proto IDL:
+### Hybrid pattern: Control Plane + Data Plane
 
-- Schemas: `tools/nexus-idl/` (`*.capnp`)
-- Generated runtime: `userspace/nexus-idl-runtime`
+All services follow a **hybrid architecture** that separates control (small, structured) from data (large, bulk):
 
-Transport and capability semantics are kernel-defined and specified in:
+#### Control Plane (IPC/RPC)
 
-- `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
+**Purpose**: Small, structured requests/responses (registration, queries, commands)
+
+| Backend | Usage | Wire Format |
+|---------|-------|-------------|
+| **Host/std** | Type-safe tests, evolvable APIs | Cap'n Proto (IDL schemas in `tools/nexus-idl/schemas/`) |
+| **OS/os-lite** | Minimal QEMU bring-up | Versioned byte frames (magic + version + ops) |
+
+**Constraints**:
+- Keep messages small (typically <1KB, max ~4KB for IPC frame budget)
+- All sizes bounded and validated before allocation
+- IDL schema serves as documentation even when byte frames are authoritative (OS)
+
+**Examples**:
+- `samgrd`: Register/Resolve service endpoints
+- `bundlemgrd`: Install/Query bundle metadata
+- `logd`: Append/Query/Stats log records
+- `keystored`: Sign/Verify operations (signature only, not key material)
+
+#### Data Plane (Bulk Payloads)
+
+**Purpose**: Large payloads (>4KB) that should not be copied inline
+
+| Mechanism | Usage | When |
+|-----------|-------|------|
+| **VMO (Virtual Memory Object)** | Zero-copy bulk sharing (kernel-backed) | OS production (TASK-0031+) |
+| **Filebuffer** | Host testing, exports, debugging sinks | Host tests, optional exports |
+
+**Pattern** (RFC-0005 "Bulk buffer pattern"):
+1. Producer allocates VMO and writes bytes
+2. Producer sends metadata inline (VMO handle + size/offset) via Control Plane IPC
+3. Producer transfers VMO capability to consumer
+4. Consumer maps VMO and consumes bytes
+5. Consumer closes capability when done
+
+**Examples**:
+- `bundlemgrd`: Bundle artifact bytes (install payload via VMO)
+- `vfsd`/`packagefsd`: File content reads (future: map via VMO)
+- `logd` (v2+): Bulk log scrape for remote observability (TASK-0040)
+- `dsoftbus`: Large payloads over network (chunked, future: VMO-backed)
+
+**v1 Allowance**:
+- Small bulk payloads (<4KB) MAY be sent inline if bounded and convenient
+- UART mirror, file exports, debug sinks are **outputs**, not backend patterns
+
+**Consistency rule**:
+- Control Plane: Always hybrid (Cap'n Proto + byte frames)
+- Data Plane: Inline (if small) or VMO/filebuffer (if large)
+
+### Transport and capability semantics
+
+Transport layer and capability semantics are kernel-defined:
+
+- **Schemas**: `tools/nexus-idl/` (`*.capnp`)
+- **Generated runtime**: `userspace/nexus-idl-runtime`
+- **IPC model**: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
+- **Hybrid contract rationale**: `docs/distributed/dsoftbus-lite.md` (Control + Data split)
 
 ## Readiness + proof (no fake green)
 
