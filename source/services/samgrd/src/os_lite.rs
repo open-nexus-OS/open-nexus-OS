@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_abi::{cap_close, debug_putc, yield_, MsgHeader};
+use nexus_abi::{cap_close, debug_putc, yield_};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 /// Result alias surfaced by the lite SAMgr backend.
@@ -65,32 +65,6 @@ const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_UNSUPPORTED: u8 = 3;
-
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
-
-fn route_status(target: &[u8]) -> Option<u8> {
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
-    let req_len = nexus_abi::routing::encode_route_get(target, &mut req)?;
-    let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(200_000_000),
-        Err(_) => 0,
-    };
-    let _ = nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, deadline).ok()?;
-    let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 32];
-    let n = nexus_abi::ipc_recv_v1(
-        CTRL_RECV_SLOT,
-        &mut rh,
-        &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
-    )
-    .ok()? as usize;
-    let (status, _send, _recv) = nexus_abi::routing::decode_route_rsp(&buf[..n])?;
-    Some(status)
-}
 
 /// Minimal samgrd bring-up service loop.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {

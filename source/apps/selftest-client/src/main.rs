@@ -1454,12 +1454,11 @@ mod os_lite {
         req.push(OP);
         req.push(n.len() as u8);
         req.extend_from_slice(n);
-        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800)))
-            .map_err(|_| ())?;
-        let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(800)))
-            .map_err(|_| ())?;
-        if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
+        let rsp =
+            d.recv(IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
+        if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
+        {
             return Err(());
         }
         if rsp[4] != STATUS_OK {
@@ -1477,12 +1476,11 @@ mod os_lite {
 
         let d = KernelClient::new_for("dsoftbusd").map_err(|_| ())?;
         let req = [D0, D1, VER, OP];
-        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800)))
-            .map_err(|_| ())?;
-        let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(800)))
-            .map_err(|_| ())?;
-        if rsp.len() != 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
+        let rsp =
+            d.recv(IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
+        if rsp.len() != 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
+        {
             return Err(());
         }
         if rsp[4] != STATUS_OK {

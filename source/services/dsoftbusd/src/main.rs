@@ -1,5 +1,4 @@
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
-
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
@@ -49,7 +48,6 @@ fn os_entry() -> core::result::Result<(), ()> {
     const OP_READ: u8 = 4;
     const OP_WRITE: u8 = 5;
     const OP_UDP_BIND: u8 = 6;
-    const OP_UDP_SEND_TO: u8 = 7;
     const OP_UDP_RECV_FROM: u8 = 8;
     const OP_LOCAL_ADDR: u8 = 10;
     const STATUS_OK: u8 = 0;
@@ -256,6 +254,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                 .unwrap_or(false);
 
             if ok_b {
+                let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
                 announce_sent = true;
             }
         }
@@ -1173,7 +1172,10 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
             w[8..10].copy_from_slice(&(chunk as u16).to_le_bytes());
             w[10..10 + chunk].copy_from_slice(&data[off..off + chunk]);
             let rsp = rpc(net, &w[..10 + chunk])?;
-            if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_WRITE | 0x80)
+            if rsp[0] != MAGIC0
+                || rsp[1] != MAGIC1
+                || rsp[2] != VERSION
+                || rsp[3] != (OP_WRITE | 0x80)
             {
                 return Err(());
             }
@@ -1194,7 +1196,11 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         Ok(())
     }
 
-    fn stream_read_exact(net: &KernelClient, sid: u32, out: &mut [u8]) -> core::result::Result<(), ()> {
+    fn stream_read_exact(
+        net: &KernelClient,
+        sid: u32,
+        out: &mut [u8],
+    ) -> core::result::Result<(), ()> {
         let mut off = 0usize;
         while off < out.len() {
             let want = core::cmp::min(460, out.len() - off); // must match netstackd recv cap
@@ -1206,7 +1212,10 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
             r[4..8].copy_from_slice(&sid.to_le_bytes());
             r[8..10].copy_from_slice(&(want as u16).to_le_bytes());
             let rsp = rpc(net, &r)?;
-            if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_READ | 0x80)
+            if rsp[0] != MAGIC0
+                || rsp[1] != MAGIC1
+                || rsp[2] != VERSION
+                || rsp[3] != (OP_READ | 0x80)
             {
                 return Err(());
             }
@@ -1243,7 +1252,11 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
             (port >> 8) as u8,
         ];
         let rsp = rpc(net, &req).map_err(|_| ())?;
-        if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_UDP_BIND | 0x80) {
+        if rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
+            || rsp[3] != (OP_UDP_BIND | 0x80)
+        {
             return Err(());
         }
         if rsp[4] != STATUS_OK {
@@ -1273,7 +1286,11 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         send[14..16].copy_from_slice(&(payload.len() as u16).to_le_bytes());
         send[16..16 + payload.len()].copy_from_slice(payload);
         let rsp = rpc(net, &send[..16 + payload.len()])?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_UDP_SEND_TO | 0x80) {
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_UDP_SEND_TO | 0x80)
+        {
             if rsp[4] == STATUS_OK || rsp[4] == STATUS_WOULD_BLOCK {
                 return Ok(());
             }
@@ -1284,7 +1301,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
     fn tcp_listen(net: &KernelClient, port: u16) -> core::result::Result<u32, ()> {
         let req = [MAGIC0, MAGIC1, VERSION, OP_LISTEN, (port & 0xff) as u8, (port >> 8) as u8];
         let rsp = rpc(net, &req)?;
-        if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_LISTEN | 0x80) {
+        if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_LISTEN | 0x80)
+        {
             return Err(());
         }
         if rsp[4] != STATUS_OK {
@@ -1302,7 +1320,11 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         c[4..8].copy_from_slice(&ip);
         c[8..10].copy_from_slice(&port.to_le_bytes());
         let rsp = rpc(net, &c)?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_CONNECT | 0x80) {
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_CONNECT | 0x80)
+        {
             if rsp[4] == STATUS_OK {
                 return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
             }
@@ -1322,7 +1344,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         a[3] = OP_ACCEPT;
         a[4..8].copy_from_slice(&lid.to_le_bytes());
         let rsp = rpc(net, &a)?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80) {
+        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80)
+        {
             if rsp[4] == STATUS_OK {
                 return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
             }
@@ -1335,29 +1358,12 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
     }
 
     // Determine deterministic node identity from local IP (10.42.0.<mac_lsb>), matching tools/os2vm.sh MACs.
-    let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) = if local_ip
-        == [10, 42, 0, 10]
-    {
-        (
-            "node-a",
-            34_567u16,
-            [10, 42, 0, 11],
-            34_568u16,
-            "node-b",
-            0xD0u8,
-            0xD1u8,
-        )
-    } else {
-        (
-            "node-b",
-            34_568u16,
-            [10, 42, 0, 10],
-            34_567u16,
-            "node-a",
-            0xD1u8,
-            0xD0u8,
-        )
-    };
+    let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) =
+        if local_ip == [10, 42, 0, 10] {
+            ("node-a", 34_567u16, [10, 42, 0, 11], 34_568u16, "node-b", 0xD0u8, 0xD1u8)
+        } else {
+            ("node-b", 34_568u16, [10, 42, 0, 10], 34_567u16, "node-a", 0xD1u8, 0xD0u8)
+        };
 
     // Bind discovery UDP and start RX loop.
     let udp_id = {
@@ -1430,6 +1436,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
                     announce_send_failed = true;
                 }
                 if !announced_once {
+                    let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
                     announced_once = true;
                 }
             }
@@ -1468,11 +1475,13 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
                             if peers.peek(peer_device_id).is_some()
                                 && get_peer_ip(&peer_ips, peer_device_id).is_some()
                             {
-                                let _ = nexus_abi::debug_println("dsoftbusd: discovery peer learned");
+                                let _ =
+                                    nexus_abi::debug_println("dsoftbusd: discovery peer learned");
                             }
                         }
                         Err(_) => {
-                            let _ = nexus_abi::debug_println("dsoftbusd: announce ignored (malformed)");
+                            let _ =
+                                nexus_abi::debug_println("dsoftbusd: announce ignored (malformed)");
                         }
                     }
                 }
@@ -1522,16 +1531,21 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
     let sid = sid.ok_or(())?;
 
     // Noise handshake (XK): initiator <-> responder
-    use nexus_noise_xk::{StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
+    use nexus_noise_xk::{
+        StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN,
+    };
 
     // SECURITY: bring-up test keys, NOT production custody
     let self_static = StaticKeypair::from_secret(derive_test_secret(key_tag_self, listen_port));
     // SECURITY: bring-up test keys, NOT production custody
     let self_eph_seed = derive_test_secret(0xE0, listen_port);
-    let peer_expected_pub = StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
+    let peer_expected_pub =
+        StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
 
     // Enforce identity binding: expected pub key MUST match discovery mapping.
-    let Some(peer_entry) = peers.peek(peer_device_id) else { return Err(()); };
+    let Some(peer_entry) = peers.peek(peer_device_id) else {
+        return Err(());
+    };
     if peer_entry.noise_static != peer_expected_pub {
         let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=crossvm");
         return Err(());
@@ -1547,9 +1561,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         stream_read_exact(net, sid, &mut msg2)?;
 
         let mut msg3 = [0u8; MSG3_LEN];
-        let keys = initiator
-            .read_msg2_write_msg3(&msg2, &mut msg3)
-            .map_err(|_| ())?;
+        let keys = initiator.read_msg2_write_msg3(&msg2, &mut msg3).map_err(|_| ())?;
         stream_write_all(net, sid, &msg3)?;
         Transport::new(keys)
     } else {
@@ -1557,9 +1569,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         let mut msg1 = [0u8; MSG1_LEN];
         stream_read_exact(net, sid, &mut msg1)?;
         let mut msg2 = [0u8; MSG2_LEN];
-        responder
-            .read_msg1_write_msg2(&msg1, &mut msg2)
-            .map_err(|_| ())?;
+        responder.read_msg1_write_msg2(&msg1, &mut msg2).map_err(|_| ())?;
         stream_write_all(net, sid, &msg2)?;
         let mut msg3 = [0u8; MSG3_LEN];
         stream_read_exact(net, sid, &mut msg3)?;
@@ -1642,25 +1652,43 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
                         // CAP_MOVE reply: move a cloned reply SEND cap so samgrd can respond on it.
                         let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
                         samgrd
-                            .send_with_cap_move_wait(req, cap, Wait::Timeout(core::time::Duration::from_millis(300)))
+                            .send_with_cap_move_wait(
+                                req,
+                                cap,
+                                Wait::Timeout(core::time::Duration::from_millis(300)),
+                            )
                             .map_err(|_| ())?;
-                        let rsp = reply.recv(Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| ())?;
+                        let rsp = reply
+                            .recv(Wait::Timeout(core::time::Duration::from_millis(300)))
+                            .map_err(|_| ())?;
                         rsp_payload.extend_from_slice(&rsp);
-                        let _ = nexus_abi::debug_println("dsoftbusd: remote proxy ok (peer=node-a service=samgrd)");
+                        let _ = nexus_abi::debug_println(
+                            "dsoftbusd: remote proxy ok (peer=node-a service=samgrd)",
+                        );
                     }
                 }
                 SVC_BUNDLE_LIST => {
                     let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
                     bundlemgrd
-                        .send_with_cap_move_wait(req, cap, Wait::Timeout(core::time::Duration::from_millis(300)))
+                        .send_with_cap_move_wait(
+                            req,
+                            cap,
+                            Wait::Timeout(core::time::Duration::from_millis(300)),
+                        )
                         .map_err(|_| ())?;
-                    let rsp = reply.recv(Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| ())?;
+                    let rsp = reply
+                        .recv(Wait::Timeout(core::time::Duration::from_millis(300)))
+                        .map_err(|_| ())?;
                     rsp_payload.extend_from_slice(&rsp);
-                    let _ = nexus_abi::debug_println("dsoftbusd: remote proxy ok (peer=node-a service=bundlemgrd)");
+                    let _ = nexus_abi::debug_println(
+                        "dsoftbusd: remote proxy ok (peer=node-a service=bundlemgrd)",
+                    );
                 }
                 _ => {
                     status = 1;
-                    let _ = nexus_abi::debug_println("dsoftbusd: remote proxy denied (service=unknown)");
+                    let _ = nexus_abi::debug_println(
+                        "dsoftbusd: remote proxy denied (service=unknown)",
+                    );
                 }
             }
 
@@ -1711,11 +1739,23 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
             match frame[3] {
                 LOP_REMOTE_RESOLVE => {
                     if frame.len() < 5 {
-                        out.extend_from_slice(&[L0, L1, LVER, LOP_REMOTE_RESOLVE | 0x80, LSTATUS_FAIL]);
+                        out.extend_from_slice(&[
+                            L0,
+                            L1,
+                            LVER,
+                            LOP_REMOTE_RESOLVE | 0x80,
+                            LSTATUS_FAIL,
+                        ]);
                     } else {
                         let n = frame[4] as usize;
                         if n == 0 || frame.len() != 5 + n {
-                            out.extend_from_slice(&[L0, L1, LVER, LOP_REMOTE_RESOLVE | 0x80, LSTATUS_FAIL]);
+                            out.extend_from_slice(&[
+                                L0,
+                                L1,
+                                LVER,
+                                LOP_REMOTE_RESOLVE | 0x80,
+                                LSTATUS_FAIL,
+                            ]);
                         } else {
                             // Build samgrd resolve-status request frame.
                             let mut req = Vec::with_capacity(5 + n);
@@ -1751,7 +1791,11 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
                             let mut ok = false;
                             if st == 0 && len >= 13 {
                                 let p = &rsp_plain[3..3 + len];
-                                ok = p[0] == b'S' && p[1] == b'M' && p[2] == 1 && p[3] == (6 | 0x80) && p[4] == 0;
+                                ok = p[0] == b'S'
+                                    && p[1] == b'M'
+                                    && p[2] == 1
+                                    && p[3] == (6 | 0x80)
+                                    && p[4] == 0;
                             }
 
                             out.extend_from_slice(&[
@@ -1801,7 +1845,13 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
                             ok = true;
                         }
                     }
-                    out.extend_from_slice(&[L0, L1, LVER, LOP_REMOTE_BUNDLE_LIST | 0x80, if ok { LSTATUS_OK } else { LSTATUS_FAIL }]);
+                    out.extend_from_slice(&[
+                        L0,
+                        L1,
+                        LVER,
+                        LOP_REMOTE_BUNDLE_LIST | 0x80,
+                        if ok { LSTATUS_OK } else { LSTATUS_FAIL },
+                    ]);
                     out.extend_from_slice(&count.to_le_bytes());
                 }
                 _ => {

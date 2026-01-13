@@ -385,10 +385,7 @@ impl SmoltcpVirtioNetStack {
 
         inner.iface.routes_mut().remove_default_ipv4_route();
         if let Some(gw) = gateway {
-            let _ = inner
-                .iface
-                .routes_mut()
-                .add_default_ipv4_route(smoltcp::wire::Ipv4Address(gw));
+            let _ = inner.iface.routes_mut().add_default_ipv4_route(smoltcp::wire::Ipv4Address(gw));
         }
 
         inner.ipv4_cidr = Some(cidr);
@@ -1021,10 +1018,8 @@ impl NetStack for SmoltcpVirtioNetStack {
         let sock = smoltcp::socket::tcp::Socket::new(rx, tx);
         // Use the configured interface address (DHCP or deterministic static fallback).
         // NOTE: this must match an address present on the interface, otherwise smoltcp rejects the connect.
-        let local_ip = inner
-            .ipv4_cidr
-            .map(|c| c.address())
-            .unwrap_or(Ipv4Address::new(10, 0, 2, 15));
+        let local_ip =
+            inner.ipv4_cidr.map(|c| c.address()).unwrap_or(Ipv4Address::new(10, 0, 2, 15));
         let remote_ip = Ipv4Address::from_bytes(&remote.ip.0);
         // Deterministic ephemeral port (bring-up): avoid relying on "0 means ephemeral".
         // Capture before borrowing the iface context mutably.

@@ -191,10 +191,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     // When running under a socket/mcast backend, there is no gateway/DNS, so skip this proof.
     if dhcp_bound {
         let dns = NetSocketAddrV4::new([10, 0, 2, 3], 53);
-        let bind_ip = net
-            .get_ipv4_config()
-            .map(|c| c.ip)
-            .unwrap_or([10, 0, 2, 15]);
+        let bind_ip = net.get_ipv4_config().map(|c| c.ip).unwrap_or([10, 0, 2, 15]);
         let mut sock = match net.udp_bind(NetSocketAddrV4::new(bind_ip, 40_000)) {
             Ok(s) => s,
             Err(_) => {
@@ -205,32 +202,32 @@ fn os_entry() -> core::result::Result<(), ()> {
             }
         };
 
-    // Minimal DNS query for A example.com (RFC1035).
-    let mut q = [0u8; 32];
-    q[0] = 0x12;
-    q[1] = 0x34; // id
-    q[2] = 0x01;
-    q[3] = 0x00; // flags: recursion desired
-    q[4] = 0x00;
-    q[5] = 0x01; // qdcount
-                 // qname: 7 'example' 3 'com' 0
-    let mut p = 12usize;
-    q[p] = 7;
-    p += 1;
-    q[p..p + 7].copy_from_slice(b"example");
-    p += 7;
-    q[p] = 3;
-    p += 1;
-    q[p..p + 3].copy_from_slice(b"com");
-    p += 3;
-    q[p] = 0;
-    p += 1;
-    // qtype A, qclass IN
-    q[p] = 0;
-    q[p + 1] = 1;
-    q[p + 2] = 0;
-    q[p + 3] = 1;
-    p += 4;
+        // Minimal DNS query for A example.com (RFC1035).
+        let mut q = [0u8; 32];
+        q[0] = 0x12;
+        q[1] = 0x34; // id
+        q[2] = 0x01;
+        q[3] = 0x00; // flags: recursion desired
+        q[4] = 0x00;
+        q[5] = 0x01; // qdcount
+                     // qname: 7 'example' 3 'com' 0
+        let mut p = 12usize;
+        q[p] = 7;
+        p += 1;
+        q[p..p + 7].copy_from_slice(b"example");
+        p += 7;
+        q[p] = 3;
+        p += 1;
+        q[p..p + 3].copy_from_slice(b"com");
+        p += 3;
+        q[p] = 0;
+        p += 1;
+        // qtype A, qclass IN
+        q[p] = 0;
+        q[p + 1] = 1;
+        q[p + 2] = 0;
+        q[p + 3] = 1;
+        p += 4;
 
         let mut ok = false;
         for i in 0..8000u64 {
@@ -258,10 +255,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 
     // TCP facade smoke: listen must succeed.
-    let bind_ip = net
-        .get_ipv4_config()
-        .map(|c| c.ip)
-        .unwrap_or([10, 0, 2, 15]);
+    let bind_ip = net.get_ipv4_config().map(|c| c.ip).unwrap_or([10, 0, 2, 15]);
     if net.tcp_listen(NetSocketAddrV4::new(bind_ip, 41_000), 1).is_ok() {
         let _ = nexus_abi::debug_println("SELFTEST: net tcp listen ok");
     } else {
@@ -439,7 +433,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let _ = nexus_abi::debug_println("netstackd: rpc listen");
                         let port = u16::from_le_bytes([req[4], req[5]]);
-                        if bind_ip == [10, 0, 2, 15] && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B) {
+                        if bind_ip == [10, 0, 2, 15]
+                            && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B)
+                        {
                             listeners.push(Some(Listener::Loop { port, pending: None }));
                             let id = listeners.len() as u32;
                             let mut rsp = [0u8; 9];
@@ -631,7 +627,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                         } else {
                             (bind_ip, u16::from_le_bytes([req[4], req[5]]))
                         };
-                        if port == LOOPBACK_UDP_PORT && bind_ip == [10, 0, 2, 15] {
+                        if port == LOOPBACK_UDP_PORT
+                            && (bind_ip == [10, 0, 2, 15] || bind_ip == [0, 0, 0, 0])
+                        {
                             // Deterministic bring-up only: under QEMU usernet the UDP discovery traffic can be
                             // flaky/non-delivered, so we provide a bounded in-memory loopback for port 37020.
                             //
@@ -1124,14 +1122,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let _ = yield_();
                             continue;
                         }
-                        let Some(cfg) = net.get_ipv4_config().or_else(|| net.get_dhcp_config()) else {
-                            reply(&[
-                                MAGIC0,
-                                MAGIC1,
-                                VERSION,
-                                OP_LOCAL_ADDR | 0x80,
-                                STATUS_IO,
-                            ]);
+                        let Some(cfg) = net.get_ipv4_config().or_else(|| net.get_dhcp_config())
+                        else {
+                            reply(&[MAGIC0, MAGIC1, VERSION, OP_LOCAL_ADDR | 0x80, STATUS_IO]);
                             let _ = yield_();
                             continue;
                         };

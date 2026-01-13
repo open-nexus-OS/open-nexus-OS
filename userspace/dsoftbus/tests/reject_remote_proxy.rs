@@ -33,8 +33,9 @@ fn test_reject_remote_disallowed_service_proxy() {
 
 #[test]
 fn test_reject_remote_oversized_remote_request() {
-    let err = authorize_remote_proxy(true, Some(RemoteService::Bundlemgrd), MAX_REMOTE_PROXY_REQ + 1)
-        .unwrap_err();
+    let err =
+        authorize_remote_proxy(true, Some(RemoteService::Bundlemgrd), MAX_REMOTE_PROXY_REQ + 1)
+            .unwrap_err();
     assert_eq!(err, DenyReason::OversizedRequest);
 }
 

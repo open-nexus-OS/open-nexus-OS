@@ -900,10 +900,10 @@ where
                 chan.bnd_recv_slot = Some(reply_recv_slot);
 
                 // Provide dsoftbusd its own request/response endpoints (server side).
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, dsoft_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, dsoft_req, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::SEND)
+                    .map_err(InitError::Abi)?;
                 chan.dsoft_send_slot = Some(send_slot);
                 chan.dsoft_recv_slot = Some(recv_slot);
             }
@@ -1066,10 +1066,10 @@ where
                 chan.net_recv_slot = Some(recv_slot);
 
                 // Allow selftest-client to send requests to dsoftbusd (TASK-0005 remote proxy proof).
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, dsoft_req, Rights::SEND).map_err(InitError::Abi)?;
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, dsoft_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::RECV)
+                    .map_err(InitError::Abi)?;
                 chan.dsoft_send_slot = Some(send_slot);
                 chan.dsoft_recv_slot = Some(recv_slot);
             }
