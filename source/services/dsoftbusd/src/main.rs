@@ -1,9 +1,20 @@
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
-//! CONTEXT: DSoftBus daemon entrypoint
-//! INTENT: Local-only transport milestone over userspace networking
-//! DEPS (OS bring-up): nexus-net facade + smoltcp backend; no kernel networking
-//! READINESS: prints "dsoftbusd: ready" in OS/QEMU
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: DSoftBus daemon entrypoint (os-lite)
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Proven via QEMU markers (TASK-0003..0005 / scripts/qemu-test.sh + tools/os2vm.sh)
+//!
+//! SECURITY INVARIANTS:
+//! - No network capability transfer: remote proxy forwards bounded request/response bytes only.
+//! - Remote proxy is deny-by-default (explicit allowlist).
+//! - No secrets (keys/session material) are logged to UART.
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 nexus_service_entry::declare_entry!(os_entry);
@@ -21,11 +32,6 @@ fn os_entry() -> core::result::Result<(), ()> {
     use nexus_peer_lru::{PeerEntry, PeerLru};
 
     // dsoftbusd must NOT own MMIO; it uses netstackd's IPC facade.
-    if KernelClient::new_for("keystored").is_ok() {
-        let _ = nexus_abi::debug_println("dsoftbusd: routing keystored ok");
-    } else {
-        let _ = nexus_abi::debug_println("dsoftbusd: routing keystored FAIL");
-    }
     let net = loop {
         match KernelClient::new_for("netstackd") {
             Ok(c) => break c,
@@ -34,7 +40,6 @@ fn os_entry() -> core::result::Result<(), ()> {
             }
         }
     };
-    let _ = nexus_abi::debug_println("dsoftbusd: routing netstackd ok");
 
     const MAGIC0: u8 = b'N';
     const MAGIC1: u8 = b'S';
@@ -44,7 +49,9 @@ fn os_entry() -> core::result::Result<(), ()> {
     const OP_READ: u8 = 4;
     const OP_WRITE: u8 = 5;
     const OP_UDP_BIND: u8 = 6;
+    const OP_UDP_SEND_TO: u8 = 7;
     const OP_UDP_RECV_FROM: u8 = 8;
+    const OP_LOCAL_ADDR: u8 = 10;
     const STATUS_OK: u8 = 0;
     const STATUS_WOULD_BLOCK: u8 = 3;
     const STATUS_MALFORMED: u8 = 2;
@@ -72,6 +79,38 @@ fn os_entry() -> core::result::Result<(), ()> {
             }
         }
         Err(())
+    }
+
+    fn get_local_ip(net: &KernelClient) -> Option<[u8; 4]> {
+        let req = [MAGIC0, MAGIC1, VERSION, OP_LOCAL_ADDR];
+        let rsp = rpc(net, &req).ok()?;
+        if rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
+            || rsp[3] != (OP_LOCAL_ADDR | 0x80)
+            || rsp[4] != STATUS_OK
+        {
+            return None;
+        }
+        Some([rsp[5], rsp[6], rsp[7], rsp[8]])
+    }
+
+    // Wait for netstackd to finish IPv4 configuration (DHCP or deterministic static fallback).
+    // This avoids a race where early callers observe "no local addr" and then fail to bind sockets.
+    let mut local_ip = [10, 0, 2, 15];
+    for _ in 0..50_000 {
+        if let Some(ip) = get_local_ip(&net) {
+            local_ip = ip;
+            break;
+        }
+        let _ = yield_();
+    }
+    let is_cross_vm = local_ip[0] == 10 && local_ip[1] == 42;
+    if is_cross_vm {
+        // Cross-VM mode (TASK-0005 / RFC-0010): real UDP datagrams + TCP sessions across two QEMU instances.
+        // This path is opt-in via the 2-VM harness (socket/mcast backend) and MUST remain deterministic.
+        cross_vm_main(&net, local_ip)?;
+        return Ok(());
     }
 
     // UDP discovery socket bind (Phase 1): bind to 0.0.0.0:<port> so we can receive broadcast/multicast
@@ -200,9 +239,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                 send[14..16].copy_from_slice(&(bytes.len() as u16).to_le_bytes());
                 send[16..16 + bytes.len()].copy_from_slice(bytes);
 
-                // QEMU bring-up note: netstackd's loopback UDP is a tiny byte-ring (not datagram framed).
-                // To keep parsing deterministic, we send a SINGLE announce to LOCAL_IP, then immediately poll recv.
-                // Real subnet discovery is covered by follow-on tasks (non-loopback UDP socket backend).
+                // Single-VM bring-up note: some backends may not deliver multicast/broadcast reliably.
+                // For deterministic local bring-up, we unicast a single announce to LOCAL_IP and then poll recv.
                 send[8..12].copy_from_slice(&LOCAL_IP);
                 let rsp = rpc(net, &send[..hdr_len + bytes.len()])?;
                 Ok(rsp[0] == MAGIC0
@@ -218,7 +256,6 @@ fn os_entry() -> core::result::Result<(), ()> {
                 .unwrap_or(false);
 
             if ok_b {
-                let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
                 announce_sent = true;
             }
         }
@@ -1035,6 +1072,745 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Stay alive cooperatively.
     loop {
         let _ = yield_();
+    }
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::result::Result<(), ()> {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+    use nexus_abi::yield_;
+    use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
+    use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
+    use nexus_peer_lru::{PeerEntry, PeerLru};
+
+    const MAGIC0: u8 = b'N';
+    const MAGIC1: u8 = b'S';
+    const VERSION: u8 = 1;
+    const OP_LISTEN: u8 = 1;
+    const OP_ACCEPT: u8 = 2;
+    const OP_CONNECT: u8 = 3;
+    const OP_READ: u8 = 4;
+    const OP_WRITE: u8 = 5;
+    const OP_UDP_BIND: u8 = 6;
+    const OP_UDP_SEND_TO: u8 = 7;
+    const OP_UDP_RECV_FROM: u8 = 8;
+    const STATUS_OK: u8 = 0;
+    const STATUS_WOULD_BLOCK: u8 = 3;
+    const STATUS_IO: u8 = 4;
+
+    const DISC_PORT: u16 = 37_020;
+    const MCAST_IP: [u8; 4] = [239, 42, 0, 1];
+
+    // Local IPC protocol (selftest-client -> dsoftbusd) for cross-VM proofs.
+    const L0: u8 = b'D';
+    const L1: u8 = b'S';
+    const LVER: u8 = 1;
+    const LOP_REMOTE_RESOLVE: u8 = 1;
+    const LOP_REMOTE_BUNDLE_LIST: u8 = 2;
+    const LSTATUS_OK: u8 = 0;
+    const LSTATUS_FAIL: u8 = 1;
+
+    // Remote gateway record sizes (fixed-size encrypted records; no plaintext framing on the wire).
+    const TAGLEN: usize = 16;
+    const MAX_REQ: usize = 256;
+    const MAX_RSP: usize = 512;
+    const REQ_PLAIN: usize = 1 + 2 + MAX_REQ;
+    const RSP_PLAIN: usize = 1 + 2 + MAX_RSP;
+    const REQ_CIPH: usize = REQ_PLAIN + TAGLEN;
+    const RSP_CIPH: usize = RSP_PLAIN + TAGLEN;
+
+    const SVC_SAMGR_RESOLVE_STATUS: u8 = 1;
+    const SVC_BUNDLE_LIST: u8 = 2;
+
+    // SECURITY: bring-up test keys, NOT production custody.
+    fn derive_test_secret(tag: u8, port: u16) -> [u8; 32] {
+        let mut seed = [0u8; 32];
+        seed[0] = tag;
+        seed[1] = (port >> 8) as u8;
+        seed[2] = (port & 0xff) as u8;
+        for i in 3..32 {
+            seed[i] = ((tag as u16).wrapping_mul(port).wrapping_add(i as u16) & 0xff) as u8;
+        }
+        seed
+    }
+
+    fn rpc(net: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
+        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+        let (reply_send_slot, reply_recv_slot) = reply.slots();
+        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+        net.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 512];
+        for _ in 0..10_000 {
+            match nexus_abi::ipc_recv_v1(
+                reply_recv_slot,
+                &mut hdr,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(_n) => return Ok(buf),
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+        }
+        Err(())
+    }
+
+    fn stream_write_all(net: &KernelClient, sid: u32, data: &[u8]) -> core::result::Result<(), ()> {
+        let mut off = 0usize;
+        while off < data.len() {
+            let chunk = core::cmp::min(480, data.len() - off);
+            let mut w = [0u8; 512];
+            w[0] = MAGIC0;
+            w[1] = MAGIC1;
+            w[2] = VERSION;
+            w[3] = OP_WRITE;
+            w[4..8].copy_from_slice(&sid.to_le_bytes());
+            w[8..10].copy_from_slice(&(chunk as u16).to_le_bytes());
+            w[10..10 + chunk].copy_from_slice(&data[off..off + chunk]);
+            let rsp = rpc(net, &w[..10 + chunk])?;
+            if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_WRITE | 0x80)
+            {
+                return Err(());
+            }
+            if rsp[4] == STATUS_OK {
+                let wrote = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                if wrote == 0 {
+                    return Err(());
+                }
+                off = off.saturating_add(wrote);
+                continue;
+            }
+            if rsp[4] == STATUS_WOULD_BLOCK {
+                let _ = yield_();
+                continue;
+            }
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn stream_read_exact(net: &KernelClient, sid: u32, out: &mut [u8]) -> core::result::Result<(), ()> {
+        let mut off = 0usize;
+        while off < out.len() {
+            let want = core::cmp::min(460, out.len() - off); // must match netstackd recv cap
+            let mut r = [0u8; 10];
+            r[0] = MAGIC0;
+            r[1] = MAGIC1;
+            r[2] = VERSION;
+            r[3] = OP_READ;
+            r[4..8].copy_from_slice(&sid.to_le_bytes());
+            r[8..10].copy_from_slice(&(want as u16).to_le_bytes());
+            let rsp = rpc(net, &r)?;
+            if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_READ | 0x80)
+            {
+                return Err(());
+            }
+            if rsp[4] == STATUS_OK {
+                let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                if n == 0 || 7 + n > rsp.len() {
+                    return Err(());
+                }
+                out[off..off + n].copy_from_slice(&rsp[7..7 + n]);
+                off += n;
+                continue;
+            }
+            if rsp[4] == STATUS_WOULD_BLOCK {
+                let _ = yield_();
+                continue;
+            }
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn udp_bind(net: &KernelClient, ip: [u8; 4], port: u16) -> core::result::Result<u32, ()> {
+        // OP_UDP_BIND v2: [magic,ver,op, ip[4], port:u16le]
+        let req = [
+            MAGIC0,
+            MAGIC1,
+            VERSION,
+            OP_UDP_BIND,
+            ip[0],
+            ip[1],
+            ip[2],
+            ip[3],
+            (port & 0xff) as u8,
+            (port >> 8) as u8,
+        ];
+        let rsp = rpc(net, &req).map_err(|_| ())?;
+        if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_UDP_BIND | 0x80) {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]))
+    }
+
+    fn udp_send_to(
+        net: &KernelClient,
+        udp_id: u32,
+        ip: [u8; 4],
+        port: u16,
+        payload: &[u8],
+    ) -> core::result::Result<(), ()> {
+        if payload.len() > 256 {
+            return Err(());
+        }
+        let mut send = [0u8; 16 + 256];
+        send[0] = MAGIC0;
+        send[1] = MAGIC1;
+        send[2] = VERSION;
+        send[3] = OP_UDP_SEND_TO;
+        send[4..8].copy_from_slice(&udp_id.to_le_bytes());
+        send[8..12].copy_from_slice(&ip);
+        send[12..14].copy_from_slice(&port.to_le_bytes());
+        send[14..16].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+        send[16..16 + payload.len()].copy_from_slice(payload);
+        let rsp = rpc(net, &send[..16 + payload.len()])?;
+        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_UDP_SEND_TO | 0x80) {
+            if rsp[4] == STATUS_OK || rsp[4] == STATUS_WOULD_BLOCK {
+                return Ok(());
+            }
+        }
+        Err(())
+    }
+
+    fn tcp_listen(net: &KernelClient, port: u16) -> core::result::Result<u32, ()> {
+        let req = [MAGIC0, MAGIC1, VERSION, OP_LISTEN, (port & 0xff) as u8, (port >> 8) as u8];
+        let rsp = rpc(net, &req)?;
+        if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_LISTEN | 0x80) {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]))
+    }
+
+    fn tcp_connect(net: &KernelClient, ip: [u8; 4], port: u16) -> core::result::Result<u32, ()> {
+        let mut c = [0u8; 10];
+        c[0] = MAGIC0;
+        c[1] = MAGIC1;
+        c[2] = VERSION;
+        c[3] = OP_CONNECT;
+        c[4..8].copy_from_slice(&ip);
+        c[8..10].copy_from_slice(&port.to_le_bytes());
+        let rsp = rpc(net, &c)?;
+        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_CONNECT | 0x80) {
+            if rsp[4] == STATUS_OK {
+                return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
+            }
+            // WOULD_BLOCK is expected during connect establishment; caller retries.
+            if rsp[4] == STATUS_WOULD_BLOCK {
+                return Err(());
+            }
+        }
+        Err(())
+    }
+
+    fn tcp_accept(net: &KernelClient, lid: u32) -> core::result::Result<u32, ()> {
+        let mut a = [0u8; 8];
+        a[0] = MAGIC0;
+        a[1] = MAGIC1;
+        a[2] = VERSION;
+        a[3] = OP_ACCEPT;
+        a[4..8].copy_from_slice(&lid.to_le_bytes());
+        let rsp = rpc(net, &a)?;
+        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80) {
+            if rsp[4] == STATUS_OK {
+                return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
+            }
+            // WOULD_BLOCK is expected until a peer connects; caller retries.
+            if rsp[4] == STATUS_WOULD_BLOCK {
+                return Err(());
+            }
+        }
+        Err(())
+    }
+
+    // Determine deterministic node identity from local IP (10.42.0.<mac_lsb>), matching tools/os2vm.sh MACs.
+    let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) = if local_ip
+        == [10, 42, 0, 10]
+    {
+        (
+            "node-a",
+            34_567u16,
+            [10, 42, 0, 11],
+            34_568u16,
+            "node-b",
+            0xD0u8,
+            0xD1u8,
+        )
+    } else {
+        (
+            "node-b",
+            34_568u16,
+            [10, 42, 0, 10],
+            34_567u16,
+            "node-a",
+            0xD1u8,
+            0xD0u8,
+        )
+    };
+
+    // Bind discovery UDP and start RX loop.
+    let udp_id = {
+        let mut out: Option<u32> = None;
+        for _ in 0..50_000 {
+            if let Ok(id) = udp_bind(net, local_ip, DISC_PORT) {
+                out = Some(id);
+                break;
+            }
+            let _ = yield_();
+        }
+        out.ok_or(())?
+    };
+    let _ = nexus_abi::debug_println("dsoftbusd: discovery cross-vm up");
+
+    // Peer cache (bounded).
+    let mut peers = PeerLru::with_default_capacity();
+    let mut peer_ips: Vec<(String, [u8; 4])> = Vec::new();
+
+    fn set_peer_ip(ips: &mut Vec<(String, [u8; 4])>, id: &str, ip: [u8; 4]) {
+        if let Some(pos) = ips.iter().position(|(x, _)| x == id) {
+            ips[pos].1 = ip;
+        } else {
+            ips.push((String::from(id), ip));
+        }
+    }
+    fn get_peer_ip(ips: &[(String, [u8; 4])], id: &str) -> Option<[u8; 4]> {
+        ips.iter().find(|(x, _)| x == id).map(|(_, ip)| *ip)
+    }
+
+    // Periodically announce ourselves until we observe the peer.
+    // Keep this bounded-per-iteration and cooperative; do not exit on transient network bring-up races.
+    // Listen for the session port early so the acceptor is ready even if discovery arrives later.
+    let lid = tcp_listen(net, listen_port)?;
+
+    // Establish a single deterministic session: node-a initiates, node-b accepts.
+    let is_initiator = device_id == "node-a";
+    let mut sid: Option<u32> = None;
+    let mut announced_once = false;
+    let mut announce_send_failed = false;
+    let mut udp_recv_failed = false;
+    let mut dial_logged = false;
+    let mut accept_logged = false;
+
+    // Single cooperative loop:
+    // - continuously announces + receives discovery packets
+    // - initiator dials once peer mapping is known
+    // - acceptor accepts as soon as the peer dials (no need to pre-learn peer ip)
+    // - both wait until the peer entry exists before starting Noise (identity binding)
+    loop {
+        // Ensure we always send at least one announce before trying to establish sessions.
+        // Then rate-limit to once per 64 ticks for determinism.
+        let now = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+        if !announced_once || (now & 0x3f) == 0 {
+            let ann = AnnounceV1 {
+                device_id: String::from(device_id),
+                port: listen_port,
+                // SECURITY: bring-up test keys, NOT production custody
+                noise_static: nexus_noise_xk::StaticKeypair::from_secret(derive_test_secret(
+                    key_tag_self,
+                    listen_port,
+                ))
+                .public,
+                services: alloc::vec!["samgrd".into(), "bundlemgrd".into()],
+            };
+            if let Ok(bytes) = encode_announce_v1(&ann) {
+                let ok1 = udp_send_to(net, udp_id, MCAST_IP, DISC_PORT, &bytes).is_ok();
+                let ok2 = udp_send_to(net, udp_id, peer_ip, DISC_PORT, &bytes).is_ok();
+                if !(ok1 && ok2) && !announce_send_failed {
+                    announce_send_failed = true;
+                }
+                if !announced_once {
+                    announced_once = true;
+                }
+            }
+        }
+
+        // Try receive one announce.
+        let mut r = [0u8; 10];
+        r[0] = MAGIC0;
+        r[1] = MAGIC1;
+        r[2] = VERSION;
+        r[3] = OP_UDP_RECV_FROM;
+        r[4..8].copy_from_slice(&udp_id.to_le_bytes());
+        r[8..10].copy_from_slice(&(256u16).to_le_bytes());
+        let rsp = rpc(net, &r)?;
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+        {
+            if rsp[4] == STATUS_OK {
+                let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                let from_ip = [rsp[7], rsp[8], rsp[9], rsp[10]];
+                let base = 13;
+                if n <= 256 && base + n <= rsp.len() {
+                    let payload = &rsp[base..base + n];
+                    match decode_announce_v1(payload) {
+                        Ok(pkt) => {
+                            let entry = PeerEntry::new(
+                                pkt.device_id.clone(),
+                                pkt.port,
+                                pkt.noise_static,
+                                pkt.services,
+                            );
+                            peers.insert(entry);
+                            set_peer_ip(&mut peer_ips, &pkt.device_id, from_ip);
+                            if peers.peek(peer_device_id).is_some()
+                                && get_peer_ip(&peer_ips, peer_device_id).is_some()
+                            {
+                                let _ = nexus_abi::debug_println("dsoftbusd: discovery peer learned");
+                            }
+                        }
+                        Err(_) => {
+                            let _ = nexus_abi::debug_println("dsoftbusd: announce ignored (malformed)");
+                        }
+                    }
+                }
+            } else if rsp[4] == STATUS_IO && !udp_recv_failed {
+                let _ = nexus_abi::debug_println("dsoftbusd: discovery recv FAIL");
+                udp_recv_failed = true;
+            }
+        }
+
+        // Session establishment.
+        if sid.is_none() {
+            if is_initiator {
+                let Some(peer) = peers.peek(peer_device_id) else {
+                    let _ = yield_();
+                    continue;
+                };
+                let Some(ip) = get_peer_ip(&peer_ips, peer_device_id) else {
+                    let _ = yield_();
+                    continue;
+                };
+                if !dial_logged {
+                    let _ = nexus_abi::debug_println("dsoftbusd: cross-vm dial start");
+                    dial_logged = true;
+                }
+                if let Ok(s) = tcp_connect(net, ip, peer.port) {
+                    sid = Some(s);
+                }
+            } else {
+                if !accept_logged {
+                    let _ = nexus_abi::debug_println("dsoftbusd: cross-vm accept wait");
+                    accept_logged = true;
+                }
+                if let Ok(s) = tcp_accept(net, lid) {
+                    sid = Some(s);
+                }
+            }
+        }
+
+        // Before starting Noise, ensure we have the peer's discovery entry for identity binding.
+        if sid.is_some() && peers.peek(peer_device_id).is_some() {
+            break;
+        }
+
+        let _ = yield_();
+    }
+
+    let sid = sid.ok_or(())?;
+
+    // Noise handshake (XK): initiator <-> responder
+    use nexus_noise_xk::{StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
+
+    // SECURITY: bring-up test keys, NOT production custody
+    let self_static = StaticKeypair::from_secret(derive_test_secret(key_tag_self, listen_port));
+    // SECURITY: bring-up test keys, NOT production custody
+    let self_eph_seed = derive_test_secret(0xE0, listen_port);
+    let peer_expected_pub = StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
+
+    // Enforce identity binding: expected pub key MUST match discovery mapping.
+    let Some(peer_entry) = peers.peek(peer_device_id) else { return Err(()); };
+    if peer_entry.noise_static != peer_expected_pub {
+        let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=crossvm");
+        return Err(());
+    }
+
+    let mut transport = if is_initiator {
+        let mut initiator = XkInitiator::new(self_static, peer_expected_pub, self_eph_seed);
+        let mut msg1 = [0u8; MSG1_LEN];
+        initiator.write_msg1(&mut msg1);
+        stream_write_all(net, sid, &msg1)?;
+
+        let mut msg2 = [0u8; MSG2_LEN];
+        stream_read_exact(net, sid, &mut msg2)?;
+
+        let mut msg3 = [0u8; MSG3_LEN];
+        let keys = initiator
+            .read_msg2_write_msg3(&msg2, &mut msg3)
+            .map_err(|_| ())?;
+        stream_write_all(net, sid, &msg3)?;
+        Transport::new(keys)
+    } else {
+        let mut responder = XkResponder::new(self_static, peer_expected_pub, self_eph_seed);
+        let mut msg1 = [0u8; MSG1_LEN];
+        stream_read_exact(net, sid, &mut msg1)?;
+        let mut msg2 = [0u8; MSG2_LEN];
+        responder
+            .read_msg1_write_msg2(&msg1, &mut msg2)
+            .map_err(|_| ())?;
+        stream_write_all(net, sid, &msg2)?;
+        let mut msg3 = [0u8; MSG3_LEN];
+        stream_read_exact(net, sid, &mut msg3)?;
+        let keys = responder.read_msg3_finish(&msg3).map_err(|_| ())?;
+        Transport::new(keys)
+    };
+
+    // Session established.
+    let mut sess_buf = [0u8; 64];
+    let mut pos = 0usize;
+    let prefix = b"dsoftbusd: cross-vm session ok ";
+    sess_buf[pos..pos + prefix.len()].copy_from_slice(prefix);
+    pos += prefix.len();
+    let peer_bytes = peer_device_id.as_bytes();
+    let n = core::cmp::min(peer_bytes.len(), sess_buf.len() - pos);
+    sess_buf[pos..pos + n].copy_from_slice(&peer_bytes[..n]);
+    pos += n;
+    if let Ok(s) = core::str::from_utf8(&sess_buf[..pos]) {
+        let _ = nexus_abi::debug_println(s);
+    }
+
+    // Node B: remote gateway server loop (serve requests from node-a).
+    if !is_initiator {
+        let samgrd = loop {
+            match KernelClient::new_for("samgrd") {
+                Ok(c) => break c,
+                Err(_) => {
+                    let _ = yield_();
+                }
+            }
+        };
+        let bundlemgrd = loop {
+            match KernelClient::new_for("bundlemgrd") {
+                Ok(c) => break c,
+                Err(_) => {
+                    let _ = yield_();
+                }
+            }
+        };
+        // Reply inbox for CAP_MOVE request/reply to local services.
+        let reply = loop {
+            match KernelClient::new_for("@reply") {
+                Ok(c) => break c,
+                Err(_) => {
+                    let _ = yield_();
+                }
+            }
+        };
+        let (reply_send_slot, _reply_recv_slot) = reply.slots();
+        let _ = nexus_abi::debug_println("dsoftbusd: remote proxy up");
+        let mut rx_logged = false;
+        loop {
+            let mut ciph = [0u8; REQ_CIPH];
+            stream_read_exact(net, sid, &mut ciph)?;
+            if !rx_logged {
+                let _ = nexus_abi::debug_println("dsoftbusd: remote proxy rx");
+                rx_logged = true;
+            }
+            let mut plain = [0u8; REQ_PLAIN];
+            let n = transport.decrypt(&ciph, &mut plain).map_err(|_| ())?;
+            if n != REQ_PLAIN {
+                let _ = nexus_abi::debug_println("dsoftbusd: remote proxy denied (malformed)");
+                continue;
+            }
+            let svc = plain[0];
+            let used = u16::from_le_bytes([plain[1], plain[2]]) as usize;
+            if used > MAX_REQ {
+                let _ = nexus_abi::debug_println("dsoftbusd: remote proxy denied (oversized)");
+                continue;
+            }
+            let req = &plain[3..3 + used];
+
+            let mut status = 0u8;
+            let mut rsp_payload: Vec<u8> = Vec::new();
+            match svc {
+                SVC_SAMGR_RESOLVE_STATUS => {
+                    if req.len() < 5 || req[0] != b'S' || req[1] != b'M' || req[2] != 1 {
+                        status = 1;
+                    } else {
+                        // CAP_MOVE reply: move a cloned reply SEND cap so samgrd can respond on it.
+                        let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+                        samgrd
+                            .send_with_cap_move_wait(req, cap, Wait::Timeout(core::time::Duration::from_millis(300)))
+                            .map_err(|_| ())?;
+                        let rsp = reply.recv(Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| ())?;
+                        rsp_payload.extend_from_slice(&rsp);
+                        let _ = nexus_abi::debug_println("dsoftbusd: remote proxy ok (peer=node-a service=samgrd)");
+                    }
+                }
+                SVC_BUNDLE_LIST => {
+                    let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+                    bundlemgrd
+                        .send_with_cap_move_wait(req, cap, Wait::Timeout(core::time::Duration::from_millis(300)))
+                        .map_err(|_| ())?;
+                    let rsp = reply.recv(Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| ())?;
+                    rsp_payload.extend_from_slice(&rsp);
+                    let _ = nexus_abi::debug_println("dsoftbusd: remote proxy ok (peer=node-a service=bundlemgrd)");
+                }
+                _ => {
+                    status = 1;
+                    let _ = nexus_abi::debug_println("dsoftbusd: remote proxy denied (service=unknown)");
+                }
+            }
+
+            // Build fixed-size response record.
+            let mut rsp_plain = [0u8; RSP_PLAIN];
+            rsp_plain[0] = status;
+            let len = core::cmp::min(rsp_payload.len(), MAX_RSP);
+            rsp_plain[1..3].copy_from_slice(&(len as u16).to_le_bytes());
+            rsp_plain[3..3 + len].copy_from_slice(&rsp_payload[..len]);
+
+            let mut rsp_ciph = [0u8; RSP_CIPH];
+            let n = transport.encrypt(&rsp_plain, &mut rsp_ciph).map_err(|_| ())?;
+            if n != RSP_CIPH {
+                return Err(());
+            }
+            stream_write_all(net, sid, &rsp_ciph)?;
+        }
+    }
+
+    // Node A: local IPC server loop (selftest-client drives remote resolve/query).
+    let server = loop {
+        match KernelServer::new_for("dsoftbusd") {
+            Ok(s) => break s,
+            Err(_) => {
+                let _ = yield_();
+            }
+        }
+    };
+    let mut ipc_logged = false;
+    loop {
+        // Use the plain request/response channel semantics (`Client::send`/`Client::recv`),
+        // not the cap-move reply-token style.
+        let frame = match server.recv(Wait::Blocking) {
+            Ok(x) => x,
+            Err(_) => {
+                let _ = yield_();
+                continue;
+            }
+        };
+        if !ipc_logged {
+            ipc_logged = true;
+        }
+
+        let mut out: Vec<u8> = Vec::new();
+        if frame.len() < 4 || frame[0] != L0 || frame[1] != L1 || frame[2] != LVER {
+            out.extend_from_slice(&[L0, L1, LVER, 0x80, LSTATUS_FAIL]);
+        } else {
+            match frame[3] {
+                LOP_REMOTE_RESOLVE => {
+                    if frame.len() < 5 {
+                        out.extend_from_slice(&[L0, L1, LVER, LOP_REMOTE_RESOLVE | 0x80, LSTATUS_FAIL]);
+                    } else {
+                        let n = frame[4] as usize;
+                        if n == 0 || frame.len() != 5 + n {
+                            out.extend_from_slice(&[L0, L1, LVER, LOP_REMOTE_RESOLVE | 0x80, LSTATUS_FAIL]);
+                        } else {
+                            // Build samgrd resolve-status request frame.
+                            let mut req = Vec::with_capacity(5 + n);
+                            req.push(b'S');
+                            req.push(b'M');
+                            req.push(1);
+                            req.push(6); // OP_RESOLVE_STATUS
+                            req.push(n as u8);
+                            req.extend_from_slice(&frame[5..]);
+
+                            // Send remote gateway request.
+                            let mut plain = [0u8; REQ_PLAIN];
+                            plain[0] = SVC_SAMGR_RESOLVE_STATUS;
+                            let used = core::cmp::min(req.len(), MAX_REQ);
+                            plain[1..3].copy_from_slice(&(used as u16).to_le_bytes());
+                            plain[3..3 + used].copy_from_slice(&req[..used]);
+                            let mut ciph = [0u8; REQ_CIPH];
+                            let n = transport.encrypt(&plain, &mut ciph).map_err(|_| ())?;
+                            if n != REQ_CIPH {
+                                return Err(());
+                            }
+                            stream_write_all(net, sid, &ciph)?;
+
+                            let mut rsp_ciph = [0u8; RSP_CIPH];
+                            stream_read_exact(net, sid, &mut rsp_ciph)?;
+                            let mut rsp_plain = [0u8; RSP_PLAIN];
+                            let n = transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
+                            if n != RSP_PLAIN {
+                                return Err(());
+                            }
+                            let st = rsp_plain[0];
+                            let len = u16::from_le_bytes([rsp_plain[1], rsp_plain[2]]) as usize;
+                            let mut ok = false;
+                            if st == 0 && len >= 13 {
+                                let p = &rsp_plain[3..3 + len];
+                                ok = p[0] == b'S' && p[1] == b'M' && p[2] == 1 && p[3] == (6 | 0x80) && p[4] == 0;
+                            }
+
+                            out.extend_from_slice(&[
+                                L0,
+                                L1,
+                                LVER,
+                                LOP_REMOTE_RESOLVE | 0x80,
+                                if ok { LSTATUS_OK } else { LSTATUS_FAIL },
+                            ]);
+                        }
+                    }
+                }
+                LOP_REMOTE_BUNDLE_LIST => {
+                    // bundlemgrd list request: [B,N,1,OP_LIST]
+                    let req = [b'B', b'N', 1, nexus_abi::bundlemgrd::OP_LIST];
+                    let mut plain = [0u8; REQ_PLAIN];
+                    plain[0] = SVC_BUNDLE_LIST;
+                    plain[1..3].copy_from_slice(&(req.len() as u16).to_le_bytes());
+                    plain[3..3 + req.len()].copy_from_slice(&req);
+                    let mut ciph = [0u8; REQ_CIPH];
+                    let n = transport.encrypt(&plain, &mut ciph).map_err(|_| ())?;
+                    if n != REQ_CIPH {
+                        return Err(());
+                    }
+                    stream_write_all(net, sid, &ciph)?;
+
+                    let mut rsp_ciph = [0u8; RSP_CIPH];
+                    stream_read_exact(net, sid, &mut rsp_ciph)?;
+                    let mut rsp_plain = [0u8; RSP_PLAIN];
+                    let n = transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
+                    if n != RSP_PLAIN {
+                        return Err(());
+                    }
+                    let st = rsp_plain[0];
+                    let len = u16::from_le_bytes([rsp_plain[1], rsp_plain[2]]) as usize;
+                    let mut ok = false;
+                    let mut count: u16 = 0;
+                    if st == 0 && len >= 8 {
+                        let p = &rsp_plain[3..3 + len];
+                        if p[0] == b'B'
+                            && p[1] == b'N'
+                            && p[2] == 1
+                            && p[3] == (nexus_abi::bundlemgrd::OP_LIST | 0x80)
+                            && p[4] == 0
+                        {
+                            count = u16::from_le_bytes([p[5], p[6]]);
+                            ok = true;
+                        }
+                    }
+                    out.extend_from_slice(&[L0, L1, LVER, LOP_REMOTE_BUNDLE_LIST | 0x80, if ok { LSTATUS_OK } else { LSTATUS_FAIL }]);
+                    out.extend_from_slice(&count.to_le_bytes());
+                }
+                _ => {
+                    out.extend_from_slice(&[L0, L1, LVER, (frame[3] | 0x80), LSTATUS_FAIL]);
+                }
+            }
+        }
+
+        let _ = server.send(&out, Wait::Blocking);
     }
 }
 

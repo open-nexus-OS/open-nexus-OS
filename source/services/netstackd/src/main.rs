@@ -6,9 +6,9 @@
 
 //! CONTEXT: netstackd (v0) — networking owner service for OS bring-up
 //! OWNERS: @runtime
-//! STATUS: Bring-up
+//! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Proven via QEMU markers (TASK-0003 / scripts/qemu-test.sh)
+//! TEST_COVERAGE: Proven via QEMU markers (TASK-0003..0005 / scripts/qemu-test.sh + tools/os2vm.sh)
 //!
 //! Responsibilities (v0, Step 1):
 //! - Own virtio-net + smoltcp via `userspace/nexus-net-os`.
@@ -143,39 +143,67 @@ fn os_entry() -> core::result::Result<(), ()> {
         }
     }
     if !dhcp_bound {
-        let _ = nexus_abi::debug_println("netstackd: dhcp FAIL");
-        loop {
-            let _ = yield_();
+        // Deterministic fallback for harnesses where no DHCP server exists (e.g. 2-VM socket/mcast backend).
+        // Derive a stable address from the NIC MAC so two VMs get distinct IPs without runtime env injection.
+        let mac = net.mac();
+        // Use the virtio MAC LSB directly so the harness can pick stable, distinct IPs by setting MACs.
+        // 0 is reserved; map it to 1 to stay routable.
+        let host = if mac[5] == 0 { 1 } else { mac[5] };
+        let ip = [10, 42, 0, host];
+        let prefix_len = 24u8;
+        net.set_static_ipv4(ip, prefix_len, None);
+
+        // Honest marker: DHCP was unavailable.
+        let mut buf = [0u8; 64];
+        let mut pos = 0usize;
+        let prefix = b"net: dhcp unavailable (fallback static ";
+        buf[pos..pos + prefix.len()].copy_from_slice(prefix);
+        pos += prefix.len();
+        pos += write_ip(&ip, &mut buf[pos..]);
+        buf[pos] = b'/';
+        pos += 1;
+        pos += write_u8(prefix_len, &mut buf[pos..]);
+        buf[pos] = b')';
+        pos += 1;
+        if let Ok(s) = core::str::from_utf8(&buf[..pos]) {
+            let _ = nexus_abi::debug_println(s);
         }
     }
 
     // Emit iface up marker with DHCP-assigned IP
-    if let Some(config) = net.get_dhcp_config() {
+    if let Some(config) = net.get_ipv4_config().or_else(|| net.get_dhcp_config()) {
         emit_smoltcp_iface_marker(&config);
     }
 
-    // Prove real L3 (gateway ping) — bounded.
-    let ping_start = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-    if net.probe_ping_gateway(ping_start, 4000).is_err() {
-        let _ = nexus_abi::debug_println("netstackd: net ping FAIL");
-        loop {
-            let _ = yield_();
-        }
-    }
-    let _ = nexus_abi::debug_println("SELFTEST: net ping ok");
-
-    // Prove UDP send+recv (DNS on QEMU usernet). This is the same proof shape as selftest-client,
-    // but executed by the owner service (ensures MMIO capability distribution is correct).
-    let dns = NetSocketAddrV4::new([10, 0, 2, 3], 53);
-    let mut sock = match net.udp_bind(NetSocketAddrV4::new([10, 0, 2, 15], 40_000)) {
-        Ok(s) => s,
-        Err(_) => {
-            let _ = nexus_abi::debug_println("netstackd: udp bind FAIL");
+    // Prove real L3 (gateway ping) — only when we have DHCP/usernet.
+    if dhcp_bound {
+        let ping_start = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+        if net.probe_ping_gateway(ping_start, 4000).is_err() {
+            let _ = nexus_abi::debug_println("netstackd: net ping FAIL");
             loop {
                 let _ = yield_();
             }
         }
-    };
+        let _ = nexus_abi::debug_println("SELFTEST: net ping ok");
+    }
+
+    // Prove UDP send+recv (DNS on QEMU usernet) — only when we have DHCP/usernet.
+    // When running under a socket/mcast backend, there is no gateway/DNS, so skip this proof.
+    if dhcp_bound {
+        let dns = NetSocketAddrV4::new([10, 0, 2, 3], 53);
+        let bind_ip = net
+            .get_ipv4_config()
+            .map(|c| c.ip)
+            .unwrap_or([10, 0, 2, 15]);
+        let mut sock = match net.udp_bind(NetSocketAddrV4::new(bind_ip, 40_000)) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = nexus_abi::debug_println("netstackd: udp bind FAIL");
+                loop {
+                    let _ = yield_();
+                }
+            }
+        };
 
     // Minimal DNS query for A example.com (RFC1035).
     let mut q = [0u8; 32];
@@ -204,32 +232,37 @@ fn os_entry() -> core::result::Result<(), ()> {
     q[p + 3] = 1;
     p += 4;
 
-    let mut ok = false;
-    for i in 0..8000u64 {
-        let now = start_ms + i;
-        net.poll(now);
-        let _ = sock.send_to(&q[..p], dns);
-        let mut buf = [0u8; 512];
-        if let Ok((n, _from)) = sock.recv_from(&mut buf) {
-            if n >= 12 && buf[0] == 0x12 && buf[1] == 0x34 {
-                ok = true;
-                break;
+        let mut ok = false;
+        for i in 0..8000u64 {
+            let now = start_ms + i;
+            net.poll(now);
+            let _ = sock.send_to(&q[..p], dns);
+            let mut buf = [0u8; 512];
+            if let Ok((n, _from)) = sock.recv_from(&mut buf) {
+                if n >= 12 && buf[0] == 0x12 && buf[1] == 0x34 {
+                    ok = true;
+                    break;
+                }
+            }
+            if (i & 0x3f) == 0 {
+                let _ = yield_();
             }
         }
-        if (i & 0x3f) == 0 {
-            let _ = yield_();
+        if !ok {
+            let _ = nexus_abi::debug_println("netstackd: udp dns FAIL");
+            loop {
+                let _ = yield_();
+            }
         }
+        let _ = nexus_abi::debug_println("SELFTEST: net udp dns ok");
     }
-    if !ok {
-        let _ = nexus_abi::debug_println("netstackd: udp dns FAIL");
-        loop {
-            let _ = yield_();
-        }
-    }
-    let _ = nexus_abi::debug_println("SELFTEST: net udp dns ok");
 
     // TCP facade smoke: listen must succeed.
-    if net.tcp_listen(NetSocketAddrV4::new([10, 0, 2, 15], 41_000), 1).is_ok() {
+    let bind_ip = net
+        .get_ipv4_config()
+        .map(|c| c.ip)
+        .unwrap_or([10, 0, 2, 15]);
+    if net.tcp_listen(NetSocketAddrV4::new(bind_ip, 41_000), 1).is_ok() {
         let _ = nexus_abi::debug_println("SELFTEST: net tcp listen ok");
     } else {
         let _ = nexus_abi::debug_println("netstackd: tcp listen FAIL");
@@ -254,6 +287,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     const OP_UDP_SEND_TO: u8 = 7;
     const OP_UDP_RECV_FROM: u8 = 8;
     const OP_ICMP_PING: u8 = 9;
+    const OP_LOCAL_ADDR: u8 = 10;
 
     const STATUS_OK: u8 = 0;
     const STATUS_NOT_FOUND: u8 = 1;
@@ -345,10 +379,21 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut listeners: Vec<Option<Listener>> = Vec::new();
     let mut streams: Vec<Option<Stream>> = Vec::new();
     let mut udps: Vec<Option<UdpSock>> = Vec::new();
+    // Debug help for TASK-0005: log the first non-loopback TCP connect target we see.
+    // Keep it bounded (single marker) to avoid UART spam.
+    let mut dbg_connect_target_printed = false;
 
     loop {
         let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
         net.poll(now_ms);
+
+        // Prefer the currently configured IP (DHCP or static fallback). This keeps the facade usable
+        // under non-DHCP backends (e.g. 2-VM socket/mcast harness).
+        let bind_ip = net
+            .get_ipv4_config()
+            .or_else(|| net.get_dhcp_config())
+            .map(|c| c.ip)
+            .unwrap_or([10, 0, 2, 15]);
 
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
@@ -358,7 +403,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             &mut hdr,
             &mut buf,
             &mut sid,
-            nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
             0,
         ) {
             Ok(n) => {
@@ -394,7 +439,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let _ = nexus_abi::debug_println("netstackd: rpc listen");
                         let port = u16::from_le_bytes([req[4], req[5]]);
-                        if port == LOOPBACK_PORT || port == LOOPBACK_PORT_B {
+                        if bind_ip == [10, 0, 2, 15] && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B) {
                             listeners.push(Some(Listener::Loop { port, pending: None }));
                             let id = listeners.len() as u32;
                             let mut rsp = [0u8; 9];
@@ -407,7 +452,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                             reply(&rsp);
                             let _ = nexus_abi::debug_println("netstackd: rpc listen ok");
                         } else {
-                            let addr = NetSocketAddrV4::new([10, 0, 2, 15], port);
+                            let addr = NetSocketAddrV4::new(bind_ip, port);
                             match net.tcp_listen(addr, 1) {
                                 Ok(l) => {
                                     listeners.push(Some(Listener::Tcp(l)));
@@ -456,8 +501,6 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         rsp[4] = STATUS_OK;
                                         rsp[5..9].copy_from_slice(&sid.to_le_bytes());
                                         reply(&rsp);
-                                        let _ =
-                                            nexus_abi::debug_println("netstackd: rpc accept ok");
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
                                         reply(&[
@@ -487,7 +530,6 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     rsp[4] = STATUS_OK;
                                     rsp[5..9].copy_from_slice(&sid.to_le_bytes());
                                     reply(&rsp);
-                                    let _ = nexus_abi::debug_println("netstackd: rpc accept ok");
                                 } else {
                                     reply(&[
                                         MAGIC0,
@@ -508,6 +550,13 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let ip = [req[4], req[5], req[6], req[7]];
                         let port = u16::from_le_bytes([req[8], req[9]]);
+                        if !dbg_connect_target_printed
+                            && ip != [10, 0, 2, 15]
+                            && (port == 34_567 || port == 34_568)
+                        {
+                            // Keep UART output minimal: no per-connect debug markers.
+                            dbg_connect_target_printed = true;
+                        }
                         if ip == [10, 0, 2, 15]
                             && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B)
                         {
@@ -532,12 +581,16 @@ fn os_entry() -> core::result::Result<(), ()> {
                             rsp[4] = STATUS_OK;
                             rsp[5..9].copy_from_slice(&a.to_le_bytes());
                             reply(&rsp);
-                            let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
                         } else {
                             let remote = NetSocketAddrV4::new(ip, port);
                             let deadline = now_ms + 1;
                             match net.tcp_connect(remote, Some(deadline)) {
                                 Ok(s) => {
+                                    // Kick the TCP state machine: attempt to enqueue a single byte.
+                                    // This is best-effort and bounded; it helps ensure SYN emission is exercised
+                                    // even if the client doesn't write immediately.
+                                    let mut s = s;
+                                    let _ = s.write(Some(now_ms + 50), b"X");
                                     streams.push(Some(Stream::Tcp(s)));
                                     let sid = streams.len() as u32;
                                     let mut rsp = [0u8; 9];
@@ -576,9 +629,14 @@ fn os_entry() -> core::result::Result<(), ()> {
                         let (bind_ip, port) = if req.len() == 10 {
                             ([req[4], req[5], req[6], req[7]], u16::from_le_bytes([req[8], req[9]]))
                         } else {
-                            ([10, 0, 2, 15], u16::from_le_bytes([req[4], req[5]]))
+                            (bind_ip, u16::from_le_bytes([req[4], req[5]]))
                         };
-                        if port == LOOPBACK_UDP_PORT {
+                        if port == LOOPBACK_UDP_PORT && bind_ip == [10, 0, 2, 15] {
+                            // Deterministic bring-up only: under QEMU usernet the UDP discovery traffic can be
+                            // flaky/non-delivered, so we provide a bounded in-memory loopback for port 37020.
+                            //
+                            // IMPORTANT (TASK-0005): under real subnet backends (e.g. 2-VM socket link),
+                            // discovery MUST use real UDP datagrams, so the loopback is disabled there.
                             udps.push(Some(UdpSock::Loop(LoopUdp { rx: LoopBuf::new(), port })));
                             let id = udps.len() as u32;
                             let mut rsp = [0u8; 9];
@@ -1052,8 +1110,47 @@ fn os_entry() -> core::result::Result<(), ()> {
                             }
                         }
                     }
+                    OP_LOCAL_ADDR => {
+                        // Request: [magic,ver,op]
+                        // Response: [magic,ver,op|0x80,status, ip[4], prefix:u8]
+                        if req.len() != 4 {
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_LOCAL_ADDR | 0x80,
+                                STATUS_MALFORMED,
+                            ]);
+                            let _ = yield_();
+                            continue;
+                        }
+                        let Some(cfg) = net.get_ipv4_config().or_else(|| net.get_dhcp_config()) else {
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_LOCAL_ADDR | 0x80,
+                                STATUS_IO,
+                            ]);
+                            let _ = yield_();
+                            continue;
+                        };
+                        let mut rsp = [0u8; 10];
+                        rsp[0] = MAGIC0;
+                        rsp[1] = MAGIC1;
+                        rsp[2] = VERSION;
+                        rsp[3] = OP_LOCAL_ADDR | 0x80;
+                        rsp[4] = STATUS_OK;
+                        rsp[5..9].copy_from_slice(&cfg.ip);
+                        rsp[9] = cfg.prefix_len;
+                        reply(&rsp);
+                    }
                     _ => reply(&[MAGIC0, MAGIC1, VERSION, op | 0x80, STATUS_MALFORMED]),
                 }
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                // Drive the network stack even when idle so TCP handshakes can complete.
+                let _ = yield_();
             }
             Err(_) => {}
         }

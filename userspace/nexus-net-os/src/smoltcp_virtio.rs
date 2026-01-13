@@ -1,5 +1,18 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: smoltcp + virtio-net backend implementing the `nexus-net` facade.
-//! SAFETY: This module contains narrowly-scoped unsafe MMIO/DMA logic.
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Proven via QEMU markers (TASK-0003..0005) + host tests in userspace networking crates
+//!
+//! SAFETY INVARIANTS:
+//! - MMIO accesses are performed via volatile loads/stores over kernel-provided USER|RW mappings.
+//! - DMA buffers are allocated from VMOs and mapped USER|RW; never executable.
+//! - All untrusted packet input is bounds-checked before parsing.
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 extern crate alloc;
 
@@ -93,11 +106,15 @@ pub struct SmoltcpVirtioNetStack {
 
 // Bring-up sizing knobs: kept small to reduce page-table pressure and kernel heap usage.
 const Q_LEN: usize = 8;
-const ACTIVE_BUFS: usize = 1;
+// TASK-0005: cross-VM mode needs enough TX headroom so TCP SYN/ACK isn't starved by discovery UDP.
+const ACTIVE_BUFS: usize = 4;
 
 struct Inner {
     // Virtio device (MMIO)
     dev: VirtioNetMmio<MmioBus>,
+
+    // MAC address (read from virtio config space).
+    mac: [u8; 6],
 
     // Queue state (fixed to legacy mmio layout for QEMU virt today).
     rx_desc: *mut VqDesc,
@@ -124,6 +141,10 @@ struct Inner {
     // DHCP state: bound IP (None until lease acquired)
     dhcp_bound_ip: Option<smoltcp::wire::Ipv4Cidr>,
     dhcp_bound_gateway: Option<Ipv4Address>,
+
+    // Current IPv4 configuration (DHCP or static fallback).
+    ipv4_cidr: Option<smoltcp::wire::Ipv4Cidr>,
+    ipv4_gateway: Option<Ipv4Address>,
 
     // Monotonic tick (backend-defined units; we use ms).
     now: NetInstant,
@@ -307,6 +328,7 @@ impl SmoltcpVirtioNetStack {
         Ok(Self {
             inner: Rc::new(RefCell::new(Inner {
                 dev,
+                mac,
                 rx_desc: devwrap.rx_desc,
                 rx_avail: devwrap.rx_avail,
                 rx_used: devwrap.rx_used,
@@ -325,9 +347,52 @@ impl SmoltcpVirtioNetStack {
                 dhcp_handle,
                 dhcp_bound_ip: None,
                 dhcp_bound_gateway: None,
+                ipv4_cidr: None,
+                ipv4_gateway: None,
                 now: 0,
             })),
         })
+    }
+
+    /// Return the interface MAC address.
+    pub fn mac(&self) -> [u8; 6] {
+        self.inner.borrow().mac
+    }
+
+    /// Return the currently configured IPv4 address (DHCP or static fallback), if any.
+    pub fn get_ipv4_config(&self) -> Option<DhcpConfig> {
+        let inner = self.inner.borrow();
+        let cidr = inner.ipv4_cidr?;
+        Some(DhcpConfig {
+            ip: cidr.address().0,
+            prefix_len: cidr.prefix_len(),
+            gateway: inner.ipv4_gateway.map(|gw| gw.0),
+        })
+    }
+
+    /// Apply a static IPv4 configuration (used by deterministic test harnesses when DHCP is unavailable).
+    pub fn set_static_ipv4(&mut self, ip: [u8; 4], prefix_len: u8, gateway: Option<[u8; 4]>) {
+        let mut inner = self.inner.borrow_mut();
+        let cidr = smoltcp::wire::Ipv4Cidr::new(smoltcp::wire::Ipv4Address(ip), prefix_len);
+
+        inner.iface.update_ip_addrs(|addrs| {
+            addrs.clear();
+            let _ = addrs.push(smoltcp::wire::IpCidr::new(
+                smoltcp::wire::IpAddress::Ipv4(cidr.address()),
+                cidr.prefix_len(),
+            ));
+        });
+
+        inner.iface.routes_mut().remove_default_ipv4_route();
+        if let Some(gw) = gateway {
+            let _ = inner
+                .iface
+                .routes_mut()
+                .add_default_ipv4_route(smoltcp::wire::Ipv4Address(gw));
+        }
+
+        inner.ipv4_cidr = Some(cidr);
+        inner.ipv4_gateway = gateway.map(smoltcp::wire::Ipv4Address);
     }
 
     /// Best-effort ICMP echo probe to the QEMU usernet gateway (10.0.2.2).
@@ -419,6 +484,8 @@ impl SmoltcpVirtioNetStack {
                     // Store bound configuration
                     inner.dhcp_bound_ip = Some(address);
                     inner.dhcp_bound_gateway = router;
+                    inner.ipv4_cidr = Some(address);
+                    inner.ipv4_gateway = router;
 
                     Some(DhcpConfig {
                         ip: address.address().0,
@@ -437,6 +504,8 @@ impl SmoltcpVirtioNetStack {
                 inner.iface.routes_mut().remove_default_ipv4_route();
                 inner.dhcp_bound_ip = None;
                 inner.dhcp_bound_gateway = None;
+                inner.ipv4_cidr = None;
+                inner.ipv4_gateway = None;
                 None
             }
             None => None,
@@ -615,7 +684,9 @@ impl<const ACTIVE: usize> SmolDevice<ACTIVE> {
                 break;
             }
         }
-        let Some(i) = slot else { return false };
+        let Some(i) = slot else {
+            return false;
+        };
 
         const HDR_LEN: usize = 10;
         if frame.len() + HDR_LEN > 4096 {
@@ -790,8 +861,13 @@ impl TcpListener for OsTcpListener {
             }
         }
         let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
-        if !sock.is_active() {
-            return Err(NetError::WouldBlock);
+        // smoltcp has a single-socket listen+accept model: a socket in LISTEN becomes
+        // SYN-RECEIVED/ESTABLISHED when a peer connects. Treat LISTEN/CLOSED as "no connection yet".
+        match sock.state() {
+            smoltcp::socket::tcp::State::Listen | smoltcp::socket::tcp::State::Closed => {
+                return Err(NetError::WouldBlock);
+            }
+            _ => {}
         }
         Ok(OsTcpStream { inner: Rc::clone(&self.inner), handle: self.handle })
     }
@@ -812,8 +888,10 @@ impl TcpStream for OsTcpStream {
             }
         }
         let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
-        if !sock.is_active() {
-            return Err(NetError::Disconnected);
+        match sock.state() {
+            smoltcp::socket::tcp::State::Closed => return Err(NetError::Disconnected),
+            smoltcp::socket::tcp::State::Listen => return Err(NetError::NotConnected),
+            _ => {}
         }
         if !sock.can_recv() {
             return Err(NetError::WouldBlock);
@@ -831,13 +909,17 @@ impl TcpStream for OsTcpStream {
             }
         }
         let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
-        if !sock.is_active() {
-            return Err(NetError::NotConnected);
+        match sock.state() {
+            smoltcp::socket::tcp::State::Closed => return Err(NetError::NotConnected),
+            smoltcp::socket::tcp::State::Listen => return Err(NetError::NotConnected),
+            _ => {}
         }
-        if !sock.can_send() {
-            return Err(NetError::WouldBlock);
+        // NOTE: smoltcp may keep can_send=false until handshake progresses; attempting the send
+        // is what drives SYN emission. Treat "cannot send yet" as WouldBlock.
+        match sock.send_slice(buf) {
+            Ok(n) => Ok(n),
+            Err(_) => Err(NetError::WouldBlock),
         }
-        sock.send_slice(buf).map_err(|_| NetError::NoBufs)
     }
 
     fn close(&mut self) {
@@ -936,15 +1018,35 @@ impl NetStack for SmoltcpVirtioNetStack {
         }
         let rx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 8192]);
         let tx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 8192]);
-        let mut sock = smoltcp::socket::tcp::Socket::new(rx, tx);
-        let local_ip = Ipv4Address::new(10, 0, 2, 15);
+        let sock = smoltcp::socket::tcp::Socket::new(rx, tx);
+        // Use the configured interface address (DHCP or deterministic static fallback).
+        // NOTE: this must match an address present on the interface, otherwise smoltcp rejects the connect.
+        let local_ip = inner
+            .ipv4_cidr
+            .map(|c| c.address())
+            .unwrap_or(Ipv4Address::new(10, 0, 2, 15));
         let remote_ip = Ipv4Address::from_bytes(&remote.ip.0);
-        // smoltcp requires an interface context for connect.
-        let cx = inner.iface.context();
         // Deterministic ephemeral port (bring-up): avoid relying on "0 means ephemeral".
-        sock.connect(cx, (local_ip, 40_001), (remote_ip, remote.port))
-            .map_err(|_| NetError::InvalidInput("tcp connect"))?;
+        // Capture before borrowing the iface context mutably.
+        let mac_lsb = inner.mac[5];
+        let local_port = 40_000u16 + mac_lsb as u16;
+
+        // IMPORTANT: add socket to the set first, then connect it via its handle.
+        // This matches smoltcp's expectation that a connecting socket is managed by the set.
         let handle = inner.sockets.add(sock);
+        {
+            // Split borrows to satisfy Rust aliasing: iface and sockets are disjoint fields.
+            let Inner { iface, sockets, .. } = &mut *inner;
+            let cx = iface.context();
+            let sock = sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
+            // smoltcp expects (remote_endpoint, local_endpoint) order.
+            sock.connect(cx, (remote_ip, remote.port), (local_ip, local_port))
+                .map_err(|_| NetError::InvalidInput("tcp connect"))?;
+        }
+        // Drive the TCP state machine immediately so a SYN can be emitted in the same call
+        // even if the caller doesn't issue another IPC request right away.
+        drop(inner);
+        self.poll(now);
         Ok(OsTcpStream { inner: Rc::clone(&self.inner), handle })
     }
 }

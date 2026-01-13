@@ -37,8 +37,6 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
-    // Minimal marker before `alloc` heavy work (debugging bring-up).
-    let _ = nexus_abi::debug_println("selftest-client: entry");
     os_lite::run()
 }
 
@@ -849,20 +847,78 @@ mod os_lite {
             emit_line("SELFTEST: vfs FAIL");
         }
 
+        let local_ip = netstackd_local_addr();
+        let os2vm = matches!(local_ip, Some([10, 42, 0, _]));
+
         // TASK-0004: ICMP ping proof via netstackd facade.
-        if icmp_ping_probe().is_ok() {
-            emit_line("SELFTEST: icmp ping ok");
-        } else {
-            emit_line("SELFTEST: icmp ping FAIL");
+        // Under 2-VM socket/mcast backends there is no gateway, so skip deterministically.
+        if !os2vm {
+            if icmp_ping_probe().is_ok() {
+                emit_line("SELFTEST: icmp ping ok");
+            } else {
+                emit_line("SELFTEST: icmp ping FAIL");
+            }
         }
 
         // TASK-0003: DSoftBus OS transport bring-up via netstackd facade.
-        if dsoftbus_os_transport_probe().is_ok() {
-            emit_line("SELFTEST: dsoftbus os connect ok");
-            emit_line("SELFTEST: dsoftbus ping ok");
-        } else {
-            emit_line("SELFTEST: dsoftbus os connect FAIL");
-            emit_line("SELFTEST: dsoftbus ping FAIL");
+        // Under os2vm mode, we rely on real cross-VM discovery+sessions instead (TASK-0005),
+        // so skip this local-only probe to avoid false FAIL markers and long waits.
+        if !os2vm {
+            if dsoftbus_os_transport_probe().is_ok() {
+                emit_line("SELFTEST: dsoftbus os connect ok");
+                emit_line("SELFTEST: dsoftbus ping ok");
+            } else {
+                emit_line("SELFTEST: dsoftbus os connect FAIL");
+                emit_line("SELFTEST: dsoftbus ping FAIL");
+            }
+        }
+
+        // TASK-0005: Cross-VM remote proxy proof (opt-in 2-VM harness).
+        // Only Node A emits the markers.
+        if let Some(ip) = local_ip {
+            if ip == [10, 42, 0, 10] {
+                // Retry with a wall-clock bound to keep tests deterministic and fast.
+                // dsoftbusd must establish the session first.
+                let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                let deadline_ms = start_ms.saturating_add(4_000);
+                let mut ok = false;
+                loop {
+                    if dsoftbusd_remote_resolve("bundlemgrd").is_ok() {
+                        ok = true;
+                        break;
+                    }
+                    let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                    if now_ms >= deadline_ms {
+                        break;
+                    }
+                    let _ = yield_();
+                }
+                if ok {
+                    emit_line("SELFTEST: remote resolve ok");
+                } else {
+                    emit_line("SELFTEST: remote resolve FAIL");
+                }
+
+                let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                let deadline_ms = start_ms.saturating_add(4_000);
+                let mut got: Option<u16> = None;
+                loop {
+                    if let Ok(count) = dsoftbusd_remote_bundle_list() {
+                        got = Some(count);
+                        break;
+                    }
+                    let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                    if now_ms >= deadline_ms {
+                        break;
+                    }
+                    let _ = yield_();
+                }
+                if let Some(_count) = got {
+                    emit_line("SELFTEST: remote query ok");
+                } else {
+                    emit_line("SELFTEST: remote query FAIL");
+                }
+            }
         }
 
         emit_line("SELFTEST: end");
@@ -1318,6 +1374,121 @@ mod os_lite {
             let _ = yield_();
         }
         Err(())
+    }
+
+    fn netstackd_local_addr() -> Option<[u8; 4]> {
+        const MAGIC0: u8 = b'N';
+        const MAGIC1: u8 = b'S';
+        const VERSION: u8 = 1;
+        const OP_LOCAL_ADDR: u8 = 10;
+        const STATUS_OK: u8 = 0;
+
+        fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
+            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let (reply_send_slot, reply_recv_slot) = reply.slots();
+            let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+            client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 512];
+            for _ in 0..5_000 {
+                match nexus_abi::ipc_recv_v1(
+                    reply_recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(_n) => return Ok(buf),
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = yield_();
+                    }
+                    Err(_) => return Err(()),
+                }
+            }
+            Err(())
+        }
+
+        let net = KernelClient::new_for("netstackd").ok()?;
+        let req = [MAGIC0, MAGIC1, VERSION, OP_LOCAL_ADDR];
+        let rsp = rpc(&net, &req).ok()?;
+        if rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
+            || rsp[3] != (OP_LOCAL_ADDR | 0x80)
+            || rsp[4] != STATUS_OK
+        {
+            return None;
+        }
+        Some([rsp[5], rsp[6], rsp[7], rsp[8]])
+    }
+
+    fn dsoftbusd_remote_resolve(name: &str) -> core::result::Result<(), ()> {
+        const D0: u8 = b'D';
+        const D1: u8 = b'S';
+        const VER: u8 = 1;
+        const OP: u8 = 1;
+        const STATUS_OK: u8 = 0;
+
+        // Bounded debug: if routing is missing, remote proof can never succeed.
+        static mut ROUTE_LOGGED: bool = false;
+        let d = match KernelClient::new_for("dsoftbusd") {
+            Ok(x) => x,
+            Err(_) => {
+                unsafe {
+                    if !ROUTE_LOGGED {
+                        ROUTE_LOGGED = true;
+                        emit_line("selftest-client: route dsoftbusd FAIL");
+                    }
+                }
+                return Err(());
+            }
+        };
+        let n = name.as_bytes();
+        if n.is_empty() || n.len() > 48 {
+            return Err(());
+        }
+        let mut req = alloc::vec::Vec::with_capacity(5 + n.len());
+        req.push(D0);
+        req.push(D1);
+        req.push(VER);
+        req.push(OP);
+        req.push(n.len() as u8);
+        req.extend_from_slice(n);
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800)))
+            .map_err(|_| ())?;
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(800)))
+            .map_err(|_| ())?;
+        if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn dsoftbusd_remote_bundle_list() -> core::result::Result<u16, ()> {
+        const D0: u8 = b'D';
+        const D1: u8 = b'S';
+        const VER: u8 = 1;
+        const OP: u8 = 2;
+        const STATUS_OK: u8 = 0;
+
+        let d = KernelClient::new_for("dsoftbusd").map_err(|_| ())?;
+        let req = [D0, D1, VER, OP];
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800)))
+            .map_err(|_| ())?;
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(800)))
+            .map_err(|_| ())?;
+        if rsp.len() != 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        Ok(u16::from_le_bytes([rsp[5], rsp[6]]))
     }
 
     fn cap_query_mmio_probe() -> core::result::Result<(), ()> {

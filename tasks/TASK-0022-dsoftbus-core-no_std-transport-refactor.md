@@ -16,7 +16,9 @@ links:
 ## Context
 
 - OS userland bundles are `#![no_std]` (example: `userspace/apps/demo-exit0/src/lib.rs`).
-- `userspace/dsoftbus` is currently **std-based** and the OS backend is a **placeholder** with `todo!()`.
+- `userspace/dsoftbus` is currently **std-based** and its OS backend is a **placeholder** (`userspace/dsoftbus/src/os.rs`).
+  Note: OS bring-up streams exist via os-lite services (`netstackd` + `dsoftbusd`) as of TASK-0005, but
+  they are not yet factored into a reusable no_std-capable core/backend split.
 
 This blocks any “OS transport ON” work (including QUIC over UDP): we need a DSoftBus core that can run in OS.
 

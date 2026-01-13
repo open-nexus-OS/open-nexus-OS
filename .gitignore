@@ -20,3 +20,19 @@ uart_ecall_chars.log
 neuron-boot.map
 uart_syspipe*.txt
 uart_syspipe.txt
+
+# 2-VM harness artifacts (TASK-0005 / RFC-0010)
+uart-*.txt
+host-*.txt
+*.pcap
+
+# Temporary test logs
+test-uart.txt
+tmp-uart.txt
+tmp*.txt
+
+# Cursor IDE logs
+.cursor-*.log
+
+# Temporary debug/extract files
+tmp*.rs

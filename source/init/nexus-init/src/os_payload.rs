@@ -346,6 +346,11 @@ struct CtrlChannel {
     key_recv_slot: Option<u32>,
     net_send_slot: Option<u32>,
     net_recv_slot: Option<u32>,
+    /// Optional routing for target "dsoftbusd" from the perspective of this PID:
+    /// - send_slot: where this PID should send requests/replies
+    /// - recv_slot: where this PID should receive replies/requests
+    dsoft_send_slot: Option<u32>,
+    dsoft_recv_slot: Option<u32>,
     /// Self reply-inbox slots (only populated for requesters that need CAP_MOVE reply routing).
     reply_send_slot: Option<u32>,
     reply_recv_slot: Option<u32>,
@@ -693,6 +698,8 @@ where
                     key_recv_slot: None,
                     net_send_slot: None,
                     net_recv_slot: None,
+                    dsoft_send_slot: None,
+                    dsoft_recv_slot: None,
                     reply_send_slot: None,
                     reply_recv_slot: None,
                 };
@@ -812,6 +819,12 @@ where
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, dsoftbusd_pid, 8)
             .map_err(InitError::Abi)?;
 
+    // DSoftBusd service endpoints (request/response) so other tasks (e.g. selftest-client) can route to it.
+    let dsoft_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, dsoftbusd_pid, 8)
+        .map_err(InitError::Abi)?;
+    let dsoft_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+        .map_err(InitError::Abi)?;
+
     // Netstackd service endpoints (request/response).
     let net_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, netstackd_pid, 8)
         .map_err(InitError::Abi)?;
@@ -873,6 +886,26 @@ where
                     .map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+
+                // Allow dsoftbusd to call into samgrd/bundlemgrd via CAP_MOVE reply inbox.
+                // - send to service request endpoint
+                // - receive replies on local reply inbox recv slot
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, sam_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.sam_send_slot = Some(send_slot);
+                chan.sam_recv_slot = Some(reply_recv_slot);
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.bnd_send_slot = Some(send_slot);
+                chan.bnd_recv_slot = Some(reply_recv_slot);
+
+                // Provide dsoftbusd its own request/response endpoints (server side).
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, dsoft_req, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                chan.dsoft_send_slot = Some(send_slot);
+                chan.dsoft_recv_slot = Some(recv_slot);
             }
             "vfsd" => {
                 let recv_slot =
@@ -1031,6 +1064,14 @@ where
                     .map_err(InitError::Abi)?;
                 chan.net_send_slot = Some(send_slot);
                 chan.net_recv_slot = Some(recv_slot);
+
+                // Allow selftest-client to send requests to dsoftbusd (TASK-0005 remote proxy proof).
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, dsoft_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.dsoft_send_slot = Some(send_slot);
+                chan.dsoft_recv_slot = Some(recv_slot);
             }
             _ => {}
         }
@@ -1226,6 +1267,11 @@ where
                 }
             } else if name == b"netstackd" {
                 match (chan.net_send_slot, chan.net_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"dsoftbusd" {
+                match (chan.dsoft_send_slot, chan.dsoft_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }

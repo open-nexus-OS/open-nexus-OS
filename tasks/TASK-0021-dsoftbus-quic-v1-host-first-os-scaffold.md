@@ -46,7 +46,9 @@ Prove:
 ## Red flags / decision points
 
 - **RED**:
-  - OS DSoftBus backend is currently a placeholder until networking tasks land. OS QUIC must remain off by default and must not claim support.
+  - `userspace/dsoftbus` OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`).
+    OS QUIC must remain off by default and must not claim support until a reusable OS backend exists
+    (TASK-0022) and UDP-sec/QUIC gating is in place.
 - **YELLOW**:
   - Certificate/identity model: v1 can use ephemeral self-signed certs for host tests, but long-term should bind to device identity keys.
   - Async runtime: quinn is async; keep the host tests isolated and avoid pulling async into OS bring-up.

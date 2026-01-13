@@ -74,6 +74,7 @@ In QEMU, prove:
 ## Security considerations
 
 ### Threat model
+
 - **Policy bypass**: Attacker finds path to sensitive operation that skips `policyd` check
 - **Privilege escalation**: Service obtains capabilities beyond its policy allowance
 - **Identity spoofing**: Attacker forges `service_id` to impersonate another service
@@ -83,6 +84,7 @@ In QEMU, prove:
 - **Side-channel attacks**: Timing or error message differences leak policy decisions
 
 ### Security invariants (MUST hold)
+
 - ALL sensitive operations MUST go through `policyd` (single authority, no bypass)
 - Policy decisions MUST bind to `sender_service_id` from kernel IPC (unforgeable)
 - Device private keys MUST NEVER leave keystored (sign operations return signatures, not keys)
@@ -92,6 +94,7 @@ In QEMU, prove:
 - Error messages MUST NOT leak policy configuration details
 
 ### DON'T DO
+
 - DON'T trust subject identity from payload bytes (use kernel-provided `sender_service_id`)
 - DON'T duplicate policy logic in multiple services (single authority: `policyd`)
 - DON'T expose raw private key bytes via any keystored API
@@ -100,11 +103,13 @@ In QEMU, prove:
 - DON'T skip audit logging for any policy decision
 
 ### Attack surface impact
+
 - **Critical**: This task defines the core security enforcement layer
 - **Policy engine is the trust anchor**: Bugs here compromise the entire system
 - **Requires thorough security review**: All changes to policyd/keystored must be reviewed
 
 ### Mitigations
+
 - Channel-bound identity via kernel IPC (`sender_service_id` unforgeable)
 - Policy rules loaded from immutable `recipes/policy/base.toml` at boot
 - Keystored performs signing internally; private keys never exposed
@@ -115,6 +120,7 @@ In QEMU, prove:
 ## Security proof
 
 ### Audit tests (negative cases)
+
 - Command(s):
   - `cargo test -p nexus-sel -- reject --nocapture`
   - `cargo test -p keystored -- reject --nocapture`
@@ -126,6 +132,7 @@ In QEMU, prove:
   - `test_reject_oversized_policy_query` — bounded input enforced
 
 ### Hardening markers (QEMU)
+
 - `policyd: deny (subject=<svc> action=<op>)` — deny-by-default works
 - `policyd: allow (subject=<svc> action=<op>)` — explicit allow logged
 - `keystored: sign denied (subject=<svc>)` — policy-gated signing works
@@ -133,6 +140,7 @@ In QEMU, prove:
 - `SELFTEST: policy allow audit ok` — audit trail verified
 
 ### Fuzz coverage (recommended)
+
 - `cargo +nightly fuzz run fuzz_policy_parser` — policy rule parsing
 - `cargo +nightly fuzz run fuzz_keystored_request` — keystored request parsing
 

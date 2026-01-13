@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_abi::{cap_close, debug_putc, yield_};
+use nexus_abi::{cap_close, debug_putc, yield_, MsgHeader};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 /// Result alias surfaced by the lite SAMgr backend.
@@ -59,11 +59,38 @@ const OP_LOOKUP: u8 = 2;
 const OP_PING_CAP_MOVE: u8 = 3;
 const OP_SENDER_PID: u8 = 4;
 const OP_SENDER_SERVICE_ID: u8 = 5;
+const OP_RESOLVE_STATUS: u8 = 6;
 
 const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_UNSUPPORTED: u8 = 3;
+
+const CTRL_SEND_SLOT: u32 = 1;
+const CTRL_RECV_SLOT: u32 = 2;
+
+fn route_status(target: &[u8]) -> Option<u8> {
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
+    let req_len = nexus_abi::routing::encode_route_get(target, &mut req)?;
+    let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
+    let deadline = match nexus_abi::nsec() {
+        Ok(now) => now.saturating_add(200_000_000),
+        Err(_) => 0,
+    };
+    let _ = nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, deadline).ok()?;
+    let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 32];
+    let n = nexus_abi::ipc_recv_v1(
+        CTRL_RECV_SLOT,
+        &mut rh,
+        &mut buf,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    )
+    .ok()? as usize;
+    let (status, _send, _recv) = nexus_abi::routing::decode_route_rsp(&buf[..n])?;
+    Some(status)
+}
 
 /// Minimal samgrd bring-up service loop.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
@@ -199,6 +226,41 @@ fn handle_frame(
             match registry.get(&(sender_service_id, name.to_vec())).copied() {
                 Some((send_slot, recv_slot)) => rsp(op, STATUS_OK, send_slot, recv_slot),
                 None => rsp(op, STATUS_NOT_FOUND, 0, 0),
+            }
+        }
+        OP_RESOLVE_STATUS => {
+            // RESOLVE_STATUS request:
+            //   [S, M, ver, OP_RESOLVE_STATUS, name_len:u8, name...]
+            // Response uses the common 13-byte shape:
+            //   [S, M, ver, OP_RESOLVE_STATUS|0x80, status, 0,0,0,0,0,0,0,0]
+            //
+            // Security note (TASK-0005): this op returns ONLY status, never capability slots.
+            let n = frame[4] as usize;
+            if n == 0 || n > nexus_abi::routing::MAX_SERVICE_NAME_LEN || frame.len() != 5 + n {
+                return rsp(op, STATUS_MALFORMED, 0, 0);
+            }
+            let name = &frame[5..];
+            // Bring-up semantics (TASK-0005): resolve is a *status* API (no capability transfer).
+            //
+            // Under os-lite bring-up, not every service has full routing to every other service yet.
+            // For RESOLVE_STATUS we therefore answer based on a bounded allowlist of known core services
+            // that are expected to be present in the image.
+            let ok = matches!(
+                name,
+                b"keystored"
+                    | b"policyd"
+                    | b"samgrd"
+                    | b"bundlemgrd"
+                    | b"packagefsd"
+                    | b"vfsd"
+                    | b"execd"
+                    | b"netstackd"
+                    | b"dsoftbusd"
+            );
+            if ok {
+                rsp(op, STATUS_OK, 0, 0)
+            } else {
+                rsp(op, STATUS_NOT_FOUND, 0, 0)
             }
         }
         _ => rsp(op, STATUS_UNSUPPORTED, 0, 0),

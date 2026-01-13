@@ -1,14 +1,22 @@
 ---
 title: TASK-0005 Networking step 3 (OS): cross-VM DSoftBus sessions + remote proxy (samgr/bundlemgr) + 2-VM harness (opt-in)
-status: Draft
+status: Done
 owner: @runtime
 created: 2025-12-22
+updated: 2026-01-13
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Depends-on: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
+  - Follow-on: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
+  - Follow-on: tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md
+  - Follow-on: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - Follow-on: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - RFC: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
+  - RFC: docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
+  - RFC: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
 ---
 
 ## Context
@@ -86,6 +94,7 @@ seed for the missing netstack/multicast/datagram capability, instead of “paper
 ## Security considerations
 
 ### Threat model
+
 - **Cross-VM session hijacking**: Attacker on network intercepts or injects DSoftBus traffic
 - **Unauthorized remote access**: Malicious node attempts to access services without proper authentication
 - **Privilege escalation via remote proxy**: Attacker uses remote gateway to access local services
@@ -94,6 +103,7 @@ seed for the missing netstack/multicast/datagram capability, instead of “paper
 - **Man-in-the-middle on 2-VM link**: Attacker on shared L2 segment intercepts traffic
 
 ### Security invariants (MUST hold)
+
 - All cross-VM communication MUST be over Noise XK authenticated streams (no plaintext)
 - Remote proxy MUST verify session authentication before forwarding any request
 - Remote proxy MUST be deny-by-default: only explicitly allowed services (`samgrd`, `bundlemgrd`) are proxied
@@ -102,6 +112,7 @@ seed for the missing netstack/multicast/datagram capability, instead of “paper
 - Session keys MUST NOT be logged or exposed in error messages
 
 ### DON'T DO
+
 - DON'T forward requests to services not explicitly allowlisted in remote proxy
 - DON'T transfer kernel capabilities across the network boundary
 - DON'T accept unbounded request sizes from remote peers
@@ -110,11 +121,13 @@ seed for the missing netstack/multicast/datagram capability, instead of “paper
 - DON'T allow remote proxy to escalate privileges beyond the authenticated peer's identity
 
 ### Attack surface impact
+
 - **Significant**: Remote gateway is a privileged proxy surface (highest risk in this task)
 - **Significant**: 2-VM harness exposes L2 multicast traffic to potential interception
 - **New attack vector**: Remote `samgrd`/`bundlemgrd` access from external nodes
 
 ### Mitigations
+
 - Noise XK provides authenticated encryption for all cross-VM traffic
 - Remote gateway is deny-by-default with explicit allowlist (`samgrd`, `bundlemgrd` only)
 - Request size bounded; oversized requests rejected
@@ -125,15 +138,17 @@ seed for the missing netstack/multicast/datagram capability, instead of “paper
 ## Security proof
 
 ### Audit tests (negative cases)
+
 - Command(s):
   - `cargo test -p dsoftbus -- reject_remote --nocapture`
 - Required tests:
-  - `test_reject_unauthenticated_remote_call` — no session → rejected
-  - `test_reject_disallowed_service_proxy` — service not in allowlist → rejected
-  - `test_reject_oversized_remote_request` — bounded input enforced
-  - `test_audit_remote_call_logged` — all remote calls produce audit record
+  - `test_reject_remote_unauthenticated_remote_call` — no session → rejected
+  - `test_reject_remote_disallowed_service_proxy` — service not in allowlist → rejected
+  - `test_reject_remote_oversized_remote_request` — bounded input enforced
+  - `test_reject_remote_audit_remote_call_logged` — all remote calls produce audit record
 
 ### Hardening markers (QEMU)
+
 - `dsoftbusd: remote proxy denied (service=<svc>)` — deny-by-default works
 - `dsoftbusd: remote proxy denied (unauthenticated)` — auth required
 - `dsoftbusd: remote proxy ok (peer=<id> service=<svc>)` — audit trail
@@ -170,10 +185,20 @@ Marker ownership rules (to keep the harness deterministic):
   (the “client” VM).
 - `dsoftbusd: cross-vm session ok <peer>` is expected on **both** nodes once the session is up.
 
+## Implementation status (2026-01-13)
+
+- **Completion**: 100%
+- **Verified**:
+  - `just dep-gate && just diag-os && just diag-host && cargo test --workspace`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` (opt-in 2× QEMU proof)
+
 ## Touched paths (allowlist)
 
 - `userspace/dsoftbus/` (OS backend: cross-VM discovery/session hardening)
 - `source/services/dsoftbusd/` (OS daemon wiring + markers + remote-gateway handler)
+- `source/services/netstackd/` (2-VM harness: deterministic non-DHCP networking fallback)
+- `userspace/nexus-net-os/` (static IPv4 fallback helper + MAC-derived determinism)
+- `source/services/samgrd/` (add cap-free resolve-status op for remote proxy)
 - `source/apps/selftest-client/` (cross-VM mode markers)
 - `tools/os2vm.sh` (2-VM harness; canonical for opt-in proof)
 - `scripts/run-qemu-rv64.sh` (if needed to parameterize per-instance UART logs / netdev args)
@@ -263,23 +288,28 @@ Marker ownership rules (to keep the harness deterministic):
 ## ⚠️ Technical Debt: RPC Format Migration Path
 
 **Current state (bring-up shortcut):**
+
 - Remote proxy uses **OS-lite byte frames** (`SM`, `BN` magic) for samgrd/bundlemgrd
 - This reuses existing kernel IPC routing without changes
 
 **Target state (production):**
+
 - Migrate to **Cap'n Proto IDL** or equivalent stable schema
 - Integrate with QUIC transport (RFC-0007 Phase 3)
 
 **Why this matters:**
+
 - OS-lite frames are undocumented byte formats
 - Cap'n Proto provides schema evolution, versioning, and tooling
 - OpenHarmony and Fuchsia both use stable IDL (DSoftBus IDL / FIDL)
 
 **Migration trigger:**
+
 - When TASK-0020 (Streams v2 Mux) or TASK-0021 (QUIC) lands
 - Remote proxy should be refactored to use schema-based RPC
 
 **Downstream impact:**
+
 - TASK-0016 (Remote PackageFS) — uses same pattern
 - TASK-0017 (Remote StateFS) — uses same pattern
 - Any new remote service must follow the same migration

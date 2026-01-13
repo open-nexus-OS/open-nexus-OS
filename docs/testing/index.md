@@ -46,6 +46,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
 | Host VFS (`tests/vfs_e2e`) | In-process `packagefsd`, `vfsd`, and `bundlemgrd` validating bundle publication and VFS reads. | `cargo test -p vfs-e2e` | Publishes a demo bundle, checks alias resolution, and verifies read/error paths via `nexus-vfs`. |
 | QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness now waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), the policy allow/deny probes, and the VFS checks before stopping. Logs are trimmed to keep artefacts small. |
+| QEMU 2-VM opt-in (`tools/os2vm.sh`) | Two QEMU instances exercising cross-VM DSoftBus discovery, Noise-authenticated session establishment, and remote proxy (`samgrd`/`bundlemgrd`). | `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` | Canonical proof for TASK-0005. Requires socket-based net backend; does not rely on DHCP (netstackd falls back to static IP under the 2-VM harness). |
 
 ## Workflow checklist
 
@@ -190,6 +191,7 @@ fn test_reject_oversized_input() {
 ```
 
 Run security-specific tests:
+
 ```bash
 # All reject tests across workspace
 cargo test -- reject --nocapture
@@ -205,7 +207,7 @@ cargo test -p nexus-sel -- reject
 Security behavior must be verifiable via QEMU markers that prove enforcement:
 
 | Marker | Meaning |
-|--------|---------|
+| --- | --- |
 | `dsoftbusd: auth ok` | Handshake + identity binding succeeded |
 | `dsoftbusd: identity mismatch peer=<id>` | Identity binding enforcement works |
 | `dsoftbusd: announce ignored (malformed)` | Input validation works |
@@ -244,7 +246,7 @@ Before merging security-relevant PRs, verify:
 Before committing OS-related changes, run these validation gates:
 
 | Command | Purpose |
-|---------|---------|
+| --- | --- |
 | `just diag-os` | Check all OS services compile for `riscv64imac-unknown-none-elf` |
 | `just dep-gate` | **Critical**: Fail if forbidden crates (`parking_lot`, `getrandom`) appear in OS graph |
 | `just diag-host` | Check host builds compile cleanly |
@@ -253,7 +255,7 @@ Before committing OS-related changes, run these validation gates:
 
 OS services **must** be built with `--no-default-features --features os-lite`. Without these flags, `std`-only dependencies leak into the bare-metal build and cause cryptic errors like:
 
-```
+```text
 error: can't find crate for `std`
   --> parking_lot_core/src/lib.rs
 ```
@@ -289,6 +291,61 @@ cargo tree --target riscv64imac-unknown-none-elf -p dsoftbusd -i parking_lot
 - To catch silent spins during bring-up, you can enable a watchdog that panics after N cooperative yields: `INIT_LITE_WATCHDOG_TICKS=500 RUN_TIMEOUT=10s just qemu`. Leave it unset for normal runs.
 - Escape-coded UART (E-prefixed) is currently forced off to keep logs clean. Old logs can still be decoded with `tools/uart-filter.py --strip-escape uart.log`. If you need probe framing, add it locally in code, but keep it disabled for shared runs.
 - For stubborn host/container mismatches, rebuild the Podman image and ensure the same targets are installed inside and outside the container.
+
+### Capturing OS networking traffic (PCAP / Wireshark)
+
+When debugging cross-VM networking issues (ARP/UDP/TCP handshakes), it is often fastest to capture the QEMU network traffic into PCAP files and inspect them with Wireshark/tshark.
+
+- **2-VM harness with PCAP**:
+
+```bash
+RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PCAP=1 tools/os2vm.sh
+```
+
+- **Outputs**: `os2vm-A.pcap` and `os2vm-B.pcap` (in the current directory unless `LOG_DIR` is set).
+- **Inspect**: open the PCAPs in Wireshark and filter on `arp`, `icmp`, `udp.port==37020`, or `tcp.port==34567`.
+
+## Networking testing & debugging strategy (host-first, OS-last)
+
+Networking issues are notoriously easy to “fake-green” (e.g. a connect syscall returns OK but no packets are ever emitted). For Open Nexus OS we treat networking as a **layered proof problem** with deterministic markers and opt-in deep capture.
+
+### Goals
+
+- **Fast feedback**: most protocol logic is proven on host first.
+- **Realism only where needed**: QEMU is used to validate end-to-end wiring and on-wire behavior.
+- **No fake success**: markers must correspond to *observable* behavior (packets, state transitions), not “we called a function”.
+- **Determinism**: bounded loops, stable markers, stable seeds.
+
+### Layered proof ladder (recommended)
+
+- **Host (contract tests)**:
+  - Parse/encode of wire formats (golden vectors).
+  - State machine stepping (Noise handshake, discovery cache, session framing) using host backends / fakes.
+  - Negative cases (`test_reject_*`): malformed frames, oversized input, identity mismatch.
+- **OS (unit smoke)**:
+  - `netstackd` facade health: interface up, socket bind/listen works.
+  - **L2**: ARP request/response observed (PCAP or bounded in-OS marker derived from real traffic).
+  - **L3**: ICMP echo where applicable (DHCP/usernet path); otherwise skip deterministically.
+  - **L4/UDP**: discovery announce/recv with real datagrams under 2-VM harness (no loopback shortcuts).
+  - **L4/TCP**: SYN/SYN-ACK observed (PCAP) and accept/connect completes; only then run higher layers.
+- **OS (integration)**:
+  - DSoftBus sessions + Noise auth + identity binding.
+  - Remote proxy allowlist (`samgrd` / `bundlemgrd`) with bounded frames and deny-by-default behavior.
+
+### Debugging toolbox (recommended order)
+
+1) **PCAP capture (best ROI)** via the 2-VM harness (`OS2VM_PCAP=1`). This proves whether ARP/UDP/TCP packets are actually emitted and received.
+2) **Bounded OS diagnostics** (markers or one-shot logs) to narrow failures without spamming UART:
+   - “entered SYN-SENT” vs. “TX emitted SYN”
+   - “accept returned WOULD_BLOCK” vs. “accept OK”
+3) **Host reproduction**: reduce the failing OS scenario into a host test or a small deterministic harness.
+
+### How to avoid fake-green markers
+
+- Prefer markers that reflect **external observables**:
+  - “pcap contains TCP SYN” is stronger than “connect() returned OK”.
+  - “received announce from `<peer>`” is stronger than “announce sent”.
+- If a marker is necessarily internal (e.g. “state entered SYN-SENT”), label it as such and pair it with an on-wire proof marker.
 
 ### Future log hygiene
 

@@ -82,13 +82,13 @@ This document clarifies the networking architecture authority to prevent drift b
 | TASK-0003 | Canonical | `netstackd`, `dsoftbusd` | ✅ Done |
 | TASK-0003B | Canonical | (Noise XK handshake) | ✅ Done (loopback scope) |
 | TASK-0003C | Canonical | (UDP discovery) | ✅ Done (loopback scope) |
-| TASK-0004 | Canonical | (dual-node + identity binding) | Draft (next) |
-| TASK-0005 | Canonical | (cross-VM DSoftBus) | Draft (blocked on T4) |
+| TASK-0004 | Canonical | (dual-node + identity binding) | ✅ Done |
+| TASK-0005 | Canonical | (cross-VM DSoftBus + remote proxy) | ✅ Done (opt-in 2-VM harness) |
 | TASK-0024 | Canonical | (QUIC transport) | Draft (blocked on RFC-0008 Phase 2) |
 | TASK-0248 | Alternative | `virtionetd-lite`, `netstackd-lite` | Draft |
 | TASK-0249 | Alternative | (OS wiring for lite services) | Draft |
 
-**Note**: TASK-0003B/C are "Done" for loopback scope. Discovery-driven TCP connect and identity binding enforcement require dual-node mode and are therefore in TASK-0004.
+**Note**: TASK-0003B/C are "Done" for loopback scope. Discovery-driven TCP connect + identity binding enforcement are completed in TASK-0004; cross-VM proof is completed in TASK-0005 and remains opt-in (2× QEMU).
 
 ---
 

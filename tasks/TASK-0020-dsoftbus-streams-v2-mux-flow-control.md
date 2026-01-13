@@ -59,8 +59,9 @@ Provide a robust stream-multiplexing layer over the existing authenticated trans
 ## Red flags / decision points
 
 - **RED (blocking)**:
-  - OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs` uses `todo!()`).
-    OS integration (QEMU markers) is blocked until TASK-0005 (or equivalent) makes OS streams real.
+  - `userspace/dsoftbus` OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`).
+    Note: OS bring-up streams exist via os-lite services (`netstackd` + `dsoftbusd`) as of TASK-0005,
+    but the reusable library backend remains stubbed until TASK-0022 refactors DSoftBus core for OS/no_std.
     This task must therefore be **host-first** with OS-gated follow-up steps.
 - **YELLOW (risky)**:
   - Scheduling fairness can become flaky if expressed in terms of “milliseconds”. Prefer deterministic

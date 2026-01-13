@@ -46,6 +46,8 @@ help:
     @echo "  just diag-os             # cargo check (os cfg, riscv target) with check-cfg + warnings"
     @echo "  just diag-kernel         # cargo check neuron (riscv target) with warnings"
     @echo "  just dep-gate            # RFC-0009: check OS graph for forbidden crates"
+    @echo "  just os2vm               # TASK-0005: opt-in 2-VM QEMU harness (cross-VM DSoftBus)"
+    @echo "  just os2vm-pcap          # same as os2vm but captures PCAPs for Wireshark"
 
 # Build the bootable NEURON binary crate
 build-kernel:
@@ -76,6 +78,16 @@ test-os:
 
 test-init:
     scripts/host-init-test.sh
+
+# -----------------------------------------------------------------------------
+# Opt-in OS 2-VM harness (TASK-0005)
+# -----------------------------------------------------------------------------
+
+os2vm:
+    @RUN_OS2VM=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} tools/os2vm.sh
+
+os2vm-pcap:
+    @RUN_OS2VM=1 OS2VM_PCAP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} tools/os2vm.sh
 
 # -----------------------------------------------------------------------------
 # Host test suites

@@ -257,6 +257,8 @@ pub use facade_discovery::{FacadeAnnouncementStream, FacadeDiscovery};
 
 pub mod discovery_packet;
 
+pub mod remote_proxy_policy;
+
 #[cfg(nexus_env = "os")]
 mod os;
 

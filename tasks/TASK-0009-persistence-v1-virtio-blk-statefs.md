@@ -39,7 +39,7 @@ Prove (host + QEMU) that:
 - Full POSIX filesystem semantics (directories, partial writes, mmap, permissions).
 - Full partition discovery.
 - True VM reset / bootloader integration for reboot persistence proof (follow-up).
- - Snapshots, quotas, and strict cross-service error semantics (follow-ups `TASK-0132`/`TASK-0133`/`TASK-0134`).
+- Snapshots, quotas, and strict cross-service error semantics (follow-ups `TASK-0132`/`TASK-0133`/`TASK-0134`).
 
 ## Constraints / invariants (hard requirements)
 
@@ -75,6 +75,7 @@ Prove (host + QEMU) that:
 ## Security considerations
 
 ### Threat model
+
 - **Credential theft from /state**: Attacker reads device keys, bootctl secrets from storage
 - **Data tampering**: Attacker modifies stored credentials or boot configuration
 - **Journal corruption**: Attacker corrupts journal to cause data loss or boot failure
@@ -83,6 +84,7 @@ Prove (host + QEMU) that:
 - **Physical attack on storage**: Attacker with physical access reads unencrypted storage
 
 ### Security invariants (MUST hold)
+
 - Device keys and sensitive credentials MUST only be accessible to authorized services
 - Journal records MUST include integrity checksums (CRC32 minimum, HMAC for authenticity future)
 - Journal replay MUST reject corrupted or tampered records deterministically
@@ -91,6 +93,7 @@ Prove (host + QEMU) that:
 - Key paths (`/state/keystore/*`) MUST be restricted to keystored only
 
 ### DON'T DO
+
 - DON'T store secrets in plaintext without integrity protection
 - DON'T allow arbitrary services to read `/state/keystore/*` paths
 - DON'T accept journal records that fail integrity checks
@@ -99,11 +102,13 @@ Prove (host + QEMU) that:
 - DON'T skip capability checks for "trusted" services
 
 ### Attack surface impact
+
 - **Significant**: `/state` contains device keys and boot configuration (high-value targets)
 - **Persistence risk**: Compromised keys persist across reboots
 - **Physical access risk**: Unencrypted storage vulnerable to extraction
 
 ### Mitigations
+
 - CRC32 checksums on all journal records (integrity)
 - Capability-gated access to statefsd endpoints
 - Key paths restricted by sender_service_id (keystored only for `/state/keystore/*`)
@@ -113,6 +118,7 @@ Prove (host + QEMU) that:
 ## Security proof
 
 ### Audit tests (negative cases)
+
 - Command(s):
   - `cargo test -p statefs -- reject --nocapture`
 - Required tests:
@@ -122,6 +128,7 @@ Prove (host + QEMU) that:
   - `test_bounded_replay` — replay depth limited
 
 ### Hardening markers (QEMU)
+
 - `statefsd: access denied (path=<p> sender=<svc>)` — capability enforcement
 - `statefsd: crc mismatch (record=<n>)` — integrity verification works
 - `SELFTEST: statefs unauthorized access rejected` — access control verified

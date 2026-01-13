@@ -57,17 +57,22 @@ Two backends exist today:
   - TCP sessions over the sockets facade
   - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
 
-## Current OS Implementation Status (2026-01-07)
+## Current OS Implementation Status (2026-01-13)
 
 | Feature | Status | Task |
 |---------|--------|------|
 | Networking (virtio-net + smoltcp) | ✅ Done | TASK-0003 |
 | Noise XK handshake | ✅ Done | TASK-0003B |
 | UDP discovery (loopback) | ✅ Done | TASK-0003C |
-| Discovery-driven TCP connect | ⬜ Pending | TASK-0004 |
-| Identity binding enforcement | ⬜ Pending | TASK-0004 |
-| Dual-node proof | ⬜ Pending | TASK-0004 |
-| Cross-VM sessions | ⬜ Pending | TASK-0005 |
+| Discovery-driven TCP connect | ✅ Done | TASK-0004 |
+| Identity binding enforcement | ✅ Done | TASK-0004 |
+| Dual-node proof | ✅ Done | TASK-0004 |
+| Cross-VM sessions (2× QEMU) | ✅ Done (opt-in) | TASK-0005 |
+| Remote proxy (`samgrd`/`bundlemgrd`, deny-by-default) | ✅ Done (opt-in) | TASK-0005 |
+
+**2-VM proof harness (opt-in)**:
+- Canonical harness: `tools/os2vm.sh`
+- Deterministic non-DHCP networking: `netstackd` falls back to a MAC-derived static IPv4 under the 2-VM socket/mcast backend
 
 **RFC Contracts**:
 - RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)

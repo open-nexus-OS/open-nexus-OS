@@ -209,11 +209,13 @@ Key sourcing (Phase 2 - Multi-tier Trust Model):
 **Use-case**: Consumer devices, home network, peer discovery
 
 **Mechanism**:
+
 - Trust-On-First-Use with numeric PIN verification (like Bluetooth Simple Secure Pairing)
 - User consent required for first contact
 - Zero external dependencies (no PKI, no certificates)
 
 **Flow**:
+
 1. Discovery: Device A finds Device B
 2. Noise handshake starts (exchange ephemeral keys)
 3. Compute: `PIN = HMAC-BLAKE2s(handshake_hash, "Neuron-PIN-v1")[0..6] % 1000000`
@@ -225,6 +227,7 @@ Key sourcing (Phase 2 - Multi-tier Trust Model):
 **Storage**: Local registry only (`state:/dsoftbus/peers.json`)
 
 **Security Properties**:
+
 - Prevents MITM during first contact (active attacker must display same PIN)
 - 6-digit PIN = 1-in-1,000,000 chance of collision
 - User-friendly (no technical knowledge required)
@@ -235,12 +238,14 @@ Key sourcing (Phase 2 - Multi-tier Trust Model):
 **Use-case**: Corporate devices, IoT fleets, compliance requirements
 
 **Mechanism**:
+
 - X.509 certificates signed by corporate CA
 - Certificate chain validation during handshake
 - OCSP/CRL for revocation checking
 - Noise static key derived from certificate private key
 
 **Flow**:
+
 1. Device provisioned with certificate (signed by Corp CA)
 2. Discovery includes certificate fingerprint
 3. Noise handshake: peer sends certificate chain
@@ -252,12 +257,14 @@ Key sourcing (Phase 2 - Multi-tier Trust Model):
 **Storage**: Certificate store + CRL cache
 
 **Integration with keystored**:
+
 ```rust
 keystored.deriveNoiseKeyFromCert(cert_id) -> static_secret
 identityd.validateCertChain(cert, ca_bundle) -> Result<ValidCert, RevocationReason>
 ```
 
 **Security Properties**:
+
 - Cryptographic chain of trust
 - Centralized revocation (OCSP/CRL)
 - Compliance-ready (audit logs, key escrow)
@@ -268,6 +275,7 @@ identityd.validateCertChain(cert, ca_bundle) -> Result<ValidCert, RevocationReas
 **Use-case**: Decentralized networks, community mesh, no central authority
 
 **Mechanism**:
+
 - Transitive trust (friend-of-friend)
 - Trust scores based on endorsements
 - Reputation tracking
@@ -279,23 +287,27 @@ identityd.validateCertChain(cert, ca_bundle) -> Result<ValidCert, RevocationReas
 Static keys MUST support rotation without breaking existing sessions:
 
 **Mechanism**:
+
 - Key versioning: Each device has `key_id` (timestamp or monotonic counter)
 - Grace period: Old keys remain valid for N days during rotation (default: 30 days)
 - Discovery: Include `key_id` in announcement
 - Session: Accept if peer's `key_id` is not explicitly revoked
 
 **Integration**:
+
 ```rust
 keystored.rotateNoiseKey(reason: RotationReason) -> new_static_secret
 identityd.revokeKey(key_id, reason: RevocationReason) -> revocation_timestamp
 ```
 
 **Rotation triggers**:
+
 - Periodic: Every 90 days (configurable)
 - Compromise: Immediate revocation + emergency rotation
 - Policy: Admin-initiated rotation
 
 **Backward compatibility**:
+
 - Sessions established with old key continue (session keys remain valid)
 - New sessions require new key (after grace period)
 - Discovery announces both keys during grace period
@@ -332,13 +344,15 @@ This keeps identity binding explicit without requiring a full attestation stack.
 
 #### Phase 2 (Production - Multi-tier Trust)
 
-**Tier 1: PIN-based TOFU**
+##### Tier 1: PIN-based TOFU
+
 - First contact: User confirms PIN match → store `(device_id <-> noise_static_pub)` binding
 - Subsequent: Accept if handshake authenticates stored `noise_static_pub`
 - Reject: If `device_id` unchanged but `noise_static_pub` differs (key mismatch attack)
 - UI prompt: "Device X's key changed. This could indicate an attack. Accept new key?"
 
-**Tier 2: PKI**
+##### Tier 2: PKI
+
 - Discovery: peer advertises `device_id` + certificate fingerprint
 - Handshake: peer sends certificate chain
 - Validate: certificate chain, expiry, revocation
@@ -346,6 +360,7 @@ This keeps identity binding explicit without requiring a full attestation stack.
 - Reject: If mismatch or invalid chain
 
 **Deterministic mapping enforcement**:
+
 - When discovery selects peers (subnet / cross-VM), `device_id` bytes MUST remain non-authoritative until bound to the authenticated `noise_static_pub`.
 - The system MUST define and enforce a deterministic mapping `(device_id <-> noise_static_pub)` (initially via local registry; Tier 2 via PKI).
 
@@ -458,6 +473,7 @@ Tasks are execution truth; see `tasks/TASK-0003B-dsoftbus-noise-xk-os.md` for ca
 - [x] **Stubs Labeling**: Stubs (if any) are explicitly labeled and non-authoritative.
   - **Status (2026-01-07)**: ✅ **FULFILLED** — test keys explicitly labeled in code
   - **Implementation**: All `derive_test_secret` calls in `dsoftbusd` and `selftest-client` have:
+
     ```rust
     // SECURITY: bring-up test keys, NOT production custody
     // These keys are deterministic and derived from port for reproducibility only.
@@ -466,6 +482,7 @@ Tasks are execution truth; see `tasks/TASK-0003B-dsoftbus-noise-xk-os.md` for ca
 ### Gap Summary (as of 2026-01-07)
 
 **Phase 1a (Noise XK Handshake) is 100% complete:**
+
 - ✅ Real Noise XK handshake implemented in `dsoftbusd` + `selftest-client`
 - ✅ Uses `nexus-noise-xk` library (X25519 + ChaChaPoly + BLAKE2s)
 - ✅ Test keys explicitly labeled with `SECURITY: bring-up test keys`

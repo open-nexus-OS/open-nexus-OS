@@ -26,6 +26,9 @@ UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
 UART_LOG=${UART_LOG:-uart.log}
 NEURON_BOOT_FEATURES=${NEURON_BOOT_FEATURES:-}
+# Allow overriding the QEMU net backend (default: usernet) for opt-in harnesses.
+QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
+QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE:--device virtio-net-device,netdev=n0}
 
 join_by() {
   local IFS="$1"
@@ -514,8 +517,8 @@ COMMON_ARGS=(
   # Networking: attach a virtio-net device on the virtio-mmio bus.
   # This is self-contained (user-mode net), requires no host TAP and remains deterministic enough
   # for marker-driven bring-up.
-  -netdev user,id=n0
-  -device virtio-net-device,netdev=n0
+  ${QEMU_NETDEV}
+  ${QEMU_NETDEV_DEVICE}
 )
 
 # Enable heavy QEMU tracing only when explicitly requested
