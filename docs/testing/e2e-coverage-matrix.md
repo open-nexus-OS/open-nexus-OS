@@ -14,7 +14,7 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 ## Coverage Matrix
 
 | Feature | Unit Tests | Host E2E | QEMU 1-VM | QEMU 2-VM (opt-in) |
-|---------|------------|----------|-----------|---------------------|
+| ------- | ---------- | -------- | --------- | ------------------ |
 | **Service IPC (samgrd, bundlemgrd)** | ✅ | ✅ (`nexus-e2e`) | ✅ | ✅ |
 | **Policy enforcement (policyd)** | ✅ | ✅ (`e2e_policy`) | ✅ | ❌ |
 | **VFS (packagefsd, vfsd)** | ✅ | ✅ (`vfs-e2e`) | ✅ | ❌ |
@@ -33,7 +33,7 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 ### Host E2E (`tests/*_e2e/`)
 
 | Suite | Tests | Focus | Command |
-|-------|-------|-------|---------|
+| ----- | ----- | ----- | ------- |
 | `nexus-e2e` | 5 | samgrd/bundlemgrd/keystored integration, signature validation | `cargo test -p nexus-e2e` |
 | `remote_e2e` | 1 | DSoftBus discovery, Noise XK, remote proxy | `cargo test -p remote_e2e` |
 | `logd-e2e` | 7 | logd journal, overflow, crash reports, concurrency | `cargo test -p logd-e2e` |
@@ -43,28 +43,31 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 
 ### QEMU Tests
 
-| Suite | Scope | Command | Duration |
-|-------|-------|---------|----------|
-| `qemu-test.sh` | 1-VM smoke (95+ markers) | `just test-os` | ~60s |
-| `os2vm.sh` | 2-VM cross-VM DSoftBus | `RUN_OS2VM=1 tools/os2vm.sh` | ~180s |
+| Suite           | Scope                     | Command                       | Duration |
+| --------------- | ------------------------- | ----------------------------- | -------- |
+| `qemu-test.sh`  | 1-VM smoke (95+ markers)  | `just test-os`                | ~60s     |
+| `os2vm.sh`      | 2-VM cross-VM DSoftBus    | `RUN_OS2VM=1 tools/os2vm.sh`  | ~180s    |
 
 ---
 
 ## When to Use Each Layer
 
-### Use **Host E2E** when:
+### Use **Host E2E** when
+
 - ✅ Testing service integration logic (IPC, protocol, state)
 - ✅ Iterating on new features (fast feedback)
 - ✅ Running in CI (deterministic, no QEMU overhead)
 - ✅ Debugging complex flows (in-process, no UART logs)
 
-### Use **QEMU 1-VM** when:
+### Use **QEMU 1-VM** when
+
 - ✅ Verifying OS boot sequence (kernel → init → services)
 - ✅ Testing real hardware (virtio-net, virtio-blk, UART)
 - ✅ Proving end-to-end marker contracts (95+ markers)
 - ✅ Validating syscall/IPC paths (kernel integration)
 
-### Use **QEMU 2-VM** (opt-in) when:
+### Use **QEMU 2-VM** (opt-in) when
+
 - ✅ Proving cross-VM networking (real UDP, multicast, L2)
 - ✅ Testing distributed scenarios (DSoftBus sessions, remote proxy)
 - ✅ Validating security (Noise XK over real network)
@@ -75,7 +78,7 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 ## Example: DSoftBus Testing Strategy
 
 | Layer | What's Tested | Why |
-|-------|---------------|-----|
+| ----- | ------------- | --- |
 | **Unit** (`userspace/dsoftbus/`) | Discovery protocol, Noise XK state machine, frame encoding | Fast, focused, no dependencies |
 | **Host E2E** (`remote_e2e`) | Full stack: discovery → auth → remote proxy (in-process, FakeNet) | Deterministic, debuggable, CI-friendly |
 | **QEMU 1-VM** (`qemu-test.sh`) | DSoftBus loopback (UDP, TCP), session establishment, markers | Proves OS integration (syscalls, virtio) |
