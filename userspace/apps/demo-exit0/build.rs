@@ -13,12 +13,15 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/lib.rs");
 
-    let text = build_text();
-    let elf_bytes = build_elf(&text);
-
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
+
+    let exit0 = build_elf(&build_text(0, b"child: exit0 start\n\0"));
     let out_path = out_dir.join("demo-exit0.elf");
-    fs::write(&out_path, elf_bytes).expect("write demo-exit0");
+    fs::write(&out_path, exit0).expect("write demo-exit0");
+
+    let exit42 = build_elf(&build_text(42, b"child: exit42 start\n\0"));
+    let out_path = out_dir.join("demo-exit42.elf");
+    fs::write(&out_path, exit42).expect("write demo-exit42");
 }
 
 fn build_elf(text: &[u8]) -> Vec<u8> {
@@ -64,7 +67,7 @@ fn build_elf(text: &[u8]) -> Vec<u8> {
     elf
 }
 
-fn build_text() -> Vec<u8> {
+fn build_text(exit_code: i32, msg: &[u8]) -> Vec<u8> {
     // This payload runs in U-mode, so it must NOT touch the UART MMIO directly.
     // Instead, print via the kernel debug_putc syscall and then exit(0).
     //
@@ -113,8 +116,8 @@ fn build_text() -> Vec<u8> {
     push(&mut text, encode_jal(0, LABEL_LOOP - pc));
     pc += 4;
 
-    // done: exit(0)
-    push(&mut text, encode_addi(10, 0, 0)); // a0=status
+    // done: exit(exit_code)
+    push(&mut text, encode_addi(10, 0, exit_code)); // a0=status
     pc += 4;
     push(&mut text, encode_addi(17, 0, SYSCALL_EXIT));
     pc += 4;
@@ -125,7 +128,7 @@ fn build_text() -> Vec<u8> {
 
     assert_eq!(pc, MSG_OFFSET, "message offset mismatch");
 
-    text.extend_from_slice(b"child: exit0 start\n\0");
+    text.extend_from_slice(msg);
     text
 }
 

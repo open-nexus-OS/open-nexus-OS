@@ -346,6 +346,8 @@ struct CtrlChannel {
     key_recv_slot: Option<u32>,
     net_send_slot: Option<u32>,
     net_recv_slot: Option<u32>,
+    log_send_slot: Option<u32>,
+    log_recv_slot: Option<u32>,
     /// Optional routing for target "dsoftbusd" from the perspective of this PID:
     /// - send_slot: where this PID should send requests/replies
     /// - recv_slot: where this PID should receive replies/requests
@@ -698,6 +700,8 @@ where
                     key_recv_slot: None,
                     net_send_slot: None,
                     net_recv_slot: None,
+                    log_send_slot: None,
+                    log_recv_slot: None,
                     dsoft_send_slot: None,
                     dsoft_recv_slot: None,
                     reply_send_slot: None,
@@ -770,6 +774,7 @@ where
     let samgrd_pid = find_pid(&ctrl_channels, "samgrd").ok_or(InitError::MissingElf)?;
     let execd_pid = find_pid(&ctrl_channels, "execd").ok_or(InitError::MissingElf)?;
     let keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
+    let logd_pid = find_pid(&ctrl_channels, "logd");
 
     // selftest-client <-> service endpoint pairs
     let vfs_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, vfsd_pid, 8)
@@ -801,6 +806,18 @@ where
     let key_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
 
+    // logd (optional) service endpoints (request/response).
+    // If logd is present in the image set, selftest-client gets a dedicated pair.
+    let (log_req, log_rsp) = if let Some(pid) = logd_pid {
+        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+            .map_err(InitError::Abi)?;
+        (Some(req), Some(rsp))
+    } else {
+        (None, None)
+    };
+
     // bundlemgrd <-> execd dedicated pair (avoid reusing selftest-client <-> execd channels)
     let bnd_exe_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
         .map_err(InitError::Abi)?;
@@ -812,6 +829,10 @@ where
     // - owned by selftest-client (receiver)
     // - selftest-client holds RECV to await replies and a SEND cap that it can CAP_MOVE to a server
     let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+        .map_err(InitError::Abi)?;
+
+    // execd reply-inbox endpoint (for CAP_MOVE request/reply, e.g. logd crash append).
+    let execd_reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
         .map_err(InitError::Abi)?;
 
     // DSoftBusd reply-inbox endpoint (for CAP_MOVE request/reply).
@@ -906,6 +927,14 @@ where
                     .map_err(InitError::Abi)?;
                 chan.dsoft_send_slot = Some(send_slot);
                 chan.dsoft_recv_slot = Some(recv_slot);
+
+                // TASK-0006: allow dsoftbusd to send structured logs to logd via CAP_MOVE (reply inbox).
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
             }
             "vfsd" => {
                 let recv_slot =
@@ -964,6 +993,24 @@ where
                     .map_err(InitError::Abi)?;
                 let _ = nexus_abi::cap_transfer(pid, pol_ctl_exec_rsp, Rights::SEND)
                     .map_err(InitError::Abi)?;
+
+                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                    .map_err(InitError::Abi)?;
+                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                // TASK-0006: allow policyd to send structured logs to logd via CAP_MOVE (reply inbox).
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
             }
             "bundlemgrd" => {
                 let recv_slot =
@@ -980,6 +1027,24 @@ where
                     .map_err(InitError::Abi)?;
                 chan.exe_send_slot = Some(send_slot);
                 chan.exe_recv_slot = Some(recv_slot);
+
+                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                    .map_err(InitError::Abi)?;
+                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                // TASK-0006: allow bundlemgrd to send structured logs to logd via CAP_MOVE (reply inbox).
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
             }
             "samgrd" => {
                 let recv_slot =
@@ -988,6 +1053,24 @@ where
                     nexus_abi::cap_transfer(pid, sam_rsp, Rights::SEND).map_err(InitError::Abi)?;
                 chan.sam_send_slot = Some(send_slot);
                 chan.sam_recv_slot = Some(recv_slot);
+
+                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                    .map_err(InitError::Abi)?;
+                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                // TASK-0006: allow samgrd to send structured logs to logd via CAP_MOVE (reply inbox).
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
             }
             "execd" => {
                 let recv_slot =
@@ -996,6 +1079,22 @@ where
                     nexus_abi::cap_transfer(pid, exe_rsp, Rights::SEND).map_err(InitError::Abi)?;
                 chan.exe_send_slot = Some(send_slot);
                 chan.exe_recv_slot = Some(recv_slot);
+
+                // Reply inbox: provide both RECV (stay with execd) and SEND (to be moved to servers).
+                let reply_recv_slot = nexus_abi::cap_transfer(pid, execd_reply_ep, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let reply_send_slot = nexus_abi::cap_transfer(pid, execd_reply_ep, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                // Optional: allow execd to send crash reports to logd via CAP_MOVE (reply inbox).
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
             }
             "keystored" => {
                 let recv_slot =
@@ -1004,6 +1103,33 @@ where
                     nexus_abi::cap_transfer(pid, key_rsp, Rights::SEND).map_err(InitError::Abi)?;
                 chan.key_send_slot = Some(send_slot);
                 chan.key_recv_slot = Some(recv_slot);
+
+                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                    .map_err(InitError::Abi)?;
+                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
+            }
+            "logd" => {
+                if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
+                    let recv_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(InitError::Abi)?;
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(recv_slot);
+                }
             }
             "selftest-client" => {
                 let send_slot =
@@ -1049,6 +1175,15 @@ where
                 chan.key_send_slot = Some(send_slot);
                 chan.key_recv_slot = Some(recv_slot);
 
+                if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    let recv_slot =
+                        nexus_abi::cap_transfer(pid, rsp, Rights::RECV).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(recv_slot);
+                }
+
                 // Reply inbox: provide both RECV (stay with client) and SEND (to be moved to servers).
                 let reply_recv_slot =
                     nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
@@ -1072,6 +1207,24 @@ where
                     .map_err(InitError::Abi)?;
                 chan.dsoft_send_slot = Some(send_slot);
                 chan.dsoft_recv_slot = Some(recv_slot);
+            }
+            "policyd" | "samgrd" | "bundlemgrd" | "packagefsd" | "vfsd" | "netstackd" => {
+                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                    .map_err(InitError::Abi)?;
+                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
             }
             _ => {}
         }
@@ -1267,6 +1420,11 @@ where
                 }
             } else if name == b"netstackd" {
                 match (chan.net_send_slot, chan.net_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"logd" {
+                match (chan.log_send_slot, chan.log_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }

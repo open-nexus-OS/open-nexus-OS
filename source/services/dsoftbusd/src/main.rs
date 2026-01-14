@@ -1107,6 +1107,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
     const LVER: u8 = 1;
     const LOP_REMOTE_RESOLVE: u8 = 1;
     const LOP_REMOTE_BUNDLE_LIST: u8 = 2;
+    const LOP_LOG_PROBE: u8 = 0x7f;
     const LSTATUS_OK: u8 = 0;
     const LSTATUS_FAIL: u8 = 1;
 
@@ -1737,6 +1738,16 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
             out.extend_from_slice(&[L0, L1, LVER, 0x80, LSTATUS_FAIL]);
         } else {
             match frame[3] {
+                LOP_LOG_PROBE => {
+                    let ok = append_probe_to_logd(b"dsoftbusd", b"core service log probe: dsoftbusd");
+                    out.extend_from_slice(&[
+                        L0,
+                        L1,
+                        LVER,
+                        LOP_LOG_PROBE | 0x80,
+                        if ok { LSTATUS_OK } else { LSTATUS_FAIL },
+                    ]);
+                }
                 LOP_REMOTE_RESOLVE => {
                     if frame.len() < 5 {
                         out.extend_from_slice(&[
@@ -1862,6 +1873,65 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
 
         let _ = server.send(&out, Wait::Blocking);
     }
+}
+
+#[cfg(all(target_os = "none", target_arch = "riscv64"))]
+fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
+    use nexus_ipc::{Client as _, KernelClient, Wait};
+
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_APPEND: u8 = 1;
+    const LEVEL_INFO: u8 = 2;
+
+    if scope.is_empty() || scope.len() > 64 || msg.is_empty() || msg.len() > 256 {
+        return false;
+    }
+
+    let logd = match KernelClient::new_for("logd") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let reply = match KernelClient::new_for("@reply") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let (reply_send_slot, reply_recv_slot) = reply.slots();
+    let moved = match nexus_abi::cap_clone(reply_send_slot) {
+        Ok(slot) => slot,
+        Err(_) => return false,
+    };
+    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.push(LEVEL_INFO);
+    frame.push(scope.len() as u8);
+    frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+    frame.extend_from_slice(&0u16.to_le_bytes()); // fields_len
+    frame.extend_from_slice(scope);
+    frame.extend_from_slice(msg);
+
+    // Drain a few stale replies to keep the inbox bounded.
+    {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        for _ in 0..4 {
+            match nexus_abi::ipc_recv_v1(
+                reply_recv_slot,
+                &mut hdr,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(_) => {}
+                Err(nexus_abi::IpcError::QueueEmpty) => break,
+                Err(_) => break,
+            }
+        }
+    }
+
+    // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
+    logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok()
 }
 
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]

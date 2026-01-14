@@ -23,6 +23,7 @@ os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-abi",
     "dep:nexus-ipc",
+    "dep:nexus-log",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
 ]
@@ -39,6 +40,7 @@ hex = { version = "0.4", optional = true }
 nexus-packagefs = { path = "../../../userspace/nexus-packagefs", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 
 [[bin]]
 name = "bundlemgrd"

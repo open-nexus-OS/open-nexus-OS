@@ -8,6 +8,8 @@ license.workspace = true
 default = []
 sink-userspace = ["dep:nexus-abi"]
 sink-kernel = []
+sink-logd = ["sink-userspace", "dep:nexus-ipc"]
 
 [dependencies]
 nexus-abi = { path = "../nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false, features = ["os-lite", "kernel-ipc"] }

@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use nexus_abi::{cap_close, debug_putc, yield_};
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 
 /// Result alias surfaced by the lite SAMgr backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -60,6 +60,7 @@ const OP_PING_CAP_MOVE: u8 = 3;
 const OP_SENDER_PID: u8 = 4;
 const OP_SENDER_SERVICE_ID: u8 = 5;
 const OP_RESOLVE_STATUS: u8 = 6;
+const OP_LOG_PROBE: u8 = 0x7f;
 
 const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
@@ -83,6 +84,24 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
             Ok((hdr, sender_service_id, frame)) => {
+                // TASK-0006: core service wiring proof (structured log via nexus-log -> logd).
+                // Probe is request-driven to avoid dependency on startup ordering.
+                if frame.len() >= 4
+                    && frame[0] == MAGIC0
+                    && frame[1] == MAGIC1
+                    && frame[2] == VERSION
+                    && frame[3] == OP_LOG_PROBE
+                {
+                    let status = if append_probe_to_logd() { STATUS_OK } else { STATUS_UNSUPPORTED };
+                    let rsp = [MAGIC0, MAGIC1, VERSION, OP_LOG_PROBE | 0x80, status];
+                    if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                        let _ = cap_close(hdr.src as u32);
+                    } else {
+                        let _ = server.send(&rsp, Wait::Blocking);
+                    }
+                    continue;
+                }
                 // Phase-2 scalability: if the client moved a reply cap, we can reply directly on it.
                 if frame.len() >= 4
                     && frame[0] == MAGIC0
@@ -257,4 +276,43 @@ fn emit_line(message: &str) {
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
+}
+
+fn append_probe_to_logd() -> bool {
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_APPEND: u8 = 1;
+    const LEVEL_INFO: u8 = 2;
+
+    let logd = match KernelClient::new_for("logd") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let reply = match KernelClient::new_for("@reply") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let (reply_send, _reply_recv) = reply.slots();
+    let moved = match nexus_abi::cap_clone(reply_send) {
+        Ok(slot) => slot,
+        Err(_) => return false,
+    };
+
+    let scope: &[u8] = b"samgrd";
+    let msg: &[u8] = b"core service log probe: samgrd";
+    if scope.len() > 64 || msg.len() > 256 {
+        return false;
+    }
+
+    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.push(LEVEL_INFO);
+    frame.push(scope.len() as u8);
+    frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+    frame.extend_from_slice(&0u16.to_le_bytes()); // fields_len
+    frame.extend_from_slice(scope);
+    frame.extend_from_slice(msg);
+
+    logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok()
 }

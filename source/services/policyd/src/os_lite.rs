@@ -60,6 +60,7 @@ const STATUS_ALLOW: u8 = 0;
 const STATUS_DENY: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_UNSUPPORTED: u8 = 3;
+const OP_LOG_PROBE: u8 = 0x7f;
 
 /// Minimal kernel-IPC backed policyd loop.
 ///
@@ -157,6 +158,10 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
     }
     let ver = frame[2];
     let op = frame[3];
+    if ver == VERSION && op == OP_LOG_PROBE {
+        let ok = append_probe_to_logd();
+        return rsp_v1(op, if ok { STATUS_ALLOW } else { STATUS_UNSUPPORTED });
+    }
     match (ver, op) {
         (VERSION, OP_CHECK) => {
             let n = frame[4] as usize;
@@ -319,6 +324,66 @@ fn rsp_v1(op: u8, status: u8) -> FrameOut {
 fn rsp_v2(op: u8, nonce: nexus_abi::policyd::Nonce, status: u8) -> FrameOut {
     let buf = nexus_abi::policyd::encode_rsp_v2(op, nonce, status);
     FrameOut { buf, len: 10 }
+}
+
+fn append_probe_to_logd() -> bool {
+    use nexus_ipc::Client as _;
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_APPEND: u8 = 1;
+    const LEVEL_INFO: u8 = 2;
+
+    let logd = match nexus_ipc::KernelClient::new_for("logd") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let reply = match nexus_ipc::KernelClient::new_for("@reply") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let (reply_send, reply_recv) = reply.slots();
+    let moved = match nexus_abi::cap_clone(reply_send) {
+        Ok(slot) => slot,
+        Err(_) => return false,
+    };
+
+    let scope: &[u8] = b"policyd";
+    let msg: &[u8] = b"core service log probe: policyd";
+    if scope.len() > 64 || msg.len() > 256 {
+        return false;
+    }
+
+    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.push(LEVEL_INFO);
+    frame.push(scope.len() as u8);
+    frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+    frame.extend_from_slice(&0u16.to_le_bytes()); // fields_len
+    frame.extend_from_slice(scope);
+    frame.extend_from_slice(msg);
+
+    // Drain a few stale replies to keep the inbox bounded.
+    {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        for _ in 0..4 {
+            match nexus_abi::ipc_recv_v1(
+                reply_recv,
+                &mut hdr,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(_) => {}
+                Err(nexus_abi::IpcError::QueueEmpty) => break,
+                Err(_) => break,
+            }
+        }
+    }
+
+    // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
+    logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok()
 }
 
 /// Stub transport runner retained for cross-module linkage.

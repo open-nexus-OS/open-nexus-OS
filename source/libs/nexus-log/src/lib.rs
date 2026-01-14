@@ -15,6 +15,9 @@
 
 #![no_std]
 
+#[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+extern crate alloc;
+
 use core::fmt;
 use core::ops::{BitOr, BitOrAssign};
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
@@ -149,6 +152,11 @@ pub fn log(meta: LineMeta<'_>, f: impl FnOnce(&mut LineBuilder)) {
     }
 
     sink.write_byte(b'\n');
+
+    #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+    {
+        sink_logd::try_append(meta.level, meta.target, sink.capture_bytes());
+    }
 }
 
 pub struct LineMeta<'a> {
@@ -426,7 +434,7 @@ impl sink::Sink<'_> {
     }
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(feature = "sink-userspace", feature = "userspace-linker-bounds", target_arch = "riscv64", target_os = "none"))]
 fn overlaps_guard(ptr: usize, end: usize) -> bool {
     extern "C" {
         static __small_data_guard: u8;
@@ -435,6 +443,11 @@ fn overlaps_guard(ptr: usize, end: usize) -> bool {
     let guard_start = core::ptr::addr_of!(__small_data_guard) as usize;
     let guard_end = core::ptr::addr_of!(__image_end) as usize;
     ptr < guard_end && end > guard_start
+}
+
+#[cfg(all(feature = "sink-userspace", not(feature = "userspace-linker-bounds"), target_arch = "riscv64", target_os = "none"))]
+fn overlaps_guard(_ptr: usize, _end: usize) -> bool {
+    false
 }
 
 #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
@@ -758,7 +771,7 @@ fn read_ra() -> usize {
     0
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(feature = "sink-userspace", feature = "userspace-linker-bounds", target_arch = "riscv64", target_os = "none"))]
 fn image_bounds() -> (usize, usize) {
     extern "C" {
         static __rodata_start: u8;
@@ -774,6 +787,11 @@ fn image_bounds() -> (usize, usize) {
         }
     }
     (start, end)
+}
+
+#[cfg(all(feature = "sink-userspace", not(feature = "userspace-linker-bounds"), target_arch = "riscv64", target_os = "none"))]
+fn image_bounds() -> (usize, usize) {
+    (0, usize::MAX)
 }
 
 #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
@@ -868,16 +886,30 @@ mod sink_userspace {
         level: Level,
         target: &'meta str,
         _topic: Topic,
+        #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+        cap_len: usize,
+        #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+        cap_buf: [u8; 320],
     }
 
     impl<'meta> Sink<'meta> {
         #[allow(dead_code)]
         pub fn new(level: Level, target: &'meta str, topic: Topic) -> Self {
-            Self { level, target, _topic: topic }
+            Self {
+                level,
+                target,
+                _topic: topic,
+                #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+                cap_len: 0,
+                #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+                cap_buf: [0u8; 320],
+            }
         }
 
         pub fn write_byte(&mut self, byte: u8) {
             crate::userspace_putc(byte);
+            #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+            self.capture_byte(byte);
         }
 
         pub fn write_bytes(&mut self, bytes: &[u8]) {
@@ -921,12 +953,166 @@ mod sink_userspace {
                 self.write_byte(b);
             }
         }
+
+        #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+        fn capture_byte(&mut self, byte: u8) {
+            if self.cap_len < self.cap_buf.len() {
+                self.cap_buf[self.cap_len] = byte;
+                self.cap_len += 1;
+            }
+        }
+
+        #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+        pub fn capture_bytes(&self) -> &[u8] {
+            &self.cap_buf[..self.cap_len]
+        }
     }
 
     impl fmt::Write for Sink<'_> {
         fn write_str(&mut self, s: &str) -> fmt::Result {
             self.write_bytes(s.as_bytes());
             Ok(())
+        }
+    }
+}
+
+#[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+mod sink_logd {
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    use nexus_abi::{cap_clone, ipc_recv_v1, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE};
+    use nexus_ipc::KernelClient;
+
+    use crate::Level;
+
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_APPEND: u8 = 1;
+
+    const MAX_SCOPE: usize = 64;
+    const MAX_MSG: usize = 256;
+
+    // Cached slots (0 means unknown).
+    static LOGD_SEND_SLOT: AtomicU32 = AtomicU32::new(0);
+    static REPLY_SEND_SLOT: AtomicU32 = AtomicU32::new(0);
+    static REPLY_RECV_SLOT: AtomicU32 = AtomicU32::new(0);
+
+    pub fn try_append(level: Level, target: &str, line: &[u8]) {
+        // Best-effort only: logging must not block or panic.
+        let (logd_send, reply_send, reply_recv) = match ensure_slots() {
+            Some(v) => v,
+            None => return,
+        };
+
+        let mut frame = [0u8; 4 + 1 + 1 + 2 + 2 + MAX_SCOPE + MAX_MSG];
+        let scope = target.as_bytes();
+        let scope_len = core::cmp::min(scope.len(), MAX_SCOPE);
+
+        let msg = strip_prefix_and_nl(line);
+        let msg_len = core::cmp::min(msg.len(), MAX_MSG);
+
+        // Header
+        let mut n = 0usize;
+        frame[n] = MAGIC0;
+        frame[n + 1] = MAGIC1;
+        frame[n + 2] = VERSION;
+        frame[n + 3] = OP_APPEND;
+        n += 4;
+        frame[n] = level_to_logd(level);
+        n += 1;
+        frame[n] = scope_len as u8;
+        n += 1;
+        frame[n..n + 2].copy_from_slice(&(msg_len as u16).to_le_bytes());
+        n += 2;
+        frame[n..n + 2].copy_from_slice(&0u16.to_le_bytes()); // fields_len
+        n += 2;
+        frame[n..n + scope_len].copy_from_slice(&scope[..scope_len]);
+        n += scope_len;
+        frame[n..n + msg_len].copy_from_slice(&msg[..msg_len]);
+        n += msg_len;
+
+        let moved = match cap_clone(reply_send) {
+            Ok(slot) => slot,
+            Err(_) => return,
+        };
+
+        // Use explicit slots to avoid route queries/allocations per line.
+        let client = match KernelClient::new_with_slots(logd_send, reply_recv) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let _ = client.send_with_cap_move_wait(&frame[..n], moved, nexus_ipc::Wait::NonBlocking);
+
+        // Drain a few replies to avoid filling the reply inbox under high log volume.
+        drain_reply(reply_recv);
+    }
+
+    fn ensure_slots() -> Option<(u32, u32, u32)> {
+        let send = LOGD_SEND_SLOT.load(Ordering::Relaxed);
+        let rs = REPLY_SEND_SLOT.load(Ordering::Relaxed);
+        let rr = REPLY_RECV_SLOT.load(Ordering::Relaxed);
+        if send != 0 && rs != 0 && rr != 0 {
+            return Some((send, rs, rr));
+        }
+
+        // Resolve logd route (send slot) and @reply (send+recv).
+        let logd = KernelClient::new_for("logd").ok()?;
+        let (logd_send, _logd_recv) = logd.slots();
+
+        let reply = KernelClient::new_for("@reply").ok()?;
+        let (reply_send, reply_recv) = reply.slots();
+
+        LOGD_SEND_SLOT.store(logd_send, Ordering::Relaxed);
+        REPLY_SEND_SLOT.store(reply_send, Ordering::Relaxed);
+        REPLY_RECV_SLOT.store(reply_recv, Ordering::Relaxed);
+
+        Some((logd_send, reply_send, reply_recv))
+    }
+
+    fn drain_reply(recv_slot: u32) {
+        let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64];
+        for _ in 0..4 {
+            match ipc_recv_v1(recv_slot, &mut hdr, &mut buf, IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE, 0) {
+                Ok(_n) => {}
+                Err(nexus_abi::IpcError::QueueEmpty) => break,
+                Err(_) => break,
+            }
+        }
+    }
+
+    fn strip_prefix_and_nl(line: &[u8]) -> &[u8] {
+        let mut s = line;
+        if let Some(last) = s.last() {
+            if *last == b'\n' {
+                s = &s[..s.len().saturating_sub(1)];
+            }
+        }
+        if let Some(pos) = find_bracket_space(s) {
+            &s[pos..]
+        } else {
+            s
+        }
+    }
+
+    fn find_bracket_space(s: &[u8]) -> Option<usize> {
+        // Find the first occurrence of "] " and return the index after it.
+        for i in 0..s.len().saturating_sub(1) {
+            if s[i] == b']' && s[i + 1] == b' ' {
+                return Some(i + 2);
+            }
+        }
+        None
+    }
+
+    fn level_to_logd(level: Level) -> u8 {
+        match level {
+            Level::Error => 0,
+            Level::Warn => 1,
+            Level::Info => 2,
+            Level::Debug => 3,
+            Level::Trace => 4,
         }
     }
 }

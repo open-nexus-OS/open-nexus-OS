@@ -245,6 +245,7 @@ dependencies = [
  "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-log",
  "nexus-packagefs",
  "nexus-service-entry",
  "sha2",
@@ -699,6 +700,7 @@ dependencies = [
  "nexus-abi",
  "nexus-discovery-packet",
  "nexus-ipc",
+ "nexus-log",
  "nexus-noise-xk",
  "nexus-peer-lru",
  "nexus-service-entry",
@@ -796,6 +798,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-loader",
+ "nexus-log",
  "nexus-service-entry",
  "thiserror 1.0.69",
 ]
@@ -1125,6 +1128,13 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 [[package]]
 name = "logd"
 version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-abi",
+ "nexus-idl-runtime",
+ "nexus-ipc",
+ "nexus-service-entry",
+]
 
 [[package]]
 name = "managed"
@@ -1295,6 +1305,7 @@ name = "nexus-log"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-ipc",
 ]
 
 [[package]]
@@ -1539,6 +1550,7 @@ dependencies = [
  "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-log",
  "nexus-service-entry",
  "policy",
  "thiserror 1.0.69",
@@ -1901,6 +1913,7 @@ dependencies = [
  "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-log",
  "nexus-service-entry",
  "samgr",
 ]
@@ -1977,6 +1990,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-init",
  "nexus-ipc",
+ "nexus-log",
  "nexus-net",
  "nexus-net-os",
  "nexus-noise-xk",

@@ -66,6 +66,7 @@ const VERSION: u8 = nexus_abi::bundlemgrd::VERSION;
 const OP_LIST: u8 = nexus_abi::bundlemgrd::OP_LIST;
 const OP_ROUTE_STATUS: u8 = nexus_abi::bundlemgrd::OP_ROUTE_STATUS;
 const OP_FETCH_IMAGE: u8 = nexus_abi::bundlemgrd::OP_FETCH_IMAGE;
+const OP_LOG_PROBE: u8 = 0x7f;
 
 const STATUS_OK: u8 = nexus_abi::bundlemgrd::STATUS_OK;
 const STATUS_MALFORMED: u8 = nexus_abi::bundlemgrd::STATUS_MALFORMED;
@@ -76,9 +77,18 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     notifier.notify();
     emit_line("bundlemgrd: ready");
     let server = KernelServer::new_for("bundlemgrd").map_err(|_| ServerError::Unsupported)?;
+    // TASK-0006: core service wiring proof (structured log via nexus-log -> logd).
+    // Emit on first request (not at process start) so init-lite has time to provision logd/@reply routes.
+    let mut probe_emitted = false;
     loop {
         match server.recv_request(Wait::Blocking) {
             Ok((frame, reply)) => {
+                if !probe_emitted {
+                    probe_emitted = true;
+                    nexus_log::info("bundlemgrd", |line| {
+                        line.text("core service log probe: bundlemgrd");
+                    });
+                }
                 let rsp = handle_frame_vec(frame.as_slice());
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);
@@ -140,6 +150,10 @@ fn handle_frame(frame: &[u8]) -> [u8; 8] {
     }
     let op = frame[3];
     match op {
+        OP_LOG_PROBE => {
+            let ok = append_probe_to_logd();
+            rsp(op, if ok { STATUS_OK } else { STATUS_UNSUPPORTED }, 0)
+        }
         OP_LIST => {
             if frame.len() != 4 {
                 return rsp(op, STATUS_MALFORMED, 0);
@@ -236,6 +250,45 @@ fn rsp2(op: u8, status: u8, route_status: u8) -> [u8; 8] {
     out[6] = 0;
     out[7] = 0;
     out
+}
+
+fn append_probe_to_logd() -> bool {
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_APPEND: u8 = 1;
+    const LEVEL_INFO: u8 = 2;
+
+    let logd = match nexus_ipc::KernelClient::new_for("logd") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let reply = match nexus_ipc::KernelClient::new_for("@reply") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let (reply_send, _reply_recv) = reply.slots();
+    let moved = match nexus_abi::cap_clone(reply_send) {
+        Ok(slot) => slot,
+        Err(_) => return false,
+    };
+
+    let scope: &[u8] = b"bundlemgrd";
+    let msg: &[u8] = b"core service log probe: bundlemgrd";
+    if scope.len() > 64 || msg.len() > 256 {
+        return false;
+    }
+
+    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.push(LEVEL_INFO);
+    frame.push(scope.len() as u8);
+    frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+    frame.extend_from_slice(&0u16.to_le_bytes()); // fields_len
+    frame.extend_from_slice(scope);
+    frame.extend_from_slice(msg);
+
+    logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok()
 }
 
 fn emit_line(message: &str) {

@@ -1,9 +1,9 @@
 ---
 title: TASK-0006 Observability v1 (OS): logd journal + nexus-log client sink + execd crash reports
-status: Draft
+status: In Review
 owner: @runtime
 created: 2025-12-22
-updated: 2026-01-13
+updated: 2026-01-14
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -158,6 +158,27 @@ v1 design constraints to stay compatible:
   - For OS bring-up we prefer compact, versioned byte frames (RFC-0005 style) unless we explicitly decide to move to Cap’n Proto.
   - IDL schemas (Cap’n Proto) may be added as *documentation + future direction*, but must not become the only on-wire contract unless proven in OS builds.
 
+## Follow-up compatibility promises (explicit; avoids hidden prerequisites)
+
+The following follow-up tasks depend on **logd v1** as an internal “structured event bus”:
+`TASK-0014` (metrics/tracing export via logd), `TASK-0018` (crashdumps v1 events), `TASK-0040` (remote scrape),
+`TASK-0141` (crash export/redaction + notifications).
+
+To prevent drift and hidden assumptions, TASK-0006 explicitly promises:
+
+- **Log transport exists and is queryable**:
+  - `logd` supports `APPEND`, `QUERY`, `STATS` per RFC-0011 (byte-frame v1).
+  - `QUERY` is **bounded** and **best-effort** (time may be coarse); clients MUST filter locally.
+  - Each record carries an authenticated `sender_service_id` from kernel IPC metadata.
+- **Structured payload slot exists (opaque)**:
+  - Records carry a bounded `fields` blob (opaque bytes). logd v1 does not interpret it.
+  - Follow-up tasks may define their own stable encoding within this blob; they MUST remain within v1 caps.
+- **Crash event envelope is stable and extendable**:
+  - `execd` emits a crash marker for non-zero exits and appends a **structured crash event** to logd.
+  - The crash event MUST be extensible to later include `build_id` and `/state` dump paths (TASK-0018 / TASK-0009).
+- **No streaming/export implied**:
+  - logd v1 provides bounded in-RAM storage + query only; subscriptions/remote export are deferred (TASK-0040).
+
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host)
@@ -172,6 +193,7 @@ v1 design constraints to stay compatible:
   - Extend `scripts/qemu-test.sh` expected markers (order tolerant) with:
     - `logd: ready`
     - `SELFTEST: log query ok`
+    - `SELFTEST: core services log ok`
     - `execd: crash report` (service/pid/code visible)
     - `SELFTEST: crash report ok`
 
@@ -180,6 +202,10 @@ v1 design constraints to stay compatible:
 - `source/services/logd/` (implement OS journaling service + marker)
 - `source/libs/nexus-log/` (add a client sink that can forward to logd; keep UART fallback)
 - `source/services/execd/` (crash-report hook on non-zero exit; query logd)
+- `source/services/samgrd/` (wire logs via nexus-log; preserve existing readiness markers)
+- `source/services/bundlemgrd/` (wire logs via nexus-log; preserve existing readiness markers)
+- `source/services/dsoftbusd/` (wire logs via nexus-log; preserve existing readiness markers)
+- `source/services/policyd/` (optional; minimal decision audit logs only; never log secrets)
 - `source/apps/selftest-client/` (log query + controlled crash markers)
 - `userspace/apps/` (add a tiny deterministic crash payload app, e.g. exit code 42)
 - `tools/nexus-idl/schemas/` (optional: add `log.capnp` as schema documentation)
@@ -212,7 +238,14 @@ v1 design constraints to stay compatible:
      - bounded local buffering or UART-only fallback (explicit; no “silent ok”).
 
 4. **Wire core services**
-   - Replace ad-hoc `println!` paths in services/apps with `nexus-log` calls (structured logs), while preserving the existing UART readiness markers required by `scripts/qemu-test.sh`.
+   - Replace ad-hoc `println!` paths in selected core services with `nexus-log` calls (structured logs), while preserving the existing UART readiness markers required by `scripts/qemu-test.sh`.
+   - Services in scope:
+     - `samgrd`, `bundlemgrd`, `dsoftbusd` (required)
+     - `policyd` (optional; security-sensitive: decision-only audit lines; never log secrets; no payload dumps)
+   - Implementation constraints (anti-drift):
+     - No marker string/order changes.
+     - No “logged ok” claims on failure; fallback is UART-only or best-effort.
+     - Bounded `fields` only; no unbounded formatting.
 
 5. **Crash reporting in `execd`**
    - On child exit with code != 0:
@@ -224,6 +257,7 @@ v1 design constraints to stay compatible:
 6. **Selftest proof**
    - Emit some `nexus-log` records from selftest scope.
    - Query logd and verify at least one record matches; marker: `SELFTEST: log query ok`.
+   - Verify that each in-scope core service emitted at least one record to logd (bounded query + string match on scope); marker: `SELFTEST: core services log ok`.
    - Run a controlled crash payload (exit code 42); wait for execd crash report marker; marker: `SELFTEST: crash report ok`.
 
 7. **Docs**
@@ -237,7 +271,8 @@ v1 design constraints to stay compatible:
 
 - Host tests prove ring ordering, drop behavior, and stats deterministically.
 - OS/QEMU run produces required markers and no kernel changes.
-- Services use `nexus-log` (no new `println!` in OS daemons) while preserving the existing readiness markers.
+- Allowlisted services/apps use `nexus-log` (no new `println!` in OS daemons) while preserving the existing readiness markers.
+  Broader “migrate many services” wiring must be explicitly allowlisted (or done as a follow-up slice) to avoid task drift.
 
 ## Evidence (to paste into PR)
 
@@ -245,8 +280,38 @@ v1 design constraints to stay compatible:
 - OS: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` and `uart.log` tail with:
   - `logd: ready`
   - `SELFTEST: log query ok`
+  - `SELFTEST: core services log ok`
   - `execd: crash report ... code=42`
   - `SELFTEST: crash report ok`
+
+### Proof gates (as of 2026-01-14)
+
+**Host tests**:
+
+```bash
+cargo test -p logd -- --nocapture
+cargo test -p nexus-log -- --nocapture
+```
+
+All pass.
+
+**QEMU markers**:
+
+```bash
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
+```
+
+All 5 required markers present:
+- `logd: ready`
+- `SELFTEST: log query ok`
+- `SELFTEST: core services log ok`
+- `execd: crash report pid=... code=42 name=demo.exit42`
+- `SELFTEST: crash report ok`
+
+**Core service wiring**:
+- `samgrd`, `bundlemgrd`, `policyd`, `dsoftbusd` all emit structured logs to `logd`
+- Existing UART readiness markers preserved
+- `selftest-client` validates via bounded `QUERY` + `STATS` delta proof
 
 ## RFC seeds (for later, once green)
 

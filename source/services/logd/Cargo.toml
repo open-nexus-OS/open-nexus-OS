@@ -4,4 +4,30 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+[features]
+default = ["std", "idl-capnp"]
+std = [
+    "dep:nexus-idl-runtime",
+    "dep:capnp",
+    "dep:nexus-ipc",
+    "nexus-ipc/std",
+]
+idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
+
 [dependencies]
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
+capnp = { version = "0.19", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+
+[[bin]]
+name = "logd"
+path = "src/main.rs"

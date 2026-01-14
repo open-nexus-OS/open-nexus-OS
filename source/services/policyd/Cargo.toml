@@ -19,6 +19,7 @@ os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-abi",
     "dep:nexus-ipc",
+    "dep:nexus-log",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
 ]
@@ -34,6 +35,7 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-fe
 thiserror = { version = "1", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 
 [[bin]]
 name = "policyd"

@@ -89,3 +89,9 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
 - RFC-0008: DSoftBus Noise XK v1 (no_std handshake + identity binding)
   - docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
+- RFC-0009: no_std Dependency Hygiene v1
+  - docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
+- RFC-0010: DSoftBus Cross-VM Harness v1
+  - docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md
+- RFC-0011: logd journal + crash reports v1
+  - docs/rfcs/RFC-0011-logd-journal-crash-v1.md

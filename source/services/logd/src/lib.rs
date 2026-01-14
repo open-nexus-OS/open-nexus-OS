@@ -1,35 +1,37 @@
-//! CONTEXT: Log daemon domain library (service API and handlers)
-//! INTENT: Kernel/user logs, ring buffer, filter/subscribe
-//! IDL (target): write(tag,level,msg), subscribe(filter), dump()
-//! DEPS: policyd (access control)
-//! READINESS: print "logd: ready"; register/heartbeat with samgr
-//! TESTS: write/dump roundtrip; subscribe emits
-pub fn help() -> &'static str {
-    "logd collects structured records. Usage: logd [--help] message"
-}
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
 
-pub fn execute(args: &[&str]) -> String {
-    if args.contains(&"--help") {
-        return help().to_string();
-    }
-    if let Some(message) = args.first() {
-        return format!("logd captured: {message}");
-    }
-    "logd awaiting input".to_string()
-}
+#![forbid(unsafe_code)]
+#![allow(unexpected_cfgs)]
+#![cfg_attr(
+    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    no_std
+)]
 
-pub fn run() {
-    let owned: Vec<String> = std::env::args().skip(1).collect();
-    let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
-    println!("{}", execute(&refs));
-}
+//! CONTEXT: logd daemon – bounded RAM journal for structured logs + minimal query/stats
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Host tests in `source/services/logd/tests/`
+//!
+//! PUBLIC API:
+//!   - `journal`: bounded in-memory ring buffer (drop-oldest)
+//!   - `protocol`: v1 byte-frame codec (os-lite authoritative)
+//!   - `service_main_loop()`: daemon entry loop (backend-specific)
+//! ADR: docs/adr/0017-service-architecture.md
 
-#[cfg(test)]
-mod tests {
-    use super::execute;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+extern crate alloc;
 
-    #[test]
-    fn echoes_message() {
-        assert!(execute(&["hello"]).contains("hello"));
-    }
-}
+pub mod journal;
+pub mod protocol;
+
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod os_lite;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub use os_lite::*;
+
+#[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+mod std_server;
+#[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+pub use std_server::*;
