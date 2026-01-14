@@ -1,11 +1,13 @@
 # Process lifecycle & supervision
 
-The Neuron kernel now models a task's lifetime with explicit `Running → Zombie → Reaped`
+The Neuron kernel models a task's lifetime with explicit `Running → Zombie → Reaped`
 transitions. A task invokes the `exit` syscall to publish its status and transition into the
 `Zombie` state. The kernel preserves the task control block, address space handle, and exit
 code until the parent issues a matching `wait`. Parents may wait on a concrete child PID or
 any zombie descendant. Once a parent reaps a child the kernel frees the remaining task
 resources and returns the `(pid, status)` pair to userspace.
+
+**Crash reporting (v1)**: When a supervised process exits with non-zero code, `execd` emits a deterministic crash marker and appends a structured crash event to `logd` (see RFC-0011). This enables post-mortem analysis without kernel dumps.
 
 ## Syscalls
 
@@ -22,7 +24,7 @@ The userspace ABI exposes safe wrappers for both syscalls. `nexus_abi::exit` per
 non-returning call, and `nexus_abi::wait` returns a `(Pid, i32)` pair mirroring the kernel
 semantics while translating lifecycle errors into `AbiError` variants.
 
-## execd supervision loop
+# execd supervision loop
 
 `execd` maintains a registry of launched services keyed by bundle name. Each entry records
 its kernel PID, restart policy, and the `argv`/`env` vectors required to respawn the service.
@@ -30,6 +32,17 @@ A dedicated reaper thread calls `nexus_abi::wait(0)` to harvest any exited child
 marker of the form `execd: child exited pid=<pid> code=<status>` whenever a termination is
 observed. If the registered policy is `restart=always` the reaper transparently re-execs the
 bundle and emits `execd: restart <service> pid=<pid>` when the replacement process starts.
+
+**Crash reporting (v1 flow)**: When a child exits with `code != 0`, `execd`:
+
+1. Emits a deterministic UART marker: `execd: crash report pid=<pid> code=<code> name=<name>`
+2. Appends a structured crash event to `logd` (scope `execd`, bounded fields) containing:
+   - `event=crash.v1`
+   - `pid=<pid>`, `code=<exit_code>`, `name=<bundle_or_payload_name>`
+   - `recent_count=<N>` (how many logd records were considered for context)
+3. The crash event is queryable via `logd QUERY` for post-mortem analysis
+
+See `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` for the full crash report envelope.
 
 Policies currently supported by the supervisor are:
 
@@ -44,9 +57,10 @@ Future revisions can extend the enum to cover additional strategies (e.g. `on-fa
 now includes lines such as `init: supervise samgrd restart=always`, which describe the
 expected policy that execd should enforce for the service tree.
 
-## Demo workload
+## Demo workloads
 
-The `demo.exit0` payload packages a tiny RISC-V ELF that prints `child: exit0 start`, calls
-`nexus_abi::exit(0)`, and ships with a manifest suitable for bundlemgrd staging. The OS
-selftest client installs this bundle, starts it through execd, waits for the supervisor log,
-and prints `SELFTEST: child exit ok` once the lifecycle markers appear.
+- **`demo.exit0`**: Tiny RISC-V ELF that prints `child: exit0 start`, calls `nexus_abi::exit(0)`, and ships with a manifest suitable for bundlemgrd staging. The OS selftest client installs this bundle, starts it through execd, waits for the supervisor log, and prints `SELFTEST: child exit ok` once the lifecycle markers appear.
+
+- **`demo.exit42`**: Similar payload that exits with code 42 to trigger crash reporting. Used by selftest to verify crash report flow: `execd: crash report pid=... code=42 name=demo.exit42` → `SELFTEST: crash report ok`.
+
+Both payloads are embedded in `userspace/apps/demo-exit0` and exposed via `userspace/exec-payloads`.

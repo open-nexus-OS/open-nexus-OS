@@ -7,7 +7,10 @@
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests
+//! TEST_COVERAGE: Tests in `source/services/logd/tests/journal_protocol.rs`
+//!   - Decode: APPEND/QUERY/STATS happy path, reject oversized/malformed/invalid inputs
+//!   - Encode: response roundtrips for all 3 opcodes
+//!   - Property tests for panic-freedom on arbitrary input
 //! ADR: docs/adr/0017-service-architecture.md
 
 extern crate alloc;
@@ -34,12 +37,14 @@ pub const MAX_MSG_LEN: usize = 256;
 pub const MAX_FIELDS_LEN: usize = 512;
 
 /// A decoded v1 request.
+#[derive(Debug, PartialEq)]
 pub enum Request {
     Append(AppendRequest),
     Query(QueryRequest),
     Stats(StatsRequest),
 }
 
+#[derive(Debug, PartialEq)]
 pub struct AppendRequest {
     pub level: LogLevel,
     pub scope: Vec<u8>,
@@ -47,11 +52,13 @@ pub struct AppendRequest {
     pub fields: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct QueryRequest {
     pub since_nsec: TimestampNsec,
     pub max_count: u16,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct StatsRequest;
 
 /// Decode errors for v1 frames.

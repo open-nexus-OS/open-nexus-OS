@@ -16,6 +16,7 @@ Define single sources of truth per role, maintain host parity, and gate OS-lite.
 - Kernel user loader: `source/kernel/neuron/src/user_loader.rs` remains a thin ABI bridge only.
 - Test payloads: `userspace/exec-payloads`, `demo-exit-0` are fixtures/tests only.
 - apps/init-lite: deprecated or wrapper that defers to `nexus-init`.
+- **Observability authority (added 2026-01-14)**: `source/services/logd` (bounded RAM journal, crash reports); `source/libs/nexus-log` (unified facade).
 
 ## Rationale
 - Reduce duplication, clarify module ownership, and enforce boundaries for production-grade code.
@@ -40,5 +41,3 @@ Define single sources of truth per role, maintain host parity, and gate OS-lite.
 ## References
 - `docs/agents/PLAYBOOK.md`
 - `tasks/TASK-0001-runtime-roles-and-boundaries.md`
-
-

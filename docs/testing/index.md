@@ -123,7 +123,12 @@ the runner validates in order:
 37. `SELFTEST: vfs stat ok` – VFS over IPC: stat succeeded
 38. `SELFTEST: vfs read ok` – VFS over IPC: open/read succeeded
 39. `SELFTEST: vfs ebadf ok` – VFS over IPC: EBADF behavior verified
-40. `SELFTEST: end` – concluding marker from the selftest client
+40. `logd: ready` – logd RAM journal ready for APPEND/QUERY/STATS
+41. `SELFTEST: log query ok` – selftest client queried logd and verified records
+42. `SELFTEST: core services log ok` – core services (samgrd/bundlemgrd/policyd/dsoftbusd) emit structured logs to logd (verified via bounded QUERY + STATS delta)
+43. `execd: crash report pid=... code=42 name=demo.exit42` – execd observed non-zero exit and emitted crash report
+44. `SELFTEST: crash report ok` – selftest client verified crash report via logd query
+45. `SELFTEST: end` – concluding marker from the selftest client
 
 ### OS E2E: exec-elf (service path)
 

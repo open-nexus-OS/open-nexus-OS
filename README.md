@@ -43,7 +43,9 @@ Start here:
 ## Documentation and standards
 
 - **Project overview**: `docs/overview.md`
+- **Architecture index**: `docs/architecture/README.md`
 - **Testing methodology (host-first, QEMU-last)**: `docs/testing/index.md`
+- **Observability (logd journal + crash reports)**: `docs/observability/logging.md`
 - **Docs/code standards (headers, ownership, drift rules)**: `docs/standards/DOCUMENTATION_STANDARDS.md`
 
 ## Continuous Integration

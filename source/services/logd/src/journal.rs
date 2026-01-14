@@ -7,7 +7,9 @@
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests
+//! TEST_COVERAGE: Tests in `source/services/logd/tests/journal_protocol.rs`
+//!   - Drop-oldest by records/bytes, query edge cases, stats, capacity limits
+//!   - Property tests for panic-freedom
 //! ADR: docs/adr/0017-service-architecture.md
 
 extern crate alloc;

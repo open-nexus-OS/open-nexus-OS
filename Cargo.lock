@@ -1134,6 +1134,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-service-entry",
+ "proptest",
 ]
 
 [[package]]

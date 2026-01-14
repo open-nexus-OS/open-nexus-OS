@@ -1,13 +1,14 @@
 # `execd` + loader path — onboarding
 
-`execd` is the **spawner/execution authority**: it turns a “run this payload” request into a real process.
-This is the core of “the OS can run something real” and is therefore heavily proof-driven.
+`execd` is the **spawner/execution authority**: it turns a "run this payload" request into a real process.
+This is the core of "the OS can run something real" and is therefore heavily proof-driven.
 
 Canonical sources:
 
 - Roles/boundaries: `docs/adr/0001-runtime-roles-and-boundaries.md`
 - Loader safety/guards: `docs/rfcs/RFC-0004-safe-loader-guards.md`
 - Packaging contract: `docs/packaging/nxb.md`
+- Crash reporting (v1): `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
 - QEMU proof harness: `scripts/qemu-test.sh` (marker contract)
 - Testing guide: `docs/testing/index.md`
 
@@ -16,6 +17,7 @@ Canonical sources:
 - **Spawn services and tasks** as real processes (process-per-service architecture).
 - **Delegate loading** to the shared loader library (`userspace/nexus-loader`) rather than duplicating ELF parsing/mapping.
 - **Work with bundle packaging** (`bundlemgrd` ↔ `execd`) so installed bundles can be executed.
+- **Crash reporting (v1)**: On child exit with non-zero code, emit a deterministic crash marker and append a structured crash event to `logd` (see RFC-0011).
 
 ## Non-goals
 
@@ -53,5 +55,9 @@ When you change anything about the exec pipeline:
   - packaging handshake (`bundlemgrd.getPayload`)
   - loader safety guards (`RFC-0004`)
   - kernel mapping syscalls / W^X enforcement
+- If crash report markers are missing for non-zero exits, check:
+  - `execd` supervision of spawned pids (uses `wait()` syscall)
+  - `logd` availability (crash reports require `logd` IPC)
+  - Verify crash markers via `selftest-client`: `SELFTEST: crash report ok`
 
-Always treat `scripts/qemu-test.sh` as the truth for “what must appear”.
+Always treat `scripts/qemu-test.sh` as the truth for "what must appear".

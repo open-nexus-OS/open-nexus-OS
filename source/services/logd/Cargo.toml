@@ -28,6 +28,9 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-fe
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 
+[dev-dependencies]
+proptest = "1.3"
+
 [[bin]]
 name = "logd"
 path = "src/main.rs"

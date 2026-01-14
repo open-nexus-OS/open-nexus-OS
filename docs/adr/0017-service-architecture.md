@@ -16,6 +16,7 @@ Establish a unified service architecture with the following components:
 - **Resource Services**: resmgrd (resource manager), policyd (policy enforcement)
 - **Storage Services**: vfsd (virtual file system), packagefsd (package file system)
 - **Execution Services**: execd (execution manager)
+- **Observability Services**: logd (log journal + crash reports)
 
 ### Architecture Principles
 1. **Service Discovery**: Services register with samgrd for discovery
@@ -26,6 +27,7 @@ Establish a unified service architecture with the following components:
 3. **Lifecycle Management**: Standard startup, shutdown, and health check patterns
 4. **Capability-Based Access**: Policy-driven access control via policyd
 5. **Host/OS Backends**: Support for both host development and OS deployment
+6. **Observability**: Services use `nexus-log` facade to emit structured logs to `logd` (see RFC-0011)
 
 ### Service Patterns
 - **Daemon Pattern**: Long-running background services

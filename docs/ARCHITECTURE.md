@@ -40,7 +40,14 @@ out-of-band via VMOs and `map()`.
 - Idle loop: drives cooperative scheduling via `SYSCALL_YIELD`.
 - Syscalls (os-lite): `yield`, `nsec`, `send/recv`, `map`, `vmo_create/write`, `spawn`, `cap_transfer`, `as_create/map`, `exit`, `wait`, `debug_putc`.
 - Entry points: `kmain.rs`, `syscall/api.rs`, `mm/address_space.rs`, `trap.rs`, `satp.rs`.
-- Don’t touch without RFC/ADR: syscall IDs/ABI, trap prologue/epilogue, kernel memory map/SATP assumptions.
+- Don't touch without RFC/ADR: syscall IDs/ABI, trap prologue/epilogue, kernel memory map/SATP assumptions.
+
+## Observability (userspace)
+- **`logd`**: Bounded RAM journal for structured logs (APPEND/QUERY/STATS); see `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`.
+- **`nexus-log`**: Unified logging facade used by all services; see `docs/rfcs/RFC-0003-unified-logging.md`.
+- **Crash reporting**: `execd` emits crash markers and appends structured events to `logd` on non-zero exits.
+- **Core services integrated**: `samgrd`, `bundlemgrd`, `policyd`, `dsoftbusd` emit structured logs via `nexus-log`.
+- **Proof**: `cargo test -p logd`, `cargo test -p nexus-log`, `RUN_UNTIL_MARKER=1 just test-os` (5 markers green as of 2026-01-14).
 
 Canonical: this is the single architecture page. For deeper details, read the source files listed above.
 

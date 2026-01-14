@@ -3,6 +3,8 @@
 - Status: Complete (Phase 0: deterministic bring-up markers + guards; later phases deferred)
 - Authors: Runtime Team
 - Last Updated: 2025-12-30
+- Related RFCs:
+  - **RFC-0011**: logd journal + crash reports v1 (Complete; extends this facade with structured log sink)
 
 ## Status at a Glance
 

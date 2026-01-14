@@ -65,6 +65,16 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - `14-samgrd-service-manager.md` — `samgrd` (OS service registry authority)
 - `15-bundlemgrd.md` — `bundlemgrd` (OS bundle/package authority)
 
+## Observability
+
+- **Logging guide**: `docs/observability/logging.md` — logd v1 usage + crash reports
+- **RFC-0003**: Unified logging facade (`nexus-log`)
+- **RFC-0011**: logd journal + crash reports v1 (Complete)
+
+**Current Status (2026-01-14)**:
+- TASK-0006: ✅ Done (logd RAM journal, nexus-log sink, execd crash reports, core service wiring)
+- TASK-0014: Next (metrics/tracing exports via logd)
+
 ## Onboarding landing pages (this directory)
 
 - `05-system-map-and-boundaries.md`

@@ -1,12 +1,13 @@
 ## Logging (Observability v1)
 
-This document describes the **v1 logging system** introduced by `TASK-0006`.
+This document describes the **v1 logging system** introduced by `TASK-0006` (complete as of 2026-01-14).
 
 Primary contract references:
 
 - `docs/rfcs/RFC-0003-unified-logging.md` (logging facade + marker discipline)
-- `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd journal + crash report v1 seed)
+- `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd journal + crash report v1 seed; **Complete**)
 - `scripts/qemu-test.sh` (authoritative marker contract)
+- `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (execution truth)
 
 ### Components
 
@@ -51,16 +52,47 @@ When a supervised process exits non-zero, `execd` emits:
 - UART marker: `execd: crash report pid=<pid> code=<code> name=<name>`
 - An appended record into `logd` (scope `execd`, bounded message) so selftests can verify crash reporting **without scraping UART**.
 
-### How to run
+### Core service integration (v1)
 
-Host:
+The following core services emit structured logs to `logd` via `nexus-log`:
+
+- `samgrd` (service registry)
+- `bundlemgrd` (bundle manager)
+- `policyd` (policy enforcement; decision audit only, never secrets)
+- `dsoftbusd` (distributed bus)
+
+Existing UART readiness markers (`*: ready`) are preserved for deterministic QEMU testing.
+`selftest-client` validates the integration via bounded `QUERY` (time-windowed) and `STATS` delta proof.
+
+### Proof gates (as of 2026-01-14)
+
+**Host**:
 
 ```bash
 cargo test -p logd -- --nocapture
+cargo test -p nexus-log -- --nocapture
 ```
 
-OS/QEMU:
+**OS/QEMU**:
 
 ```bash
 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
 ```
+
+**Required markers** (all present and green):
+
+- `logd: ready`
+- `SELFTEST: log query ok`
+- `SELFTEST: core services log ok`
+- `execd: crash report pid=... code=42 name=demo.exit42`
+- `SELFTEST: crash report ok`
+
+### Future direction (v2+)
+
+See `tasks/TASK-0014-observability-v2-metrics-tracing.md` for planned extensions:
+
+- Persistent journal (statefs/blk-backed) with rotation
+- Subscriptions / streaming (log consumers) with backpressure
+- Runtime filters (`logctl`) and structured field schema evolution
+- Export/bridging (remote collector via `dsoftbusd`)
+- Tracing/metrics integration

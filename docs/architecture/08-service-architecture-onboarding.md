@@ -105,6 +105,26 @@ Typical marker responsibility split:
 - each service prints `<svc>: ready` once it can accept requests
 - `scripts/qemu-test.sh` enforces marker ordering/presence
 
+## Observability (logging + crash reports)
+
+Services emit structured logs via `nexus-log` facade (see RFC-0003, RFC-0011):
+
+- **Logging facade**: `source/libs/nexus-log` (unified API for all services)
+- **Log journal**: `source/services/logd` (bounded RAM, APPEND/QUERY/STATS)
+- **Crash reporting**: `source/services/execd` (emits crash markers + structured events to logd)
+
+**Core service integration (as of 2026-01-14)**:
+
+- `samgrd`, `bundlemgrd`, `policyd`, `dsoftbusd` all emit structured logs to `logd`
+- Existing UART readiness markers preserved for deterministic QEMU testing
+- `selftest-client` validates via bounded `QUERY` (time-windowed) + `STATS` delta proof
+
+**Anti-patterns**:
+
+- Don't log secrets, keys, or credentials (see SECURITY_STANDARDS.md)
+- Don't bypass `nexus-log` facade (no ad-hoc `println!` in services)
+- Don't duplicate marker strings across services (keep them stable and unique)
+
 ## Where to add tests
 
 - **Most behavior**: add tests in the userspace crate.

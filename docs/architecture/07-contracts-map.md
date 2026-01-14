@@ -45,6 +45,15 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Canonical practice**: `docs/testing/index.md` + `scripts/qemu-test.sh`
 - **Standards**: `docs/standards/DOCUMENTATION_STANDARDS.md`
 
+### Observability (logd journal + crash reports)
+
+- **Contract**: bounded RAM journal (APPEND/QUERY/STATS), crash report envelope, core service integration
+- **Canonical spec**: `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (Complete)
+- **Related**: `docs/rfcs/RFC-0003-unified-logging.md` (nexus-log facade)
+- **Task**: `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (In Review)
+- **Proof**: host tests (`cargo test -p logd`, `cargo test -p nexus-log`) + QEMU markers (5 required, all green as of 2026-01-14)
+- **Why it matters**: provides bounded, deterministic log collection and crash reporting without kernel changes; core services (`samgrd`, `bundlemgrd`, `policyd`, `dsoftbusd`) emit structured logs to `logd` via `nexus-log`
+
 ## Adding a new contract
 
 When a change introduces a new stable interface or cross-boundary behavior:

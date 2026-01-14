@@ -37,7 +37,7 @@ The repo is structured around that:
 
 ## Runtime roles (single sources of truth)
 
-The project explicitly avoids duplicated “competing implementations”.
+The project explicitly avoids duplicated "competing implementations".
 Canonical roles (see ADR‑0001):
 
 - **Init / orchestrator**: `source/init/nexus-init` (host backend + os-lite backend)
@@ -45,6 +45,8 @@ Canonical roles (see ADR‑0001):
 - **Loader library**: `userspace/nexus-loader`
 - **Kernel loader**: thin ABI bridge only (`source/kernel/neuron/src/user_loader.rs`)
 - **Fixtures / test payloads**: `userspace/exec-payloads`, demo payload crates
+- **Observability authority**: `source/services/logd` (bounded RAM journal, crash reports)
+- **Logging facade**: `source/libs/nexus-log` (unified API for services)
 
 ## Boundaries that must not be crossed (anti-drift)
 
