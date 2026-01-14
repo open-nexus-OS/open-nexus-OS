@@ -55,6 +55,21 @@ Provide a v1 crashdump pipeline that works **without kernel changes**:
   - avoid dumping secrets by default (future hardening can add redaction/policy).
 - **No fake success**: only emit “minidump written” marker when the write actually succeeded.
 
+## Explicit prerequisites (from TASK-0006 / RFC-0011)
+
+This task assumes:
+
+- `logd` v1 exists and can carry structured crash events emitted by `execd`.
+- The crash event envelope keys from RFC-0011 remain stable:
+  - required: `event=crash.v1`, `pid`, `code`, `name`, `recent_window_nsec`, `recent_count`
+  - reserved for this task to populate: `build_id`, `dump_path`
+- `logd` provides bounded `QUERY` so selftests/tools can validate the crash event path without UART scraping.
+
+This task does **not** assume:
+
+- That `execd` can read a dead child’s registers/stack post-mortem without new kernel support (ptrace-like); v1 must be in-process capture.
+- Any on-device symbolization or persistent log journaling in logd; symbolization is host-first, persistence is via `/state` (TASK-0009).
+
 ## Red flags / decision points
 
 - **RED (blocking / must decide now)**:

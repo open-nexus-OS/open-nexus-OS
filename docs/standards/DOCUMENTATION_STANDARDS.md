@@ -1,15 +1,18 @@
 # Documentation Standards
 
 ## Overview
+
 This document defines the documentation standards for Open Nexus OS, including CONTEXT headers, ADR references, and CODEOWNERS structure.
 
 **Related Standards**:
+
 - `BUILD_STANDARDS.md` — Feature gates, `no_std` dependency hygiene, Makefile/justfile rules
 - `SECURITY_STANDARDS.md` — Security invariants, threat models, testing requirements
 
 ## Quick Reference
 
 ### CONTEXT Header Format
+
 ```rust
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
@@ -23,12 +26,14 @@ This document defines the documentation standards for Open Nexus OS, including C
 ```
 
 ### Status Categories
+
 - **Functional**: Fully implemented and tested
 - **Experimental**: Works but API may change
 - **Placeholder**: Only stubs, not functional
 - **Deprecated**: Will be removed/replaced
 
 ### Team Responsibilities
+
 - **@kernel-team**: Kernel implementation and architecture
 - **@runtime**: Userspace libraries, services, and runtime components
 - **@tools-team**: Build tools and development utilities
@@ -36,6 +41,7 @@ This document defines the documentation standards for Open Nexus OS, including C
 ## Detailed Standards
 
 ### Standard Format
+
 All Rust source files must include a CONTEXT header at the top with the following structure:
 
 ```rust
@@ -53,19 +59,22 @@ All Rust source files must include a CONTEXT header at the top with the followin
 ### Header Fields
 
 #### CONTEXT
+
 - **Purpose**: Brief description of what the module does
 - **Format**: Single line, descriptive
-- **Examples**: 
+- **Examples**:
   - "Virtual file system client library"
   - "Service manager domain library for service registration and discovery"
   - "Integration tests for bundle manager CLI functionality"
 
 #### OWNERS
+
 - **Purpose**: Defines code ownership and review responsibility
 - **Format**: @team-name or @username
 - **Teams**: @kernel-team, @runtime, @tools-team
 
 #### STATUS
+
 - **Purpose**: Indicates implementation maturity
 - **Values**:
   - `Functional`: Fully implemented and tested
@@ -74,17 +83,20 @@ All Rust source files must include a CONTEXT header at the top with the followin
   - `Deprecated`: Will be removed/replaced
 
 #### API_STABILITY
+
 - **Purpose**: Indicates API stability for external consumers
 - **Values**:
   - `Stable`: API won't change without major version bump
   - `Unstable`: API may change in minor versions
 
 #### TEST_COVERAGE
+
 - **Purpose**: Documents actual test coverage
 - **Format**: "[Number] tests" or "No tests"
 - **Examples**: "3 unit tests", "1 integration test", "No tests"
 
 #### ADR
+
 - **Purpose**: References architectural decision record
 - **Format**: `docs/adr/[number]-[module-name]-architecture.md`
 - **Examples**:
@@ -92,6 +104,7 @@ All Rust source files must include a CONTEXT header at the top with the followin
   - `docs/adr/0009-bundle-manager-architecture.md`
 
 ### Extended Format for Complex Modules
+
 For critical modules with many dependencies, additional sections may be included:
 
 ```rust
@@ -125,6 +138,7 @@ For critical modules with many dependencies, additional sections may be included
 ### File Type Specific Formats
 
 #### Library Files (lib.rs)
+
 Library files should include PUBLIC API and DEPENDENCIES sections:
 
 ```rust
@@ -144,6 +158,7 @@ Library files should include PUBLIC API and DEPENDENCIES sections:
 ```
 
 #### Test Files (tests/*.rs)
+
 Test files should include TEST_SCOPE, TEST_SCENARIOS, and DEPENDENCIES sections:
 
 ```rust
@@ -169,6 +184,7 @@ Test files should include TEST_SCOPE, TEST_SCENARIOS, and DEPENDENCIES sections:
 ```
 
 #### CLI Files (cli.rs, main.rs)
+
 CLI files should include PUBLIC API section with CLI interface:
 
 ```rust
@@ -190,6 +206,7 @@ CLI files should include PUBLIC API section with CLI interface:
 ```
 
 #### Kernel Files (kernel/*.rs)
+
 Kernel files use a specialized format with INVARIANTS and DEPENDS_ON:
 
 ```rust
@@ -202,6 +219,7 @@ Kernel files use a specialized format with INVARIANTS and DEPENDS_ON:
 ```
 
 #### Library Files (libs/*.rs)
+
 Library files follow the standard format with PUBLIC API and DEPENDENCIES:
 
 ```rust
@@ -221,6 +239,7 @@ Library files follow the standard format with PUBLIC API and DEPENDENCIES:
 ```
 
 #### Service Files (services/*.rs)
+
 Service files use a specialized format with PUBLIC API and DEPENDS_ON:
 
 ## Change management (keep docs in sync)
@@ -272,6 +291,7 @@ transport behavior, where “almost correct” can still be insecure.
 ```
 
 #### Assembly Files (*.S)
+
 Assembly files use a specialized format with detailed comments:
 
 ```assembly
@@ -293,6 +313,7 @@ Assembly files use a specialized format with detailed comments:
 ## ADR (Architectural Decision Records)
 
 ### Structure
+
 Each ADR follows this template:
 
 ```markdown
@@ -312,6 +333,7 @@ Accepted/Proposed/Deprecated
 ```
 
 ### Naming Convention
+
 - Format: `[number]-[module-name]-architecture.md`
 - Examples:
   - `0002-nexus-loader-architecture.md`
@@ -321,9 +343,11 @@ Accepted/Proposed/Deprecated
 ## CODEOWNERS Structure
 
 ### File Location
+
 `.github/CODEOWNERS`
 
 ### Current Structure
+
 ```bash
 # CODEOWNERS - define reviewers/owners for kernel paths
 # NOTE: Replace @kernel-team with actual GitHub team or usernames
@@ -337,6 +361,7 @@ Accepted/Proposed/Deprecated
 ```
 
 ### Team Responsibilities
+
 - **@kernel-team**: Kernel implementation and architecture
 - **@runtime**: Userspace libraries, services, and runtime components
 - **@tools-team**: Build tools and development utilities
@@ -344,18 +369,21 @@ Accepted/Proposed/Deprecated
 ## Implementation Guidelines
 
 ### For New Files
+
 1. Add CONTEXT header with all required fields
 2. Determine appropriate ADR reference
 3. Set accurate STATUS and TEST_COVERAGE
 4. Ensure OWNERS field matches CODEOWNERS
 
 ### For Existing Files
+
 1. Update CONTEXT header to match standard format
 2. Replace generic ADR references with specific ones
 3. Verify STATUS reflects actual implementation
 4. Count actual tests for TEST_COVERAGE
 
 ### For Documentation Updates
+
 1. Update ADR when architectural decisions change
 2. Update CONTEXT headers when implementation changes
 3. Update CODEOWNERS when team responsibilities change
@@ -364,12 +392,14 @@ Accepted/Proposed/Deprecated
 ## Quality Assurance
 
 ### CI Checks
+
 - CONTEXT header presence in `lib.rs` and `main.rs` files
 - ADR reference validity
 - Copyright header presence
 - Consistent formatting
 
 ### Review Process
+
 - All changes must maintain documentation standards
 - ADR references must point to existing documents
 - STATUS must accurately reflect implementation
@@ -378,13 +408,16 @@ Accepted/Proposed/Deprecated
 ## Tools and Automation
 
 ### Header Validation
+
 Use CI to check for:
+
 - Required header fields
 - Valid ADR references
 - Consistent formatting
 - Copyright compliance
 
 ### Documentation Generation
+
 - ADRs can be generated from CONTEXT headers
 - API documentation can be extracted from PUBLIC API sections
 - Test coverage can be validated against TEST_COVERAGE claims
@@ -392,13 +425,16 @@ Use CI to check for:
 ## Maintenance
 
 ### Regular Updates
+
 - Review STATUS accuracy quarterly
 - Update TEST_COVERAGE when tests are added/removed
 - Validate ADR references during code reviews
 - Update OWNERS when team responsibilities change
 
 ### Migration Guide
+
 When updating existing files:
+
 1. Preserve existing information
 2. Convert to standard format
 3. Verify accuracy of all fields
@@ -407,6 +443,7 @@ When updating existing files:
 ## Examples
 
 ### Simple Module
+
 ```rust
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
@@ -420,6 +457,7 @@ When updating existing files:
 ```
 
 ### Library Module (lib.rs)
+
 ```rust
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
@@ -445,6 +483,7 @@ When updating existing files:
 ```
 
 ### Test Module (tests/*.rs)
+
 ```rust
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
@@ -474,6 +513,7 @@ When updating existing files:
 ```
 
 ### CLI Module (cli.rs)
+
 ```rust
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0

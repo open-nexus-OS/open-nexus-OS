@@ -59,6 +59,18 @@ Once OS prerequisites exist, add QEMU markers and enable the same flow on OS.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - No fake markers.
 
+## Explicit prerequisites (from TASK-0006 / RFC-0011)
+
+This task assumes:
+
+- `logd` v1 exists and is queryable (bounded `QUERY`), and records carry authenticated origin (`sender_service_id`).
+- The record `fields` blob is bounded and can be interpreted by higher layers using the RFC-0011 deterministic convention (`key=value\n`, sorted by key).
+
+This task does **not** assume:
+
+- Any logd streaming/subscriptions or persistence; v1 logd is in-RAM query-only.
+- That JSON is the logd on-wire contract. JSONL may be used on the DSoftBus side as a transport format, but logd’s OS on-wire contract remains byte frames (RFC-0011).
+
 ## Red flags / decision points
 
 - **RED (gating)**:
@@ -146,4 +158,3 @@ Once OS prerequisites exist, extend `scripts/qemu-test.sh` with:
 - VMO bulk backfill once:
   - VMO sharing is proven (TASK-0031) and
   - mux v2 can carry bulk descriptors safely (TASK-0020 extension).
-

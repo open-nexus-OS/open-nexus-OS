@@ -60,6 +60,20 @@ In QEMU, prove:
 - **No fake success**: markers only after real updates/exports occurred.
 - **Rust hygiene**: no new `unwrap/expect` in OS daemons; no blanket `allow(dead_code)`.
 
+## Explicit prerequisites (from TASK-0006 / RFC-0011)
+
+This task assumes:
+
+- `logd` v1 exists and supports bounded `APPEND/QUERY/STATS` (byte frames).
+- OS services can emit structured records via `nexus-log` → logd (best-effort; UART fallback allowed).
+- The log record includes authenticated origin (`sender_service_id`) and a bounded opaque `fields` blob.
+- The `fields` blob follows the RFC-0011 deterministic convention (`key=value\n`, sorted by key) for interoperability.
+
+This task does **not** assume:
+
+- That “all services are already migrated” to `nexus-log`. Instrumentation is part of this task and must keep existing UART markers unchanged.
+- Any logd persistence, streaming subscriptions, or remote export; those remain out of scope until their dedicated tasks land.
+
 ## Red flags / decision points
 
 - **RED (blocking / must decide now)**:

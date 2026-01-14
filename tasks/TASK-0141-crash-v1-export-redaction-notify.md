@@ -77,6 +77,19 @@ Related follow-up:
 - Deterministic markers and deterministic redaction.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
+## Explicit prerequisites (from TASK-0006 / RFC-0011)
+
+This task assumes:
+
+- `logd` v1 exists as an in-RAM “structured event bus” and can be queried in a bounded way for recent crash events.
+- `execd` emits crash events with stable keys as defined in RFC-0011 (at least `event=crash.v1`, `pid`, `code`, `name`, and later `dump_path`/`build_id` once crash artifacts exist).
+- Crash artifacts themselves live under `/state` (TASK-0009 / TASK-0049); logd does not provide persistence.
+
+This task does **not** assume:
+
+- That logd itself stores crash artifacts or that logs are persistent.
+- Any new crash bundle format. Export reuses `.nxcd.zst` and `.report.txt` (no JSON-as-contract).
+
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
