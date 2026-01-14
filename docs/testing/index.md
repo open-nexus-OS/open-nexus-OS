@@ -38,11 +38,14 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 ### End-to-end coverage matrix
 
+For a detailed feature-by-feature breakdown, see: **[E2E Coverage Matrix](e2e-coverage-matrix.md)**
+
 | Layer | Scope | Command | Notes |
 | --- | --- | --- | --- |
 | Host E2E (`tests/e2e`) | In-process loopback using real Cap'n Proto handlers for `samgrd` and `bundlemgrd`. | `cargo test -p nexus-e2e` or `just test-e2e` | Deterministic and fast. Uses the same userspace libs as the OS build without QEMU. |
 | Host init smoke | Runs `nexus-init` on host, asserts real daemon readiness and `*: up` markers. | `just test-init` or `make test-init-host` | Exits early on `init: ready` and enforces ordered readiness. |
-| Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. |
+| Remote E2E (`tests/remote_e2e`) | Two in-process nodes exercising DSoftBus-lite discovery, Noise-authenticated sessions, and remote bundle installs. | `cargo test -p remote_e2e` or `just test-e2e` | Spins up paired `identityd`, `samgrd`, `bundlemgrd`, and DSoftBus-lite daemons sharing the host registry. Host-first complement to `tools/os2vm.sh` (TASK-0005). |
+| Logd E2E (`tests/logd_e2e`) | In-process `logd` journal with IPC integration, overflow behavior, crash reports, and concurrent multi-service logging. | `cargo test -p logd-e2e` | Tests APPEND → QUERY → STATS roundtrip, ring buffer drop-oldest policy, and crash event integration (TASK-0006). |
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
 | Host VFS (`tests/vfs_e2e`) | In-process `packagefsd`, `vfsd`, and `bundlemgrd` validating bundle publication and VFS reads. | `cargo test -p vfs-e2e` | Publishes a demo bundle, checks alias resolution, and verifies read/error paths via `nexus-vfs`. |
 | QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness now waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), the policy allow/deny probes, and the VFS checks before stopping. Logs are trimmed to keep artefacts small. |
@@ -67,7 +70,7 @@ seen and ensure log caps are in effect. `just test-os` wraps
 ### Just targets
 
 - Host unit/property: `just test-host`
-- Host E2E: `just test-e2e` (runs `nexus-e2e` and `remote_e2e`)
+- Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
 
 ### Miri tiers

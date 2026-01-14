@@ -1,0 +1,10 @@
+[package]
+name = "logd-e2e"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dev-dependencies]
+logd = { path = "../../source/services/logd" }
+nexus-ipc = { path = "../../userspace/nexus-ipc" }

@@ -16,7 +16,9 @@
 //!
 //! API_STABILITY: Unstable
 //!
-//! TEST_COVERAGE: Host tests in `source/services/logd/tests/`
+//! TEST_COVERAGE:
+//!   - Unit tests: `source/services/logd/tests/journal_protocol.rs` (31 tests: protocol decode/encode, journal bounds, property tests)
+//!   - E2E tests: `tests/logd_e2e/tests/journal_roundtrip.rs` (7 tests: IPC integration, overflow, crash reports, concurrency)
 //!
 //! PUBLIC API:
 //!   - `journal`: bounded in-memory ring buffer (drop-oldest)

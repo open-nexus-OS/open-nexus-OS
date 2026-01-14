@@ -1,9 +1,18 @@
-//! CONTEXT: Remote end-to-end integration tests
+//! CONTEXT: Remote end-to-end integration tests (host-first complement to tools/os2vm.sh)
 //! INTENT: Distributed service discovery, remote bundle management, authentication
 //! IDL (target): announce(device_id,services,port), connect(remote), resolve(name), installBundle(name,handle,len)
 //! DEPS: dsoftbusd, samgrd, bundlemgrd (distributed service integration)
 //! READINESS: Multiple nodes started; service discovery active
 //! TESTS: Service discovery, remote resolution, bundle install, authentication failure
+//!
+//! This test suite exercises the DSoftBus-lite stack (TASK-0005 / RFC-0010) entirely
+//! in-process using FakeNet. It provides fast, deterministic verification of the
+//! distributed service integration (discovery → Noise XK auth → remote proxy).
+//!
+//! For OS-level proof with real networking (virtio-net, smoltcp, UDP), see:
+//!   - tools/os2vm.sh (2-VM QEMU harness, opt-in via RUN_OS2VM=1)
+//!   - TASK-0005: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
+//!   - RFC-0010: docs/rfcs/RFC-0010-dsoftbus-remote-proxy-v1.md
 #![cfg(nexus_env = "host")]
 
 use dsoftbus::Announcement;

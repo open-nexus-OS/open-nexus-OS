@@ -16,6 +16,7 @@ members = [
     "tools/*",
     "tests/e2e",
     "tests/e2e_policy",
+    "tests/logd_e2e",
     "tests/remote_e2e",
     "tests/vfs_e2e"
 ]
@@ -38,4 +39,3 @@ panic = "abort"
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
-
