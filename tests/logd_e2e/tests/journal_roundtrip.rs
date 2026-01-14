@@ -51,11 +51,9 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                         &message,
                         &fields,
                     ) {
-                        Ok(outcome) => encode_append_response(
-                            STATUS_OK,
-                            outcome.record_id,
-                            outcome.dropped_records,
-                        ),
+                        Ok(outcome) => {
+                            encode_append_response(STATUS_OK, outcome.record_id, outcome.dropped_records)
+                        }
                         Err(_) => encode_append_response(3, RecordId(0), 0), // TooLarge
                     }
                 }
@@ -306,8 +304,9 @@ fn logd_crash_report_event() {
 
     // Query for crash events
     let records = query(&client, 0, 100);
-    let crash_record =
-        records.iter().find(|r| r.fields.windows(14).any(|w| w == b"event=crash.v1"));
+    let crash_record = records
+        .iter()
+        .find(|r| r.fields.windows(14).any(|w| w == b"event=crash.v1"));
     assert!(crash_record.is_some(), "crash event should be in journal");
 
     let crash = crash_record.unwrap();
@@ -383,7 +382,8 @@ fn logd_bounded_scope_message_fields() {
     let max_msg = vec![b'b'; 256];
     let max_fields = vec![b'c'; 512];
 
-    let (record_id, dropped) = append(&client, LogLevel::Info, &max_scope, &max_msg, &max_fields);
+    let (record_id, dropped) =
+        append(&client, LogLevel::Info, &max_scope, &max_msg, &max_fields);
     assert_eq!(record_id.0, 1);
     assert_eq!(dropped, 0);
 
