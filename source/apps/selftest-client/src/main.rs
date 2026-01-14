@@ -604,9 +604,8 @@ mod os_lite {
 
         logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        let rsp = logd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let rsp =
+            logd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
         if rsp.len() != 21 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
             return Err(());
         }
@@ -633,10 +632,12 @@ mod os_lite {
 
         logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        let rsp = logd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        if rsp.len() < 4 + 1 + 8 + 8 + 2 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION
+        let rsp =
+            logd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
+        if rsp.len() < 4 + 1 + 8 + 8 + 2
+            || rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
         {
             return Err(());
         }
@@ -785,10 +786,13 @@ mod os_lite {
 
         logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        let rsp = logd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        if rsp.len() < 4 + 1 + 8 + 8 + 2 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+        let rsp =
+            logd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
+        if rsp.len() < 4 + 1 + 8 + 8 + 2
+            || rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
+        {
             return Err(());
         }
         if rsp[3] != (OP_QUERY | 0x80) || rsp[4] != STATUS_OK {
@@ -835,18 +839,16 @@ mod os_lite {
         let frame = [MAGIC0, MAGIC1, VERSION, OP_STATS];
         logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        let rsp = logd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let rsp =
+            logd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
         if rsp.len() < 4 + 1 + 8 + 8 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
             return Err(());
         }
         if rsp[3] != (OP_STATS | 0x80) || rsp[4] != STATUS_OK {
             return Err(());
         }
-        let total = u64::from_le_bytes([
-            rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
-        ]);
+        let total =
+            u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
         Ok(total)
     }
 
@@ -972,9 +974,8 @@ mod os_lite {
         let frame = [magic0, magic1, version, op];
         svc.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(200)))
             .map_err(|_| ())?;
-        let rsp = svc
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(200)))
-            .map_err(|_| ())?;
+        let rsp =
+            svc.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
         if rsp.len() < 5 || rsp[0] != magic0 || rsp[1] != magic1 || rsp[2] != version {
             return Err(());
         }
@@ -989,9 +990,8 @@ mod os_lite {
         let frame = [b'P', b'O', 1, 0x7f, 0, 0];
         svc.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(200)))
             .map_err(|_| ())?;
-        let rsp = svc
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(200)))
-            .map_err(|_| ())?;
+        let rsp =
+            svc.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
         if rsp.len() < 6 || rsp[0] != b'P' || rsp[1] != b'O' || rsp[2] != 1 {
             return Err(());
         }
@@ -1179,11 +1179,7 @@ mod os_lite {
         let crash_pid = execd_spawn_image(&execd_client, "selftest-client", 3)?;
         let crash_status = wait_for_pid(&execd_client, crash_pid).unwrap_or(-1);
         emit_line_with_pid_status(crash_pid, crash_status);
-        let crash_logged = logd_query_contains(
-            &logd,
-            b"crash pid=",
-        )
-        .unwrap_or(false);
+        let crash_logged = logd_query_contains(&logd, b"crash pid=").unwrap_or(false);
         if crash_status == 42 && crash_logged {
             emit_line("SELFTEST: crash report ok");
         } else {
@@ -1262,7 +1258,8 @@ mod os_lite {
         let sam_delta_ok = t1 >= total.saturating_add(1);
         total = t1;
         let sam_found =
-            logd_query_contains_since_paged(&logd, 0, b"core service log probe: samgrd").unwrap_or(false);
+            logd_query_contains_since_paged(&logd, 0, b"core service log probe: samgrd")
+                .unwrap_or(false);
         ok &= sam_probe && sam_found && sam_delta_ok;
 
         // bundlemgrd probe
@@ -1274,8 +1271,9 @@ mod os_lite {
         let t1 = logd_stats_total(&logd).unwrap_or(total);
         let bnd_delta_ok = t1 >= total.saturating_add(1);
         total = t1;
-        let bnd_found = logd_query_contains_since_paged(&logd, 0, b"core service log probe: bundlemgrd")
-            .unwrap_or(false);
+        let bnd_found =
+            logd_query_contains_since_paged(&logd, 0, b"core service log probe: bundlemgrd")
+                .unwrap_or(false);
         ok &= bnd_probe && bnd_found && bnd_delta_ok;
 
         // policyd probe
@@ -1288,14 +1286,16 @@ mod os_lite {
         let pol_delta_ok = t1 >= total.saturating_add(1);
         total = t1;
         let _pol_found =
-            logd_query_contains_since_paged(&logd, 0, b"core service log probe: policyd").unwrap_or(false);
+            logd_query_contains_since_paged(&logd, 0, b"core service log probe: policyd")
+                .unwrap_or(false);
         // Mix of (1) and (2): for policyd we validate via logd stats delta (logd-backed) to avoid
         // brittle false negatives from QUERY paging/limits.
         ok &= pol_probe && pol_delta_ok;
 
         // dsoftbusd emits its probe at readiness; validate it via logd query scan.
         let _dsoft_found =
-            logd_query_contains_since_paged(&logd, 0, b"core service log probe: dsoftbusd").unwrap_or(false);
+            logd_query_contains_since_paged(&logd, 0, b"core service log probe: dsoftbusd")
+                .unwrap_or(false);
 
         // Overall sanity: at least 3 appends during the probe phase (samgrd/bundlemgrd/policyd).
         let delta_ok = total >= total0.saturating_add(3);

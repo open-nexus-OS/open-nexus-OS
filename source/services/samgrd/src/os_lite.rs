@@ -92,7 +92,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     && frame[2] == VERSION
                     && frame[3] == OP_LOG_PROBE
                 {
-                    let status = if append_probe_to_logd() { STATUS_OK } else { STATUS_UNSUPPORTED };
+                    let status =
+                        if append_probe_to_logd() { STATUS_OK } else { STATUS_UNSUPPORTED };
                     let rsp = [MAGIC0, MAGIC1, VERSION, OP_LOG_PROBE | 0x80, status];
                     if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
                         let _ = KernelServer::send_on_cap(hdr.src, &rsp);

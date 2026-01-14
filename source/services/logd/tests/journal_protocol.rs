@@ -238,12 +238,9 @@ fn journal_drop_oldest_by_bytes() {
     // cap_bytes = 200, each record ~70 bytes overhead + payload
     // Insert records until bytes overflow triggers drop
     let mut j = Journal::new(100, 200);
-    j.append(1, TimestampNsec(1), LogLevel::Info, b"scope", b"message1", b"")
-        .unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"scope", b"message2", b"")
-        .unwrap();
-    j.append(1, TimestampNsec(3), LogLevel::Info, b"scope", b"message3", b"")
-        .unwrap();
+    j.append(1, TimestampNsec(1), LogLevel::Info, b"scope", b"message1", b"").unwrap();
+    j.append(1, TimestampNsec(2), LogLevel::Info, b"scope", b"message2", b"").unwrap();
+    j.append(1, TimestampNsec(3), LogLevel::Info, b"scope", b"message3", b"").unwrap();
 
     let stats = j.stats();
     // Should have dropped at least one record due to bytes constraint
@@ -350,10 +347,8 @@ fn protocol_encode_stats_response_roundtrip() {
 fn protocol_encode_query_response_with_records() {
     // Build records via journal to avoid accessing private size_bytes field
     let mut j = Journal::new(10, 4096);
-    j.append(42, TimestampNsec(1000), LogLevel::Info, b"test", b"hello", b"k=v")
-        .unwrap();
-    j.append(42, TimestampNsec(2000), LogLevel::Warn, b"test", b"world", b"")
-        .unwrap();
+    j.append(42, TimestampNsec(1000), LogLevel::Info, b"test", b"hello", b"k=v").unwrap();
+    j.append(42, TimestampNsec(2000), LogLevel::Warn, b"test", b"world", b"").unwrap();
     let records = j.query(TimestampNsec(0), 10);
     let stats = logd::journal::JournalStats {
         total_records: 2,

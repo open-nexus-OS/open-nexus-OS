@@ -434,7 +434,12 @@ impl sink::Sink<'_> {
     }
 }
 
-#[cfg(all(feature = "sink-userspace", feature = "userspace-linker-bounds", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    feature = "userspace-linker-bounds",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn overlaps_guard(ptr: usize, end: usize) -> bool {
     extern "C" {
         static __small_data_guard: u8;
@@ -445,7 +450,12 @@ fn overlaps_guard(ptr: usize, end: usize) -> bool {
     ptr < guard_end && end > guard_start
 }
 
-#[cfg(all(feature = "sink-userspace", not(feature = "userspace-linker-bounds"), target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    not(feature = "userspace-linker-bounds"),
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn overlaps_guard(_ptr: usize, _end: usize) -> bool {
     false
 }
@@ -771,7 +781,12 @@ fn read_ra() -> usize {
     0
 }
 
-#[cfg(all(feature = "sink-userspace", feature = "userspace-linker-bounds", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    feature = "userspace-linker-bounds",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn image_bounds() -> (usize, usize) {
     extern "C" {
         static __rodata_start: u8;
@@ -789,7 +804,12 @@ fn image_bounds() -> (usize, usize) {
     (start, end)
 }
 
-#[cfg(all(feature = "sink-userspace", not(feature = "userspace-linker-bounds"), target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    not(feature = "userspace-linker-bounds"),
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn image_bounds() -> (usize, usize) {
     (0, usize::MAX)
 }
@@ -1074,7 +1094,8 @@ mod sink_logd {
         let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 64];
         for _ in 0..4 {
-            match ipc_recv_v1(recv_slot, &mut hdr, &mut buf, IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE, 0) {
+            match ipc_recv_v1(recv_slot, &mut hdr, &mut buf, IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE, 0)
+            {
                 Ok(_n) => {}
                 Err(nexus_abi::IpcError::QueueEmpty) => break,
                 Err(_) => break,

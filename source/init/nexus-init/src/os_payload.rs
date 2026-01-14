@@ -832,8 +832,9 @@ where
         .map_err(InitError::Abi)?;
 
     // execd reply-inbox endpoint (for CAP_MOVE request/reply, e.g. logd crash append).
-    let execd_reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
-        .map_err(InitError::Abi)?;
+    let execd_reply_ep =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
+            .map_err(InitError::Abi)?;
 
     // DSoftBusd reply-inbox endpoint (for CAP_MOVE request/reply).
     let dsoft_reply_ep =
@@ -995,12 +996,13 @@ where
                     .map_err(InitError::Abi)?;
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                    .map_err(InitError::Abi)?;
-                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                    .map_err(InitError::Abi)?;
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
 
@@ -1029,12 +1031,13 @@ where
                 chan.exe_recv_slot = Some(recv_slot);
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                    .map_err(InitError::Abi)?;
-                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                    .map_err(InitError::Abi)?;
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
 
@@ -1055,12 +1058,13 @@ where
                 chan.sam_recv_slot = Some(recv_slot);
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                    .map_err(InitError::Abi)?;
-                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                    .map_err(InitError::Abi)?;
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
 
@@ -1105,12 +1109,13 @@ where
                 chan.key_recv_slot = Some(recv_slot);
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                    .map_err(InitError::Abi)?;
-                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                    .map_err(InitError::Abi)?;
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
 
@@ -1210,12 +1215,13 @@ where
             }
             "policyd" | "samgrd" | "bundlemgrd" | "packagefsd" | "vfsd" | "netstackd" => {
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                    .map_err(InitError::Abi)?;
-                let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                    .map_err(InitError::Abi)?;
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
 

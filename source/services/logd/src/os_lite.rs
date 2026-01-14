@@ -22,8 +22,8 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::journal::{Journal, RecordId, TimestampNsec};
 use crate::protocol::{
-    decode_request, encode_append_response, encode_query_response, encode_stats_response, DecodeError,
-    Request, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED,
+    decode_request, encode_append_response, encode_query_response, encode_stats_response,
+    DecodeError, Request, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED,
 };
 
 /// Result alias surfaced by the lite logd backend.
@@ -139,8 +139,14 @@ fn handle_frame(
             &req.message,
             &req.fields,
         ) {
-            Ok(outcome) => encode_append_response(STATUS_OK, outcome.record_id, outcome.dropped_records),
-            Err(_) => encode_append_response(STATUS_TOO_LARGE, RecordId(0), journal.stats().dropped_records),
+            Ok(outcome) => {
+                encode_append_response(STATUS_OK, outcome.record_id, outcome.dropped_records)
+            }
+            Err(_) => encode_append_response(
+                STATUS_TOO_LARGE,
+                RecordId(0),
+                journal.stats().dropped_records,
+            ),
         },
         Ok(Request::Query(req)) => {
             let stats = journal.stats();
@@ -166,7 +172,9 @@ fn handle_frame(
                 && frame[2] == crate::protocol::VERSION
             {
                 match frame[3] {
-                    crate::protocol::OP_APPEND => encode_append_response(status, RecordId(0), stats.dropped_records),
+                    crate::protocol::OP_APPEND => {
+                        encode_append_response(status, RecordId(0), stats.dropped_records)
+                    }
                     crate::protocol::OP_QUERY => encode_query_response(status, stats, &[]),
                     crate::protocol::OP_STATS => encode_stats_response(status, stats),
                     _ => encode_stats_response(status, stats),

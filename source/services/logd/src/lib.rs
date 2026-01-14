@@ -9,15 +9,20 @@
 )]
 
 //! CONTEXT: logd daemon – bounded RAM journal for structured logs + minimal query/stats
+//!
 //! OWNERS: @runtime
+//!
 //! STATUS: Experimental
+//!
 //! API_STABILITY: Unstable
+//!
 //! TEST_COVERAGE: Host tests in `source/services/logd/tests/`
 //!
 //! PUBLIC API:
 //!   - `journal`: bounded in-memory ring buffer (drop-oldest)
 //!   - `protocol`: v1 byte-frame codec (os-lite authoritative)
 //!   - `service_main_loop()`: daemon entry loop (backend-specific)
+//!
 //! ADR: docs/adr/0017-service-architecture.md
 
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

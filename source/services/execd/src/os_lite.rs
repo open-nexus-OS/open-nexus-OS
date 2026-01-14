@@ -12,7 +12,7 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT42_ELF};
 use exec_payloads::HELLO_ELF;
-use nexus_log as nexus_log;
+use nexus_log;
 
 /// Result alias surfaced by the lite execd backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -203,7 +203,13 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             }
             Err(_) => {
                 let mut out = Vec::with_capacity(13);
-                out.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_WAIT_PID | 0x80, STATUS_FAILED]);
+                out.extend_from_slice(&[
+                    MAGIC0,
+                    MAGIC1,
+                    VERSION,
+                    OP_WAIT_PID | 0x80,
+                    STATUS_FAILED,
+                ]);
                 out.extend_from_slice(&(pid as u32).to_le_bytes());
                 out.extend_from_slice(&(-1i32).to_le_bytes());
                 out

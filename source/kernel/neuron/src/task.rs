@@ -703,7 +703,9 @@ impl TaskTable {
 
     /// Wakes a blocked task and enqueues it for execution. Returns true if a task was woken.
     pub fn wake(&mut self, pid: Pid, scheduler: &mut Scheduler) -> bool {
-        let Some(task) = self.task_mut(pid) else { return false };
+        let Some(task) = self.task_mut(pid) else {
+            return false;
+        };
         if !task.blocked {
             return false;
         }
@@ -716,9 +718,15 @@ impl TaskTable {
 
     /// Wakes the current task's parent if it is blocked in `wait` for this child.
     pub fn wake_parent_waiter(&mut self, child: Pid, scheduler: &mut Scheduler) {
-        let Some(child_task) = self.task(child) else { return };
-        let Some(parent) = child_task.parent() else { return };
-        let Some(parent_task) = self.task(parent) else { return };
+        let Some(child_task) = self.task(child) else {
+            return;
+        };
+        let Some(parent) = child_task.parent() else {
+            return;
+        };
+        let Some(parent_task) = self.task(parent) else {
+            return;
+        };
         if !parent_task.is_blocked() {
             return;
         }

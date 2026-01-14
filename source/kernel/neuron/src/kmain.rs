@@ -274,7 +274,9 @@ impl KernelState {
                 let len = self.tasks.len();
                 for pid_usize in 0..len {
                     let pid = pid_usize as crate::task::Pid;
-                    let Some(t) = self.tasks.task(pid) else { continue };
+                    let Some(t) = self.tasks.task(pid) else {
+                        continue;
+                    };
                     if !t.is_blocked() {
                         continue;
                     }

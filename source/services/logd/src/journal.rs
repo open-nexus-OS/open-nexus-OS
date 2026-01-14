@@ -4,12 +4,17 @@
 #![forbid(unsafe_code)]
 
 //! CONTEXT: Bounded in-memory journal (ring buffer) for structured log records
+//!
 //! OWNERS: @runtime
+//!
 //! STATUS: Experimental
+//!
 //! API_STABILITY: Unstable
+//!
 //! TEST_COVERAGE: Tests in `source/services/logd/tests/journal_protocol.rs`
 //!   - Drop-oldest by records/bytes, query edge cases, stats, capacity limits
 //!   - Property tests for panic-freedom
+//!
 //! ADR: docs/adr/0017-service-architecture.md
 
 extern crate alloc;
@@ -119,7 +124,8 @@ impl Journal {
         }
 
         // Ensure capacity for the new record.
-        while (self.records.len() as u32) >= self.cap_records || self.used_bytes.saturating_add(size) > self.cap_bytes
+        while (self.records.len() as u32) >= self.cap_records
+            || self.used_bytes.saturating_add(size) > self.cap_bytes
         {
             if let Some(old) = self.records.pop_front() {
                 self.used_bytes = self.used_bytes.saturating_sub(old.size_bytes);
@@ -130,7 +136,9 @@ impl Journal {
         }
 
         // If we still can't fit, reject deterministically.
-        if (self.records.len() as u32) >= self.cap_records || self.used_bytes.saturating_add(size) > self.cap_bytes {
+        if (self.records.len() as u32) >= self.cap_records
+            || self.used_bytes.saturating_add(size) > self.cap_bytes
+        {
             return Err(JournalError::TooLarge);
         }
 

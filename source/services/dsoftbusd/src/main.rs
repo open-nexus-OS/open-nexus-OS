@@ -1739,7 +1739,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         } else {
             match frame[3] {
                 LOP_LOG_PROBE => {
-                    let ok = append_probe_to_logd(b"dsoftbusd", b"core service log probe: dsoftbusd");
+                    let ok =
+                        append_probe_to_logd(b"dsoftbusd", b"core service log probe: dsoftbusd");
                     out.extend_from_slice(&[
                         L0,
                         L1,

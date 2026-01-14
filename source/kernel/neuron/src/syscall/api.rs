@@ -457,7 +457,9 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let len = ctx.tasks.len();
     for pid_usize in 0..len {
         let pid = pid_usize as task::Pid;
-        let Some(t) = ctx.tasks.task(pid) else { continue };
+        let Some(t) = ctx.tasks.task(pid) else {
+            continue;
+        };
         if !t.is_blocked() {
             continue;
         }

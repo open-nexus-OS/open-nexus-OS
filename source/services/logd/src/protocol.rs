@@ -4,13 +4,18 @@
 #![forbid(unsafe_code)]
 
 //! CONTEXT: logd OS-lite wire protocol v1 (versioned byte frames; bounded inputs)
+//!
 //! OWNERS: @runtime
+//!
 //! STATUS: Experimental
+//!
 //! API_STABILITY: Unstable
+//!
 //! TEST_COVERAGE: Tests in `source/services/logd/tests/journal_protocol.rs`
 //!   - Decode: APPEND/QUERY/STATS happy path, reject oversized/malformed/invalid inputs
 //!   - Encode: response roundtrips for all 3 opcodes
 //!   - Property tests for panic-freedom on arbitrary input
+//!
 //! ADR: docs/adr/0017-service-architecture.md
 
 extern crate alloc;

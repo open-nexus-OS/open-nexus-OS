@@ -1,9 +1,10 @@
 ---
 title: TASK-0006 Observability v1 (OS): logd journal + nexus-log client sink + execd crash reports
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 updated: 2026-01-14
+completed: 2026-01-14
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -302,6 +303,7 @@ RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
 ```
 
 All 5 required markers present:
+
 - `logd: ready`
 - `SELFTEST: log query ok`
 - `SELFTEST: core services log ok`
@@ -309,6 +311,7 @@ All 5 required markers present:
 - `SELFTEST: crash report ok`
 
 **Core service wiring**:
+
 - `samgrd`, `bundlemgrd`, `policyd`, `dsoftbusd` all emit structured logs to `logd`
 - Existing UART readiness markers preserved
 - `selftest-client` validates via bounded `QUERY` + `STATS` delta proof
