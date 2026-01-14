@@ -28,11 +28,7 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
         let mut journal = Journal::new(cap_records, cap_bytes);
         let mut next_service_id = 1000u64;
         let mut next_timestamp = 1000u64;
-        loop {
-            let frame = match server.recv(Wait::Blocking) {
-                Ok(f) => f,
-                Err(_) => break, // Client disconnected
-            };
+        while let Ok(frame) = server.recv(Wait::Blocking) {
             let request = match decode_request(&frame) {
                 Ok(req) => req,
                 Err(_) => continue, // Malformed frame, skip
@@ -51,11 +47,9 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                         &message,
                         &fields,
                     ) {
-                        Ok(outcome) => encode_append_response(
-                            STATUS_OK,
-                            outcome.record_id,
-                            outcome.dropped_records,
-                        ),
+                        Ok(outcome) => {
+                            encode_append_response(STATUS_OK, outcome.record_id, outcome.dropped_records)
+                        }
                         Err(_) => encode_append_response(3, RecordId(0), 0), // TooLarge
                     }
                 }
@@ -306,8 +300,9 @@ fn logd_crash_report_event() {
 
     // Query for crash events
     let records = query(&client, 0, 100);
-    let crash_record =
-        records.iter().find(|r| r.fields.windows(14).any(|w| w == b"event=crash.v1"));
+    let crash_record = records
+        .iter()
+        .find(|r| r.fields.windows(14).any(|w| w == b"event=crash.v1"));
     assert!(crash_record.is_some(), "crash event should be in journal");
 
     let crash = crash_record.unwrap();
@@ -332,7 +327,7 @@ fn logd_multi_service_concurrent_appends() {
                 for i in 0..10 {
                     let client_guard = client_clone.lock().unwrap();
                     append(
-                        &*client_guard,
+                        &client_guard,
                         LogLevel::Info,
                         format!("service{}", service_id).as_bytes(),
                         format!("msg {}", i).as_bytes(),
@@ -349,11 +344,11 @@ fn logd_multi_service_concurrent_appends() {
 
     // Verify all 30 records were appended
     let client_guard = client.lock().unwrap();
-    let (total, dropped, _, _) = stats(&*client_guard);
+    let (total, dropped, _, _) = stats(&client_guard);
     assert_eq!(total, 30);
     assert_eq!(dropped, 0);
 
-    let records = query(&*client_guard, 0, 100);
+    let records = query(&client_guard, 0, 100);
     assert_eq!(records.len(), 30);
 
     drop(client_guard);
@@ -383,7 +378,8 @@ fn logd_bounded_scope_message_fields() {
     let max_msg = vec![b'b'; 256];
     let max_fields = vec![b'c'; 512];
 
-    let (record_id, dropped) = append(&client, LogLevel::Info, &max_scope, &max_msg, &max_fields);
+    let (record_id, dropped) =
+        append(&client, LogLevel::Info, &max_scope, &max_msg, &max_fields);
     assert_eq!(record_id.0, 1);
     assert_eq!(dropped, 0);
 
