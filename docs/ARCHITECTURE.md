@@ -18,7 +18,7 @@ The `tools/arch-check` utility fails CI when a userspace crate depends on the
 kernel, HAL, samgrd, nexus-abi, or any crate under `source/services/`. This
 preserves the separation between host-tested logic and system wiring.
 
-### Kernel bring-up guardrails (current increment)
+## Kernel bring-up guardrails (current increment)
 
 - Strict stage policy: early boot uses raw UART only, no heavy formatting/alloc before selftests.
 - Minimal `spawn`/`cap_transfer` implemented to exercise task control and rights derivation.
@@ -35,6 +35,7 @@ messages into safe userspace library calls while bulk payloads continue to move
 out-of-band via VMOs and `map()`.
 
 ## Kernel quick reference (for devs and agents)
+
 - Entry: `kmain()` brings up HAL, Sv39 `AddressSpaceManager`, installs syscall table, starts `Scheduler` and `ipc::Router`.
 - SATP: kernel address space activated early; RISC-V trampoline via `satp_switch_island`.
 - Idle loop: drives cooperative scheduling via `SYSCALL_YIELD`.
@@ -43,6 +44,7 @@ out-of-band via VMOs and `map()`.
 - Don't touch without RFC/ADR: syscall IDs/ABI, trap prologue/epilogue, kernel memory map/SATP assumptions.
 
 ## Observability (userspace)
+
 - **`logd`**: Bounded RAM journal for structured logs (APPEND/QUERY/STATS); see `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`.
 - **`nexus-log`**: Unified logging facade used by all services; see `docs/rfcs/RFC-0003-unified-logging.md`.
 - **Crash reporting**: `execd` emits crash markers and appends structured events to `logd` on non-zero exits.
