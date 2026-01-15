@@ -20,7 +20,8 @@ links:
 it into a user-facing install/upgrade/uninstall path for third-party apps, with honest verification
 and deterministic proof.
 
-We must not reintroduce `manifest.json` drift; install operates on `manifest.nxb`.
+**Manifest format**: As of TASK-0007 v1.0, `manifest.nxb` (Cap'n Proto) is the unified format repo-wide (see ADR-0020).
+Install operates on `manifest.nxb` only.
 
 ## Goal
 

@@ -1,5 +1,8 @@
 # Nexus bundle packaging (`.nxb`)
 
+**Status**: Active (updated 2026-01-15)  
+**Canonical source**: ADR-0020 (manifest format decision)
+
 The loader v1.1 milestone wires `bundlemgrd` and `execd` together so installed
 bundles can be executed via the same assets used during packaging. Keeping the
 layout deterministic makes it trivial to stage artifacts in host tests and on
@@ -9,15 +12,22 @@ the OS image.
 
 An `.nxb` directory contains two files:
 
-```
+```text
+
 <bundle>.nxb/
 ├── manifest.nxb
 └── payload.elf
-```
 
-- `manifest.nxb` is the **canonical, deterministic bundle manifest** (versioned binary encoding).
-  This avoids whitespace/ordering ambiguity and is designed to be signed and verified reliably.
-- `payload.elf` is the ELF64/RISC-V binary. In v1.1 the same payload is staged
+```text
+
+- **`manifest.nxb`**: Canonical, deterministic bundle manifest (Cap'n Proto binary).
+  - **Format**: Cap'n Proto (`tools/nexus-idl/schemas/manifest.capnp`)
+  - **Deterministic**: Same manifest data → same binary output (signable)
+  - **Versionable**: Schema v1.0 (core fields), v1.1 (digest/size), v2.0+ (future)
+  - **Replaces**: Old JSON/TOML formats (drift resolved in TASK-0007)
+  
+- **`payload.elf`**: ELF64/RISC-V binary. In v1.1 the same payload is staged
+
   in `bundlemgrd`'s artifact store so the daemon can serve it to `execd` during
   `getPayload`.
 
@@ -25,12 +35,38 @@ An `.nxb` directory contains two files:
 
 The helper `tools/nxb-pack` crate creates the directory for you:
 
-```
-cargo run -p nxb-pack -- path/to/app.elf out/demo.hello.nxb
-```
+```bash
 
-The tool copies the input ELF into `payload.elf` and writes a default manifest
-in the canonical `manifest.nxb` format.
+# From TOML source (human-editable)
+
+cargo run -p nxb-pack -- --toml manifest.toml path/to/app.elf out/demo.hello.nxb
+
+# Quick mode (generates default manifest)
+
+cargo run -p nxb-pack -- path/to/app.elf out/demo.hello.nxb
+
+```text
+
+**Workflow**:
+1. **Input**: `manifest.toml` (TOML, human-editable)
+2. **Compile**: `nxb-pack` → `manifest.nxb` (Cap'n Proto binary)
+3. **Package**: Copy `payload.elf` + `manifest.nxb` to output directory
+
+**Example `manifest.toml`**:
+
+```toml
+
+name = "demo.hello"
+version = "1.0.0"
+abilities = ["ohos.ability.MainAbility"]
+caps = ["ohos.permission.INTERNET"]
+min_sdk = "1.0.0"
+publisher = "00000000000000000000000000000000"
+sig = "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+```text
+
+**Output `manifest.nxb`**: Binary Cap'n Proto encoding (deterministic, signable)
 
 ## Loader handshake
 

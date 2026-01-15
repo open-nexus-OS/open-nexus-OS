@@ -15,9 +15,9 @@ const OPCODE_RESOLVE: u8 = 2;
 const KIND_FILE: u16 = 0;
 const KIND_DIRECTORY: u16 = 1;
 
-const DEMO_HELLO_MANIFEST_JSON: &[u8] = br#"{"name":"demo.hello","version":"1.0.0"}"#;
+const DEMO_HELLO_MANIFEST_NXB: &[u8] = exec_payloads::HELLO_MANIFEST_NXB;
 const DEMO_HELLO_PAYLOAD: &[u8] = b"HELLO_PAYLOAD_BYTES";
-const DEMO_EXIT_MANIFEST_JSON: &[u8] = br#"{"name":"demo.exit0","version":"1.0.0"}"#;
+const DEMO_EXIT_MANIFEST_NXB: &[u8] = exec_payloads::EXIT0_MANIFEST_NXB;
 const DEMO_EXIT_PAYLOAD: &[u8] = b"EXIT0";
 
 /// Result type used by the os-lite backend.
@@ -162,14 +162,14 @@ fn seed_registry() -> BundleRegistry {
     let mut registry = BundleRegistry::default();
     let hello_entries = vec![
         (".".to_string(), Entry::directory()),
-        ("manifest.json".to_string(), Entry::file(DEMO_HELLO_MANIFEST_JSON)),
+        ("manifest.nxb".to_string(), Entry::file(DEMO_HELLO_MANIFEST_NXB)),
         ("payload.elf".to_string(), Entry::file(DEMO_HELLO_PAYLOAD)),
     ];
     registry.publish("demo.hello", "1.0.0", &hello_entries);
 
     let exit_entries = vec![
         (".".to_string(), Entry::directory()),
-        ("manifest.json".to_string(), Entry::file(DEMO_EXIT_MANIFEST_JSON)),
+        ("manifest.nxb".to_string(), Entry::file(DEMO_EXIT_MANIFEST_NXB)),
         ("payload.elf".to_string(), Entry::file(DEMO_EXIT_PAYLOAD)),
     ];
     registry.publish("demo.exit0", "1.0.0", &exit_entries);

@@ -24,7 +24,7 @@
 
 /// Prebuilt ELF64/RISC-V payload that prints a UART marker and yields.
 pub mod hello_elf;
-pub use hello_elf::{HELLO_ELF, HELLO_MANIFEST, HELLO_MANIFEST_TOML};
+pub use hello_elf::{EXIT0_MANIFEST_NXB, HELLO_ELF, HELLO_MANIFEST_NXB, HELLO_MANIFEST_TOML};
 
 use core::hint::spin_loop;
 

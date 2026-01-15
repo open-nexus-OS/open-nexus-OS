@@ -555,7 +555,7 @@ mod tests {
             request.set_root_vmo(7);
             let mut entries = request.reborrow().init_entries(1);
             let mut entry = entries.reborrow().get(0);
-            entry.set_path("manifest.toml");
+            entry.set_path("manifest.nxb");
             entry.set_kind(KIND_FILE);
             entry.set_bytes(b"hello");
         }
@@ -567,7 +567,7 @@ mod tests {
         let mut transport = DummyTransport::new(frame.clone());
         handle_frame(&mut state, &mut transport, &frame).unwrap();
         assert!(transport.sent.len() == 1);
-        let entry = registry.resolve("demo@1.0.0/manifest.toml").unwrap();
+        let entry = registry.resolve("demo@1.0.0/manifest.nxb").unwrap();
         assert_eq!(entry.size, 5);
     }
 }

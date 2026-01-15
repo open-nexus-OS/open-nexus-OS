@@ -10,9 +10,9 @@
 //!   - service::{InstallRequest, InstalledBundle, Service, ServiceError}: Service layer
 //!
 //! DEPENDENCIES:
-//!   - toml: Manifest parsing
 //!   - semver: Version handling
-//!   - base64: Signature encoding
+//!   - capnp: Canonical manifest.nxb decoding
+//!   - nexus-idl-runtime: Generated manifest schema bindings
 //!
 //! ADR: docs/adr/0009-bundle-manager-architecture.md
 #![forbid(unsafe_code)]
@@ -25,8 +25,11 @@ compile_error!("nexus_env: both 'host' and 'os' set");
 #[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
 compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
 
+/// CLI helpers for host-first bundle manager workflows.
 pub mod cli;
+/// Canonical bundle manifest parsing (`manifest.nxb`).
 pub mod manifest;
+/// Domain service layer for install/query behavior.
 pub mod service;
 
 pub use cli::{execute, help, run_with, AbilityRegistrar};

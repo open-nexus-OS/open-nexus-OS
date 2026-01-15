@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
+build = "build.rs"
 
 [dependencies]
 nexus-abi = { path = "../../source/libs/nexus-abi" }
+
+[build-dependencies]
+capnp = "0.19"
+nexus-idl-runtime = { path = "../nexus-idl-runtime" }

@@ -11,17 +11,40 @@ use std::sync::Arc;
 use std::thread;
 
 use bundlemgrd::{ArtifactStore, PackageFsHandle};
+use capnp::message::Builder;
 use capnp::message::ReaderOptions;
 use capnp::serialize;
 use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
+use nexus_idl_runtime::manifest_capnp::bundle_manifest;
 use nexus_ipc::{Client, LoopbackClient, Wait};
 use nexus_packagefs::PackageFsClient;
 use nexus_vfs::{Error as VfsError, VfsClient};
 
 const OPCODE_INSTALL: u8 = 1;
-const MANIFEST_TOML: &str = "name = \"demo.hello\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\nsig = \"11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\"\n";
 const PAYLOAD_BYTES: &[u8] = b"payload-bytes";
 const LOGO_SVG: &[u8] = b"<svg/>";
+
+fn build_manifest_nxb() -> Vec<u8> {
+    let mut builder = Builder::new_default();
+    let mut msg = builder.init_root::<bundle_manifest::Builder>();
+    msg.set_schema_version(1);
+    msg.set_name("demo.hello");
+    msg.set_semver("1.0.0");
+    msg.set_min_sdk("0.1.0");
+    msg.set_publisher(&[0u8; 16]);
+    msg.set_signature(&[0u8; 64]);
+    {
+        let mut a = msg.reborrow().init_abilities(1);
+        a.set(0, "ui");
+    }
+    {
+        let mut c = msg.reborrow().init_capabilities(1);
+        c.set(0, "gpu");
+    }
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &builder).unwrap();
+    out
+}
 
 #[test]
 fn vfs_package_roundtrip() {
@@ -54,7 +77,7 @@ fn vfs_package_roundtrip() {
     });
 
     let handle = 42u32;
-    let manifest_bytes = MANIFEST_TOML.as_bytes().to_vec();
+    let manifest_bytes = build_manifest_nxb();
     artifacts.insert(handle, manifest_bytes.clone());
     artifacts.stage_payload(handle, PAYLOAD_BYTES.to_vec());
     artifacts.stage_asset(handle, "assets/logo.svg", LOGO_SVG.to_vec());
@@ -66,11 +89,11 @@ fn vfs_package_roundtrip() {
 
     let vfs_client = VfsClient::from_loopback(vfs_client_conn);
 
-    let meta = vfs_client.stat("pkg:/demo.hello/manifest.toml").expect("manifest stat succeeds");
+    let meta = vfs_client.stat("pkg:/demo.hello/manifest.nxb").expect("manifest stat succeeds");
     assert_eq!(meta.size(), manifest_bytes.len() as u64);
 
     let canonical = vfs_client
-        .stat("/packages/demo.hello@1.0.0/manifest.toml")
+        .stat("/packages/demo.hello@1.0.0/manifest.nxb")
         .expect("canonical stat succeeds");
     assert_eq!(canonical.size(), meta.size());
 

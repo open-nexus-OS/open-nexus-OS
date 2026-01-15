@@ -3,26 +3,49 @@
 
 # Bundle Manager Manifest Schema
 
-**Scope:** this page documents the host-first TOML manifest parser in `userspace/bundlemgr`.  
+**Status**: Updated 2026-01-15 (unified to manifest.nxb)  
+**Canonical source**: ADR-0020, `tools/nexus-idl/schemas/manifest.capnp`
+
+**Scope:** this page documents the unified manifest format used across the repo.  
+
 For the OS daemon, see `docs/architecture/15-bundlemgrd.md`.
 
-The bundle manager crate (`userspace/bundlemgr`) includes a **host-first** manifest parser that accepts TOML.
-This TOML schema is primarily used for host tooling/tests and developer ergonomics.
+## Unified Format (v1.0+)
 
-**Canonical OS packaging contract:** `.nxb` bundles use a deterministic directory layout with `manifest.nxb` + `payload.elf` (see `docs/packaging/nxb.md`).
-Do not treat ad-hoc TOML ordering/whitespace as a stable on-disk OS contract.
+As of TASK-0007 v1.0, the repository uses a **single source of truth** for bundle manifests:
+
+- **On-disk format**: `manifest.nxb` (Cap'n Proto binary)
+- **Human-editable source**: `manifest.toml` (TOML)
+- **Tooling**: `nxb-pack` compiles TOML → binary
+- **Parsing**: `bundlemgr` (host) + `bundlemgrd` (OS) use Cap'n Proto parser
+
+**Rationale**: Resolves 3-way format drift (JSON/TOML/nxb). See ADR-0020 for full decision.
+
+## Canonical OS packaging contract
+
+`.nxb` bundles use a deterministic directory layout:
+
+```text
+
+bundle.nxb/
+├── manifest.nxb (Cap'n Proto binary)
+└── payload.elf (ELF64/RISC-V)
+
+```text
+
+**Do not** treat TOML ordering/whitespace as a stable on-disk contract. TOML is an **input format** only.
 
 ## Required fields
 
 | Field      | Type            | Description                                  |
 |------------|-----------------|----------------------------------------------|
 | `name`     | `string`        | Unique bundle identifier (non-empty).        |
-| `version`  | `string` (semver)| Human readable bundle version.              |
-| `abilities`| `array<string>` | Declared abilities provided by the bundle.   |
+| `version`  | `string` (semver) | Human readable bundle version.              |
+| `abilities` | `array<string>` | Declared abilities provided by the bundle.   |
 | `caps`     | `array<string>` | Capabilities required by the bundle.         |
-| `min_sdk`  | `string` (semver)| Minimum supported NEURON SDK version.       |
-| `publisher`| `string` (hex)  | 32 lowercase hex chars identifying publisher |
-| `sig`      | `string`        | Detached signature (64 bytes; hex or base64) |
+| `min_sdk`  | `string` (semver) | Minimum supported NEURON SDK version.       |
+| `publisher` | `string` (hex)  | 32 lowercase hex chars identifying publisher |
+| `sig`      | `string` (hex)  | Detached signature (64 bytes; hex)           |
 
 Unknown keys are not fatal—the parser records a warning string for each
 unexpected entry so build tooling can surface them. String fields are trimmed
@@ -32,11 +55,9 @@ and must not be empty, and arrays must contain non-empty string items.
 
 The parser returns `bundlemgr::Error` with the following variants:
 
-- `Toml(String)` – raw TOML parsing failure.
-- `MissingField(&'static str)` – a required field was not present.
-- `InvalidRoot` – the manifest root is not a TOML table.
-- `InvalidField { field, reason }` – a field could not be interpreted (for
-  example, a semver parse failure or an empty capability name).
+- `Decode(String)` – Cap'n Proto decode failure (malformed `manifest.nxb`).
+- `MissingField(&'static str)` – a required field was not present (schema evolution).
+- `InvalidField { field, reason }` – a field could not be interpreted (for example, semver parse failure).
 
 This structured error model allows callers to present precise feedback and
 continue execution when warnings (rather than errors) occur.

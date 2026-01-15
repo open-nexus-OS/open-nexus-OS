@@ -1,15 +1,24 @@
 ---
-title: TASK-0034 Delta updates v1 (bundles): nxdelta (rollsum+zstd) + resume + verify-before-commit (host-first, OS-gated)
+
+title: TASK-0034 Delta updates v1 + v1.1 features: nxdelta (rollsum+zstd) + digest/size fields + persistent bootctl + resume
 status: Draft
 owner: @runtime
 created: 2025-12-22
+updated: 2026-01-15
 links:
+
   - Vision: docs/agents/VISION.md
   - Packaging baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
+  - Manifest format: docs/adr/0020-manifest-format-capnproto.md
   - Supply-chain baseline (SBOM/sign policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Persistence substrate (resume checkpoints): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - VMO plumbing (optional fast path): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - Testing contract: scripts/qemu-test.sh
+
+depends-on:
+
+  - TASK-0007: Updates v1.0 (manifest.nxb unification, non-persistent A/B skeleton)
+  - TASK-0009: Persistence v1 (statefs for bootctl + resume checkpoints)
 ---
 
 ## Context
@@ -20,21 +29,41 @@ We want bandwidth-efficient bundle updates via binary deltas:
 - support resume/checkpoint after interruption,
 - verify integrity + signature policy **before** committing an installed bundle.
 
-Repo reality today:
+**This task also includes v1.1 features moved from TASK-0007**:
 
-- There is no `updated` service and no `.nxs` tooling in-tree (system-set delta orchestration is a follow-up).
-- Bundle install/verify exists via `bundlemgrd`, and supply-chain policy work is tracked separately.
-- True cross-process “zero-copy VMO” sharing is gated (VMO transfer semantics must be proven).
+- **Per-bundle digest/size fields** in `manifest.nxb` (schema v1.1)
+- **Persistent bootctl** integration (after TASK-0009)
+- **Digest verification** on bundle install
 
-This task is therefore **bundle-only**, **host-first**, and **OS-gated**.
+Repo reality after TASK-0007 v1.0:
+
+- `updated` service exists (non-persistent A/B skeleton)
+- `manifest.nxb` (Cap'n Proto) is unified repo-wide
+- `.nxs` tooling exists for system-set packaging
+- Bundle install/verify exists via `bundlemgrd`
+- Persistence substrate (TASK-0009) provides `/state` for bootctl + checkpoints
+
+This task is **bundle-only**, **host-first**, and **OS-gated**.
 
 ## Goal
 
-Deliver a deterministic delta format and tooling (`.nxdelta`) plus a bundle-level apply flow that:
+Deliver:
 
-- reconstructs the target bytes exactly,
-- verifies strong hashes and supply-chain checks before commit,
-- can resume after interruption using a checkpoint file/state.
+1. **v1.1 manifest fields** (from TASK-0007):
+   - Add `payloadDigest` + `payloadSize` to `manifest.capnp` schema
+   - Update `nxb-pack` to compute SHA-256(payload.elf)
+   - Update `bundlemgrd` to verify digest on install
+
+2. **Persistent bootctl** (from TASK-0007):
+   - Integrate `updated` with TASK-0009 statefs
+   - `/state/bootctl.json` survives reboot
+   - Marker: `updated: ready (persistent)`
+
+3. **Delta format and tooling** (`.nxdelta`):
+   - Deterministic delta format (rollsum + zstd)
+   - Bundle-level apply flow
+   - Resume/checkpoint support
+   - Verify integrity before commit
 
 ## Non-Goals
 
@@ -145,4 +174,3 @@ Notes:
 
 - System-set delta container + updated orchestration (see TASK-0035).
 - VMO fast path for apply once VMO sharing/transfer is proven.
-

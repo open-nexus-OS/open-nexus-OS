@@ -30,6 +30,8 @@ use nexus_idl_runtime::bundlemgr_capnp::{
     install_request, install_response, query_request, query_response, InstallError,
 };
 #[cfg(test)]
+use nexus_idl_runtime::manifest_capnp::bundle_manifest;
+#[cfg(test)]
 use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
 #[cfg(test)]
 use nexus_ipc::{Client, Wait};
@@ -84,9 +86,9 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     // Install manifests and query required capabilities from bundlemgrd
     let allowed_manifest = allowed_manifest();
     let denied_manifest = denied_manifest();
-    store.insert(1, allowed_manifest.clone().into_bytes());
+    store.insert(1, allowed_manifest.clone());
     store.stage_payload(1, Vec::new());
-    store.insert(2, denied_manifest.clone().into_bytes());
+    store.insert(2, denied_manifest.clone());
     store.stage_payload(2, Vec::new());
     install_bundle(&bundle_client, "samgrd", 1, allowed_manifest.len() as u32)?;
     install_bundle(&bundle_client, "demo.testsvc", 2, denied_manifest.len() as u32)?;
@@ -208,23 +210,36 @@ fn query_caps(client: &nexus_ipc::LoopbackClient, name: &str) -> Result<Vec<Stri
 }
 
 #[cfg(test)]
-fn allowed_manifest() -> String {
-    let publisher = "0123456789abcdef0123456789abcdef"; // 32 hex chars
-    let sig_hex = "11".repeat(64); // 64 bytes as 128 hex chars
-    format!(
-        "name = \"samgrd\"\nversion = \"1.0.0\"\nabilities = [\"core\"]\ncaps = [\"ipc.core\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\nsig = \"{}\"\n",
-        publisher, sig_hex
-    )
+fn allowed_manifest() -> Vec<u8> {
+    build_manifest_nxb("samgrd", &["ipc.core"], &[0x11; 64])
 }
 
 #[cfg(test)]
-fn denied_manifest() -> String {
-    let publisher = "0123456789abcdef0123456789abcdef"; // 32 hex chars
-    let sig_hex = "22".repeat(64); // 64 bytes as 128 hex chars
-    format!(
-        "name = \"demo.testsvc\"\nversion = \"1.0.0\"\nabilities = [\"demo\"]\ncaps = [\"net.client\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\nsig = \"{}\"\n",
-        publisher, sig_hex
-    )
+fn denied_manifest() -> Vec<u8> {
+    build_manifest_nxb("demo.testsvc", &["net.client"], &[0x22; 64])
+}
+
+#[cfg(test)]
+fn build_manifest_nxb(name: &str, caps: &[&str], signature: &[u8; 64]) -> Vec<u8> {
+    let mut message = Builder::new_default();
+    {
+        let mut m = message.init_root::<bundle_manifest::Builder<'_>>();
+        m.set_schema_version(1);
+        m.set_name(name);
+        m.set_semver("1.0.0");
+        m.set_min_sdk("0.1.0");
+        m.set_publisher(&[0u8; 16]);
+        m.set_signature(signature);
+        let mut abilities = m.reborrow().init_abilities(1);
+        abilities.set(0, "core");
+        let mut c = m.reborrow().init_capabilities(caps.len() as u32);
+        for (i, cap) in caps.iter().enumerate() {
+            c.set(i as u32, cap);
+        }
+    }
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &message).expect("serialize manifest");
+    out
 }
 
 #[cfg(test)]

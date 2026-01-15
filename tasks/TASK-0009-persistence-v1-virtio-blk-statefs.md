@@ -3,13 +3,16 @@ title: TASK-0009 Persistence v1 (OS): userspace block device + statefs journal f
 status: Draft
 owner: @runtime
 created: 2025-12-22
+updated: 2026-01-15
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - Depends-on: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Depends-on (device keys): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
   - Storage docs: docs/storage/vfs.md
   - Testing contract: scripts/qemu-test.sh
+enables:
+  - TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints)
+  - TASK-0007 v1.1: Persistent A/B updates (moved to TASK-0034)
 ---
 
 ## Context

@@ -560,18 +560,7 @@ impl Server {
             return Self::encode_response(OPCODE_INSTALL, &response);
         }
 
-        let manifest_str = match std::str::from_utf8(&manifest_bytes) {
-            Ok(value) => value,
-            Err(_) => {
-                builder.set_ok(false);
-                builder.set_err(InstallError::Einval);
-                self.artifacts.insert(handle, manifest_bytes.clone());
-                self.artifacts.stage_payload(handle, payload_bytes);
-                return Self::encode_response(OPCODE_INSTALL, &response);
-            }
-        };
-
-        let manifest = match Manifest::parse_str(manifest_str) {
+        let manifest = match Manifest::parse_nxb(&manifest_bytes) {
             Ok(manifest) => manifest,
             Err(err) => {
                 builder.set_ok(false);
@@ -582,30 +571,10 @@ impl Server {
             }
         };
 
-        // Use manifest payload with the signature line stripped for verification
-        let abilities_list =
-            manifest.abilities.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", ");
-        let caps_list = manifest
-            .capabilities
-            .iter()
-            .map(|s| format!("\"{}\"", s))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let canonical = format!(
-            "name = \"{}\"\nversion = \"{}\"\nabilities = [{}]\ncaps = [{}]\nmin_sdk = \"{}\"\npublisher = \"{}\"\n",
-            name,
-            manifest.version,
-            abilities_list,
-            caps_list,
-            manifest.min_sdk,
-            manifest.publisher,
-        );
-        let signed_bytes = canonical.as_bytes();
-
         eprintln!(
             "bundlemgrd: verify begin publisher={} payload_len={} sig_len={}",
             manifest.publisher,
-            signed_bytes.len(),
+            payload_bytes.len(),
             manifest.signature.len()
         );
         if self.keystore.is_none() {
@@ -613,48 +582,18 @@ impl Server {
                 "bundlemgrd: keystore unavailable; skipping signature verification for {name}"
             );
         } else {
+            // v1 contract: signature covers payload bytes (ELF).
             match self.verify_bundle_signature(
                 &manifest.publisher,
-                signed_bytes,
+                &payload_bytes,
                 &manifest.signature,
             ) {
                 Ok(true) => {}
                 Ok(false) => {
-                    // Debug: show a short digest of payload and signature for mismatch analysis
-                    let payload_digest = {
-                        use sha2::{Digest, Sha256};
-                        let mut hasher = Sha256::new();
-                        hasher.update(signed_bytes);
-                        let out = hasher.finalize();
-                        hex::encode(&out[..8])
-                    };
-                    eprintln!(
-                    "bundlemgrd: verify mismatch publisher={} payload_sha256_64={} first_bytes={:02x?}",
-                    manifest.publisher,
-                    payload_digest,
-                    &signed_bytes.get(0..std::cmp::min(4, signed_bytes.len())).unwrap_or(&[])
-                );
-                    // Fallback to signing payload derived from raw manifest bytes (strip sig line)
-                    let alt_signed = signing_payload_from_manifest_bytes(manifest_str.as_bytes());
-                    eprintln!(
-                        "bundlemgrd: verify fallback publisher={} payload_len={} sig_len={}",
-                        manifest.publisher,
-                        alt_signed.len(),
-                        manifest.signature.len()
-                    );
-                    match self.verify_bundle_signature(
-                        &manifest.publisher,
-                        alt_signed,
-                        &manifest.signature,
-                    ) {
-                        Ok(true) => {}
-                        _ => {
-                            eprintln!("bundlemgrd: invalid signature for {name}");
-                            builder.set_ok(false);
-                            builder.set_err(InstallError::InvalidSig);
-                            return Self::encode_response(OPCODE_INSTALL, &response);
-                        }
-                    }
+                    eprintln!("bundlemgrd: invalid signature for {name}");
+                    builder.set_ok(false);
+                    builder.set_err(InstallError::InvalidSig);
+                    return Self::encode_response(OPCODE_INSTALL, &response);
                 }
                 Err(err) => {
                     eprintln!("bundlemgrd: signature verify error: {err}");
@@ -667,7 +606,8 @@ impl Server {
 
         let assets = self.artifacts.take_staged_assets(handle);
 
-        match self.service.install(DomainInstallRequest { name: &name, manifest: manifest_str }) {
+        match self.service.install(DomainInstallRequest { name: &name, manifest: &manifest_bytes })
+        {
             Ok(bundle) => {
                 self.publish_package_to_fs(&bundle, &manifest_bytes, &payload_bytes, &assets);
                 self.artifacts.install_payload(&name, payload_bytes);
@@ -824,7 +764,7 @@ impl Server {
         };
         let version = bundle.version.to_string();
         let mut entries = Vec::with_capacity(2 + assets.len());
-        entries.push(PackageFsEntry::new("manifest.toml", 0, manifest_bytes));
+        entries.push(PackageFsEntry::new("manifest.nxb", 0, manifest_bytes));
         entries.push(PackageFsEntry::new("payload.elf", 0, payload_bytes));
         for asset in assets {
             entries.push(PackageFsEntry::new(&asset.path, 0, &asset.bytes));
@@ -843,31 +783,7 @@ impl Server {
     }
 }
 
-/// Returns the input TOML string without a trailing `sig = "..."` line if present.
-#[allow(dead_code)]
-fn strip_sig_line(manifest: &str) -> String {
-    let mut out = String::with_capacity(manifest.len());
-    for line in manifest.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("sig = ") {
-            // Skip the signature line for signing payload
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
-}
-
-/// Builds signing payload bytes by removing any trailing `sig = "..."` line.
-fn signing_payload_from_manifest_bytes(bytes: &[u8]) -> &[u8] {
-    let needle = b"\nsig = \"";
-    if let Some(pos) = memchr::memmem::find(bytes, needle) {
-        &bytes[..pos + 1] // keep the trailing newline before sig
-    } else {
-        bytes
-    }
-}
+// NOTE: legacy TOML signing-payload helpers removed as part of manifest.nxb unification.
 
 /// Runs the server with the provided transport and artifact store.
 #[cfg(feature = "idl-capnp")]
@@ -909,14 +825,14 @@ pub(crate) fn serve_with_components<T: Transport>(
 #[cfg(feature = "idl-capnp")]
 fn map_manifest_error(error: &ManifestError) -> InstallError {
     match error {
-        ManifestError::Toml(_) | ManifestError::InvalidRoot => InstallError::Einval,
         ManifestError::MissingField(field) => match *field {
-            "publisher" | "sig" => InstallError::Unsigned,
+            "publisher" | "signature" => InstallError::Unsigned,
             _ => InstallError::Einval,
         },
+        ManifestError::Decode(_) => InstallError::Einval,
         ManifestError::InvalidField { field, .. } => match *field {
-            "sig" => InstallError::InvalidSig,
-            "publisher" => InstallError::Einval,
+            "signature" => InstallError::InvalidSig,
+            "publisher" => InstallError::Unsigned,
             _ => InstallError::Einval,
         },
     }

@@ -15,14 +15,13 @@ use std::thread;
 use bundlemgrd::ArtifactStore;
 use capnp::message::Builder;
 use capnp::serialize;
-use nexus_ipc::Client;
 // use sha2::Digest;
 use nexus_e2e::{bundle_loopback, call, samgr_loopback};
 use nexus_idl_runtime::bundlemgr_capnp::{
     get_payload_request, get_payload_response, install_request, install_response, query_request,
     query_response, InstallError,
 };
-use nexus_idl_runtime::keystored_capnp::{device_id_request, device_id_response};
+use nexus_idl_runtime::manifest_capnp::bundle_manifest;
 use nexus_idl_runtime::samgr_capnp::{
     register_request, register_response, resolve_request, resolve_response,
 };
@@ -32,15 +31,7 @@ const SAMGR_OPCODE_RESOLVE: u8 = 2;
 const BUNDLE_OPCODE_INSTALL: u8 = 1;
 const BUNDLE_OPCODE_QUERY: u8 = 2;
 const BUNDLE_OPCODE_GET_PAYLOAD: u8 = 3;
-const PUBLISHER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const SIG_HEX: &str =
-    "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
-fn valid_manifest_str() -> String {
-    format!(
-        "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\nsig = \"{}\"\n",
-        PUBLISHER, SIG_HEX
-    )
-}
+const PUBLISHER_HEX: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // 16 bytes (32 hex chars)
 
 #[test]
 fn samgr_register_resolve_roundtrip() {
@@ -163,15 +154,21 @@ fn bundle_install_signed_enforced_via_keystored() {
     // Start bundlemgrd with a keystore loopback wired
     let (client, mut server) = bundle_loopback();
     let store = ArtifactStore::new();
-    let signed_payload = format!(
-        "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\n",
-        publisher
+    let payload_bytes = vec![0xfa, 0xce, 0x00, 0x01];
+    let publisher_bytes: [u8; 16] =
+        hex::decode(&publisher).expect("publisher hex").try_into().expect("16 bytes");
+    let sig = sk.sign(&payload_bytes);
+    let manifest = build_manifest_nxb(
+        "launcher",
+        "1.0.0",
+        &["ui"],
+        &["gpu"],
+        &publisher_bytes,
+        &sig.to_bytes(),
     );
-    let sig = sk.sign(signed_payload.as_bytes());
-    let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
     let len = manifest.len() as u32;
-    store.insert(77, manifest.into_bytes());
-    store.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x01]);
+    store.insert(77, manifest);
+    store.stage_payload(77, payload_bytes);
     let store_clone = store.clone();
 
     let handle = std::thread::spawn(move || {
@@ -181,34 +178,6 @@ fn bundle_install_signed_enforced_via_keystored() {
             let mut ks_transport = keystored::IpcTransport::new(ks_server);
             keystored::run_with_transport_default_anchors(&mut ks_transport).unwrap();
         });
-
-        // Obtain device id
-        let mut msg = capnp::message::Builder::new_default();
-        {
-            let _ = msg.init_root::<device_id_request::Builder<'_>>();
-        }
-        let mut buf = Vec::new();
-        capnp::serialize::write_message(&mut buf, &msg).unwrap();
-        let mut frame = Vec::with_capacity(1 + buf.len());
-        frame.push(3u8);
-        frame.extend_from_slice(&buf);
-        ks_client.send(&frame, nexus_ipc::Wait::Blocking).unwrap();
-        let resp = ks_client.recv(nexus_ipc::Wait::Blocking).unwrap();
-        let mut cur = std::io::Cursor::new(&resp[1..]);
-        let dev_msg =
-            capnp::serialize::read_message(&mut cur, capnp::message::ReaderOptions::new()).unwrap();
-        let dev = dev_msg.get_root::<device_id_response::Reader<'_>>().unwrap();
-        let id = dev.get_id().unwrap().to_str().unwrap().to_string();
-
-        // Build manifest by signing canonical content (no sig line) with keystore-provided id
-        let signed_payload = format!(
-            "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\n",
-            id
-        );
-        let sig = sk.sign(signed_payload.as_bytes());
-        let manifest = format!("{}sig = \"{}\"\n", signed_payload, hex::encode(sig.to_bytes()));
-        store_clone.insert(77, manifest.into_bytes());
-        store_clone.stage_payload(77, vec![0xfa, 0xce, 0x00, 0x02]);
 
         let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(ks_client));
         bundlemgrd::run_with_transport(&mut server, store_clone, keystore, None).unwrap()
@@ -348,9 +317,66 @@ fn parse_get_payload(frame: &[u8]) -> (bool, Vec<u8>) {
 }
 
 fn valid_manifest() -> Vec<u8> {
-    valid_manifest_str().into_bytes()
+    build_manifest_nxb(
+        "launcher",
+        "1.0.0",
+        &["ui"],
+        &["gpu"],
+        &hex::decode(PUBLISHER_HEX).expect("publisher hex").try_into().expect("16 bytes"),
+        &[0x11; 64],
+    )
 }
 
 fn invalid_manifest() -> Vec<u8> {
-    valid_manifest_str().replace(SIG_HEX, "00").into_bytes()
+    // Invalid by schema validation: signature length != 64 → InstallError::InvalidSig (even without keystore).
+    let publisher: [u8; 16] =
+        hex::decode(PUBLISHER_HEX).expect("publisher hex").try_into().expect("16 bytes");
+    let mut message = Builder::new_default();
+    {
+        let mut m = message.init_root::<bundle_manifest::Builder<'_>>();
+        m.set_schema_version(1);
+        m.set_name("launcher");
+        m.set_semver("1.0.0");
+        m.set_min_sdk("0.1.0");
+        m.set_publisher(&publisher);
+        m.set_signature(&[0x00]); // invalid length
+        let mut a = m.reborrow().init_abilities(1);
+        a.set(0, "ui");
+        let mut c = m.reborrow().init_capabilities(1);
+        c.set(0, "gpu");
+    }
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &message).expect("serialize");
+    out
+}
+
+fn build_manifest_nxb(
+    name: &str,
+    semver: &str,
+    abilities: &[&str],
+    caps: &[&str],
+    publisher: &[u8; 16],
+    signature: &[u8; 64],
+) -> Vec<u8> {
+    let mut message = Builder::new_default();
+    {
+        let mut m = message.init_root::<bundle_manifest::Builder<'_>>();
+        m.set_schema_version(1);
+        m.set_name(name);
+        m.set_semver(semver);
+        m.set_min_sdk("0.1.0");
+        m.set_publisher(publisher);
+        m.set_signature(signature);
+        let mut a = m.reborrow().init_abilities(abilities.len() as u32);
+        for (i, ab) in abilities.iter().enumerate() {
+            a.set(i as u32, ab);
+        }
+        let mut c = m.reborrow().init_capabilities(caps.len() as u32);
+        for (i, cap) in caps.iter().enumerate() {
+            c.set(i as u32, cap);
+        }
+    }
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &message).expect("serialize");
+    out
 }

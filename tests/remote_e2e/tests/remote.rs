@@ -15,18 +15,32 @@
 //!   - RFC-0010: docs/rfcs/RFC-0010-dsoftbus-remote-proxy-v1.md
 #![cfg(nexus_env = "host")]
 
+use capnp::message::Builder;
+use capnp::serialize;
 use dsoftbus::Announcement;
+use nexus_idl_runtime::manifest_capnp::bundle_manifest;
 use nexus_net::fake::FakeNet;
 use remote_e2e::{random_port, ArtifactKind, Node};
 
-const MANIFEST: &str = r#"name = "demo"
-version = "1.0.0"
-abilities = ["ui"]
-caps = ["gpu"]
-min_sdk = "0.1.0"
-publisher = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-sig = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-"#;
+fn manifest_nxb() -> Vec<u8> {
+    let mut message = Builder::new_default();
+    {
+        let mut m = message.init_root::<bundle_manifest::Builder<'_>>();
+        m.set_schema_version(1);
+        m.set_name("demo");
+        m.set_semver("1.0.0");
+        m.set_min_sdk("0.1.0");
+        m.set_publisher(&[0xaa; 16]);
+        m.set_signature(&[0xaa; 64]);
+        let mut abilities = m.reborrow().init_abilities(1);
+        abilities.set(0, "ui");
+        let mut caps = m.reborrow().init_capabilities(1);
+        caps.set(0, "gpu");
+    }
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &message).expect("serialize manifest");
+    out
+}
 
 #[test]
 fn remote_roundtrip_and_negative_handshake() {
@@ -55,12 +69,11 @@ fn remote_roundtrip_and_negative_handshake() {
 
     // Install bundle through the remote bundle manager
     let handle = 42u32;
-    connection
-        .push_artifact(handle, ArtifactKind::Manifest, MANIFEST.as_bytes())
-        .expect("upload manifest");
+    let manifest = manifest_nxb();
+    connection.push_artifact(handle, ArtifactKind::Manifest, &manifest).expect("upload manifest");
     connection.push_artifact(handle, ArtifactKind::Payload, &[0x00]).expect("upload payload");
     assert!(connection
-        .install_bundle("demo", handle, MANIFEST.len() as u32)
+        .install_bundle("demo", handle, manifest.len() as u32)
         .expect("remote install ok"));
     let version =
         connection.query_bundle("demo").expect("query remote bundle").expect("bundle installed");

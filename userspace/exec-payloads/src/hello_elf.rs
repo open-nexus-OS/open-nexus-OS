@@ -4,13 +4,13 @@
 //!
 //! PUBLIC API:
 //!   - HELLO_ELF: Embedded RISC-V ELF binary (409 bytes)
-//!   - HELLO_MANIFEST: JSON manifest for the demo bundle
-//!   - HELLO_MANIFEST_TOML: TOML manifest template for selftests
+//!   - HELLO_MANIFEST_NXB: Canonical manifest.nxb bytes for the demo bundle (Cap'n Proto)
+//!   - HELLO_MANIFEST_TOML: TOML manifest template (tooling input only)
 //!
 //! EMBEDDED DATA:
 //!   - ELF binary: RISC-V executable that prints "child: hello-elf" and yields
-//!   - JSON manifest: Bundle metadata with name, version, capabilities
-//!   - TOML manifest: Template for selftest staging and installation
+//!   - NXB manifest: Deterministic Cap'n Proto binary (on-disk contract)
+//!   - TOML manifest: Human-editable input template (not an on-disk contract)
 //!
 //! SECURITY INVARIANTS:
 //!   - No unsafe code in embedded data
@@ -20,7 +20,7 @@
 //!
 //! ERROR CONDITIONS:
 //!   - Invalid ELF format: Binary will fail to load
-//!   - Malformed manifest: JSON/TOML parsing will fail
+//!   - Malformed manifest: NXB/TOML parsing will fail
 //!   - Size limits: ELF binary is fixed at 409 bytes
 //!
 //! DEPENDENCIES:
@@ -28,13 +28,13 @@
 //!
 //! FEATURES:
 //!   - Embedded ELF binary for testing
-//!   - JSON manifest for bundle metadata
+//!   - NXB manifest for bundle metadata
 //!   - TOML manifest template for selftests
 //!   - No external binary dependencies
 //!
 //! TEST SCENARIOS:
 //!   - test_elf_parsing(): Parse embedded ELF binary
-//!   - test_manifest_validation(): Validate JSON manifest format
+//!   - test_manifest_validation(): Validate manifest.nxb format
 //!   - test_toml_template(): Validate TOML manifest template
 //!   - test_bundle_creation(): Create bundle from embedded data
 //!   - test_loader_integration(): Load ELF using nexus-loader
@@ -100,10 +100,19 @@ const HELLO_ELF_BYTES: [u8; 409] = [
 /// Byte slice view over the embedded ELF payload packaged in `demo.hello.nxb`.
 pub static HELLO_ELF: &[u8] = &HELLO_ELF_BYTES;
 
-/// Canonical manifest shipped alongside the demo bundle as JSON.
-pub const HELLO_MANIFEST: &[u8] = br#"{\"name\":\"demo.hello\",\"version\":\"0.0.1\",\"required_caps\":[],\"publisher\":\"dev\",\"sig\":\"\"}"#;
+/// Canonical manifest bytes shipped alongside the demo bundle as `manifest.nxb`.
+///
+/// Generated at build time by `build.rs` to avoid committing binary artifacts.
+pub static HELLO_MANIFEST_NXB: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/hello.manifest.nxb"));
 
-/// TOML manifest template used by selftests when staging installs.
+/// Canonical manifest bytes shipped alongside the demo exit bundle as `manifest.nxb`.
+///
+/// Generated at build time by `build.rs` to avoid committing binary artifacts.
+pub static EXIT0_MANIFEST_NXB: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/exit0.manifest.nxb"));
+
+/// TOML manifest template (tooling input only; not an on-disk contract).
 pub const HELLO_MANIFEST_TOML: &str = r#"name = \"demo.hello\"
 version = \"0.0.1\"
 abilities = [\"demo\"]

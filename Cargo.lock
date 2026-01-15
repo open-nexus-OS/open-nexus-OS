@@ -226,11 +226,11 @@ checksum = "5dd9dc738b7a8311c7ade152424974d8115f2cdad61e8dab8dac9f2362298510"
 name = "bundlemgr"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "capnp",
  "hex",
+ "nexus-idl-runtime",
  "semver",
  "thiserror 1.0.69",
- "toml",
 ]
 
 [[package]]
@@ -784,7 +784,9 @@ dependencies = [
 name = "exec-payloads"
 version = "0.1.0"
 dependencies = [
+ "capnp",
  "nexus-abi",
+ "nexus-idl-runtime",
 ]
 
 [[package]]
@@ -1418,7 +1420,11 @@ dependencies = [
 name = "nxb-pack"
 version = "0.1.0"
 dependencies = [
+ "capnp",
  "exec-payloads",
+ "hex",
+ "nexus-idl-runtime",
+ "toml",
 ]
 
 [[package]]
@@ -1461,6 +1467,7 @@ name = "packagefsd"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "exec-payloads",
  "log",
  "nexus-abi",
  "nexus-idl-runtime",

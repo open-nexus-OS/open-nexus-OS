@@ -84,8 +84,8 @@ pub struct InstalledBundle {
 pub struct InstallRequest<'a> {
     /// Name supplied by the caller.
     pub name: &'a str,
-    /// Manifest bytes (UTF-8 TOML) extracted from the artifact.
-    pub manifest: &'a str,
+    /// Manifest bytes (`manifest.nxb`, Cap'n Proto) extracted from the artifact.
+    pub manifest: &'a [u8],
 }
 
 /// Bundle manager service entry point.
@@ -199,8 +199,8 @@ impl HostBackend {
 }
 
 #[cfg(nexus_env = "host")]
-fn parse_manifest(input: &str) -> Result<Manifest, ServiceError> {
-    Manifest::parse_str(input).map_err(ServiceError::from)
+fn parse_manifest(input: &[u8]) -> Result<Manifest, ServiceError> {
+    Manifest::parse_nxb(input).map_err(ServiceError::from)
 }
 
 #[cfg(nexus_env = "host")]
@@ -209,29 +209,43 @@ mod tests {
     use super::*;
 
     #[cfg(nexus_env = "host")]
-    const PUBLISHER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    #[cfg(nexus_env = "host")]
-    const SIG_HEX: &str = "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
-    #[cfg(nexus_env = "host")]
-    fn manifest_str() -> String {
-        format!(
-            "name = \"launcher\"\nversion = \"1.0.0\"\nabilities = [\"ui\"]\ncaps = [\"gpu\"]\nmin_sdk = \"0.1.0\"\npublisher = \"{}\"\nsig = \"{}\"\n",
-            PUBLISHER,
-            SIG_HEX
-        )
+    fn manifest_bytes(sig_len: usize) -> Vec<u8> {
+        use capnp::message::Builder;
+        use nexus_idl_runtime::manifest_capnp::bundle_manifest;
+
+        let mut builder = Builder::new_default();
+        let mut msg = builder.init_root::<bundle_manifest::Builder>();
+        msg.set_schema_version(1);
+        msg.set_name("launcher");
+        msg.set_semver("1.0.0");
+        msg.set_min_sdk("0.1.0");
+        {
+            let mut a = msg.reborrow().init_abilities(1);
+            a.set(0, "ui");
+        }
+        {
+            let mut c = msg.reborrow().init_capabilities(1);
+            c.set(0, "gpu");
+        }
+        msg.set_publisher(&[0u8; 16]);
+        msg.set_signature(&vec![0u8; sig_len]);
+
+        let mut out = Vec::new();
+        capnp::serialize::write_message(&mut out, &builder).unwrap();
+        out
     }
 
     #[cfg(nexus_env = "host")]
     #[test]
     fn install_success() {
         let service = Service::new();
-        let man = manifest_str();
+        let man = manifest_bytes(64);
         let record = service
             .install(InstallRequest { name: "launcher", manifest: &man })
             .expect("install succeeds");
         assert_eq!(record.name, "launcher");
         assert_eq!(record.version, Version::new(1, 0, 0));
-        assert_eq!(record.publisher, PUBLISHER);
+        assert_eq!(record.publisher, hex::encode([0u8; 16]));
         assert_eq!(record.capabilities, vec!["gpu".to_string()]);
         assert_eq!(record.abilities, vec!["ui".to_string()]);
         let query = service.query("launcher").unwrap();
@@ -242,7 +256,7 @@ mod tests {
     #[test]
     fn install_duplicate_rejected() {
         let service = Service::new();
-        let man = manifest_str();
+        let man = manifest_bytes(64);
         service.install(InstallRequest { name: "launcher", manifest: &man }).unwrap();
         let err = service.install(InstallRequest { name: "launcher", manifest: &man }).unwrap_err();
         assert_eq!(err, ServiceError::AlreadyInstalled);
@@ -250,9 +264,9 @@ mod tests {
 
     #[cfg(nexus_env = "host")]
     #[test]
-    fn invalid_signature_encoding_rejected() {
+    fn invalid_signature_length_rejected() {
         let service = Service::new();
-        let tampered = manifest_str().replace(SIG_HEX, "deadbeef");
+        let tampered = manifest_bytes(8);
         let err =
             service.install(InstallRequest { name: "launcher", manifest: &tampered }).unwrap_err();
         assert!(matches!(err, ServiceError::Manifest(_)));
@@ -262,7 +276,7 @@ mod tests {
     #[test]
     fn mismatched_name_rejected() {
         let service = Service::new();
-        let man = manifest_str();
+        let man = manifest_bytes(64);
         let err = service.install(InstallRequest { name: "other", manifest: &man }).unwrap_err();
         assert!(matches!(err, ServiceError::Manifest(_)));
     }
@@ -271,9 +285,7 @@ mod tests {
     #[test]
     fn backend_unavailable() {
         let service = Service::new();
-        let err = service
-            .install(InstallRequest { name: "launcher", manifest: "name = \"launcher\"" })
-            .unwrap_err();
+        let err = service.install(InstallRequest { name: "launcher", manifest: b"" }).unwrap_err();
         assert_eq!(err, ServiceError::Unsupported);
     }
 }

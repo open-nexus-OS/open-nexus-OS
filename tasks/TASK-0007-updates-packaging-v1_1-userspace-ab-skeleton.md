@@ -1,14 +1,30 @@
 ---
-title: TASK-0007 Updates & Packaging v1.1 (OS): userspace-only A/B skeleton + system-set bundle index
+
+title: TASK-0007 Updates & Packaging v1.0 (OS): userspace-only A/B skeleton (non-persistent) + manifest.nxb unification
 status: Draft
 owner: @runtime
 created: 2025-12-22
+updated: 2026-01-15
 links:
+
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Testing contract: scripts/qemu-test.sh
   - Packaging docs: docs/packaging/nxb.md
-  - Depends-on (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - ADR: docs/adr/0020-manifest-format-capnproto.md
+  - ADR: docs/adr/0009-bundle-manager-architecture.md
+  - Rust standards: docs/standards/RUST_STANDARDS.md
+  - Security standards: docs/standards/SECURITY_STANDARDS.md
+
+follow-up-tasks:
+
+  - TASK-0034: Delta updates v1 + v1.1 features (digest/size fields, persistence integration)
+  - TASK-0035: Delta updates v1b (system-set level)
+  - TASK-0037: OTA A/B v2 (bootloader/SBI integration for real reboot)
+  - TASK-0140: Updates v1 UI/CLI (Settings UI + nx update command)
+  - TASK-0179: Updated v2 (offline feed, delta, health, rollback refinements)
+  - TASK-0178: Bootctld v1 (boot control stub service for A/B coordination)
+  - TASK-0009: Persistence v1 (enables persistent bootctl, unblocks TASK-0034)
 ---
 
 ## Context
@@ -19,39 +35,51 @@ We want the first verifiable OTA story without touching the kernel or bootloader
 
 The goal is a **userspace skeleton** that is testable and honest:
 
-- “switch” updates a userspace-controlled boot target (`bootctl.json`) and forces slot-aware publication,
+- "switch" updates a userspace-controlled boot target (`bootctl.json` in RAM) and forces slot-aware publication,
+
   even if we cannot perform a real reboot yet.
+
 - health is explicitly committed by userspace once the system is stable.
 - rollback happens automatically when pending boots do not reach health.
 
-In parallel, we need packaging metadata robust enough for staging:
+**v1.0 scope (this task)**:
 
-- per-bundle digest/size metadata
-- a signed system-set index that lists the bundles that form a slot.
+- **Non-persistent**: `bootctl.json` lives in RAM only (no survival across real reboots)
+- **Manifest unification**: Resolve 3-way format drift (JSON/TOML/nxb) → single Cap'n Proto binary
+- **System-set format**: Define `.nxs` archive + signed index
+- **Proof**: Stage/switch/health/rollback work in-process (QEMU markers)
+
+**v1.1 scope (moved to TASK-0034)**:
+
+- **Persistent bootctl**: Integrate with TASK-0009 (statefs)
+- **Per-bundle digest/size**: Add fields to manifest.nxb schema
+- **Real reboot testing**: Prove persistence across VM restart
 
 Prompt mapping note (avoid drift from older plans):
 
-- Some older prompts describe a “NUB” update bundle with `manifest.json` + `payload.tar` + `sig.ed25519`.
-- This repo’s v1.1 decision is **not** to add a parallel JSON+tar update container.
+- Some older prompts describe a "NUB" update bundle with `manifest.json` + `payload.tar` + `sig.ed25519`.
+- This repo's v1.0 decision is **not** to add a parallel JSON+tar update container.
 - Canonical contracts here are:
-  - **`.nxb`** bundle with **`manifest.nxb`** + `payload.elf` (see RED below), and
-  - a **system-set** archive/index (tracked as `.nxs` direction in this task) that is signed and lists bundles+diges ts.
+  - **`.nxb`** bundle with **`manifest.nxb`** (Cap'n Proto binary) + `payload.elf` (see ADR-0020)
+  - a **system-set** archive/index (`.nxs`) that is signed and lists bundles+digests.
 
 ## Goal
 
 Prove end-to-end (host tests + QEMU selftest markers):
 
-- A system-set can be staged into the standby slot after verifying signatures + bundle digests.
-- Switching sets `pending` + `triesLeft` and flips the active slot selection.
+- A system-set can be staged into the standby slot after verifying signatures.
+- Switching sets `pending` + `triesLeft` and flips the active slot selection (in RAM).
 - A health commit clears `pending` for the new slot.
-- A forced “no health” path triggers rollback back to the previous slot.
+- A forced "no health" path triggers rollback back to the previous slot.
+- **Manifest format is unified**: `manifest.nxb` (Cap'n Proto) is the single source of truth repo-wide.
 
 ## Non-Goals
 
-- Real persistent storage (block backend) and real reboot integration.
-- Delta updates, streaming updates, compression tuning.
+- Real persistent storage (block backend) and real reboot integration (TASK-0009 + TASK-0034).
+- Per-bundle digest/size verification (moved to TASK-0034 v1.1).
+- Delta updates, streaming updates, compression tuning (TASK-0034, TASK-0035).
 - Full policy language for updates (only minimal gating needed for the skeleton).
- - User-facing Settings UI and a developer CLI (`nx update`) (follow-up `TASK-0140`).
+- User-facing Settings UI and a developer CLI (`nx update`) (follow-up `TASK-0140`).
 
 ## Constraints / invariants (hard requirements)
 
@@ -63,43 +91,63 @@ Prove end-to-end (host tests + QEMU selftest markers):
 
 ## Red flags / decision points
 
-- **RED (blocking / must decide now)**:
-  - **Bundle manifest contract drift (must be fixed in this task)**:
-    the repo currently has multiple “truths” (`manifest.json` in tooling/OS-lite vs `manifest.toml` in docs/tests).
-    **Best-for-OS decision (no dual mode): standardize on a single, deterministic, signed manifest format.**
+- **RED (resolved in this task)**:
+  - **Bundle manifest contract drift (RESOLVED)**:
 
-    Canonical v1.1 contract for `.nxb`:
+    ✅ **Decision documented in ADR-0020**: `manifest.nxb` (Cap'n Proto binary) is the single source of truth.
 
-    - **`manifest.nxb`**: a **versioned binary manifest** (fixed, deterministic encoding; no whitespace ambiguity),
-      designed for signing/verifying and bounded parsing in userland.
-    - **`payload.elf`**: ELF payload bytes.
+    Canonical v1.0 contract for `.nxb`:
 
-    Tooling may provide `--print-json` / `--print-toml` *views*, but those are derived outputs; the on-disk contract is `manifest.nxb`.
+    - **`manifest.nxb`**: Cap'n Proto binary (deterministic, signable, versionable)
+    - **`payload.elf`**: ELF payload bytes
 
-    This must land *before* we add per-bundle digests/size so we do not bake drift into v1.1.
+    Tooling flow:
 
-  - **Update payload format drift**:
-    - Do not introduce `manifest.json` + tar as a second update payload contract.
-    - Update payloads must use the **system-set direction** (signed index + bundle digests) described in this task.
-- **YELLOW (risky / likely drift / needs follow-up)**:
-  - **“No bootloader changes” means no real reboot**. For QEMU proofs we need an explicit, honest definition
-    of “switch”:
-    - Option A: a “soft switch” that causes bundlemgrd/packagefs to republish from the new slot in-process.
-    - Option B: only prove state transitions (bootctl + health/rollback) and keep true slot activation for a later reboot task.
-  - **Boot-chain contract (future, required for real A/B)**:
-    the v1.1 skeleton proves *policy and state transitions* only. A production A/B system requires a real
-    boot-time slot signal (bootloader/OpenSBI/firmware → early init) so we can prove “slot B actually booted”
-    and make rollback affect the next real boot. This is tracked separately as `TASK-0037` (blocked).
-  - **Signature verification in OS builds**: the existing `identity` crate is host-oriented; OS verification must
-    either be implemented in a no_std-friendly way or delegated to a service API (e.g. keystored verify).
-  - **Persistence reality**: until TASK-0009 lands, `bootctl` persistence is not real. If we simulate `/state` in RAM for bring-up,
-    the task must label it explicitly as **non-persistent** and must not claim “OTA persisted” in markers.
+    - Input: `manifest.toml` (human-editable)
+    - Compile: `nxb-pack` → `manifest.nxb`
+    - Parse: `bundlemgr` (host) + `bundlemgrd` (OS)
+
+    This task implements the unification repo-wide.
+
+  - **Update payload format drift (RESOLVED)**:
+
+    ✅ **Decision**: System-set (`.nxs`) with signed JSON index + tar archive.
+
+    - No `manifest.json` + tar parallel format.
+    - `.nxs` is the canonical update container.
+- **YELLOW (addressed in v1.0)**:
+  - **"No bootloader changes" means no real reboot (ADDRESSED)**:
+
+    ✅ **Decision**: "Soft switch" (Option A) - IPC call to `bundlemgrd.SET_ACTIVE_SLOT()` triggers in-process republication.
+
+    - Marker: `bundlemgrd: slot b active` after republication completes.
+    - Real reboot integration deferred to TASK-0037.
+  
+  - **Persistence reality (ADDRESSED)**:
+
+    ✅ **Decision**: v1.0 uses RAM-based `/state` (explicit non-persistent).
+
+    - Marker: `updated: ready (non-persistent)`
+    - Tests: In-memory only, no reboot cycle
+    - Persistent bootctl moved to TASK-0034 (after TASK-0009)
+  
+  - **Signature verification in OS builds (ADDRESSED)**:
+
+    ✅ **Decision**: Delegate to `keystored.verify()` API (already exists, no_std-friendly).
+
+    - `updated` calls `keystored` for Ed25519 verification.
+  
+  - **Boot-chain contract (DEFERRED)**:
+
+    Real boot-time slot signal (bootloader/OpenSBI) tracked in TASK-0037.
+
 - **GREEN (confirmed assumptions)**:
   - `bundlemgrd`/`packagefsd` already serve bundle payloads and manifests in OS-lite flows; we can extend that model slot-aware.
 
 ## Security considerations
 
 ### Threat model
+
 - **Malicious update injection**: Attacker stages a tampered system-set with malicious bundles
 - **Signature bypass**: Attacker provides update without valid signature or with forged signature
 - **Rollback attack**: Attacker forces rollback to vulnerable older version
@@ -108,6 +156,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - **Health-check manipulation**: Attacker tricks system into marking bad update as healthy
 
 ### Security invariants (MUST hold)
+
 - System-set MUST be signed; signature MUST be verified before staging
 - Per-bundle digests MUST be verified against manifest before installation
 - Rollback MUST NOT be possible to versions older than a defined security baseline
@@ -116,6 +165,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - All update operations MUST be audit-logged
 
 ### DON'T DO
+
 - DON'T stage updates without signature verification
 - DON'T skip per-bundle digest verification
 - DON'T allow unlimited rollback depth (enforce minimum version floor)
@@ -124,11 +174,13 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - DON'T accept updates from unauthenticated sources
 
 ### Attack surface impact
+
 - **Significant**: Update system is a critical attack vector for persistent compromise
 - **Supply chain risk**: Compromised updates can persist across reboots
 - **Requires security review**: Any changes to signature verification must be reviewed
 
 ### Mitigations
+
 - Ed25519 signature on system-set index (verified before staging)
 - SHA-256 per-bundle digests in manifest (verified before install)
 - `triesLeft` counter limits boot attempts before auto-rollback
@@ -138,6 +190,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
 ## Security proof
 
 ### Audit tests (negative cases)
+
 - Command(s):
   - `cargo test -p updates_host -- reject --nocapture`
 - Required tests:
@@ -147,6 +200,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
   - `test_audit_update_operations` — all ops logged
 
 ### Hardening markers (QEMU)
+
 - `updated: stage rejected (signature)` — signature verification works
 - `updated: stage rejected (digest)` — digest verification works
 - `updated: audit (op=stage status=ok/fail)` — audit trail
@@ -175,13 +229,13 @@ Prove end-to-end (host tests + QEMU selftest markers):
     - `bundlemgrd: slot a active` (or `b`, depending on initial state)
     - `SELFTEST: ota stage ok`
     - `SELFTEST: ota switch ok`
-    - `init: health ok (slot <a|b>)`
+    - `init: health ok (slot <a | b>)`
     - `SELFTEST: ota rollback ok`
 
 Notes:
 
 - Postflight scripts (if added) must **only** delegate to canonical harness/tests; no `uart.log` greps as “truth”.
- - Update payload containers in this repo should follow the system-set direction from this task (no zip/manifest.json “NUP” contract without an explicit format decision).
+- Update payload containers in this repo should follow the system-set direction from this task (no zip/manifest.json “NUP” contract without an explicit format decision).
 
 ### Docs gate (keep architecture entrypoints in sync)
 
@@ -205,40 +259,80 @@ Notes:
 
 ## Plan (small PRs)
 
-1. **Fix packaging contract drift (RED)**
-   - Standardize `.nxb` on `manifest.nxb` + `payload.elf` and update docs/tests/tools accordingly (single source of truth).
+### Phase 1: Manifest Unification (RED flag resolution)
 
-2. **System-set format + host tooling**
-   - Introduce a “system set index” file (JSON) listing bundles + digests.
-   - Add `nxs-pack` tool to create a `.nxs` archive (tar of `system.json` + `.nxb` bundle dirs/files) and sign `system.json`.
-   - Extend `nxb-pack` to emit v1.1 digest/size fields into `manifest.nxb`.
+1. **Define Cap'n Proto schema**
+   - ✅ ADR-0020 created
+   - Create `tools/nexus-idl/schemas/manifest.capnp`
+   - Generate Rust bindings: `capnp compile -o rust manifest.capnp`
 
-3. **Implement `updated` service**
-   - Expose minimal RPC (OS-lite frame protocol) for:
-     - StageSystem (verify + unpack into standby slot)
-     - Switch (flip target, set pending, triesLeft=2)
-     - HealthOk (commit)
-   - Emit marker: `updated: ready`.
+2. **Update `nxb-pack` tool**
+   - Input: `manifest.toml` (TOML, human-editable)
+   - Output: `manifest.nxb` (Cap'n Proto binary)
+   - Remove old `manifest.json` output
 
-4. **Init integration (health gate + rollback)**
-   - Early boot reads `/state/bootctl.json`:
-     - if pending: decrement triesLeft; if exhausted, rollback to previous slot and clear pending
-   - On stable boot (core markers + selftest end), call `updated.HealthOk()`
-   - Emit marker: `init: health ok (slot <a|b>)`.
+3. **Update `bundlemgr` parser (host)**
+   - Replace TOML parser with Cap'n Proto parser
+   - Keep `Manifest` struct API unchanged (internal only)
 
-5. **bundlemgrd slot-aware publication**
-   - Make bundlemgrd publish from `/system/<target>` and emit: `bundlemgrd: slot <a|b> active`.
-   - Define “soft switch” behavior explicitly if we need runtime switching without reboot.
+4. **Update `bundlemgrd` parser (OS)**
+   - Add Cap'n Proto parser for OS-lite mode
+   - Remove TOML parser dependency
 
-6. **Selftest proof**
-   - Happy path: stage + switch + health ok marker.
-   - Rollback path: force pending without health and verify rollback marker.
-   - Keep everything bounded; no busy waits.
+5. **Migrate test fixtures**
+   - `exec-payloads`: Compile `hello.manifest.toml` → `hello.manifest.nxb` at build time
+   - Update all test bundles to use `manifest.nxb`
 
-7. **Docs**
-   - `docs/updates/ab-skeleton.md`: model, bootctl semantics, limitations.
-   - Update packaging docs to match the chosen v1.1 manifest + system-set format.
-   - `docs/testing/index.md`: how to run host tests + QEMU markers.
+6. **Update docs**
+   - `docs/packaging/nxb.md`: Document Cap'n Proto format
+   - `docs/architecture/04-bundlemgr-manifest.md`: Update to reflect binary format
+   - Update all tasks referencing manifest format
+
+### Phase 2: System-Set Format + Tooling
+
+1. **Define `.nxs` format**
+   - Document `system.json` schema
+   - Define tar archive structure
+
+2. **Create `nxs-pack` tool**
+   - Input: List of `.nxb` bundles
+   - Output: `system-vX.Y.Z.nxs` (signed tar archive)
+
+### Phase 3: `updated` Service
+
+1. **Implement `userspace/updates` (host-first)**
+   - `BootCtrl` struct (RAM-based, non-persistent)
+   - `SystemSet` parser
+   - Signature verification (via `keystored` client)
+
+2. **Implement `updated` service (OS-lite)**
+   - RPC: `StageSystem`, `Switch`, `HealthOk`
+   - Marker: `updated: ready (non-persistent)`
+
+### Phase 4: Init + bundlemgrd Integration
+
+1. **Init integration (health gate + rollback)**
+   - Early boot: Read RAM-based `bootctl` state
+   - Rollback logic: `triesLeft` decrement
+   - Health commit: Call `updated.HealthOk()`
+   - Marker: `init: health ok (slot <a | b>)`
+
+2. **bundlemgrd slot-aware publication**
+   - Add `OP_SET_ACTIVE_SLOT` RPC
+   - Republish bundles from `/system/<slot>/`
+   - Marker: `bundlemgrd: slot <a | b> active`
+
+### Phase 5: Selftest + Docs
+
+1. **Selftest proof**
+   - Happy path: stage + switch + health
+   - Rollback path: force pending without health
+   - Markers: All 6 OTA markers present
+
+2. **Documentation**
+   - `docs/updates/ab-skeleton-v1.md`: v1.0 model (non-persistent)
+   - Update architecture docs
+   - Update testing docs
 
 ## Acceptance criteria (behavioral)
 
