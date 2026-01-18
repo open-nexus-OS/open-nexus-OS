@@ -6,6 +6,9 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
+  - NexusGame SDK track (games): tasks/TRACK-NEXUSGAME-SDK.md
+  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Device/MMIO access model (gate): tasks/TASK-0010-device-mmio-access-model.md
   - Zero-copy VMOs (gate): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
@@ -53,6 +56,11 @@ These are cross-cutting and must remain stable as the SDK evolves:
   Sources: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`, `tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md`
 - **Perf gates**: regression gates must be deterministic and enforced via host tests first.  
   Sources: `tasks/TASK-0143`/`0144`/`0145`
+
+## Related tracks (intentional split, shared primitives)
+
+- **Media/audio/video/images**: `tasks/TRACK-NEXUSMEDIA-SDK.md`
+- **Games** (input/timing glue on top of NexusGfx + NexusMedia): `tasks/TRACK-NEXUSGAME-SDK.md`
 
 ## Gates (RED / YELLOW / GREEN)
 
