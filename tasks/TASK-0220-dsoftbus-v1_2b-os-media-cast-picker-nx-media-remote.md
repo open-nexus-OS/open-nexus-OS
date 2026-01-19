@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Media apps product track (TV casting + system-wide controls): tasks/TRACK-MEDIA-APPS.md
   - DSoftBus v1.1 OS wiring (busdir/rpcmux/health): tasks/TASK-0212-dsoftbus-v1_1d-os-busdir-ui-selftests.md
   - DSoftBus v1.2 host core (media remote + mediacast): tasks/TASK-0219-dsoftbus-v1_2a-host-media-remote-proto-cast.md
   - Media UX v2.1 OS baseline (mini-player + nx-media): tasks/TASK-0218-media-v2_1b-os-focus-ducking-miniplayer-nx-media.md
@@ -112,4 +113,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, Media Remote discovery/control/transfer/group/disconnect are proven deterministically in loopback mode via selftest markers.
-

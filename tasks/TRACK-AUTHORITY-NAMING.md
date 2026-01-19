@@ -80,6 +80,8 @@ This exists to remove “warnings” by making the architecture **decided** and 
 - **I²C bus**: `i2cd`
 - **SPI bus**: `spid` (sim-first)
 - **Sensor aggregation**: `sensord`
+- **Location authority (apps consume)**: `locationd`
+- **GNSS device driver**: `gnssd`
 
 ### Recovery / provisioning
 

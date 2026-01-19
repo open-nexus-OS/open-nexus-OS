@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Media apps product track (system-wide tray/notifications controls): tasks/TRACK-MEDIA-APPS.md
   - Media UX v1 OS slice: tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
   - Media UX v2 core semantics: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
   - Notifications actions baseline (service+UI): tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
@@ -120,4 +121,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, session switching and handoff behavior are proven deterministically; notification controls are proven only when notif actions are available.
-

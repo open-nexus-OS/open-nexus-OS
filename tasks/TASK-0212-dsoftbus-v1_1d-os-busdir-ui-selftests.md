@@ -23,7 +23,7 @@ This task wires DSoftBus v1.1 control-plane features into OS/QEMU:
 - health state from keepalive (up/degraded/down),
 - and deterministic flow-control/quotas in the send path.
 
-Loopback remains the default transport. UDP mode stays devnet-gated and must not claim success without real OS UDP sockets (`TASK-0196`).
+Loopback remains the default transport. UDP mode stays devnet-gated and must not claim success without real OS UDP sockets (`TASK-0196`). Init must enforce a ready gate before dependent flows proceed.
 
 ## Goal
 
@@ -61,6 +61,8 @@ Deliver:
    - rpcmux header + sequencing + errors
    - health states and determinism policy
    - nx-bus usage
+7. **Init-ready gate (strukturell)**:
+   - promote dsoftbus readiness into init-orchestrated gating (init waits on the Ready RPC before declaring dependent tests ready).
 
 ## Non-Goals
 
@@ -83,6 +85,7 @@ Deliver:
 - **Proof (QEMU)**:
   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=200s ./scripts/qemu-test.sh`
   - Required markers:
+    - `dsoftbusd: ready` (init-orchestrated ready gate enforced before dependent flows)
     - `SELFTEST: bus dir watch ok`
     - `SELFTEST: bus mux parallel ok`
     - `SELFTEST: bus health degrade ok`
@@ -109,6 +112,7 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, busdir watch, parallel rpcmux calls, keepalive-derived health transitions, and share resume are proven deterministically via selftest markers.
+- Readiness gating is enforced: init must hold dependent flows until `dsoftbusd: ready` is observed.
 
 Follow-up:
 

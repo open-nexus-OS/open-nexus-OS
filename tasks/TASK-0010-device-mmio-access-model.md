@@ -60,6 +60,7 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 ## Security considerations
 
 ### Threat model
+
 - **Arbitrary memory access**: Malicious userspace service requests MMIO mapping outside device window
 - **DMA attacks**: Compromised driver uses DMA to read/write arbitrary physical memory
 - **Privilege escalation via MMIO**: Driver exploits MMIO access to compromise kernel
@@ -67,6 +68,7 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 - **Execute from MMIO**: Attacker attempts to execute code from mapped MMIO region
 
 ### Security invariants (MUST hold)
+
 - MMIO mappings MUST be capability-gated (no ambient access)
 - MMIO mappings MUST be bounded to the exact device BAR/window (no overmap)
 - MMIO mappings MUST be **USER|RW only, NEVER executable** (W^X at hardware boundary)
@@ -75,6 +77,7 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 - DMA buffers (future) MUST be allocated from restricted memory regions
 
 ### DON'T DO
+
 - DON'T allow any executable mappings of device MMIO regions
 - DON'T grant MMIO capabilities to arbitrary services
 - DON'T allow MMIO mappings outside the device's designated physical window
@@ -82,11 +85,13 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 - DON'T skip capability checks for "trusted" driver services
 
 ### Attack surface impact
+
 - **Critical**: MMIO access is a kernel-userland trust boundary
 - **Highest privilege**: Misconfigured MMIO access could compromise kernel
 - **Requires security review**: Any changes to MMIO mapping must be reviewed
 
 ### Mitigations
+
 - `CapabilityKind::DeviceMmio { base, len }` bounds physical window precisely
 - `SYSCALL_MMIO_MAP` enforces **USER|RW, never EXEC** at syscall level
 - Fixed, build-time device list for QEMU `virt` (no dynamic enumeration in bring-up)
@@ -96,6 +101,7 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 ## Security proof
 
 ### Audit tests (negative cases)
+
 - Command(s):
   - `cargo test -p neuron -- mmio_reject --nocapture`
 - Required tests:
@@ -104,6 +110,7 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
   - `test_reject_mmio_no_cap` — mapping without capability → denied
 
 ### Hardening markers (QEMU)
+
 - `SELFTEST: mmio map ok` — legitimate mapping works
 - `kernel: mmio denied (outside window)` — bounds enforcement works
 - `kernel: mmio denied (exec attempt)` — W^X enforced

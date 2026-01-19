@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - NexusGfx SDK track (render/compute): tasks/TRACK-NEXUSGFX-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
+  - Media apps product track (Photos/Music/TV): tasks/TRACK-MEDIA-APPS.md
   - Drivers & accelerators foundations (GPU/VPU/Audio/Camera): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (soft real-time spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
@@ -17,6 +18,7 @@ links:
   - Media decoders v1 (host-first): tasks/TASK-0099-ui-v16a-media-decoders.md
   - Audio core v0.9a (host-first): tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
   - Audio OS/QEMU integration v0.9b: tasks/TASK-0255-audio-v0_9b-os-audiod-i2sd-codecd-mediasession-hooks-selftests.md
+  - Media sessions + SystemUI miniplayer/lockscreen (cross-cutting): tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
 ---
 
 ## Goal (track-level)
@@ -107,6 +109,10 @@ Keep “authority” explicit to avoid security and lifecycle drift:
   - v0/v1 (bring-up): pure Rust, host-first libraries are acceptable where bounded/deterministic.
   - v2+ (pro): heavy decode/encode may move behind dedicated services (VPU/GPU backends), still accessed via SDK.
 - **Capture authority**: camerad/micd (services) own device-facing capture; SDK provides client APIs; permissions via policyd/permsd.
+
+Note: system-level “now playing” / session focus and control surfaces are intentionally handled by `mediasessd` + SystemUI
+(see `TASK-0101` and Media UX tasks), not by the SDK itself. The SDK provides primitives and client helpers; UX surfaces are
+cross-cutting OS features consumed by apps.
 
 ## Phase map (what “done” means by phase)
 

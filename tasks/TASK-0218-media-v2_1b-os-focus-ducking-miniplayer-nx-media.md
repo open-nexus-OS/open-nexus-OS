@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Media apps product track (system-wide media focus/controls): tasks/TRACK-MEDIA-APPS.md
   - Audiod v2.1 host engine: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
   - Media UX v2 core semantics: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
   - Media UX v2 OS mini-player baseline: tasks/TASK-0185-media-ux-v2b-os-miniplayer-session-switch-notifs-selftests.md
@@ -123,4 +124,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, deterministic audio stub + focus/ducking + per-app volume/mute are proven via selftest markers and audiod metrics.
-

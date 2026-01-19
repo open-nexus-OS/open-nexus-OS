@@ -23,7 +23,7 @@ We want robust A/B OTA behavior:
 
 Repo reality today:
 
-- There is no `updated` service in-tree yet; OTA orchestration is still a plan.
+- `updated` exists as a v1.0 non-persistent skeleton; v2 builds on it with health mux and soft-reboot proof.
 - “Boot slot via SBI/bootargs” cannot be *truly* proven without boot chain/kernel/firmware integration.
 
 This task focuses on the **userspace state machine** and provides **honest proof** via a soft-reboot simulation.
@@ -128,4 +128,3 @@ Once statefs exists, selftest proves:
 
 5. **Docs**
    - Document this as OTA v2 userspace state machine with “bootchain integration pending”.
-

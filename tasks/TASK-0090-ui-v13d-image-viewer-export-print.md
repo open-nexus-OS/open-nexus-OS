@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
+  - Media apps product track (quick viewers vs library apps): tasks/TRACK-MEDIA-APPS.md
   - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - MIME registry (Open With): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
@@ -82,4 +84,3 @@ UART markers:
 2. rotate/export + host tests
 3. clipboard copy + print integration
 4. docs
-

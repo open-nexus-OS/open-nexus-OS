@@ -5,6 +5,7 @@ owner: @runtime
 created: 2025-12-22
 links:
   - Vision: docs/agents/VISION.md
+  - Zero-Copy App Platform (consumer track): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - IPC/rights model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Depends-on (OS DSoftBus mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Depends-on (persistence/statefs): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

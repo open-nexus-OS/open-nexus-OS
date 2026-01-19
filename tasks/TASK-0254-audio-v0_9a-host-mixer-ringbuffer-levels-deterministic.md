@@ -6,6 +6,7 @@ created: 2025-12-29
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - Audiod v16b baseline: tasks/TASK-0100-ui-v16b-audiod-mixer.md
   - Media v2.1a baseline: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
   - Testing contract: scripts/qemu-test.sh

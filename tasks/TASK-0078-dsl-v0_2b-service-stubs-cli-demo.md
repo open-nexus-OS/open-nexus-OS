@@ -6,6 +6,11 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Zero-Copy App Platform (svc.* consumers): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - Office Suite (reference apps): tasks/TRACK-OFFICE-SUITE.md
+  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
+  - NexusGame SDK track (games): tasks/TRACK-NEXUSGAME-SDK.md
+  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - DSL v0.2a core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
   - DSL v0.1 CLI baseline: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - DSL v0.1 interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md

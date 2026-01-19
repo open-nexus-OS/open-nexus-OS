@@ -6,6 +6,7 @@ created: 2025-12-29
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Boot gates (readiness/spawn reasons/resource sentinels): docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
   - Observability (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Execd (spawner/supervision): tasks/TASK-0001-runtime-roles-and-boundaries.md
   - Crash pipeline (optional correlation): tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md

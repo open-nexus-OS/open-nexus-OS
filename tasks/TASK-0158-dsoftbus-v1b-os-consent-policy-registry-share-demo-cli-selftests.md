@@ -6,6 +6,7 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - DSoftBus v1a core: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
   - Permissions baseline: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
   - Policy caps (capability matrix): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
@@ -25,7 +26,7 @@ With a deterministic localSim DSoftBus core (v1a), we need an OS-facing slice:
 - a tiny share demo app (text/file over streams),
 - CLI, OS selftests, docs, and a delegating postflight.
 
-This remains offline and deterministic: no network sockets, no crypto handshake.
+This remains offline and deterministic: no network sockets, no crypto handshake. Ready-gate uses a logd query for `dsoftbusd: ready` before selftests.
 
 ## Goal
 
@@ -68,6 +69,8 @@ Deliver:
    - postflight delegates:
      - host tests (`dsoftbus_v1_host`)
      - QEMU marker contract (`scripts/qemu-test.sh`)
+8. **Ready RPC (sauber gate)**:
+   - add a lightweight `Ready()`/`Ping()` IPC in `dsoftbusd` and use it in selftests as the primary readiness gate (replacing logd-marker polling for this service).
 
 ## Non-Goals
 
@@ -100,7 +103,7 @@ Deliver:
   - Command(s):
     - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=185s ./scripts/qemu-test.sh`
   - Required markers (to be added to `scripts/qemu-test.sh` expected list):
-    - `dsoftbusd: ready`
+    - `dsoftbusd: ready` (ready gate: logd query in selftest-client)
     - `SELFTEST: dsoftbus pair ok`
     - `SELFTEST: dsoftbus msg ok`
     - `SELFTEST: dsoftbus byte ok` (only when `/state` exists; otherwise explicit `stub/placeholder`)
@@ -126,4 +129,4 @@ Deliver:
 
 - In QEMU, localSim pairing + msg stream roundtrip + byte stream transfer are proven by selftest markers.
 - Any missing dependencies (`/state`, `permsd`) are handled explicitly with `stub/placeholder` behavior and do not produce “ok” markers.
-
+- Readiness gating is enforced before selftests: the logd query gate must observe `dsoftbusd: ready` prior to dsoftbus checks.

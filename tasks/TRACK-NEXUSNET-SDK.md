@@ -6,6 +6,7 @@ created: 2026-01-18
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Zero-Copy App Platform (apps consume NexusNet via svc.*): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Networking authority (canonical vs bring-up): docs/architecture/networking-authority.md
   - Userspace networking contract seed: docs/rfcs/RFC-0006-userspace-networking-v1.md
   - DSoftBus architecture: docs/adr/0005-dsoftbus-architecture.md
@@ -243,7 +244,7 @@ multiple apps can reuse it (social app now, chat later, photo editor later) with
 - Provider UX must prevent phishing:
   - strict redirect allowlists,
   - bounded timeouts,
-  - clear UI indicators (“You are signing into <provider>”),
+  - clear UI indicators ("You are signing into a provider"),
   - deny arbitrary URL navigation by providers unless explicitly allowed.
 
 ### Capability sketch (v0)

@@ -13,6 +13,7 @@ links:
   - Trust store unification (updated consumes trust): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
   - Persistence (/state slots/history): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Updates UI/CLI (nx update): tasks/TASK-0140-updates-v1-ui-cli-settings-offline.md
+  - Signing policy: docs/security/signing-and-policy.md
   - Testing contract: scripts/qemu-test.sh
 ---
 

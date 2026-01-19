@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
+  - Media apps product track (quick players vs library/hubs): tasks/TRACK-MEDIA-APPS.md
   - Media decoders: tasks/TASK-0099-ui-v16a-media-decoders.md
   - Audiod mixer: tasks/TASK-0100-ui-v16b-audiod-mixer.md
   - Media sessions + SystemUI controls: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
@@ -18,14 +20,18 @@ links:
 
 With decoders + mixer + sessions in place, we can ship user-facing apps and QEMU proofs:
 
-- Music app for WAV/OGG background playback,
-- Video app for GIF/APNG/MJPEG only (no audio),
+- Music app (quick player) for WAV/OGG background playback,
+- Video app (quick player) for GIF/APNG/MJPEG only (no audio),
 - MIME handler registration and Files/Picker “Open With” integration.
 
 Scope note:
 
 - Media UX v1 provides a deterministic “sample player” app and media controls proof earlier (`TASK-0156`).
-  This task focuses on real Music/Video apps and decoder/mixer integration.
+  This task focuses on **quick players** and decoder/mixer integration.
+- The Apple Music-style **Music library app** (Listen Now/Browse/Library/Search + provider sign-in) is tracked in
+  `tasks/TRACK-MEDIA-APPS.md` and is intentionally **out of scope** here.
+- The Apple TV-style **TV hub app** (Watch Now/Library/Providers/Search + curated library) is tracked in
+  `tasks/TRACK-MEDIA-APPS.md` and is intentionally **out of scope** here.
 
 ## Goal
 

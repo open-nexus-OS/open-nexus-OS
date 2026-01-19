@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Zero-Copy App Platform (clipboard canonical interchange): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - Office Suite (copy/paste across Word/Sheets/Slides): tasks/TRACK-OFFICE-SUITE.md
   - Clipboard v2 baseline: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
   - Policy as Code (clipboard guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config broker (budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
@@ -74,4 +76,3 @@ Deliver:
 1. add v3 flavors + negotiation rules + markers
 2. add sanitization + budgets + redaction markers
 3. host tests + docs
-

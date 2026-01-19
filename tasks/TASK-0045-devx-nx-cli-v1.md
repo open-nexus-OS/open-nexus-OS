@@ -187,6 +187,8 @@ Add deterministic host tests (`tests/nx_cli_host/`):
 - Telemetry/Crash (local, offline) follow-ups are tracked as `TASK-0141` (crash notifications + export/redaction surface over `.nxcd.zst`) and `TASK-0142` (Problem Reporter UI).
 - Performance Pass v1 is tracked as `TASK-0143` (perfd tracer + Chrome Trace export), `TASK-0144` (frame pacing instrumentation + Perf HUD + nx perf), and `TASK-0145` (deterministic perf regression gates).
 - NexusGfx SDK (Metal-like, apps+games) is tracked as `tasks/TRACK-NEXUSGFX-SDK.md` (track placeholder; real tasks extracted when gates/proofs are ready).
+- NexusMedia SDK (audio/video/image) is tracked as `tasks/TRACK-NEXUSMEDIA-SDK.md` (track placeholder; extracted into tasks when a concrete app/proof needs it).
+- NexusGame SDK (games) is tracked as `tasks/TRACK-NEXUSGAME-SDK.md` (track placeholder; extracted into tasks when a concrete game/proof needs it).
 - IME/Text v2 Part 1 is tracked as `TASK-0146` (imed core + US/DE keymaps + host tests) and `TASK-0147` (OSK overlay + focus/a11y wiring + OS proofs).
 - Search v2 UI (command palette surface + deep-links) is tracked as `TASK-0151` (host-first UI + tests) and `TASK-0152` (OS router + selftests/docs; perf gates gated on `TASK-0143/0144`).
 - Search v2 backend (index/analyzers/ranking/sources) is tracked as `TASK-0153` (host-first engine + `nx search` CLI + tests) and `TASK-0154` (OS wiring + selftests/docs; persistence gated on `TASK-0009`).

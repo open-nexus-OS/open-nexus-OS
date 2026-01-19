@@ -10,6 +10,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Packaging baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Manifest format: docs/adr/0020-manifest-format-capnproto.md
+  - Signing policy: docs/security/signing-and-policy.md
   - Supply-chain baseline (SBOM/sign policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Persistence substrate (resume checkpoints): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - VMO plumbing (optional fast path): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md

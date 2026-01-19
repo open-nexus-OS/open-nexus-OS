@@ -10,6 +10,7 @@ links:
   - NexusGame SDK track (games): tasks/TRACK-NEXUSGAME-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - NexusFrame (Pixelmator-class editor; reference workload): tasks/TRACK-NEXUSFRAME.md
   - Device/MMIO access model (gate): tasks/TASK-0010-device-mmio-access-model.md
   - Zero-copy VMOs (gate): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (soft real-time spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md

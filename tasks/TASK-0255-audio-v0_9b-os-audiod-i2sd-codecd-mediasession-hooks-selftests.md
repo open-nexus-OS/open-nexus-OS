@@ -6,6 +6,7 @@ created: 2025-12-29
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Audio core (host-first): tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
   - Audiod v16b baseline: tasks/TASK-0100-ui-v16b-audiod-mixer.md

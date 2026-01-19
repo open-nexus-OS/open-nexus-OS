@@ -6,6 +6,7 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
   - DSoftBus no_std refactor: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Share v2 (intents) later: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md

@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Media apps product track (apps consume system-wide now playing): tasks/TRACK-MEDIA-APPS.md
   - Audiod mixer: tasks/TASK-0100-ui-v16b-audiod-mixer.md
   - Notifications actions baseline: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
   - Policy as Code (session focus): tasks/TASK-0047-policy-as-code-v1-unified-engine.md

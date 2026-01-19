@@ -8,6 +8,7 @@ links:
   - Depends-on (bundle deltas): tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md
   - Depends-on (updates service): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Depends-on (supply-chain policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - Signing policy: docs/security/signing-and-policy.md
 ---
 
 ## Context
@@ -15,9 +16,9 @@ links:
 We eventually want system-set (`.nxs`) delta updates that apply a set of bundle deltas and stage an A/B update.
 However, repo reality today:
 
-- `.nxs` tooling is not implemented in-tree.
-- `updated` service is not implemented in-tree.
-- Real “booted slot” proof requires boot-chain support (tracked separately as `TASK-0037`).
+- `.nxs` tooling exists (`tools/nxs-pack`) and the system-set contract is defined (RFC-0012).
+- `updated` service exists (v1.0 non-persistent skeleton).
+- Real “booted slot” proof still requires boot-chain support (tracked separately as `TASK-0037`).
 
 So this task is explicitly **blocked** until those prerequisites exist.
 
@@ -39,4 +40,4 @@ Once unblocked, deliver:
 
 ## Red flags / decision points
 
-- **RED**: blocked until `.nxs` tooling + `updated` exist.
+- **RED**: blocked until bundle deltas (`TASK-0034`) and supply-chain policy (`TASK-0029`) are proven.

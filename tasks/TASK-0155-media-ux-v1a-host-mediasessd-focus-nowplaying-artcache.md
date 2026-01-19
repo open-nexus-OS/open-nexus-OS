@@ -6,6 +6,7 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Media apps product track (system-wide now playing): tasks/TRACK-MEDIA-APPS.md
   - Media baseline task (umbrella): tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
   - Audiod mixer (volume OSD later): tasks/TASK-0100-ui-v16b-audiod-mixer.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

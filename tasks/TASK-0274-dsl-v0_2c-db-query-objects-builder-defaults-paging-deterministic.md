@@ -6,6 +6,8 @@ created: 2025-12-30
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Zero-Copy App Platform (query IR + connectors): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - Office Suite (Sheets/BI query bindings): tasks/TRACK-OFFICE-SUITE.md
   - DSL v0.2a core (stores/effects/routes/i18n): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
   - DSL v0.2b stubs + demo: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
   - Content providers + query: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md

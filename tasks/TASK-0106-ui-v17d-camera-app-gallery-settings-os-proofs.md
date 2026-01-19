@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Media apps product track (Photos vs TV hub): tasks/TRACK-MEDIA-APPS.md
   - Perms/privacy substrate: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
   - Camera/mic devices: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
   - Screen recorder + capture UI: tasks/TASK-0105-ui-v17c-screen-recorder-capture-overlay.md
@@ -19,7 +20,7 @@ links:
 After perms/privacy + camerad/micd + recorderd exist, we can ship user-facing apps:
 
 - Camera app (photo + video modes on virtual camera sources),
-- Gallery app integration for pictures/captures with thumbnails and share,
+- Gallery/Photos app integration for pictures/captures with thumbnails and share,
 - Settings privacy page to manage grants.
 
 This task owns OS/QEMU selftests and postflight markers for UI v17.
@@ -36,9 +37,10 @@ Deliver:
      - `camera: photo saved uri=...`
      - `camera: video saved uri=...`
 2. `userspace/apps/gallery` (or extend existing):
-   - browses `state:/pictures/` and `state:/captures/`
+   - **Photos-style browse** of `state:/pictures/` and `state:/captures/` (timeline + albums-lite)
    - thumbnails via `thumbd`
    - opens capture items and supports share/delete/rename (minimal)
+   - provides a **user-driven** action: “Add to TV Library” (curated; no auto-index)
    - markers:
      - `gallery: index n=...`
      - `gallery: open uri=...`
@@ -99,4 +101,3 @@ UART markers:
 3. gallery browse + thumbs + markers
 4. settings privacy page + revoke + markers
 5. OS selftests + postflight + docs
-
