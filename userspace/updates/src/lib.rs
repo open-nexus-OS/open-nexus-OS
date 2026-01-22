@@ -30,8 +30,8 @@ extern crate alloc;
 #[cfg(all(not(feature = "std"), not(feature = "os-lite")))]
 compile_error!("Either 'std' or 'os-lite' feature must be enabled");
 
-// Generated Cap'n Proto bindings - allow unwrap in generated code
-#[allow(clippy::unwrap_used)]
+// Generated Cap'n Proto bindings - allow clippy lints we don't control.
+#[allow(clippy::unwrap_used, clippy::needless_lifetimes)]
 pub mod system_set_capnp {
     include!(concat!(env!("OUT_DIR"), "/system_set_capnp.rs"));
 }
