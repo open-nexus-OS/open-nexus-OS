@@ -84,6 +84,7 @@ pub mod manifest_capnp {
     include!(concat!(env!("OUT_DIR"), "/manifest_capnp.rs"));
 }
 
+
 /// Common error type for IDL encode/decode boundaries.
 #[derive(Debug)]
 pub enum IdlError {

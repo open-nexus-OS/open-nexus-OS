@@ -15,6 +15,7 @@ This page is intentionally high-level and drift-resistant:
 - **Readiness observation**: emitting `init: up <svc>` only after the service is actually up.
 - **Policy gating**: consulting `policyd` before allowing a service to launch with requested capabilities (see `docs/security/signing-and-policy.md`).
 - **Service graph glue**: ensuring core authorities exist early (e.g. `policyd`, `samgrd`, `bundlemgrd`, `packagefsd`, `vfsd`, `execd`, …).
+- **Update health gate (v1.0)**: issue `updated.BootAttempt()` at boot, forward health commits, and emit `init: health ok (slot <a|b>)` (see `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`).
 
 ## Non-goals (what it should not accumulate)
 

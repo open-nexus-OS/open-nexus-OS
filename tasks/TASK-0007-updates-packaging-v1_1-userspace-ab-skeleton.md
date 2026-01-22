@@ -1,20 +1,22 @@
 ---
 
 title: TASK-0007 Updates & Packaging v1.0 (OS): userspace-only A/B skeleton (non-persistent) + manifest.nxb unification
-status: Draft
+status: In Review
 owner: @runtime
 created: 2025-12-22
-updated: 2026-01-15
+updated: 2026-01-16
 links:
 
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Testing contract: scripts/qemu-test.sh
   - Packaging docs: docs/packaging/nxb.md
+  - Signing policy: docs/security/signing-and-policy.md
   - ADR: docs/adr/0020-manifest-format-capnproto.md
   - ADR: docs/adr/0009-bundle-manager-architecture.md
   - Rust standards: docs/standards/RUST_STANDARDS.md
   - Security standards: docs/standards/SECURITY_STANDARDS.md
+  - RFC: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 
 follow-up-tasks:
 
@@ -46,7 +48,7 @@ The goal is a **userspace skeleton** that is testable and honest:
 
 - **Non-persistent**: `bootctl.json` lives in RAM only (no survival across real reboots)
 - **Manifest unification**: Resolve 3-way format drift (JSON/TOML/nxb) → single Cap'n Proto binary
-- **System-set format**: Define `.nxs` archive + signed index
+- **System-set format**: Define `.nxs` archive + `system.nxsindex` (Cap'n Proto) + detached signature
 - **Proof**: Stage/switch/health/rollback work in-process (QEMU markers)
 
 **v1.1 scope (moved to TASK-0034)**:
@@ -61,7 +63,7 @@ Prompt mapping note (avoid drift from older plans):
 - This repo's v1.0 decision is **not** to add a parallel JSON+tar update container.
 - Canonical contracts here are:
   - **`.nxb`** bundle with **`manifest.nxb`** (Cap'n Proto binary) + `payload.elf` (see ADR-0020)
-  - a **system-set** archive/index (`.nxs`) that is signed and lists bundles+digests.
+- a **system-set** archive/index (`.nxs`) that uses `system.nxsindex` + `system.sig.ed25519` and lists bundles+digests.
 
 ## Goal
 
@@ -80,6 +82,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - Delta updates, streaming updates, compression tuning (TASK-0034, TASK-0035).
 - Full policy language for updates (only minimal gating needed for the skeleton).
 - User-facing Settings UI and a developer CLI (`nx update`) (follow-up `TASK-0140`).
+- Policy enforcement modes, dev workflow, and sideload UX (see `docs/security/signing-and-policy.md`).
 
 ## Constraints / invariants (hard requirements)
 
@@ -87,6 +90,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - **No fake success**: OTA markers must be emitted only after real verification/state transitions.
 - **Determinism**: staging/switch/rollback must be deterministic; tests must be bounded.
 - **Bounded data**: system-set parsing and extraction must be size-capped; reject oversized inputs.
+- **IPC frame cap**: v1.0 inline stage requests must fit within the kernel IPC frame limit (`MAX_STAGE_BYTES`, currently 8 KiB).
 - **Rust hygiene**: no new `unwrap/expect` in OS daemons; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points
@@ -111,7 +115,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
 
   - **Update payload format drift (RESOLVED)**:
 
-    ✅ **Decision**: System-set (`.nxs`) with signed JSON index + tar archive.
+    ✅ **Decision**: System-set (`.nxs`) with Cap'n Proto index (`system.nxsindex`) + detached Ed25519 signature (`system.sig.ed25519`) + tar archive.
 
     - No `manifest.json` + tar parallel format.
     - `.nxs` is the canonical update container.
@@ -158,20 +162,18 @@ Prove end-to-end (host tests + QEMU selftest markers):
 ### Security invariants (MUST hold)
 
 - System-set MUST be signed; signature MUST be verified before staging
-- Per-bundle digests MUST be verified against manifest before installation
-- Rollback MUST NOT be possible to versions older than a defined security baseline
-- Health commit MUST only occur after genuine system stability (not just timeout)
+- Bundle bytes MUST match digests in `system.nxsindex` before staging
 - Staging MUST be atomic: partial/corrupted updates MUST NOT be bootable
+- Health commit MUST only occur after genuine system stability (not just timeout)
 - All update operations MUST be audit-logged
 
 ### DON'T DO
 
 - DON'T stage updates without signature verification
 - DON'T skip per-bundle digest verification
-- DON'T allow unlimited rollback depth (enforce minimum version floor)
 - DON'T auto-commit health without verifiable stability criteria
 - DON'T store signing keys on the device (verify-only)
-- DON'T accept updates from unauthenticated sources
+- DON'T claim downgrade protection in v1.0 (requires persistence + boot-chain anchoring)
 
 ### Attack surface impact
 
@@ -291,7 +293,8 @@ Notes:
 ### Phase 2: System-Set Format + Tooling
 
 1. **Define `.nxs` format**
-   - Document `system.json` schema
+   - Document `system.nxsindex` schema (Cap'n Proto) + `system.sig.ed25519` (detached signature)
+   - Define schema in `tools/nexus-idl/schemas/system-set.capnp` (single truth)
    - Define tar archive structure
 
 2. **Create `nxs-pack` tool**
@@ -342,8 +345,8 @@ Notes:
 
 ## Evidence (to paste into PR)
 
-- Host: `cargo test -p updates_host -- --nocapture` summary
-- OS: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` + `uart.log` tail with OTA markers
+- Host: `cargo test -p updates_host -- --nocapture`
+- OS: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` (marker-gated)
 
 ## RFC seeds (for later, once green)
 

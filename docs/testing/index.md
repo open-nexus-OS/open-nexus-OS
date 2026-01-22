@@ -85,7 +85,28 @@ seen and ensure log caps are in effect. `just test-os` wraps
 
 The os-lite `nexus-init` backend is responsible for announcing service
 bring-up. The OS smoke path emits a deterministic sequence of UART markers that
-the runner validates in order:
+the runner validates in order.
+
+Readiness contract (RFC-0013):
+
+- `init: up <svc>` means the control-plane handshake completed (spawn + bootstrap channel is live).
+- `<svc>: ready` means the service is fully ready to serve its v1 contract.
+- Tests MUST NOT treat `init: up` as readiness; missing `<svc>: ready` is a hard failure with an explicit error message.
+- Low-effort readiness gates may query `logd` for `*: ready` markers when a service lacks a dedicated ready RPC (stopgap until readiness RPCs exist).
+
+Additional kernel selftest markers may appear before `init: start`:
+
+- `KSELFTEST: spawn reasons ok`
+- `KSELFTEST: resource sentinel ok`
+
+Memory pressure note (until TASK-0228):
+
+- Boot runs may still hit allocator exhaustion (`ALLOC-FAIL`) or late spawn failures due to memory pressure.
+- This is expected to be fully addressed by the cooperative OOM watchdog in
+  `tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md`.
+- Until then, use the SpawnFailReason markers and readiness gates to diagnose failures quickly.
+
+Marker order:
 
 1. `neuron vers.` – kernel banner
 2. `init: start` – init process begins bootstrapping services

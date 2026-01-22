@@ -10,6 +10,8 @@ default = ["failpoints", "boot_banner", "selftest_priv_stack", "selftest_time"]
 failpoints = []
 # Development-only verbose UART diagnostics (not enabled by default)
 debug_uart = []
+# Bounded, low-noise IPC trace ring (records events in-memory and dumps only on trigger).
+ipc_trace_ring = []
 # opt-in panic handler for no_std kernel images
 panic_handler = []
 boot_timing = []

@@ -55,6 +55,7 @@ This file is a **status view** over tasks, optimized for daily work:
 | ------------------------------------ | ----------------------------- |
 | TASK-0001 Runtime roles & boundaries | Single-authority model locked |
 | TASK-0002 Userspace VFS proof        | Marker-gated proof in QEMU    |
+| TASK-0007 Updates & Packaging v1.0    | OTA A/B skeleton + markers    |
 
 ## Related
 

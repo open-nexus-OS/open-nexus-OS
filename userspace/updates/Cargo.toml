@@ -1,0 +1,19 @@
+[package]
+name = "updates"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[features]
+default = ["std"]
+std = ["dep:ed25519-dalek"]
+os-lite = []
+
+[dependencies]
+capnp = { version = "0.19", default-features = false, features = ["alloc", "unaligned"] }
+ed25519-dalek = { version = "2", optional = true }
+sha2 = { version = "0.10", default-features = false }
+
+[build-dependencies]
+capnpc = "0.19"

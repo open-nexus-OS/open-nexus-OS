@@ -423,7 +423,7 @@ These tasks depend on kernel networking primitives (TASK-0010 MMIO access).
 
 - **Decision Points**: Aligned (Bundle manifest contract, Signature verification)
 
-- **Scope**: Userspace A/B skeleton + signed system-set index
+- **Scope**: Userspace A/B skeleton + `system.nxsindex` (Cap'n Proto) + detached signature
 
 - **Security Invariants**: 7 defined
 

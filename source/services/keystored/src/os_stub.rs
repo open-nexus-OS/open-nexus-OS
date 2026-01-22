@@ -104,7 +104,8 @@ pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> L
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("keystored: ready");
-    let server = KernelServer::new_for("keystored").map_err(|_| ServerError::Unsupported("ipc"))?;
+    let server =
+        route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
     // Identity-binding hardening (bring-up semantics):
     //
     // This keystore implementation is a bring-up shim. To avoid cross-service key collisions and
@@ -113,9 +114,35 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // NOTE: this is not a full policy model; it is a safety floor until policyd-mediated access
     // control is wired for the keystore protocol.
     let mut store: BTreeMap<(u64, Vec<u8>), Vec<u8>> = BTreeMap::new();
+    let mut logged_capmove = false;
+    let mut logged_capmove_req = false;
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
+                if reply.is_some() && !logged_capmove {
+                    emit_line("keystored: capmove seen");
+                    logged_capmove = true;
+                }
+                if !logged_capmove_req {
+                    if frame.len() >= 7
+                        && frame[0] == MAGIC0
+                        && frame[1] == MAGIC1
+                        && frame[2] == VERSION
+                        && frame[3] == OP_GET
+                    {
+                        let key_len = frame[4] as usize;
+                        let val_len = u16::from_le_bytes([frame[5], frame[6]]) as usize;
+                        let total = 7usize.saturating_add(key_len).saturating_add(val_len);
+                        if frame.len() == total {
+                            let key_start = 7;
+                            let key_end = key_start + key_len;
+                            if frame.get(key_start..key_end) == Some(b"capmove.miss") {
+                                emit_line("keystored: capmove req");
+                                logged_capmove_req = true;
+                            }
+                        }
+                    }
+                }
                 let rsp = handle_frame(&mut store, sender_service_id, frame.as_slice());
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
@@ -126,8 +153,64 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
             }
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported("ipc")),
-            Err(_) => return Err(ServerError::Unsupported("ipc")),
+            Err(nexus_ipc::IpcError::Disconnected) => {
+                emit_line("keystored: recv disconnected");
+                return Err(ServerError::Unsupported("ipc"));
+            }
+            Err(nexus_ipc::IpcError::NoSpace) => {
+                emit_line("keystored: recv nospace");
+                return Err(ServerError::Unsupported("ipc"));
+            }
+            Err(nexus_ipc::IpcError::Unsupported) => {
+                emit_line("keystored: recv unsupported");
+                return Err(ServerError::Unsupported("ipc"));
+            }
+            Err(nexus_ipc::IpcError::Kernel(_)) => {
+                emit_line("keystored: recv kernel");
+                return Err(ServerError::Unsupported("ipc"));
+            }
+            Err(_) => {
+                emit_line("keystored: recv other");
+                return Err(ServerError::Unsupported("ipc"));
+            }
+        }
+    }
+}
+
+fn route_keystored_blocking() -> Option<KernelServer> {
+    const CTRL_SEND_SLOT: u32 = 1;
+    const CTRL_RECV_SLOT: u32 = 2;
+    let name = b"keystored";
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
+    let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+    loop {
+        if nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, 0).is_err() {
+            let _ = yield_();
+            continue;
+        }
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        match nexus_abi::ipc_recv_v1(
+            CTRL_RECV_SLOT,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = n as usize;
+                let (status, send_slot, recv_slot) =
+                    nexus_abi::routing::decode_route_rsp(&buf[..n])?;
+                if status != nexus_abi::routing::STATUS_OK {
+                    let _ = yield_();
+                    continue;
+                }
+                return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+            }
+            Err(_) => {
+                let _ = yield_();
+            }
         }
     }
 }
@@ -139,6 +222,7 @@ const VERSION: u8 = 1;
 const OP_PUT: u8 = 1;
 const OP_GET: u8 = 2;
 const OP_DEL: u8 = 3;
+const OP_VERIFY: u8 = 4;
 
 const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
@@ -148,6 +232,7 @@ const STATUS_UNSUPPORTED: u8 = 4;
 
 const MAX_KEY_LEN: usize = 64;
 const MAX_VAL_LEN: usize = 256;
+const MAX_VERIFY_PAYLOAD: usize = 1 * 1024 * 1024;
 
 fn handle_frame(
     store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>,
@@ -163,6 +248,10 @@ fn handle_frame(
     if ver != VERSION {
         return rsp(op, STATUS_UNSUPPORTED, &[]);
     }
+    if op == OP_VERIFY {
+        return handle_verify(frame);
+    }
+
     let key_len = frame[4] as usize;
     let val_len = u16::from_le_bytes([frame[5], frame[6]]) as usize;
     let total = 7usize.saturating_add(key_len).saturating_add(val_len);
@@ -202,6 +291,44 @@ fn handle_frame(
     }
 }
 
+fn handle_verify(frame: &[u8]) -> Vec<u8> {
+    // VERIFY request:
+    // [K, S, ver, OP_VERIFY, payload_len:u32le, pubkey(32), sig(64), payload...]
+    const HEADER_LEN: usize = 4 + 4 + 32 + 64;
+    if frame.len() < HEADER_LEN {
+        return rsp(OP_VERIFY, STATUS_MALFORMED, &[]);
+    }
+    let payload_len = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as usize;
+    if payload_len > MAX_VERIFY_PAYLOAD {
+        return rsp(OP_VERIFY, STATUS_TOO_LARGE, &[]);
+    }
+    let expected = HEADER_LEN.saturating_add(payload_len);
+    if frame.len() != expected {
+        return rsp(OP_VERIFY, STATUS_MALFORMED, &[]);
+    }
+    let key_start = 8;
+    let key_end = key_start + 32;
+    let sig_start = key_end;
+    let sig_end = sig_start + 64;
+    let payload_start = sig_end;
+    let payload_end = payload_start + payload_len;
+
+    let mut pubkey = [0u8; 32];
+    pubkey.copy_from_slice(&frame[key_start..key_end]);
+    let mut signature = [0u8; 64];
+    signature.copy_from_slice(&frame[sig_start..sig_end]);
+    let payload = &frame[payload_start..payload_end];
+
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let key = match VerifyingKey::from_bytes(&pubkey) {
+        Ok(key) => key,
+        Err(_) => return rsp(OP_VERIFY, STATUS_MALFORMED, &[]),
+    };
+    let sig = Signature::from_bytes(&signature);
+    let ok = key.verify(payload, &sig).is_ok();
+    rsp(OP_VERIFY, STATUS_OK, &[if ok { 1 } else { 0 }])
+}
+
 fn rsp(op: u8, status: u8, value: &[u8]) -> Vec<u8> {
     // Response: [K, S, ver, op|0x80, status, val_len:u16le, val...]
     let mut out = Vec::with_capacity(7 + value.len());
@@ -222,5 +349,24 @@ pub fn touch_schemas() {}
 fn emit_line(message: &str) {
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
+    }
+}
+
+fn emit_byte(byte: u8) {
+    let _ = debug_putc(byte);
+}
+
+fn emit_bytes(bytes: &[u8]) {
+    for &b in bytes {
+        emit_byte(b);
+    }
+}
+
+fn emit_hex_u64(mut value: u64) {
+    // Fixed width, deterministic (16 nibbles)
+    for shift in (0..16).rev() {
+        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        emit_byte(ch);
     }
 }

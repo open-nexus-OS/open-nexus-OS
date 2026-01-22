@@ -20,6 +20,7 @@ os-lite = [
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
+    "dep:ed25519-dalek",
 ]
 
 [dependencies]
@@ -30,6 +31,7 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-fe
 thiserror = { version = "1", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
 
 [[bin]]
 name = "keystored"

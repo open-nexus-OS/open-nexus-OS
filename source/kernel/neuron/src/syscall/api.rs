@@ -224,7 +224,7 @@ impl RecvArgsTyped {
     }
 }
 
-const MAX_FRAME_BYTES: usize = 512;
+const MAX_FRAME_BYTES: usize = 8 * 1024;
 const IPC_SYS_NONBLOCK: usize = 1 << 0;
 const IPC_SYS_TRUNCATE: usize = 1 << 1;
 
@@ -419,8 +419,8 @@ use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_QUERY,
     SYSCALL_CAP_TRANSFER, SYSCALL_DEBUG_PUTC, SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT,
     SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MAP,
-    SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_VMO_CREATE,
-    SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
+    SYSCALL_SPAWN_LAST_ERROR, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -510,6 +510,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR, sys_ipc_endpoint_create_for);
     table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
+    table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
@@ -530,6 +531,13 @@ pub fn install_handlers(table: &mut SyscallTable) {
 
 fn sys_getpid(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(ctx.tasks.current_pid() as usize)
+}
+
+fn sys_spawn_last_error(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    let pid = ctx.tasks.current_pid();
+    let reason =
+        ctx.tasks.take_last_spawn_fail_reason(pid).unwrap_or(crate::task::SpawnFailReason::Unknown);
+    Ok(reason.as_u8() as usize)
 }
 
 fn sys_ipc_endpoint_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
@@ -594,6 +602,15 @@ fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     }
 
     let id = ctx.router.create_endpoint(depth, Some(owner_pid))?;
+    #[cfg(feature = "ipc_trace_ring")]
+    {
+        crate::ipc::trace::record_ep_create(
+            ctx.tasks.current_pid() as u32,
+            id,
+            depth as u16,
+            owner_pid as u16,
+        );
+    }
     let ep_cap = Capability {
         kind: CapabilityKind::Endpoint(id),
         rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
@@ -629,6 +646,10 @@ fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize
     };
     if !cap.rights.contains(Rights::MANAGE) {
         return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    #[cfg(feature = "ipc_trace_ring")]
+    {
+        crate::ipc::trace::record_ep_close(ctx.tasks.current_pid() as u32, id);
     }
     let waiters = ctx.router.close_endpoint(id)?;
     for pid in waiters {
@@ -765,17 +786,71 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 let _ = ctx.tasks.current_caps_mut().set(slot, cap);
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
+            // Hardening: do not allow CAP_MOVE of dead/non-existent endpoints.
+            if let CapabilityKind::Endpoint(id) = cap.kind {
+                if !ctx.router.endpoint_alive(id) {
+                    let _ = ctx.tasks.current_caps_mut().set(slot, cap);
+                    return Err(Error::Ipc(ipc::IpcError::NoSuchEndpoint));
+                }
+                #[cfg(feature = "ipc_trace_ring")]
+                {
+                    crate::ipc::trace::record_capmove_send(
+                        ctx.tasks.current_pid() as u32,
+                        typed.slot.0 as u16,
+                        slot as u16,
+                        endpoint,
+                        id,
+                    );
+                }
+            }
             Some(cap)
         } else {
             None
         };
         let mut msg = ipc::Message::new(header, payload.clone(), moved_cap);
+        if cap_move {
+            if let Some(cap) = msg.moved_cap {
+                if let CapabilityKind::Endpoint(id) = cap.kind {
+                    msg.capmove_expected_ep = id;
+                }
+            }
+        }
         msg.sender_service_id = ctx.tasks.current_service_id();
+        #[cfg(feature = "ipc_trace_ring")]
+        {
+            crate::ipc::trace::record_send(
+                ctx.tasks.current_pid() as u32,
+                typed.slot.0 as u16,
+                endpoint,
+                msg.header.flags,
+                msg.payload.len() as u16,
+                None,
+            );
+        }
+        #[cfg(feature = "debug_uart")]
+        {
+            if payload.len() >= 4
+                && payload[0] == b'S'
+                && payload[1] == b'M'
+                && payload[2] == 1
+                && payload[3] == 1
+            {
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = writeln!(u, "IPC-SEND samgr reg ep=0x{:x}", endpoint);
+            }
+        }
         match ctx.router.send_returning_message(endpoint, msg) {
             Ok(()) => {
                 // Wake one receiver blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
                     let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                }
+                // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" send.
+                // This helps diagnose OTA stage hangs without relying on NoSuchEndpoint spam.
+                #[cfg(feature = "ipc_trace_ring")]
+                if cap_move && typed.payload_len > 1024 {
+                    crate::ipc::trace::maybe_dump_capmove_big("capmove-big");
                 }
                 return Ok(typed.payload_len);
             }
@@ -812,6 +887,32 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     if let Some(cap) = msg.moved_cap {
                         let _ = ctx.tasks.current_caps_mut().set(slot, cap);
                     }
+                }
+                #[cfg(feature = "ipc_trace_ring")]
+                {
+                    crate::ipc::trace::record_send(
+                        ctx.tasks.current_pid() as u32,
+                        typed.slot.0 as u16,
+                        endpoint,
+                        msg.header.flags,
+                        msg.payload.len() as u16,
+                        Some(e),
+                    );
+                    if e == ipc::IpcError::NoSuchEndpoint {
+                        crate::ipc::trace::dump_uart_send_nosuch(endpoint);
+                    }
+                }
+                #[cfg(feature = "debug_uart")]
+                if e == ipc::IpcError::NoSuchEndpoint {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(
+                        u,
+                        "IPC-SEND nosuch ep=0x{:x} flags=0x{:x} capmove={}",
+                        endpoint,
+                        msg.header.flags,
+                        msg.moved_cap.is_some()
+                    );
                 }
                 return Err(e.into());
             }
@@ -854,6 +955,25 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 let cur = ctx.tasks.current_pid();
                 // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
                 ctx.router.register_recv_waiter(endpoint, cur)?;
+                // Avoid missed-wakeup: a sender can enqueue between our empty check and waiter
+                // registration. Re-check once after registering; if a message is present, consume
+                // it without blocking.
+                match ctx.router.recv(endpoint) {
+                    Ok(msg) => {
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
+                            let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                        }
+                        break msg;
+                    }
+                    Err(ipc::IpcError::QueueEmpty) => {
+                        // Proceed to block below.
+                    }
+                    Err(e) => {
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        return Err(e.into());
+                    }
+                }
                 ctx.tasks.block_current(
                     BlockReason::IpcRecv { endpoint, deadline_ns: typed.deadline_ns },
                     ctx.scheduler,
@@ -871,15 +991,93 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Err(e) => return Err(e.into()),
         }
     };
+    #[cfg(feature = "ipc_trace_ring")]
+    {
+        crate::ipc::trace::record_recv(
+            ctx.tasks.current_pid() as u32,
+            typed.slot.0 as u16,
+            endpoint,
+            msg.header.flags,
+            msg.payload.len() as u16,
+            None,
+        );
+    }
 
     // If the message carries a moved capability, allocate it into the receiver now and write the
     // allocated slot into the returned header's `src` field.
-    if let Some(cap) = msg.moved_cap.take() {
+    if let Some(mut cap) = msg.moved_cap.take() {
+        // CAP_MOVE robustness: if the moved endpoint id is inconsistent with what the sender
+        // observed, prefer the sender's value (kernel internal field).
+        if msg.capmove_expected_ep != 0 {
+            if let CapabilityKind::Endpoint(id) = cap.kind {
+                if id != msg.capmove_expected_ep {
+                    #[cfg(feature = "ipc_trace_ring")]
+                    {
+                        use core::fmt::Write as _;
+                        let mut u = crate::uart::raw_writer();
+                        let _ = writeln!(
+                            u,
+                            "IPC-CAPMOVE fix exp=0x{:x} got=0x{:x}",
+                            msg.capmove_expected_ep,
+                            id
+                        );
+                    }
+                    cap.kind = CapabilityKind::Endpoint(msg.capmove_expected_ep);
+                }
+            }
+        }
+        #[cfg(feature = "ipc_trace_ring")]
+        let moved_ep_for_trace: u32 = match cap.kind {
+            CapabilityKind::Endpoint(id) => id,
+            _ => 0,
+        };
+        #[cfg(feature = "debug_uart")]
+        {
+            use core::fmt::Write as _;
+            let mut u = crate::uart::raw_writer();
+            let mut cap_info = 0usize;
+            if let CapabilityKind::Endpoint(id) = cap.kind {
+                cap_info = id as usize;
+            }
+            let _ = writeln!(
+                u,
+                "IPC-CAPMOVE recv ep=0x{:x} cap_ep=0x{:x}",
+                endpoint,
+                cap_info
+            );
+        }
         match ctx.tasks.current_caps_mut().allocate(cap) {
             Ok(slot) => {
+                #[cfg(feature = "ipc_trace_ring")]
+                {
+                    crate::ipc::trace::record_capmove_alloc(
+                        ctx.tasks.current_pid() as u32,
+                        endpoint,
+                        slot as u32,
+                        moved_ep_for_trace,
+                    );
+                }
+                #[cfg(feature = "debug_uart")]
+                {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(u, "IPC-CAPMOVE recv slot=0x{:x}", slot);
+                }
                 msg.header.src = slot as u32;
+                // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" receive
+                // after the capability has been allocated (so we can correlate with the sender dump).
+                #[cfg(feature = "ipc_trace_ring")]
+                if msg.header.len > 1024 {
+                    crate::ipc::trace::maybe_dump_capmove_big_recv("capmove-big-recv");
+                }
             }
             Err(_) => {
+                #[cfg(feature = "debug_uart")]
+                {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(u, "IPC-CAPMOVE recv nospace");
+                }
                 // Roll back: receiver cannot accept a moved cap right now (e.g. no free cap slots).
                 // Re-queue the message and surface a stable syscall error (ENOSPC).
                 msg.moved_cap = Some(cap);
@@ -961,7 +1159,7 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
     // Validate pointers up-front (RFC-0004 style provenance).
     ensure_user_slice(header_out_ptr, 16)?;
-    const MAX_FRAME_BYTES: usize = 512;
+    const MAX_FRAME_BYTES: usize = 8 * 1024;
     if payload_out_max > MAX_FRAME_BYTES {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
@@ -1001,6 +1199,21 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 }
                 let cur = ctx.tasks.current_pid();
                 ctx.router.register_recv_waiter(endpoint, cur)?;
+                // Avoid missed-wakeup: re-check after registering.
+                match ctx.router.recv(endpoint) {
+                    Ok(msg) => {
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
+                            let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                        }
+                        break msg;
+                    }
+                    Err(ipc::IpcError::QueueEmpty) => {}
+                    Err(e) => {
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        return Err(e.into());
+                    }
+                }
                 ctx.tasks
                     .block_current(BlockReason::IpcRecv { endpoint, deadline_ns }, ctx.scheduler);
                 wake_expired_blocked(ctx);
@@ -1017,7 +1230,14 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     };
 
     // CAP_MOVE allocation (same semantics as v1).
-    if let Some(cap) = msg.moved_cap.take() {
+    if let Some(mut cap) = msg.moved_cap.take() {
+        if msg.capmove_expected_ep != 0 {
+            if let CapabilityKind::Endpoint(id) = cap.kind {
+                if id != msg.capmove_expected_ep {
+                    cap.kind = CapabilityKind::Endpoint(msg.capmove_expected_ep);
+                }
+            }
+        }
         match ctx.tasks.current_caps_mut().allocate(cap) {
             Ok(slot) => {
                 msg.header.src = slot as u32;
@@ -1786,8 +2006,28 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         // SAFETY: checked in ExecV2ArgsTyped::check.
         let name_bytes =
             unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
-        is_selftest_client = name_bytes == b"selftest-client";
-        is_netstackd = name_bytes == b"netstackd";
+        // Defensive: tolerate an optional trailing NUL in the provided name buffer.
+        // This keeps bring-up robust across build modes while still matching only exact names.
+        let trimmed = name_bytes
+            .iter()
+            .position(|b| *b == 0)
+            .map(|n| &name_bytes[..n])
+            .unwrap_or(name_bytes);
+        // Normalize the service label used for bring-up gates:
+        // - If init-lite passes a path, use the last path component.
+        // - If init-lite passes a versioned label (e.g. "netstackd@0.1.0"), strip the suffix.
+        let base = trimmed
+            .iter()
+            .rposition(|b| *b == b'/' || *b == b'\\')
+            .map(|i| &trimmed[i + 1..])
+            .unwrap_or(trimmed);
+        let base = base
+            .iter()
+            .position(|b| *b == b'@')
+            .map(|i| &base[..i])
+            .unwrap_or(base);
+        is_selftest_client = base == b"selftest-client";
+        is_netstackd = base == b"netstackd";
         // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
         // This is deterministic, does not allocate, and can be recomputed by userland for display.
         service_id = 0xcbf29ce484222325u64;
@@ -1896,6 +2136,20 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     rights: Rights::MAP,
                 },
             )?;
+            #[cfg(feature = "ipc_trace_ring")]
+            {
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = writeln!(
+                    u,
+                    "EXEC-MMIO grant pid=0x{:x} name_len=0x{:x} slot=0x{:x} base=0x{:x} len=0x{:x}",
+                    pid as usize,
+                    typed.name_len,
+                    SELFTEST_MMIO_SLOT,
+                    VIRTIO_MMIO0_BASE,
+                    VIRTIO_MMIO_LEN
+                );
+            }
         }
         // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
         let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
@@ -1944,7 +2198,7 @@ fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     typed.check()?;
 
     let parent = ctx.tasks.current_pid();
-    let pid = ctx.tasks.spawn(
+    let pid = match ctx.tasks.spawn(
         parent,
         typed.entry_pc,
         typed.stack_sp,
@@ -1954,7 +2208,14 @@ fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         ctx.scheduler,
         ctx.router,
         ctx.address_spaces,
-    )?;
+    ) {
+        Ok(pid) => pid,
+        Err(err) => {
+            let reason = crate::task::spawn_fail_reason(&err);
+            ctx.tasks.set_last_spawn_fail_reason(parent, reason);
+            return Err(err.into());
+        }
+    };
 
     Ok(pid as usize)
 }
@@ -1963,6 +2224,21 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = CapTransferArgsTyped::decode(args)?;
     let rights = typed.check()?;
     let parent = ctx.tasks.current_pid();
+    #[cfg(feature = "ipc_trace_ring")]
+    {
+        if let Ok(parent_caps) = ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent)) {
+            if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
+                if let CapabilityKind::Endpoint(id) = base.kind {
+                    crate::ipc::trace::record_cap_xfer(
+                        parent as u32,
+                        typed.child as u32,
+                        id,
+                        rights.bits() as u16,
+                    );
+                }
+            }
+        }
+    }
     // RFC-0005 Phase 2 (hardening): `Rights::MANAGE` is not transferable for endpoints.
     //
     // Exception: allow transferring MANAGE for the EndpointFactory capability, so init-lite can

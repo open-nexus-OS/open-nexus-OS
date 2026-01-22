@@ -91,3 +91,5 @@ We track ordering in lanes so unrelated work doesn’t block planning:
 - `tasks/TRACK-DRIVERS-ACCELERATORS.md` (direction + gates)
 - `tasks/TRACK-NETWORKING-DRIVERS.md` (direction + gates)
 - `tasks/TRACK-NEXUSGFX-SDK.md` (SDK direction)
+- `tasks/TRACK-NEXUSMEDIA-SDK.md` (SDK direction: audio/video/image)
+- `tasks/TRACK-NEXUSGAME-SDK.md` (SDK direction: games)

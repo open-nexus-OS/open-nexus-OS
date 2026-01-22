@@ -11,6 +11,8 @@ std-server = [
     "samgrd/default",
     "bundlemgrd",
     "bundlemgrd/default",
+    "updated",
+    "updated/default",
     "keystored",
     "keystored/default",
     "policyd",
@@ -38,6 +40,8 @@ os-lite = [
     "samgrd/os-lite",
     "bundlemgrd",
     "bundlemgrd/os-lite",
+    "updated",
+    "updated/os-lite",
     "keystored",
     "keystored/os-lite",
     "policyd",
@@ -59,6 +63,7 @@ os-payload = []
 # Services: use default-features = false so we can select std vs os-lite
 samgrd = { path = "../../services/samgrd", optional = true, default-features = false }
 bundlemgrd = { path = "../../services/bundlemgrd", optional = true, default-features = false }
+updated = { path = "../../services/updated", optional = true, default-features = false }
 keystored = { path = "../../services/keystored", optional = true, default-features = false }
 policyd = { path = "../../services/policyd", optional = true, default-features = false }
 execd = { path = "../../services/execd", optional = true, default-features = false }

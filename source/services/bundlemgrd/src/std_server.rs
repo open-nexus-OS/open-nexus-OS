@@ -8,6 +8,7 @@
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystored client, packagefs client
 //! INVARIANTS: Separate from SAMgr/Keystore roles; stable readiness prints
 //! ADR: docs/adr/0017-service-architecture.md
+//! TESTS: tests/e2e/tests/bundlemgrd_roundtrip.rs
 
 use std::collections::HashMap;
 use std::fmt;

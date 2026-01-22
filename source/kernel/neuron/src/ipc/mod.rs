@@ -18,6 +18,8 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 pub mod header;
+#[cfg(feature = "ipc_trace_ring")]
+pub mod trace;
 
 use header::MessageHeader;
 
@@ -67,7 +69,7 @@ impl Endpoint {
         //
         // NOTE: Payloads are already bounded at syscall entry (MAX_FRAME_BYTES); this compounds
         // that bound over the queue depth.
-        const MAX_FRAME_BYTES: usize = 512;
+        const MAX_FRAME_BYTES: usize = 8 * 1024;
         let max_queued_bytes = depth.saturating_mul(MAX_FRAME_BYTES);
         Self {
             queue: VecDeque::new(),
@@ -182,6 +184,12 @@ pub struct Message {
     pub payload: Vec<u8>,
     /// Optional capability moved alongside this message (Phase-2 hardening / scalability).
     pub moved_cap: Option<crate::cap::Capability>,
+    /// Expected endpoint id for CAP_MOVE (when moving an Endpoint cap).
+    ///
+    /// SECURITY/ROBUSTNESS: This is a kernel-internal consistency field used to detect and
+    /// correct mismatches between the moved capability's endpoint id at send-time vs
+    /// receive-time. It MUST NOT be exposed to userspace directly.
+    pub capmove_expected_ep: u32,
     /// Kernel-derived stable identity of the sender service (BootstrapInfo v2).
     ///
     /// This is populated by the syscall layer at send-time, and remains stable even if the sender
@@ -198,7 +206,7 @@ impl Message {
     ) -> Self {
         let mut payload = payload;
         payload.truncate(header.len as usize);
-        Self { header, payload, moved_cap, sender_service_id: 0 }
+        Self { header, payload, moved_cap, capmove_expected_ep: 0, sender_service_id: 0 }
     }
 }
 
@@ -212,8 +220,8 @@ pub struct Router {
 }
 
 // DoS hardening: keep endpoint creation bounded until we have explicit accounting/quotas.
-const MAX_ENDPOINTS: usize = 256;
-const MAX_ENDPOINTS_PER_OWNER: usize = 64;
+const MAX_ENDPOINTS: usize = 384;
+const MAX_ENDPOINTS_PER_OWNER: usize = 96;
 
 #[cfg(feature = "failpoints")]
 static DENY_NEXT_SEND: AtomicBool = AtomicBool::new(false);
@@ -301,7 +309,15 @@ impl Router {
         }
         let res = match self.endpoints.get_mut(id as usize) {
             Some(ep) => ep.push(msg),
-            None => return Err((IpcError::NoSuchEndpoint, msg)),
+            None => {
+                #[cfg(feature = "debug_uart")]
+                {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(u, "IPC-ROUTER nosuch send ep=0x{:x}", id);
+                }
+                return Err((IpcError::NoSuchEndpoint, msg));
+            }
         };
         if res.is_ok() {
             self.queued_bytes_total = self.queued_bytes_total.saturating_add(msg_len);
@@ -326,6 +342,9 @@ impl Router {
                 Err((IpcError::TimedOut, _)) => {
                     log_debug!(target: "ipc", "send timed out (unexpected)")
                 }
+                Err((IpcError::NoSpace, _)) => {
+                    log_debug!(target: "ipc", "send nospace (unexpected)")
+                }
             }
         }
         res
@@ -341,7 +360,18 @@ impl Router {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "ipc", "recv enter");
         let owner = self.endpoints.get(id as usize).and_then(|ep| ep.owner);
-        let res = self.endpoints.get_mut(id as usize).ok_or(IpcError::NoSuchEndpoint)?.pop();
+        let res = match self.endpoints.get_mut(id as usize) {
+            Some(ep) => ep.pop(),
+            None => {
+                #[cfg(feature = "debug_uart")]
+                {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(u, "IPC-ROUTER nosuch recv ep=0x{:x}", id);
+                }
+                return Err(IpcError::NoSuchEndpoint);
+            }
+        };
         if let Ok(ref msg) = res {
             self.queued_bytes_total = self.queued_bytes_total.saturating_sub(msg.payload.len());
             if let Some(owner) = owner {
@@ -369,6 +399,9 @@ impl Router {
                 }
                 Err(IpcError::TimedOut) => {
                     log_debug!(target: "ipc", "recv timed out (unexpected)")
+                }
+                Err(IpcError::NoSpace) => {
+                    log_debug!(target: "ipc", "recv nospace (unexpected)")
                 }
             }
         }
@@ -481,11 +514,23 @@ impl Router {
         Ok(id)
     }
 
+    /// Returns true if `id` exists and is alive.
+    pub fn endpoint_alive(&self, id: EndpointId) -> bool {
+        self.endpoints
+            .get(id as usize)
+            .map(|ep| ep.alive)
+            .unwrap_or(false)
+    }
+
     /// Closes every endpoint owned by `owner` and returns all drained waiter PIDs.
     pub fn close_endpoints_for_owner(&mut self, owner: WaiterId) -> Vec<WaiterId> {
         let mut out: Vec<WaiterId> = Vec::new();
-        for ep in &mut self.endpoints {
+        for (id, ep) in self.endpoints.iter_mut().enumerate() {
+            #[cfg(not(feature = "ipc_trace_ring"))]
+            let _ = id;
             if let Some((recv, send)) = ep.close_if_owned_by(owner) {
+                #[cfg(feature = "ipc_trace_ring")]
+                crate::ipc::trace::record_ep_close(owner, id as u32);
                 out.extend(recv);
                 out.extend(send);
             }

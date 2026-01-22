@@ -365,69 +365,49 @@ impl TrapFrame {
 pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::Context<'_>) {
     // Save current frame into the current task before handling the syscall.
     let old_pid = ctx.tasks.current_pid();
-    uart_dbg_block!({
-        let mut u = crate::uart::raw_writer();
-        let _ = u.write_str("HECALL start old=0x");
-        uart_write_hex(&mut u, old_pid as usize);
-        let _ = u.write_str("\n");
-    });
-    if let Some(task) = ctx.tasks.task_mut(old_pid) {
-        uart_dbg_block!({
-            let mut u = crate::uart::raw_writer();
-            let _ = u.write_str("HECALL save frame pid=0x");
-            uart_write_hex(&mut u, old_pid as usize);
-            let _ = u.write_str("\n");
-        });
-        *task.frame_mut() = *frame;
-    } else {
-        uart_dbg_block!({
-            let mut u = crate::uart::raw_writer();
-            let _ = u.write_str("HECALL missing task pid=0x");
-            uart_write_hex(&mut u, old_pid as usize);
-            let _ = u.write_str("\n");
-        });
-    }
-    record(frame);
     // a7 = syscall number; a0..a5 = args
     let number = frame.x[17]; // a7
+    let log_syscall = false;
+    if log_syscall {
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("HECALL start old=0x");
+            uart_write_hex(&mut u, old_pid as usize);
+            let _ = u.write_str("\n");
+        });
+    }
+    if let Some(task) = ctx.tasks.task_mut(old_pid) {
+        if log_syscall {
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("HECALL save frame pid=0x");
+                uart_write_hex(&mut u, old_pid as usize);
+                let _ = u.write_str("\n");
+            });
+        }
+        *task.frame_mut() = *frame;
+    } else {
+        if log_syscall {
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("HECALL missing task pid=0x");
+                uart_write_hex(&mut u, old_pid as usize);
+                let _ = u.write_str("\n");
+            });
+        }
+    }
+    record(frame);
     let args =
         Args::new([frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]]);
-    #[cfg(feature = "debug_uart")]
-    if number != SYSCALL_DEBUG_PUTC {
+    // NOTE: keep trap-side UART logging minimal; use trap_ring/trap_symbols for post-mortem triage.
+    if log_syscall {
         uart_dbg_block!({
             let mut u = crate::uart::raw_writer();
-            let _ = u.write_str("SYSCALL a7=0x");
+            let _ = u.write_str("HECALL dispatch num=0x");
             uart_write_hex(&mut u, number);
-            let _ = u.write_str(" a0=0x");
-            uart_write_hex(&mut u, frame.x[10]);
             let _ = u.write_str("\n");
         });
     }
-    #[cfg(feature = "debug_uart")]
-    if number == SYSCALL_AS_MAP {
-        uart_dbg_block!({
-            let mut u = crate::uart::raw_writer();
-            let _ = u.write_str("SYSCALL as_map handle=0x");
-            uart_write_hex(&mut u, frame.x[10]);
-            let _ = u.write_str(" vmo=0x");
-            uart_write_hex(&mut u, frame.x[11]);
-            let _ = u.write_str(" va=0x");
-            uart_write_hex(&mut u, frame.x[12]);
-            let _ = u.write_str(" len=0x");
-            uart_write_hex(&mut u, frame.x[13]);
-            let _ = u.write_str(" prot=0x");
-            uart_write_hex(&mut u, frame.x[14]);
-            let _ = u.write_str(" flags=0x");
-            uart_write_hex(&mut u, frame.x[15]);
-            let _ = u.write_str("\n");
-        });
-    }
-    uart_dbg_block!({
-        let mut u = crate::uart::raw_writer();
-        let _ = u.write_str("HECALL dispatch num=0x");
-        uart_write_hex(&mut u, number);
-        let _ = u.write_str("\n");
-    });
     uart_dbg_block!({
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("HECALL table ptr=0x");
@@ -1498,6 +1478,25 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         write_byte(b);
                     }
                     write_hex(frame.x[1], 16);
+                    // Optional symbol hint for the return address (best-effort, allocation-free).
+                    #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "trap_symbols"))]
+                    {
+                        if let Some((name, off)) = nearest_symbol(frame.x[1]) {
+                            for &b in b" sym=" {
+                                write_byte(b);
+                            }
+                            // Emit up to 64 bytes of the symbol name to keep logs bounded.
+                            let bytes = name.as_bytes();
+                            let n = core::cmp::min(bytes.len(), 64);
+                            for &b in &bytes[..n] {
+                                write_byte(b);
+                            }
+                            for &b in b"+0x" {
+                                write_byte(b);
+                            }
+                            write_hex(off, 4);
+                        }
+                    }
                     for &b in b" sp=0x" {
                         write_byte(b);
                     }
@@ -1529,6 +1528,21 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     write_hex(riscv::register::satp::read().bits(), 16);
                     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
                     write_hex(0, 16);
+                    // Best-effort task context: current PID and its saved sepc (helps catch corrupted frames).
+                    if let Some(handles) = runtime_kernel_handles() {
+                        let tasks = handles.tasks.as_ref();
+                        let pid = tasks.current_pid() as usize;
+                        for &b in b" pid=0x" {
+                            write_byte(b);
+                        }
+                        write_hex(pid, 4);
+                        if let Some(task) = tasks.task(pid as u32) {
+                            for &b in b" t_sepc=0x" {
+                                write_byte(b);
+                            }
+                            write_hex(task.frame().sepc, 16);
+                        }
+                    }
                     write_byte(b'\n');
                 }
             }

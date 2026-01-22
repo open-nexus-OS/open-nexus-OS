@@ -29,7 +29,7 @@ use spin::Mutex;
 // Kernel heap backs page-table allocations, kernel stacks, and early bring-up metadata.
 // NOTE: This region lives in `.bss.heap` and must not overlap the page-table pool range.
 // Keep it large enough to avoid ALLOC-FAIL during bring-up selftests, but below the pool base.
-const HEAP_SIZE: usize = 1408 * 1024; // 1.375 MiB
+const HEAP_SIZE: usize = 1664 * 1024; // 1.625 MiB
 
 #[repr(align(4096))]
 struct HeapRegion([u8; HEAP_SIZE]);

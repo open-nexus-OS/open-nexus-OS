@@ -11,6 +11,7 @@ neuron = { path = "../neuron", features = ["bringup_identity"] }
 trap_ring = ["neuron/trap_ring"]
 trap_symbols = ["neuron/trap_symbols"]
 debug_uart = ["neuron/debug_uart"]
+ipc_trace_ring = ["neuron/ipc_trace_ring"]
 
 [[bin]]
 name = "neuron-boot"

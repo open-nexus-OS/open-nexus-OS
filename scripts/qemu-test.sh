@@ -52,6 +52,8 @@ set -e
 # during bring-up.
 expected_sequence=(
   "neuron vers."
+  "KSELFTEST: spawn reasons ok"
+  "KSELFTEST: resource sentinel ok"
   "init: start"
   "init: start keystored"
   "init: up keystored"
@@ -81,6 +83,7 @@ expected_sequence=(
   "policyd: ready"
   "samgrd: ready"
   "bundlemgrd: ready"
+  "updated: ready (non-persistent)"
   "packagefsd: ready"
   "vfsd: ready"
   "execd: ready"
@@ -90,34 +93,42 @@ expected_sequence=(
   "net: dhcp bound"
   "net: smoltcp iface up"
   "SELFTEST: net ping ok"
+  "logd: ready"
+  "bundlemgrd: slot a active"
+  "SELFTEST: ipc routing keystored ok"
+  "SELFTEST: keystored v1 ok"
   "SELFTEST: net udp dns ok"
   "SELFTEST: net tcp listen ok"
   "netstackd: facade up"
-  "logd: ready"
-  "SELFTEST: ipc routing keystored ok"
   "dsoftbusd: discovery up (udp loopback)"
-  "SELFTEST: keystored v1 ok"
   "dsoftbusd: discovery announce sent"
   "dsoftbusd: discovery peer found device=local"
   "dsoftbusd: os transport up (udp+tcp)"
-  "SELFTEST: ipc routing samgrd ok"
   "dsoftbusd: session connect peer=node-b"
+  "dsoftbusd: identity bound peer=node-b"
+  "dsoftbusd: dual-node session ok"
+  "dsoftbusd: ready"
+  "SELFTEST: ipc routing samgrd ok"
   "SELFTEST: samgrd v1 register ok"
   "SELFTEST: samgrd v1 lookup ok"
   "SELFTEST: samgrd v1 unknown ok"
   "SELFTEST: samgrd v1 malformed ok"
   "SELFTEST: ipc routing policyd ok"
   "SELFTEST: ipc routing bundlemgrd ok"
+  "SELFTEST: ipc routing updated ok"
   "SELFTEST: bundlemgrd v1 list ok"
   "SELFTEST: bundlemgrd v1 image ok"
   "SELFTEST: bundlemgrd v1 malformed ok"
+  # TASK-0007 OTA proof: stage → switch → health gate → rollback (userspace-only, non-persistent)
+  "SELFTEST: ota stage ok"
+  "bundlemgrd: slot b active"
+  "SELFTEST: ota switch ok"
+  "init: health ok (slot b)"
+  "SELFTEST: ota rollback ok"
   "SELFTEST: policy allow ok"
   "SELFTEST: policy deny ok"
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"
-  "dsoftbusd: identity bound peer=node-b"
-  "dsoftbusd: dual-node session ok"
-  "dsoftbusd: ready"
   "SELFTEST: ipc routing execd ok"
   "child: hello-elf"
   "execd: elf load ok"
@@ -177,6 +188,13 @@ for marker in "${expected_sequence[@]}"; do
   fi
 done
 if [[ "$missing" -ne 0 ]]; then
+  if [[ "$missing_marker" == *": ready" ]]; then
+    svc="${missing_marker%%:*}"
+    if grep -aFq "init: up $svc" "$UART_LOG"; then
+      echo "[error] Service up but not ready: missing '$missing_marker' after 'init: up $svc'" >&2
+      exit 1
+    fi
+  fi
   echo "[error] Missing UART marker: $missing_marker" >&2
   exit 1
 fi

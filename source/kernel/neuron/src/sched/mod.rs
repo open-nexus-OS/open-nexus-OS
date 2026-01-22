@@ -68,7 +68,7 @@ pub struct Scheduler {
 impl Scheduler {
     /// Creates an empty scheduler.
     pub fn new() -> Self {
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
         {
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
@@ -127,15 +127,16 @@ impl Scheduler {
         crate::liveness::bump();
 
         // Debug: log queue sizes for the first few iterations only
-        const LOG_LIMIT: usize = 256;
-        static NEXT_COUNT: core::sync::atomic::AtomicUsize =
-            core::sync::atomic::AtomicUsize::new(0);
-        let count = NEXT_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        let log_now = count < LOG_LIMIT;
         let mut u: Option<crate::uart::RawUart> = None;
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        if log_now {
-            u = Some(crate::uart::raw_writer());
+        #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
+        {
+            const LOG_LIMIT: usize = 256;
+            static NEXT_COUNT: core::sync::atomic::AtomicUsize =
+                core::sync::atomic::AtomicUsize::new(0);
+            let count = NEXT_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if count < LOG_LIMIT {
+                u = Some(crate::uart::raw_writer());
+            }
         }
         if let Some(ref mut w) = u {
             use core::fmt::Write as _;

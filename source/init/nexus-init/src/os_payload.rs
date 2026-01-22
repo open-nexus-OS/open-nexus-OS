@@ -317,6 +317,13 @@ const CTRL_EP_DEPTH: usize = 4;
 const CTRL_CHILD_SEND_SLOT: u32 = 1; // First cap_transfer into a freshly spawned task (slot 0 is reserved).
 const CTRL_CHILD_RECV_SLOT: u32 = 2; // Second cap_transfer (paired reply endpoint).
 
+const INIT_HEALTH_MAGIC0: u8 = b'I';
+const INIT_HEALTH_MAGIC1: u8 = b'H';
+const INIT_HEALTH_VERSION: u8 = 1;
+const INIT_HEALTH_OP_OK: u8 = 1;
+const INIT_HEALTH_STATUS_OK: u8 = 0;
+const INIT_HEALTH_STATUS_FAILED: u8 = 1;
+
 #[derive(Clone, Copy)]
 struct CtrlChannel {
     /// Service name for this PID (init-lite authoritative).
@@ -338,6 +345,8 @@ struct CtrlChannel {
     pol_recv_slot: Option<u32>,
     bnd_send_slot: Option<u32>,
     bnd_recv_slot: Option<u32>,
+    upd_send_slot: Option<u32>,
+    upd_recv_slot: Option<u32>,
     sam_send_slot: Option<u32>,
     sam_recv_slot: Option<u32>,
     exe_send_slot: Option<u32>,
@@ -616,6 +625,10 @@ where
     // Private init-lite -> policyd response channels (init-lite receives replies).
     let pol_ctl_route_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
+    let init_pid = nexus_abi::pid().map_err(InitError::Abi)?;
+    let init_reply_send = nexus_abi::cap_clone(pol_ctl_route_rsp).map_err(InitError::Abi)?;
+    let init_reply_send =
+        nexus_abi::cap_transfer(init_pid, init_reply_send, Rights::SEND).map_err(InitError::Abi)?;
     let pol_ctl_exec_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
 
@@ -692,6 +705,8 @@ where
                     pol_recv_slot: None,
                     bnd_send_slot: None,
                     bnd_recv_slot: None,
+                    upd_send_slot: None,
+                    upd_recv_slot: None,
                     sam_send_slot: None,
                     sam_recv_slot: None,
                     exe_send_slot: None,
@@ -771,6 +786,7 @@ where
     let netstackd_pid = find_pid(&ctrl_channels, "netstackd").ok_or(InitError::MissingElf)?;
     let dsoftbusd_pid = find_pid(&ctrl_channels, "dsoftbusd").ok_or(InitError::MissingElf)?;
     let bundlemgrd_pid = find_pid(&ctrl_channels, "bundlemgrd").ok_or(InitError::MissingElf)?;
+    let updated_pid = find_pid(&ctrl_channels, "updated").ok_or(InitError::MissingElf)?;
     let samgrd_pid = find_pid(&ctrl_channels, "samgrd").ok_or(InitError::MissingElf)?;
     let execd_pid = find_pid(&ctrl_channels, "execd").ok_or(InitError::MissingElf)?;
     let keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
@@ -792,6 +808,13 @@ where
     let bnd_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, bundlemgrd_pid, 8)
         .map_err(InitError::Abi)?;
     let bnd_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+        .map_err(InitError::Abi)?;
+    let bnd_rsp_updated =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, updated_pid, 8)
+            .map_err(InitError::Abi)?;
+    let upd_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, updated_pid, 8)
+        .map_err(InitError::Abi)?;
+    let upd_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
     let sam_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, samgrd_pid, 8)
         .map_err(InitError::Abi)?;
@@ -984,6 +1007,11 @@ where
                     nexus_abi::cap_transfer(pid, pol_rsp, Rights::SEND).map_err(InitError::Abi)?;
                 chan.pol_send_slot = Some(send_slot);
                 chan.pol_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: policyd slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
 
                 // policyd receives queries on *_req and sends replies on *_rsp
                 let _ = nexus_abi::cap_transfer(pid, pol_ctl_route_req, Rights::RECV)
@@ -1005,6 +1033,11 @@ where
                     nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+                debug_write_bytes(b"init: policyd reply slots recv=0x");
+                debug_write_hex(reply_recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(reply_send_slot as usize);
+                debug_write_byte(b'\n');
 
                 // TASK-0006: allow policyd to send structured logs to logd via CAP_MOVE (reply inbox).
                 if let Some(req) = log_req {
@@ -1012,6 +1045,11 @@ where
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
                     chan.log_send_slot = Some(send_slot);
                     chan.log_recv_slot = Some(reply_recv_slot);
+                    debug_write_bytes(b"init: policyd logd slots send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(reply_recv_slot as usize);
+                    debug_write_byte(b'\n');
                 }
             }
             "bundlemgrd" => {
@@ -1021,6 +1059,11 @@ where
                     nexus_abi::cap_transfer(pid, bnd_rsp, Rights::SEND).map_err(InitError::Abi)?;
                 chan.bnd_send_slot = Some(send_slot);
                 chan.bnd_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: bundlemgrd slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
 
                 // Allow bundlemgrd to route to execd (policyd may still deny).
                 let send_slot = nexus_abi::cap_transfer(pid, bnd_exe_req, Rights::SEND)
@@ -1049,6 +1092,73 @@ where
                     chan.log_recv_slot = Some(reply_recv_slot);
                 }
             }
+            "updated" => {
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, upd_req, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, upd_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                chan.upd_send_slot = Some(send_slot);
+                chan.upd_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: updated slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
+
+                let mut transfer =
+                    |cap: u32, rights: Rights, label: &'static str| -> Option<u32> {
+                        match nexus_abi::cap_transfer(pid, cap, rights) {
+                            Ok(slot) => Some(slot),
+                            Err(err) => {
+                                debug_write_bytes(b"init: updated cap transfer fail ");
+                                debug_write_str(label);
+                                debug_write_bytes(b" err=");
+                                debug_write_str(abi_error_label(err.clone()));
+                                debug_write_byte(b'\n');
+                                None
+                            }
+                        }
+                    };
+
+                // Allow updated to call bundlemgrd (slot-aware publication).
+                let send_slot = transfer(bnd_req, Rights::SEND, "bundlemgrd send");
+                let recv_slot = transfer(bnd_rsp_updated, Rights::RECV, "bundlemgrd recv");
+                if let (Some(send_slot), Some(recv_slot)) = (send_slot, recv_slot) {
+                    chan.bnd_send_slot = Some(send_slot);
+                    chan.bnd_recv_slot = Some(recv_slot);
+                }
+
+                // Allow updated to call keystored for signature verification.
+                let send_slot = transfer(key_req, Rights::SEND, "keystored send");
+                let recv_slot = transfer(key_rsp, Rights::RECV, "keystored recv");
+                if let (Some(send_slot), Some(recv_slot)) = (send_slot, recv_slot) {
+                    chan.key_send_slot = Some(send_slot);
+                    chan.key_recv_slot = Some(recv_slot);
+                }
+
+                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot = transfer(reply_ep, Rights::RECV, "reply recv");
+                let reply_send_slot = transfer(reply_ep, Rights::SEND, "reply send");
+                if let (Some(reply_recv_slot), Some(reply_send_slot)) =
+                    (reply_recv_slot, reply_send_slot)
+                {
+                    chan.reply_recv_slot = Some(reply_recv_slot);
+                    chan.reply_send_slot = Some(reply_send_slot);
+                }
+
+                // TASK-0006: allow updated to send structured logs to logd via CAP_MOVE (reply inbox).
+                if let Some(req) = log_req {
+                    if let Some(send_slot) = transfer(req, Rights::SEND, "logd send") {
+                        chan.log_send_slot = Some(send_slot);
+                        if let Some(reply_recv_slot) = reply_recv_slot {
+                            chan.log_recv_slot = Some(reply_recv_slot);
+                        }
+                    }
+                }
+            }
             "samgrd" => {
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, sam_req, Rights::RECV).map_err(InitError::Abi)?;
@@ -1056,6 +1166,11 @@ where
                     nexus_abi::cap_transfer(pid, sam_rsp, Rights::SEND).map_err(InitError::Abi)?;
                 chan.sam_send_slot = Some(send_slot);
                 chan.sam_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: samgrd slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
                 let reply_ep =
@@ -1091,6 +1206,11 @@ where
                     .map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+                debug_write_bytes(b"init: execd reply slots recv=0x");
+                debug_write_hex(reply_recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(reply_send_slot as usize);
+                debug_write_byte(b'\n');
 
                 // Optional: allow execd to send crash reports to logd via CAP_MOVE (reply inbox).
                 if let Some(req) = log_req {
@@ -1098,6 +1218,11 @@ where
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
                     chan.log_send_slot = Some(send_slot);
                     chan.log_recv_slot = Some(reply_recv_slot);
+                    debug_write_bytes(b"init: execd logd slots send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(reply_recv_slot as usize);
+                    debug_write_byte(b'\n');
                 }
             }
             "keystored" => {
@@ -1161,18 +1286,44 @@ where
                     nexus_abi::cap_transfer(pid, bnd_rsp, Rights::RECV).map_err(InitError::Abi)?;
                 chan.bnd_send_slot = Some(send_slot);
                 chan.bnd_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest bundlemgrd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, upd_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, upd_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.upd_send_slot = Some(send_slot);
+                chan.upd_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest updated slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
                 let send_slot =
                     nexus_abi::cap_transfer(pid, sam_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, sam_rsp, Rights::RECV).map_err(InitError::Abi)?;
                 chan.sam_send_slot = Some(send_slot);
                 chan.sam_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest samgrd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
                 let send_slot =
                     nexus_abi::cap_transfer(pid, exe_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, exe_rsp, Rights::RECV).map_err(InitError::Abi)?;
                 chan.exe_send_slot = Some(send_slot);
                 chan.exe_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest execd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
                 let send_slot =
                     nexus_abi::cap_transfer(pid, key_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
@@ -1187,6 +1338,11 @@ where
                         nexus_abi::cap_transfer(pid, rsp, Rights::RECV).map_err(InitError::Abi)?;
                     chan.log_send_slot = Some(send_slot);
                     chan.log_recv_slot = Some(recv_slot);
+                    debug_write_bytes(b"init: selftest logd slots send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(recv_slot as usize);
+                    debug_write_byte(b'\n');
                 }
 
                 // Reply inbox: provide both RECV (stay with client) and SEND (to be moved to servers).
@@ -1236,12 +1392,30 @@ where
         }
     }
 
+    match updated_boot_attempt(upd_req, init_reply_send, pol_ctl_route_rsp) {
+        Ok(Some(slot)) => {
+            let ok = bundlemgrd_set_active_slot(bnd_req, init_reply_send, pol_ctl_route_rsp, slot);
+            if !ok {
+                debug_write_str("init: rollback fail");
+                debug_write_byte(b'\n');
+            }
+        }
+        Ok(None) => {}
+        Err(_) => {
+            debug_write_str("init: boot attempt fail");
+            debug_write_byte(b'\n');
+        }
+    }
+
     Ok(BootstrapState {
         ctrl_channels,
         pol_ctl_route_req,
         pol_ctl_route_rsp,
         pol_ctl_exec_req,
         pol_ctl_exec_rsp,
+        upd_req,
+        upd_reply_send: init_reply_send,
+        upd_reply_recv: pol_ctl_route_rsp,
     })
 }
 
@@ -1251,6 +1425,9 @@ struct BootstrapState {
     pol_ctl_route_rsp: u32,
     pol_ctl_exec_req: u32,
     pol_ctl_exec_rsp: u32,
+    upd_req: u32,
+    upd_reply_send: u32,
+    upd_reply_recv: u32,
 }
 
 /// Same as [`bootstrap_service_images`] but keeps the init task alive forever.
@@ -1267,6 +1444,9 @@ where
     let pol_ctl_route_rsp = state.pol_ctl_route_rsp;
     let pol_ctl_exec_req = state.pol_ctl_exec_req;
     let pol_ctl_exec_rsp = state.pol_ctl_exec_rsp;
+    let upd_req = state.upd_req;
+    let upd_reply_send = state.upd_reply_send;
+    let upd_reply_recv = state.upd_reply_recv;
     let watchdog = watchdog_limit_ticks();
     let mut ticks: usize = 0;
     loop {
@@ -1286,6 +1466,41 @@ where
                 Err(nexus_abi::IpcError::QueueEmpty) => continue,
                 Err(_) => continue,
             };
+            // Health gate: allow selftest-client to notify init.
+            if chan.svc_name == "selftest-client" && decode_init_health_ok_req(&buf[..n]) {
+                let status = match updated_health_ok(upd_req, upd_reply_send, upd_reply_recv) {
+                    Ok(slot) => {
+                        debug_write_str("init: health ok (slot ");
+                        debug_write_byte(slot);
+                        debug_write_str(")");
+                        debug_write_byte(b'\n');
+                        INIT_HEALTH_STATUS_OK
+                    }
+                    Err(err) => {
+                        debug_write_str("init: health fail ");
+                        match err {
+                            InitError::Map(msg) => debug_write_str(msg),
+                            InitError::Abi(code) => debug_write_str(abi_error_label(code)),
+                            InitError::Ipc(code) => debug_write_str(ipc_error_label(code)),
+                            InitError::Elf(msg) => debug_write_str(msg),
+                            InitError::MissingElf => debug_write_str("missing-elf"),
+                        }
+                        debug_write_byte(b'\n');
+                        INIT_HEALTH_STATUS_FAILED
+                    }
+                };
+                let rsp = encode_init_health_ok_rsp(status);
+                let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
+                let _ = nexus_abi::ipc_send_v1(
+                    chan.ctrl_rsp_parent_slot,
+                    &rh,
+                    &rsp,
+                    nexus_abi::IPC_SYS_NONBLOCK,
+                    0,
+                );
+                continue;
+            }
+
             // Either ROUTE_GET (routing) or policy exec-check requests.
             let name = match nexus_abi::routing::decode_route_get(&buf[..n]) {
                 Some(name) => name,
@@ -1339,6 +1554,9 @@ where
                     continue;
                 }
             };
+            if name == b"samgrd" && chan.svc_name == "selftest-client" {
+                debug_write_bytes(b"init: route samgrd from selftest-client\n");
+            }
             // Special route: requester-local reply inbox for CAP_MOVE reply routing.
             // Returns (send_slot, recv_slot) for the requester's own reply endpoint.
             if name == b"@reply" {
@@ -1409,6 +1627,16 @@ where
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }
+            } else if name == b"logd" {
+                match (chan.log_send_slot, chan.log_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"updated" {
+                match (chan.upd_send_slot, chan.upd_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
             } else if name == b"samgrd" {
                 match (chan.sam_send_slot, chan.sam_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
@@ -1442,6 +1670,24 @@ where
             } else {
                 (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32)
             };
+            if name == b"samgrd" && chan.svc_name == "selftest-client" {
+                debug_write_bytes(b"init: route samgrd rsp status=0x");
+                debug_write_hex(status as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
+            }
+            if name == b"updated" && chan.svc_name == "selftest-client" {
+                debug_write_bytes(b"init: route updated rsp status=0x");
+                debug_write_hex(status as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
+            }
             let rsp = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
             let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
             let _ = nexus_abi::ipc_send_v1(
@@ -1525,9 +1771,18 @@ fn policyd_route_allowed(
             deadline,
         )
         .ok()? as usize;
+        // IPC_SYS_TRUNCATE can report a length larger than our local buffer.
+        // Never slice past the buffer (would panic and destabilize bring-up).
+        let got = core::cmp::min(got, buf.len());
         let (_ver, op, got_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&buf[..got])?;
         if op != nexus_abi::policyd::OP_ROUTE || got_nonce != nonce {
             continue;
+        }
+        // Deterministic debug (once) for the bundlemgrd->execd denial gate.
+        if requester == "bundlemgrd" && target == b"execd" {
+            debug_write_bytes(b"init: policyd route bundlemgrd->execd status=0x");
+            debug_write_hex(status as usize);
+            debug_write_byte(b'\n');
         }
         return match status {
             nexus_abi::policyd::STATUS_ALLOW => Some(true),
@@ -1535,6 +1790,341 @@ fn policyd_route_allowed(
             _ => None,
         };
     }
+}
+
+fn updated_boot_attempt(
+    upd_req: u32,
+    reply_send: u32,
+    reply_recv: u32,
+) -> Result<Option<u8>> {
+    let mut req = [0u8; 4];
+    let len = nexus_abi::updated::encode_boot_attempt_req(&mut req)
+        .ok_or(InitError::Map("updated boot attempt encode failed"))?;
+    let mut attempts = 0u8;
+    let max_attempts: u8 = 20;
+    loop {
+        attempts = attempts.saturating_add(1);
+        let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
+        let hdr = nexus_abi::MsgHeader::new(
+            reply_send_clone,
+            0,
+            0,
+            nexus_abi::ipc_hdr::CAP_MOVE,
+            len as u32,
+        );
+        let deadline = match nexus_abi::nsec() {
+            Ok(now) => now.saturating_add(500_000_000),
+            Err(_) => 0,
+        };
+        let send = nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], 0, deadline);
+        if send.is_err() {
+            if attempts < max_attempts {
+                let _ = nexus_abi::yield_();
+                continue;
+            }
+            return Ok(None);
+        }
+
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 16];
+        loop {
+            let now = match nexus_abi::nsec() {
+                Ok(now) => now,
+                Err(_) => break,
+            };
+            if now >= deadline {
+                break;
+            }
+            match nexus_abi::ipc_recv_v1(
+                reply_recv,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => {
+                    // IPC_SYS_TRUNCATE can return a length larger than our local buffer.
+                    // Never slice past the buffer (would panic and kill init-lite).
+                    let n = core::cmp::min(n as usize, buf.len());
+                    if let Some((status, slot)) =
+                        nexus_abi::updated::decode_boot_attempt_rsp(&buf[..n])
+                    {
+                        if status != nexus_abi::updated::STATUS_OK {
+                            return Err(InitError::Map("updated boot attempt failed"));
+                        }
+                        if slot == 0 {
+                            return Ok(None);
+                        }
+                        return Ok(Some(slot));
+                    }
+                    // Ignore unrelated replies on the shared inbox.
+                    continue;
+                }
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = nexus_abi::yield_();
+                    continue;
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+        }
+        if attempts < max_attempts {
+            let _ = nexus_abi::yield_();
+            continue;
+        }
+        // Updated not ready yet; skip boot attempt for this cycle.
+        return Ok(None);
+    }
+}
+
+fn bundlemgrd_set_active_slot(
+    bnd_req: u32,
+    reply_send: u32,
+    reply_recv: u32,
+    slot: u8,
+) -> bool {
+    let mut req = [0u8; 5];
+    nexus_abi::bundlemgrd::encode_set_active_slot_req(slot, &mut req);
+    let reply_send_clone = match nexus_abi::cap_clone(reply_send) {
+        Ok(slot) => slot,
+        Err(_) => return false,
+    };
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        req.len() as u32,
+    );
+    let deadline = match nexus_abi::nsec() {
+        Ok(now) => now.saturating_add(200_000_000),
+        Err(_) => 0,
+    };
+    if nexus_abi::ipc_send_v1(bnd_req, &hdr, &req, 0, deadline).is_err() {
+        return false;
+    }
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 16];
+    let n = match nexus_abi::ipc_recv_v1(
+        reply_recv,
+        &mut rh,
+        &mut buf,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    ) {
+        Ok(n) => n as usize,
+        Err(_) => return false,
+    };
+    match nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&buf[..n]) {
+        Some((status, rsp_slot)) => status == nexus_abi::bundlemgrd::STATUS_OK && rsp_slot == slot,
+        None => false,
+    }
+}
+
+fn decode_init_health_ok_req(frame: &[u8]) -> bool {
+    frame.len() == 4
+        && frame[0] == INIT_HEALTH_MAGIC0
+        && frame[1] == INIT_HEALTH_MAGIC1
+        && frame[2] == INIT_HEALTH_VERSION
+        && frame[3] == INIT_HEALTH_OP_OK
+}
+
+fn encode_init_health_ok_rsp(status: u8) -> [u8; 5] {
+    [INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_VERSION, INIT_HEALTH_OP_OK | 0x80, status]
+}
+
+fn updated_health_ok(
+    upd_req: u32,
+    reply_send: u32,
+    reply_recv: u32,
+) -> Result<u8> {
+    let mut req = [0u8; 4];
+    let len = nexus_abi::updated::encode_health_ok_req(&mut req)
+        .ok_or(InitError::Map("updated health_ok encode failed"))?;
+    let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        len as u32,
+    );
+    // Avoid deadline-based blocking IPC in bring-up; use explicit nsec()-bounded NONBLOCK loops.
+    let start = nexus_abi::nsec().map_err(InitError::Abi)?;
+    let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(
+            upd_req,
+            &hdr,
+            &req[..len],
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (i & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().map_err(InitError::Abi)?;
+                    if now >= deadline {
+                        return Err(InitError::Map("updated health_ok send timeout"));
+                    }
+                }
+                let _ = nexus_abi::yield_();
+            }
+            Err(e) => return Err(InitError::Ipc(e)),
+        }
+        i = i.wrapping_add(1);
+    }
+
+    // Drain the HealthOk response before issuing GetStatus on the same reply inbox.
+    // IMPORTANT: reply inbox is shared; ignore unrelated replies (e.g. boot_attempt).
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 16];
+    let mut j: usize = 0;
+    let mut logged_other = false;
+    loop {
+        if (j & 0x7f) == 0 {
+            let now = nexus_abi::nsec().map_err(InitError::Abi)?;
+            if now >= deadline {
+                return Err(InitError::Map("updated health_ok timeout"));
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            reply_recv,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n < 7 || buf[0] != nexus_abi::updated::MAGIC0 || buf[1] != nexus_abi::updated::MAGIC1 {
+                    continue;
+                }
+                if buf[2] != nexus_abi::updated::VERSION {
+                    continue;
+                }
+                if buf[3] != (nexus_abi::updated::OP_HEALTH_OK | 0x80) {
+                    if !logged_other {
+                        logged_other = true;
+                        debug_write_bytes(b"init: health recv other op=0x");
+                        debug_write_hex(buf[3] as usize);
+                        debug_write_byte(b'\n');
+                    }
+                    continue;
+                }
+                if buf[4] != nexus_abi::updated::STATUS_OK {
+                    return Err(InitError::Map("updated health_ok failed"));
+                }
+                break;
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = nexus_abi::yield_();
+            }
+            Err(e) => return Err(InitError::Ipc(e)),
+        }
+        j = j.wrapping_add(1);
+    }
+
+    updated_get_status(upd_req, reply_send, reply_recv)
+}
+
+fn updated_get_status(
+    upd_req: u32,
+    reply_send: u32,
+    reply_recv: u32,
+) -> Result<u8> {
+    let mut req = [0u8; 4];
+    let len = nexus_abi::updated::encode_get_status_req(&mut req)
+        .ok_or(InitError::Map("updated status encode failed"))?;
+    let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        len as u32,
+    );
+    let start = nexus_abi::nsec().map_err(InitError::Abi)?;
+    let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(
+            upd_req,
+            &hdr,
+            &req[..len],
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (i & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().map_err(InitError::Abi)?;
+                    if now >= deadline {
+                        return Err(InitError::Map("updated status send timeout"));
+                    }
+                }
+                let _ = nexus_abi::yield_();
+            }
+            Err(e) => return Err(InitError::Ipc(e)),
+        }
+        i = i.wrapping_add(1);
+    }
+
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 16];
+    let mut got_n: usize = 0;
+    let mut j: usize = 0;
+    loop {
+        if (j & 0x7f) == 0 {
+            let now = nexus_abi::nsec().map_err(InitError::Abi)?;
+            if now >= deadline {
+                return Err(InitError::Map("updated status timeout"));
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            reply_recv,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n < 7 || buf[0] != nexus_abi::updated::MAGIC0 || buf[1] != nexus_abi::updated::MAGIC1 {
+                    continue;
+                }
+                if buf[2] != nexus_abi::updated::VERSION {
+                    continue;
+                }
+                if buf[3] != (nexus_abi::updated::OP_GET_STATUS | 0x80) {
+                    continue;
+                }
+                if buf[4] != nexus_abi::updated::STATUS_OK {
+                    return Err(InitError::Map("updated status failed"));
+                }
+                got_n = n;
+                break;
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = nexus_abi::yield_();
+            }
+            Err(e) => return Err(InitError::Ipc(e)),
+        }
+        j = j.wrapping_add(1);
+    }
+    let payload_len = u16::from_le_bytes([buf[5], buf[6]]) as usize;
+    if payload_len < 1 || got_n < 7 + payload_len {
+        return Err(InitError::Map("updated status payload missing"));
+    }
+    let active = buf[7];
+    let slot = match active {
+        1 => b'a',
+        2 => b'b',
+        _ => return Err(InitError::Map("updated status slot invalid")),
+    };
+    Ok(slot)
 }
 
 fn policyd_exec_allowed(
@@ -1602,6 +2192,12 @@ pub fn describe_init_error(line: &mut LineBuilder<'_, '_>, err: &InitError) {
         InitError::Abi(code) => {
             line.text("abi:");
             line.text(abi_error_label(*code));
+            if *code == AbiError::SpawnFailed {
+                if let Ok(reason) = nexus_abi::spawn_last_error() {
+                    line.text(" reason=");
+                    line.text(spawn_fail_reason_label(reason));
+                }
+            }
         }
         InitError::Ipc(code) => {
             line.text("ipc:");
@@ -1632,6 +2228,18 @@ fn abi_error_label(err: AbiError) -> &'static str {
         AbiError::NoSuchPid => "no-such-pid",
         AbiError::InvalidArgument => "invalid-argument",
         AbiError::Unsupported => "unsupported",
+    }
+}
+
+fn spawn_fail_reason_label(reason: nexus_abi::SpawnFailReason) -> &'static str {
+    match reason {
+        nexus_abi::SpawnFailReason::Unknown => "unknown",
+        nexus_abi::SpawnFailReason::OutOfMemory => "oom",
+        nexus_abi::SpawnFailReason::CapTableFull => "cap-table-full",
+        nexus_abi::SpawnFailReason::EndpointQuota => "endpoint-quota",
+        nexus_abi::SpawnFailReason::MapFailed => "map-failed",
+        nexus_abi::SpawnFailReason::InvalidPayload => "invalid-payload",
+        nexus_abi::SpawnFailReason::DeniedByPolicy => "denied-by-policy",
     }
 }
 

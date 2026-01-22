@@ -19,6 +19,14 @@ Related docs:
 - Publish installed bundles to the storage view used by `packagefsd`/`vfsd`.
 - Serve payload bytes/manifests to other authorities (notably `execd`) via a stable RPC contract (as tasks define it).
 
+## Updates v1 slot publication
+
+`bundlemgrd` participates in the v1.0 update flow by supporting a soft switch:
+
+- `OP_SET_ACTIVE_SLOT` re-publishes bundles from `/system/<slot>/`.
+- The marker `bundlemgrd: slot <a|b> active` is emitted only after republication completes.
+- The contract and markers are defined in `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`.
+
 ## Non-goals
 
 - Inventing parallel bundle formats (avoid `manifest.json` drift; `manifest.nxb` is canonical).

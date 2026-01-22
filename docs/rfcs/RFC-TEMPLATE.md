@@ -110,12 +110,26 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 - <question 1> (owner + decision deadline if any)
 
-## Checklist (keep current)
+## RFC Quality Guidelines (for authors)
 
-- [ ] Scope boundaries are explicit; cross-RFC ownership is linked.
-- [ ] Task(s) exist for each milestone and contain stop conditions + proof.
-- [ ] Proof is “honest green” (markers/tests), not log-grep optimism.
-- [ ] Determinism + bounded resources are specified.
-- [ ] Security invariants are stated and have at least one regression proof.
-- [ ] If claiming stability: ABI/on-wire vectors + layout/compat tests exist.
-- [ ] Stubs (if any) are explicitly labeled and non-authoritative.
+When writing this RFC, ensure:
+
+- Scope boundaries are explicit; cross-RFC ownership is linked.
+- Determinism + bounded resources are specified in Constraints section.
+- Security invariants are stated (threat model, mitigations, DON'T DO).
+- Proof strategy is concrete (not "we will test this later").
+- If claiming stability: define ABI/on-wire format + versioning strategy.
+- Stubs (if any) are explicitly labeled and non-authoritative.
+
+---
+
+## Implementation Checklist
+
+**This section tracks implementation progress. Update as phases complete.**
+
+- [ ] **Phase 0**: <description> — proof: `<command>`
+- [ ] **Phase 1**: <description> — proof: `<command>`
+- [ ] **Phase 2**: <description> — proof: `<command>`
+- [ ] Task(s) linked with stop conditions + proof commands.
+- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [ ] Security-relevant negative tests exist (`test_reject_*`).

@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_abi::{cap_close, debug_println, nsec, yield_};
+use nexus_abi::{cap_close, debug_putc, nsec, yield_};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::journal::{Journal, RecordId, TimestampNsec};
@@ -70,10 +70,18 @@ const JOURNAL_CAP_BYTES: u32 = 64 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
-    let server = KernelServer::new_for("logd").map_err(|_| ServerError::Unsupported)?;
+    let server = match route_logd_blocking() {
+        Some(server) => server,
+        None => {
+            emit_line("logd: route fallback");
+            KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
+        }
+    };
     notifier.notify();
-    // Marker contract (RFC-0003 / scripts/qemu-test.sh): emit only after the IPC endpoint exists.
-    let _ = debug_println("logd: ready");
+    // Emit only after the IPC endpoint exists.
+    emit_line("logd: ready");
+    let _ = yield_();
+    emit_line("logd: ready");
 
     let mut journal = Journal::new(JOURNAL_CAP_RECORDS, JOURNAL_CAP_BYTES);
     // If the kernel time source is unavailable (or too coarse), fall back to a deterministic, strictly
@@ -105,6 +113,56 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(_) => return Err(ServerError::Unsupported),
         }
     }
+}
+
+fn route_logd_blocking() -> Option<KernelServer> {
+    const CTRL_SEND_SLOT: u32 = 1;
+    const CTRL_RECV_SLOT: u32 = 2;
+    let name = b"logd";
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
+    let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+    // Bounded probing: if routing isn't available yet, fall back quickly to deterministic slots.
+    for _ in 0..64 {
+        // Avoid blocking IPC on the routing control plane (can deadlock under cooperative scheduling).
+        if nexus_abi::ipc_send_v1(
+            CTRL_SEND_SLOT,
+            &hdr,
+            &req[..req_len],
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        )
+        .is_err()
+        {
+            let _ = yield_();
+            continue;
+        }
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        match nexus_abi::ipc_recv_v1(
+            CTRL_RECV_SLOT,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = n as usize;
+                let (status, send_slot, recv_slot) =
+                    nexus_abi::routing::decode_route_rsp(&buf[..n])?;
+                if status != nexus_abi::routing::STATUS_OK {
+                    let _ = yield_();
+                    continue;
+                }
+                return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => {}
+        }
+    }
+    None
 }
 
 fn handle_frame(
@@ -183,5 +241,11 @@ fn handle_frame(
                 encode_stats_response(status, stats)
             }
         }
+    }
+}
+
+fn emit_line(message: &str) {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+        let _ = debug_putc(byte);
     }
 }

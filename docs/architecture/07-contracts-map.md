@@ -39,6 +39,13 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Related**: `docs/adr/0009-bundle-manager-architecture.md`, `docs/adr/0007-executable-payloads-architecture.md`
 - **Drift warning**: `docs/bundle-format.md` is explicitly legacy/drifted; don’t treat it as the OS contract.
 
+### Updates (`.nxs` system-set + A/B skeleton)
+
+- **Contract**: system-set archive format, `updated` RPCs, init health gate, slot-aware publication
+- **Canonical spec**: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`
+- **Packaging doc**: `docs/packaging/system-set.md`
+- **Proof**: `tests/updates_host` + QEMU markers in `scripts/qemu-test.sh`
+
 ### Logging / markers discipline
 
 - **Contract**: deterministic, honest markers; no fake success

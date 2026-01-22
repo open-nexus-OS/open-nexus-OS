@@ -32,6 +32,11 @@ os-lite = [
     "dep:nexus-vfs",
     "dep:exec-payloads",
     "dep:demo-exit0",
+    "dep:capnp",
+    "dep:updates",
+    "updates/os-lite",
+    "dep:ed25519-dalek",
+    "dep:sha2",
     "dep:net-virtio",
     "dep:nexus-noise-xk",
 ]
@@ -44,7 +49,7 @@ anyhow = { version = "1", optional = true }
 policy = { path = "../../../userspace/policy", optional = true }
 bundlemgrd = { path = "../../../source/services/bundlemgrd", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.19", default-features = false, optional = true }
 nexus-vfs = { path = "../../../userspace/nexus-vfs", default-features = false, features = ["os-kernel"], optional = true }
 keystored = { path = "../../../source/services/keystored", optional = true }
 policyd = { path = "../../../source/services/policyd", optional = true }
@@ -62,7 +67,18 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, f
 nexus-log = { path = "../../../source/libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
+updates = { path = "../../../userspace/updates", default-features = false, optional = true }
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
+sha2 = { version = "0.10", default-features = false, optional = true }
 net-virtio = { path = "../../drivers/net/virtio", optional = true }
 nexus-noise-xk = { path = "../../libs/nexus-noise-xk", optional = true }
 smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-icmp", "socket-udp", "medium-ethernet"], optional = true }
 nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"], optional = true }
+
+[build-dependencies]
+capnp = "0.19"
+ed25519-dalek = "2"
+exec-payloads = { path = "../../../userspace/exec-payloads" }
+sha2 = "0.10"
+tar = "0.4"
+updates = { path = "../../../userspace/updates" }

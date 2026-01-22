@@ -118,6 +118,8 @@ Golden layout tests assert size/padding correctness.
   that address space.
 - Entry checks: `entry_pc` must lie within `__text_start..__text_end` and be aligned; otherwise
   `SpawnError::InvalidEntryPoint` is raised.
+- Spawn failure taxonomy: kernel classifies failures into `SpawnFailReason` (RFC-0013) and exposes
+  a bounded reason code via `spawn_last_error` for userland diagnostics.
 - Cap table: the child receives a copy of the parent's provided bootstrap endpoint into slot `0`
   (rights are intersected with the mask).
 - Bootstrap: the kernel enqueues one IPC to endpoint `0` with a zeroed `BootstrapMsg` payload.
@@ -130,7 +132,10 @@ Golden layout tests assert size/padding correctness.
 - Selftests execute on a private, guarded stack (RW pages bracketed by unmapped guards); timer IRQs
   are masked during the run.
 - UART markers (subset): `KSELFTEST: as create ok` → `KSELFTEST: as map ok` →
-  `KSELFTEST: child newas running` → `KSELFTEST: spawn newas ok` → `KSELFTEST: w^x enforced`.
+  `KSELFTEST: child newas running` → `KSELFTEST: spawn newas ok` → `KSELFTEST: w^x enforced` →
+  `KSELFTEST: spawn reasons ok` → `KSELFTEST: resource sentinel ok`.
+- Note: allocator pressure can still trigger `ALLOC-FAIL` until the cooperative OOM watchdog
+  in `TASK-0228` lands; use boot-gate markers for early diagnosis.
 - Bring-up diagnostics: illegal-instruction traps print `sepc/scause/stval` and instruction bytes;
   optional `trap_symbols` resolves `sepc` to `name+offset`. A post-SATP marker verifies return.
 - Feature gates:
@@ -176,7 +181,7 @@ bytes when the message is created.
 - Endpoint capabilities must contain the `SEND` or `RECV` right to
   access queues. VMO capabilities require the `MAP` right to install
   mappings.
-- Capability slots are pre-sized per task (32 entries for the bootstrap
+- Capability slots are pre-sized per task (96 entries for the bootstrap
   task).
 
 ## Scheduler Overview

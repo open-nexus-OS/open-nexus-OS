@@ -40,6 +40,12 @@ Start here:
 - `tasks/README.md` (workflow + anti-drift rules)
 - `docs/rfcs/README.md` (RFC process + authority model)
 
+## Updates (OTA v1.0)
+
+The repository includes a **userspace-only A/B update skeleton** (non-persistent) that
+proves stage → switch → health → rollback behavior via deterministic QEMU markers.
+See `docs/updates/ab-skeleton-v1.md` and `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`.
+
 ## Documentation and standards
 
 - **Project overview**: `docs/overview.md`

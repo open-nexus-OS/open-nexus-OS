@@ -47,6 +47,7 @@ const EXEC_OPCODE_EXEC: u8 = 1;
 /// serialization requests without additional disk I/O during boot.
 pub fn touch_schemas() {
     bundlemgrd::touch_schemas();
+    updated::touch_schemas();
     execd::touch_schemas();
     packagefsd::touch_schemas();
     vfsd::touch_schemas();
@@ -546,6 +547,11 @@ mod runtime {
                         let _ = ready_clone.send(ServiceStatus::Ready(None));
                     });
                     let _ = keystored::service_main_loop(notifier);
+                }
+                "updated" => {
+                    let ready_clone = ready.clone();
+                    let _ = ready_clone.send(ServiceStatus::Ready(None));
+                    updated::daemon_main(|| {});
                 }
                 "policyd" => {
                     policyd::touch_schemas();

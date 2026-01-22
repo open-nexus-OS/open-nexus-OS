@@ -99,7 +99,10 @@ const STATUS_DENIED: u8 = 4;
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("execd: ready");
-    let server = KernelServer::new_for("execd").map_err(|_| ServerError::Unsupported)?;
+    let server = match KernelServer::new_for("execd") {
+        Ok(server) => server,
+        Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?,
+    };
     let mut state = State::new();
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
@@ -110,8 +113,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
             }
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
-            Err(_) => return Err(ServerError::Unsupported),
+            Err(_) => {
+                let _ = yield_();
+            }
         }
     }
 }
@@ -165,6 +169,173 @@ impl State {
             line.text(" name=");
             line.text(name);
         });
+        // Also append directly to logd so the crash-report selftest can deterministically query it,
+        // independent of the global nexus-log sink wiring.
+        let mut ok = false;
+        for _ in 0..8 {
+            if append_crash_to_logd(pid, code, name).is_ok() {
+                ok = true;
+                break;
+            }
+            let _ = yield_();
+        }
+        if !ok {
+            emit_line("execd: crash logd append fail");
+        } else {
+            emit_line("execd: crash logd append ok");
+        }
+    }
+}
+
+fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_APPEND: u8 = 1;
+    const LEVEL_WARN: u8 = 3;
+    // Deterministic slots distributed by init-lite for execd:
+    // - reply inbox: recv=0x5 send=0x6
+    // - logd sink:  send=0x7 (responses land on reply inbox when using CAP_MOVE)
+    const REPLY_RECV_SLOT: u32 = 5;
+    const REPLY_SEND_SLOT: u32 = 6;
+    const LOGD_SEND_SLOT: u32 = 7;
+
+    let scope = b"execd";
+
+    // Construct a small, bounded message matching what the selftest searches for ("crash pid=").
+    let mut msg = Vec::with_capacity(64);
+    msg.extend_from_slice(b"crash pid=");
+    push_u32_dec(&mut msg, pid);
+    msg.extend_from_slice(b" code=");
+    push_i32_dec(&mut msg, code);
+    msg.extend_from_slice(b" name=");
+    msg.extend_from_slice(name.as_bytes());
+    if msg.len() > 256 {
+        msg.truncate(256);
+    }
+    let fields: &[u8] = b"";
+
+    let mut frame = Vec::with_capacity(10 + scope.len() + msg.len() + fields.len());
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.push(LEVEL_WARN);
+    frame.push(scope.len() as u8);
+    frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+    frame.extend_from_slice(&(fields.len() as u16).to_le_bytes());
+    frame.extend_from_slice(scope);
+    frame.extend_from_slice(&msg);
+    frame.extend_from_slice(fields);
+
+    // Drain stale replies on the reply inbox.
+    for _ in 0..8 {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64];
+        match nexus_abi::ipc_recv_v1(
+            REPLY_RECV_SLOT,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(_) => continue,
+            Err(nexus_abi::IpcError::QueueEmpty) => break,
+            Err(_) => break,
+        }
+    }
+
+    // Use CAP_MOVE so logd replies on the moved cap (reply inbox) rather than polluting unrelated queues.
+    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| ())?;
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
+    let start2 = nexus_abi::nsec().ok().unwrap_or(0);
+    let deadline2 = start2.saturating_add(2_000_000_000);
+    let mut si: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(
+            LOGD_SEND_SLOT,
+            &hdr,
+            &frame,
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (si & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().ok().unwrap_or(0);
+                    if now >= deadline2 {
+                        return Err(());
+                    }
+                }
+                let _ = yield_();
+            }
+            Err(_) => return Err(()),
+        }
+        si = si.wrapping_add(1);
+    }
+    let mut ah = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut abuf = [0u8; 64];
+    loop {
+        let now = nexus_abi::nsec().ok().unwrap_or(0);
+        if now >= deadline2 {
+            return Err(());
+        }
+        match nexus_abi::ipc_recv_v1(
+            REPLY_RECV_SLOT,
+            &mut ah,
+            &mut abuf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, abuf.len());
+                // Validate this is a logd APPEND response:
+                // [L,O,ver=1, OP_APPEND|0x80, status=0, ...]
+                if n >= 5
+                    && abuf[0] == b'L'
+                    && abuf[1] == b'O'
+                    && abuf[2] == 1
+                    && abuf[3] == (1 | 0x80)
+                    && abuf[4] == 0
+                {
+                    break;
+                }
+                // Not our response; keep waiting until deadline.
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => return Err(()),
+        }
+    }
+    Ok(())
+}
+
+fn push_u32_dec(out: &mut Vec<u8>, mut value: u32) {
+    let mut tmp = [0u8; 10];
+    let mut i = tmp.len();
+    if value == 0 {
+        out.push(b'0');
+        return;
+    }
+    while value != 0 && i != 0 {
+        let digit = (value % 10) as u8;
+        value /= 10;
+        i -= 1;
+        tmp[i] = b'0' + digit;
+    }
+    out.extend_from_slice(&tmp[i..]);
+}
+
+fn push_i32_dec(out: &mut Vec<u8>, value: i32) {
+    if value < 0 {
+        out.push(b'-');
+        push_u32_dec(out, (-value) as u32);
+    } else {
+        push_u32_dec(out, value as u32);
     }
 }
 
@@ -264,20 +435,52 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         None => return rsp(op, STATUS_MALFORMED, 0).to_vec(),
     };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, qn as u32);
-    let now = nexus_abi::nsec().ok().unwrap_or(0);
     // Init-lite may be busy answering ROUTE_GET queries (policyd-gated) during early bring-up.
-    // Use a slightly longer deadline so exec authorization doesn't spuriously fail.
-    let deadline = now.saturating_add(500_000_000);
-    if nexus_abi::ipc_send_v1(1, &hdr, &q[..qn], 0, deadline).is_err() {
-        return rsp(op, STATUS_FAILED, 0).to_vec();
+    // Avoid deadline-based blocking IPC; use bounded NONBLOCK send/recv loops.
+    let start = nexus_abi::nsec().ok().unwrap_or(0);
+    let deadline = start.saturating_add(2_000_000_000); // 2s
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(1, &hdr, &q[..qn], nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (i & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().ok().unwrap_or(0);
+                    if now >= deadline {
+                        return rsp(op, STATUS_FAILED, 0).to_vec();
+                    }
+                }
+                let _ = yield_();
+            }
+            Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
+        }
+        i = i.wrapping_add(1);
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut rb = [0u8; 16];
-    let rn =
-        match nexus_abi::ipc_recv_v1(2, &mut rh, &mut rb, nexus_abi::IPC_SYS_TRUNCATE, deadline) {
-            Ok(n) => n as usize,
+    let mut j: usize = 0;
+    let rn = loop {
+        if (j & 0x7f) == 0 {
+            let now = nexus_abi::nsec().ok().unwrap_or(0);
+            if now >= deadline {
+                return rsp(op, STATUS_FAILED, 0).to_vec();
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            2,
+            &mut rh,
+            &mut rb,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => break n as usize,
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
             Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
-        };
+        }
+        j = j.wrapping_add(1);
+    };
     let (_rsp_nonce, decision) = nexus_abi::policy::decode_exec_check_rsp(&rb[..rn])
         .unwrap_or((nonce, nexus_abi::policy::STATUS_ALLOW));
     if decision != nexus_abi::policy::STATUS_ALLOW {

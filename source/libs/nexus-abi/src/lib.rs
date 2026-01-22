@@ -195,6 +195,193 @@ pub mod execd {
     }
 }
 
+/// Updated service frames (system-set staging + boot control).
+pub mod updated {
+    #![allow(missing_docs)]
+    /// First magic byte (`'U'`).
+    pub const MAGIC0: u8 = b'U';
+    /// Second magic byte (`'D'`).
+    pub const MAGIC1: u8 = b'D';
+    /// Protocol version.
+    pub const VERSION: u8 = 1;
+
+    /// Stage system-set request opcode.
+    pub const OP_STAGE: u8 = 1;
+    /// Switch to staged slot opcode.
+    pub const OP_SWITCH: u8 = 2;
+    /// Commit health for pending slot opcode.
+    pub const OP_HEALTH_OK: u8 = 3;
+    /// Query status opcode.
+    pub const OP_GET_STATUS: u8 = 4;
+    /// Record a boot attempt (decrement tries / trigger rollback).
+    pub const OP_BOOT_ATTEMPT: u8 = 5;
+
+    /// Status: operation succeeded.
+    pub const STATUS_OK: u8 = 0;
+    /// Status: request was malformed.
+    pub const STATUS_MALFORMED: u8 = 1;
+    /// Status: unsupported operation/version.
+    pub const STATUS_UNSUPPORTED: u8 = 2;
+    /// Status: operation failed.
+    pub const STATUS_FAILED: u8 = 3;
+
+    /// Maximum inline system-set bytes for stage requests.
+    pub const MAX_STAGE_BYTES: usize = 8 * 1024;
+
+    /// Encodes a stage request frame.
+    ///
+    /// Frame: `[U, D, ver, OP_STAGE, len:u32le, bytes...]`
+    pub fn encode_stage_req(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
+        if bytes.is_empty() || bytes.len() > MAX_STAGE_BYTES || out.len() < 8 + bytes.len() {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_STAGE;
+        let len = bytes.len() as u32;
+        out[4..8].copy_from_slice(&len.to_le_bytes());
+        out[8..8 + bytes.len()].copy_from_slice(bytes);
+        Some(8 + bytes.len())
+    }
+
+    /// Decodes a stage request frame and returns the payload bytes.
+    pub fn decode_stage_req(frame: &[u8]) -> Option<&[u8]> {
+        if frame.len() < 8 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        if frame[3] != OP_STAGE {
+            return None;
+        }
+        let len = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as usize;
+        if len == 0 || len > MAX_STAGE_BYTES || frame.len() != 8 + len {
+            return None;
+        }
+        Some(&frame[8..8 + len])
+    }
+
+    /// Encodes a switch request frame.
+    ///
+    /// Frame: `[U, D, ver, OP_SWITCH, tries_left:u8]`
+    pub fn encode_switch_req(tries_left: u8, out: &mut [u8]) -> Option<usize> {
+        if tries_left == 0 || out.len() < 5 {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_SWITCH;
+        out[4] = tries_left;
+        Some(5)
+    }
+
+    /// Decodes a switch request frame and returns tries_left.
+    pub fn decode_switch_req(frame: &[u8]) -> Option<u8> {
+        if frame.len() != 5 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        if frame[3] != OP_SWITCH {
+            return None;
+        }
+        let tries = frame[4];
+        if tries == 0 {
+            return None;
+        }
+        Some(tries)
+    }
+
+    /// Encodes a health-ok request frame.
+    ///
+    /// Frame: `[U, D, ver, OP_HEALTH_OK]`
+    pub fn encode_health_ok_req(out: &mut [u8]) -> Option<usize> {
+        if out.len() < 4 {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_HEALTH_OK;
+        Some(4)
+    }
+
+    /// Decodes a health-ok request frame.
+    pub fn decode_health_ok_req(frame: &[u8]) -> bool {
+        frame.len() == 4
+            && frame[0] == MAGIC0
+            && frame[1] == MAGIC1
+            && frame[2] == VERSION
+            && frame[3] == OP_HEALTH_OK
+    }
+
+    /// Encodes a get-status request frame.
+    ///
+    /// Frame: `[U, D, ver, OP_GET_STATUS]`
+    pub fn encode_get_status_req(out: &mut [u8]) -> Option<usize> {
+        if out.len() < 4 {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_GET_STATUS;
+        Some(4)
+    }
+
+    /// Decodes a get-status request frame.
+    pub fn decode_get_status_req(frame: &[u8]) -> bool {
+        frame.len() == 4
+            && frame[0] == MAGIC0
+            && frame[1] == MAGIC1
+            && frame[2] == VERSION
+            && frame[3] == OP_GET_STATUS
+    }
+
+
+    /// Decodes a boot-attempt response and returns (status, slot).
+    pub fn decode_boot_attempt_rsp(frame: &[u8]) -> Option<(u8, u8)> {
+        if frame.len() != 8 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        if frame[3] != (OP_BOOT_ATTEMPT | 0x80) {
+            return None;
+        }
+        let status = frame[4];
+        let slot = frame[5];
+        Some((status, slot))
+    }
+
+    /// Encodes a boot-attempt request frame.
+    ///
+    /// Frame: `[U, D, ver, OP_BOOT_ATTEMPT]`
+    pub fn encode_boot_attempt_req(out: &mut [u8]) -> Option<usize> {
+        if out.len() < 4 {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_BOOT_ATTEMPT;
+        Some(4)
+    }
+
+    /// Decodes a boot-attempt request frame.
+    pub fn decode_boot_attempt_req(frame: &[u8]) -> bool {
+        frame.len() == 4
+            && frame[0] == MAGIC0
+            && frame[1] == MAGIC1
+            && frame[2] == VERSION
+            && frame[3] == OP_BOOT_ATTEMPT
+    }
+
+    /// Decodes the opcode from a request frame.
+    pub fn decode_request_op(frame: &[u8]) -> Option<u8> {
+        if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        Some(frame[3])
+    }
+}
+
 /// Bootstrap routing protocol frames shared between init-lite and services (RFC-0005).
 pub mod routing {
     /// Frame magic bytes (`'R','T'`) to avoid accidental collisions with other message formats.
@@ -344,6 +531,8 @@ pub mod bundlemgrd {
     pub const OP_ROUTE_STATUS: u8 = 2;
     /// Fetch a read-only bundle image containing one or more entries.
     pub const OP_FETCH_IMAGE: u8 = 3;
+    /// Set the active slot for publication (`a` or `b`).
+    pub const OP_SET_ACTIVE_SLOT: u8 = 4;
 
     /// Operation succeeded.
     pub const STATUS_OK: u8 = 0;
@@ -406,6 +595,30 @@ pub mod bundlemgrd {
         Some((status, &frame[9..]))
     }
 
+    /// Encodes a SET_ACTIVE_SLOT request.
+    ///
+    /// Frame: `[B, N, ver, OP_SET_ACTIVE_SLOT, slot:u8]`
+    pub fn encode_set_active_slot_req(slot: u8, out: &mut [u8; 5]) {
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_SET_ACTIVE_SLOT;
+        out[4] = slot;
+    }
+
+    /// Decodes a SET_ACTIVE_SLOT response and returns (status, slot).
+    pub fn decode_set_active_slot_rsp(frame: &[u8]) -> Option<(u8, u8)> {
+        if frame.len() != 8 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        if frame[3] != (OP_SET_ACTIVE_SLOT | 0x80) {
+            return None;
+        }
+        let status = frame[4];
+        let slot = frame[5];
+        Some((status, slot))
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -426,6 +639,15 @@ pub mod bundlemgrd {
             const GOLDEN: [u8; 4] = [b'B', b'N', 1, 3];
             assert_eq!(req, GOLDEN);
             assert_eq!(decode_request_op(&req).unwrap(), OP_FETCH_IMAGE);
+        }
+
+        #[test]
+        fn set_active_slot_req_golden() {
+            let mut req = [0u8; 5];
+            encode_set_active_slot_req(1, &mut req);
+            const GOLDEN: [u8; 5] = [b'B', b'N', 1, 4, 1];
+            assert_eq!(req, GOLDEN);
+            assert_eq!(decode_request_op(&req).unwrap(), OP_SET_ACTIVE_SLOT);
         }
     }
 }
@@ -1340,6 +1562,42 @@ pub enum AbiError {
     Unsupported,
 }
 
+/// Spawn failure reasons reported by the kernel (RFC-0013).
+#[cfg(nexus_env = "os")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnFailReason {
+    /// Unknown/unspecified reason.
+    Unknown = 0,
+    /// Allocation or memory exhaustion.
+    OutOfMemory = 1,
+    /// Capability table exhausted.
+    CapTableFull = 2,
+    /// IPC endpoint quota exhausted.
+    EndpointQuota = 3,
+    /// Address-space map or handle failure.
+    MapFailed = 4,
+    /// Invalid or malformed payload/arguments.
+    InvalidPayload = 5,
+    /// Spawn denied by policy (if gating applies).
+    DeniedByPolicy = 6,
+}
+
+#[cfg(nexus_env = "os")]
+impl SpawnFailReason {
+    /// Decodes a reason token into the enum, defaulting to Unknown.
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::OutOfMemory,
+            2 => Self::CapTableFull,
+            3 => Self::EndpointQuota,
+            4 => Self::MapFailed,
+            5 => Self::InvalidPayload,
+            6 => Self::DeniedByPolicy,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 #[cfg(nexus_env = "os")]
 impl AbiError {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -1436,6 +1694,21 @@ pub fn spawn(
             )
         };
         decode_syscall(raw).map(|pid| pid as Pid)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Returns the last spawn failure reason for the current task (RFC-0013).
+#[cfg(nexus_env = "os")]
+pub fn spawn_last_error() -> SysResult<SpawnFailReason> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_SPAWN_LAST_ERROR: usize = 29;
+        let raw = unsafe { ecall0(SYSCALL_SPAWN_LAST_ERROR) };
+        decode_syscall(raw).map(|v| SpawnFailReason::from_u8(v as u8))
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {

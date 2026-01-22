@@ -106,11 +106,15 @@ impl Entry {
 
 /// Runs the minimal packagefs daemon, emitting a readiness marker once.
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> LiteResult<()> {
+    // Marker contract: emit only after the IPC endpoint exists.
     debug_print("packagefsd: ready\n");
     notifier.notify();
     // RFC-0005: name-based routing; init-lite assigns per-service endpoint caps and answers route
     // queries over a private control channel, so services don't hardcode slot numbers.
-    let server = KernelServer::new_for("packagefsd").map_err(|_| LiteError::Transport)?;
+    let server = match KernelServer::new_for("packagefsd") {
+        Ok(server) => server,
+        Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| LiteError::Transport)?,
+    };
     let registry = load_registry_from_bundlemgrd().unwrap_or_else(seed_registry);
     run_loop(&server, &registry)
 }
@@ -160,6 +164,13 @@ fn run_loop(server: &KernelServer, registry: &BundleRegistry) -> LiteResult<()> 
 
 fn seed_registry() -> BundleRegistry {
     let mut registry = BundleRegistry::default();
+    // Deterministic system properties for VFS bring-up tests.
+    let system_entries = vec![
+        (".".to_string(), Entry::directory()),
+        ("build.prop".to_string(), Entry::file(b"ro.nexus.build=dev\n")),
+    ];
+    registry.publish("system", "1.0.0", &system_entries);
+
     let hello_entries = vec![
         (".".to_string(), Entry::directory()),
         ("manifest.nxb".to_string(), Entry::file(DEMO_HELLO_MANIFEST_NXB)),

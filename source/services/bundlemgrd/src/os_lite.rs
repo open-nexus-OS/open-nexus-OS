@@ -1,4 +1,10 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
+//! CONTEXT: Bundlemgrd os-lite service loop
+//! INTENT: Provide minimal bundle manager ops for bring-up and selftests
+//! IDL (target): list, route_status, fetch_image, set_active_slot
+//! DEPS: nexus-ipc, nexus-abi, nexus-log
+//! READINESS: emit "bundlemgrd: ready" once service loop is live
+//! TESTS: scripts/qemu-test.sh (selftest markers)
 
 extern crate alloc;
 
@@ -66,23 +72,58 @@ const VERSION: u8 = nexus_abi::bundlemgrd::VERSION;
 const OP_LIST: u8 = nexus_abi::bundlemgrd::OP_LIST;
 const OP_ROUTE_STATUS: u8 = nexus_abi::bundlemgrd::OP_ROUTE_STATUS;
 const OP_FETCH_IMAGE: u8 = nexus_abi::bundlemgrd::OP_FETCH_IMAGE;
+const OP_SET_ACTIVE_SLOT: u8 = nexus_abi::bundlemgrd::OP_SET_ACTIVE_SLOT;
 const OP_LOG_PROBE: u8 = 0x7f;
 
 const STATUS_OK: u8 = nexus_abi::bundlemgrd::STATUS_OK;
 const STATUS_MALFORMED: u8 = nexus_abi::bundlemgrd::STATUS_MALFORMED;
 const STATUS_UNSUPPORTED: u8 = nexus_abi::bundlemgrd::STATUS_UNSUPPORTED;
 
+const SLOT_A: u8 = 1;
+const SLOT_B: u8 = 2;
+
+static ACTIVE_SLOT: core::sync::atomic::AtomicU8 =
+    core::sync::atomic::AtomicU8::new(SLOT_A);
+
+fn active_slot_label() -> u8 {
+    match ACTIVE_SLOT.load(core::sync::atomic::Ordering::Relaxed) {
+        SLOT_B => b'b',
+        _ => b'a',
+    }
+}
+
 /// Main service loop used by the lite shim.
 pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> LiteResult<()> {
     notifier.notify();
     emit_line("bundlemgrd: ready");
-    let server = KernelServer::new_for("bundlemgrd").map_err(|_| ServerError::Unsupported)?;
+    let server = match KernelServer::new_for("bundlemgrd") {
+        Ok(server) => server,
+        Err(err) => {
+            emit_line(match err {
+                nexus_ipc::IpcError::Timeout => "bundlemgrd: route err timeout",
+                nexus_ipc::IpcError::NoSpace => "bundlemgrd: route err nospace",
+                nexus_ipc::IpcError::WouldBlock => "bundlemgrd: route err wouldblock",
+                nexus_ipc::IpcError::Disconnected => "bundlemgrd: route err disconnected",
+                nexus_ipc::IpcError::Unsupported => "bundlemgrd: route err unsupported",
+                nexus_ipc::IpcError::Kernel(_) => "bundlemgrd: route err kernel",
+                _ => "bundlemgrd: route err other",
+            });
+            emit_line("bundlemgrd: route fallback");
+            KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
+        }
+    };
     // TASK-0006: core service wiring proof (structured log via nexus-log -> logd).
     // Emit on first request (not at process start) so init-lite has time to provision logd/@reply routes.
     let mut probe_emitted = false;
+    let mut logged_capmove = false;
+    let mut logged_capmove_err = false;
     loop {
-        match server.recv_request(Wait::Blocking) {
-            Ok((frame, reply)) => {
+        match server.recv_request_with_meta(Wait::Blocking) {
+            Ok((frame, sender_service_id, reply)) => {
+                let _ = sender_service_id;
+                if reply.is_some() && !logged_capmove {
+                    logged_capmove = true;
+                }
                 if !probe_emitted {
                     probe_emitted = true;
                     nexus_log::info("bundlemgrd", |line| {
@@ -91,6 +132,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 }
                 let rsp = handle_frame_vec(frame.as_slice());
                 if let Some(reply) = reply {
+                    let _ = logged_capmove_err;
                     let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);
                 } else {
                     let _ = server.send(&rsp, Wait::Blocking);
@@ -99,8 +141,26 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
             }
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
-            Err(_) => return Err(ServerError::Unsupported),
+            Err(nexus_ipc::IpcError::Disconnected) => {
+                emit_line("bundlemgrd: recv disconnected");
+                return Err(ServerError::Unsupported);
+            }
+            Err(nexus_ipc::IpcError::NoSpace) => {
+                emit_line("bundlemgrd: recv nospace");
+                return Err(ServerError::Unsupported);
+            }
+            Err(nexus_ipc::IpcError::Unsupported) => {
+                emit_line("bundlemgrd: recv unsupported");
+                return Err(ServerError::Unsupported);
+            }
+            Err(nexus_ipc::IpcError::Kernel(_)) => {
+                emit_line("bundlemgrd: recv kernel");
+                return Err(ServerError::Unsupported);
+            }
+            Err(_) => {
+                emit_line("bundlemgrd: recv other");
+                return Err(ServerError::Unsupported);
+            }
         }
     }
 }
@@ -110,24 +170,76 @@ const CTRL_RECV_SLOT: u32 = 2;
 
 fn route_status(target: &str) -> Option<u8> {
     let name = target.as_bytes();
+    // Routing v1 has no nonce; drain stale control replies to avoid consuming an unrelated ROUTE_RSP.
+    for _ in 0..32 {
+        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut tmp = [0u8; 32];
+        match nexus_abi::ipc_recv_v1(
+            CTRL_RECV_SLOT,
+            &mut rh,
+            &mut tmp,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(_) => continue,
+            Err(nexus_abi::IpcError::QueueEmpty) => break,
+            Err(_) => break,
+        }
+    }
     let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
     let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
     let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(200_000_000),
-        Err(_) => 0,
-    };
-    let _ = nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, deadline).ok()?;
+    // Avoid deadline-based blocking IPC; use bounded NONBLOCK loops.
+    let start = nexus_abi::nsec().ok()?;
+    let deadline = start.saturating_add(2_000_000_000); // 2s
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(
+            CTRL_SEND_SLOT,
+            &hdr,
+            &req[..req_len],
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (i & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().ok()?;
+                    if now >= deadline {
+                        return None;
+                    }
+                }
+                let _ = yield_();
+            }
+            Err(_) => return None,
+        }
+        i = i.wrapping_add(1);
+    }
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 32];
-    let n = nexus_abi::ipc_recv_v1(
-        CTRL_RECV_SLOT,
-        &mut rh,
-        &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
-    )
-    .ok()? as usize;
+    let mut j: usize = 0;
+    let n = loop {
+        if (j & 0x7f) == 0 {
+            let now = nexus_abi::nsec().ok()?;
+            if now >= deadline {
+                return None;
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            CTRL_RECV_SLOT,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => break n as usize,
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => return None,
+        }
+        j = j.wrapping_add(1);
+    };
     let (status, _send, _recv) = nexus_abi::routing::decode_route_rsp(&buf[..n])?;
     Some(status)
 }
@@ -142,6 +254,10 @@ fn handle_frame(frame: &[u8]) -> [u8; 8] {
     //
     // FETCH_IMAGE request: [B, N, ver, OP_FETCH_IMAGE]
     // FETCH_IMAGE response: [B, N, ver, OP_FETCH_IMAGE|0x80, status:u8, len:u32le, bytes...]
+    //
+    // SET_ACTIVE_SLOT request: [B, N, ver, OP_SET_ACTIVE_SLOT, slot:u8]
+    // SET_ACTIVE_SLOT response:
+    //   [B, N, ver, OP_SET_ACTIVE_SLOT|0x80, status:u8, slot:u8, _reserved:u8, _reserved:u8]
     if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return rsp(OP_LIST, STATUS_MALFORMED, 0);
     }
@@ -181,6 +297,22 @@ fn handle_frame(frame: &[u8]) -> [u8; 8] {
             // service endpoint (see handle_frame_vec).
             rsp(op, STATUS_OK, 0)
         }
+        OP_SET_ACTIVE_SLOT => {
+            if frame.len() != 5 {
+                return rsp2(op, STATUS_MALFORMED, 0);
+            }
+            let slot = frame[4];
+            if slot != SLOT_A && slot != SLOT_B {
+                return rsp2(op, STATUS_MALFORMED, 0);
+            }
+            ACTIVE_SLOT.store(slot, core::sync::atomic::Ordering::Relaxed);
+            emit_line(if slot == SLOT_A {
+                "bundlemgrd: slot a active"
+            } else {
+                "bundlemgrd: slot b active"
+            });
+            rsp2(op, STATUS_OK, slot)
+        }
         _ => rsp(op, STATUS_UNSUPPORTED, 0),
     }
 }
@@ -190,8 +322,12 @@ fn handle_frame_vec(frame: &[u8]) -> alloc::vec::Vec<u8> {
 
     if frame.len() >= 4 && frame[0] == MAGIC0 && frame[1] == MAGIC1 && frame[2] == VERSION {
         if frame[3] == OP_FETCH_IMAGE {
-            // Static read-only image: NXBI v1 with one entry system@1.0.0/build.prop
-            const BUILD_PROP: &[u8] = b"ro.nexus.build=dev\n";
+            let slot = active_slot_label();
+            let version = if slot == b'a' { b"1.0.0-a" } else { b"1.0.0-b" };
+            let mut build_prop = Vec::new();
+            build_prop.extend_from_slice(b"ro.nexus.build=dev\nro.nexus.slot=");
+            build_prop.push(slot);
+            build_prop.push(b'\n');
             // Encode image inline (small and deterministic).
             let mut img = Vec::new();
             img.extend_from_slice(b"NXBI");
@@ -200,14 +336,14 @@ fn handle_frame_vec(frame: &[u8]) -> alloc::vec::Vec<u8> {
                                                         // entry:
             img.push(6); // "system"
             img.extend_from_slice(b"system");
-            img.push(5); // "1.0.0"
-            img.extend_from_slice(b"1.0.0");
+            img.push(version.len() as u8);
+            img.extend_from_slice(version);
             let path = b"build.prop";
             img.extend_from_slice(&(path.len() as u16).to_le_bytes());
             img.extend_from_slice(path);
             img.extend_from_slice(&0u16.to_le_bytes()); // KIND_FILE
-            img.extend_from_slice(&(BUILD_PROP.len() as u32).to_le_bytes());
-            img.extend_from_slice(BUILD_PROP);
+            img.extend_from_slice(&(build_prop.len() as u32).to_le_bytes());
+            img.extend_from_slice(&build_prop);
 
             let mut out = Vec::with_capacity(9 + img.len());
             out.push(MAGIC0);
@@ -294,5 +430,23 @@ fn append_probe_to_logd() -> bool {
 fn emit_line(message: &str) {
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
+    }
+}
+
+fn emit_byte(byte: u8) {
+    let _ = debug_putc(byte);
+}
+
+fn emit_bytes(bytes: &[u8]) {
+    for &b in bytes {
+        emit_byte(b);
+    }
+}
+
+fn emit_hex_u64(mut value: u64) {
+    for shift in (0..16).rev() {
+        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        emit_byte(ch);
     }
 }

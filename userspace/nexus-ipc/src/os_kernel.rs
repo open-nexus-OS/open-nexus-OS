@@ -44,21 +44,96 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
         return Err(IpcError::Unsupported);
     }
+    // Drain stale responses on the per-service control reply channel.
+    //
+    // Routing uses a simple request/response frame without a nonce. If a previous ROUTE_RSP is
+    // still queued (e.g. due to bring-up scheduling jitter), we'd otherwise consume the wrong
+    // response and mis-route future IPC (a boot-killer for CAP_MOVE flows).
+    for _ in 0..32 {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        match nexus_abi::ipc_recv_v1(
+            CTRL_RECV_SLOT,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(_) => continue,
+            Err(nexus_abi::IpcError::QueueEmpty) => break,
+            Err(_) => break,
+        }
+    }
     let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
     let req_len =
         nexus_abi::routing::encode_route_get(name, &mut req).ok_or(IpcError::Unsupported)?;
 
-    let (flags, deadline_ns) = wait_to_sys(wait)?;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], flags, deadline_ns)
-        .map_err(|e| map_send_err(e, wait))?;
+    // Routing v1 has no nonce; avoid long blocking waits. Use NONBLOCK syscalls and an explicit,
+    // short per-attempt budget (caller-level retries handle longer waits).
+    let start_ns = nexus_abi::nsec().map_err(|_| IpcError::Unsupported)?;
+    let per_attempt_ns: u64 = match wait {
+        Wait::NonBlocking => 0,
+        Wait::Blocking => duration_to_ns(Duration::from_millis(100)),
+        Wait::Timeout(d) => core::cmp::min(duration_to_ns(d), duration_to_ns(Duration::from_millis(100))),
+    };
+    let deadline_ns = start_ns.saturating_add(per_attempt_ns);
 
-    let (flags, deadline_ns) = wait_to_sys(wait)?;
-    let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(
+            CTRL_SEND_SLOT,
+            &hdr,
+            &req[..req_len],
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if matches!(wait, Wait::NonBlocking) {
+                    return Err(IpcError::WouldBlock);
+                }
+                if (i & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().map_err(|_| IpcError::Unsupported)?;
+                    if now >= deadline_ns {
+                        return Err(IpcError::Timeout);
+                    }
+                }
+                let _ = nexus_abi::yield_();
+            }
+            Err(e) => return Err(map_send_err(e, wait)),
+        }
+        i = i.wrapping_add(1);
+    }
+
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 32];
-    let n = nexus_abi::ipc_recv_v1(CTRL_RECV_SLOT, &mut rh, &mut buf, sys_flags, deadline_ns)
-        .map_err(|e| map_recv_err(e, wait))? as usize;
+    let mut j: usize = 0;
+    let n = loop {
+        match nexus_abi::ipc_recv_v1(
+            CTRL_RECV_SLOT,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => break n as usize,
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                if matches!(wait, Wait::NonBlocking) {
+                    return Err(IpcError::WouldBlock);
+                }
+                if (j & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().map_err(|_| IpcError::Unsupported)?;
+                    if now >= deadline_ns {
+                        return Err(IpcError::Timeout);
+                    }
+                }
+                let _ = nexus_abi::yield_();
+            }
+            Err(e) => return Err(map_recv_err(e, wait)),
+        }
+        j = j.wrapping_add(1);
+    };
     let (status, send_slot, recv_slot) =
         nexus_abi::routing::decode_route_rsp(&buf[..n]).ok_or(IpcError::Unsupported)?;
     if status != nexus_abi::routing::STATUS_OK {

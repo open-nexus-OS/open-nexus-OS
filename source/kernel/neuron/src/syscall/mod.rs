@@ -86,6 +86,8 @@ pub const SYSCALL_MMIO_MAP: usize = 27;
 /// This is a small introspection primitive needed by userspace drivers to obtain physical
 /// addresses for DMA-capable resources (e.g., VMOs) without exposing ambient physical memory.
 pub const SYSCALL_CAP_QUERY: usize = 28;
+/// Returns the last spawn failure reason for the current task (RFC-0013).
+pub const SYSCALL_SPAWN_LAST_ERROR: usize = 29;
 
 /// Error returned by the dispatcher and handler stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -560,6 +560,8 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_ipc_endpoint_quota_selftest(ctx);
     run_ipc_close_wakes_waiters_selftest(ctx);
     run_ipc_owner_exit_wakes_waiters_selftest(ctx);
+    run_spawn_reason_selftest();
+    run_resource_sentinel_selftest(ctx);
     // Ensure subsequent lifecycle tests run as the bootstrap task (PID 0)
     // so parent/child linkage during spawn and wait behaves deterministically.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -595,14 +597,15 @@ fn run_ipc_bytes_full_selftest(ctx: &mut Context<'_>) {
     use crate::ipc::header::MessageHeader;
     use alloc::{vec, vec::Vec};
 
-    // Endpoint with depth=1 => max_queued_bytes = 512 (see ipc/mod.rs).
+    // Endpoint with depth=1 => max_queued_bytes = MAX_FRAME_BYTES (see ipc/mod.rs).
     //
-    // NOTE: For syscall-driven traffic, payloads are bounded to 512 bytes at entry, which makes the
-    // per-endpoint bytes budget mostly redundant with queue depth. This selftest intentionally uses
-    // a direct router send with an oversized payload to deterministically trigger NoSpace.
+    // NOTE: For syscall-driven traffic, payloads are bounded at entry; this selftest uses a direct
+    // router send with an oversized payload to deterministically trigger NoSpace.
+    const MAX_FRAME_BYTES: usize = 8 * 1024;
     let ep = ctx.router.create_endpoint(1, None).unwrap();
-    let hdr = MessageHeader::new(0, ep, 0, 0, 513);
-    let msg = crate::ipc::Message::new(hdr, vec![0u8; 513], None);
+    let oversized = MAX_FRAME_BYTES + 1;
+    let hdr = MessageHeader::new(0, ep, 0, 0, oversized as u32);
+    let msg = crate::ipc::Message::new(hdr, vec![0u8; oversized], None);
     match ctx.router.send(ep, msg) {
         Err(crate::ipc::IpcError::NoSpace) => {
             let hdr3 = MessageHeader::new(0, ep, 0, 0, 1);
@@ -920,6 +923,98 @@ fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
             send_ok
         );
     }
+}
+
+fn run_spawn_reason_selftest() {
+    use crate::cap::CapError;
+    use crate::ipc::IpcError;
+    use crate::mm::AddressSpaceError;
+    use crate::task::{spawn_fail_reason, SpawnError, SpawnFailReason};
+
+    let cases = [
+        (SpawnError::InvalidEntryPoint, SpawnFailReason::InvalidPayload),
+        (SpawnError::InvalidStackPointer, SpawnFailReason::InvalidPayload),
+        (SpawnError::StackExhausted, SpawnFailReason::OutOfMemory),
+        (SpawnError::Capability(CapError::NoSpace), SpawnFailReason::CapTableFull),
+        (SpawnError::Ipc(IpcError::NoSpace), SpawnFailReason::EndpointQuota),
+        (SpawnError::AddressSpace(AddressSpaceError::AsidExhausted), SpawnFailReason::MapFailed),
+    ];
+
+    for (err, expected) in cases {
+        let got = spawn_fail_reason(&err);
+        if got == expected {
+            log_info!(
+                target: "selftest",
+                "KSELFTEST: spawn reason {} ok",
+                expected.label()
+            );
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: spawn reason FAIL expected={} got={}",
+                expected.label(),
+                got.label()
+            );
+            return;
+        }
+    }
+    log_info!(target: "selftest", "KSELFTEST: spawn reasons ok");
+}
+
+fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
+    use crate::cap::{CapTable, Capability, CapabilityKind, Rights};
+    use crate::ipc::Router;
+
+    // 1) Cap table churn: fill, drain, refill.
+    let mut table = CapTable::with_capacity(8);
+    let cap = Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE };
+    let mut slots = [0usize; 8];
+    for slot in slots.iter_mut() {
+        *slot = match table.allocate(cap) {
+            Ok(idx) => idx,
+            Err(err) => {
+                log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap alloc {:?}", err);
+                return;
+            }
+        };
+    }
+    if table.allocate(cap).is_ok() {
+        log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap table overflow");
+        return;
+    }
+    for slot in slots {
+        let _ = table.take(slot);
+    }
+    if table.allocate(cap).is_err() {
+        log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap reuse");
+        return;
+    }
+
+    // 2) Endpoint churn: use a local router to avoid consuming global endpoint quota.
+    let mut local = Router::new(0);
+    for _ in 0..8 {
+        let ep = match local.create_endpoint(1, None) {
+            Ok(id) => id,
+            Err(err) => {
+                log_error!(
+                    target: "selftest",
+                    "KSELFTEST: resource sentinel FAIL: ep create {:?}",
+                    err
+                );
+                return;
+            }
+        };
+        if let Err(err) = local.close_endpoint(ep) {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: resource sentinel FAIL: ep close {:?}",
+                err
+            );
+            return;
+        }
+    }
+
+    log_info!(target: "selftest", "KSELFTEST: resource sentinel ok");
 }
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]

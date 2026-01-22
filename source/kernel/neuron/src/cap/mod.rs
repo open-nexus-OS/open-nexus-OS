@@ -102,6 +102,9 @@ impl CapTable {
         Self { slots: table }
     }
 
+    /// Default slot count for task capability tables.
+    const DEFAULT_CAP_SLOTS: usize = 96;
+
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -111,7 +114,7 @@ impl CapTable {
             let _ = write!(u, "CAP: new enter\n");
         }
         // Keep this bounded to avoid untrusted inputs forcing unbounded growth (DoS).
-        let table = Self::with_capacity(64);
+        let table = Self::with_capacity(Self::DEFAULT_CAP_SLOTS);
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;

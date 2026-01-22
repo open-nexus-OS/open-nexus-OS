@@ -24,6 +24,8 @@ preserves the separation between host-tested logic and system wiring.
 - Minimal `spawn`/`cap_transfer` implemented to exercise task control and rights derivation.
 - Selftests run on a private stack with canaries and masked timer IRQs; UART markers allow deterministic CI exit.
 - Optional trap symbolization (`trap_symbols`) prints nearest function for `sepc` without runtime cost when disabled.
+- Boot gates v1 (RFC-0013): readiness contract (`init: up` vs `<svc>: ready`), spawn failure reasons, and resource/leak sentinel markers are enforced by the QEMU harness.
+- Memory pressure can still surface as `ALLOC-FAIL` until `TASK-0228` (cooperative `oomd`) lands; use boot-gate markers to diagnose quickly.
 
 ## Control-plane IDL strategy
 

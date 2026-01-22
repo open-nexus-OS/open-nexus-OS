@@ -6,6 +6,7 @@ created: 2025-12-22
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - Docs: docs/distributed/dsoftbus-lite.md
   - RFC (seed): docs/rfcs/RFC-0006-userspace-networking-v1.md

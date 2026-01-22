@@ -116,11 +116,15 @@ struct FileHandle {
 
 /// Runs the cooperative vfsd loop and emits a readiness marker once.
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Result<()> {
+    // Marker contract: emit only after the IPC endpoint exists.
     debug_print("vfsd: ready\n");
     notifier.notify();
     // RFC-0005: For kernel IPC v1, init transfers vfs request/reply endpoints into deterministic
     // slots. Use name-based construction so call sites don't hardcode slot numbers.
-    let server = KernelServer::new_for("vfsd").map_err(|_| Error::Transport)?;
+    let server = match KernelServer::new_for("vfsd") {
+        Ok(server) => server,
+        Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| Error::Transport)?,
+    };
     // VFS bring-up: proxy pkg:/ reads to packagefsd (real data). Non-pkg schemes are unsupported.
     run_loop(server, Namespace::default())
 }

@@ -1,4 +1,10 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
+//! CONTEXT: SAMGR os-lite service loop
+//! INTENT: Provide minimal registry semantics for bring-up and selftests
+//! IDL (target): register(name, endpoint), lookup(name), resolve_status(name)
+//! DEPS: nexus-ipc, nexus-abi
+//! READINESS: emit "samgrd: ready" once service loop is live
+//! TESTS: scripts/qemu-test.sh (selftest markers)
 
 extern crate alloc;
 
@@ -71,7 +77,30 @@ const STATUS_UNSUPPORTED: u8 = 3;
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("samgrd: ready");
-    let server = KernelServer::new_for("samgrd").map_err(|_| ServerError::Unsupported)?;
+    emit_line("samgrd: mode os-lite");
+    let server = match KernelServer::new_for("samgrd") {
+        Ok(server) => server,
+        Err(err) => {
+            emit_line(match err {
+                nexus_ipc::IpcError::Timeout => "samgrd: route err timeout",
+                nexus_ipc::IpcError::NoSpace => "samgrd: route err nospace",
+                nexus_ipc::IpcError::WouldBlock => "samgrd: route err wouldblock",
+                nexus_ipc::IpcError::Disconnected => "samgrd: route err disconnected",
+                nexus_ipc::IpcError::Unsupported => "samgrd: route err unsupported",
+                nexus_ipc::IpcError::Kernel(_) => "samgrd: route err kernel",
+                _ => "samgrd: route err other",
+            });
+            emit_line("samgrd: route fallback");
+            KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
+        }
+    };
+    let (recv_slot, send_slot) = server.slots();
+    emit_line("samgrd: slots logging");
+    emit_bytes(b"samgrd: slots ");
+    emit_hex_u32(recv_slot);
+    emit_byte(b' ');
+    emit_hex_u32(send_slot);
+    emit_byte(b'\n');
     // Identity-binding hardening (bring-up semantics):
     //
     // Samgrd v1 currently moves *slot numbers* around (not endpoint caps), which is not a secure
@@ -81,9 +110,31 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // This keeps the selftests honest (register/lookup roundtrip) while preventing one service
     // from registering entries that another service will observe.
     let mut registry: BTreeMap<(u64, Vec<u8>), (u32, u32)> = BTreeMap::new();
+    let mut logged_capmove = false;
+    let mut logged_register = false;
+    let mut logged_any = false;
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
-            Ok((hdr, sender_service_id, frame)) => {
+            Ok((hdr, sid, frame)) => {
+                let sender_service_id = sid as u64;
+                if !logged_any {
+                    emit_line("samgrd: rx");
+                    logged_any = true;
+                }
+                if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 && !logged_capmove {
+                    emit_line("samgrd: capmove seen");
+                    logged_capmove = true;
+                }
+                if !logged_register
+                    && frame.len() >= 4
+                    && frame[0] == MAGIC0
+                    && frame[1] == MAGIC1
+                    && frame[2] == VERSION
+                    && frame[3] == OP_REGISTER
+                {
+                    emit_line("samgrd: register seen");
+                    logged_register = true;
+                }
                 // TASK-0006: core service wiring proof (structured log via nexus-log -> logd).
                 // Probe is request-driven to avoid dependency on startup ordering.
                 if frame.len() >= 4
@@ -99,7 +150,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         let _ = KernelServer::send_on_cap(hdr.src, &rsp);
                         let _ = cap_close(hdr.src as u32);
                     } else {
-                        let _ = server.send(&rsp, Wait::Blocking);
+                        if server.send(&rsp, Wait::Blocking).is_err() {
+                            emit_line("samgrd: send fail");
+                        }
                     }
                     continue;
                 }
@@ -163,14 +216,22 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     let _ = KernelServer::send_on_cap(hdr.src, &rsp);
                     let _ = cap_close(hdr.src as u32);
                 } else {
-                    let _ = server.send(&rsp, Wait::Blocking);
+                    if server.send(&rsp, Wait::Blocking).is_err() {
+                        emit_line("samgrd: send fail");
+                    }
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
             }
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
-            Err(_) => return Err(ServerError::Unsupported),
+            Err(nexus_ipc::IpcError::Disconnected) => {
+                emit_line("samgrd: recv disconnected");
+                return Err(ServerError::Unsupported);
+            }
+            Err(_) => {
+                emit_line("samgrd: recv err");
+                return Err(ServerError::Unsupported);
+            }
         }
     }
 }
@@ -278,6 +339,29 @@ fn emit_line(message: &str) {
         let _ = debug_putc(byte);
     }
 }
+
+fn emit_bytes(bytes: &[u8]) {
+    for byte in bytes.iter().copied() {
+        let _ = debug_putc(byte);
+    }
+}
+
+fn emit_byte(byte: u8) {
+    let _ = debug_putc(byte);
+}
+
+fn emit_hex_u32(value: u32) {
+    for shift in (0..8).rev() {
+        let nib = (value >> (shift * 4)) & 0x0f;
+        let ch = if nib < 10 {
+            b'0' + nib as u8
+        } else {
+            b'a' + (nib as u8 - 10)
+        };
+        let _ = debug_putc(ch);
+    }
+}
+
 
 fn append_probe_to_logd() -> bool {
     const MAGIC0: u8 = b'L';

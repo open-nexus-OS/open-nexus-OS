@@ -27,7 +27,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     use alloc::vec::Vec;
     use nexus_abi::yield_;
     use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
-    use nexus_ipc::KernelClient;
+    use nexus_ipc::{IpcError as IpcErrorLite, KernelClient, Wait};
     use nexus_peer_lru::{PeerEntry, PeerLru};
 
     // dsoftbusd must NOT own MMIO; it uses netstackd's IPC facade.
@@ -51,13 +51,21 @@ fn os_entry() -> core::result::Result<(), ()> {
     const OP_UDP_RECV_FROM: u8 = 8;
     const OP_LOCAL_ADDR: u8 = 10;
     const STATUS_OK: u8 = 0;
-    const STATUS_WOULD_BLOCK: u8 = 3;
+    const STATUS_NOT_FOUND: u8 = 1;
     const STATUS_MALFORMED: u8 = 2;
+    const STATUS_WOULD_BLOCK: u8 = 3;
+    const STATUS_IO: u8 = 4;
 
     fn rpc(net: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+        let reply = KernelClient::new_for("@reply").map_err(|_| {
+            let _ = nexus_abi::debug_println("dsoftbusd: write reply route fail");
+            ()
+        })?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
-        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| {
+            let _ = nexus_abi::debug_println("dsoftbusd: write cap clone fail");
+            ()
+        })?;
         net.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 512];
@@ -664,9 +672,32 @@ fn os_entry() -> core::result::Result<(), ()> {
         let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        net.send_with_cap_move(&w[..10 + data.len()], reply_send_clone).map_err(|_| ())?;
+        let wait = Wait::Timeout(core::time::Duration::from_millis(100));
+        let mut sent = false;
+        for _ in 0..64 {
+            match net.send_with_cap_move_wait(&w[..10 + data.len()], reply_send_clone, wait) {
+                Ok(()) => {
+                    sent = true;
+                    break;
+                }
+                Err(IpcErrorLite::WouldBlock)
+                | Err(IpcErrorLite::Timeout)
+                | Err(IpcErrorLite::NoSpace) => {
+                    let _ = nexus_abi::yield_();
+                }
+                Err(_) => {
+                    let _ = nexus_abi::debug_println("dsoftbusd: write send fail");
+                    return Err(());
+                }
+            }
+        }
+        if !sent {
+            let _ = nexus_abi::debug_println("dsoftbusd: write send timeout");
+            return Err(());
+        }
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut rsp = [0u8; 64];
+        let mut retry_logged = false;
         for _ in 0..5_000 {
             match nexus_abi::ipc_recv_v1(
                 reply_recv_slot,
@@ -680,11 +711,28 @@ fn os_entry() -> core::result::Result<(), ()> {
                         && rsp[1] == MAGIC1
                         && rsp[2] == VERSION
                         && rsp[3] == (OP_WRITE | 0x80)
-                        && rsp[4] == STATUS_OK
                     {
-                        return Ok(());
+                        if rsp[4] == STATUS_OK {
+                            return Ok(());
+                        }
+                        if !retry_logged {
+                            retry_logged = true;
+                            let _ = match rsp[4] {
+                                STATUS_NOT_FOUND => nexus_abi::debug_println("dsoftbusd: write status not-found"),
+                                STATUS_MALFORMED => nexus_abi::debug_println("dsoftbusd: write status malformed"),
+                                STATUS_WOULD_BLOCK => {
+                                    nexus_abi::debug_println("dsoftbusd: write status would-block")
+                                }
+                                STATUS_IO => nexus_abi::debug_println("dsoftbusd: write status io"),
+                                _ => nexus_abi::debug_println("dsoftbusd: write status unknown"),
+                            };
+                        }
+                        let _ = nexus_abi::yield_();
+                        continue;
                     }
-                    return Err(());
+                    // Ignore unrelated replies on the shared netstackd reply inbox.
+                    let _ = nexus_abi::yield_();
+                    continue;
                 }
                 Err(nexus_abi::IpcError::QueueEmpty) => {
                     let _ = nexus_abi::yield_();
@@ -692,6 +740,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                 Err(_) => return Err(()),
             }
         }
+        let _ = nexus_abi::debug_println("dsoftbusd: write timeout");
         Err(())
     }
 
@@ -806,6 +855,9 @@ fn os_entry() -> core::result::Result<(), ()> {
     // completed. This keeps QEMU marker ordering deterministic and avoids “ready” being emitted
     // before the service can actually accept sessions.
     let _ = nexus_abi::debug_println("dsoftbusd: ready");
+    nexus_log::info("dsoftbusd", |line| {
+        line.text("dsoftbusd: ready");
+    });
 
     // ============================================================
     // End dual-node mode
@@ -942,7 +994,25 @@ fn os_entry() -> core::result::Result<(), ()> {
         let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        net.send_with_cap_move(&w[..10 + data.len()], reply_send_clone).map_err(|_| ())?;
+        let wait = Wait::Timeout(core::time::Duration::from_millis(100));
+        let mut sent = false;
+        for _ in 0..64 {
+            match net.send_with_cap_move_wait(&w[..10 + data.len()], reply_send_clone, wait) {
+                Ok(()) => {
+                    sent = true;
+                    break;
+                }
+                Err(IpcErrorLite::WouldBlock)
+                | Err(IpcErrorLite::Timeout)
+                | Err(IpcErrorLite::NoSpace) => {
+                    let _ = nexus_abi::yield_();
+                }
+                Err(_) => return Err(()),
+            }
+        }
+        if !sent {
+            return Err(());
+        }
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut rsp = [0u8; 64];
         for _ in 0..5_000 {
@@ -958,11 +1028,16 @@ fn os_entry() -> core::result::Result<(), ()> {
                         && rsp[1] == MAGIC1
                         && rsp[2] == VERSION
                         && rsp[3] == (OP_WRITE | 0x80)
-                        && rsp[4] == STATUS_OK
                     {
-                        return Ok(());
+                        if rsp[4] == STATUS_OK {
+                            return Ok(());
+                        }
+                        let _ = nexus_abi::yield_();
+                        continue;
                     }
-                    return Err(());
+                    // Ignore unrelated replies on the shared netstackd reply inbox.
+                    let _ = nexus_abi::yield_();
+                    continue;
                 }
                 Err(nexus_abi::IpcError::QueueEmpty) => {
                     let _ = nexus_abi::yield_();

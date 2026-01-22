@@ -15,7 +15,7 @@
 //! CONTEXT: Init process selecting Host std backend or OS-lite cooperative bootstrap
 //! OWNERS: @init-team @runtime
 //! PUBLIC API: touch_schemas(), service_main_loop(), ReadyNotifier
-//! DEPENDS_ON: execd, keystored, policyd, samgrd, bundlemgrd, packagefsd, vfsd (os-lite)
+//! DEPENDS_ON: execd, keystored, policyd, samgrd, bundlemgrd, updated, packagefsd, vfsd (os-lite)
 //! FEATURES: cfg(all(nexus_env = "os", feature = "os-lite")) selects os_lite; otherwise std_server
 //! INVARIANTS: Preserve UART markers; Host path byte-compatible
 //! ADR: docs/adr/0017-service-architecture.md

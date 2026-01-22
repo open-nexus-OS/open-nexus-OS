@@ -1,0 +1,19 @@
+[package]
+name = "nxs-pack"
+version = "0.1.0"
+edition = "2021"
+authors = ["Open Nexus OS Contributors"]
+license = "Apache-2.0"
+description = "Packs .nxb bundles into signed .nxs system-set archives"
+
+[dependencies]
+capnp = "0.19"
+ed25519-dalek = "2"
+hex = "0.4"
+nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
+sha2 = "0.10"
+tar = "0.4"
+toml = "0.8"
+
+[build-dependencies]
+capnpc = "0.19"

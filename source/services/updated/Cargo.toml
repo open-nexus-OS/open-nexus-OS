@@ -1,0 +1,48 @@
+[package]
+name = "updated"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+default = ["std", "idl-capnp"]
+std = [
+    "dep:updates",
+    "updates/std",
+    "dep:nexus-idl-runtime",
+    "dep:capnp",
+    "dep:nexus-ipc",
+    "nexus-ipc/std",
+    "dep:thiserror",
+    "dep:ed25519-dalek",
+]
+idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
+os-lite = [
+    "dep:updates",
+    "updates/os-lite",
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+    "dep:nexus-log",
+    "dep:ed25519-dalek",
+]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+updates = { path = "../../../userspace/updates", optional = true, default-features = false }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
+capnp = { version = "0.19", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+thiserror = { version = "1", optional = true }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
+
+[[bin]]
+name = "updated"
+path = "src/main.rs"

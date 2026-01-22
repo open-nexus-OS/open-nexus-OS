@@ -59,6 +59,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 - `03-samgr.md` — `userspace/samgr` (host-first registry library; OS uses `samgrd`)
 - `04-bundlemgr-manifest.md` — `userspace/bundlemgr` TOML manifest parser (developer/tests; OS packaging contract is `manifest.nxb`)
+- **Updates contract (v1.0)**: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` + `docs/packaging/system-set.md`
 
 ### OS daemons (authorities)
 

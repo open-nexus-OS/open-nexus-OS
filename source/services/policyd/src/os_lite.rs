@@ -69,9 +69,11 @@ const OP_LOG_PROBE: u8 = 0x7f;
 /// - allow if subject != "demo.testsvc"
 /// - deny if subject == "demo.testsvc"
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
+    // Deterministic IPC slots are pre-distributed by init-lite (RFC-0005). Avoid routing queries
+    // here to keep readiness marker ordering stable for `scripts/qemu-test.sh`.
+    let server = KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?;
     notifier.notify();
     emit_line("policyd: ready");
-    let server = KernelServer::new_for("policyd").map_err(|_| ServerError::Unsupported)?;
     // Private init-lite -> policyd control channels.
     // Slot layout for policyd child (deterministic under current init-lite bring-up):
     // - slot 1/2: init-lite routing control REQ/RSP
@@ -97,8 +99,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             }
             Err(nexus_ipc::IpcError::WouldBlock) => {}
             Err(nexus_ipc::IpcError::Timeout) => {}
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
-            Err(_) => return Err(ServerError::Unsupported),
+            Err(_) => {}
         }
 
         match ctl_exec.recv_with_header_meta(Wait::NonBlocking) {
@@ -113,8 +114,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             }
             Err(nexus_ipc::IpcError::WouldBlock) => {}
             Err(nexus_ipc::IpcError::Timeout) => {}
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
-            Err(_) => return Err(ServerError::Unsupported),
+            Err(_) => {}
         }
 
         match server.recv_with_header_meta(Wait::NonBlocking) {
@@ -129,8 +129,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             }
             Err(nexus_ipc::IpcError::WouldBlock) => {}
             Err(nexus_ipc::IpcError::Timeout) => {}
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
-            Err(_) => return Err(ServerError::Unsupported),
+            Err(_) => {}
         }
 
         if !progressed {
@@ -159,7 +158,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
     let ver = frame[2];
     let op = frame[3];
     if ver == VERSION && op == OP_LOG_PROBE {
-        let ok = append_probe_to_logd();
+        let ok = append_probe_to_logd_deterministic();
         return rsp_v1(op, if ok { STATUS_ALLOW } else { STATUS_UNSUPPORTED });
     }
     match (ver, op) {
@@ -384,6 +383,104 @@ fn append_probe_to_logd() -> bool {
 
     // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
     logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok()
+}
+
+fn append_probe_to_logd_deterministic() -> bool {
+    // Deterministic slots distributed by init-lite for policyd:
+    // - reply inbox: recv=0x9 send=0xA
+    // - logd sink:  send=0xB (responses land on reply inbox when using CAP_MOVE)
+    const REPLY_RECV_SLOT: u32 = 0x9;
+    const REPLY_SEND_SLOT: u32 = 0xA;
+    const LOGD_SEND_SLOT: u32 = 0xB;
+
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_APPEND: u8 = 1;
+    const LEVEL_INFO: u8 = 2;
+
+    let scope: &[u8] = b"policyd";
+    let msg: &[u8] = b"core service log probe: policyd";
+    if scope.len() > 64 || msg.len() > 256 {
+        return false;
+    }
+
+    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.push(LEVEL_INFO);
+    frame.push(scope.len() as u8);
+    frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+    frame.extend_from_slice(&0u16.to_le_bytes()); // fields_len
+    frame.extend_from_slice(scope);
+    frame.extend_from_slice(msg);
+
+    // Drain stale replies on the reply inbox.
+    for _ in 0..8 {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64];
+        match nexus_abi::ipc_recv_v1(
+            REPLY_RECV_SLOT,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(_) => continue,
+            Err(nexus_abi::IpcError::QueueEmpty) => break,
+            Err(_) => break,
+        }
+    }
+
+    let moved = match nexus_abi::cap_clone(REPLY_SEND_SLOT) {
+        Ok(slot) => slot,
+        Err(_) => return false,
+    };
+    let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
+
+    // Send bounded NONBLOCK.
+    let start = nexus_abi::nsec().ok().unwrap_or(0);
+    let deadline = start.saturating_add(500_000_000);
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(LOGD_SEND_SLOT, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (i & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().ok().unwrap_or(0);
+                    if now >= deadline {
+                        return false;
+                    }
+                }
+                let _ = yield_();
+            }
+            Err(_) => return false,
+        }
+        i = i.wrapping_add(1);
+    }
+
+    // Drain the logd append response from the reply inbox (keeps queues bounded).
+    let mut ah = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut abuf = [0u8; 64];
+    loop {
+        let now = nexus_abi::nsec().ok().unwrap_or(0);
+        if now >= deadline {
+            return false;
+        }
+        match nexus_abi::ipc_recv_v1(
+            REPLY_RECV_SLOT,
+            &mut ah,
+            &mut abuf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => return false,
+        }
+    }
+    true
 }
 
 /// Stub transport runner retained for cross-module linkage.

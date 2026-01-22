@@ -87,6 +87,11 @@ Runner and helper scripts (including the QEMU invocations, log management utilit
 
 All project documentation—including this overview, testing guides, architecture notes, and RFCs—stays in this tree. Every new process or workflow should land documentation here.
 
+Boot-gate guidance:
+
+* RFC-0013 defines readiness vs. ready, spawn failure reasons, and resource/leak sentinels; see `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md`.
+* Memory-pressure failures (`ALLOC-FAIL`) can still occur until `TASK-0228` lands; see `docs/testing/index.md` for the current diagnostic gates.
+
 Key distributed-systems references:
 
 * [DSoftBus-lite overview](distributed/dsoftbus-lite.md)

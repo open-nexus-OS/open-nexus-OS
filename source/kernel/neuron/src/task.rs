@@ -159,6 +159,51 @@ fn ensure_entry_in_kernel_text(
     Ok(())
 }
 
+/// Spawn failure taxonomy used by boot gates (RFC-0013).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnFailReason {
+    /// Unknown/unspecified failure reason.
+    Unknown,
+    /// Allocation or memory exhaustion.
+    OutOfMemory,
+    /// Capability table exhausted.
+    CapTableFull,
+    /// IPC endpoint quota exhausted.
+    EndpointQuota,
+    /// Address space mapping or handle error.
+    MapFailed,
+    /// Invalid or malformed payload/arguments.
+    InvalidPayload,
+    /// Spawn denied by policy (if gating applies at the spawn boundary).
+    DeniedByPolicy,
+}
+
+impl SpawnFailReason {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            Self::Unknown => 0,
+            Self::OutOfMemory => 1,
+            Self::CapTableFull => 2,
+            Self::EndpointQuota => 3,
+            Self::MapFailed => 4,
+            Self::InvalidPayload => 5,
+            Self::DeniedByPolicy => 6,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::OutOfMemory => "oom",
+            Self::CapTableFull => "cap-table-full",
+            Self::EndpointQuota => "endpoint-quota",
+            Self::MapFailed => "map-failed",
+            Self::InvalidPayload => "invalid-payload",
+            Self::DeniedByPolicy => "denied-by-policy",
+        }
+    }
+}
+
 /// Error returned when spawning a new task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
@@ -195,6 +240,24 @@ impl From<ipc::IpcError> for SpawnError {
 impl From<AddressSpaceError> for SpawnError {
     fn from(value: AddressSpaceError) -> Self {
         Self::AddressSpace(value)
+    }
+}
+
+/// Maps spawn errors into the stable boot-gate reason taxonomy (RFC-0013).
+pub fn spawn_fail_reason(err: &SpawnError) -> SpawnFailReason {
+    use SpawnError::*;
+    match err {
+        InvalidParent | InvalidEntryPoint | InvalidStackPointer | BootstrapNotEndpoint => {
+            SpawnFailReason::InvalidPayload
+        }
+        Capability(CapError::NoSpace) => SpawnFailReason::CapTableFull,
+        Capability(_) => SpawnFailReason::InvalidPayload,
+        Ipc(ipc::IpcError::NoSpace) => SpawnFailReason::EndpointQuota,
+        Ipc(_) => SpawnFailReason::InvalidPayload,
+        AddressSpace(AddressSpaceError::AsidExhausted) => SpawnFailReason::MapFailed,
+        AddressSpace(AddressSpaceError::Mapping(_)) => SpawnFailReason::MapFailed,
+        AddressSpace(_) => SpawnFailReason::InvalidPayload,
+        StackExhausted => SpawnFailReason::OutOfMemory,
     }
 }
 
@@ -237,6 +300,8 @@ pub struct Task {
     ///
     /// This is set by `exec_v2` (init-lite passes the service name; kernel derives a stable id).
     service_id: u64,
+    /// Last spawn failure reason recorded for this task (RFC-0013 boot gates).
+    last_spawn_fail_reason: Option<SpawnFailReason>,
     bootstrap_slot: Option<usize>,
     children: Vec<Pid>,
 }
@@ -283,6 +348,7 @@ impl Task {
             address_space: None,
             user_guard_info: None,
             service_id: 0,
+            last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
         };
@@ -369,6 +435,14 @@ impl Task {
         self.qos
     }
 
+    pub fn set_last_spawn_fail_reason(&mut self, reason: SpawnFailReason) {
+        self.last_spawn_fail_reason = Some(reason);
+    }
+
+    pub fn take_last_spawn_fail_reason(&mut self) -> Option<SpawnFailReason> {
+        self.last_spawn_fail_reason.take()
+    }
+
     /// Returns whether this task is currently blocked (not runnable).
     pub fn is_blocked(&self) -> bool {
         self.blocked
@@ -434,11 +508,15 @@ impl TaskTable {
             caps: CapTable::new(),
             trap_domain: parent_domain,
             qos: QosClass::PerfBurst,
-            blocked: false,
+            // Selftest dummy tasks are used as bookkeeping endpoints for block/wake semantics.
+            // They must never be scheduled to execute (their frame is intentionally minimal).
+            // Only `wake()` should enqueue them when a selftest needs runnable state.
+            blocked: true,
             block_reason: None,
             address_space: None,
             user_guard_info: None,
             service_id: 0,
+            last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
         };
@@ -446,7 +524,9 @@ impl TaskTable {
         if let Some(parent_task) = self.tasks.get_mut(parent_index) {
             parent_task.children.push(pid);
         }
-        scheduler.enqueue(pid, QosClass::PerfBurst);
+        // Do not enqueue by default: prevents accidental scheduling of a dummy task and
+        // avoids stray runnable PIDs after kernel selftests.
+        let _ = scheduler;
         pid
     }
 
@@ -498,6 +578,16 @@ impl TaskTable {
     /// Returns a mutable reference to a task by PID.
     pub fn task_mut(&mut self, pid: Pid) -> Option<&mut Task> {
         self.tasks.get_mut(pid as usize)
+    }
+
+    pub fn set_last_spawn_fail_reason(&mut self, pid: Pid, reason: SpawnFailReason) {
+        if let Some(task) = self.task_mut(pid) {
+            task.set_last_spawn_fail_reason(reason);
+        }
+    }
+
+    pub fn take_last_spawn_fail_reason(&mut self, pid: Pid) -> Option<SpawnFailReason> {
+        self.task_mut(pid).and_then(|task| task.take_last_spawn_fail_reason())
     }
 
     /// Spawns a child task that temporarily shares its parent's address space.
@@ -645,6 +735,7 @@ impl TaskTable {
             address_space: Some(child_as),
             user_guard_info: None,
             service_id: 0,
+            last_spawn_fail_reason: None,
             bootstrap_slot: Some(slot),
             children: Vec::new(),
         };

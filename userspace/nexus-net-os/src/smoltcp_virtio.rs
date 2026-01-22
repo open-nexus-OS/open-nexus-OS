@@ -152,22 +152,37 @@ struct Inner {
 
 impl SmoltcpVirtioNetStack {
     /// Bring up virtio-net + smoltcp using the standard selftest device injection:
-    /// - Device MMIO cap in slot 48
     /// - virtio-mmio base mapped at 0x2000_e000 and scanned for a net device.
     pub fn new_default() -> Result<Self, NetError> {
-        const MMIO_CAP_SLOT: u32 = 48;
+        // Historically we assumed a fixed MMIO device capability slot. In practice, capability
+        // slot allocation can vary depending on init-lite provisioning order and bring-up features.
+        // To keep networking robust and deterministic, probe a bounded slot range and pick the
+        // first capability that successfully maps the virtio-mmio window.
+        fn find_mmio_cap_slot() -> Result<u32, NetError> {
+            const MAX_SLOTS: u32 = 96;
+            const PROBE_VA: usize = 0x2000_e000;
+            for slot in 0..MAX_SLOTS {
+                // `mmio_map_ok` treats InvalidArgument as "already mapped", so this is safe.
+                if mmio_map_ok(slot, PROBE_VA, 0).is_ok() {
+                    return Ok(slot);
+                }
+            }
+            Err(NetError::Internal("mmio cap not found"))
+        }
+
+        let mmio_cap_slot = find_mmio_cap_slot()?;
         const MMIO_VA: usize = 0x2000_e000;
         const SLOT_STRIDE: usize = 0x1000;
         const MAX_SLOTS: usize = 8;
 
-        mmio_map_ok(MMIO_CAP_SLOT, MMIO_VA, 0)?;
+        mmio_map_ok(mmio_cap_slot, MMIO_VA, 0)?;
 
         let mut found: Option<usize> = None;
         for slot in 0..MAX_SLOTS {
             let off = slot * SLOT_STRIDE;
             let va = MMIO_VA + off;
             if slot != 0 {
-                if mmio_map_ok(MMIO_CAP_SLOT, va, off).is_err() {
+                if mmio_map_ok(mmio_cap_slot, va, off).is_err() {
                     continue;
                 }
             }

@@ -8,6 +8,7 @@
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), samgr registry lib
 //! INVARIANTS: Separate from Keystore/BundleMgr roles; stable readiness prints
 //! ADR: docs/adr/0017-service-architecture.md
+//! TESTS: tests/e2e/tests/samgrd_roundtrip.rs
 
 use std::collections::HashMap;
 use std::fmt;

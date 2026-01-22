@@ -497,9 +497,10 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
     // Identity-map the user stack pool used by `task::allocate_guarded_stack` so the kernel can
     // zero freshly allocated stack pages (RFC-0004: no stale bytes / pointer remnants).
     //
-    // NOTE: This region is intentionally kept separate from the POOL window used by early
-    // loader/selftest staging.
-    let user_stack_pool_base = 0x8000_0000usize + 0x10_0000;
+    // NOTE: Some early bring-up paths (and page-table allocations depending on layout) may touch
+    // low RAM addresses near 0x8000_0000. Map the full 0x8000_0000..0x8020_0000 window to keep
+    // these accesses safe and avoid KPGF on unmapped low-RAM.
+    let user_stack_pool_base = 0x8000_0000usize;
     let user_stack_pool_end = 0x8000_0000usize + 0x20_0000;
     if let Err(e) = map_identity_range(
         table,
