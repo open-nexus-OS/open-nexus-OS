@@ -1,5 +1,4 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
-
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -21,7 +20,9 @@ use core::fmt;
 use nexus_abi::{debug_putc, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
-use updates::{BootCtrl, BootCtrlError, SignatureVerifier, Slot, SystemSet, SystemSetError, VerifyError};
+use updates::{
+    BootCtrl, BootCtrlError, SignatureVerifier, Slot, SystemSet, SystemSetError, VerifyError,
+};
 
 const MAGIC0: u8 = nexus_abi::updated::MAGIC0;
 const MAGIC1: u8 = nexus_abi::updated::MAGIC1;
@@ -92,11 +93,7 @@ struct UpdatedState {
 
 impl UpdatedState {
     fn new() -> Self {
-        Self {
-            boot: BootCtrl::new(Slot::A),
-            staged: None,
-            staged_slot: None,
-        }
+        Self { boot: BootCtrl::new(Slot::A), staged: None, staged_slot: None }
     }
 }
 
@@ -243,11 +240,8 @@ fn recv_request_large(
     let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
     let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let n = nexus_abi::ipc_recv_v1(recv_slot, &mut hdr, buf, sys_flags, deadline_ns)?;
-    let reply_cap = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
-        Some(hdr.src)
-    } else {
-        None
-    };
+    let reply_cap =
+        if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 { Some(hdr.src) } else { None };
     Ok((n as usize, reply_cap))
 }
 
@@ -263,10 +257,7 @@ fn wait_to_sys(wait: Wait) -> Option<(u32, u64)> {
 }
 
 fn duration_to_ns(duration: core::time::Duration) -> u64 {
-    duration
-        .as_secs()
-        .saturating_mul(1_000_000_000)
-        .saturating_add(duration.subsec_nanos() as u64)
+    duration.as_secs().saturating_mul(1_000_000_000).saturating_add(duration.subsec_nanos() as u64)
 }
 
 fn handle_frame(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
@@ -326,8 +317,12 @@ fn handle_stage(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
 
 fn stage_error_detail(err: &SystemSetError) -> (&'static str, Option<&'static str>) {
     match err {
-        SystemSetError::InvalidSignature(_) => ("signature", Some("updated: stage rejected (signature)")),
-        SystemSetError::DigestMismatch { .. } => ("digest", Some("updated: stage rejected (digest)")),
+        SystemSetError::InvalidSignature(_) => {
+            ("signature", Some("updated: stage rejected (signature)"))
+        }
+        SystemSetError::DigestMismatch { .. } => {
+            ("digest", Some("updated: stage rejected (digest)"))
+        }
         SystemSetError::ArchiveTooLarge { .. } | SystemSetError::OversizedEntry { .. } => {
             ("oversized", None)
         }
@@ -352,7 +347,10 @@ fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
                 audit(
                     "switch",
                     "ok",
-                    Some(match slot { Slot::A => "slot=a", Slot::B => "slot=b" }),
+                    Some(match slot {
+                        Slot::A => "slot=a",
+                        Slot::B => "slot=b",
+                    }),
                 );
                 rsp(OP_SWITCH, STATUS_OK, &[])
             } else {
@@ -363,12 +361,16 @@ fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
             }
         }
         Err(err) => {
-            audit("switch", "fail", Some(match err {
-                BootCtrlError::NotStaged => "not-staged",
-                BootCtrlError::AlreadyPending => "already-pending",
-                BootCtrlError::NotPending => "not-pending",
-                BootCtrlError::NoRollbackTarget => "no-rollback",
-            }));
+            audit(
+                "switch",
+                "fail",
+                Some(match err {
+                    BootCtrlError::NotStaged => "not-staged",
+                    BootCtrlError::AlreadyPending => "already-pending",
+                    BootCtrlError::NotPending => "not-pending",
+                    BootCtrlError::NoRollbackTarget => "no-rollback",
+                }),
+            );
             rsp(OP_SWITCH, STATUS_FAILED, &[])
         }
     }
@@ -414,7 +416,10 @@ fn handle_boot_attempt(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
             audit(
                 "boot_attempt",
                 "rollback",
-                Some(match slot { Slot::A => "slot=a", Slot::B => "slot=b" }),
+                Some(match slot {
+                    Slot::A => "slot=a",
+                    Slot::B => "slot=b",
+                }),
             );
             rsp(OP_BOOT_ATTEMPT, STATUS_OK, &[encode_slot(slot)])
         }
@@ -451,13 +456,8 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     let wait = Wait::Timeout(core::time::Duration::from_secs(1));
     let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| "reply-clone")?;
     let (sys_flags, deadline_ns) = wait_to_sys(wait).ok_or("send-wait")?;
-    let hdr = MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
+    let hdr =
+        MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
     if nexus_abi::ipc_send_v1(bnd_send_slot, &hdr, &frame, sys_flags, deadline_ns).is_err() {
         let _ = nexus_abi::cap_close(reply_send_clone);
         return Err("send");
@@ -509,7 +509,6 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     }
 }
 
-
 fn encode_slot(slot: Slot) -> u8 {
     match slot {
         Slot::A => 1,
@@ -544,8 +543,7 @@ fn local_verify(
 
     let key = VerifyingKey::from_bytes(public_key).map_err(|_| VerifyError::InvalidKey)?;
     let sig = Signature::from_bytes(signature);
-    key.verify(message, &sig)
-        .map_err(|_| VerifyError::InvalidSignature)
+    key.verify(message, &sig).map_err(|_| VerifyError::InvalidSignature)
 }
 
 fn keystored_verify(

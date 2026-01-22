@@ -74,7 +74,9 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     let per_attempt_ns: u64 = match wait {
         Wait::NonBlocking => 0,
         Wait::Blocking => duration_to_ns(Duration::from_millis(100)),
-        Wait::Timeout(d) => core::cmp::min(duration_to_ns(d), duration_to_ns(Duration::from_millis(100))),
+        Wait::Timeout(d) => {
+            core::cmp::min(duration_to_ns(d), duration_to_ns(Duration::from_millis(100)))
+        }
     };
     let deadline_ns = start_ns.saturating_add(per_attempt_ns);
 

@@ -13,10 +13,13 @@
 )]
 
 //! CONTEXT: Init process selecting Host std backend or OS-lite cooperative bootstrap
-//! OWNERS: @init-team @runtime
+//! OWNERS: @runtime
+//! STATUS: Functional (host backend std_server; OS deprecated os_lite)
+//! API_STABILITY: Stable (v1.0)
+//! TEST_COVERAGE: 2 unit tests (std_server) + QEMU markers
+//!
 //! PUBLIC API: touch_schemas(), service_main_loop(), ReadyNotifier
-//! DEPENDS_ON: execd, keystored, policyd, samgrd, bundlemgrd, updated, packagefsd, vfsd (os-lite)
-//! FEATURES: cfg(all(nexus_env = "os", feature = "os-lite")) selects os_lite; otherwise std_server
+//! DEPENDS_ON: execd, keystored, policyd, samgrd, bundlemgrd, updated, packagefsd, vfsd
 //! INVARIANTS: Preserve UART markers; Host path byte-compatible
 //! ADR: docs/adr/0017-service-architecture.md
 //!

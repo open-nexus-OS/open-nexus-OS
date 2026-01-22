@@ -82,8 +82,7 @@ const STATUS_UNSUPPORTED: u8 = nexus_abi::bundlemgrd::STATUS_UNSUPPORTED;
 const SLOT_A: u8 = 1;
 const SLOT_B: u8 = 2;
 
-static ACTIVE_SLOT: core::sync::atomic::AtomicU8 =
-    core::sync::atomic::AtomicU8::new(SLOT_A);
+static ACTIVE_SLOT: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(SLOT_A);
 
 fn active_slot_label() -> u8 {
     match ACTIVE_SLOT.load(core::sync::atomic::Ordering::Relaxed) {

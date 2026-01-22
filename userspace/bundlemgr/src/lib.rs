@@ -1,8 +1,12 @@
 //! CONTEXT: Bundle manager domain library
 //! OWNERS: @runtime
 //! STATUS: Functional
-//! API_STABILITY: Stable
-//! TEST_COVERAGE: No tests
+//! API_STABILITY: Stable (v1.0)
+//! TEST_COVERAGE: 13 tests total
+//!   - 6 manifest tests (tests/manifest_tests.rs)
+//!   - 1 manifest smoke test (tests/manifest_nxb_tests.rs)
+//!   - 4 service unit tests (service.rs module tests)
+//!   - 2 CLI integration tests (tests/cli.rs)
 //!
 //! PUBLIC API:
 //!   - cli::{execute, help, run_with, AbilityRegistrar}: CLI interface

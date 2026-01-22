@@ -38,16 +38,7 @@ pub struct TraceEvent {
 
 impl TraceEvent {
     pub const fn empty() -> Self {
-        Self {
-            seq: 0,
-            kind: 0,
-            status: 0,
-            _rsv: 0,
-            ep: 0,
-            flags: 0,
-            len: 0,
-            extra: 0,
-        }
+        Self { seq: 0, kind: 0, status: 0, _rsv: 0, ep: 0, flags: 0, len: 0, extra: 0 }
     }
 }
 
@@ -113,14 +104,7 @@ fn push(mut ev: TraceEvent) {
     }
 }
 
-pub fn record_send(
-    pid: u32,
-    cap_slot: u16,
-    ep: u32,
-    flags: u16,
-    len: u16,
-    err: Option<IpcError>,
-) {
+pub fn record_send(pid: u32, cap_slot: u16, ep: u32, flags: u16, len: u16, err: Option<IpcError>) {
     push(TraceEvent {
         kind: KIND_SEND,
         status: err_code(err),
@@ -133,14 +117,7 @@ pub fn record_send(
     });
 }
 
-pub fn record_recv(
-    pid: u32,
-    cap_slot: u16,
-    ep: u32,
-    flags: u16,
-    len: u16,
-    err: Option<IpcError>,
-) {
+pub fn record_recv(pid: u32, cap_slot: u16, ep: u32, flags: u16, len: u16, err: Option<IpcError>) {
     push(TraceEvent {
         kind: KIND_RECV,
         status: err_code(err),

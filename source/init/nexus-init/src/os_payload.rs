@@ -1105,20 +1105,19 @@ where
                 debug_write_hex(send_slot as usize);
                 debug_write_byte(b'\n');
 
-                let mut transfer =
-                    |cap: u32, rights: Rights, label: &'static str| -> Option<u32> {
-                        match nexus_abi::cap_transfer(pid, cap, rights) {
-                            Ok(slot) => Some(slot),
-                            Err(err) => {
-                                debug_write_bytes(b"init: updated cap transfer fail ");
-                                debug_write_str(label);
-                                debug_write_bytes(b" err=");
-                                debug_write_str(abi_error_label(err.clone()));
-                                debug_write_byte(b'\n');
-                                None
-                            }
+                let mut transfer = |cap: u32, rights: Rights, label: &'static str| -> Option<u32> {
+                    match nexus_abi::cap_transfer(pid, cap, rights) {
+                        Ok(slot) => Some(slot),
+                        Err(err) => {
+                            debug_write_bytes(b"init: updated cap transfer fail ");
+                            debug_write_str(label);
+                            debug_write_bytes(b" err=");
+                            debug_write_str(abi_error_label(err.clone()));
+                            debug_write_byte(b'\n');
+                            None
                         }
-                    };
+                    }
+                };
 
                 // Allow updated to call bundlemgrd (slot-aware publication).
                 let send_slot = transfer(bnd_req, Rights::SEND, "bundlemgrd send");
@@ -1792,11 +1791,7 @@ fn policyd_route_allowed(
     }
 }
 
-fn updated_boot_attempt(
-    upd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
-) -> Result<Option<u8>> {
+fn updated_boot_attempt(upd_req: u32, reply_send: u32, reply_recv: u32) -> Result<Option<u8>> {
     let mut req = [0u8; 4];
     let len = nexus_abi::updated::encode_boot_attempt_req(&mut req)
         .ok_or(InitError::Map("updated boot attempt encode failed"))?;
@@ -1878,12 +1873,7 @@ fn updated_boot_attempt(
     }
 }
 
-fn bundlemgrd_set_active_slot(
-    bnd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
-    slot: u8,
-) -> bool {
+fn bundlemgrd_set_active_slot(bnd_req: u32, reply_send: u32, reply_recv: u32, slot: u8) -> bool {
     let mut req = [0u8; 5];
     nexus_abi::bundlemgrd::encode_set_active_slot_req(slot, &mut req);
     let reply_send_clone = match nexus_abi::cap_clone(reply_send) {
@@ -1934,34 +1924,19 @@ fn encode_init_health_ok_rsp(status: u8) -> [u8; 5] {
     [INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_VERSION, INIT_HEALTH_OP_OK | 0x80, status]
 }
 
-fn updated_health_ok(
-    upd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
-) -> Result<u8> {
+fn updated_health_ok(upd_req: u32, reply_send: u32, reply_recv: u32) -> Result<u8> {
     let mut req = [0u8; 4];
     let len = nexus_abi::updated::encode_health_ok_req(&mut req)
         .ok_or(InitError::Map("updated health_ok encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     // Avoid deadline-based blocking IPC in bring-up; use explicit nsec()-bounded NONBLOCK loops.
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
     let mut i: usize = 0;
     loop {
-        match nexus_abi::ipc_send_v1(
-            upd_req,
-            &hdr,
-            &req[..len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        ) {
+        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], nexus_abi::IPC_SYS_NONBLOCK, 0) {
             Ok(_) => break,
             Err(nexus_abi::IpcError::QueueFull) => {
                 if (i & 0x7f) == 0 {
@@ -1999,7 +1974,10 @@ fn updated_health_ok(
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
-                if n < 7 || buf[0] != nexus_abi::updated::MAGIC0 || buf[1] != nexus_abi::updated::MAGIC1 {
+                if n < 7
+                    || buf[0] != nexus_abi::updated::MAGIC0
+                    || buf[1] != nexus_abi::updated::MAGIC1
+                {
                     continue;
                 }
                 if buf[2] != nexus_abi::updated::VERSION {
@@ -2030,33 +2008,18 @@ fn updated_health_ok(
     updated_get_status(upd_req, reply_send, reply_recv)
 }
 
-fn updated_get_status(
-    upd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
-) -> Result<u8> {
+fn updated_get_status(upd_req: u32, reply_send: u32, reply_recv: u32) -> Result<u8> {
     let mut req = [0u8; 4];
     let len = nexus_abi::updated::encode_get_status_req(&mut req)
         .ok_or(InitError::Map("updated status encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
     let mut i: usize = 0;
     loop {
-        match nexus_abi::ipc_send_v1(
-            upd_req,
-            &hdr,
-            &req[..len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        ) {
+        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], nexus_abi::IPC_SYS_NONBLOCK, 0) {
             Ok(_) => break,
             Err(nexus_abi::IpcError::QueueFull) => {
                 if (i & 0x7f) == 0 {
@@ -2092,7 +2055,10 @@ fn updated_get_status(
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
-                if n < 7 || buf[0] != nexus_abi::updated::MAGIC0 || buf[1] != nexus_abi::updated::MAGIC1 {
+                if n < 7
+                    || buf[0] != nexus_abi::updated::MAGIC0
+                    || buf[1] != nexus_abi::updated::MAGIC1
+                {
                     continue;
                 }
                 if buf[2] != nexus_abi::updated::VERSION {

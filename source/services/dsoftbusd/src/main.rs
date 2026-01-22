@@ -718,8 +718,12 @@ fn os_entry() -> core::result::Result<(), ()> {
                         if !retry_logged {
                             retry_logged = true;
                             let _ = match rsp[4] {
-                                STATUS_NOT_FOUND => nexus_abi::debug_println("dsoftbusd: write status not-found"),
-                                STATUS_MALFORMED => nexus_abi::debug_println("dsoftbusd: write status malformed"),
+                                STATUS_NOT_FOUND => {
+                                    nexus_abi::debug_println("dsoftbusd: write status not-found")
+                                }
+                                STATUS_MALFORMED => {
+                                    nexus_abi::debug_println("dsoftbusd: write status malformed")
+                                }
                                 STATUS_WOULD_BLOCK => {
                                     nexus_abi::debug_println("dsoftbusd: write status would-block")
                                 }

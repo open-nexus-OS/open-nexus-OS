@@ -1018,8 +1018,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                         let _ = writeln!(
                             u,
                             "IPC-CAPMOVE fix exp=0x{:x} got=0x{:x}",
-                            msg.capmove_expected_ep,
-                            id
+                            msg.capmove_expected_ep, id
                         );
                     }
                     cap.kind = CapabilityKind::Endpoint(msg.capmove_expected_ep);
@@ -1039,12 +1038,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             if let CapabilityKind::Endpoint(id) = cap.kind {
                 cap_info = id as usize;
             }
-            let _ = writeln!(
-                u,
-                "IPC-CAPMOVE recv ep=0x{:x} cap_ep=0x{:x}",
-                endpoint,
-                cap_info
-            );
+            let _ = writeln!(u, "IPC-CAPMOVE recv ep=0x{:x} cap_ep=0x{:x}", endpoint, cap_info);
         }
         match ctx.tasks.current_caps_mut().allocate(cap) {
             Ok(slot) => {
@@ -2008,11 +2002,8 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
         // Defensive: tolerate an optional trailing NUL in the provided name buffer.
         // This keeps bring-up robust across build modes while still matching only exact names.
-        let trimmed = name_bytes
-            .iter()
-            .position(|b| *b == 0)
-            .map(|n| &name_bytes[..n])
-            .unwrap_or(name_bytes);
+        let trimmed =
+            name_bytes.iter().position(|b| *b == 0).map(|n| &name_bytes[..n]).unwrap_or(name_bytes);
         // Normalize the service label used for bring-up gates:
         // - If init-lite passes a path, use the last path component.
         // - If init-lite passes a versioned label (e.g. "netstackd@0.1.0"), strip the suffix.
@@ -2021,11 +2012,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             .rposition(|b| *b == b'/' || *b == b'\\')
             .map(|i| &trimmed[i + 1..])
             .unwrap_or(trimmed);
-        let base = base
-            .iter()
-            .position(|b| *b == b'@')
-            .map(|i| &base[..i])
-            .unwrap_or(base);
+        let base = base.iter().position(|b| *b == b'@').map(|i| &base[..i]).unwrap_or(base);
         is_selftest_client = base == b"selftest-client";
         is_netstackd = base == b"netstackd";
         // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
@@ -2226,7 +2213,9 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let parent = ctx.tasks.current_pid();
     #[cfg(feature = "ipc_trace_ring")]
     {
-        if let Ok(parent_caps) = ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent)) {
+        if let Ok(parent_caps) =
+            ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))
+        {
             if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
                 if let CapabilityKind::Endpoint(id) = base.kind {
                     crate::ipc::trace::record_cap_xfer(

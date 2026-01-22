@@ -61,6 +61,21 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Proof**: host tests (`cargo test -p logd`, `cargo test -p nexus-log`) + QEMU markers (5 required, all green as of 2026-01-14)
 - **Why it matters**: provides bounded, deterministic log collection and crash reporting without kernel changes; core services (`samgrd`, `bundlemgrd`, `policyd`, `dsoftbusd`) emit structured logs to `logd` via `nexus-log`
 
+### Boot gates (readiness + spawn reasons + resource sentinel)
+
+- **Contract**: readiness vs up semantics, spawn failure reason taxonomy, resource/leak sentinel gate
+- **Canonical spec**: `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (Complete)
+- **Task**: `tasks/TASK-0269-boot-gates-v1-readiness-spawn-resource.md` (Complete)
+- **Proof**: `KSELFTEST: spawn reasons ok`, `KSELFTEST: resource sentinel ok` + readiness contract in `docs/testing/index.md`
+- **Why it matters**: deterministic early gates that turn "mysterious boot regressions" into actionable failures
+
+### Testing contracts (host-first + phased QEMU)
+
+- **Contract**: service contract tests, phased QEMU smoke gates, deterministic failure reporting
+- **Canonical spec**: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Accepted; Phase 0 complete)
+- **Proof**: `just test-e2e`, `cargo test -p logd-e2e`, `cargo test -p e2e_policy`, `just test-os`
+- **Why it matters**: prevents multi-day QEMU debugging by shifting left to host-first contract tests
+
 ## Adding a new contract
 
 When a change introduces a new stable interface or cross-boundary behavior:

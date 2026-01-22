@@ -6,7 +6,13 @@
 )]
 
 //! CONTEXT: SAMgr daemon – service discovery/registry/heartbeat via Cap'n Proto IPC
-//! OWNERS: @services-team
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable (v1.0)
+//! TEST_COVERAGE: 2 E2E tests (tests/e2e/samgrd_roundtrip.rs)
+//!   - register/resolve roundtrip
+//!   - unknown service returns not-found
+//!
 //! PUBLIC API: service_main_loop(), run_with_transport(), loopback_transport()
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), samgr registry lib
 //! ADR: docs/adr/0017-service-architecture.md

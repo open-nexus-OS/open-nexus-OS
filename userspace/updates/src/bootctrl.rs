@@ -3,9 +3,14 @@
 //
 //! CONTEXT: RAM-based A/B boot control state machine (v1.0 non-persistent)
 //! OWNERS: @runtime
-//! STATUS: Experimental
-//! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests
+//! STATUS: Functional
+//! API_STABILITY: Stable (v1.0)
+//! TEST_COVERAGE: 7 tests (via tests/updates_host/ota_flow.rs)
+//!   - stage/switch/health_commit flow
+//!   - rollback on health timeout
+//!   - switch without stage fails
+//!   - commit_health without switch fails
+//!   - double switch fails
 //!
 //! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 

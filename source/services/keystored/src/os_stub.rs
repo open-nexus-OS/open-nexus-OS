@@ -104,8 +104,7 @@ pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> L
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("keystored: ready");
-    let server =
-        route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
+    let server = route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
     // Identity-binding hardening (bring-up semantics):
     //
     // This keystore implementation is a bring-up shim. To avoid cross-service key collisions and

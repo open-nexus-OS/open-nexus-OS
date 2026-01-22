@@ -516,10 +516,7 @@ impl Router {
 
     /// Returns true if `id` exists and is alive.
     pub fn endpoint_alive(&self, id: EndpointId) -> bool {
-        self.endpoints
-            .get(id as usize)
-            .map(|ep| ep.alive)
-            .unwrap_or(false)
+        self.endpoints.get(id as usize).map(|ep| ep.alive).unwrap_or(false)
     }
 
     /// Closes every endpoint owned by `owner` and returns all drained waiter PIDs.

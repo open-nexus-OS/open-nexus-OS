@@ -2,6 +2,10 @@
 
 Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercised with fast host tools, leaving QEMU for end-to-end smoke coverage only. This document explains the layers, expectations, and day-to-day workflow for contributors.
 
+**Related RFCs:**
+- **RFC-0013**: Boot gates v1 — readiness contract + spawn failure reasons (Complete)
+- **RFC-0014**: Testing contracts v1 — host-first service contract tests + phased QEMU smoke (Phase 0 complete)
+
 ## Philosophy
 
 - Prioritise fast feedback by writing unit, property, and contract tests in userspace crates first.

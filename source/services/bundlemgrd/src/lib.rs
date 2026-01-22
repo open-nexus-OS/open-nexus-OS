@@ -6,7 +6,14 @@
 )]
 
 //! CONTEXT: BundleMgr daemon – bundle install/query/payload via Cap'n Proto IPC
-//! OWNERS: @services-team
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable (v1.0)
+//! TEST_COVERAGE: 3 E2E tests (tests/e2e/bundlemgrd_roundtrip.rs)
+//!   - install/query roundtrip
+//!   - get_payload roundtrip
+//!   - invalid signature rejection
+//!
 //! PUBLIC API: service_main_loop(), run_with_transport(), loopback_transport()
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystored client, packagefs client
 //! INVARIANTS: Separate from SAMgr/Keystore roles; stable readiness prints

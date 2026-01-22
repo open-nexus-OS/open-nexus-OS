@@ -255,13 +255,7 @@ fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
     let deadline2 = start2.saturating_add(2_000_000_000);
     let mut si: usize = 0;
     loop {
-        match nexus_abi::ipc_send_v1(
-            LOGD_SEND_SLOT,
-            &hdr,
-            &frame,
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        ) {
+        match nexus_abi::ipc_send_v1(LOGD_SEND_SLOT, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
             Ok(_) => break,
             Err(nexus_abi::IpcError::QueueFull) => {
                 if (si & 0x7f) == 0 {

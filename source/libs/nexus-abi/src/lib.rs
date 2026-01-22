@@ -336,7 +336,6 @@ pub mod updated {
             && frame[3] == OP_GET_STATUS
     }
 
-
     /// Decodes a boot-attempt response and returns (status, slot).
     pub fn decode_boot_attempt_rsp(frame: &[u8]) -> Option<(u8, u8)> {
         if frame.len() != 8 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {

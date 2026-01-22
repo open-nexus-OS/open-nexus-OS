@@ -3,9 +3,9 @@
 //
 //! CONTEXT: Integration tests for system-set parsing and boot control flow
 //! OWNERS: @runtime
-//! STATUS: Experimental
+//! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 6 tests
+//! TEST_COVERAGE: 11 tests
 //!
 //! TEST_SCOPE:
 //!   - System-set signature verification
@@ -14,6 +14,8 @@
 //!   - Rollback on health timeout
 //!   - Missing signature rejection
 //!   - Oversized archive rejection
+//!   - Path-traversal rejection (security)
+//!   - BootCtrl error states
 //!
 //! TEST_SCENARIOS:
 //!   - test_stage_switch_health_commit(): happy-path flow
@@ -22,6 +24,11 @@
 //!   - test_rollback_on_health_timeout(): rollback after tries exhausted
 //!   - test_reject_missing_signature(): signature entry missing
 //!   - test_reject_oversized_archive(): oversized archive rejected
+//!   - test_reject_path_traversal_dotdot(): ../ escape rejected
+//!   - test_reject_absolute_path(): /etc/passwd rejected
+//!   - test_bootctrl_switch_without_stage_fails(): error state
+//!   - test_bootctrl_commit_health_without_switch_fails(): error state
+//!   - test_bootctrl_double_switch_fails(): error state
 //!
 //! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 
@@ -29,9 +36,9 @@ use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest, Sha256};
 use tar::{Builder as TarBuilder, EntryType, Header};
 
-use updates::{BootCtrl, Ed25519Verifier, Slot, SystemSet};
-use updates::SystemSetError;
 use updates::system_set_capnp::system_set_index;
+use updates::SystemSetError;
+use updates::{BootCtrl, Ed25519Verifier, Slot, SystemSet};
 
 use capnp::message::Builder;
 use capnp::serialize;
@@ -114,16 +121,8 @@ fn test_reject_missing_signature() {
     let mut tar = TarBuilder::new(Vec::new());
     append_file(&mut tar, "system.nxsindex", &index_bytes);
     append_dir(&mut tar, &format!("{}.nxb/", bundle.name));
-    append_file(
-        &mut tar,
-        &format!("{}.nxb/manifest.nxb", bundle.name),
-        &bundle.manifest,
-    );
-    append_file(
-        &mut tar,
-        &format!("{}.nxb/payload.elf", bundle.name),
-        &bundle.payload,
-    );
+    append_file(&mut tar, &format!("{}.nxb/manifest.nxb", bundle.name), &bundle.manifest);
+    append_file(&mut tar, &format!("{}.nxb/payload.elf", bundle.name), &bundle.payload);
     let nxs = tar.into_inner().expect("tar bytes");
 
     let verifier = Ed25519Verifier;
@@ -141,15 +140,74 @@ fn test_reject_oversized_archive() {
     assert!(matches!(err, SystemSetError::ArchiveTooLarge { .. }));
 }
 
+#[test]
+fn test_reject_path_traversal_dotdot() {
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let bundle = fixture_bundle("demo.hello", "1.0.0");
+    let publisher = signing_key.verifying_key().to_bytes();
+    let index_bytes = build_index(&publisher, &[bundle.clone()]);
+    let signature = signing_key.sign(&index_bytes);
+
+    let mut tar = TarBuilder::new(Vec::new());
+    append_file(&mut tar, "system.nxsindex", &index_bytes);
+    append_file(&mut tar, "system.sig.ed25519", &signature.to_bytes());
+    // Malicious path with ../ - build raw tar entry
+    append_file_raw(&mut tar, "../escape/payload.elf", &bundle.payload);
+    let nxs = tar.into_inner().expect("tar bytes");
+
+    let verifier = Ed25519Verifier;
+    let err = SystemSet::parse(&nxs, &verifier).expect_err("path traversal");
+    assert!(matches!(err, SystemSetError::ArchiveMalformed("unsafe path")));
+}
+
+#[test]
+fn test_reject_absolute_path() {
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let bundle = fixture_bundle("demo.hello", "1.0.0");
+    let publisher = signing_key.verifying_key().to_bytes();
+    let index_bytes = build_index(&publisher, &[bundle.clone()]);
+    let signature = signing_key.sign(&index_bytes);
+
+    let mut tar = TarBuilder::new(Vec::new());
+    append_file(&mut tar, "system.nxsindex", &index_bytes);
+    append_file(&mut tar, "system.sig.ed25519", &signature.to_bytes());
+    // Malicious absolute path - build raw tar entry
+    append_file_raw(&mut tar, "/etc/passwd", &bundle.payload);
+    let nxs = tar.into_inner().expect("tar bytes");
+
+    let verifier = Ed25519Verifier;
+    let err = SystemSet::parse(&nxs, &verifier).expect_err("absolute path");
+    assert!(matches!(err, SystemSetError::ArchiveMalformed("unsafe path")));
+}
+
+#[test]
+fn test_bootctrl_switch_without_stage_fails() {
+    let mut boot = BootCtrl::new(Slot::A);
+    let err = boot.switch(2).expect_err("should fail without stage");
+    assert_eq!(err, updates::BootCtrlError::NotStaged);
+}
+
+#[test]
+fn test_bootctrl_commit_health_without_switch_fails() {
+    let mut boot = BootCtrl::new(Slot::A);
+    let err = boot.commit_health().expect_err("should fail without switch");
+    assert_eq!(err, updates::BootCtrlError::NotPending);
+}
+
+#[test]
+fn test_bootctrl_double_switch_fails() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2).expect("first switch ok");
+    boot.stage();
+    let err = boot.switch(2).expect_err("second switch should fail");
+    assert_eq!(err, updates::BootCtrlError::AlreadyPending);
+}
+
 fn fixture_bundle(name: &str, version: &str) -> BundleFixture {
     let manifest = build_manifest(name, version);
     let payload = vec![0xAAu8; 16];
-    BundleFixture {
-        name: name.to_string(),
-        version: version.to_string(),
-        manifest,
-        payload,
-    }
+    BundleFixture { name: name.to_string(), version: version.to_string(), manifest, payload }
 }
 
 fn build_manifest(name: &str, version: &str) -> Vec<u8> {
@@ -170,7 +228,8 @@ fn build_manifest(name: &str, version: &str) -> Vec<u8> {
 }
 
 fn build_nxs(signing_key: &SigningKey, bundles: &[BundleFixture]) -> Vec<u8> {
-    let signature = signing_key.sign(&build_index(&signing_key.verifying_key().to_bytes(), bundles));
+    let signature =
+        signing_key.sign(&build_index(&signing_key.verifying_key().to_bytes(), bundles));
     build_nxs_with_signature(signing_key, bundles, &signature.to_bytes())
 }
 
@@ -188,16 +247,8 @@ fn build_nxs_with_signature(
     for bundle in bundles {
         let dir_name = format!("{}.nxb/", bundle.name);
         append_dir(&mut tar, &dir_name);
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/manifest.nxb", bundle.name),
-            &bundle.manifest,
-        );
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/payload.elf", bundle.name),
-            &bundle.payload,
-        );
+        append_file(&mut tar, &format!("{}.nxb/manifest.nxb", bundle.name), &bundle.manifest);
+        append_file(&mut tar, &format!("{}.nxb/payload.elf", bundle.name), &bundle.payload);
     }
 
     tar.into_inner().expect("tar bytes")
@@ -219,16 +270,8 @@ fn build_nxs_with_index(
     for bundle in archive_bundles {
         let dir_name = format!("{}.nxb/", bundle.name);
         append_dir(&mut tar, &dir_name);
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/manifest.nxb", bundle.name),
-            &bundle.manifest,
-        );
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/payload.elf", bundle.name),
-            &bundle.payload,
-        );
+        append_file(&mut tar, &format!("{}.nxb/manifest.nxb", bundle.name), &bundle.manifest);
+        append_file(&mut tar, &format!("{}.nxb/payload.elf", bundle.name), &bundle.payload);
     }
 
     tar.into_inner().expect("tar bytes")
@@ -288,4 +331,45 @@ fn append_dir(builder: &mut TarBuilder<Vec<u8>>, path: &str) {
     header.set_mtime(0);
     header.set_cksum();
     builder.append_data(&mut header, path, std::io::empty()).expect("append dir");
+}
+
+/// Appends a file with a raw path, bypassing tar library path validation.
+/// Used to test path-traversal rejection in the parser.
+fn append_file_raw(builder: &mut TarBuilder<Vec<u8>>, path: &str, bytes: &[u8]) {
+    use std::io::Write;
+
+    // Build a raw tar header with the malicious path
+    let mut header_bytes = [0u8; 512];
+    // name (0..100)
+    let path_bytes = path.as_bytes();
+    let copy_len = std::cmp::min(path_bytes.len(), 100);
+    header_bytes[..copy_len].copy_from_slice(&path_bytes[..copy_len]);
+    // mode (100..108) = "0000644\0"
+    header_bytes[100..108].copy_from_slice(b"0000644\0");
+    // uid (108..116) = "0000000\0"
+    header_bytes[108..116].copy_from_slice(b"0000000\0");
+    // gid (116..124) = "0000000\0"
+    header_bytes[116..124].copy_from_slice(b"0000000\0");
+    // size (124..136) = octal size
+    let size_str = format!("{:011o}\0", bytes.len());
+    header_bytes[124..136].copy_from_slice(size_str.as_bytes());
+    // mtime (136..148) = "00000000000\0"
+    header_bytes[136..148].copy_from_slice(b"00000000000\0");
+    // checksum placeholder (148..156) = spaces
+    header_bytes[148..156].copy_from_slice(b"        ");
+    // typeflag (156) = '0' (regular file)
+    header_bytes[156] = b'0';
+    // Calculate checksum
+    let cksum: u32 = header_bytes.iter().map(|b| *b as u32).sum();
+    let cksum_str = format!("{:06o}\0 ", cksum);
+    header_bytes[148..156].copy_from_slice(cksum_str.as_bytes());
+
+    // Write header + data + padding directly to the builder's inner buffer
+    // We need to finish the current builder and rebuild with raw bytes
+    let inner = builder.get_mut();
+    inner.write_all(&header_bytes).expect("write header");
+    inner.write_all(bytes).expect("write data");
+    // Pad to 512-byte boundary
+    let padding = (512 - (bytes.len() % 512)) % 512;
+    inner.write_all(&vec![0u8; padding]).expect("write padding");
 }

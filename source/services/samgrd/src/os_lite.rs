@@ -353,15 +353,10 @@ fn emit_byte(byte: u8) {
 fn emit_hex_u32(value: u32) {
     for shift in (0..8).rev() {
         let nib = (value >> (shift * 4)) & 0x0f;
-        let ch = if nib < 10 {
-            b'0' + nib as u8
-        } else {
-            b'a' + (nib as u8 - 10)
-        };
+        let ch = if nib < 10 { b'0' + nib as u8 } else { b'a' + (nib as u8 - 10) };
         let _ = debug_putc(ch);
     }
 }
-
 
 fn append_probe_to_logd() -> bool {
     const MAGIC0: u8 = b'L';

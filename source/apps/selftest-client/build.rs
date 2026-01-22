@@ -9,6 +9,9 @@
 //!
 //! This keeps the on-device selftest asset in sync with schema and payload changes.
 
+// Build scripts may use expect/unwrap since failures are hard errors.
+#![allow(clippy::expect_used)]
+
 use std::{env, fs, path::PathBuf};
 
 use capnp::message::Builder;
@@ -17,7 +20,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest, Sha256};
 use tar::{Builder as TarBuilder, EntryType, Header};
 
-use exec_payloads::{HELLO_ELF, HELLO_MANIFEST_NXB};
+use exec_payloads::HELLO_MANIFEST_NXB;
 use updates::system_set_capnp::system_set_index;
 
 // SECURITY: bring-up test key for deterministic selftests (NOT production custody).
@@ -54,11 +57,7 @@ fn build_system_test_nxs() -> Vec<u8> {
 
     let dir_name = "demo.hello.nxb/";
     append_dir(&mut tar, dir_name);
-    append_file(
-        &mut tar,
-        "demo.hello.nxb/manifest.nxb",
-        HELLO_MANIFEST_NXB,
-    );
+    append_file(&mut tar, "demo.hello.nxb/manifest.nxb", HELLO_MANIFEST_NXB);
     append_file(&mut tar, "demo.hello.nxb/payload.elf", TEST_PAYLOAD);
 
     tar.into_inner().expect("system-test.nxs bytes")

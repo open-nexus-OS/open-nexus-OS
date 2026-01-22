@@ -435,7 +435,8 @@ fn append_probe_to_logd_deterministic() -> bool {
         Ok(slot) => slot,
         Err(_) => return false,
     };
-    let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
+    let hdr =
+        nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
 
     // Send bounded NONBLOCK.
     let start = nexus_abi::nsec().ok().unwrap_or(0);

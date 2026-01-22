@@ -1479,7 +1479,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     write_hex(frame.x[1], 16);
                     // Optional symbol hint for the return address (best-effort, allocation-free).
-                    #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "trap_symbols"))]
+                    #[cfg(all(
+                        target_arch = "riscv64",
+                        target_os = "none",
+                        feature = "trap_symbols"
+                    ))]
                     {
                         if let Some((name, off)) = nearest_symbol(frame.x[1]) {
                             for &b in b" sym=" {

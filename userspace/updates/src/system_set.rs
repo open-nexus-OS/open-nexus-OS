@@ -3,16 +3,22 @@
 //
 //! CONTEXT: System-set parsing and signature verification (v1.0)
 //! OWNERS: @runtime
-//! STATUS: Experimental
-//! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests
+//! STATUS: Functional
+//! API_STABILITY: Stable (v1.0)
+//! TEST_COVERAGE: 8 tests (via tests/updates_host/ota_flow.rs)
+//!   - signature verification (valid + invalid)
+//!   - digest mismatch rejection
+//!   - missing signature rejection
+//!   - oversized archive rejection
+//!   - path-traversal ../ rejection (security)
+//!   - absolute path rejection (security)
 //!
 //! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
-#[cfg(all(feature = "os-lite", not(feature = "std")))]
 use alloc::string::ToString;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
 #[cfg(feature = "std")]
 use std::{collections::BTreeMap, string::String, vec::Vec};
 
@@ -23,7 +29,7 @@ use sha2::{Digest, Sha256};
 use crate::system_set_capnp::system_set_index;
 
 const MAX_NXS_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
-const MAX_SYSTEM_NXSINDEX_BYTES: usize = 1 * 1024 * 1024;
+const MAX_SYSTEM_NXSINDEX_BYTES: usize = 1024 * 1024;
 const MAX_MANIFEST_NXB_BYTES: usize = 256 * 1024;
 const MAX_PAYLOAD_ELF_BYTES: usize = 50 * 1024 * 1024;
 const MAX_BUNDLES_PER_SET: usize = 256;
@@ -102,8 +108,7 @@ impl SignatureVerifier for Ed25519Verifier {
 
         let key = VerifyingKey::from_bytes(public_key).map_err(|_| VerifyError::InvalidKey)?;
         let sig = Signature::from_bytes(signature);
-        key.verify(message, &sig)
-            .map_err(|_| VerifyError::InvalidSignature)
+        key.verify(message, &sig).map_err(|_| VerifyError::InvalidSignature)
     }
 }
 
@@ -245,8 +250,9 @@ impl SystemSet {
 
 fn parse_index(bytes: &[u8]) -> Result<SystemSetIndex, SystemSetError> {
     let mut slice = bytes;
-    let message = serialize::read_message_from_flat_slice_no_alloc(&mut slice, ReaderOptions::new())
-        .map_err(|_| SystemSetError::InvalidIndex("capnp decode failed"))?;
+    let message =
+        serialize::read_message_from_flat_slice_no_alloc(&mut slice, ReaderOptions::new())
+            .map_err(|_| SystemSetError::InvalidIndex("capnp decode failed"))?;
 
     let root = message
         .get_root::<system_set_index::Reader<'_>>()
@@ -264,9 +270,8 @@ fn parse_index(bytes: &[u8]) -> Result<SystemSetIndex, SystemSetError> {
         return Err(SystemSetError::InvalidIndex("systemVersion empty"));
     }
 
-    let publisher = root
-        .get_publisher()
-        .map_err(|_| SystemSetError::InvalidIndex("publisher missing"))?;
+    let publisher =
+        root.get_publisher().map_err(|_| SystemSetError::InvalidIndex("publisher missing"))?;
     if publisher.len() != 32 {
         return Err(SystemSetError::InvalidIndex("publisher must be 32 bytes"));
     }
@@ -275,15 +280,13 @@ fn parse_index(bytes: &[u8]) -> Result<SystemSetIndex, SystemSetError> {
 
     let timestamp_unix_ms = root.get_timestamp_unix_ms();
 
-    let bundles_reader = root
-        .get_bundles()
-        .map_err(|_| SystemSetError::InvalidIndex("bundles missing"))?;
+    let bundles_reader =
+        root.get_bundles().map_err(|_| SystemSetError::InvalidIndex("bundles missing"))?;
     let mut bundles = Vec::with_capacity(bundles_reader.len() as usize);
     for i in 0..bundles_reader.len() {
         let entry = bundles_reader.get(i);
-        let name = entry
-            .get_name()
-            .map_err(|_| SystemSetError::InvalidIndex("bundle name missing"))?;
+        let name =
+            entry.get_name().map_err(|_| SystemSetError::InvalidIndex("bundle name missing"))?;
         let name = name
             .to_str()
             .map_err(|_| SystemSetError::InvalidIndex("bundle name invalid utf-8"))?
@@ -327,14 +330,8 @@ fn parse_index(bytes: &[u8]) -> Result<SystemSetIndex, SystemSetError> {
         });
     }
 
-    Ok(SystemSetIndex {
-        system_version,
-        publisher: publisher_bytes,
-        timestamp_unix_ms,
-        bundles,
-    })
+    Ok(SystemSetIndex { system_version, publisher: publisher_bytes, timestamp_unix_ms, bundles })
 }
-
 
 struct TarEntry {
     name: String,
@@ -357,9 +354,9 @@ fn parse_tar_entries(bytes: &[u8]) -> Result<Vec<TarEntry>, SystemSetError> {
         let size = parse_octal(&header[124..136])?;
         let typeflag = header[156];
         let data_start = offset + 512;
-        let data_end = data_start.checked_add(size).ok_or(SystemSetError::ArchiveMalformed(
-            "tar size overflow",
-        ))?;
+        let data_end = data_start
+            .checked_add(size)
+            .ok_or(SystemSetError::ArchiveMalformed("tar size overflow"))?;
         if data_end > bytes.len() {
             return Err(SystemSetError::ArchiveMalformed("truncated tar entry"));
         }
@@ -367,7 +364,7 @@ fn parse_tar_entries(bytes: &[u8]) -> Result<Vec<TarEntry>, SystemSetError> {
         let is_dir = typeflag == b'5';
         entries.push(TarEntry { name, data, is_dir });
 
-        let padded = ((size + 511) / 512) * 512;
+        let padded = size.div_ceil(512) * 512;
         offset = data_start + padded;
     }
     Ok(entries)
@@ -418,11 +415,6 @@ fn is_safe_path(path: &str) -> bool {
         }
     }
     true
-}
-
-fn sha256(bytes: &[u8]) -> [u8; 32] {
-    let mut noop = || {};
-    sha256_with_yield(bytes, &mut noop)
 }
 
 fn sha256_with_yield(bytes: &[u8], yield_hook: &mut impl FnMut()) -> [u8; 32] {

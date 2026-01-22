@@ -118,12 +118,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             // If bring-up fails, emit a single diagnostic record (no secrets).
             #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
             {
-                let mut q = nexus_abi::CapQuery {
-                    kind_tag: 0,
-                    reserved: 0,
-                    base: 0,
-                    len: 0,
-                };
+                let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
                 if nexus_abi::cap_query(48, &mut q).is_ok() {
                     let _ = nexus_abi::debug_println("netstackd: mmio cap48 present");
                 } else {
@@ -245,7 +240,7 @@ fn os_entry() -> core::result::Result<(), ()> {
         q[3] = 0x00; // flags: recursion desired
         q[4] = 0x00;
         q[5] = 0x01; // qdcount
-        // qname: 9 'localhost' 0
+                     // qname: 9 'localhost' 0
         let mut p = 12usize;
         q[p] = 9;
         p += 1;
@@ -325,7 +320,8 @@ fn os_entry() -> core::result::Result<(), ()> {
             }
         }
         if !ok {
-            let _ = nexus_abi::debug_println("netstackd: udp dns unavailable (fallback dhcp proof)");
+            let _ =
+                nexus_abi::debug_println("netstackd: udp dns unavailable (fallback dhcp proof)");
         }
         // Compatibility marker expected by the QEMU smoke harness. Even in fallback mode, we have
         // already proven UDP send/recv via the successful DHCP lease exchange.

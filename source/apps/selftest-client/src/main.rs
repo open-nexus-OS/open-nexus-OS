@@ -186,7 +186,9 @@ mod os_lite {
                 emit_line("SELFTEST: samgrd register send");
                 logged_start = true;
             }
-            if let Err(err) = client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50))) {
+            if let Err(err) =
+                client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50)))
+            {
                 if !logged_send_fail {
                     match err {
                         nexus_ipc::IpcError::NoSpace => {
@@ -233,12 +235,11 @@ mod os_lite {
                             emit_bytes(b" head=");
                             if n >= 8 {
                                 emit_hex_u64(u64::from_le_bytes([
-                                    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6],
-                                    buf[7],
+                                    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
                                 ]));
                             } else if n >= 4 {
                                 emit_hex_u64(
-                                    u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as u64,
+                                    u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as u64
                                 );
                             } else {
                                 emit_hex_u64(0);
@@ -284,10 +285,7 @@ mod os_lite {
         let (_client_send, client_recv) = client.slots();
         let mut logged_rsp = false;
         for _ in 0..64 {
-            if client
-                .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50)))
-                .is_err()
-            {
+            if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50))).is_err() {
                 let _ = yield_();
                 continue;
             }
@@ -308,12 +306,11 @@ mod os_lite {
                             emit_bytes(b" head=");
                             if n >= 8 {
                                 emit_hex_u64(u64::from_le_bytes([
-                                    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6],
-                                    buf[7],
+                                    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
                                 ]));
                             } else if n >= 4 {
                                 emit_hex_u64(
-                                    u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as u64,
+                                    u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as u64
                                 );
                             } else {
                                 emit_hex_u64(0);
@@ -492,9 +489,7 @@ mod os_lite {
                                     nexus_abi::IpcError::NoSuchEndpoint => emit_bytes(b"nosuch"),
                                     nexus_abi::IpcError::QueueFull => emit_bytes(b"queuefull"),
                                     nexus_abi::IpcError::QueueEmpty => emit_bytes(b"queueempty"),
-                                    nexus_abi::IpcError::PermissionDenied => {
-                                        emit_bytes(b"denied")
-                                    }
+                                    nexus_abi::IpcError::PermissionDenied => emit_bytes(b"denied"),
                                     nexus_abi::IpcError::TimedOut => emit_bytes(b"timedout"),
                                     nexus_abi::IpcError::NoSpace => emit_bytes(b"nospace"),
                                     nexus_abi::IpcError::Unsupported => emit_bytes(b"unsupported"),
@@ -586,14 +581,18 @@ mod os_lite {
         Ok(())
     }
 
-    fn bundlemgrd_v1_set_active_slot(client: &KernelClient, slot: u8) -> core::result::Result<(), ()> {
+    fn bundlemgrd_v1_set_active_slot(
+        client: &KernelClient,
+        slot: u8,
+    ) -> core::result::Result<(), ()> {
         let mut req = [0u8; 5];
         nexus_abi::bundlemgrd::encode_set_active_slot_req(slot, &mut req);
         client
             .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        let rsp =
-            client.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
+        let rsp = client
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
         let (status, _slot) = nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&rsp).ok_or(())?;
         if status == nexus_abi::bundlemgrd::STATUS_OK {
             Ok(())
@@ -631,13 +630,7 @@ mod os_lite {
         let deadline = start.saturating_add(2_000_000_000); // 2s
         let mut i: usize = 0;
         loop {
-            match nexus_abi::ipc_send_v1(
-                send_slot,
-                &hdr,
-                &req,
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
+            match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
                 Ok(_) => break,
                 Err(nexus_abi::IpcError::QueueFull) => {
                     if (i & 0x7f) == 0 {
@@ -898,13 +891,7 @@ mod os_lite {
         let deadline = start.saturating_add(2_000_000_000); // 2s
         let mut i: usize = 0;
         loop {
-            match nexus_abi::ipc_send_v1(
-                send_slot,
-                &hdr,
-                &req,
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
+            match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
                 Ok(_) => break,
                 Err(nexus_abi::IpcError::QueueFull) => {
                     if (i & 0x7f) == 0 {
@@ -953,7 +940,11 @@ mod os_lite {
                     }
                     return if buf[4] == STATUS_OK {
                         let pid = u32::from_le_bytes([buf[5], buf[6], buf[7], buf[8]]);
-                        if pid == 0 { Err(()) } else { Ok(pid) }
+                        if pid == 0 {
+                            Err(())
+                        } else {
+                            Ok(pid)
+                        }
                     } else if buf[4] == STATUS_DENIED {
                         emit_line("SELFTEST: execd spawn denied");
                         Err(())
@@ -1088,10 +1079,10 @@ mod os_lite {
                         continue;
                     }
                     return match buf[4] {
-            STATUS_ALLOW => Ok(true),
-            STATUS_DENY => Ok(false),
-            STATUS_MALFORMED => Err(()),
-            _ => Err(()),
+                        STATUS_ALLOW => Ok(true),
+                        STATUS_DENY => Ok(false),
+                        STATUS_MALFORMED => Err(()),
+                        _ => Err(()),
                     };
                 }
                 Err(nexus_abi::IpcError::QueueEmpty) => {
@@ -1440,9 +1431,7 @@ mod os_lite {
 
         let frame = [MAGIC0, MAGIC1, VERSION, OP_STATS];
         for _ in 0..16 {
-            if logd
-                .send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(500)))
-                .is_err()
+            if logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(500))).is_err()
             {
                 let _ = yield_();
                 continue;
@@ -1454,7 +1443,11 @@ mod os_lite {
                     continue;
                 }
             };
-            if rsp.len() < 4 + 1 + 8 + 8 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+            if rsp.len() < 4 + 1 + 8 + 8
+                || rsp[0] != MAGIC0
+                || rsp[1] != MAGIC1
+                || rsp[2] != VERSION
+            {
                 let _ = yield_();
                 continue;
             }
@@ -1625,7 +1618,6 @@ mod os_lite {
         Ok(())
     }
 
-
     fn route_with_retry(name: &str) -> core::result::Result<KernelClient, ()> {
         // Deterministic slots pre-distributed by init-lite to selftest-client (bring-up topology).
         // Using these avoids reliance on routing control-plane behavior during early boot.
@@ -1695,7 +1687,13 @@ mod os_lite {
             let ping = [b'R', b'P', 1, 0];
             let hdr = MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
             // Best-effort send; ignore failures (still proceed with tests).
-            let _ = nexus_abi::ipc_send_v1(reply_send_slot, &hdr, &ping, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            let _ = nexus_abi::ipc_send_v1(
+                reply_send_slot,
+                &hdr,
+                &ping,
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            );
             let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
             let mut rb = [0u8; 8];
             let mut ok = false;
@@ -1736,9 +1734,7 @@ mod os_lite {
         // Low-effort readiness gate: wait for the logd marker from dsoftbusd.
         if let Ok(logd) = KernelClient::new_for("logd") {
             for _ in 0..16 {
-                if logd_query_contains_since_paged(&logd, 0, b"dsoftbusd: ready")
-                    .unwrap_or(false)
-                {
+                if logd_query_contains_since_paged(&logd, 0, b"dsoftbusd: ready").unwrap_or(false) {
                     break;
                 }
                 let _ = yield_();
@@ -1829,7 +1825,9 @@ mod os_lite {
         emit_byte(b'\n');
         emit_line("SELFTEST: ipc routing updated ok");
         let mut updated_pending: VecDeque<Vec<u8>> = VecDeque::new();
-        if updated_log_probe(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending).is_ok() {
+        if updated_log_probe(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
+            .is_ok()
+        {
             emit_line("SELFTEST: updated probe ok");
         } else {
             emit_line("SELFTEST: updated probe FAIL");
@@ -1864,7 +1862,9 @@ mod os_lite {
         } else {
             emit_line("SELFTEST: ota stage FAIL");
         }
-        if updated_switch(&updated, reply_send_slot, reply_recv_slot, 2, &mut updated_pending).is_ok() {
+        if updated_switch(&updated, reply_send_slot, reply_recv_slot, 2, &mut updated_pending)
+            .is_ok()
+        {
             emit_line("SELFTEST: ota switch ok");
         } else {
             emit_line("SELFTEST: ota switch FAIL");
@@ -1881,8 +1881,15 @@ mod os_lite {
         }
         // Second cycle to force rollback (tries_left=1).
         if updated_stage(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending).is_ok() {
-            if updated_switch(&updated, reply_send_slot, reply_recv_slot, 1, &mut updated_pending).is_ok() {
-                match updated_boot_attempt(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending) {
+            if updated_switch(&updated, reply_send_slot, reply_recv_slot, 1, &mut updated_pending)
+                .is_ok()
+            {
+                match updated_boot_attempt(
+                    &updated,
+                    reply_send_slot,
+                    reply_recv_slot,
+                    &mut updated_pending,
+                ) {
                     Ok(Some(slot)) if slot == SlotId::B => emit_line("SELFTEST: ota rollback ok"),
                     _ => emit_line("SELFTEST: ota rollback FAIL"),
                 }
@@ -2016,8 +2023,7 @@ mod os_lite {
         for _ in 0..64 {
             let _ = yield_();
         }
-        if logd_query_contains_since_paged(&logd, 0, b"nexus-log sink-logd probe")
-            .unwrap_or(false)
+        if logd_query_contains_since_paged(&logd, 0, b"nexus-log sink-logd probe").unwrap_or(false)
         {
             emit_line("SELFTEST: nexus-log sink-logd ok");
         } else {
@@ -2395,13 +2401,8 @@ mod os_lite {
         let deadline = start.saturating_add(30_000_000_000); // 30s (init may contend with stage work)
         let mut i: usize = 0;
         loop {
-            match nexus_abi::ipc_send_v1(
-                CTRL_SEND_SLOT,
-                &hdr,
-                &req,
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
+            match nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0)
+            {
                 Ok(_) => break,
                 Err(nexus_abi::IpcError::QueueFull) => {
                     if (i & 0x7f) == 0 {

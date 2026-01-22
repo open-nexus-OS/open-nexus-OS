@@ -3,7 +3,7 @@
 
 # Updates v1.0 — A/B skeleton (non-persistent)
 
-**Status**: Experimental  
+**Status**: Stable (v1.0 Complete)  
 **Canonical contract**: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`  
 **Execution truth**: `tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md`
 

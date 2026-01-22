@@ -9,15 +9,15 @@
 //!
 //! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 
+// Build scripts may use expect/unwrap since failures are hard errors.
+#![allow(clippy::expect_used)]
+
 use std::{env, path::PathBuf};
 
 fn main() {
     let schema = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tools/nexus-idl/schemas/system-set.capnp");
-    let schema_dir = schema
-        .parent()
-        .map(PathBuf::from)
-        .expect("system-set schema parent missing");
+    let schema_dir = schema.parent().map(PathBuf::from).expect("system-set schema parent missing");
 
     println!("cargo:rerun-if-changed={}", schema.display());
 

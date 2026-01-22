@@ -5,7 +5,13 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 5 unit tests
+//! TEST_COVERAGE: 4 unit tests (module tests)
+//!   - install_success(): happy-path install + query
+//!   - install_duplicate_rejected(): duplicate rejection
+//!   - invalid_signature_length_rejected(): malformed signature
+//!   - mismatched_name_rejected(): name mismatch
+//!
+//! DEPENDENCIES:
 //!   - semver: Semantic versioning
 //!   - std::collections::HashMap: Bundle registry storage
 //!   - std::sync::Mutex: Synchronization
@@ -14,20 +20,6 @@
 //! FEATURES:
 //!   - Host backend: In-memory bundle registry for testing
 //!   - OS backend: Placeholder for future syscall wiring
-//!   - Bundle installation and querying
-//!   - Manifest parsing and validation
-//!   - Signature verification
-//!   - Publisher validation
-//!
-//! TEST SCENARIOS:
-//!   - test_install_success(): Successful bundle installation
-//!   - test_install_duplicate_rejected(): Duplicate installation rejection
-//!   - test_invalid_signature_encoding_rejected(): Invalid signature handling
-//!   - test_mismatched_name_rejected(): Name mismatch validation
-//!   - test_backend_unavailable(): Backend availability checking
-//!   - test_manifest_parsing(): Manifest parsing and validation
-//!   - test_signature_verification(): Signature verification
-//!   - test_publisher_validation(): Publisher validation
 //!
 //! ADR: docs/adr/0009-bundle-manager-architecture.md
 

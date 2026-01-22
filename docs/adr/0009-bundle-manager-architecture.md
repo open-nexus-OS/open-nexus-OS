@@ -1,25 +1,28 @@
 # ADR-0009: Bundle Manager Architecture
 
 ## Status
-Accepted
+Accepted (updated 2026-01-22 for manifest.nxb unification)
 
 ## Context
 The bundle manager is responsible for installing, managing, and querying application bundles in the Open Nexus OS ecosystem. It handles bundle validation, signature verification, and integration with the service manager for ability registration.
+
+**Note**: Manifest format was unified in TASK-0007/ADR-0020. See ADR-0020 for current format decision.
 
 ## Decision
 Implement a host-first bundle manager with the following architecture:
 
 ### Core Components
-- **Manifest Parser**: TOML-based manifest parsing with validation
+- **Manifest Parser**: Cap'n Proto binary parsing (see ADR-0020 for format unification)
 - **Service Layer**: Bundle installation, removal, and querying
 - **CLI Interface**: Command-line interface for bundle operations
-- **Signature Verification**: Cryptographic signature validation
+- **Signature Verification**: Cryptographic signature validation via `keystored`
 - **Publisher Validation**: Publisher identity verification
 
 ### Bundle Format
-- **File Extension**: `.nxb` (Nexus Bundle)
-- **Manifest Format**: TOML with required fields (name, version, publisher, signature)
-- **Signature**: Base64-encoded cryptographic signature
+- **File Extension**: `.nxb` (Nexus Bundle directory)
+- **Manifest Format**: `manifest.nxb` (Cap'n Proto binary; schema at `tools/nexus-idl/schemas/manifest.capnp`)
+- **Input Format**: `manifest.toml` (TOML, human-editable) → compiled by `nxb-pack`
+- **Signature**: Ed25519 (64 bytes)
 - **Capabilities**: Required system capabilities declaration
 
 ### Security Model
@@ -45,14 +48,3 @@ Implement a host-first bundle manager with the following architecture:
 - OS backend will integrate with kernel VMO system
 - CLI provides install, remove, query, and help commands
 - Manifest validation includes field type checking and warnings
-
-
-
-
-
-
-
-
-
-
-

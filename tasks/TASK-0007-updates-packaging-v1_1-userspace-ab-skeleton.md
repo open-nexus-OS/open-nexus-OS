@@ -1,10 +1,10 @@
 ---
 
 title: TASK-0007 Updates & Packaging v1.0 (OS): userspace-only A/B skeleton (non-persistent) + manifest.nxb unification
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
-updated: 2026-01-16
+updated: 2026-01-22
 links:
 
   - Vision: docs/agents/VISION.md
