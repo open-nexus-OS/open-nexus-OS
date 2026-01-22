@@ -10,7 +10,10 @@ links:
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - Reference Games umbrella (Arcade + Pinball + Puzzle): tasks/TRACK-REFERENCE-GAMES.md
   - Arcade (reference microgames: Breakout/Asteroids/Snake): tasks/TRACK-ARCADE-APP.md
+  - Pinball (physics + pacing): tasks/TRACK-PINBALL-APP.md
+  - Puzzle (UI-heavy + touch): tasks/TRACK-PUZZLE-APP.md
   - Zero-copy VMOs (data plane): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (soft real-time): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
   - Deterministic parallelism policy: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md

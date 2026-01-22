@@ -7,6 +7,10 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Zero-Copy App Platform (apps consume NexusNet via svc.*): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - Mail app (IMAP/SMTP client; consumer): tasks/TRACK-MAIL-APP.md
+  - Weather app (HTTP provider + location-gated): tasks/TRACK-WEATHER-APP.md
+  - Feeds app (RSS/Atom; HTTP + caching): tasks/TRACK-FEEDS-APP.md
+  - Podcasts app (RSS + downloads; HTTP + caching): tasks/TRACK-PODCASTS-APP.md
   - Networking authority (canonical vs bring-up): docs/architecture/networking-authority.md
   - Userspace networking contract seed: docs/rfcs/RFC-0006-userspace-networking-v1.md
   - DSoftBus architecture: docs/adr/0005-dsoftbus-architecture.md

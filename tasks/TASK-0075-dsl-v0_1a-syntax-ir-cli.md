@@ -64,6 +64,20 @@ Deliver:
    - optional stable alias roots (e.g. `@app/...`) configured by tooling (documented in `docs/dsl/cli.md`)
    - stable conflict errors (same symbol defined in two imports is an error with deterministic ordering)
 
+### Lint posture (v0.1a)
+
+The v0.1a lints are intentionally small but strict and deterministic:
+
+- missing list keys (`@key`) is an error (with spans + stable diagnostic codes)
+- missing a11y label hints is an error (with spans + stable diagnostic codes)
+- module/import conflicts are errors with deterministic ordering
+
+Follow-ups that are **out of scope for v0.1a** (tracked in v0.2+ tasks):
+
+- naming conventions (Page/Component/Store/Event suffixes)
+- unused symbol detection (unused state fields / unused events)
+- boundedness hints (e.g. large lists without virtualization/budgets)
+
 ## Non-Goals
 
 - Kernel changes.

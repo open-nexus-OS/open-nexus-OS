@@ -82,6 +82,27 @@ Deliver:
      - `dsl: nav runtime on`
      - `dsl: i18n on`
 
+### Lint posture (v0.2a)
+
+Severity rule of thumb:
+
+- **Errors**: anything that breaks determinism, correctness, or boundaries (must not ship / must not run).
+- **Warnings**: quality/UX/style issues that are safe to ship but should be cleaned up; can be promoted via `--deny-warn`.
+
+Required **errors** in v0.2a:
+
+- reducer purity violations (reducers must be pure; reject `svc.*` / IO / side-effects in reducers)
+- invalid/non-deterministic navigation (duplicate routes, invalid param types, non-deterministic resolution)
+- i18n correctness (missing keys referenced by `@t("...")`)
+- boundedness invariants (exceeding configured caps for history/event/effect queues)
+
+Recommended **warnings** (v0.2a+ follow-ups):
+
+- naming conventions (Page/Component/Store/Event suffixes for readability)
+- unused events/state fields (dead logic / AI-generated leftovers)
+- UX rails (missing loading/error/empty states) where applicable
+- scalability hints (large lists without virtualization / missing budgets), unless a hard cap is exceeded
+
 ## Non-Goals
 
 - Kernel changes.

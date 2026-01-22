@@ -9,6 +9,7 @@ links:
   - Zero-Copy App Platform (foundation): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - NexusMedia SDK (decoders/playback): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusNet SDK (cloud + streaming APIs): tasks/TRACK-NEXUSNET-SDK.md
+  - Podcasts app (offline downloads + queue): tasks/TRACK-PODCASTS-APP.md
   - Service architecture (hybrid control/data plane): docs/adr/0017-service-architecture.md
   - Media sessions + SystemUI controls umbrella: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
   - Media UX v1 (host core): tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md

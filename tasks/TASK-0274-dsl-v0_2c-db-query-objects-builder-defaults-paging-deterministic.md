@@ -23,6 +23,12 @@ This task introduces **db query objects** as a **typed, structured QuerySpec** c
 `db.users.where_id(id)` style. Execution remains **service-gated** (typed stubs), and results remain bounded and
 deterministic.
 
+Important: the result of `db.users.where_id(id)` is a **first-class query object** (not “executed data”). It can be
+stored in variables and **further manipulated/chained** (e.g. add `orderby`, `take`, `page`) before it is executed via a
+service-gated stub.
+Builder calls are **pure/immutable**: each operation returns a new query object; earlier variables remain unchanged
+(persistent/copy-on-write style is acceptable as long as semantics are immutable).
+
 ## Goal
 
 Deliver host-first support for:
@@ -87,6 +93,27 @@ Deliver host-first support for:
 - paging tokens:
   - `next(token)` produces deterministic sequences over a fixture dataset
   - truncation produces deterministic `truncated` flag + reason
+
+## Lint posture (v0.2c)
+
+Severity rule of thumb:
+
+- **Errors**: anything that breaks determinism, safety, bounds, or authority boundaries.
+- **Warnings**: quality/UX/readability issues that are safe but should be cleaned up; can be promoted via `--deny-warn`.
+
+Required **errors** for db query objects:
+
+- stringly/query-injection surfaces (no SQL strings in DSL; values must be typed)
+- non-deterministic QuerySpec canonicalization/hashing (builder chains must canonicalize stably)
+- invalid queries that violate contract (e.g. missing schema PK when default ordering is required; invalid field names/types)
+- authority drift (attempts to execute queries outside service-gated stubs / UI opening DB files)
+- bound violations at build/lower time where detectable (e.g. explicit `take(n)` exceeding caps; oversized literal values)
+
+Recommended **warnings** (policy-guarded but often unintended):
+
+- use of `all()` (no explicit `take(n)`), even though policy caps still apply
+- missing explicit `orderby` in user-facing list queries (defaults to PK asc, but UX may expect otherwise)
+- “large result” patterns (query used by a non-virtualized list / missing paging) unless a hard cap is exceeded
 
 ## Touched paths (allowlist)
 

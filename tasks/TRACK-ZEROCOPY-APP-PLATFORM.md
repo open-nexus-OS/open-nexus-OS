@@ -13,6 +13,8 @@ links:
   - Clipboard v3 (budgets + negotiation): tasks/TASK-0087-ui-v13a-clipboard-v3.md
   - DSL query objects (QuerySpec IR): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - NexusNet SDK (REST/GraphQL/sync shape): tasks/TRACK-NEXUSNET-SDK.md
+  - App Store (distribution + publishing keystone): tasks/TRACK-APP-STORE.md
+  - Dev Studio IDE (developer workflow keystone): tasks/TRACK-DEVSTUDIO-IDE.md
   - Richtext widget/app baseline: tasks/TASK-0098-ui-v15e-richtext-widget-app.md
   - NexusFrame (reference creative app consumer): tasks/TRACK-NEXUSFRAME.md
 ---

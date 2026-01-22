@@ -7,6 +7,9 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - NexusNet SDK (accounts/OAuth/grants): tasks/TRACK-NEXUSNET-SDK.md
+  - PIM Suite (Calendar + Contacts): tasks/TRACK-PIM-SUITE.md
+  - Mail app (account-backed networking): tasks/TRACK-MAIL-APP.md
+  - App Store (licensing/purchases; ecosystem): tasks/TRACK-APP-STORE.md
   - Accounts/Identity v1.2 (local users + sessiond): tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
   - Accounts/Identity v1.2 (OS wiring + secure home): tasks/TASK-0224-accounts-identity-v1_2b-os-securefs-home-greeter-keystore.md
   - Backup/Restore v1 (NBK + backupd; offline): tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
