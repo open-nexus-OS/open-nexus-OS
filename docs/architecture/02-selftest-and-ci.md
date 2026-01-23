@@ -18,6 +18,14 @@ The canonical marker contract is implemented by `scripts/qemu-test.sh` and docum
 - records diagnostics to `qemu.log`,
 - and fails if required markers are missing or out-of-order.
 
+RFC‑0014 Phase 2 adds triage helpers on top of the strict marker contract:
+
+- **Phase-first failures**: the harness reports `first_failed_phase=<name>` alongside the missing marker.
+- **Bounded excerpts**: on failure, the harness prints a bounded UART excerpt scoped to the failed phase.
+- **Phase-gated early exit**: `RUN_PHASE=<name> just test-os` stops QEMU early after the requested phase and only validates markers up to that phase.
+
+See `docs/testing/index.md` for the supported phases and examples.
+
 Marker details drift quickly; keep them centralized in the harness and the testing guide:
 
 - Marker contract: `scripts/qemu-test.sh`

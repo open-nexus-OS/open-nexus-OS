@@ -449,3 +449,76 @@ fn emit_hex_u64(mut value: u64) {
         emit_byte(ch);
     }
 }
+
+#[cfg(all(test, nexus_env = "os", feature = "os-lite"))]
+mod tests {
+    use super::*;
+
+    fn build_req(op: u8, payload: &[u8]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, op]);
+        v.extend_from_slice(payload);
+        v
+    }
+
+    #[test]
+    fn test_list_v1_ok() {
+        let rsp = handle_frame_vec(&build_req(OP_LIST, &[]));
+        assert_eq!(rsp.len(), 8);
+        assert_eq!(rsp[0], MAGIC0);
+        assert_eq!(rsp[1], MAGIC1);
+        assert_eq!(rsp[2], VERSION);
+        assert_eq!(rsp[3], OP_LIST | 0x80);
+        assert_eq!(rsp[4], STATUS_OK);
+        // count=u16le at bytes 5..7
+        assert_eq!(u16::from_le_bytes(rsp[5..7].try_into().unwrap()), 1);
+    }
+
+    #[test]
+    fn test_set_active_slot_updates_fetch_image_slot_marker() {
+        // Set slot B.
+        let rsp = handle_frame_vec(&build_req(OP_SET_ACTIVE_SLOT, &[SLOT_B]));
+        assert_eq!(rsp.len(), 8);
+        assert_eq!(rsp[3], OP_SET_ACTIVE_SLOT | 0x80);
+        assert_eq!(rsp[4], STATUS_OK);
+        assert_eq!(rsp[5], SLOT_B);
+
+        // Fetch image and verify build.prop reflects slot b.
+        let img = handle_frame_vec(&build_req(OP_FETCH_IMAGE, &[]));
+        assert!(img.len() > 16);
+        assert_eq!(img[0], MAGIC0);
+        assert_eq!(img[1], MAGIC1);
+        assert_eq!(img[2], VERSION);
+        assert_eq!(img[3], OP_FETCH_IMAGE | 0x80);
+        assert_eq!(img[4], STATUS_OK);
+        let n = u32::from_le_bytes(img[5..9].try_into().unwrap()) as usize;
+        assert_eq!(img.len(), 9 + n);
+
+        let payload = &img[9..];
+        assert!(
+            payload.windows(b"ro.nexus.slot=b\n".len()).any(|w| w == b"ro.nexus.slot=b\n"),
+            "expected build.prop to include ro.nexus.slot=b"
+        );
+    }
+
+    #[test]
+    fn test_reject_malformed_set_active_slot_value() {
+        let rsp = handle_frame_vec(&build_req(OP_SET_ACTIVE_SLOT, &[0xFF]));
+        assert_eq!(rsp.len(), 8);
+        assert_eq!(rsp[3], OP_SET_ACTIVE_SLOT | 0x80);
+        assert_eq!(rsp[4], STATUS_MALFORMED);
+    }
+
+    #[test]
+    fn test_reject_malformed_route_status_frame_sizes() {
+        // Too short
+        let rsp = handle_frame_vec(&build_req(OP_ROUTE_STATUS, &[]));
+        assert_eq!(rsp.len(), 8);
+        assert_eq!(rsp[3], OP_ROUTE_STATUS | 0x80);
+        assert_eq!(rsp[4], STATUS_MALFORMED);
+
+        // name_len present but missing bytes
+        let rsp = handle_frame_vec(&build_req(OP_ROUTE_STATUS, &[3, b'a', b'b']));
+        assert_eq!(rsp[4], STATUS_MALFORMED);
+    }
+}

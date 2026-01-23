@@ -219,3 +219,121 @@ impl Server for KernelServer {
         self.response_tx.send(frame.to_vec()).map_err(|_| IpcError::Disconnected)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn test_service_routing_roundtrip_two_services() {
+        let (ready_a_tx, ready_a_rx) = mpsc::channel::<()>();
+        let (ready_b_tx, ready_b_rx) = mpsc::channel::<()>();
+        let (done_a_tx, done_a_rx) = mpsc::channel::<()>();
+        let (done_b_tx, done_b_rx) = mpsc::channel::<()>();
+
+        let th_a = thread::Builder::new()
+            .name("svc-alpha".to_string())
+            .spawn(move || {
+                let server = KernelServer::new().expect("alpha server");
+                ready_a_tx.send(()).unwrap();
+                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("alpha recv");
+                assert_eq!(req, b"ping-a");
+                server.send(b"pong-a", Wait::Blocking).expect("alpha send");
+                done_a_tx.send(()).unwrap();
+            })
+            .expect("spawn alpha");
+
+        let th_b = thread::Builder::new()
+            .name("svc-beta".to_string())
+            .spawn(move || {
+                let server = KernelServer::new().expect("beta server");
+                ready_b_tx.send(()).unwrap();
+                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("beta recv");
+                assert_eq!(req, b"ping-b");
+                server.send(b"pong-b", Wait::Blocking).expect("beta send");
+                done_b_tx.send(()).unwrap();
+            })
+            .expect("spawn beta");
+
+        ready_a_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        ready_b_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let alpha = KernelClient::new_for("alpha").expect("alpha client");
+        let beta = KernelClient::new_for("beta").expect("beta client");
+
+        alpha.send(b"ping-a", Wait::Blocking).unwrap();
+        beta.send(b"ping-b", Wait::Blocking).unwrap();
+
+        let a_rsp = alpha.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
+        let b_rsp = beta.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
+        assert_eq!(a_rsp, b"pong-a");
+        assert_eq!(b_rsp, b"pong-b");
+
+        done_a_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        done_b_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        th_a.join().unwrap();
+        th_b.join().unwrap();
+    }
+
+    #[test]
+    fn test_thread_local_default_target() {
+        let (ready_tx, ready_rx) = mpsc::channel::<()>();
+
+        let th = thread::Builder::new()
+            .name("svc-gamma".to_string())
+            .spawn(move || {
+                let server = KernelServer::new().expect("gamma server");
+                ready_tx.send(()).unwrap();
+                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("recv");
+                assert_eq!(req, b"hello");
+                server.send(b"world", Wait::Blocking).expect("send");
+            })
+            .expect("spawn gamma");
+
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        set_default_target("gamma");
+        let client = KernelClient::new().expect("client via default target");
+        client.send(b"hello", Wait::Blocking).unwrap();
+        let rsp = client.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
+        assert_eq!(rsp, b"world");
+
+        th.join().unwrap();
+    }
+
+    #[test]
+    fn test_recv_nonblocking_and_timeout() {
+        let (ready_tx, ready_rx) = mpsc::channel::<()>();
+        let (unblock_tx, unblock_rx) = mpsc::channel::<()>();
+
+        let th = thread::Builder::new()
+            .name("svc-delta".to_string())
+            .spawn(move || {
+                let server = KernelServer::new().expect("delta server");
+                ready_tx.send(()).unwrap();
+                // Wait for test to probe nonblocking/timeout first.
+                unblock_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("recv");
+                assert_eq!(req, b"ping");
+                server.send(b"pong", Wait::Blocking).expect("send");
+            })
+            .expect("spawn delta");
+
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let client = KernelClient::new_for("delta").expect("delta client");
+
+        assert_eq!(client.recv(Wait::NonBlocking), Err(IpcError::WouldBlock));
+        assert_eq!(client.recv(Wait::Timeout(Duration::from_millis(20))), Err(IpcError::Timeout));
+
+        unblock_tx.send(()).unwrap();
+        client.send(b"ping", Wait::Blocking).unwrap();
+        let rsp = client.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
+        assert_eq!(rsp, b"pong");
+
+        th.join().unwrap();
+    }
+}

@@ -26,6 +26,7 @@ os-lite = [
 
 [lib]
 path = "src/lib.rs"
+doctest = false
 
 [dependencies]
 policy = { path = "../../../userspace/policy", optional = true }

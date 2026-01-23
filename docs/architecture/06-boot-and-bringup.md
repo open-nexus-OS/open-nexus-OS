@@ -51,6 +51,13 @@ On the host:
 - Smoke tests (canonical):
   - `RUN_UNTIL_MARKER=1 just test-os` (wraps `scripts/qemu-test.sh`)
 
+For faster QEMU triage (RFC‑0014 Phase 2), you can stop after a named phase:
+
+- Example: `RUN_PHASE=bring-up just test-os`
+- Example: `RUN_PHASE=policy just test-os`
+
+When QEMU fails, the harness reports `first_failed_phase=<name>` and prints a bounded UART excerpt scoped to that phase.
+
 If you touch boot sequencing or service bring-up:
 
 - Update the harness expectations in `scripts/qemu-test.sh` **only** when the behavior really changed.

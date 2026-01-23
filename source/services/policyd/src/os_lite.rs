@@ -325,6 +325,95 @@ fn rsp_v2(op: u8, nonce: nexus_abi::policyd::Nonce, status: u8) -> FrameOut {
     FrameOut { buf, len: 10 }
 }
 
+#[cfg(all(test, nexus_env = "os", feature = "os-lite"))]
+mod tests {
+    use super::*;
+
+    fn rsp_status(frame: FrameOut) -> u8 {
+        assert!(frame.len >= 5);
+        frame.buf[4]
+    }
+
+    #[test]
+    fn test_reject_requester_spoof_v1_route() {
+        let requester = b"samgrd";
+        let target = b"execd";
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_ROUTE]);
+        frame.push(requester.len() as u8);
+        frame.extend_from_slice(requester);
+        frame.push(target.len() as u8);
+        frame.extend_from_slice(target);
+
+        let sender_service_id = nexus_abi::service_id_from_name(b"bundlemgrd");
+        let out = handle_frame(&frame, sender_service_id, false);
+        assert_eq!(rsp_status(out), STATUS_DENY);
+    }
+
+    #[test]
+    fn test_allow_init_lite_proxy_v1_route_even_if_requester_mismatch() {
+        let requester = b"samgrd";
+        let target = b"execd";
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_ROUTE]);
+        frame.push(requester.len() as u8);
+        frame.extend_from_slice(requester);
+        frame.push(target.len() as u8);
+        frame.extend_from_slice(target);
+
+        // init-lite is a privileged proxy during bring-up (owned by init chain).
+        let sender_service_id = nexus_abi::service_id_from_name(b"init-lite");
+        let out = handle_frame(&frame, sender_service_id, true);
+        // The privileged proxy bypasses the sender-id binding check; policy decision is still
+        // evaluated on requester/target (samgrd->execd is allowed in this v1 shim).
+        assert_eq!(rsp_status(out), STATUS_ALLOW);
+    }
+
+    #[test]
+    fn test_reject_requester_spoof_v2_route() {
+        let nonce: nexus_abi::policyd::Nonce = 0x11223344;
+        let requester = b"samgrd";
+        let target = b"execd";
+
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[
+            MAGIC0,
+            MAGIC1,
+            nexus_abi::policyd::VERSION_V2,
+            nexus_abi::policyd::OP_ROUTE,
+        ]);
+        frame.extend_from_slice(&nonce.to_le_bytes());
+        frame.push(requester.len() as u8);
+        frame.extend_from_slice(requester);
+        frame.push(target.len() as u8);
+        frame.extend_from_slice(target);
+
+        let sender_service_id = nexus_abi::service_id_from_name(b"bundlemgrd");
+        let out = handle_frame(&frame, sender_service_id, false);
+        assert_eq!(out.len, 10);
+        assert_eq!(out.buf[0], MAGIC0);
+        assert_eq!(out.buf[1], MAGIC1);
+        assert_eq!(out.buf[2], nexus_abi::policyd::VERSION_V2);
+        assert_eq!(out.buf[3], nexus_abi::policyd::OP_ROUTE | 0x80);
+        assert_eq!(u32::from_le_bytes(out.buf[4..8].try_into().unwrap()), nonce);
+        assert_eq!(out.buf[8], STATUS_DENY);
+    }
+
+    #[test]
+    fn test_reject_malformed_exec_v1_oversized_requester() {
+        let req_len = 49u8; // > 48 => malformed
+        let requester = vec![b'a'; req_len as usize];
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_EXEC, req_len]);
+        frame.extend_from_slice(&requester);
+        frame.push(0); // image_id
+
+        let sender_service_id = nexus_abi::service_id_from_name(b"samgrd");
+        let out = handle_frame(&frame, sender_service_id, false);
+        assert_eq!(rsp_status(out), STATUS_MALFORMED);
+    }
+}
+
 fn append_probe_to_logd() -> bool {
     use nexus_ipc::Client as _;
     const MAGIC0: u8 = b'L';

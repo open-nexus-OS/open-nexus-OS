@@ -393,11 +393,10 @@ monitor_uart() {
         saw_selftest_end=1
         ;;
       *"I: after selftest"*|*"KSELFTEST: spawn ok"*|*"SELFTEST: ipc ok"*|*"SELFTEST: end"*)
-        if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
-          echo "[info] Success marker detected – stopping QEMU" >&2
-          pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
-          break
-        fi
+        # When RUN_UNTIL_MARKER is a specific marker string, we only stop once that string is seen
+        # (handled above). When RUN_UNTIL_MARKER=1, we stop once the full readiness/selftest set is
+        # satisfied (handled below). Avoid stopping on these generic success markers, as it can
+        # prevent userspace bring-up from running during phase-gated runs.
         ;;
       *"EXC: scause="*|*"PANIC "*|*"SELFTEST: fail"*|*"ILLEGAL"*|*"rx guard:"*)
         if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then

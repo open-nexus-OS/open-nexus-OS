@@ -23,8 +23,8 @@
 Implementation status (what exists in the repo today):
 
 - **Phase 0 (Current host E2E tests + existing QEMU smoke markers)**: ✅
-- **Phase 1 (Contract tests for critical service breakpoints)**: ⬜
-- **Phase 2 (Phased QEMU smoke helpers + debug-first guidance)**: ⬜
+- **Phase 1 (Contract tests for critical service breakpoints)**: ✅
+- **Phase 2 (Phased QEMU smoke helpers + debug-first guidance)**: ✅
 
 Definition:
 
@@ -225,7 +225,7 @@ Phase 2 outcome: when QEMU fails, the failure is localized to a phase with actio
 Done when:
 
 - QEMU harness output includes the **first failed phase** name,
-- optional early-exit by phase is supported (marker-based or `RUN_PHASE`),
+- optional early-exit by phase is supported (`RUN_PHASE=<name>`),
 - logs are bounded and scoped to the failed phase.
 
 ### Adopt-first contract list (order matters)
@@ -281,13 +281,13 @@ Stop condition for the initial adoption: failures must name the first failing ph
   - [x] QEMU smoke marker sequence referenced.
   - [x] Phase ladder defined for failure mapping.
 - **Phase 1**
-  - [ ] Contract tests exist for routing/logd/policy/updated/bundlemgrd breakpoints.
-  - [ ] Tests are bounded + deterministic.
-  - [ ] Phase 1 proof commands listed.
+  - [x] Contract tests exist for routing/logd/policy/updated/bundlemgrd breakpoints.
+  - [x] Tests are bounded + deterministic.
+  - [x] Phase 1 proof commands listed.
 - **Phase 2**
-  - [ ] QEMU harness names the first failed phase.
-  - [ ] Optional early-exit by phase is available.
-  - [ ] Logs are bounded and scoped to the failed phase.
+  - [x] QEMU harness names the first failed phase.
+  - [x] Optional early-exit by phase is available (`RUN_PHASE=<name>`).
+  - [x] Logs are bounded and scoped to the failed phase.
 
 ## Security considerations
 
@@ -331,17 +331,37 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 #### Phase 1 proofs (contract tests; to be filled as they land)
 
-Phase 1 remains ⬜ until these concrete contract tests exist and are listed here. Once implemented, add the exact host test commands for:
+Phase 1 is ✅ once these concrete contract tests exist and are listed here. Canonical host proof commands:
 
-- init-lite routing v1,
-- logd paging/query contract,
-- policyd allow/deny + spoof rejection,
-- updated OTA stage/switch/health framing,
-- bundlemgrd slot-aware publication + route-status.
+```bash
+# Routing contract (host, OS-mode in-process router backend)
+cd /home/jenning/open-nexus-OS && RUSTFLAGS='--cfg nexus_env="os"' cargo test -p nexus-ipc
+
+# logd contract (paging/bounds + query/stats)
+cd /home/jenning/open-nexus-OS && cargo test -p logd-e2e
+
+# policyd contract (allow/deny + requester spoof rejection) — os-lite frame handler tests
+cd /home/jenning/open-nexus-OS && RUSTFLAGS='--cfg nexus_env="os"' cargo test -p policyd --no-default-features --features os-lite
+
+# updated OTA/domain contracts (system-set parsing + signature/digest/bounds + BootCtrl stage/switch/health/rollback)
+cd /home/jenning/open-nexus-OS && cargo test -p updates_host
+
+# bundlemgrd os-lite contracts (slot-aware image + set_active_slot framing + bounds)
+cd /home/jenning/open-nexus-OS && RUSTFLAGS='--cfg nexus_env="os"' cargo test -p bundlemgrd --no-default-features --features os-lite
+```
 
 #### Phase 2 proofs (QEMU helpers)
 
-Phase 2 remains ⬜ until the QEMU harness provides phase-first failure output and optional phase-based early exit.
+Phase 2 is ✅ once the harness provides phase-first failure output and phase-based early exit.
+
+```bash
+cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+
+# Stop after specific phases (triage helper)
+cd /home/jenning/open-nexus-OS && RUN_PHASE=bring-up RUN_TIMEOUT=90s just test-os
+cd /home/jenning/open-nexus-OS && RUN_PHASE=policy RUN_TIMEOUT=190s just test-os
+cd /home/jenning/open-nexus-OS && RUN_PHASE=vfs RUN_TIMEOUT=190s just test-os
+```
 
 ### Proof (Host)
 
@@ -380,7 +400,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 ## Open questions
 
 - Do we standardize a conversation id for request/response matching in userspace IPC contracts (beyond opcode filtering), and where is it owned (IDL vs `nexus-ipc`)?
-- Do we add a first-class “phase” concept to the harness environment variables (e.g. `RUN_PHASE=<name>`) or keep it as marker-based early exit only?
+- (Resolved in v1) We added a first-class phase knob `RUN_PHASE=<name>` to the QEMU harness for triage; keep the phase names/markers stable once adopted.
 
 ## RFC Quality Guidelines (for authors)
 
@@ -401,8 +421,16 @@ When writing this RFC, ensure:
 
 - [x] **Phase 0**: Existing host E2E + QEMU smoke baseline.
   - Proof: `just test-e2e`, `cargo test -p logd-e2e`, `cargo test -p e2e_policy`, `just test-os`
-- [ ] **Phase 1**: Contract tests for routing/logd/policy/updated/bundlemgrd breakpoints.
-  - Proof: TBD (contract test commands once implemented)
-- [ ] **Phase 2**: QEMU harness phase-first failure output + early-exit by phase.
-  - Proof: `RUN_PHASE=<name> just test-os` (once implemented)
-- [ ] Follow-up task(s) created for Phase 1/2 with stop conditions.
+- [x] **Phase 1**: Contract tests for routing/logd/policy/updated/bundlemgrd breakpoints.
+  - Proof:
+    - `RUSTFLAGS='--cfg nexus_env="os"' cargo test -p nexus-ipc`
+    - `cargo test -p logd-e2e`
+    - `RUSTFLAGS='--cfg nexus_env="os"' cargo test -p policyd --no-default-features --features os-lite`
+    - `cargo test -p updates_host`
+    - `RUSTFLAGS='--cfg nexus_env="os"' cargo test -p bundlemgrd --no-default-features --features os-lite`
+- [x] **Phase 2**: QEMU harness phase-first failure output + early-exit by phase.
+  - Proof:
+    - `RUN_PHASE=bring-up RUN_TIMEOUT=90s just test-os`
+    - `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os`
+    - `RUN_PHASE=vfs RUN_TIMEOUT=190s just test-os`
+- [x] Follow-up task(s) created for Phase 2 with stop conditions: `tasks/TASK-0285-rfc0014-phase2-qemu-harness-phases-v1.md`

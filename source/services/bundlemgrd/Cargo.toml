@@ -42,6 +42,10 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 
+[lib]
+path = "src/lib.rs"
+doctest = false
+
 [[bin]]
 name = "bundlemgrd"
 path = "src/main.rs"

@@ -77,6 +77,29 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
 
+### Phase-gated QEMU smoke (triage helper)
+
+For faster triage (RFC‑0014 Phase 2), you can stop QEMU early after a named **phase** and only
+validate markers up to that phase:
+
+- Supported phases: `bring-up`, `routing`, `ota`, `policy`, `logd`, `vfs`, `end`
+
+Examples:
+
+```bash
+# Stop after core service bring-up (init + core *: ready markers)
+RUN_PHASE=bring-up RUN_TIMEOUT=90s just test-os
+
+# Stop after OTA smoke (stage → switch → health → rollback)
+RUN_PHASE=ota RUN_TIMEOUT=190s just test-os
+```
+
+On failure, the harness prints:
+
+- `first_failed_phase=<name>`
+- `missing_marker='<marker>'`
+- a **bounded** UART excerpt scoped to the failed phase.
+
 ### Miri tiers
 
 - Strict (no IO): run on crates without filesystem/network access.

@@ -9,6 +9,7 @@ UART_LOG=${UART_LOG:-uart.log}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
+RUN_PHASE=${RUN_PHASE:-}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 
@@ -33,16 +34,77 @@ if [[ "${DEBUG_QEMU:-0}" == "1" ]]; then
   QEMU_EXTRA_ARGS+=(-S -gdb tcp:localhost:1234)
 fi
 
-set +e
-RUN_TIMEOUT="$RUN_TIMEOUT" \
-RUN_UNTIL_MARKER="$RUN_UNTIL_MARKER" \
-QEMU_LOG="$QEMU_LOG" \
-UART_LOG="$UART_LOG" \
-QEMU_LOG_MAX="$QEMU_LOG_MAX" \
-UART_LOG_MAX="$UART_LOG_MAX" \
-"$ROOT/scripts/run-qemu-rv64.sh" "${QEMU_EXTRA_ARGS[@]}"
-qemu_status=$?
-set -e
+# RFC-0014 Phase 2: phase mapping for QEMU smoke triage + early exit.
+# A "phase" is a named slice of the marker ladder. Failures should report the first failing phase.
+declare -a PHASES=(
+  "bring-up"
+  "routing"
+  "ota"
+  "policy"
+  "logd"
+  "vfs"
+  "end"
+)
+declare -A PHASE_START_MARKER=(
+  ["bring-up"]="init: start"
+  ["routing"]="SELFTEST: ipc routing keystored ok"
+  ["ota"]="SELFTEST: ota stage ok"
+  ["policy"]="SELFTEST: policy allow ok"
+  ["logd"]="logd: ready"
+  ["vfs"]="SELFTEST: vfs stat ok"
+  ["end"]="SELFTEST: end"
+)
+declare -A PHASE_END_MARKER=(
+  ["bring-up"]="execd: ready"
+  ["routing"]="SELFTEST: ipc routing ok"
+  ["ota"]="SELFTEST: ota rollback ok"
+  ["policy"]="SELFTEST: policy malformed ok"
+  ["logd"]="SELFTEST: log query ok"
+  ["vfs"]="SELFTEST: vfs ebadf ok"
+  ["end"]="SELFTEST: end"
+)
+
+find_marker_index() {
+  local needle=$1
+  shift
+  local -a arr=("$@")
+  local i
+  for i in "${!arr[@]}"; do
+    if [[ "${arr[$i]}" == "$needle" ]]; then
+      echo "$i"
+      return 0
+    fi
+  done
+  return 1
+}
+
+print_phase_help() {
+  echo "[error] Unknown RUN_PHASE='$RUN_PHASE' (supported: $(printf "%s " "${PHASES[@]}"))" >&2
+}
+
+print_uart_excerpt() {
+  local start_marker=$1
+  local prev_marker=${2:-}
+  local max_lines=${3:-220}
+
+  echo "[info] --- uart excerpt (bounded, phase-scoped) ---" >&2
+  echo "[info] start_marker='$start_marker' prev_marker='${prev_marker:-}'" >&2
+
+  local start_line=""
+  if [[ -n "$prev_marker" ]]; then
+    start_line=$(grep -aFn "$prev_marker" "$UART_LOG" | head -n1 | cut -d: -f1 || true)
+  fi
+  if [[ -z "$start_line" && -n "$start_marker" ]]; then
+    start_line=$(grep -aFn "$start_marker" "$UART_LOG" | head -n1 | cut -d: -f1 || true)
+  fi
+  if [[ -z "$start_line" ]]; then
+    echo "[info] (no start marker found; showing last $max_lines lines)" >&2
+    tail -n "$max_lines" "$UART_LOG" >&2 || true
+    return 0
+  fi
+  local end_line=$((start_line + max_lines))
+  awk -v s="$start_line" -v e="$end_line" 'NR>=s && NR<=e { print }' "$UART_LOG" >&2 || true
+}
 
 # Verify markers printed by the OS stack and selftest client. The harness waits
 # for os-lite init to announce each service twice (`init: start <svc>` then
@@ -166,6 +228,42 @@ expected_sequence=(
   "SELFTEST: end"
 )
 
+# Optional: stop and validate only up to a given phase.
+if [[ -n "$RUN_PHASE" ]]; then
+  if [[ -z "${PHASE_END_MARKER[$RUN_PHASE]:-}" ]]; then
+    print_phase_help
+    exit 2
+  fi
+  phase_end="${PHASE_END_MARKER[$RUN_PHASE]}"
+  phase_end_idx=$(find_marker_index "$phase_end" "${expected_sequence[@]}" || true)
+  if [[ -z "$phase_end_idx" ]]; then
+    echo "[error] RUN_PHASE=$RUN_PHASE end_marker='$phase_end' not found in expected marker ladder" >&2
+    exit 2
+  fi
+
+  # For RUN_PHASE runs, prefer marker-string early exit (run-qemu-rv64.sh supports this) unless
+  # the user explicitly chose a different early-exit mode.
+  if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
+    RUN_UNTIL_MARKER="$phase_end"
+  fi
+
+  # Trim the expected marker ladder to the end of the requested phase.
+  expected_sequence=( "${expected_sequence[@]:0:$((phase_end_idx + 1))}" )
+  echo "[info] RUN_PHASE=$RUN_PHASE end_marker='$phase_end' (early-exit via RUN_UNTIL_MARKER='${RUN_UNTIL_MARKER}')" >&2
+fi
+
+# Execute QEMU (optionally stopping early at RUN_UNTIL_MARKER).
+set +e
+RUN_TIMEOUT="$RUN_TIMEOUT" \
+RUN_UNTIL_MARKER="$RUN_UNTIL_MARKER" \
+QEMU_LOG="$QEMU_LOG" \
+UART_LOG="$UART_LOG" \
+QEMU_LOG_MAX="$QEMU_LOG_MAX" \
+UART_LOG_MAX="$UART_LOG_MAX" \
+"$ROOT/scripts/run-qemu-rv64.sh" "${QEMU_EXTRA_ARGS[@]}"
+qemu_status=$?
+set -e
+
 # SATP hang diagnostic: saw trampoline enter but no post-satp OK
 if grep -aFq "AS: trampoline enter" "$UART_LOG" && ! grep -aFq "AS: post-satp OK" "$UART_LOG"; then
   echo "[error] SATP switch hang: trampoline entered but no post-satp marker" >&2
@@ -180,7 +278,9 @@ fi
 
 missing=0
 missing_marker=""
+missing_pos=-1
 for marker in "${expected_sequence[@]}"; do
+  missing_pos=$((missing_pos + 1))
   if ! grep -aFq "$marker" "$UART_LOG"; then
     missing=1
     missing_marker="$marker"
@@ -188,14 +288,29 @@ for marker in "${expected_sequence[@]}"; do
   fi
 done
 if [[ "$missing" -ne 0 ]]; then
+  failed_phase="unknown"
+  # Map missing marker position to the earliest phase whose end marker would include it.
+  for phase in "${PHASES[@]}"; do
+    end_marker="${PHASE_END_MARKER[$phase]}"
+    end_idx=$(find_marker_index "$end_marker" "${expected_sequence[@]}" || true)
+    if [[ -n "$end_idx" && "$missing_pos" -le "$end_idx" ]]; then
+      failed_phase="$phase"
+      break
+    fi
+  done
+
   if [[ "$missing_marker" == *": ready" ]]; then
     svc="${missing_marker%%:*}"
     if grep -aFq "init: up $svc" "$UART_LOG"; then
+      echo "[error] first_failed_phase=$failed_phase missing_marker='$missing_marker'" >&2
       echo "[error] Service up but not ready: missing '$missing_marker' after 'init: up $svc'" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[$failed_phase]:-}" "${expected_sequence[$((missing_pos - 1))]:-}"
       exit 1
     fi
   fi
+  echo "[error] first_failed_phase=$failed_phase missing_marker='$missing_marker'" >&2
   echo "[error] Missing UART marker: $missing_marker" >&2
+  print_uart_excerpt "${PHASE_START_MARKER[$failed_phase]:-}" "${expected_sequence[$((missing_pos - 1))]:-}"
   exit 1
 fi
 
@@ -208,16 +323,26 @@ for marker in "${expected_sequence[@]}"; do
     break
   fi
   if [[ "$prev" -ne -1 && "$line" -le "$prev" ]]; then
-    echo "Marker out of order: $marker (line $line)" >&2
+    echo "[error] Marker out of order: $marker (line $line)" >&2
+    print_uart_excerpt "${PHASE_START_MARKER[bring-up]}" ""
     exit 1
   fi
   prev=$line
 done
 
-for policy_marker in "SELFTEST: policy allow ok" "SELFTEST: policy deny ok" "SELFTEST: policy malformed ok" "SELFTEST: bundlemgrd route execd denied ok"; do
-  if ! grep -aFq "$policy_marker" "$UART_LOG"; then
-    echo "Missing UART marker: $policy_marker" >&2
-    exit 1
+# Additional required policy checks only apply when policy markers are within the active ladder.
+for policy_marker in \
+  "SELFTEST: policy allow ok" \
+  "SELFTEST: policy deny ok" \
+  "SELFTEST: policy malformed ok" \
+  "SELFTEST: bundlemgrd route execd denied ok"; do
+  if grep -aFq "$policy_marker" <(printf "%s\n" "${expected_sequence[@]}"); then
+    if ! grep -aFq "$policy_marker" "$UART_LOG"; then
+      echo "[error] first_failed_phase=policy missing_marker='$policy_marker'" >&2
+      echo "[error] Missing UART marker: $policy_marker" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[policy]}" ""
+      exit 1
+    fi
   fi
 done
 
