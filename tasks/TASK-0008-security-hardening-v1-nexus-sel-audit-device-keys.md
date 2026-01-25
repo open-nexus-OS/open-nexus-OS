@@ -1,6 +1,6 @@
 ---
 title: TASK-0008 Security hardening v1 (OS): policy engine (nexus-sel), audit trail, policy-gated operations (no device key entropy)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 completed: 2026-01-25
