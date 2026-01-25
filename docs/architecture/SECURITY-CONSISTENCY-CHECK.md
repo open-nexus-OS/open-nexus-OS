@@ -266,7 +266,7 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 
 **Recommendation**:
 
-- Link to TASK-0008 (Security Hardening v1) for signature format
+- Link to TASK-0008 (Security Hardening v1) for policy authority + audit baseline and signature decision flow
 - Use Ed25519 signatures (consistent with device keys)
 - Verify signature before mounting packagefs
 
@@ -291,7 +291,7 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 ### Before TASK-0247 (RISC-V SMP)
 
 7. 🔄 Specify virtio-blk signature verification format
-8. 🔄 Link to TASK-0008 for signature implementation
+8. 🔄 Link to TASK-0008B for device-key entropy/keygen when signature material depends on real OS keys
 
 ---
 

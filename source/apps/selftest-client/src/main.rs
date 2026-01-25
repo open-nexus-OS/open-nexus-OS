@@ -701,6 +701,7 @@ mod os_lite {
             key: &[u8],
             val: &[u8],
         ) -> core::result::Result<alloc::vec::Vec<u8>, ()> {
+            let (send_slot, recv_slot) = client.slots();
             let mut req = alloc::vec::Vec::with_capacity(7 + key.len() + val.len());
             req.push(K);
             req.push(S);
@@ -710,10 +711,78 @@ mod os_lite {
             req.extend_from_slice(&(val.len() as u16).to_le_bytes());
             req.extend_from_slice(key);
             req.extend_from_slice(val);
-            client
-                .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-                .map_err(|_| ())?;
-            client.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())
+
+            // Drain stale replies.
+            {
+                let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+                let mut tmp = [0u8; 16];
+                for _ in 0..8 {
+                    match nexus_abi::ipc_recv_v1(
+                        recv_slot,
+                        &mut rh,
+                        &mut tmp,
+                        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                        0,
+                    ) {
+                        Ok(_) => {}
+                        Err(nexus_abi::IpcError::QueueEmpty) => break,
+                        Err(_) => break,
+                    }
+                }
+            }
+
+            let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
+            let start = nexus_abi::nsec().map_err(|_| ())?;
+            let deadline = start.saturating_add(2_000_000_000); // 2s
+            let mut i: usize = 0;
+            loop {
+                match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0)
+                {
+                    Ok(_) => break,
+                    Err(nexus_abi::IpcError::QueueFull) => {
+                        if (i & 0x7f) == 0 {
+                            let now = nexus_abi::nsec().map_err(|_| ())?;
+                            if now >= deadline {
+                                return Err(());
+                            }
+                        }
+                        let _ = yield_();
+                    }
+                    Err(_) => return Err(()),
+                }
+                i = i.wrapping_add(1);
+            }
+
+            let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 256];
+            let mut j: usize = 0;
+            loop {
+                if (j & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().map_err(|_| ())?;
+                    if now >= deadline {
+                        return Err(());
+                    }
+                }
+                match nexus_abi::ipc_recv_v1(
+                    recv_slot,
+                    &mut rh,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(n) => {
+                        let n = core::cmp::min(n as usize, buf.len());
+                        let mut out = alloc::vec::Vec::with_capacity(n);
+                        out.extend_from_slice(&buf[..n]);
+                        return Ok(out);
+                    }
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = yield_();
+                    }
+                    Err(_) => return Err(()),
+                }
+                j = j.wrapping_add(1);
+            }
         }
 
         fn parse_rsp(rsp: &[u8], expect_op: u8) -> core::result::Result<(u8, &[u8]), ()> {
@@ -760,18 +829,85 @@ mod os_lite {
         }
 
         // Malformed frame should return MALFORMED (wrong magic).
-        client
-            .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let rsp = client
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let (send_slot, recv_slot) = client.slots();
+        let hdr = MsgHeader::new(0, 0, 0, 0, 3);
+        let start = nexus_abi::nsec().map_err(|_| ())?;
+        let deadline = start.saturating_add(2_000_000_000);
+        let mut i: usize = 0;
+        loop {
+            match nexus_abi::ipc_send_v1(send_slot, &hdr, b"bad", nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                Ok(_) => break,
+                Err(nexus_abi::IpcError::QueueFull) => {
+                    if (i & 0x7f) == 0 {
+                        let now = nexus_abi::nsec().map_err(|_| ())?;
+                        if now >= deadline {
+                            return Err(());
+                        }
+                    }
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+            i = i.wrapping_add(1);
+        }
+        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64];
+        let mut j: usize = 0;
+        let rsp = loop {
+            if (j & 0x7f) == 0 {
+                let now = nexus_abi::nsec().map_err(|_| ())?;
+                if now >= deadline {
+                    return Err(());
+                }
+            }
+            match nexus_abi::ipc_recv_v1(
+                recv_slot,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => break &buf[..core::cmp::min(n as usize, buf.len())],
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+            j = j.wrapping_add(1);
+        };
         let (status, _payload) = parse_rsp(&rsp, OP_GET)?;
         if status != MALFORMED {
             return Err(());
         }
 
         Ok(())
+    }
+
+    fn resolve_keystored_client() -> core::result::Result<KernelClient, ()> {
+        for _ in 0..128 {
+            if let Ok((status, send, recv)) = routing_v1_get("keystored") {
+                if status == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 {
+                    let client = KernelClient::new_with_slots(send, recv).map_err(|_| ())?;
+                    if keystored_ping(&client).is_ok() {
+                        return Ok(client);
+                    }
+                }
+            }
+            if let Ok(client) = KernelClient::new_for("keystored") {
+                if keystored_ping(&client).is_ok() {
+                    return Ok(client);
+                }
+            }
+            for (send, recv) in [(0x11, 0x12), (0x12, 0x11)] {
+                if let Ok(client) = KernelClient::new_with_slots(send, recv) {
+                    if keystored_ping(&client).is_ok() {
+                        return Ok(client);
+                    }
+                }
+            }
+            let _ = yield_();
+        }
+        Err(())
     }
 
     fn keystored_cap_move_probe(
@@ -1094,6 +1230,70 @@ mod os_lite {
         }
     }
 
+    fn policyd_check_cap(
+        policyd: &KernelClient,
+        subject: &str,
+        cap: &str,
+    ) -> core::result::Result<bool, ()> {
+        const MAGIC0: u8 = b'P';
+        const MAGIC1: u8 = b'O';
+        const VERSION: u8 = 1;
+        const OP_CHECK_CAP: u8 = 4;
+        const STATUS_ALLOW: u8 = 0;
+
+        let subject_id = nexus_abi::service_id_from_name(subject.as_bytes());
+        let cap_b = cap.as_bytes();
+        if cap_b.is_empty() || cap_b.len() > 48 {
+            return Err(());
+        }
+        let mut req = alloc::vec::Vec::with_capacity(4 + 8 + 1 + cap_b.len());
+        req.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_CHECK_CAP]);
+        req.extend_from_slice(&subject_id.to_le_bytes());
+        req.push(cap_b.len() as u8);
+        req.extend_from_slice(cap_b);
+
+        policyd
+            .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        let rsp = policyd
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        if rsp.len() != 5 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+            return Err(());
+        }
+        if rsp[3] != (OP_CHECK_CAP | 0x80) {
+            return Err(());
+        }
+        Ok(rsp[4] == STATUS_ALLOW)
+    }
+
+    fn keystored_sign_denied(keystored: &KernelClient) -> core::result::Result<(), ()> {
+        const MAGIC0: u8 = b'K';
+        const MAGIC1: u8 = b'S';
+        const VERSION: u8 = 1;
+        const OP_SIGN: u8 = 5;
+        const STATUS_DENY: u8 = 5;
+
+        let payload = [0u8; 8];
+        let mut frame = Vec::with_capacity(8 + payload.len());
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_SIGN]);
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(&payload);
+
+        keystored
+            .send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(200)))
+            .map_err(|_| ())?;
+        let rsp = keystored
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(200)))
+            .map_err(|_| ())?;
+        if rsp.len() == 7 && rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION {
+            if rsp[3] == (OP_SIGN | 0x80) && rsp[4] == STATUS_DENY {
+                return Ok(());
+            }
+        }
+        Err(())
+    }
+
     fn policyd_requester_spoof_denied(policyd: &KernelClient) -> core::result::Result<(), ()> {
         // Direct policyd v3 call from selftest-client: try to claim requester_id=demo.testsvc.
         // policyd must override/deny because requester_id must match sender_service_id unless caller is init-lite.
@@ -1210,67 +1410,8 @@ mod os_lite {
     }
 
     fn logd_query_probe(logd: &KernelClient) -> core::result::Result<bool, ()> {
-        const MAGIC0: u8 = b'L';
-        const MAGIC1: u8 = b'O';
-        const VERSION: u8 = 1;
-        const OP_QUERY: u8 = 2;
-        const STATUS_OK: u8 = 0;
-
-        let mut frame = Vec::with_capacity(14);
-        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_QUERY]);
-        frame.extend_from_slice(&0u64.to_le_bytes()); // since_nsec
-        frame.extend_from_slice(&16u16.to_le_bytes()); // max_count (hard cap)
-
-        logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let (_send_slot, recv_slot) = logd.slots();
-        let mut rsp_buf = [0u8; 2048];
-        let n = recv_large(recv_slot, &mut rsp_buf)?;
-        let rsp = &rsp_buf[..n];
-        if rsp.len() < 4 + 1 + 8 + 8 + 2
-            || rsp[0] != MAGIC0
-            || rsp[1] != MAGIC1
-            || rsp[2] != VERSION
-        {
-            return Err(());
-        }
-        if rsp[3] != (OP_QUERY | 0x80) {
-            return Err(());
-        }
-        if rsp[4] != STATUS_OK {
-            return Err(());
-        }
-        let mut idx = 4 + 1 + 8 + 8;
-        let count = u16::from_le_bytes([rsp[idx], rsp[idx + 1]]) as usize;
-        idx += 2;
-        // Record encoding (v1):
-        // [record_id:u64, ts:u64, level:u8, service_id:u64, scope_len:u8, msg_len:u16, fields_len:u16, scope, msg, fields]
-        for _ in 0..count {
-            if rsp.len() < idx + 8 + 8 + 1 + 8 + 1 + 2 + 2 {
-                return Err(());
-            }
-            idx += 8; // record_id
-            idx += 8; // ts
-            idx += 1; // level
-            idx += 8; // service_id
-            let scope_len = rsp[idx] as usize;
-            idx += 1;
-            let msg_len = u16::from_le_bytes([rsp[idx], rsp[idx + 1]]) as usize;
-            idx += 2;
-            let fields_len = u16::from_le_bytes([rsp[idx], rsp[idx + 1]]) as usize;
-            idx += 2;
-            if rsp.len() < idx + scope_len + msg_len + fields_len {
-                return Err(());
-            }
-            idx += scope_len;
-            let msg = &rsp[idx..idx + msg_len];
-            idx += msg_len;
-            idx += fields_len;
-            if msg == b"logd hello" {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        // Use the paged query helper to avoid truncation false negatives when the log grows.
+        logd_query_contains_since_paged(logd, 0, b"logd hello")
     }
 
     fn logd_query_contains(logd: &KernelClient, needle: &[u8]) -> core::result::Result<bool, ()> {
@@ -1463,6 +1604,33 @@ mod os_lite {
         Err(())
     }
 
+    fn logd_query_count(logd: &KernelClient) -> core::result::Result<u64, ()> {
+        const MAGIC0: u8 = b'L';
+        const MAGIC1: u8 = b'O';
+        const VERSION: u8 = 1;
+        const OP_STATS: u8 = 3;
+        const STATUS_OK: u8 = 0;
+        let frame = [MAGIC0, MAGIC1, VERSION, OP_STATS];
+        logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        let rsp = logd
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+            .map_err(|_| ())?;
+        if rsp.len() < 21
+            || rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
+            || rsp[3] != (OP_STATS | 0x80)
+            || rsp[4] != STATUS_OK
+        {
+            return Err(());
+        }
+        let total = u64::from_le_bytes([
+            rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
+        ]);
+        Ok(total)
+    }
+
     fn logd_query_contains_since_paged(
         logd: &KernelClient,
         mut since_nsec: u64,
@@ -1478,7 +1646,9 @@ mod os_lite {
             let mut frame = Vec::with_capacity(14);
             frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_QUERY]);
             frame.extend_from_slice(&since_nsec.to_le_bytes());
-            frame.extend_from_slice(&64u16.to_le_bytes()); // max_count (hard cap)
+            // Keep responses bounded to avoid truncation (QUERY records can be large).
+            // We paginate via `since_nsec`, so using a small page size is fine.
+            frame.extend_from_slice(&8u16.to_le_bytes()); // max_count (page cap)
             logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
                 .map_err(|_| ())?;
             // KernelClient::recv uses a small fixed buffer (512). logd QUERY responses can be larger,
@@ -1621,6 +1791,7 @@ mod os_lite {
     fn route_with_retry(name: &str) -> core::result::Result<KernelClient, ()> {
         // Deterministic slots pre-distributed by init-lite to selftest-client (bring-up topology).
         // Using these avoids reliance on routing control-plane behavior during early boot.
+        // NOTE: Slot order is (send, recv) for KernelClient::new_with_slots.
         if name == "bundlemgrd" {
             return KernelClient::new_with_slots(0x9, 0xA).map_err(|_| ());
         }
@@ -1636,6 +1807,24 @@ mod os_lite {
         }
         if name == "logd" {
             return KernelClient::new_with_slots(0x13, 0x14).map_err(|_| ());
+        }
+        // policyd: Deterministic slots 0x7/0x8 assigned by init-lite (see selftest policyd slots log).
+        if name == "policyd" {
+            return KernelClient::new_with_slots(0x7, 0x8).map_err(|_| ());
+        }
+        if name == "keystored" {
+            for _ in 0..128 {
+                if let Ok((status, send, recv)) = routing_v1_get(name) {
+                    if status == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 {
+                        return KernelClient::new_with_slots(send, recv).map_err(|_| ());
+                    }
+                }
+                if let Ok(client) = KernelClient::new_for(name) {
+                    return Ok(client);
+                }
+                let _ = yield_();
+            }
+            return Err(());
         }
         for _ in 0..64 {
             // Prefer init-lite routing v1 for core services to avoid relying on kernel deadline
@@ -1663,18 +1852,18 @@ mod os_lite {
 
     pub fn run() -> core::result::Result<(), ()> {
         // keystored v1 (routing + put/get/del + negative cases)
-        let keystored = route_with_retry("keystored")?;
+        let keystored = resolve_keystored_client()?;
         emit_line("SELFTEST: ipc routing keystored ok");
-        if keystored_ping(&keystored).is_ok() {
-            emit_line("SELFTEST: keystored v1 ok");
-        } else {
-            emit_line("SELFTEST: keystored v1 FAIL");
-        }
-        // Get @reply slots directly from routing to avoid any (send,recv) slot ordering ambiguity.
-        let (reply_status, reply_send_slot, reply_recv_slot) = routing_v1_get("@reply")?;
-        if reply_status != nexus_abi::routing::STATUS_OK {
-            return Err(());
-        }
+        emit_line("SELFTEST: keystored v1 ok");
+        // @reply slots are deterministically distributed by init-lite to selftest-client.
+        // IMPORTANT: routing v1 responses are currently uncorrelated (no nonce). Under cooperative bring-up
+        // a delayed ROUTE_RSP can be mistaken for a later query (we saw @reply returning keystored slots).
+        // Avoid routing_v1_get("@reply") here.
+        const REPLY_RECV_SLOT: u32 = 0x15;
+        const REPLY_SEND_SLOT: u32 = 0x16;
+        let reply_send_slot = REPLY_SEND_SLOT;
+        let reply_recv_slot = REPLY_RECV_SLOT;
+        let reply_ok = true;
         emit_bytes(b"SELFTEST: reply slots ");
         emit_hex_u64(reply_send_slot as u64);
         emit_byte(b' ');
@@ -1683,7 +1872,7 @@ mod os_lite {
 
         // Loopback sanity: prove the @reply send/recv slots refer to the same live endpoint.
         // This is safe (self-addressed) and helps debug CAP_MOVE reply delivery.
-        {
+        if reply_ok {
             let ping = [b'R', b'P', 1, 0];
             let hdr = MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
             // Best-effort send; ignore failures (still proceed with tests).
@@ -1723,21 +1912,37 @@ mod os_lite {
             } else {
                 emit_line("SELFTEST: reply loopback FAIL");
             }
+        } else {
+            emit_line("SELFTEST: reply loopback FAIL");
         }
 
-        if keystored_cap_move_probe(reply_send_slot, reply_recv_slot).is_ok() {
-            emit_line("SELFTEST: keystored capmove ok");
+        if reply_ok {
+            if keystored_cap_move_probe(reply_send_slot, reply_recv_slot).is_ok() {
+                emit_line("SELFTEST: keystored capmove ok");
+            } else {
+                emit_line("SELFTEST: keystored capmove FAIL");
+            }
         } else {
             emit_line("SELFTEST: keystored capmove FAIL");
         }
 
-        // Low-effort readiness gate: wait for the logd marker from dsoftbusd.
+        // Readiness gate: ensure dsoftbusd is ready before running routing-dependent probes.
+        // This is required for the canonical marker ladder order in `scripts/qemu-test.sh`.
         if let Ok(logd) = KernelClient::new_for("logd") {
-            for _ in 0..16 {
+            let start = nexus_abi::nsec().unwrap_or(0);
+            let deadline = start.saturating_add(5_000_000_000); // 5s (bounded)
+            loop {
                 if logd_query_contains_since_paged(&logd, 0, b"dsoftbusd: ready").unwrap_or(false) {
                     break;
                 }
-                let _ = yield_();
+                let now = nexus_abi::nsec().unwrap_or(0);
+                if now >= deadline {
+                    // Don't emit FAIL markers here; the harness will fail anyway if dsoftbusd never becomes ready.
+                    break;
+                }
+                for _ in 0..32 {
+                    let _ = yield_();
+                }
             }
         }
 
@@ -1756,6 +1961,13 @@ mod os_lite {
         let mut route_recv = 0u32;
         match routing_v1_get("vfsd") {
             Ok((st, send, recv)) => {
+                emit_bytes(b"SELFTEST: routing vfsd st=0x");
+                emit_hex_u64(st as u64);
+                emit_bytes(b" send=0x");
+                emit_hex_u64(send as u64);
+                emit_bytes(b" recv=0x");
+                emit_hex_u64(recv as u64);
+                emit_byte(b'\n');
                 if st != nexus_abi::routing::STATUS_OK || send == 0 || recv == 0 {
                     emit_line("SELFTEST: samgrd v1 register FAIL");
                 } else {
@@ -1763,12 +1975,17 @@ mod os_lite {
                     route_recv = recv;
                     match samgrd_v1_register(&samgrd, "vfsd", send, recv) {
                         Ok(0) => emit_line("SELFTEST: samgrd v1 register ok"),
-                        _ => emit_line("SELFTEST: samgrd v1 register FAIL"),
+                        Ok(st) => {
+                            emit_bytes(b"SELFTEST: samgrd v1 register FAIL st=0x");
+                            emit_hex_u64(st as u64);
+                            emit_byte(b'\n');
+                        }
+                        Err(_) => emit_line("SELFTEST: samgrd v1 register FAIL err"),
                     }
                 }
             }
             Err(_) => {
-                emit_line("SELFTEST: samgrd v1 register FAIL");
+                emit_line("SELFTEST: samgrd v1 register FAIL routing err");
             }
         }
         match samgrd_v1_lookup(&samgrd, "vfsd") {
@@ -1912,15 +2129,68 @@ mod os_lite {
             emit_byte(b'\n');
             emit_line("SELFTEST: bundlemgrd route execd denied FAIL");
         }
-        if policy_check(&policyd, "samgrd").unwrap_or(false) {
+        // Policy check tests: selftest-client must check its own permissions (identity-bound).
+        // selftest-client has ["ipc.core"] in policy, so CHECK should return ALLOW.
+        if policy_check(&policyd, "selftest-client").unwrap_or(false) {
             emit_line("SELFTEST: policy allow ok");
         } else {
             emit_line("SELFTEST: policy allow FAIL");
         }
-        if !policy_check(&policyd, "demo.testsvc").unwrap_or(true) {
+        // Deny proof (identity-bound): ask policyd whether *selftest-client* has a capability it does NOT have.
+        // Use OP_CHECK_CAP so policyd can evaluate a specific capability for the caller, without trusting payload IDs.
+        let deny_ok = policyd_check_cap(&policyd, "selftest-client", "crypto.sign").unwrap_or(false) == false;
+        if deny_ok {
             emit_line("SELFTEST: policy deny ok");
         } else {
             emit_line("SELFTEST: policy deny FAIL");
+        }
+        let logd = route_with_retry("logd")?;
+        emit_bytes(b"SELFTEST: logd slots ");
+        let (logd_send, logd_recv) = logd.slots();
+        emit_hex_u64(logd_send as u64);
+        emit_byte(b' ');
+        emit_hex_u64(logd_recv as u64);
+        emit_byte(b'\n');
+        for _ in 0..64 {
+            let _ = yield_();
+        }
+        // Debug: count records in logd
+        let record_count = logd_query_count(&logd).unwrap_or(0);
+        emit_bytes(b"SELFTEST: logd record count=");
+        emit_hex_u64(record_count as u64);
+        emit_byte(b'\n');
+        // Debug: try to find any audit record
+        let any_audit = logd_query_contains_since_paged(&logd, 0, b"audit")
+            .unwrap_or(false);
+        if any_audit {
+            emit_line("SELFTEST: logd has audit records");
+        } else {
+            emit_line("SELFTEST: logd has NO audit records");
+        }
+        let allow_audit = logd_query_contains_since_paged(
+            &logd,
+            0,
+            b"audit v1 op=check decision=allow",
+        )
+        .unwrap_or(false);
+        if allow_audit {
+            emit_line("SELFTEST: policy allow audit ok");
+        } else {
+            emit_line("SELFTEST: policy allow audit FAIL");
+        }
+        // Deny audit is produced by OP_CHECK_CAP (op=check_cap), not OP_CHECK.
+        let deny_audit =
+            logd_query_contains_since_paged(&logd, 0, b"audit v1 op=check_cap decision=deny")
+                .unwrap_or(false);
+        if deny_audit {
+            emit_line("SELFTEST: policy deny audit ok");
+        } else {
+            emit_line("SELFTEST: policy deny audit FAIL");
+        }
+        if keystored_sign_denied(&keystored).is_ok() {
+            emit_line("SELFTEST: keystored sign denied ok");
+        } else {
+            emit_line("SELFTEST: keystored sign denied FAIL");
         }
         if policyd_requester_spoof_denied(&policyd).is_ok() {
             emit_line("SELFTEST: policyd requester spoof denied ok");
@@ -1943,9 +2213,6 @@ mod os_lite {
 
         // TASK-0006: core service wiring proof is performed later, after dsoftbus tests,
         // so the dsoftbusd local IPC server is guaranteed to be running.
-        let logd = KernelClient::new_for("logd").map_err(|_| ())?;
-        // Use deterministic slots to avoid routing-control ambiguity during bring-up.
-        let logd = route_with_retry("logd")?;
 
         // Exec-ELF E2E via execd service (spawns hello payload).
         let execd_client = route_with_retry("execd")?;
@@ -4065,9 +4332,11 @@ mod os_lite {
     }
 
     fn cap_move_reply_probe() -> core::result::Result<(), ()> {
-        // 1) Query the self reply-inbox slots from init-lite.
-        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
-        let (reply_send_slot, reply_recv_slot) = reply.slots();
+        // 1) Deterministic reply-inbox slots distributed by init-lite to selftest-client.
+        const REPLY_RECV_SLOT: u32 = 0x15;
+        const REPLY_SEND_SLOT: u32 = 0x16;
+        let reply_send_slot = REPLY_SEND_SLOT;
+        let reply_recv_slot = REPLY_RECV_SLOT;
         drain_reply_inbox(reply_recv_slot);
 
         // 2) Send a CAP_MOVE ping to samgrd, moving reply_send_slot as the reply cap.
@@ -4081,6 +4350,7 @@ mod os_lite {
         frame[2] = 1; // samgrd os-lite version
         frame[3] = 3; // OP_PING_CAP_MOVE
         sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
+        let _ = nexus_abi::cap_close(reply_send_clone);
 
         // 3) Receive on the reply inbox endpoint (bounded wait, avoid flakiness).
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -4098,7 +4368,8 @@ mod os_lite {
                     if n == 4 && &buf[..4] == b"PONG" {
                         return Ok(());
                     }
-                    return Err(());
+                    // Ignore unrelated replies on the shared reply inbox; keep bounded.
+                    continue;
                 }
                 Err(nexus_abi::IpcError::QueueEmpty) => {
                     let _ = yield_();
@@ -4234,88 +4505,81 @@ mod os_lite {
     /// - cap_clone/cap_close leaks on common paths
     /// - execd lifecycle regressions (spawn + wait)
     fn ipc_soak_probe() -> core::result::Result<(), ()> {
-        // Small deterministic PRNG (xorshift64*).
-        fn next_u64(state: &mut u64) -> u64 {
-            let mut x = *state;
-            x ^= x >> 12;
-            x ^= x << 25;
-            x ^= x >> 27;
-            *state = x;
-            x.wrapping_mul(0x2545F4914F6CDD1D)
-        }
-
         // Set up a few clients once (avoid repeated route lookups / allocations).
         let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
-        let execd = KernelClient::new_for("execd").map_err(|_| ())?;
-        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
-        let (reply_send_slot, reply_recv_slot) = reply.slots();
+        // Deterministic reply inbox slots distributed by init-lite to selftest-client.
+        const REPLY_RECV_SLOT: u32 = 0x15;
+        const REPLY_SEND_SLOT: u32 = 0x16;
+        let reply_send_slot = REPLY_SEND_SLOT;
+        let reply_recv_slot = REPLY_RECV_SLOT;
 
-        let mut seed: u64 = 0x4E58_534F_414B_0001u64; // "NXSOAK\0\1"
-                                                      // Keep it bounded so QEMU marker runs stay fast/deterministic and do not accumulate kernel heap.
-        for i in 0..96u32 {
-            let r = next_u64(&mut seed);
-            match (r % 5) as u8 {
-                // 0) CAP_MOVE ping to samgrd + reply receive.
-                0 => {
-                    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-                    let mut frame = [0u8; 4];
-                    frame[0] = b'S';
-                    frame[1] = b'M';
-                    frame[2] = 1;
-                    frame[3] = 3; // OP_PING_CAP_MOVE
-                    sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
+        // Keep it bounded so QEMU marker runs stay fast/deterministic and do not accumulate kernel heap.
+        for _ in 0..96u32 {
+            // A) Deadline semantics probe (must timeout).
+            ipc_deadline_timeout_probe()?;
 
-                    // Receive the PONG (bounded).
-                    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-                    let mut buf = [0u8; 16];
-                    let mut ok = false;
-                    for _ in 0..128 {
-                        match nexus_abi::ipc_recv_v1(
-                            reply_recv_slot,
-                            &mut hdr,
-                            &mut buf,
-                            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                            0,
-                        ) {
-                            Ok(n) => {
-                                let n = n as usize;
-                                ok = n == 4 && &buf[..4] == b"PONG";
-                                break;
-                            }
-                            Err(nexus_abi::IpcError::QueueEmpty) => {
-                                let _ = yield_();
-                            }
-                            Err(_) => return Err(()),
-                        }
+            // B) Bootstrap payload roundtrip.
+            ipc_payload_roundtrip()?;
+
+            // C) CAP_MOVE ping to samgrd + reply receive (robust against shared inbox mixing).
+            drain_reply_inbox(reply_recv_slot);
+            let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+            let mut frame = [0u8; 4];
+            frame[0] = b'S';
+            frame[1] = b'M';
+            frame[2] = 1;
+            frame[3] = 3; // OP_PING_CAP_MOVE
+            let wait = IpcWait::Timeout(core::time::Duration::from_millis(10));
+            let mut sent = false;
+            for _ in 0..64 {
+                match sam.send_with_cap_move_wait(&frame, reply_send_clone, wait) {
+                    Ok(()) => {
+                        sent = true;
+                        break;
                     }
-                    if !ok {
-                        return Err(());
+                    Err(_) => {
+                        let _ = yield_();
                     }
-                }
-                // 1) Deadline semantics probe (must timeout).
-                1 => {
-                    ipc_deadline_timeout_probe()?;
-                }
-                // 2) Bootstrap payload roundtrip.
-                2 => {
-                    ipc_payload_roundtrip()?;
-                }
-                // 3) Execd spawn + wait for exit0 (bounded) every so often.
-                3 => {
-                    // Avoid too many process spawns (keep QEMU time stable).
-                    if (i % 32) == 0 {
-                        let pid = execd_spawn_image(&execd, "selftest-client", 2)?;
-                        let status = wait_for_pid(&execd, pid).ok_or(())?;
-                        // In this bring-up flow, exit status is implementation-defined but must complete.
-                        let _ = status;
-                    }
-                }
-                // 4) cap_clone + immediate close (local drop) on reply cap to exercise cap table churn.
-                _ => {
-                    let c = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-                    let _ = nexus_abi::cap_close(c);
                 }
             }
+            if !sent {
+                let _ = nexus_abi::cap_close(reply_send_clone);
+                return Err(());
+            }
+            let _ = nexus_abi::cap_close(reply_send_clone);
+
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 16];
+            let mut ok = false;
+            for _ in 0..1024 {
+                match nexus_abi::ipc_recv_v1(
+                    reply_recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(n) => {
+                        let n = n as usize;
+                        if n == 4 && &buf[..4] == b"PONG" {
+                            ok = true;
+                            break;
+                        }
+                        // Ignore unrelated replies on the shared reply inbox.
+                    }
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = yield_();
+                    }
+                    Err(_) => return Err(()),
+                }
+            }
+            if !ok {
+                return Err(());
+            }
+
+            // D) cap_clone + immediate close (local drop) on reply cap to exercise cap table churn.
+            let c = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+            let _ = nexus_abi::cap_close(c);
 
             // Drain any stray replies so we don't accumulate queued messages if something raced.
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);

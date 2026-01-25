@@ -890,6 +890,8 @@ pub mod policyd {
     pub const OP_ROUTE: u8 = 2;
     /// Exec authorization check opcode.
     pub const OP_EXEC: u8 = 3;
+    /// Capability check opcode (bring-up, service-id bound).
+    pub const OP_CHECK_CAP: u8 = 4;
 
     /// Status: allowed.
     pub const STATUS_ALLOW: u8 = 0;

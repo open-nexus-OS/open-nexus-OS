@@ -5,6 +5,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 **Related RFCs:**
 - **RFC-0013**: Boot gates v1 — readiness contract + spawn failure reasons (Complete)
 - **RFC-0014**: Testing contracts v1 — host-first service contract tests + phased QEMU smoke (Phase 0 complete)
+- **RFC-0015**: Policy Authority & Audit Baseline v1 — policy engine + audit trail (Complete)
 
 ## Philosophy
 
@@ -269,7 +270,11 @@ Security behavior must be verifiable via QEMU markers that prove enforcement:
 | `dsoftbusd: announce ignored (malformed)` | Input validation works |
 | `policyd: deny (subject=<svc> action=<op>)` | Policy deny-by-default works |
 | `policyd: allow (subject=<svc> action=<op>)` | Explicit allow logged |
+| `policyd: audit emit ok` | Audit record successfully emitted to logd |
 | `keystored: sign denied (subject=<svc>)` | Policy-gated signing works |
+| `SELFTEST: policy deny audit ok` | Deny decision + audit record proven |
+| `SELFTEST: policy allow audit ok` | Allow decision + audit record proven |
+| `SELFTEST: keystored sign denied ok` | Policy-gated signing denied without required capability |
 
 ### Fuzz testing (recommended for parsers)
 
@@ -412,6 +417,31 @@ Once the outstanding kernel guard fault is root-caused we’ll align the UART po
 - **Strict single-path boot (OHOS-style):** redundant “init-lite vs. shared loader” shims are already gone; the next phase deletes any legacy probes that stay quiet for a full regression run so unexpected noise can’t creep back in.
 
 Keep these knobs in mind when adding diagnostics—new prints should either use `nexus_log` topics or the kernel trap ring so we can flip the switch once the bug hunt ends.
+
+### IPC slot mismatch debugging
+
+A common failure mode is **deterministic slot mismatch**: init-lite assigns capability slots sequentially per-process, but services may hardcode slot numbers that don't match.
+
+**Symptoms:**
+- Service sends successfully (`rpc send ok`) but receiver never gets the message
+- `ipc_recv` returns `QueueEmpty` forever
+- No error messages, just silent timeout
+
+**Debugging steps:**
+1. Add logging in init-lite to print actual slot assignments:
+   ```rust
+   debug_write_bytes(b"init: <service> svc slots recv=0x");
+   debug_write_hex(recv_slot as usize);
+   ```
+2. Compare with hardcoded slots in the service code
+3. Fix slot constants OR use routing queries (`KernelServer::new_for`)
+
+**Example (dsoftbusd/netstackd):**
+- init-lite assigned netstackd recv=0x5, send=0x6
+- netstackd hardcoded slots 3/4 → messages never received
+- Fix: update netstackd to use slots 5/6
+
+**Prevention:** Prefer routing queries over hardcoded slots. If deterministic slots are needed, add init-lite logging to verify assignments.
 
 ### Init-lite logging topics
 

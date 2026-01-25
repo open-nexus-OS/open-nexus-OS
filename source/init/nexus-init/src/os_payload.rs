@@ -907,13 +907,11 @@ where
                     nexus_abi::cap_transfer(pid, net_rsp, Rights::SEND).map_err(InitError::Abi)?;
                 chan.net_send_slot = Some(send_slot);
                 chan.net_recv_slot = Some(recv_slot);
-                if probes_enabled() && (recv_slot != 3 || send_slot != 4) {
-                    debug_write_bytes(b"!route-warn netstackd-svc-slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
+                debug_write_bytes(b"init: netstackd svc slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
             }
             "dsoftbusd" => {
                 // Allow dsoftbusd to send requests to netstackd (and optionally receive on a dedicated inbox).
@@ -923,6 +921,11 @@ where
                     .map_err(InitError::Abi)?;
                 chan.net_send_slot = Some(send_slot);
                 chan.net_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: dsoftbusd netstackd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
 
                 // Reply inbox: provide both RECV (stay with client) and SEND (to be moved to servers).
                 let reply_recv_slot = nexus_abi::cap_transfer(pid, dsoft_reply_ep, Rights::RECV)
@@ -931,6 +934,11 @@ where
                     .map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+                debug_write_bytes(b"init: dsoftbusd reply slots recv=0x");
+                debug_write_hex(reply_recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(reply_send_slot as usize);
+                debug_write_byte(b'\n');
 
                 // Allow dsoftbusd to call into samgrd/bundlemgrd via CAP_MOVE reply inbox.
                 // - send to service request endpoint
@@ -1267,6 +1275,11 @@ where
                     nexus_abi::cap_transfer(pid, vfs_rsp, Rights::RECV).map_err(InitError::Abi)?;
                 chan.vfs_send_slot = Some(send_slot);
                 chan.vfs_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest vfsd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
                 let send_slot =
                     nexus_abi::cap_transfer(pid, pkg_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
@@ -1279,6 +1292,11 @@ where
                     nexus_abi::cap_transfer(pid, pol_rsp, Rights::RECV).map_err(InitError::Abi)?;
                 chan.pol_send_slot = Some(send_slot);
                 chan.pol_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest policyd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
                 let send_slot =
                     nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
@@ -1329,6 +1347,11 @@ where
                     nexus_abi::cap_transfer(pid, key_rsp, Rights::RECV).map_err(InitError::Abi)?;
                 chan.key_send_slot = Some(send_slot);
                 chan.key_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest keystored slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
 
                 if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
                     let send_slot =
@@ -1351,6 +1374,11 @@ where
                     nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+                debug_write_bytes(b"init: selftest reply slots send=0x");
+                debug_write_hex(reply_send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(reply_recv_slot as usize);
+                debug_write_byte(b'\n');
 
                 // Allow selftest-client to send requests to netstackd.
                 let send_slot =
@@ -1556,6 +1584,11 @@ where
             if name == b"samgrd" && chan.svc_name == "selftest-client" {
                 debug_write_bytes(b"init: route samgrd from selftest-client\n");
             }
+            if name == b"vfsd" {
+                debug_write_bytes(b"init: route vfsd from ");
+                debug_write_str(chan.svc_name);
+                debug_write_byte(b'\n');
+            }
             // Special route: requester-local reply inbox for CAP_MOVE reply routing.
             // Returns (send_slot, recv_slot) for the requester's own reply endpoint.
             if name == b"@reply" {
@@ -1593,6 +1626,9 @@ where
                     .unwrap_or(true)
             };
             if !allowed {
+                if name == b"vfsd" {
+                    debug_write_bytes(b"init: route vfsd DENIED by policy\n");
+                }
                 let rsp =
                     nexus_abi::routing::encode_route_rsp(nexus_abi::routing::STATUS_DENIED, 0, 0);
                 let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
@@ -1607,6 +1643,16 @@ where
             }
 
             let (status, send_slot, recv_slot) = if name == b"vfsd" {
+                // Debug: log vfsd routing lookup.
+                debug_write_bytes(b"init: route vfsd lookup svc=");
+                debug_write_str(chan.svc_name);
+                debug_write_bytes(b" has_slots=");
+                debug_write_byte(if chan.vfs_send_slot.is_some() && chan.vfs_recv_slot.is_some() {
+                    b'Y'
+                } else {
+                    b'N'
+                });
+                debug_write_byte(b'\n');
                 match (chan.vfs_send_slot, chan.vfs_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
@@ -1617,6 +1663,21 @@ where
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }
             } else if name == b"policyd" {
+                debug_write_bytes(b"init: route policyd from ");
+                debug_write_str(chan.svc_name);
+                debug_write_bytes(b" pol_send=");
+                if let Some(s) = chan.pol_send_slot {
+                    debug_write_hex(s as usize);
+                } else {
+                    debug_write_bytes(b"None");
+                }
+                debug_write_bytes(b" pol_recv=");
+                if let Some(r) = chan.pol_recv_slot {
+                    debug_write_hex(r as usize);
+                } else {
+                    debug_write_bytes(b"None");
+                }
+                debug_write_byte(b'\n');
                 match (chan.pol_send_slot, chan.pol_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),

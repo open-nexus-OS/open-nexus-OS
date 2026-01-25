@@ -7,7 +7,7 @@ updated: 2026-01-15
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - Depends-on (device keys): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Depends-on (device keys): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Storage docs: docs/storage/vfs.md
   - Testing contract: scripts/qemu-test.sh
 enables:
@@ -71,7 +71,7 @@ Prove (host + QEMU) that:
   - **Soft reboot definition**: with kernel untouched we likely cannot perform a real reboot. We must define
     an honest proof cycle (restart `statefsd` and re-open the block backend; restart the consuming service; or a new init cycle hook).
   - **Device key generation entropy**: persistence does not solve entropy. If keystore device keys are still
-    “bring-up insecure”, that must remain explicitly labeled (TASK-0008 RED).
+    “bring-up insecure”, that must remain explicitly labeled (see TASK-0008B).
 - **GREEN (confirmed assumptions)**:
   - We already have a stub virtio-blk crate (`source/drivers/storage/virtio-blk`) that can be reused as low-level scaffolding once access exists.
 

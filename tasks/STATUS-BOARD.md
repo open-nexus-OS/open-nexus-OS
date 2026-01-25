@@ -1,63 +1,104 @@
-# Status Board (Dynamic): Draft / In Progress / Done
+# Status Board: Task Progress View
 
-This file is a **status view** over tasks, optimized for daily work:
+This file provides a **Kanban-style status view** over tasks.
 
-- a **small, maintained** “board” for the active set,
-- without forcing task filenames to be sorted,
-- and without duplicating per-task DoD/proofs.
+**Source of truth**: Each `tasks/TASK-*.md` file (status field in YAML header).
 
-**Source of truth remains** each `tasks/TASK-*.md` file.
+For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 
-## Best-practice notes (what enterprises do)
+---
 
-- **Board rules** (maybe Jira/ADO). In-repo equivalents work well for OS repos, as long as:
-  - the board stays small (active set + next),
-  - and tasks remain authoritative for scope/proofs.
-- **Percent complete is always approximate**. Enterprises often prefer:
-  - checklist items tied to DoD, or
-  - explicit phases like “Spec → Implement → Proof → Harden”.
-  If you want a percentage anyway, keep it **rough** and tied to proofs.
+## How to Read This Board
 
-## How to use this board
+- **Status** comes from the task's YAML header (`status:` field)
+- **Tasks execute in numerical order** (TASK-0001, TASK-0002, ...)
+- **TRACKs** are vision documents that spawn tasks — they don't have status themselves
 
-- **Status** is the task header `status:` (Draft / In Progress / Done).
-- **Progress** is a rough estimate: `0% / 25% / 50% / 75% / 90% / 100%`.
-  - `90%` means: implementation done, proof/hardening is the remaining work.
-- **Blocked-by** must reference task IDs (or a short explicit reason).
+---
 
-## Active Set (Now)
+## Done (TASK-0001 through TASK-0008)
 
-| Lane    | Task                                     | Status      | Progress | Blocked-by                      | Next proof / next action                             |
-| ------- | ---------------------------------------- | ----------- | -------- | ------------------------------- | ---------------------------------------------------- |
-| KERNEL  | TASK-0011 Kernel simplification phase A  | In Progress |          |                                 | Finish restructuring slice; keep proofs green        |
-| KERNEL  | TASK-0011B Kernel Rust idioms pre-SMP    | In Progress |          |                                 | Finalize ownership/newtype conventions; link pilots  |
-| KERNEL  | TASK-0281 Kernel newtypes v1c            | Draft       |          | TASK-0011B                      | Extend newtype coverage + tests                      |
-| KERNEL  | TASK-0282 Typed capability rights v1     | Draft       |          | TASK-0011B                      | Pilot typed caps in one subsystem                    |
-| KERNEL  | TASK-0283 Per-CPU ownership wrapper v1   | Draft       |          | TASK-0012                       | Introduce `PerCpu<T>` and adopt in scheduler/mailbox |
-| DRIVERS | ADR-0018 DriverKit ABI policy            | Proposed    | 100%     |                                 | Review + accept ADR                                  |
-| DRIVERS | TASK-0280 DriverKit v1 core contracts    | Draft       |          | TASK-0010, TASK-0031, TASK-0013 | Host-first crate + deterministic tests               |
-| DRIVERS | TASK-0284 DMA buffer ownership prototype | Draft       |          | TASK-0031                       | Host-first `DmaBuffer` + fence ownership tests       |
+| Task | Title | RFC | Completed | Notes |
+|------|-------|-----|-----------|-------|
+| ✅ TASK-0001 | Runtime roles & boundaries | — | 2025-12 | Single-authority model locked |
+| ✅ TASK-0002 | Userspace VFS proof | — | 2025-12 | Marker-gated proof in QEMU |
+| ✅ TASK-0003 | Networking: virtio-net + smoltcp + dsoftbusd | RFC-0006, RFC-0007 | 2026-01-07 | OS transport complete |
+| ✅ TASK-0003B | DSoftBus Noise XK OS | RFC-0008 | 2026-01-07 | Handshake + identity binding |
+| ✅ TASK-0003C | DSoftBus UDP discovery OS | RFC-0007 | 2026-01-07 | Loopback discovery |
+| ✅ TASK-0004 | Networking: dual-node + identity binding | RFC-0007, RFC-0008 | 2026-01-10 | Identity enforcement |
+| ✅ TASK-0005 | Cross-VM DSoftBus + remote proxy | RFC-0010 | 2026-01-13 | 2-VM harness (opt-in) |
+| ✅ TASK-0006 | Observability v1: logd + crash reports | RFC-0011 | 2026-01-14 | Journal + nexus-log sink |
+| ✅ TASK-0007 | Updates & Packaging v1.0 | RFC-0012 | 2026-01-20 | A/B skeleton + markers |
+| ✅ TASK-0008 | Security hardening v1: policy + audit | RFC-0015 | 2026-01-25 | Policy engine + audit trail |
 
-## Next (Queued)
+---
 
-| Lane     | Task                                                    | Status      | Progress | Blocked-by            | Why it’s next                                |
-| -------- | ------------------------------------------------------- | ----------- | -------- | --------------------- | -------------------------------------------- |
-| BRING-UP | TASK-0244 RV virt v1.0a host DTB + SBI shim             | In Progress |          |                       | Required for stable bring-up path            |
-| BRING-UP | TASK-0245 RV virt v1.0b OS UART/PLIC/TIMER + uartd      | In Progress |          | TASK-0244             | First OS kernel↔userspace driver integration |
-| BRING-UP | TASK-0247 RV virt v1.1b OS SMP + virtioblkd + packagefs | In Progress |          | TASK-0245, TASK-0012  | SMP bring-up + storage path                  |
-| KERNEL   | TASK-0012 SMP v1 per-CPU runqueues + IPIs               | In Progress |          | TASK-0011, TASK-0011B | SMP foundation                               |
-| KERNEL   | TASK-0013 QoS ABI + timed coalescing                    | In Progress |          |                       | Needed for latency/budget hints              |
-| KERNEL   | TASK-0042 SMP v2 affinity + QoS budgets                 | In Progress |          | TASK-0012, TASK-0013  | Supports device-class scheduling             |
+## In Progress / Next
 
-## Done (recent)
+| Task | Title | Status | Blocked by | Next action |
+|------|-------|--------|------------|-------------|
+| **TASK-0008B** | Device identity keys v1 | Next | TASK-0010 (MMIO) | Implement virtio-rng + rngd |
+| TASK-0009 | Persistence v1: virtio-blk + statefs | Queued | TASK-0008B, TASK-0010 | — |
+| TASK-0010 | Device MMIO access model | Queued | — | Define MMIO cap distribution |
+| TASK-0011 | Kernel simplification phase A | Queued | — | Restructure for SMP |
+| TASK-0011B | Kernel Rust idioms pre-SMP | Queued | TASK-0011 | Ownership + newtypes |
+| TASK-0012 | Kernel SMP v1 | Queued | TASK-0011, TASK-0011B | Per-CPU runqueues + IPIs |
 
-| Task                                 | Notes                         |
-| ------------------------------------ | ----------------------------- |
-| TASK-0001 Runtime roles & boundaries | Single-authority model locked |
-| TASK-0002 Userspace VFS proof        | Marker-gated proof in QEMU    |
-| TASK-0007 Updates & Packaging v1.0    | OTA A/B skeleton + markers    |
+---
+
+## RFCs Status
+
+| RFC | Title | Status | Task |
+|-----|-------|--------|------|
+| ⬜ RFC-0001 | Kernel Simplification | Pending | TASK-0011 |
+| ✅ RFC-0002 | Process-Per-Service | Complete | — |
+| ✅ RFC-0003 | Unified Logging | Complete | TASK-0006 |
+| ✅ RFC-0004 | Loader Safety & Guards | Complete | — |
+| ✅ RFC-0005 | Kernel IPC & Capability Model | Complete | — |
+| ✅ RFC-0006 | Userspace Networking v1 | Complete | TASK-0003 |
+| ✅ RFC-0007 | DSoftBus OS Transport v1 | Complete | TASK-0003, TASK-0004 |
+| ✅ RFC-0008 | DSoftBus Noise XK v1 | Complete | TASK-0003B |
+| ✅ RFC-0009 | no_std Dependency Hygiene v1 | Complete | — |
+| ✅ RFC-0010 | DSoftBus Cross-VM Harness v1 | Complete | TASK-0005 |
+| ✅ RFC-0011 | logd journal + crash reports v1 | Complete | TASK-0006 |
+| ✅ RFC-0012 | Updates & Packaging v1.0 | Complete | TASK-0007 |
+| ✅ RFC-0013 | Boot gates v1 | Complete | — |
+| ✅ RFC-0014 | Testing contracts v1 | Complete | — |
+| ✅ RFC-0015 | Policy Authority & Audit v1 | Complete | TASK-0008 |
+
+---
+
+## TRACKs (Vision Documents)
+
+TRACKs define feature areas but don't execute directly. They spawn tasks when gates clear.
+
+| Track | Purpose | Gates (blocked by) |
+|-------|---------|-------------------|
+| TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU | TASK-0010, TASK-0031, TASK-0012 |
+| TRACK-NETWORKING-DRIVERS | NIC drivers | TASK-0010, TASK-0012 |
+| TRACK-NEXUSGFX-SDK | Graphics SDK | UI tasks |
+| TRACK-NEXUSMEDIA-SDK | Media SDK | UI + codec tasks |
+| TRACK-ZEROCOPY-APP-PLATFORM | App platform | TASK-0031, clipboard |
+| TRACK-APP-STORE | Distribution | Packaging tasks |
+| TRACK-DEVSTUDIO-IDE | Developer IDE | DSL tasks |
+| TRACK-OFFICE-SUITE | Office apps | UI + OpLog |
+| TRACK-PIM-SUITE | PIM apps (calendar, contacts) | UI + sync |
+| TRACK-MEDIA-APPS | Media apps (photos, music, video) | Media SDK |
+
+---
+
+## Workflow
+
+1. **Execute tasks in numerical order** (TASK-0001, TASK-0002, ...)
+2. If a task is blocked, skip to the next unblocked task
+3. TRACKs spawn new tasks when their gates clear
+4. New tasks get the next available number
+5. Mark task `Done` only when all stop conditions are met
+
+---
 
 ## Related
 
-- **Implementation ordering**: `tasks/IMPLEMENTATION-ORDER.md`
-- **Kernel inventory (security + comparisons)**: `docs/architecture/KERNEL-TASK-INVENTORY.md`
+- **Sequential order**: `tasks/IMPLEMENTATION-ORDER.md`
+- **Task workflow rules**: `tasks/README.md`
+- **RFC process**: `docs/rfcs/README.md`

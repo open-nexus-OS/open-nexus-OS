@@ -9,7 +9,7 @@ links:
   - Recovery v1a: tasks/TASK-0050-recovery-v1a-boot-target-minimal-shell-diag.md
   - Recovery v1b (tools): tasks/TASK-0051-recovery-v1b-safe-tools-fsck-slot-ota-nx-recovery.md
   - Policy as Code (trust + gating): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Keystore / device keys: tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Keystore / device keys: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
   - Testing contract: scripts/qemu-test.sh
@@ -110,4 +110,3 @@ UART markers:
 
 5. **Tests + docs**
    - host tests, OS selftest once recovery exists, docs.
-

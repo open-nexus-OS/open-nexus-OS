@@ -14,18 +14,13 @@
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystore lib
 //! ADR: docs/adr/0017-service-architecture.md
 
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
 extern crate alloc;
 
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_stub;
 
-#[cfg(all(
-    feature = "os-lite",
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none"
-))]
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub use os_stub::*;
 
 // full_impl requires idl-capnp and only builds on host targets

@@ -46,8 +46,19 @@ Establish a unified service architecture with the following components:
   - Small payloads (<4KB) MAY be inline if bounded
   - Large payloads (>4KB) MUST use VMO (production) or filebuffer (testing/exports)
 - Service state must be consistent across restarts
-- Capability checks must be performed for all privileged operations
+- Capability checks must be performed for all privileged operations (via `policyd`)
 - Host and OS backends must provide equivalent functionality
+- Policy decisions bind to `sender_service_id` (kernel-provided, unforgeable)
+- All policy allow/deny decisions are audit-logged via `logd`
+
+### Audit Trail (TASK-0008)
+
+Services performing sensitive operations must use `policyd` for authorization:
+
+- `policyd` is the single policy authority (no shadow allowlists)
+- All allow/deny decisions produce audit records (via `logd`)
+- Deny-by-default: operations without explicit capability are rejected
+- See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
 
 ## Consequences
 - **Positive**: Consistent service development, easier maintenance, clear separation of concerns

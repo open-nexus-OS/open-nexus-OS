@@ -3,7 +3,7 @@ use nexus_sel::{Policy, PolicyEntry};
 
 #[test]
 fn unknown_capability_denied() {
-    let entries = [PolicyEntry { capability: "ability.start", allow: true }];
+    let entries = [PolicyEntry { service_id: 0x10u64, capabilities: &["ability.start"] }];
     let policy = Policy::new(&entries);
-    assert!(!policy.allows("window.debug"));
+    assert!(!policy.allows(0x10, "window.debug"));
 }

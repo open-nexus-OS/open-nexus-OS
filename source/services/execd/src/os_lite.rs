@@ -417,6 +417,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     // The requester string is treated as *display* only; the authoritative identity is the
     // kernel-derived sender_service_id returned via ipc_recv_v2 metadata.
     if service_id_from_name(requester) != sender_service_id {
+        emit_line("execd: spawn denied (id mismatch)");
         return rsp(op, STATUS_DENIED, 0).to_vec();
     }
 
@@ -478,6 +479,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     let (_rsp_nonce, decision) = nexus_abi::policy::decode_exec_check_rsp(&rb[..rn])
         .unwrap_or((nonce, nexus_abi::policy::STATUS_ALLOW));
     if decision != nexus_abi::policy::STATUS_ALLOW {
+        emit_line("execd: spawn denied (policy)");
         return rsp(op, STATUS_DENIED, 0).to_vec();
     }
 
@@ -487,12 +489,42 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         IMG_EXIT42 => DEMO_EXIT42_ELF,
         _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
     };
+    // Debug: help triage kernel KPGF in sys_exec by printing the user pointer/len we pass.
+    // This is not secret data (embedded test payloads only).
+    emit_line_no_nl("execd: exec img=");
+    emit_u64(image_id as u64);
+    emit_line_no_nl(" ptr=0x");
+    emit_hex_u64(elf.as_ptr() as usize);
+    emit_line_no_nl(" len=0x");
+    emit_hex_u64(elf.len());
+    emit_line("");
     match exec(elf, stack_pages, 0) {
         Ok(pid) => {
             state.track_child(pid as u32, image_id);
             rsp(op, STATUS_OK, pid as u32).to_vec()
         }
         Err(_) => rsp(op, STATUS_FAILED, 0).to_vec(),
+    }
+}
+
+fn emit_hex_u64(mut value: usize) {
+    // Fixed-width-ish hex (no 0x prefix); prints at least one nibble.
+    let mut buf = [0u8; 16];
+    let mut i = buf.len();
+    if value == 0 {
+        i -= 1;
+        buf[i] = b'0';
+    } else {
+        while value != 0 && i > 0 {
+            let nib = (value & 0xF) as u8;
+            let ch = if nib < 10 { b'0' + nib } else { b'a' + (nib - 10) };
+            i -= 1;
+            buf[i] = ch;
+            value >>= 4;
+        }
+    }
+    for &b in &buf[i..] {
+        let _ = debug_putc(b);
     }
 }
 

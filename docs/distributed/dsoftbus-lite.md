@@ -57,7 +57,7 @@ Two backends exist today:
   - TCP sessions over the sockets facade
   - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
 
-## Current OS Implementation Status (2026-01-13)
+## Current OS Implementation Status (2026-01-25)
 
 | Feature | Status | Task |
 |---------|--------|------|
@@ -82,3 +82,26 @@ Two backends exist today:
 By keeping the kernel unaware of IDL parsing or Cap'n Proto framing we preserve
 its minimal trusted computing base. Only the userland daemon deals with schema
 serialization and policy decisions.
+
+## IPC Robustness (TASK-0008)
+
+During TASK-0008 implementation, the following IPC patterns were established:
+
+### Reply Correlation via Nonces
+
+`dsoftbusd` ↔ `netstackd` RPCs include a trailing `u64` nonce for reply correlation:
+- Prevents reply misassociation when multiple RPC calls are in-flight
+- Receiver validates that response nonce matches request nonce
+- Backward-compatible: requests without nonce receive responses without nonce
+
+### Deterministic Slot Assignment
+
+Core services use deterministic IPC slots assigned by `init-lite`:
+- `netstackd` server: slots 5/6 (recv/send)
+- `dsoftbusd` reply inbox: slots 5/6
+
+Services should prefer `KernelClient::new_with_slots()` over routing queries during early bring-up.
+
+### Capability Closure
+
+All `CAP_MOVE` operations must explicitly close the reply capability on all exit paths (success, error, timeout) to prevent capability leaks and heap exhaustion.

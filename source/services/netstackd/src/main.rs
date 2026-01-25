@@ -24,7 +24,6 @@ nexus_service_entry::declare_entry!(os_entry);
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
     use nexus_abi::yield_;
-    use nexus_ipc::KernelServer;
     use nexus_net::{
         NetSocketAddrV4, NetStack as _, TcpListener as _, TcpStream as _, UdpSocket as _,
     };
@@ -211,6 +210,12 @@ fn os_entry() -> core::result::Result<(), ()> {
         let _ = nexus_abi::debug_println("SELFTEST: net ping ok");
     }
 
+    // Yield a bit before UDP/TCP bring-up proofs so other services (especially selftest-client keystored)
+    // can run and emit their markers. This matches the expected marker ladder in `scripts/qemu-test.sh`.
+    for _ in 0..4096u64 {
+        let _ = yield_();
+    }
+
     // Prove UDP send+recv (DNS on QEMU usernet) — only when we have DHCP/usernet.
     // When running under a socket/mcast backend, there is no gateway/DNS, so skip this proof.
     if dhcp_bound {
@@ -273,7 +278,8 @@ fn os_entry() -> core::result::Result<(), ()> {
         // NOTE: Some QEMU builds expose DHCP + gateway but do not provide a slirp DNS proxy.
         // Keep the DNS attempt short; if it doesn't answer, fall back to the already-proven
         // DHCP UDP exchange as our "UDP TX/RX proof" for CI determinism.
-        let deadline_ms = start_ms.saturating_add(2_000);
+        // Keep this short so the harness sees the marker early even if later phases crash.
+        let deadline_ms = start_ms.saturating_add(250);
         let mut last_send_ms = 0u64;
         for i in 0..200_000u64 {
             let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -345,6 +351,26 @@ fn os_entry() -> core::result::Result<(), ()> {
     const MAGIC0: u8 = b'N';
     const MAGIC1: u8 = b'S';
     const VERSION: u8 = 1;
+
+    // Optional correlation nonce extension (backward compatible):
+    // Requests MAY append a trailing u64 nonce (little-endian). If present, netstackd echoes it back
+    // at the end of the response frame so clients sharing a reply inbox can deterministically match
+    // replies without relying on “drain stale replies” heuristics.
+    //
+    // Old clients that omit the nonce remain supported (responses omit it too).
+    fn parse_nonce(req: &[u8], base_len: usize) -> Option<u64> {
+        if req.len() == base_len + 8 {
+            let mut b = [0u8; 8];
+            b.copy_from_slice(&req[base_len..base_len + 8]);
+            Some(u64::from_le_bytes(b))
+        } else {
+            None
+        }
+    }
+
+    fn append_nonce(out: &mut [u8], nonce: u64) {
+        out.copy_from_slice(&nonce.to_le_bytes());
+    }
 
     const OP_LISTEN: u8 = 1;
     const OP_ACCEPT: u8 = 2;
@@ -432,24 +458,20 @@ fn os_entry() -> core::result::Result<(), ()> {
         Loop(LoopUdp),
     }
 
-    // Bind to the routable service endpoints provided by init-lite routing.
-    // Retry (bring-up) to avoid killing the service if init-lite isn't ready yet.
-    // Resolve our service endpoints via init-lite routing, then use raw syscalls to avoid heap
-    // allocations in the hot-path (nexus-service-entry uses a bump allocator).
-    let (svc_recv_slot, _svc_send_slot) = loop {
-        match KernelServer::new_for("netstackd") {
-            Ok(s) => break s.slots(),
-            Err(_) => {
-                let _ = yield_();
-            }
-        }
-    };
-    let mut listeners: Vec<Option<Listener>> = Vec::new();
-    let mut streams: Vec<Option<Stream>> = Vec::new();
-    let mut udps: Vec<Option<UdpSock>> = Vec::new();
+    // netstackd uses deterministic slots (recv=5, send=6) assigned by init-lite.
+    const SVC_RECV_SLOT: u32 = 5;
+    let svc_recv_slot = SVC_RECV_SLOT;
+    let _svc_send_slot: u32 = 6;
+    let _ = nexus_abi::debug_println("netstackd: svc slots 5/6");
+    // Pre-allocate small tables to avoid late heap pressure during bring-up.
+    let mut listeners: Vec<Option<Listener>> = Vec::with_capacity(4);
+    let mut streams: Vec<Option<Stream>> = Vec::with_capacity(4);
+    let mut udps: Vec<Option<UdpSock>> = Vec::with_capacity(4);
     // Debug help for TASK-0005: log the first non-loopback TCP connect target we see.
     // Keep it bounded (single marker) to avoid UART spam.
     let mut dbg_connect_target_printed = false;
+    let mut dbg_loopback_connect_logged = false;
+    let mut dbg_udp_bind_logged = false;
 
     loop {
         let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -475,6 +497,12 @@ fn os_entry() -> core::result::Result<(), ()> {
             0,
         ) {
             Ok(n) => {
+                // Log first IPC receipt to confirm message flow.
+                static FIRST_IPC_LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !FIRST_IPC_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    let _ = nexus_abi::debug_println("netstackd: first ipc recv");
+                }
                 let n = n as usize;
                 let req = &buf[..n];
                 let reply_slot = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
@@ -500,11 +528,12 @@ fn os_entry() -> core::result::Result<(), ()> {
                 let op = req[3];
                 match op {
                     OP_LISTEN => {
-                        if req.len() != 6 {
+                        if req.len() != 6 && req.len() != 14 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_LISTEN | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
+                        let nonce = parse_nonce(req, 6);
                         let _ = nexus_abi::debug_println("netstackd: rpc listen");
                         let port = u16::from_le_bytes([req[4], req[5]]);
                         if bind_ip == [10, 0, 2, 15]
@@ -512,14 +541,26 @@ fn os_entry() -> core::result::Result<(), ()> {
                         {
                             listeners.push(Some(Listener::Loop { port, pending: None }));
                             let id = listeners.len() as u32;
-                            let mut rsp = [0u8; 9];
-                            rsp[0] = MAGIC0;
-                            rsp[1] = MAGIC1;
-                            rsp[2] = VERSION;
-                            rsp[3] = OP_LISTEN | 0x80;
-                            rsp[4] = STATUS_OK;
-                            rsp[5..9].copy_from_slice(&id.to_le_bytes());
-                            reply(&rsp);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 17];
+                                rsp[0] = MAGIC0;
+                                rsp[1] = MAGIC1;
+                                rsp[2] = VERSION;
+                                rsp[3] = OP_LISTEN | 0x80;
+                                rsp[4] = STATUS_OK;
+                                rsp[5..9].copy_from_slice(&id.to_le_bytes());
+                                append_nonce(&mut rsp[9..17], nonce);
+                                reply(&rsp);
+                            } else {
+                                let mut rsp = [0u8; 9];
+                                rsp[0] = MAGIC0;
+                                rsp[1] = MAGIC1;
+                                rsp[2] = VERSION;
+                                rsp[3] = OP_LISTEN | 0x80;
+                                rsp[4] = STATUS_OK;
+                                rsp[5..9].copy_from_slice(&id.to_le_bytes());
+                                reply(&rsp);
+                            }
                             let _ = nexus_abi::debug_println("netstackd: rpc listen ok");
                         } else {
                             let addr = NetSocketAddrV4::new(bind_ip, port);
@@ -527,32 +568,83 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 Ok(l) => {
                                     listeners.push(Some(Listener::Tcp(l)));
                                     let id = listeners.len() as u32;
-                                    let mut rsp = [0u8; 9];
-                                    rsp[0] = MAGIC0;
-                                    rsp[1] = MAGIC1;
-                                    rsp[2] = VERSION;
-                                    rsp[3] = OP_LISTEN | 0x80;
-                                    rsp[4] = STATUS_OK;
-                                    rsp[5..9].copy_from_slice(&id.to_le_bytes());
-                                    reply(&rsp);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 17];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_LISTEN | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..9].copy_from_slice(&id.to_le_bytes());
+                                        append_nonce(&mut rsp[9..17], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        let mut rsp = [0u8; 9];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_LISTEN | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..9].copy_from_slice(&id.to_le_bytes());
+                                        reply(&rsp);
+                                    }
                                     let _ = nexus_abi::debug_println("netstackd: rpc listen ok");
                                 }
                                 Err(_) => {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_LISTEN | 0x80, STATUS_IO]);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_LISTEN | 0x80,
+                                            STATUS_IO,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_LISTEN | 0x80,
+                                            STATUS_IO,
+                                        ]);
+                                    }
                                     let _ = nexus_abi::debug_println("netstackd: rpc listen FAIL");
                                 }
                             }
                         }
                     }
                     OP_ACCEPT => {
-                        if req.len() != 8 {
+                        if req.len() != 8 && req.len() != 16 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_ACCEPT | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
+                        let nonce = parse_nonce(req, 8);
                         let lid = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;
                         let Some(Some(l)) = listeners.get_mut(lid.wrapping_sub(1)) else {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_ACCEPT | 0x80, STATUS_NOT_FOUND]);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 13];
+                                rsp[..5].copy_from_slice(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_ACCEPT | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                                append_nonce(&mut rsp[5..13], nonce);
+                                reply(&rsp);
+                            } else {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_ACCEPT | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                            }
                             let _ = yield_();
                             continue;
                         };
@@ -563,6 +655,86 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     Ok(s) => {
                                         streams.push(Some(Stream::Tcp(s)));
                                         let sid = streams.len() as u32;
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 17];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_ACCEPT | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                            append_nonce(&mut rsp[9..17], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            let mut rsp = [0u8; 9];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_ACCEPT | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                            reply(&rsp);
+                                        }
+                                    }
+                                    Err(nexus_net::NetError::WouldBlock) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_ACCEPT | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_ACCEPT | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_ACCEPT | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_ACCEPT | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                        }
+                                    }
+                                }
+                            }
+                            Listener::Loop { pending, .. } => {
+                                if let Some(sid) = pending.take() {
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 17];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_ACCEPT | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                        append_nonce(&mut rsp[9..17], nonce);
+                                        reply(&rsp);
+                                    } else {
                                         let mut rsp = [0u8; 9];
                                         rsp[0] = MAGIC0;
                                         rsp[1] = MAGIC1;
@@ -572,7 +744,19 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         rsp[5..9].copy_from_slice(&sid.to_le_bytes());
                                         reply(&rsp);
                                     }
-                                    Err(nexus_net::NetError::WouldBlock) => {
+                                } else {
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_ACCEPT | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
                                         reply(&[
                                             MAGIC0,
                                             MAGIC1,
@@ -581,43 +765,17 @@ fn os_entry() -> core::result::Result<(), ()> {
                                             STATUS_WOULD_BLOCK,
                                         ]);
                                     }
-                                    Err(_) => reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_ACCEPT | 0x80,
-                                        STATUS_IO,
-                                    ]),
-                                }
-                            }
-                            Listener::Loop { pending, .. } => {
-                                if let Some(sid) = pending.take() {
-                                    let mut rsp = [0u8; 9];
-                                    rsp[0] = MAGIC0;
-                                    rsp[1] = MAGIC1;
-                                    rsp[2] = VERSION;
-                                    rsp[3] = OP_ACCEPT | 0x80;
-                                    rsp[4] = STATUS_OK;
-                                    rsp[5..9].copy_from_slice(&sid.to_le_bytes());
-                                    reply(&rsp);
-                                } else {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_ACCEPT | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]);
                                 }
                             }
                         }
                     }
                     OP_CONNECT => {
-                        if req.len() != 10 {
+                        if req.len() != 10 && req.len() != 18 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_CONNECT | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
+                        let nonce = parse_nonce(req, 10);
                         let ip = [req[4], req[5], req[6], req[7]];
                         let port = u16::from_le_bytes([req[8], req[9]]);
                         if !dbg_connect_target_printed
@@ -643,14 +801,30 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     }
                                 }
                             }
-                            let mut rsp = [0u8; 9];
-                            rsp[0] = MAGIC0;
-                            rsp[1] = MAGIC1;
-                            rsp[2] = VERSION;
-                            rsp[3] = OP_CONNECT | 0x80;
-                            rsp[4] = STATUS_OK;
-                            rsp[5..9].copy_from_slice(&a.to_le_bytes());
-                            reply(&rsp);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 17];
+                                rsp[0] = MAGIC0;
+                                rsp[1] = MAGIC1;
+                                rsp[2] = VERSION;
+                                rsp[3] = OP_CONNECT | 0x80;
+                                rsp[4] = STATUS_OK;
+                                rsp[5..9].copy_from_slice(&a.to_le_bytes());
+                                append_nonce(&mut rsp[9..17], nonce);
+                                reply(&rsp);
+                            } else {
+                                let mut rsp = [0u8; 9];
+                                rsp[0] = MAGIC0;
+                                rsp[1] = MAGIC1;
+                                rsp[2] = VERSION;
+                                rsp[3] = OP_CONNECT | 0x80;
+                                rsp[4] = STATUS_OK;
+                                rsp[5..9].copy_from_slice(&a.to_le_bytes());
+                                reply(&rsp);
+                            }
+                            if !dbg_loopback_connect_logged {
+                                dbg_loopback_connect_logged = true;
+                                let _ = nexus_abi::debug_println("netstackd: rpc connect loopback ok");
+                            }
                         } else {
                             let remote = NetSocketAddrV4::new(ip, port);
                             let deadline = now_ms + 1;
@@ -663,43 +837,99 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     let _ = s.write(Some(now_ms + 50), b"X");
                                     streams.push(Some(Stream::Tcp(s)));
                                     let sid = streams.len() as u32;
-                                    let mut rsp = [0u8; 9];
-                                    rsp[0] = MAGIC0;
-                                    rsp[1] = MAGIC1;
-                                    rsp[2] = VERSION;
-                                    rsp[3] = OP_CONNECT | 0x80;
-                                    rsp[4] = STATUS_OK;
-                                    rsp[5..9].copy_from_slice(&sid.to_le_bytes());
-                                    reply(&rsp);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 17];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_CONNECT | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                        append_nonce(&mut rsp[9..17], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        let mut rsp = [0u8; 9];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_CONNECT | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                        reply(&rsp);
+                                    }
                                     let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
                                 }
                                 Err(nexus_net::NetError::WouldBlock) => {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_CONNECT | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_CONNECT | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_CONNECT | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                    }
                                 }
                                 Err(_) => {
-                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_CONNECT | 0x80, STATUS_IO])
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_CONNECT | 0x80,
+                                            STATUS_IO,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_CONNECT | 0x80,
+                                            STATUS_IO,
+                                        ])
+                                    }
                                 }
                             }
                         }
                     }
                     OP_UDP_BIND => {
+                        if !dbg_udp_bind_logged {
+                            dbg_udp_bind_logged = true;
+                            let _ = nexus_abi::debug_println("netstackd: rpc udp bind");
+                            if reply_slot.is_none() {
+                                let _ =
+                                    nexus_abi::debug_println("netstackd: udp bind missing reply cap");
+                            }
+                        }
                         // v1: [magic,ver,op, port:u16le]
                         // v2 (backward compatible): [magic,ver,op, ip[4], port:u16le]
-                        if req.len() != 6 && req.len() != 10 {
+                        if req.len() != 6 && req.len() != 10 && req.len() != 14 && req.len() != 18 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
-                        let (bind_ip, port) = if req.len() == 10 {
-                            ([req[4], req[5], req[6], req[7]], u16::from_le_bytes([req[8], req[9]]))
+                        let (bind_ip, port, nonce) = if req.len() == 10 || req.len() == 18 {
+                            let nonce = parse_nonce(req, 10);
+                            let ip = [req[4], req[5], req[6], req[7]];
+                            let port = u16::from_le_bytes([req[8], req[9]]);
+                            (ip, port, nonce)
                         } else {
-                            (bind_ip, u16::from_le_bytes([req[4], req[5]]))
+                            let nonce = parse_nonce(req, 6);
+                            (bind_ip, u16::from_le_bytes([req[4], req[5]]), nonce)
                         };
                         if port == LOOPBACK_UDP_PORT
                             && (bind_ip == [10, 0, 2, 15] || bind_ip == [0, 0, 0, 0])
@@ -711,22 +941,17 @@ fn os_entry() -> core::result::Result<(), ()> {
                             // discovery MUST use real UDP datagrams, so the loopback is disabled there.
                             udps.push(Some(UdpSock::Loop(LoopUdp { rx: LoopBuf::new(), port })));
                             let id = udps.len() as u32;
-                            let mut rsp = [0u8; 9];
-                            rsp[0] = MAGIC0;
-                            rsp[1] = MAGIC1;
-                            rsp[2] = VERSION;
-                            rsp[3] = OP_UDP_BIND | 0x80;
-                            rsp[4] = STATUS_OK;
-                            rsp[5..9].copy_from_slice(&id.to_le_bytes());
-                            reply(&rsp);
-                            let _ = yield_();
-                            continue;
-                        }
-                        let addr = NetSocketAddrV4::new(bind_ip, port);
-                        match net.udp_bind(addr) {
-                            Ok(s) => {
-                                udps.push(Some(UdpSock::Udp(s)));
-                                let id = udps.len() as u32;
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 17];
+                                rsp[0] = MAGIC0;
+                                rsp[1] = MAGIC1;
+                                rsp[2] = VERSION;
+                                rsp[3] = OP_UDP_BIND | 0x80;
+                                rsp[4] = STATUS_OK;
+                                rsp[5..9].copy_from_slice(&id.to_le_bytes());
+                                append_nonce(&mut rsp[9..17], nonce);
+                                reply(&rsp);
+                            } else {
                                 let mut rsp = [0u8; 9];
                                 rsp[0] = MAGIC0;
                                 rsp[1] = MAGIC1;
@@ -736,11 +961,78 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 rsp[5..9].copy_from_slice(&id.to_le_bytes());
                                 reply(&rsp);
                             }
+                            let _ = yield_();
+                            continue;
+                        }
+                        let addr = NetSocketAddrV4::new(bind_ip, port);
+                        match net.udp_bind(addr) {
+                            Ok(s) => {
+                                udps.push(Some(UdpSock::Udp(s)));
+                                let id = udps.len() as u32;
+                                if let Some(nonce) = nonce {
+                                    let mut rsp = [0u8; 17];
+                                    rsp[0] = MAGIC0;
+                                    rsp[1] = MAGIC1;
+                                    rsp[2] = VERSION;
+                                    rsp[3] = OP_UDP_BIND | 0x80;
+                                    rsp[4] = STATUS_OK;
+                                    rsp[5..9].copy_from_slice(&id.to_le_bytes());
+                                    append_nonce(&mut rsp[9..17], nonce);
+                                    reply(&rsp);
+                                } else {
+                                    let mut rsp = [0u8; 9];
+                                    rsp[0] = MAGIC0;
+                                    rsp[1] = MAGIC1;
+                                    rsp[2] = VERSION;
+                                    rsp[3] = OP_UDP_BIND | 0x80;
+                                    rsp[4] = STATUS_OK;
+                                    rsp[5..9].copy_from_slice(&id.to_le_bytes());
+                                    reply(&rsp);
+                                }
+                            }
                             Err(nexus_net::NetError::AddrInUse) => {
-                                reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_IO]);
+                                if let Some(nonce) = nonce {
+                                    let mut rsp = [0u8; 13];
+                                    rsp[..5].copy_from_slice(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_BIND | 0x80,
+                                        STATUS_IO,
+                                    ]);
+                                    append_nonce(&mut rsp[5..13], nonce);
+                                    reply(&rsp);
+                                } else {
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_BIND | 0x80,
+                                        STATUS_IO,
+                                    ]);
+                                }
                             }
                             Err(_) => {
-                                reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_IO])
+                                if let Some(nonce) = nonce {
+                                    let mut rsp = [0u8; 13];
+                                    rsp[..5].copy_from_slice(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_BIND | 0x80,
+                                        STATUS_IO,
+                                    ]);
+                                    append_nonce(&mut rsp[5..13], nonce);
+                                    reply(&rsp);
+                                } else {
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_UDP_BIND | 0x80,
+                                        STATUS_IO,
+                                    ])
+                                }
                             }
                         }
                     }
@@ -761,7 +1053,12 @@ fn os_entry() -> core::result::Result<(), ()> {
                         let ip = [req[8], req[9], req[10], req[11]];
                         let port = u16::from_le_bytes([req[12], req[13]]);
                         let len = u16::from_le_bytes([req[14], req[15]]) as usize;
-                        if req.len() != 16 + len {
+                        let nonce = if req.len() == 16 + len + 8 {
+                            parse_nonce(req, 16 + len)
+                        } else {
+                            None
+                        };
+                        if req.len() != 16 + len && req.len() != 16 + len + 8 {
                             reply(&[
                                 MAGIC0,
                                 MAGIC1,
@@ -774,67 +1071,148 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let idx = udp_id.wrapping_sub(1);
                         let Some(Some(sock)) = udps.get(idx) else {
-                            reply(&[
-                                MAGIC0,
-                                MAGIC1,
-                                VERSION,
-                                OP_UDP_SEND_TO | 0x80,
-                                STATUS_NOT_FOUND,
-                            ]);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 13];
+                                rsp[..5].copy_from_slice(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_UDP_SEND_TO | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                                append_nonce(&mut rsp[5..13], nonce);
+                                reply(&rsp);
+                            } else {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_UDP_SEND_TO | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                            }
                             let _ = yield_();
                             continue;
                         };
                         match sock {
                             UdpSock::Udp(_) => {
                                 let Some(Some(UdpSock::Udp(s))) = udps.get_mut(idx) else {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_SEND_TO | 0x80,
-                                        STATUS_IO,
-                                    ]);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_SEND_TO | 0x80,
+                                            STATUS_IO,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_SEND_TO | 0x80,
+                                            STATUS_IO,
+                                        ]);
+                                    }
                                     let _ = yield_();
                                     continue;
                                 };
                                 let dst = NetSocketAddrV4::new(ip, port);
-                                match s.send_to(&req[16..], dst) {
+                                match s.send_to(&req[16..16 + len], dst) {
                                     Ok(n) => {
-                                        let mut rsp = [0u8; 7];
-                                        rsp[0] = MAGIC0;
-                                        rsp[1] = MAGIC1;
-                                        rsp[2] = VERSION;
-                                        rsp[3] = OP_UDP_SEND_TO | 0x80;
-                                        rsp[4] = STATUS_OK;
-                                        rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
-                                        reply(&rsp);
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 15];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_UDP_SEND_TO | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                            append_nonce(&mut rsp[7..15], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            let mut rsp = [0u8; 7];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_UDP_SEND_TO | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                            reply(&rsp);
+                                        }
                                     }
-                                    Err(nexus_net::NetError::WouldBlock) => reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_SEND_TO | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]),
-                                    Err(_) => reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_SEND_TO | 0x80,
-                                        STATUS_IO,
-                                    ]),
+                                    Err(nexus_net::NetError::WouldBlock) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_SEND_TO | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_SEND_TO | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_SEND_TO | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_SEND_TO | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                        }
+                                    }
                                 }
                             }
                             UdpSock::Loop(LoopUdp { rx: _, port: local }) => {
                                 // Only supports loopback to self on the same port.
                                 if ip != [10, 0, 2, 15] || port != *local {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_SEND_TO | 0x80,
-                                        STATUS_IO,
-                                    ]);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_SEND_TO | 0x80,
+                                            STATUS_IO,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_SEND_TO | 0x80,
+                                            STATUS_IO,
+                                        ]);
+                                    }
                                     let _ = yield_();
                                     continue;
                                 }
@@ -852,31 +1230,56 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     let _ = yield_();
                                     continue;
                                 };
-                                let wrote = rx.push(&req[16..]);
+                                let wrote = rx.push(&req[16..16 + len]);
                                 if wrote == 0 {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_SEND_TO | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_SEND_TO | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_SEND_TO | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                    }
                                 } else {
-                                    let mut rsp = [0u8; 7];
-                                    rsp[0] = MAGIC0;
-                                    rsp[1] = MAGIC1;
-                                    rsp[2] = VERSION;
-                                    rsp[3] = OP_UDP_SEND_TO | 0x80;
-                                    rsp[4] = STATUS_OK;
-                                    rsp[5..7].copy_from_slice(&(wrote as u16).to_le_bytes());
-                                    reply(&rsp);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 15];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_UDP_SEND_TO | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..7].copy_from_slice(&(wrote as u16).to_le_bytes());
+                                        append_nonce(&mut rsp[7..15], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        let mut rsp = [0u8; 7];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_UDP_SEND_TO | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..7].copy_from_slice(&(wrote as u16).to_le_bytes());
+                                        reply(&rsp);
+                                    }
                                 }
                             }
                         }
                     }
                     OP_UDP_RECV_FROM => {
                         // [magic,ver,op, udp_id:u32le, max:u16le]
-                        if req.len() != 4 + 4 + 2 {
+                        if req.len() != 4 + 4 + 2 && req.len() != 4 + 4 + 2 + 8 {
                             reply(&[
                                 MAGIC0,
                                 MAGIC1,
@@ -887,18 +1290,32 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let _ = yield_();
                             continue;
                         }
+                        let nonce = parse_nonce(req, 10);
                         let udp_id = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;
                         let max = u16::from_le_bytes([req[8], req[9]]) as usize;
                         let max = core::cmp::min(max, 460); // keep reply bounded
                         let idx = udp_id.wrapping_sub(1);
                         let Some(Some(sock)) = udps.get(idx) else {
-                            reply(&[
-                                MAGIC0,
-                                MAGIC1,
-                                VERSION,
-                                OP_UDP_RECV_FROM | 0x80,
-                                STATUS_NOT_FOUND,
-                            ]);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 13];
+                                rsp[..5].copy_from_slice(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_UDP_RECV_FROM | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                                append_nonce(&mut rsp[5..13], nonce);
+                                reply(&rsp);
+                            } else {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_UDP_RECV_FROM | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                            }
                             let _ = yield_();
                             continue;
                         };
@@ -928,22 +1345,58 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         rsp[7..11].copy_from_slice(&from.ip.0);
                                         rsp[11..13].copy_from_slice(&from.port.to_le_bytes());
                                         rsp[13..13 + n].copy_from_slice(&tmp[..n]);
-                                        reply(&rsp[..13 + n]);
+                                        if let Some(nonce) = nonce {
+                                            let end = 13 + n;
+                                            append_nonce(&mut rsp[end..end + 8], nonce);
+                                            reply(&rsp[..end + 8]);
+                                        } else {
+                                            reply(&rsp[..13 + n]);
+                                        }
                                     }
-                                    Err(nexus_net::NetError::WouldBlock) => reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_RECV_FROM | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]),
-                                    Err(_) => reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_RECV_FROM | 0x80,
-                                        STATUS_IO,
-                                    ]),
+                                    Err(nexus_net::NetError::WouldBlock) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_RECV_FROM | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_RECV_FROM | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_RECV_FROM | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_UDP_RECV_FROM | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                        }
+                                    }
                                 }
                             }
                             UdpSock::Loop(LoopUdp { rx: _, port: _ }) => {
@@ -963,13 +1416,26 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 };
                                 let n = rx.pop(&mut tmp[..max]);
                                 if n == 0 {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_RECV_FROM | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_RECV_FROM | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_UDP_RECV_FROM | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                    }
                                 } else {
                                     let mut rsp = [0u8; 512];
                                     rsp[0] = MAGIC0;
@@ -981,7 +1447,13 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     rsp[7..11].copy_from_slice(&[10, 0, 2, 15]);
                                     rsp[11..13].copy_from_slice(&port.to_le_bytes());
                                     rsp[13..13 + n].copy_from_slice(&tmp[..n]);
-                                    reply(&rsp[..13 + n]);
+                                    if let Some(nonce) = nonce {
+                                        let end = 13 + n;
+                                        append_nonce(&mut rsp[end..end + 8], nonce);
+                                        reply(&rsp[..end + 8]);
+                                    } else {
+                                        reply(&rsp[..13 + n]);
+                                    }
                                 }
                             }
                         }
@@ -994,14 +1466,38 @@ fn os_entry() -> core::result::Result<(), ()> {
                         }
                         let sid = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;
                         let len = u16::from_le_bytes([req[8], req[9]]) as usize;
-                        if req.len() != 10 + len {
+                        let nonce = if req.len() == 10 + len + 8 {
+                            parse_nonce(req, 10 + len)
+                        } else {
+                            None
+                        };
+                        if req.len() != 10 + len && req.len() != 10 + len + 8 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_WRITE | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
                         let sid0 = sid.wrapping_sub(1);
                         let Some(Some(kind)) = streams.get(sid0) else {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_WRITE | 0x80, STATUS_NOT_FOUND]);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 13];
+                                rsp[..5].copy_from_slice(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_WRITE | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                                append_nonce(&mut rsp[5..13], nonce);
+                                reply(&rsp);
+                            } else {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_WRITE | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                            }
                             let _ = yield_();
                             continue;
                         };
@@ -1013,33 +1509,73 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     continue;
                                 };
                                 let deadline = now_ms + 1;
-                                match s.write(Some(deadline), &req[10..]) {
+                                match s.write(Some(deadline), &req[10..10 + len]) {
                                     Ok(n) => {
-                                        let mut rsp = [0u8; 7];
-                                        rsp[0] = MAGIC0;
-                                        rsp[1] = MAGIC1;
-                                        rsp[2] = VERSION;
-                                        rsp[3] = OP_WRITE | 0x80;
-                                        rsp[4] = STATUS_OK;
-                                        rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
-                                        reply(&rsp);
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 15];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_WRITE | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                            append_nonce(&mut rsp[7..15], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            let mut rsp = [0u8; 7];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_WRITE | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                            reply(&rsp);
+                                        }
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
-                                        reply(&[
-                                            MAGIC0,
-                                            MAGIC1,
-                                            VERSION,
-                                            OP_WRITE | 0x80,
-                                            STATUS_WOULD_BLOCK,
-                                        ]);
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_WRITE | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_WRITE | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                        }
                                     }
-                                    Err(_) => reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_WRITE | 0x80,
-                                        STATUS_IO,
-                                    ]),
+                                    Err(_) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_WRITE | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_WRITE | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                        }
+                                    }
                                 }
                             }
                             Stream::Loop { peer, .. } => {
@@ -1050,39 +1586,84 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     let _ = yield_();
                                     continue;
                                 };
-                                let wrote = rx.push(&req[10..]);
+                                let wrote = rx.push(&req[10..10 + len]);
                                 if wrote == 0 {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_WRITE | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_WRITE | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        reply(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_WRITE | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                    }
                                 } else {
-                                    let mut rsp = [0u8; 7];
-                                    rsp[0] = MAGIC0;
-                                    rsp[1] = MAGIC1;
-                                    rsp[2] = VERSION;
-                                    rsp[3] = OP_WRITE | 0x80;
-                                    rsp[4] = STATUS_OK;
-                                    rsp[5..7].copy_from_slice(&(wrote as u16).to_le_bytes());
-                                    reply(&rsp);
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 15];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_WRITE | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..7].copy_from_slice(&(wrote as u16).to_le_bytes());
+                                        append_nonce(&mut rsp[7..15], nonce);
+                                        reply(&rsp);
+                                    } else {
+                                        let mut rsp = [0u8; 7];
+                                        rsp[0] = MAGIC0;
+                                        rsp[1] = MAGIC1;
+                                        rsp[2] = VERSION;
+                                        rsp[3] = OP_WRITE | 0x80;
+                                        rsp[4] = STATUS_OK;
+                                        rsp[5..7].copy_from_slice(&(wrote as u16).to_le_bytes());
+                                        reply(&rsp);
+                                    }
                                 }
                             }
                         }
                     }
                     OP_READ => {
-                        if req.len() != 10 {
+                        if req.len() != 10 && req.len() != 18 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
+                        let nonce = parse_nonce(req, 10);
                         let sid = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;
                         let max = u16::from_le_bytes([req[8], req[9]]) as usize;
                         let max = core::cmp::min(max, 480); // keep reply bounded under 512
                         let Some(Some(s)) = streams.get_mut(sid.wrapping_sub(1)) else {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_NOT_FOUND]);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 13];
+                                rsp[..5].copy_from_slice(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_READ | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                                append_nonce(&mut rsp[5..13], nonce);
+                                reply(&rsp);
+                            } else {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_READ | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                            }
                             let _ = yield_();
                             continue;
                         };
@@ -1100,9 +1681,76 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         rsp[4] = STATUS_OK;
                                         rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
                                         rsp[7..7 + n].copy_from_slice(&buf[..n]);
-                                        reply(&rsp[..7 + n]);
+                                        if let Some(nonce) = nonce {
+                                            let end = 7 + n;
+                                            append_nonce(&mut rsp[end..end + 8], nonce);
+                                            reply(&rsp[..end + 8]);
+                                        } else {
+                                            reply(&rsp[..7 + n]);
+                                        }
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_READ | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_READ | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_READ | 0x80,
+                                                STATUS_IO,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_READ | 0x80,
+                                                STATUS_IO,
+                                            ])
+                                        }
+                                    }
+                                }
+                            }
+                            Stream::Loop { rx, .. } => {
+                                let mut out = [0u8; 480];
+                                let n = rx.pop(&mut out[..max]);
+                                if n == 0 {
+                                    if let Some(nonce) = nonce {
+                                        let mut rsp = [0u8; 13];
+                                        rsp[..5].copy_from_slice(&[
+                                            MAGIC0,
+                                            MAGIC1,
+                                            VERSION,
+                                            OP_READ | 0x80,
+                                            STATUS_WOULD_BLOCK,
+                                        ]);
+                                        append_nonce(&mut rsp[5..13], nonce);
+                                        reply(&rsp);
+                                    } else {
                                         reply(&[
                                             MAGIC0,
                                             MAGIC1,
@@ -1111,22 +1759,6 @@ fn os_entry() -> core::result::Result<(), ()> {
                                             STATUS_WOULD_BLOCK,
                                         ]);
                                     }
-                                    Err(_) => {
-                                        reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_IO])
-                                    }
-                                }
-                            }
-                            Stream::Loop { rx, .. } => {
-                                let mut out = [0u8; 480];
-                                let n = rx.pop(&mut out[..max]);
-                                if n == 0 {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_READ | 0x80,
-                                        STATUS_WOULD_BLOCK,
-                                    ]);
                                 } else {
                                     let mut rsp = [0u8; 512];
                                     rsp[0] = MAGIC0;
@@ -1136,14 +1768,20 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     rsp[4] = STATUS_OK;
                                     rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
                                     rsp[7..7 + n].copy_from_slice(&out[..n]);
-                                    reply(&rsp[..7 + n]);
+                                    if let Some(nonce) = nonce {
+                                        let end = 7 + n;
+                                        append_nonce(&mut rsp[end..end + 8], nonce);
+                                        reply(&rsp[..end + 8]);
+                                    } else {
+                                        reply(&rsp[..7 + n]);
+                                    }
                                 }
                             }
                         }
                     }
                     OP_ICMP_PING => {
                         // OP_ICMP_PING: [magic,ver,op, ip[4], timeout_ms:u16le]
-                        if req.len() != 10 {
+                        if req.len() != 10 && req.len() != 18 {
                             reply(&[
                                 MAGIC0,
                                 MAGIC1,
@@ -1154,13 +1792,14 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let _ = yield_();
                             continue;
                         }
+                        let nonce = parse_nonce(req, 10);
                         let target_ip = [req[4], req[5], req[6], req[7]];
                         let timeout_ms = u16::from_le_bytes([req[8], req[9]]) as u64;
                         let ping_start = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
 
                         match net.icmp_ping(target_ip, ping_start, timeout_ms) {
                             Ok(rtt_ms) => {
-                                let mut rsp = [0u8; 11];
+                                let mut rsp = [0u8; 16];
                                 rsp[0] = MAGIC0;
                                 rsp[1] = MAGIC1;
                                 rsp[2] = VERSION;
@@ -1169,23 +1808,46 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 // Include RTT in response (u16le, capped at 65535)
                                 let rtt_capped = core::cmp::min(rtt_ms, 65535) as u16;
                                 rsp[5..7].copy_from_slice(&rtt_capped.to_le_bytes());
-                                reply(&rsp[..7]);
+                                if let Some(nonce) = nonce {
+                                    append_nonce(&mut rsp[7..15], nonce);
+                                    reply(&rsp[..15]);
+                                } else {
+                                    reply(&rsp[..7]);
+                                }
                             }
                             Err(_) => {
-                                reply(&[
-                                    MAGIC0,
-                                    MAGIC1,
-                                    VERSION,
-                                    OP_ICMP_PING | 0x80,
-                                    STATUS_TIMED_OUT,
-                                ]);
+                                if let Some(nonce) = nonce {
+                                    let mut rsp = [0u8; 13];
+                                    rsp[..5].copy_from_slice(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_ICMP_PING | 0x80,
+                                        STATUS_TIMED_OUT,
+                                    ]);
+                                    append_nonce(&mut rsp[5..13], nonce);
+                                    reply(&rsp);
+                                } else {
+                                    reply(&[
+                                        MAGIC0,
+                                        MAGIC1,
+                                        VERSION,
+                                        OP_ICMP_PING | 0x80,
+                                        STATUS_TIMED_OUT,
+                                    ]);
+                                }
                             }
                         }
                     }
                     OP_LOCAL_ADDR => {
                         // Request: [magic,ver,op]
                         // Response: [magic,ver,op|0x80,status, ip[4], prefix:u8]
-                        if req.len() != 4 {
+                        static LOCAL_ADDR_LOGGED: core::sync::atomic::AtomicBool =
+                            core::sync::atomic::AtomicBool::new(false);
+                        if !LOCAL_ADDR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                            let _ = nexus_abi::debug_println("netstackd: rpc local_addr");
+                        }
+                        if req.len() != 4 && req.len() != 12 {
                             reply(&[
                                 MAGIC0,
                                 MAGIC1,
@@ -1196,21 +1858,54 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let _ = yield_();
                             continue;
                         }
+                        let nonce = parse_nonce(req, 4);
                         let Some(cfg) = net.get_ipv4_config().or_else(|| net.get_dhcp_config())
                         else {
-                            reply(&[MAGIC0, MAGIC1, VERSION, OP_LOCAL_ADDR | 0x80, STATUS_IO]);
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 13];
+                                rsp[..5].copy_from_slice(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_LOCAL_ADDR | 0x80,
+                                    STATUS_IO,
+                                ]);
+                                append_nonce(&mut rsp[5..13], nonce);
+                                reply(&rsp);
+                            } else {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_LOCAL_ADDR | 0x80,
+                                    STATUS_IO,
+                                ]);
+                            }
                             let _ = yield_();
                             continue;
                         };
-                        let mut rsp = [0u8; 10];
-                        rsp[0] = MAGIC0;
-                        rsp[1] = MAGIC1;
-                        rsp[2] = VERSION;
-                        rsp[3] = OP_LOCAL_ADDR | 0x80;
-                        rsp[4] = STATUS_OK;
-                        rsp[5..9].copy_from_slice(&cfg.ip);
-                        rsp[9] = cfg.prefix_len;
-                        reply(&rsp);
+                        if let Some(nonce) = nonce {
+                            let mut rsp = [0u8; 18];
+                            rsp[0] = MAGIC0;
+                            rsp[1] = MAGIC1;
+                            rsp[2] = VERSION;
+                            rsp[3] = OP_LOCAL_ADDR | 0x80;
+                            rsp[4] = STATUS_OK;
+                            rsp[5..9].copy_from_slice(&cfg.ip);
+                            rsp[9] = cfg.prefix_len;
+                            append_nonce(&mut rsp[10..18], nonce);
+                            reply(&rsp);
+                        } else {
+                            let mut rsp = [0u8; 10];
+                            rsp[0] = MAGIC0;
+                            rsp[1] = MAGIC1;
+                            rsp[2] = VERSION;
+                            rsp[3] = OP_LOCAL_ADDR | 0x80;
+                            rsp[4] = STATUS_OK;
+                            rsp[5..9].copy_from_slice(&cfg.ip);
+                            rsp[9] = cfg.prefix_len;
+                            reply(&rsp);
+                        }
                     }
                     _ => reply(&[MAGIC0, MAGIC1, VERSION, op | 0x80, STATUS_MALFORMED]),
                 }

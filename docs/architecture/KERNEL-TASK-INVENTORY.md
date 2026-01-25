@@ -285,7 +285,8 @@ These tasks are userspace-focused but depend on kernel primitives or define kern
 
 - **Notes**: Proof task, security handled by underlying services
 
-### ✅ TASK-0008: Security Hardening v1 (nexus-sel + Audit + Device Keys)
+### ✅ TASK-0008: Security Hardening v1 (nexus-sel + Audit)
+### ⬜ TASK-0008B: Device identity keys v1 (virtio-rng entropy + rngd + keystored keygen)
 
 - **Status**: Has Security section
 

@@ -1,15 +1,33 @@
 ---
-title: TASK-0008 Security hardening v1 (OS): policy engine (nexus-sel), audit trail, device identity keys, keystore hardening
-status: Draft
+title: TASK-0008 Security hardening v1 (OS): policy engine (nexus-sel), audit trail, policy-gated operations (no device key entropy)
+status: In Review
 owner: @runtime
 created: 2025-12-22
+completed: 2026-01-25
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - RFC (seed contract): docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
+  - RFC (capability model): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Existing policy baseline: recipes/policy/base.toml
-  - Depends-on (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+follow-up-tasks:
+  - TASK-0008B: Device identity keys v1 (OS): virtio-rng entropy + rngd + keystored keygen (enables real device keys)
+  - TASK-0009: Persistence v1 (enables persistent device keys; not a blocker for v1)
+  - TASK-0017: DSoftBus remote statefs R/W (policy + audit semantics)
+  - TASK-0019: Security v2 userland ABI/syscall filters (reuse policy authority)
+  - TASK-0025: Statefs write-path hardening (policy-gated ops + audit)
+  - TASK-0027: Statefs encryption-at-rest (device keys + entropy)
+  - TASK-0028: ABI filters v2 (arg match learn/enforce, policy authority)
+  - TASK-0029: Supply chain v1 (SBOM/repro/sign/policy, device identity)
+  - TASK-0039: Sandboxing v1 (VFS namespaces/capfd/manifest, policy authority)
+  - TASK-0043: Security v2 (sandbox quotas/egress/ABI/audit)
+  - TASK-0053: Security v3 (signed recovery actions, policy-gated signing)
+  - TASK-0108: UI keymintd/keystore/keychain baseline (device keys)
+  - TASK-0136: Policy v1 (capability matrix/foreground adapters/audit)
+  - TASK-0137: Security & Privacy Settings UI (audit viewer + approvals)
+  - TASK-0159: Identity/Keystore v1.1 (lifecycle/rotation, host-first)
+  - TASK-0160: Identity/Keystore v1.1 OS (attestd/trust unification/selftests)
 ---
 
 ## Context
@@ -24,7 +42,7 @@ Security hardening v1 aims to:
 
 - move from “bring-up allow/deny stubs” to a small, enforceable policy engine,
 - produce an auditable, queryable trail of decisions,
-- introduce device identity keys (with rotation model) and harden keystored,
+- harden keystored request parsing and policy-gated operations (without requiring OS entropy in v1),
 - harden bundle verification / exec authorization decisions without duplicating authority logic.
 
 Kernel remains unchanged.
@@ -35,7 +53,7 @@ In QEMU, prove:
 
 - `policyd` evaluates policy based on a deterministic ruleset and emits audit events for allow/deny.
 - Sensitive operations (bundle install, exec authorization, keystore signing) are deny-by-default without required capabilities/gates.
-- `keystored` provides a device identity public key and enforces policy-gated signing, with deterministic failure modes.
+- `keystored` enforces policy-gated operations (deny-by-default) with deterministic failure modes.
 
 ## Non-Goals
 
@@ -57,19 +75,19 @@ In QEMU, prove:
 - **RED (blocking / must decide now)**:
   - **Audit sink availability**: audit logs “via logd” depends on TASK-0006. If logd is not implemented yet,
     audit must fall back to deterministic UART markers (explicit) and later be switched to logd sink.
-  - **Device key generation requires entropy**: OS builds currently have no clear, kernel-provided RNG API.
-    We must decide the v1 entropy source:
-    - Option A (bring-up): deterministic dev key (explicitly marked insecure + QEMU-only).
-    - Option B (preferred): add a userspace RNG service backed by existing hardware/virtio-rng plumbing (may imply kernel/driver work → out of scope here).
-    Without an entropy decision, “persistent device identity keys” cannot be implemented securely.
 - **YELLOW (risky / likely drift / needs follow-up)**:
   - **Policy file location drift**: repo already has `recipes/policy/base.toml`. Introducing a parallel `recipes/sel/*.toml`
     risks duplicating the source of truth. Prefer evolving the existing policy recipe structure (or explicitly migrating).
   - **Subject naming**: using `subject: &str` in protocols is fragile; prefer `sender_service_id` + an optional display name.
-  - **Persistence reality**: device keys can only be “persistent” once `/state` is truly durable (TASK-0009). Until then, any device-key behavior must be labeled bring-up-only and must not claim persistence.
+  - **Persistence reality**: device keys can only be “persistent” once `/state` is truly durable (TASK-0009). Until then, device-key behavior must not claim persistence.
 - **GREEN (confirmed assumptions)**:
   - `policyd` already enforces identity binding for ROUTE/EXEC checks and has an init-lite proxy exception.
   - `keystored` os-lite shim already scopes keys by `sender_service_id` and enforces size bounds.
+
+## Decisions (v1) — to prevent drift
+
+- **Policy source of truth**: ✅ Evolve `recipes/policy/base.toml` (and `recipes/policy/` generally). Do **not** introduce a parallel `recipes/sel/*` tree.
+- **Subject identity**: ✅ `sender_service_id` is the canonical identity for decisions and auditing. Any subject/app/service “name” is display/authoring-only and must never grant authority.
 
 ## Security considerations
 
@@ -122,8 +140,8 @@ In QEMU, prove:
 ### Audit tests (negative cases)
 
 - Command(s):
-  - `cargo test -p nexus-sel -- reject --nocapture`
-  - `cargo test -p keystored -- reject --nocapture`
+  - `RUSTFLAGS='--cfg nexus_env="os"' cargo test -p policyd --no-default-features --features os-lite -- reject --nocapture`
+  - `RUSTFLAGS='--cfg nexus_env="os"' cargo test -p keystored --no-default-features --features os-lite -- reject --nocapture`
 - Required tests:
   - `test_reject_forged_service_id` — payload identity ignored, kernel ID used
   - `test_reject_unpolicied_operation` — no policy rule → denied
@@ -133,11 +151,12 @@ In QEMU, prove:
 
 ### Hardening markers (QEMU)
 
-- `policyd: deny (subject=<svc> action=<op>)` — deny-by-default works
-- `policyd: allow (subject=<svc> action=<op>)` — explicit allow logged
-- `keystored: sign denied (subject=<svc>)` — policy-gated signing works
-- `SELFTEST: policy deny audit ok` — audit trail verified
-- `SELFTEST: policy allow audit ok` — audit trail verified
+UART markers must remain deterministic and must not leak policy configuration details.
+Use stable “proof markers” for the smoke path, and put detailed audit records in logd when available.
+
+- `SELFTEST: policy deny audit ok` — a deny decision occurred and a corresponding audit record was produced
+- `SELFTEST: policy allow audit ok` — an allow decision occurred and a corresponding audit record was produced
+- `SELFTEST: keystored sign denied ok` — policy-gated signing denies without the required capability/gate
 
 ### Fuzz coverage (recommended)
 
@@ -154,16 +173,22 @@ In QEMU, prove:
 
 ### Proof (Host)
 
-- Add deterministic unit tests for policy merge and decision semantics (wildcards, deny precedence, gate evaluation):
-  - `cargo test -p <nexus-sel crate> -- --nocapture`
+- Add deterministic unit tests for policy evaluation and decision semantics (wildcards, deny precedence, gate evaluation).
+- Minimum proof commands (host-first, os-lite env on host):
+  - `RUSTFLAGS='--cfg nexus_env="os"' cargo test -p policyd --no-default-features --features os-lite -- --nocapture`
+  - `RUSTFLAGS='--cfg nexus_env="os"' cargo test -p keystored --no-default-features --features os-lite -- --nocapture`
+  - `cargo test -p e2e_policy -- --nocapture`
 
 ### Proof (OS / QEMU)
 
-- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - Extend expected markers with:
-    - `SELFTEST: device key ok`
-    - `SELFTEST: policy deny audit ok`
-    - `SELFTEST: policy allow audit ok`
+- Canonical smoke:
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- Faster triage for this task (RFC‑0014 Phase 2):
+  - `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os`
+- Extend expected markers with stable proofs (no secrets, no variable subject/action strings):
+  - `SELFTEST: policy deny audit ok`
+  - `SELFTEST: policy allow audit ok`
+  - `SELFTEST: keystored sign denied ok`
 
 Notes:
 
@@ -172,6 +197,7 @@ Notes:
 ## Touched paths (allowlist)
 
 - `source/services/policyd/` (wire in policy engine; emit audit events)
+- `source/libs/nexus-sel/` (policy evaluation library; PROTECTED tree — requires explicit approval when implementing)
 - `recipes/policy/` (extend schema to include domains/gates; avoid parallel recipe trees)
 - `source/services/keystored/` (device key API + policy-gated signing; verification hardening)
 - `source/services/bundlemgrd/` (policy-gated install/verify decisions via policyd; audit)
@@ -210,9 +236,7 @@ Notes:
 
 ## Follow-ups
 
-- App capability matrix + foreground-only guards + service adapters + audit events: `TASK-0136`
-- Security & Privacy Settings UI (permissions + audit viewer) + installer approvals: `TASK-0137`
-- Identity/Keystore v1.1 hardening (lifecycle/rotation/attestation stub/trust unification): `TASK-0159` / `TASK-0160`
+Follow-up task tracking lives in the YAML header `follow-up-tasks:` to avoid drift.
 
 ## Acceptance criteria (behavioral)
 

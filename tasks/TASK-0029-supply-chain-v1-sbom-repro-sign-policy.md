@@ -8,7 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Packaging baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Policy baseline: docs/security/signing-and-policy.md
-  - Depends-on (device identity/keys): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Depends-on (device identity/keys): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Testing contract: scripts/qemu-test.sh
 ---

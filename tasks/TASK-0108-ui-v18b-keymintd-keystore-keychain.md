@@ -7,7 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Identity sessions: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
-  - Device keys baseline: tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Device keys baseline: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Policy as Code (namespace guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---

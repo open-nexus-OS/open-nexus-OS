@@ -11,49 +11,49 @@ Implement a directory-based policy system with the following architecture:
 
 ### Core Components
 - **Policy Document**: TOML-based policy files with subject-to-capability mappings
-- **Policy Loader**: Directory scanning and policy merging
-- **Capability Checker**: Runtime capability validation
-- **Subject Canonicalization**: Consistent subject name handling
+- **Policy Loader**: Directory scanning and policy merging (`policyd/build.rs`)
+- **Policy Evaluation Library**: `nexus-sel` — pure library for policy lookups
+- **Capability Checker**: Runtime capability validation via `policyd`
+- **Subject Canonicalization**: Consistent subject name handling via `service_id`
+- **Audit Trail**: All allow/deny decisions logged via logd
 
 ### Policy Format
-- **File Format**: TOML files in policy directory
-- **Subject Mapping**: Maps subject names to capability lists
+- **File Format**: TOML files in policy directory (`recipes/policy/`)
+- **Subject Mapping**: Maps service names to capability lists
 - **Capability Lists**: Arrays of capability names
 - **Directory Merging**: Later files override earlier ones
+- **Build-time compilation**: Policy TOML → Rust constants via `policyd/build.rs`
 
-### Security Model
+### Security Model (TASK-0008)
 - **Capability-Based**: Access control based on declared capabilities
-- **Subject Validation**: Subject names are canonicalized
-- **Policy Integrity**: Policy files are validated on load
-- **Denial Reporting**: Specific missing capabilities reported
+- **Service-ID Binding**: Policy decisions bind to `sender_service_id` (kernel-provided, unforgeable)
+- **Deny-by-Default**: Operations without explicit policy allow are rejected
+- **Single Authority**: `policyd` is the sole decision service (no duplication)
+- **Audit Trail**: Every allow/deny decision produces an audit record
+- **Bounded Parsing**: Inputs are size-bounded; malformed requests rejected
 
 ### Integration Points
-- **Service Manager**: Check service capabilities
-- **Bundle Manager**: Validate bundle capability requirements
-- **System Services**: Enforce capability checks
-- **Application Runtime**: Runtime capability validation
+- **Service Manager (samgrd)**: Check service capabilities
+- **Bundle Manager (bundlemgrd)**: Validate bundle capability requirements
+- **Exec Daemon (execd)**: Authorize process spawn via policyd
+- **Keystore (keystored)**: Policy-gated signing operations
+- **Init-lite**: Proxy policy checks during early boot
 
 ## Consequences
 - **Positive**: Fine-grained access control
 - **Positive**: Policy changes without code changes
 - **Positive**: Clear denial information for debugging
+- **Positive**: Complete audit trail of all security decisions
 - **Negative**: Policy complexity can grow
-- **Negative**: Directory scanning overhead
+- **Negative**: Build-time compilation adds rebuild on policy change
 
 ## Implementation Notes
-- Policy directory contains multiple TOML files
-- Subject names are canonicalized (lowercase, trimmed)
+- Policy directory contains multiple TOML files (`recipes/policy/`)
+- Subject names are canonicalized (lowercase, trimmed) and converted to `service_id`
 - Capability names are canonicalized for consistent matching
 - Policy merging allows incremental policy updates
 - Denial information includes specific missing capabilities
+- Audit records emitted via logd (or UART fallback)
 
-
-
-
-
-
-
-
-
-
-
+## Related RFCs
+- RFC-0015: Policy Authority & Audit Baseline v1 (contract + proof gates)

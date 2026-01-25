@@ -33,13 +33,13 @@ Implement `userspace/nexus-ipc` as the IPC runtime with the following architectu
 - Timeout handling prevents indefinite blocking
 - Peer disconnection is detected and reported
 
-## Current state (2025-12-18)
+## Current state (2026-01-25)
 
 This ADR remains directionally correct, but the implementation is currently in a transitional state:
 
 - **Host backend**: implemented (in-process channels), used heavily by `tests/e2e*` and `tests/remote_e2e`.
 - **OS-lite backend**: implemented (cooperative mailbox), used for OS bring-up; **not security relevant**.
-- **OS “kernel IPC” backend**: wired to kernel IPC v1 syscalls for payload transport, including deadline semantics (RFC-0005).
+- **OS "kernel IPC" backend**: wired to kernel IPC v1 syscalls for payload transport, including deadline semantics (RFC-0005).
 
 Routing note (bootstrap):
 
@@ -47,6 +47,13 @@ Routing note (bootstrap):
   per-process control endpoint capabilities in deterministic slots (slot 1 = control SEND, slot 2 = control RECV).
   The client sends a `ROUTE_GET` frame containing the target name and receives a `ROUTE_RSP` frame containing
   the capability slots to use for that target. This keeps service code free of hard-coded slot numbers.
+
+IPC Robustness (TASK-0008):
+
+- **Nonce-based reply correlation**: RPCs between services (e.g., `dsoftbusd` ↔ `netstackd`) include a trailing `u64` nonce.
+  Responses echo the nonce; receivers validate it to prevent reply misassociation.
+- **Deterministic slot assignment**: Core services use fixed slots assigned by `init-lite` for stability during early bring-up.
+- **Capability closure**: All `CAP_MOVE` operations explicitly close the reply capability on all exit paths to prevent leaks.
 
 To prevent drift between docs and code, the kernel IPC + capability model is now specified in:
 

@@ -7,7 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Keystore v1.1 host slice: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
-  - Device keys / entropy red flags: tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Device keys / entropy red flags: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Packages trust integration: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
   - Updates trust integration: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md

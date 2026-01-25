@@ -64,6 +64,12 @@ fn build_elf(text: &[u8]) -> Vec<u8> {
         elf.resize(TEXT_OFFSET, 0);
     }
     elf.extend_from_slice(text);
+    // Kernel exec loader bring-up hardening:
+    // pad the ELF blob to a 4-byte boundary so kernel-side parsing that reads u32 chunks
+    // never needs to touch an unmapped trailing byte.
+    while (elf.len() & 0x3) != 0 {
+        elf.push(0);
+    }
     elf
 }
 

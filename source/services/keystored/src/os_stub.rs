@@ -222,16 +222,19 @@ const OP_PUT: u8 = 1;
 const OP_GET: u8 = 2;
 const OP_DEL: u8 = 3;
 const OP_VERIFY: u8 = 4;
+const OP_SIGN: u8 = 5;
 
 const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_TOO_LARGE: u8 = 3;
 const STATUS_UNSUPPORTED: u8 = 4;
+const STATUS_DENY: u8 = 5;
 
 const MAX_KEY_LEN: usize = 64;
 const MAX_VAL_LEN: usize = 256;
 const MAX_VERIFY_PAYLOAD: usize = 1 * 1024 * 1024;
+const MAX_SIGN_PAYLOAD: usize = 1 * 1024 * 1024;
 
 fn handle_frame(
     store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>,
@@ -249,6 +252,9 @@ fn handle_frame(
     }
     if op == OP_VERIFY {
         return handle_verify(frame);
+    }
+    if op == OP_SIGN {
+        return handle_sign(sender_service_id, frame);
     }
 
     let key_len = frame[4] as usize;
@@ -328,6 +334,121 @@ fn handle_verify(frame: &[u8]) -> Vec<u8> {
     rsp(OP_VERIFY, STATUS_OK, &[if ok { 1 } else { 0 }])
 }
 
+fn handle_sign(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
+    // SIGN request:
+    // [K, S, ver, OP_SIGN, payload_len:u32le, payload...]
+    const HEADER_LEN: usize = 4 + 4;
+    if frame.len() < HEADER_LEN {
+        return rsp(OP_SIGN, STATUS_MALFORMED, &[]);
+    }
+    let payload_len = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as usize;
+    if payload_len > MAX_SIGN_PAYLOAD {
+        return rsp(OP_SIGN, STATUS_TOO_LARGE, &[]);
+    }
+    let expected = HEADER_LEN.saturating_add(payload_len);
+    if frame.len() != expected {
+        return rsp(OP_SIGN, STATUS_MALFORMED, &[]);
+    }
+
+    if !policyd_allows(sender_service_id, b"crypto.sign") {
+        return rsp(OP_SIGN, STATUS_DENY, &[]);
+    }
+
+    // NOTE: Real device keys and signing are handled in TASK-0008B.
+    rsp(OP_SIGN, STATUS_UNSUPPORTED, &[])
+}
+
+fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
+    const MAGIC0: u8 = b'P';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 1;
+    const OP_CHECK_CAP: u8 = nexus_abi::policyd::OP_CHECK_CAP;
+    const STATUS_ALLOW: u8 = 0;
+
+    if cap.is_empty() || cap.len() > 48 {
+        return false;
+    }
+    let mut frame = Vec::with_capacity(13 + cap.len());
+    frame.push(MAGIC0);
+    frame.push(MAGIC1);
+    frame.push(VERSION);
+    frame.push(OP_CHECK_CAP);
+    frame.extend_from_slice(&subject_id.to_le_bytes());
+    frame.push(cap.len() as u8);
+    frame.extend_from_slice(cap);
+
+    let client = match nexus_ipc::KernelClient::new_for("policyd") {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+    let (send_slot, recv_slot) = client.slots();
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    let start = match nexus_abi::nsec() {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    let deadline = start.saturating_add(500_000_000);
+
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (i & 0x7f) == 0 {
+                    let now = match nexus_abi::nsec() {
+                        Ok(value) => value,
+                        Err(_) => return false,
+                    };
+                    if now >= deadline {
+                        return false;
+                    }
+                }
+                let _ = yield_();
+            }
+            Err(_) => return false,
+        }
+        i = i.wrapping_add(1);
+    }
+
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 16];
+    let mut j: usize = 0;
+    loop {
+        if (j & 0x7f) == 0 {
+            let now = match nexus_abi::nsec() {
+                Ok(value) => value,
+                Err(_) => return false,
+            };
+            if now >= deadline {
+                return false;
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n != 6 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION {
+                    continue;
+                }
+                if buf[3] != (OP_CHECK_CAP | 0x80) {
+                    continue;
+                }
+                return buf[4] == STATUS_ALLOW;
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => return false,
+        }
+        j = j.wrapping_add(1);
+    }
+}
+
 fn rsp(op: u8, status: u8, value: &[u8]) -> Vec<u8> {
     // Response: [K, S, ver, op|0x80, status, val_len:u16le, val...]
     let mut out = Vec::with_capacity(7 + value.len());
@@ -351,21 +472,37 @@ fn emit_line(message: &str) {
     }
 }
 
-fn emit_byte(byte: u8) {
-    let _ = debug_putc(byte);
-}
 
-fn emit_bytes(bytes: &[u8]) {
-    for &b in bytes {
-        emit_byte(b);
+#[cfg(all(test, nexus_env = "os", feature = "os-lite"))]
+mod tests {
+    use super::*;
+
+    fn rsp_status(frame: Vec<u8>) -> u8 {
+        assert!(frame.len() >= 5);
+        frame[4]
     }
-}
 
-fn emit_hex_u64(mut value: u64) {
-    // Fixed width, deterministic (16 nibbles)
-    for shift in (0..16).rev() {
-        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-        emit_byte(ch);
+    #[test]
+    fn test_reject_sign_without_policy() {
+        let payload = vec![0u8; 8];
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_SIGN]);
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(&payload);
+
+        let sender_service_id = nexus_abi::service_id_from_name(b"demo.testsvc");
+        let out = handle_sign(sender_service_id, &frame);
+        assert_eq!(rsp_status(out), STATUS_DENY);
+    }
+
+    #[test]
+    fn test_reject_sign_oversized_payload() {
+        let payload_len = (MAX_SIGN_PAYLOAD as u32).saturating_add(1);
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_SIGN]);
+        frame.extend_from_slice(&payload_len.to_le_bytes());
+        let sender_service_id = nexus_abi::service_id_from_name(b"samgrd");
+        let out = handle_sign(sender_service_id, &frame);
+        assert_eq!(rsp_status(out), STATUS_TOO_LARGE);
     }
 }

@@ -15,11 +15,26 @@ This checklist captures the state of the hardening objectives from the October 1
 **Bottom line:** The hardening objectives are satisfied for mapping/guards/W^X/typed decoding.
 
 **Current state note (2025-12-18):** syscall handlers return expected errors as `-errno` in `a0`.
-The kernel may still terminate tasks in true “no forward progress” situations (e.g. repeated
+The kernel may still terminate tasks in true "no forward progress" situations (e.g. repeated
 ECALL storms), but ordinary syscall errors are returned to userspace.
+
+## Userspace Policy Hardening (TASK-0008, 2026-01-25)
+
+| Objective | Status | Notes |
+| --- | --- | --- |
+| Policy engine (`nexus-sel`) | ✅ Complete | Service-id based capability lookups, deny-by-default |
+| Audit trail | ✅ Complete | All allow/deny decisions logged via logd |
+| Channel-bound identity | ✅ Complete | Policy binds to `sender_service_id`, not payload strings |
+| Policy-gated operations | ✅ Complete | keystored `OP_SIGN` requires `crypto.sign` capability |
+| Single authority | ✅ Complete | `policyd` is sole decision service |
+
+**QEMU proofs:** `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os` (green)
+
+**RFC:** `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
 
 ## Related canonical references
 
 - Kernel overview: `docs/architecture/01-neuron-kernel.md`
 - Kernel + layering quick reference: `docs/ARCHITECTURE.md`
+- Policy flow: `docs/architecture/11-policyd-and-policy-flow.md`
 - Testing methodology and CI marker discipline: `docs/testing/index.md` and `scripts/qemu-test.sh`

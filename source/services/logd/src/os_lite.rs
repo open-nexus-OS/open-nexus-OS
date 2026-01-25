@@ -22,8 +22,9 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::journal::{Journal, RecordId, TimestampNsec};
 use crate::protocol::{
-    decode_request, encode_append_response, encode_query_response, encode_stats_response,
-    DecodeError, Request, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED,
+    encode_query_response, encode_stats_response, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE,
+    STATUS_UNSUPPORTED, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND,
+    OP_QUERY, OP_STATS, VERSION,
 };
 
 /// Result alias surfaced by the lite logd backend.
@@ -67,6 +68,7 @@ pub fn touch_schemas() {}
 
 const JOURNAL_CAP_RECORDS: u32 = 256;
 const JOURNAL_CAP_BYTES: u32 = 64 * 1024;
+const JOURNAL_ALLOC_CAP_BYTES: u32 = 128 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
@@ -83,7 +85,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let _ = yield_();
     emit_line("logd: ready");
 
-    let mut journal = Journal::new(JOURNAL_CAP_RECORDS, JOURNAL_CAP_BYTES);
+    let mut journal =
+        Journal::new_with_alloc_cap(JOURNAL_CAP_RECORDS, JOURNAL_CAP_BYTES, JOURNAL_ALLOC_CAP_BYTES);
     // If the kernel time source is unavailable (or too coarse), fall back to a deterministic, strictly
     // monotonic counter. This enables bounded pagination in tests without relying on wall-clock.
     let mut fallback_ts: u64 = 0;
@@ -100,10 +103,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 );
                 // If a reply cap was moved, reply on it and close it.
                 if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
-                    let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    let _ = KernelServer::send_on_cap(hdr.src, rsp.as_slice());
                     let _ = cap_close(hdr.src as u32);
                 } else {
-                    let _ = server.send(&rsp, Wait::Blocking);
+                    let _ = server.send(rsp.as_slice(), Wait::Blocking);
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
@@ -165,13 +168,27 @@ fn route_logd_blocking() -> Option<KernelServer> {
     None
 }
 
+enum ResponseFrame {
+    Small { buf: [u8; 64], len: usize },
+    Large(Vec<u8>),
+}
+
+impl ResponseFrame {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            ResponseFrame::Small { buf, len } => &buf[..*len],
+            ResponseFrame::Large(buf) => buf.as_slice(),
+        }
+    }
+}
+
 fn handle_frame(
     journal: &mut Journal,
     sender_service_id: u64,
     frame: &[u8],
     fallback_ts: &mut u64,
     last_ts: &mut u64,
-) -> Vec<u8> {
+) -> ResponseFrame {
     let candidate = match nsec() {
         Ok(value) => value,
         Err(_) => {
@@ -188,60 +205,118 @@ fn handle_frame(
         candidate
     };
     let now = TimestampNsec(ts);
-    match decode_request(frame) {
-        Ok(Request::Append(req)) => match journal.append(
-            sender_service_id,
-            now,
-            req.level,
-            &req.scope,
-            &req.message,
-            &req.fields,
-        ) {
-            Ok(outcome) => {
-                encode_append_response(STATUS_OK, outcome.record_id, outcome.dropped_records)
-            }
-            Err(_) => encode_append_response(
-                STATUS_TOO_LARGE,
-                RecordId(0),
-                journal.stats().dropped_records,
-            ),
-        },
-        Ok(Request::Query(req)) => {
-            let stats = journal.stats();
-            let records = journal.query(req.since_nsec, req.max_count);
-            encode_query_response(STATUS_OK, stats, &records)
-        }
-        Ok(Request::Stats(_)) => {
-            let stats = journal.stats();
-            encode_stats_response(STATUS_OK, stats)
-        }
-        Err(err) => {
-            // Best-effort: if the caller gave us a versioned header, respond on the same op.
-            // Otherwise fall back to STATS response shape (clients treat status!=OK as failure).
-            let stats = journal.stats();
-            let status = match err {
-                DecodeError::Malformed => STATUS_MALFORMED,
-                DecodeError::Unsupported => STATUS_UNSUPPORTED,
-                DecodeError::TooLarge => STATUS_TOO_LARGE,
-            };
-            if frame.len() >= 4
-                && frame[0] == crate::protocol::MAGIC0
-                && frame[1] == crate::protocol::MAGIC1
-                && frame[2] == crate::protocol::VERSION
-            {
-                match frame[3] {
-                    crate::protocol::OP_APPEND => {
-                        encode_append_response(status, RecordId(0), stats.dropped_records)
-                    }
-                    crate::protocol::OP_QUERY => encode_query_response(status, stats, &[]),
-                    crate::protocol::OP_STATS => encode_stats_response(status, stats),
-                    _ => encode_stats_response(status, stats),
-                }
-            } else {
-                encode_stats_response(status, stats)
-            }
-        }
+    let stats = journal.stats();
+    if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+        return ResponseFrame::Large(encode_stats_response(STATUS_MALFORMED, stats));
     }
+    match frame[3] {
+        OP_APPEND => match decode_append(frame) {
+            Ok((level, scope, message, fields)) => match journal.append(
+                sender_service_id,
+                now,
+                level,
+                scope,
+                message,
+                fields,
+            ) {
+                Ok(outcome) => encode_append_response_small(
+                    STATUS_OK,
+                    outcome.record_id,
+                    outcome.dropped_records,
+                ),
+                Err(_) => encode_append_response_small(
+                    STATUS_TOO_LARGE,
+                    RecordId(0),
+                    journal.stats().dropped_records,
+                ),
+            },
+            Err(err) => encode_append_response_small(err, RecordId(0), stats.dropped_records),
+        },
+        OP_QUERY => match decode_query(frame) {
+            Ok((since, max_count)) => {
+                let records = journal.query(since, max_count);
+                ResponseFrame::Large(encode_query_response(STATUS_OK, stats, &records))
+            }
+            Err(err) => ResponseFrame::Large(encode_query_response(err, stats, &[])),
+        },
+        OP_STATS => encode_stats_response_small(STATUS_OK, stats),
+        _ => encode_stats_response_small(STATUS_UNSUPPORTED, stats),
+    }
+}
+
+fn decode_level(byte: u8) -> Result<crate::journal::LogLevel, u8> {
+    match byte {
+        0 => Ok(crate::journal::LogLevel::Error),
+        1 => Ok(crate::journal::LogLevel::Warn),
+        2 => Ok(crate::journal::LogLevel::Info),
+        3 => Ok(crate::journal::LogLevel::Debug),
+        4 => Ok(crate::journal::LogLevel::Trace),
+        _ => Err(STATUS_MALFORMED),
+    }
+}
+
+fn decode_append(frame: &[u8]) -> Result<(crate::journal::LogLevel, &[u8], &[u8], &[u8]), u8> {
+    if frame.len() < 10 {
+        return Err(STATUS_MALFORMED);
+    }
+    let level = decode_level(frame[4])?;
+    let scope_len = frame[5] as usize;
+    let msg_len = u16::from_le_bytes([frame[6], frame[7]]) as usize;
+    let fields_len = u16::from_le_bytes([frame[8], frame[9]]) as usize;
+    if scope_len > MAX_SCOPE_LEN || msg_len > MAX_MSG_LEN || fields_len > MAX_FIELDS_LEN {
+        return Err(STATUS_TOO_LARGE);
+    }
+    let start = 10;
+    let end_scope = start + scope_len;
+    let end_msg = end_scope + msg_len;
+    let end_fields = end_msg + fields_len;
+    if frame.len() != end_fields {
+        return Err(STATUS_MALFORMED);
+    }
+    Ok((level, &frame[start..end_scope], &frame[end_scope..end_msg], &frame[end_msg..end_fields]))
+}
+
+fn decode_query(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
+    if frame.len() != 14 {
+        return Err(STATUS_MALFORMED);
+    }
+    let since = u64::from_le_bytes([
+        frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
+    ]);
+    let max_count = u16::from_le_bytes([frame[12], frame[13]]);
+    Ok((TimestampNsec(since), max_count))
+}
+
+fn encode_append_response_small(
+    status: u8,
+    record_id: RecordId,
+    dropped: u64,
+) -> ResponseFrame {
+    let mut buf = [0u8; 64];
+    buf[0] = MAGIC0;
+    buf[1] = MAGIC1;
+    buf[2] = VERSION;
+    buf[3] = OP_APPEND | 0x80;
+    buf[4] = status;
+    buf[5..13].copy_from_slice(&record_id.0.to_le_bytes());
+    buf[13..21].copy_from_slice(&dropped.to_le_bytes());
+    ResponseFrame::Small { buf, len: 21 }
+}
+
+fn encode_stats_response_small(status: u8, stats: crate::journal::JournalStats) -> ResponseFrame {
+    let mut buf = [0u8; 64];
+    buf[0] = MAGIC0;
+    buf[1] = MAGIC1;
+    buf[2] = VERSION;
+    buf[3] = OP_STATS | 0x80;
+    buf[4] = status;
+    buf[5..13].copy_from_slice(&stats.total_records.to_le_bytes());
+    buf[13..21].copy_from_slice(&stats.dropped_records.to_le_bytes());
+    buf[21..25].copy_from_slice(&stats.capacity_records.to_le_bytes());
+    buf[25..29].copy_from_slice(&stats.capacity_bytes.to_le_bytes());
+    buf[29..33].copy_from_slice(&stats.used_records.to_le_bytes());
+    buf[33..37].copy_from_slice(&stats.used_bytes.to_le_bytes());
+    ResponseFrame::Small { buf, len: 37 }
 }
 
 fn emit_line(message: &str) {

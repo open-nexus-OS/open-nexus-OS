@@ -7,7 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Existing keystored service: source/services/keystored/
-  - Device keys baseline: tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Device keys baseline: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Keymint/keychain (per-user vault): tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Quotas v1: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
@@ -78,7 +78,7 @@ Deliver, host-first:
 
 - **RED (entropy / device identity security)**:
   - Secure keygen requires an entropy source in OS builds. Until we have a real RNG story, OS keys must not claim “secure”.
-  - This task stays host-first; OS work must gate on a clear entropy decision (see `TASK-0008` red flag).
+  - This task stays host-first; OS work must gate on a clear entropy decision (see `TASK-0008B`).
 
 - **YELLOW (service scope drift)**:
   - Existing keystored does “verify anchors” today; v1.1 adds “manage private keys”.
@@ -112,4 +112,3 @@ Deliver, host-first:
 
 - Host tests deterministically prove lifecycle + non-exportable use.
 - No OS/QEMU markers are claimed in this task.
-

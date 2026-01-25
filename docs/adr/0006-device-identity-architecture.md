@@ -33,6 +33,17 @@ Implement `userspace/identity` as the device identity system with the following 
 - Signing keys are generated using cryptographically secure random number generators
 - All cryptographic operations use industry-standard algorithms (Ed25519)
 - No unsafe code in cryptographic operations
+- Signing operations are policy-gated (require `crypto.sign` capability, TASK-0008)
+- Private keys never leave keystored (signatures are returned, not key material)
+
+## Policy Integration (TASK-0008)
+
+As of TASK-0008, signing operations are policy-gated:
+
+- `keystored` enforces `crypto.sign` capability via `policyd`
+- Policy check binds to `sender_service_id` (kernel-provided, unforgeable)
+- Denials are audit-logged via `logd`
+- See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
 
 ## Implementation Plan
 1. Implement Ed25519 key generation
@@ -44,14 +55,3 @@ Implement `userspace/identity` as the device identity system with the following 
 ## References
 - `userspace/identity/src/lib.rs`
 - `userspace/dsoftbus/src/lib.rs`
-
-
-
-
-
-
-
-
-
-
-

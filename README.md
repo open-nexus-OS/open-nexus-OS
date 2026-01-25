@@ -46,12 +46,24 @@ The repository includes a **userspace-only A/B update skeleton** (non-persistent
 proves stage → switch → health → rollback behavior via deterministic QEMU markers.
 See `docs/updates/ab-skeleton-v1.md` and `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`.
 
+## Security (Policy Authority + Audit)
+
+The OS uses a capability-based policy model with deny-by-default semantics:
+
+- **Policy Engine (`nexus-sel`)**: Service-id based capability lookups
+- **Audit Trail**: All allow/deny decisions logged via `logd`
+- **Channel-bound Identity**: Policy binds to kernel-provided `sender_service_id`
+- **Policy-gated Operations**: Sensitive operations (signing, exec, bundle install) require explicit capabilities
+
+See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` and `docs/architecture/11-policyd-and-policy-flow.md`.
+
 ## Documentation and standards
 
 - **Project overview**: `docs/overview.md`
 - **Architecture index**: `docs/architecture/README.md`
 - **Testing methodology (host-first, QEMU-last)**: `docs/testing/index.md`
 - **Observability (logd journal + crash reports)**: `docs/observability/logging.md`
+- **Security (policy + audit)**: `docs/security/signing-and-policy.md`
 - **Docs/code standards (headers, ownership, drift rules)**: `docs/standards/DOCUMENTATION_STANDARDS.md`
 
 ## Continuous Integration

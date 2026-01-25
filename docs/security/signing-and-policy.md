@@ -260,3 +260,38 @@ checks and QEMU UART markers.
 
 **Defense-in-depth**: Signatures are one layer. Capability policies, sandboxing, and
 runtime monitoring provide additional protection (see `docs/architecture/11-policyd-and-policy-flow.md`).
+
+## Audit Trail (TASK-0008)
+
+All policy decisions (allow/deny) are audit-logged:
+
+- **Sink**: logd (RFC-0011) is the primary sink; UART fallback if logd unavailable
+- **Record structure**: timestamp, subject_id, action, target, decision, reason
+- **Bounded fields**: action ≤ 32 bytes, target ≤ 64 bytes
+- **No secrets**: Audit records never contain key material or policy configuration details
+
+Every policy-gated operation (bundle install, process exec, keystore signing) produces an audit record.
+
+See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` for the full audit contract.
+
+## Policy-Gated Operations
+
+The following operations are deny-by-default and require explicit capability:
+
+| Operation | Required Capability | Service |
+|-----------|---------------------|---------|
+| Sign (Ed25519) | `crypto.sign` | keystored |
+| Bundle install | `fs.verify` | bundlemgrd |
+| Process exec | `proc.spawn` | execd |
+| Route request | `ipc.core` | policyd (via init-lite proxy) |
+| Route to execd | `route.execd` | policyd |
+
+## QEMU Proof Markers
+
+| Marker | Proves |
+|--------|--------|
+| `SELFTEST: policy deny audit ok` | A deny decision occurred AND audit record was emitted |
+| `SELFTEST: policy allow audit ok` | An allow decision occurred AND audit record was emitted |
+| `SELFTEST: keystored sign denied ok` | Policy-gated signing denied without required capability |
+
+Run: `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os`

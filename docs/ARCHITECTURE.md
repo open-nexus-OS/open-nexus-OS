@@ -53,6 +53,17 @@ out-of-band via VMOs and `map()`.
 - **Core services integrated**: `samgrd`, `bundlemgrd`, `policyd`, `dsoftbusd` emit structured logs via `nexus-log`.
 - **Proof**: `cargo test -p logd`, `cargo test -p nexus-log`, `RUN_UNTIL_MARKER=1 just test-os` (5 markers green as of 2026-01-14).
 
+## Policy Authority + Audit (TASK-0008)
+
+- **`policyd`**: Single policy authority for capability-based access control.
+- **`nexus-sel`**: Policy evaluation library with service-id based lookups.
+- **Deny-by-default**: Operations without explicit policy allow are rejected.
+- **Channel-bound identity**: Policy decisions bind to kernel-provided `sender_service_id` (unforgeable).
+- **Audit trail**: All allow/deny decisions logged via `logd`.
+- **Policy-gated operations**: `keystored` signing requires `crypto.sign` capability.
+- **Proof**: `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os` (policy markers green as of 2026-01-25).
+- **RFC**: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`.
+
 Canonical: this is the single architecture page. For deeper details, read the source files listed above.
 
 ## Architecture index (start here for deeper docs)

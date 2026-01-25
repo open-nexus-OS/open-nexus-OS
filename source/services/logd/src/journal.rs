@@ -85,6 +85,8 @@ pub enum JournalError {
 pub struct Journal {
     cap_records: u32,
     cap_bytes: u32,
+    alloc_cap_bytes: u32,
+    total_allocated_bytes: u32,
     next_id: u64,
     total_records: u64,
     dropped_records: u64,
@@ -95,9 +97,16 @@ pub struct Journal {
 impl Journal {
     /// Creates a new journal with fixed capacities.
     pub fn new(cap_records: u32, cap_bytes: u32) -> Self {
+        Self::new_with_alloc_cap(cap_records, cap_bytes, u32::MAX)
+    }
+
+    /// Creates a journal with an explicit allocation cap (for bump allocators).
+    pub fn new_with_alloc_cap(cap_records: u32, cap_bytes: u32, alloc_cap_bytes: u32) -> Self {
         Self {
             cap_records: cap_records.max(1),
             cap_bytes: cap_bytes.max(1),
+            alloc_cap_bytes: alloc_cap_bytes.max(1),
+            total_allocated_bytes: 0,
             next_id: 1,
             total_records: 0,
             dropped_records: 0,
@@ -120,6 +129,9 @@ impl Journal {
     ) -> Result<AppendOutcome, JournalError> {
         let size = record_size(scope.len(), message.len(), fields.len())?;
         if size > self.cap_bytes {
+            return Err(JournalError::TooLarge);
+        }
+        if self.total_allocated_bytes.saturating_add(size) > self.alloc_cap_bytes {
             return Err(JournalError::TooLarge);
         }
 
@@ -158,6 +170,7 @@ impl Journal {
         };
         self.records.push_back(rec);
         self.used_bytes = self.used_bytes.saturating_add(size);
+        self.total_allocated_bytes = self.total_allocated_bytes.saturating_add(size);
 
         Ok(AppendOutcome { record_id, dropped_records: self.dropped_records })
     }

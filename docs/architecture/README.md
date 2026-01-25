@@ -78,6 +78,16 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - TASK-0006: ✅ Done (logd RAM journal, nexus-log sink, execd crash reports, core service wiring)
 - TASK-0014: Next (metrics/tracing exports via logd)
 
+## Policy Authority + Audit
+
+- **Policy flow**: `11-policyd-and-policy-flow.md` — `policyd` as single authority
+- **RFC-0015**: Policy Authority & Audit Baseline v1 (Complete)
+- **Security docs**: `docs/security/signing-and-policy.md`
+
+**Current Status (2026-01-25)**:
+- TASK-0008: ✅ Done (policy engine, audit trail, policy-gated operations)
+- TASK-0008B: Next (device identity keys via virtio-rng)
+
 ## Onboarding landing pages (this directory)
 
 - `05-system-map-and-boundaries.md`

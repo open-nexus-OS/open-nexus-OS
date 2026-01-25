@@ -1606,9 +1606,12 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-log",
+ "nexus-sel",
  "nexus-service-entry",
  "policy",
+ "serde",
  "thiserror 1.0.69",
+ "toml",
 ]
 
 [[package]]

@@ -73,6 +73,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0005: Kernel IPC & Capability Model (capability-based security)
 - RFC-0008: DSoftBus Noise XK v1 (authentication + identity binding)
 - RFC-0009: no_std Dependency Hygiene v1 (build security)
+- RFC-0015: Policy Authority & Audit Baseline v1 (policy engine + audit trail)
 
 ## Index
 
@@ -104,3 +105,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
 - RFC-0014: Testing contracts v1 — host-first service contract tests + phased QEMU smoke gates
   - docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
+- RFC-0015: Policy Authority & Audit Baseline v1 — policy engine + audit trail + policy-gated ops
+  - docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md

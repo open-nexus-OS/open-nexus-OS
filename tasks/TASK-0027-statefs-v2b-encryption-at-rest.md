@@ -8,7 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Depends-on (statefs v1): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Depends-on (statefs v2a): tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md
-  - Depends-on (device keys / entropy): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Depends-on (device keys / entropy): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Testing contract: scripts/qemu-test.sh
 ---

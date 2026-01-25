@@ -1,95 +1,121 @@
-# Implementation Order (Dynamic): What to Build Next
+# Implementation Order: Sequential by Task Number
 
-This file is a **dynamic execution-order view** over `tasks/TASK-*.md`.
+This file provides a **sequential execution view** over `tasks/TASK-*.md`.
 
-It exists so that:
-
-- new tasks can be added without worrying about “correct sorting”,
-- the team can keep a single “what’s next?” plan,
-- and we can reorder as dependencies, risk, and scope change.
+**Primary rule**: Tasks are executed in **numerical order** (TASK-0001, TASK-0002, ...).
 
 This file is **not authoritative** for scope/DoD; each `TASK-*.md` remains execution truth.
 
-For a Kanban-style status view (Draft/In Progress/Done + blockers), see: `tasks/STATUS-BOARD.md`.
+For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
-## How to maintain this file (rules)
+---
 
-- **Prefer phases over perfect linear ordering**: keep a short list of “current” items and a larger queue.
-- **Reordering is allowed** at any time, but must not contradict task dependencies (“Depends-on”, “Gated on”, “Unblocks”).
-- **Never use this list to skip the 100% rule**: only mark a task “active” if its Stop conditions can be met (or you explicitly split/extract prerequisites per `tasks/README.md`).
-- **Keep entries lightweight**:
-  - Task ID + short reason + prerequisites.
-  - Avoid duplicating full task content here.
+## How Tasks and TRACKs Work Together
 
-## Lanes (workstreams)
+### Tasks (`TASK-XXXX-*.md`)
 
-We track ordering in lanes so unrelated work doesn’t block planning:
+- **Atomic work units** with clear stop conditions (Definition of Done)
+- Executed in **numerical order**
+- Each task has proofs (host tests, QEMU markers)
+- Status: `Draft` → `In Progress` → `In Review` → `Done`
 
-- **KERNEL**: NEURON kernel and kernel-adjacent ABI primitives
-- **DRIVERS**: device-class services, DriverKit, and acceleration tracks
-- **RUNTIME/SECURITY**: policyd, syscall guardrails, audit, identity
-- **BRING-UP**: QEMU/RISC-V bring-up milestones
+### Tracks (`TRACK-*.md`)
 
-## Current “Next Up” (recommended)
+- **Vision documents** that describe a larger feature area or product direction
+- TRACKs are **not executed directly** — they spawn tasks
+- A TRACK contains:
+  - High-level goals and constraints
+  - Candidate tasks (`CAND-*`) to be extracted into real `TASK-XXXX` files
+  - Gates (RED/YELLOW/GREEN) that block extraction
+  - Phase map showing progression
 
-### KERNEL (Type safety + SMP foundations)
+**Workflow**:
+1. TRACKs define **what** we want to build (vision + constraints)
+2. When a TRACK's gates are satisfied, extract a `CAND-*` into a real `TASK-XXXX`
+3. The new task gets the next available number and enters the sequential queue
+4. Execute tasks in numerical order
 
-1. `TASK-0011-kernel-simplification-phase-a.md`
-   - **Why**: keeps kernel navigable for SMP debugging (lowest-risk foundation).
+**Example**:
+- `TRACK-DRIVERS-ACCELERATORS.md` defines the GPU/NPU/VPU vision
+- Once `TASK-0010` (MMIO) and `TASK-0031` (VMO) are done, `CAND-DRV-000` can become `TASK-0280`
+- `TASK-0280` then executes in its numerical position
 
-2. `TASK-0011B-kernel-rust-idioms-pre-smp.md`
-   - **Why**: ownership model + error conventions + type hygiene pre-SMP.
+---
 
-3. `TASK-0281-kernel-newtypes-v1c-handle-typing.md`
-   - **Why**: low-risk, reduces “handle confusion” bug class.
-   - **Prereq**: TASK-0011B.
+## Done (Tasks 0001–0008)
 
-4. `TASK-0282-kernel-capability-phantom-rights-v1.md`
-   - **Why**: compile-time rights/kind checks inside kernel paths.
-   - **Prereq**: TASK-0011B, TASK-0267 context.
+| Task | Title | Completed |
+|------|-------|-----------|
+| ✅ TASK-0001 | Runtime roles & boundaries | — |
+| ✅ TASK-0002 | Userspace VFS proof | — |
+| ✅ TASK-0003 | Networking: virtio-net + smoltcp + dsoftbusd OS | — |
+| ✅ TASK-0003B | DSoftBus Noise XK OS | — |
+| ✅ TASK-0003C | DSoftBus UDP discovery OS | — |
+| ✅ TASK-0004 | Networking: DHCP/ICMP + dual-node identity | — |
+| ✅ TASK-0005 | Cross-VM DSoftBus + remote proxy | — |
+| ✅ TASK-0006 | Observability v1: logd journal + crash reports | — |
+| ✅ TASK-0007 | Updates & Packaging v1.0: A/B skeleton | — |
+| ✅ TASK-0008 | Security hardening v1: policy engine + audit trail | 2026-01-25 |
 
-5. `TASK-0283-kernel-percpu-ownership-wrapper-v1.md`
-   - **Why**: prevents cross-CPU mutable access by construction (`!Send`).
-   - **Prereq**: TASK-0012 planning alignment.
+---
 
-6. `TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
-   - **Why**: SMP bring-up (per-CPU runqueues + IPIs).
-   - **Prereq**: TASK-0011 + TASK-0011B.
+## Current: TASK-0008B → TASK-0009 → ...
 
-7. `TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md`
-   - **Why**: affinity + QoS budgets to support latency-sensitive device-class services.
-   - **Prereq**: TASK-0012 + TASK-0013.
+Execute in numerical order. Current position: **TASK-0008B**.
 
-### DRIVERS (stable boundary first)
+| Task | Title | Prereqs | Status |
+|------|-------|---------|--------|
+| **TASK-0008B** | Device identity keys v1 (virtio-rng + rngd + keystored keygen) | TASK-0008, TASK-0010 | Next |
+| TASK-0009 | Persistence v1 (virtio-blk + statefs) | TASK-0008B, TASK-0010 | Queued |
+| TASK-0010 | Device MMIO access model | — | Queued |
+| TASK-0011 | Kernel simplification phase A | — | Queued |
+| TASK-0011B | Kernel Rust idioms pre-SMP | TASK-0011 | Queued |
+| TASK-0012 | Kernel SMP v1 (per-CPU runqueues + IPIs) | TASK-0011, TASK-0011B | Queued |
+| TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | — | Queued |
+| TASK-0014 | Observability v2: metrics + tracing | TASK-0006 | Queued |
 
-1. `docs/adr/0018-driverkit-abi-versioning-and-stability.md`
-   - **Why**: prevents API fragmentation; defines stability rules.
+---
 
-2. `TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md`
-   - **Why**: extracts DriverKit core contract (`CAND-DRV-000`) into a testable v1.
-   - **Prereq**: TASK-0010 + TASK-0031 + TASK-0013.
+## Queue (TASK-0015+)
 
-3. `TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md`
-   - **Why**: proves ownership-based “zero-copy” buffer lifecycle (host-first).
-   - **Prereq**: TASK-0031.
+Continue in numerical order after TASK-0014.
 
-### BRING-UP (RISC-V virt)
+Notable upcoming tasks:
+- **TASK-0016–0024**: DSoftBus advanced features (remote packagefs, statefs, QUIC, etc.)
+- **TASK-0025–0028**: StateFS hardening + ABI filters v2
+- **TASK-0029**: Supply chain v1 (SBOM + signing policy)
+- **TASK-0031**: Zero-copy VMOs v1 (enables driver + graphics tracks)
+- **TASK-0039**: Sandboxing v1
+- **TASK-0054+**: UI stack
 
-- `TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md`
-- `TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md`
-- `TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md`
+---
 
-### RUNTIME/SECURITY (guardrails + policy authority)
+## Active TRACKs (spawn tasks when gates clear)
 
-- `TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
-- `TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md` (true enforcement)
-- `TASK-0019-security-v2-userland-abi-syscall-filters.md` (guardrail; not a boundary)
-- `TASK-0028-abi-filters-v2-arg-match-learn-enforce.md`
+| Track | Purpose | Blocked by |
+|-------|---------|------------|
+| TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU device-class services | TASK-0010, TASK-0031, TASK-0012 |
+| TRACK-NETWORKING-DRIVERS | NIC drivers, offload, netdevd | TASK-0003, TASK-0010, TASK-0012 |
+| TRACK-NEXUSGFX-SDK | Graphics SDK for apps | UI tasks (0054+) |
+| TRACK-NEXUSMEDIA-SDK | Audio/video/image SDK | UI tasks, codec tasks |
+| TRACK-ZEROCOPY-APP-PLATFORM | RichContent + OpLog + connectors | TASK-0031, TASK-0087 |
+| TRACK-APP-STORE | Distribution + publishing | Packaging tasks |
+| TRACK-DEVSTUDIO-IDE | Developer IDE | DSL tasks (0075+) |
 
-## Backlog (keep short; re-rank as you learn)
+---
 
-- `tasks/TRACK-DRIVERS-ACCELERATORS.md` (direction + gates)
-- `tasks/TRACK-NETWORKING-DRIVERS.md` (direction + gates)
-- `tasks/TRACK-NEXUSGFX-SDK.md` (SDK direction)
-- `tasks/TRACK-NEXUSMEDIA-SDK.md` (SDK direction: audio/video/image)
-- `tasks/TRACK-NEXUSGAME-SDK.md` (SDK direction: games)
+## Rules
+
+1. **Sequential by number**: Execute TASK-XXXX in order (0001, 0002, 0003, ...)
+2. **Skip if blocked**: If a task has unsatisfied prereqs, note it and move to the next
+3. **TRACKs don't execute**: TRACKs spawn tasks; the spawned task gets the next number
+4. **100% rule**: Only mark a task Done when all stop conditions are met
+5. **No fake success**: Markers/proofs must reflect real behavior
+
+---
+
+## Related
+
+- **Status board (Kanban view)**: `tasks/STATUS-BOARD.md`
+- **Task workflow rules**: `tasks/README.md`
+- **RFC process**: `docs/rfcs/README.md`

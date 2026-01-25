@@ -38,6 +38,32 @@ Implement `userspace/dsoftbus` as the distributed service fabric with the follow
 - Device identities are cryptographically bound to signing keys
 - Handshake proofs prevent man-in-the-middle attacks
 - Frame boundaries are preserved across network transport
+- IPC RPCs use nonces for reply correlation (prevents reply misassociation)
+
+## IPC Robustness (TASK-0008)
+
+During TASK-0008 implementation, the following IPC robustness improvements were made:
+
+### Reply Correlation via Nonces
+
+`dsoftbusd` ↔ `netstackd` RPCs now include a trailing `u64` nonce:
+- Request: `[op, ...payload, nonce:u64]`
+- Response: `[op|0x80, ...payload, nonce:u64]`
+- Receiver validates that response nonce matches request nonce
+- Mismatched nonces are ignored (prevents stale reply consumption)
+
+### Deterministic Slot Assignment
+
+Core services use deterministic IPC slots assigned by `init-lite`:
+- `netstackd`: slots 5/6
+- `dsoftbusd` reply inbox: slots 5/6 (separate endpoint)
+- Services must use `KernelClient::new_with_slots()` with correct slots
+
+### Capability Closure
+
+All `CAP_MOVE` operations explicitly close the reply capability on all exit paths:
+- Prevents capability leaks and resource exhaustion
+- Avoids `alloc-fail` due to accumulated unclosed slots
 
 ## Implementation Plan
 
@@ -49,7 +75,7 @@ Implement `userspace/dsoftbus` as the distributed service fabric with the follow
 6. ⬜ Implement reliable streams with multiplexing (TASK-0020+)
 7. ✅ Add comprehensive test coverage (host tests green)
 
-## Implementation Status (2026-01-13)
+## Implementation Status (2026-01-25)
 
 | Component | Host | OS | Task |
 | --------- | ---- | -- | ---- |

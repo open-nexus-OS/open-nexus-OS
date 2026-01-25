@@ -31,6 +31,7 @@ macro_rules! declare_entry {
         pub extern "C" fn _start() -> ! {
             unsafe { $crate::init_global_pointer() };
             unsafe { $crate::write_boot_marker(b'U') };
+            $crate::os::set_service_name(env!("CARGO_PKG_NAME"));
             $crate::os::bootstrap(|| $path())
         }
     };
@@ -65,6 +66,7 @@ pub mod os {
     use core::any::type_name;
     use core::panic::PanicInfo;
     use core::ptr;
+    use core::slice;
     use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
     use nexus_abi::{debug_putc, exit};
@@ -75,7 +77,9 @@ pub mod os {
     /// Result type expected from service OS entry functions.
     pub type ServiceResult<E> = core::result::Result<(), E>;
 
-    const HEAP_SIZE: usize = 192 * 1024;
+    // Bring-up sizing: keep service heaps bounded to avoid exhausting the kernel's early linear map.
+    // 384KiB is enough for logd/policyd bring-up while still staying under early-kernel memory limits.
+    const HEAP_SIZE: usize = 384 * 1024;
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
     struct Bump {
@@ -154,6 +158,8 @@ pub mod os {
     static ALLOC_ZERO_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
     const ALLOC_LOG_LIMIT: usize = 128;
     const ALLOC_ZERO_LOG_LIMIT: usize = 64;
+    static SERVICE_NAME_PTR: AtomicUsize = AtomicUsize::new(0);
+    static SERVICE_NAME_LEN: AtomicUsize = AtomicUsize::new(0);
 
     struct GlobalAllocator;
 
@@ -269,7 +275,9 @@ pub mod os {
 
     #[alloc_error_handler]
     fn alloc_error(layout: Layout) -> ! {
-        debug_write_bytes(b"alloc_error size=0x");
+        debug_write_bytes(b"alloc_error svc=");
+        debug_write_str(service_name());
+        debug_write_bytes(b" size=0x");
         debug_write_hex(layout.size());
         debug_write_bytes(b" align=0x");
         debug_write_hex(layout.align());
@@ -322,6 +330,24 @@ pub mod os {
         debug_write_bytes(s.as_bytes());
     }
 
+    #[inline(always)]
+    fn service_name() -> &'static str {
+        let ptr = SERVICE_NAME_PTR.load(Ordering::Relaxed);
+        let len = SERVICE_NAME_LEN.load(Ordering::Relaxed);
+        if ptr == 0 || len == 0 {
+            return "unknown";
+        }
+        let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
+        unsafe { core::str::from_utf8_unchecked(bytes) }
+    }
+
+    #[inline(always)]
+    /// Records the service name for allocator/panic diagnostics.
+    pub fn set_service_name(name: &'static str) {
+        SERVICE_NAME_PTR.store(name.as_ptr() as usize, Ordering::Relaxed);
+        SERVICE_NAME_LEN.store(name.len(), Ordering::Relaxed);
+    }
+
     fn debug_write_hex(mut value: usize) {
         const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut buf = [0u8; core::mem::size_of::<usize>() * 2];
@@ -353,7 +379,9 @@ pub mod os {
     }
 
     fn log_service_error<E>(_err: &E) {
-        debug_write_bytes(b"service error type=");
+        debug_write_bytes(b"service error svc=");
+        debug_write_str(service_name());
+        debug_write_bytes(b" type=");
         debug_write_str(type_name::<E>());
         debug_write_byte(b'\n');
     }
@@ -362,7 +390,9 @@ pub mod os {
         if !probe_logs_enabled() {
             return;
         }
-        debug_write_bytes(b"alloc-init base=0x");
+        debug_write_bytes(b"alloc-init svc=");
+        debug_write_str(service_name());
+        debug_write_bytes(b" base=0x");
         debug_write_hex(base);
         debug_write_bytes(b" end=0x");
         debug_write_hex(end);
@@ -381,7 +411,9 @@ pub mod os {
         if !probe_logs_enabled() {
             return;
         }
-        debug_write_bytes(b"alloc size=0x");
+        debug_write_bytes(b"alloc svc=");
+        debug_write_str(service_name());
+        debug_write_bytes(b" size=0x");
         debug_write_hex(size);
         debug_write_bytes(b" align=0x");
         debug_write_hex(align);
@@ -407,7 +439,9 @@ pub mod os {
         cur_before: usize,
         cur_after: usize,
     ) {
-        debug_write_bytes(b"alloc-fail site=");
+        debug_write_bytes(b"alloc-fail svc=");
+        debug_write_str(service_name());
+        debug_write_bytes(b" site=");
         debug_write_str(site);
         debug_write_bytes(b" size=0x");
         debug_write_hex(size);
@@ -425,7 +459,9 @@ pub mod os {
         #[cfg(feature = "alloc-log")]
         {
             nexus_log::error("alloc", |line| {
-                line.text("alloc-fail site=");
+                line.text("alloc-fail svc=");
+                line.text(service_name());
+                line.text(" site=");
                 line.text(site);
                 line.text(" size=");
                 line.hex(size as u64);
@@ -447,7 +483,9 @@ pub mod os {
         if !probe_logs_enabled() {
             return;
         }
-        debug_write_bytes(b"alloc-zero ");
+        debug_write_bytes(b"alloc-zero svc=");
+        debug_write_str(service_name());
+        debug_write_bytes(b" ");
         debug_write_str(phase);
         debug_write_bytes(b" size=0x");
         debug_write_hex(size);

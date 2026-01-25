@@ -274,7 +274,7 @@ Some security shortcuts are acceptable during bring-up, but MUST be:
    ```markdown
    ### Security considerations
    - Test keys used for bring-up (not production)
-   - Migration: TASK-0008 integrates with keystored
+   - Migration: TASK-0008 integrates with policyd/keystored policy-gated ops; device key entropy + keygen lands in TASK-0008B
    ```
 
 ---

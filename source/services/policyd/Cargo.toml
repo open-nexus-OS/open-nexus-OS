@@ -20,6 +20,7 @@ os-lite = [
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "dep:nexus-log",
+    "dep:nexus-sel",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
 ]
@@ -37,6 +38,11 @@ thiserror = { version = "1", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
+nexus-sel = { path = "../../libs/nexus-sel", default-features = false, optional = true }
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 
 [[bin]]
 name = "policyd"
