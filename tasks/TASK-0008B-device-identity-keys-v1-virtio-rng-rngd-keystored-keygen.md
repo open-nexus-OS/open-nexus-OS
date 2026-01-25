@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Depends-on (policy baseline): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Policy contract: docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (MMIO mapping primitive): tasks/TASK-0010-device-mmio-access-model.md
   - Depends-on (persistence, optional): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
@@ -50,6 +51,7 @@ In QEMU, prove:
 - **No secrets**: never print entropy bytes or private key material in logs/UART.
 - **Policy**: entropy/keygen endpoints are deny-by-default and must bind to `sender_service_id`.
 - **OS dependency hygiene**: do not add forbidden crates to OS graphs (notably `getrandom`).
+- **IPC robustness**: if you use `CAP_MOVE` + shared inboxes, use nonce-correlated replies and close moved caps on all paths (prevents reply misassociation / cap leaks).
 
 ## Decisions (v1) — to prevent drift
 
@@ -127,12 +129,14 @@ In QEMU, prove:
 2. **rngd service**
    - Provide a tiny IPC API: `GET_ENTROPY { n } -> bytes`.
    - Enforce bounds and policyd gates.
+   - Use `policyd` OP_CHECK_CAP for capability checks (no payload identity strings).
    - Emit `rngd: ready`.
 
 3. **keystored integration**
    - Use `rngd` for key generation.
    - Expose a device identity **public** key API.
    - Explicitly forbid private key export; add negative tests.
+   - Gate: `device.keygen` (generation) and optionally `device.pubkey.read` (pubkey query) via OP_CHECK_CAP.
 
 4. **Selftest + harness**
    - Add `SELFTEST: rng entropy ok` + `SELFTEST: device key pubkey ok`.

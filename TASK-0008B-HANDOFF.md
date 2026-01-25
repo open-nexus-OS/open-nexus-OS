@@ -17,6 +17,14 @@ You are implementing **TASK-0008B: real device identity keys on OS/QEMU**:
 
 This unblocks crypto-heavy follow-ups (statefs encryption, signed recovery actions, attestd, keymintd).
 
+## What TASK-0008 already provides (baseline you should reuse)
+
+- **Policy authority**: `policyd` is the single authority; deny-by-default.
+- **Identity binding**: policy decisions must bind to `sender_service_id` (never trust payload “subject” strings).
+- **Bring-up capability check**: reuse `policyd`’s **OP_CHECK_CAP** for specific capability checks (no new ad-hoc authz protocol).
+- **Audit sink**: audit events are emitted via `logd` (UART is only a bounded bring-up fallback).
+- **IPC robustness patterns** (worth copying): deterministic slots during early boot, nonce-based reply correlation for shared inboxes, and explicit `cap_close` on all `CAP_MOVE` paths.
+
 ---
 
 ## Must-Read Files (in order)
@@ -34,7 +42,8 @@ This unblocks crypto-heavy follow-ups (statefs encryption, signed recovery actio
 - Primary: `tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md`
 - Prereqs:
   - `tasks/TASK-0010-device-mmio-access-model.md` (MMIO mapping primitive exists)
-  - `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md` (policy baseline)
+  - `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md` (policy/audit baseline; Done)
+  - `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (contract for policy authority + audit)
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (logd audit sink; Done)
 
 ### 3) Testing contract
@@ -77,6 +86,14 @@ Add negative tests proving:
 - bounds enforcement on entropy requests (`test_reject_entropy_request_oversized`)
 - no private key export (`test_reject_device_key_private_export`)
 - deny-by-default for unprivileged callers (policy-gated)
+
+## Capability names (avoid drift)
+
+Use `policyd` capability strings (via OP_CHECK_CAP) for 8B gates, and add them to `recipes/policy/base.toml`:
+
+- **`rng.entropy`**: required to call `rngd` entropy API
+- **`device.keygen`**: required to trigger device key generation
+- **`device.pubkey.read`**: required to query device public key (if gated; keep deny-by-default)
 
 ---
 
