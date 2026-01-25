@@ -823,7 +823,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                             }
                             if !dbg_loopback_connect_logged {
                                 dbg_loopback_connect_logged = true;
-                                let _ = nexus_abi::debug_println("netstackd: rpc connect loopback ok");
+                                let _ =
+                                    nexus_abi::debug_println("netstackd: rpc connect loopback ok");
                             }
                         } else {
                             let remote = NetSocketAddrV4::new(ip, port);
@@ -911,8 +912,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                             dbg_udp_bind_logged = true;
                             let _ = nexus_abi::debug_println("netstackd: rpc udp bind");
                             if reply_slot.is_none() {
-                                let _ =
-                                    nexus_abi::debug_println("netstackd: udp bind missing reply cap");
+                                let _ = nexus_abi::debug_println(
+                                    "netstackd: udp bind missing reply cap",
+                                );
                             }
                         }
                         // v1: [magic,ver,op, port:u16le]
@@ -1025,13 +1027,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     append_nonce(&mut rsp[5..13], nonce);
                                     reply(&rsp);
                                 } else {
-                                    reply(&[
-                                        MAGIC0,
-                                        MAGIC1,
-                                        VERSION,
-                                        OP_UDP_BIND | 0x80,
-                                        STATUS_IO,
-                                    ])
+                                    reply(&[MAGIC0, MAGIC1, VERSION, OP_UDP_BIND | 0x80, STATUS_IO])
                                 }
                             }
                         }
@@ -1656,13 +1652,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 append_nonce(&mut rsp[5..13], nonce);
                                 reply(&rsp);
                             } else {
-                                reply(&[
-                                    MAGIC0,
-                                    MAGIC1,
-                                    VERSION,
-                                    OP_READ | 0x80,
-                                    STATUS_NOT_FOUND,
-                                ]);
+                                reply(&[MAGIC0, MAGIC1, VERSION, OP_READ | 0x80, STATUS_NOT_FOUND]);
                             }
                             let _ = yield_();
                             continue;
@@ -1873,13 +1863,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 append_nonce(&mut rsp[5..13], nonce);
                                 reply(&rsp);
                             } else {
-                                reply(&[
-                                    MAGIC0,
-                                    MAGIC1,
-                                    VERSION,
-                                    OP_LOCAL_ADDR | 0x80,
-                                    STATUS_IO,
-                                ]);
+                                reply(&[MAGIC0, MAGIC1, VERSION, OP_LOCAL_ADDR | 0x80, STATUS_IO]);
                             }
                             let _ = yield_();
                             continue;

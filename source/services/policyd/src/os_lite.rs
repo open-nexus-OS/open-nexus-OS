@@ -230,21 +230,20 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             if !privileged_proxy && requester_id != sender_service_id {
                 // Debug: log identity mismatch for selftest-client debugging.
                 emit_line("policyd: CHECK id mismatch");
-                emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::IdentityMismatch);
+                emit_audit(
+                    op,
+                    AuditDecision::Deny,
+                    sender_service_id,
+                    None,
+                    AuditReason::IdentityMismatch,
+                );
                 return rsp_v1(op, STATUS_DENY);
             }
-            let status = if POLICY.allows(requester_id, CAP_CHECK) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if POLICY.allows(requester_id, CAP_CHECK) { STATUS_ALLOW } else { STATUS_DENY };
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 sender_service_id,
                 None,
                 AuditReason::Policy,
@@ -266,11 +265,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             }
             let cap = &frame[13..13 + cap_len];
             // Identity binding: ignore requester_id from payload unless caller is the privileged proxy (init-lite).
-            let subject_id = if privileged_proxy {
-                requester_id
-            } else {
-                sender_service_id
-            };
+            let subject_id = if privileged_proxy { requester_id } else { sender_service_id };
             let status = if POLICY.allows(subject_id, core::str::from_utf8(cap).unwrap_or("")) {
                 STATUS_ALLOW
             } else {
@@ -278,11 +273,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             };
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 subject_id,
                 None,
                 AuditReason::Policy,
@@ -310,7 +301,13 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             // Identity-binding hardening (v1):
             // never trust requester strings inside payloads; bind to sender_service_id unless init-lite is proxy.
             if !privileged_proxy && requester_id != sender_service_id {
-                emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::IdentityMismatch);
+                emit_audit(
+                    op,
+                    AuditDecision::Deny,
+                    sender_service_id,
+                    None,
+                    AuditReason::IdentityMismatch,
+                );
                 return rsp_v1(op, STATUS_DENY);
             }
             let target_name = &frame[tgt_start..tgt_end];
@@ -330,11 +327,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             let target_id = nexus_abi::service_id_from_name(target_name);
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 sender_service_id,
                 Some(target_id),
                 AuditReason::Policy,
@@ -354,22 +347,21 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             // Identity-binding hardening (v1):
             // never trust requester strings inside payloads; bind to sender_service_id unless init-lite is proxy.
             if !privileged_proxy && requester_id != sender_service_id {
-                emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::IdentityMismatch);
+                emit_audit(
+                    op,
+                    AuditDecision::Deny,
+                    sender_service_id,
+                    None,
+                    AuditReason::IdentityMismatch,
+                );
                 return rsp_v1(op, STATUS_DENY);
             }
             let _image_id = frame[5 + req_len]; // reserved
-            let status = if POLICY.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if POLICY.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 sender_service_id,
                 None,
                 AuditReason::Policy,
@@ -405,11 +397,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             };
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 sender_service_id,
                 Some(nexus_abi::service_id_from_name(target)),
                 AuditReason::Policy,
@@ -450,11 +438,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             };
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 sender_service_id,
                 Some(target_id),
                 AuditReason::Policy,
@@ -479,18 +463,11 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 );
                 return rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
-            let status = if POLICY.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if POLICY.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 sender_service_id,
                 None,
                 AuditReason::Policy,
@@ -518,18 +495,11 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 );
                 return FrameOut { buf, len: 10 };
             }
-            let status = if POLICY.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if POLICY.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             emit_audit(
                 op,
-                if status == STATUS_ALLOW {
-                    AuditDecision::Allow
-                } else {
-                    AuditDecision::Deny
-                },
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 sender_service_id,
                 None,
                 AuditReason::Policy,
@@ -783,9 +753,7 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
 
     let mut frame = [0u8; 512];
     let mut len = 0usize;
-    if frame.len()
-        < 4 + 1 + 1 + 2 + 2 + scope.len().saturating_add(msg.len())
-    {
+    if frame.len() < 4 + 1 + 1 + 2 + 2 + scope.len().saturating_add(msg.len()) {
         return false;
     }
     frame[len..len + 4].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
@@ -824,13 +792,7 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
         Ok(slot) => slot,
         Err(_) => return false,
     };
-    let hdr = nexus_abi::MsgHeader::new(
-        moved,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
 
     // Send bounded NONBLOCK.
     let start = nexus_abi::nsec().ok().unwrap_or(0);
@@ -877,7 +839,12 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
         ) {
             Ok(n) => {
                 // Debug: check response status
-                if n >= 5 && abuf[0] == b'L' && abuf[1] == b'O' && abuf[2] == 1 && abuf[3] == (1 | 0x80) {
+                if n >= 5
+                    && abuf[0] == b'L'
+                    && abuf[1] == b'O'
+                    && abuf[2] == 1
+                    && abuf[3] == (1 | 0x80)
+                {
                     if abuf[4] != 0 {
                         // logd returned non-OK status
                         emit_line("policyd: audit logd FAIL status");

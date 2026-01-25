@@ -501,7 +501,9 @@ fn os_entry() -> core::result::Result<(), ()> {
             }
 
             let ok_b = match encode_announce_v1(&ann_b).ok() {
-                Some(b) => send_announce(&net, &mut nonce_ctr, udp_id, disc_port, &b).unwrap_or(false),
+                Some(b) => {
+                    send_announce(&net, &mut nonce_ctr, udp_id, disc_port, &b).unwrap_or(false)
+                }
                 None => false,
             };
 
@@ -706,7 +708,11 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 
     // Helper: accept on listener (nonce-correlated).
-    fn tcp_accept(net: &KernelClient, nonce_ctr: &mut u64, lid: u32) -> core::result::Result<u32, ()> {
+    fn tcp_accept(
+        net: &KernelClient,
+        nonce_ctr: &mut u64,
+        lid: u32,
+    ) -> core::result::Result<u32, ()> {
         const MAGIC0: u8 = b'N';
         const MAGIC1: u8 = b'S';
         const VERSION: u8 = 1;
@@ -2235,9 +2241,7 @@ fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
     }
 
     // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
-    let ok = logd
-        .send_with_cap_move_wait(&frame, moved, Wait::NonBlocking)
-        .is_ok();
+    let ok = logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok();
     if !ok {
         let _ = nexus_abi::cap_close(moved);
     }

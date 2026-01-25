@@ -1,3 +1,6 @@
+// Build scripts are allowed to panic on misconfiguration.
+#![allow(clippy::expect_used)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;

@@ -472,7 +472,6 @@ fn emit_line(message: &str) {
     }
 }
 
-
 #[cfg(all(test, nexus_env = "os", feature = "os-lite"))]
 mod tests {
     use super::*;

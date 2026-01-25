@@ -1613,9 +1613,8 @@ mod os_lite {
         let frame = [MAGIC0, MAGIC1, VERSION, OP_STATS];
         logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
-        let rsp = logd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let rsp =
+            logd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
         if rsp.len() < 21
             || rsp[0] != MAGIC0
             || rsp[1] != MAGIC1
@@ -1625,9 +1624,8 @@ mod os_lite {
         {
             return Err(());
         }
-        let total = u64::from_le_bytes([
-            rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
-        ]);
+        let total =
+            u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
         Ok(total)
     }
 
@@ -2138,7 +2136,8 @@ mod os_lite {
         }
         // Deny proof (identity-bound): ask policyd whether *selftest-client* has a capability it does NOT have.
         // Use OP_CHECK_CAP so policyd can evaluate a specific capability for the caller, without trusting payload IDs.
-        let deny_ok = policyd_check_cap(&policyd, "selftest-client", "crypto.sign").unwrap_or(false) == false;
+        let deny_ok =
+            policyd_check_cap(&policyd, "selftest-client", "crypto.sign").unwrap_or(false) == false;
         if deny_ok {
             emit_line("SELFTEST: policy deny ok");
         } else {
@@ -2160,19 +2159,15 @@ mod os_lite {
         emit_hex_u64(record_count as u64);
         emit_byte(b'\n');
         // Debug: try to find any audit record
-        let any_audit = logd_query_contains_since_paged(&logd, 0, b"audit")
-            .unwrap_or(false);
+        let any_audit = logd_query_contains_since_paged(&logd, 0, b"audit").unwrap_or(false);
         if any_audit {
             emit_line("SELFTEST: logd has audit records");
         } else {
             emit_line("SELFTEST: logd has NO audit records");
         }
-        let allow_audit = logd_query_contains_since_paged(
-            &logd,
-            0,
-            b"audit v1 op=check decision=allow",
-        )
-        .unwrap_or(false);
+        let allow_audit =
+            logd_query_contains_since_paged(&logd, 0, b"audit v1 op=check decision=allow")
+                .unwrap_or(false);
         if allow_audit {
             emit_line("SELFTEST: policy allow audit ok");
         } else {

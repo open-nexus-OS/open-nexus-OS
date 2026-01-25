@@ -26,12 +26,7 @@ impl<'a> Policy<'a> {
         self.entries
             .iter()
             .find(|entry| entry.service_id == service_id)
-            .map(|entry| {
-                entry
-                    .capabilities
-                    .iter()
-                    .any(|cap| cap.eq_ignore_ascii_case(capability))
-            })
+            .map(|entry| entry.capabilities.iter().any(|cap| cap.eq_ignore_ascii_case(capability)))
             .unwrap_or(false)
     }
 

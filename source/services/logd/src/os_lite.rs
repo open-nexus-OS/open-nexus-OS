@@ -22,9 +22,9 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::journal::{Journal, RecordId, TimestampNsec};
 use crate::protocol::{
-    encode_query_response, encode_stats_response, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE,
-    STATUS_UNSUPPORTED, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND,
-    OP_QUERY, OP_STATS, VERSION,
+    encode_query_response, encode_stats_response, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN,
+    MAX_SCOPE_LEN, OP_APPEND, OP_QUERY, OP_STATS, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE,
+    STATUS_UNSUPPORTED, VERSION,
 };
 
 /// Result alias surfaced by the lite logd backend.
@@ -85,8 +85,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let _ = yield_();
     emit_line("logd: ready");
 
-    let mut journal =
-        Journal::new_with_alloc_cap(JOURNAL_CAP_RECORDS, JOURNAL_CAP_BYTES, JOURNAL_ALLOC_CAP_BYTES);
+    let mut journal = Journal::new_with_alloc_cap(
+        JOURNAL_CAP_RECORDS,
+        JOURNAL_CAP_BYTES,
+        JOURNAL_ALLOC_CAP_BYTES,
+    );
     // If the kernel time source is unavailable (or too coarse), fall back to a deterministic, strictly
     // monotonic counter. This enables bounded pagination in tests without relying on wall-clock.
     let mut fallback_ts: u64 = 0;
@@ -211,25 +214,20 @@ fn handle_frame(
     }
     match frame[3] {
         OP_APPEND => match decode_append(frame) {
-            Ok((level, scope, message, fields)) => match journal.append(
-                sender_service_id,
-                now,
-                level,
-                scope,
-                message,
-                fields,
-            ) {
-                Ok(outcome) => encode_append_response_small(
-                    STATUS_OK,
-                    outcome.record_id,
-                    outcome.dropped_records,
-                ),
-                Err(_) => encode_append_response_small(
-                    STATUS_TOO_LARGE,
-                    RecordId(0),
-                    journal.stats().dropped_records,
-                ),
-            },
+            Ok((level, scope, message, fields)) => {
+                match journal.append(sender_service_id, now, level, scope, message, fields) {
+                    Ok(outcome) => encode_append_response_small(
+                        STATUS_OK,
+                        outcome.record_id,
+                        outcome.dropped_records,
+                    ),
+                    Err(_) => encode_append_response_small(
+                        STATUS_TOO_LARGE,
+                        RecordId(0),
+                        journal.stats().dropped_records,
+                    ),
+                }
+            }
             Err(err) => encode_append_response_small(err, RecordId(0), stats.dropped_records),
         },
         OP_QUERY => match decode_query(frame) {
@@ -287,11 +285,7 @@ fn decode_query(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
     Ok((TimestampNsec(since), max_count))
 }
 
-fn encode_append_response_small(
-    status: u8,
-    record_id: RecordId,
-    dropped: u64,
-) -> ResponseFrame {
+fn encode_append_response_small(status: u8, record_id: RecordId, dropped: u64) -> ResponseFrame {
     let mut buf = [0u8; 64];
     buf[0] = MAGIC0;
     buf[1] = MAGIC1;
