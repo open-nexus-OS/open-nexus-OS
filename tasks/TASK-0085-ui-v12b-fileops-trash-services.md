@@ -36,7 +36,7 @@ Deliver:
      - `fileops: op (id=..., kind=..., n=...)`
      - `fileops: done (id=..., bytes=...)`
 2. `trashd` service:
-   - per-app trash under `state://<appId>/.trash`
+   - per-app trash under `state:/<appId>/.trash`
    - sidecar metadata and deterministic restore rules:
      - restore to original parent if possible, else `Recovered/`
    - purge/empty with retention policy
@@ -67,7 +67,8 @@ Deliver:
 
 `tests/ui_v12b_host/`:
 
-- copy from `pkg://` to `state://` shows monotonic progress and done=OK
+- copy from `pkg://` to `state:/` shows monotonic progress and done=OK
+- copy from `pkg://` to `state:/` shows monotonic progress and done=OK
 - move + rename reflected in provider listings
 - trash then restore returns to original or `Recovered/` deterministically
 - cancel stops operation and produces canceled state
@@ -84,4 +85,3 @@ Deliver:
 1. fileopsd core (copy/move/rename/mkdir) + progress + markers
 2. trashd core + sidecar format + markers
 3. integrate fileopsd trash/restore + host tests + docs
-

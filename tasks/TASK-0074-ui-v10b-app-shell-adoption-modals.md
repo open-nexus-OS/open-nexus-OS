@@ -77,7 +77,7 @@ UART markers (order tolerant):
 - `userspace/apps/launcher/`, `userspace/apps/notes/`, `userspace/apps/settings/` (adoption)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v10.sh` (delegates)
-- `docs/ui/app-shell.md` + `docs/ui/testing.md` (extend)
+- `docs/dev/ui/app-shell.md` + `docs/dev/ui/testing.md` (extend)
 
 ## Plan (small PRs)
 
@@ -86,4 +86,3 @@ UART markers (order tolerant):
 3. SystemUI migration + markers
 4. app migrations (launcher/notes/settings) + markers
 5. OS selftests + docs + postflight
-

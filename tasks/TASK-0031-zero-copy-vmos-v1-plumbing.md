@@ -3,16 +3,34 @@ title: TASK-0031 Zero-copy VMOs v1: shared RO buffers via existing VMO syscalls 
 status: Draft
 owner: @runtime
 created: 2025-12-22
+updated: 2026-01-26
 links:
   - Vision: docs/agents/VISION.md
+  - Playbook: docs/agents/PLAYBOOK.md
   - Zero-Copy App Platform (consumer track): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - Office Suite (consumer): tasks/TRACK-OFFICE-SUITE.md
+  - DAW (consumer): tasks/TRACK-DAW-APP.md
+  - Live Studio (consumer): tasks/TRACK-LIVE-STUDIO-APP.md
+  - Video Editor (consumer): tasks/TRACK-VIDEO-EDITOR-APP.md
+  - NexusGfx SDK (consumer): tasks/TRACK-NEXUSGFX-SDK.md
+  - NexusMedia SDK (consumer): tasks/TRACK-NEXUSMEDIA-SDK.md
+  - Service architecture (control/data plane): docs/adr/0017-service-architecture.md
   - IPC/rights model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Depends-on (OS DSoftBus mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Depends-on (persistence/statefs): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Depends-on (supply-chain digests): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Testing contract: scripts/qemu-test.sh
+  - Security standards: docs/standards/SECURITY_STANDARDS.md
+  - Rust standards: docs/standards/RUST_STANDARDS.md
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (zero-copy DMA buffers for GPU/NPU/VPU/Audio/Camera/ISP)
   - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (zero-copy packet buffers)
+
+follow-up-tasks:
+  - TASK-0031-v2: Kernel-enforced RO sealing (`Rights::SEAL`) and write-map denial proofs (to be created; gate on kernel support)
+  - TASK-0031-vfs: VFS/content providers “splice to VMO” paths and registries (once writable `/state` and provider hooks exist)
+  - TASK-0020: DSoftBus mux v2 VMO frames (once mux v2 exists; depends on this v1 contract)
+  - TRACK-DRIVERS-ACCELERATORS: zero-copy DMA buffers for real devices (GPU/NPU/VPU/Audio/Camera/ISP)
+  - TRACK-NETWORKING-DRIVERS: zero-copy packet buffers and bounded receive rings
 ---
 
 ## Context
@@ -26,6 +44,12 @@ The repo already exposes OS VMO syscalls in `nexus-abi`:
 However, many consumers in the roadmap (remote-fs, mux v2 VMO frames, statefs fast paths) are not yet implemented.
 So v1 must focus on **plumbing** and **honest gating**: provide a robust VMO abstraction and prove sharing works
 where the kernel ABI already supports it.
+
+Keystone note (avoid drift):
+
+- This task is a **cross-track keystone**. If it is not real and proven, we should not claim “zero-copy” for:
+  - Media pipelines, pro creative apps (DAW/Studio/Video), large document/data workflows (Office/BI), or device-class SDKs.
+- Proof must be end-to-end (producer → transfer → consumer map_ro → verify), not “we used a byte buffer type”.
 
 Track alignment: this is a cross-cutting foundation for “device-class” services (GPU/NPU/Audio/Video) and future
 networking zero-copy paths (see `tasks/TRACK-DRIVERS-ACCELERATORS.md` and `tasks/TRACK-NETWORKING-DRIVERS.md`).
@@ -64,6 +88,9 @@ Provide a userspace “VMO handle” abstraction that:
     - acceptable v1: library-level convention + only map as RO (documented as not a hard boundary).
 
 ## Security considerations
+
+This task crosses a trust boundary (capability transfer between processes). Any ambiguity here tends to cause
+either security bugs (cap leaks, write mappings) or “fake zero-copy” claims. Treat this as security-critical.
 
 ### Threat model
 
@@ -210,6 +237,4 @@ Notes:
 
 ## Follow-ups (separate tasks)
 
-- VFS splice to VMO registries and budgets (once `/state` write path exists).
-- DSoftBus mux v2 VMO frames with capability advertise/fallback (once mux v2 exists).
-- Packagefs/bundlemgr/statefs fast paths (once those services exist in OS builds).
+See `follow-up-tasks` in the header.

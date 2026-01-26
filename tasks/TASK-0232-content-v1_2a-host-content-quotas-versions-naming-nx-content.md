@@ -19,7 +19,7 @@ links:
 The repo already plans the Files/Content backbone as:
 
 - **pathless** document access (`content://` + stream handles) via `contentd` (`TASK-0081`),
-- **scoped grants** via `grantsd` (persistable grants under `/state/grants.json`) (`TASK-0084`),
+- **scoped grants** via `grantsd` (persistable grants under `/state/grants.nxs`) (`TASK-0084`),
 - **trash/restore + progress operations** via `trashd`/`fileopsd` (`TASK-0085`).
 
 This prompt asks for additional v1.2 details that are not fully specified elsewhere:

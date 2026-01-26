@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Power/idle baseline: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -38,8 +39,8 @@ Deliver on host:
    - threshold events (low/critical/thermal hot/cold)
    - deterministic threshold detection
 4. **Persistence library** (`userspace/libs/battery-persistence/`):
-   - store cycles and last SoC under `state:/battery/state.json` (gated on `/state`)
-   - deterministic state serialization
+   - store cycles and last SoC under `state:/battery/state.nxs` (Cap'n Proto snapshot; canonical; gated on `/state`)
+   - deterministic state serialization (byte-stable)
 5. **Host tests** proving:
    - Coulomb model: with fixed current draw, SoC drops linearly and clamps at 0%/100%
    - thresholds: set SoC to 16% then inject −2% → expect `low`; drop to 5% → expect `critical`
@@ -65,7 +66,7 @@ Deliver on host:
 - **RED (battery authority drift)**:
   - Do not create parallel battery state contracts. This task provides battery model library. `TASK-0237` (SystemUI battery UI) should consume the same battery state contract to avoid drift.
 - **YELLOW (persistence determinism)**:
-  - Persistence must use deterministic JSON serialization (stable ordering, fixed mtime/uid/gid if writing files).
+  - Persistence must use deterministic serialization (byte-stable snapshots; fixed mtime/uid/gid if writing files).
 
 ## Contract sources (single source of truth)
 

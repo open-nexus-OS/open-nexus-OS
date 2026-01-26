@@ -11,6 +11,7 @@ links:
   - Settings v2 (provider keys): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
   - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -29,7 +30,7 @@ The prompt proposes `l10nd` as a new service, while `TASK-0175` already plans lo
 On OS/QEMU:
 
 1. **l10nd service** (`source/services/l10nd/`):
-   - loads compiled catalogs from `pkg://i18n/catalogs/<locale>.lc`
+   - loads compiled catalogs from `pkg://i18n/catalogs/<locale>.lc` (Cap'n Proto encoded; schema/versioned)
    - API (`l10n.capnp`): `get`, `set`, `translate`, `pluralCat`, `fmtDate`, `fmtNumber`, `bidiMark`, `coverage`
    - ICU-lite plural rules and formatting (delegates to host-first core from `TASK-0240`)
    - notifies subscribers via `samgr` topic `i18n.locale.changed`

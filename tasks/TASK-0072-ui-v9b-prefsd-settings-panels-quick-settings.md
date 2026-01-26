@@ -13,6 +13,7 @@ links:
   - Policy as Code (prefs writes): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - UI v9a searchd (settings routes registration): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -37,9 +38,10 @@ Update note (to avoid drift):
 Deliver:
 
 1. `prefsd` service + `nexus-prefs` client:
-   - JSON value store keyed by string
+   - Value store keyed by string (API stays typed/IDL-driven; storage is not JSON-as-contract)
    - subscribe by prefix
-   - backed by `/state/prefs.json` with atomic write
+   - backed by `/state/prefs.nxs` (Cap'n Proto snapshot) with atomic write
+   - (optional) `nx prefs export --json` emits deterministic `prefs.json` as a derived view for debugging/tooling
 2. Selected config bridge:
    - for keys like `ui.theme.mode`, `ui.display.hz` (host-first; OS-gated)
 3. Settings app panels:
@@ -98,7 +100,7 @@ UART markers (order tolerant):
 - `tests/ui_v9b_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v9b.sh` (delegates)
-- `docs/platform/prefs.md` + `docs/ui/settings.md`
+- `docs/platform/prefs.md` + `docs/dev/ui/settings.md`
 
 ## Plan (small PRs)
 

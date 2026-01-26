@@ -69,4 +69,4 @@ Define and prove a v5c contract:
 - `userspace/ui/widgets/virtual_list/` (extend: provider hooks)
 - `userspace/ui/runtime/` (extend: effect scheduling integration hooks)
 - `tests/ui_v5c_lazy_host/`
-- `docs/ui/lazy-loading.md`
+- `docs/dev/ui/lazy-loading.md`

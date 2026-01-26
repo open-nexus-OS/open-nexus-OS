@@ -53,7 +53,7 @@ Deliver:
 5. Docs:
    - extend `docs/systemui/dsl-migration.md` with Phase 2
    - add `docs/systemui/settings.md` and `docs/systemui/notifications.md`
-   - update `docs/dsl/cli.md` for `--systemui` targets
+  - update `docs/dev/dsl/cli.md` for `--systemui` targets
 
 ## Non-Goals
 
@@ -91,4 +91,3 @@ UART markers:
 1. OS routing/mount wiring + markers
 2. selftests + postflight
 3. config/policy defaults + docs
-

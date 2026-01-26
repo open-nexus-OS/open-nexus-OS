@@ -114,7 +114,7 @@ Deliver:
 - `tools/postflight-search-v2-ui.sh` (delegates)
 - `docs/search/ui.md`
 - `docs/search/integration.md`
-- `docs/ui/testing.md` (search UI section)
+- `docs/dev/ui/testing.md` (search UI section)
 
 ## Plan (small PRs)
 

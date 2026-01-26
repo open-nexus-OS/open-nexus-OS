@@ -64,11 +64,10 @@ Deliver:
 - `source/services/printd/` (extend preview)
 - `userspace/ui/preview_textmap/` (new)
 - `tests/ui_v14a_host/`
-- `docs/ui/print-preview.md` (extend with text-map)
+- `docs/dev/ui/print-preview.md` (extend with text-map)
 
 ## Plan (small PRs)
 
 1. printd: add withTextMap option + marker
 2. helper crate: parse/search/highlight + tests
 3. docs update
-

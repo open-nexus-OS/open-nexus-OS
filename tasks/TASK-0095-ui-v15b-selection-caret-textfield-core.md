@@ -74,11 +74,10 @@ UART markers:
 - `userspace/ui/textedit_core/` (new)
 - `userspace/ui/kit/` TextField (rebase)
 - `tests/ui_v15b_host/`
-- `docs/ui/text-stack.md` (extend)
+- `docs/dev/ui/text-stack.md` (extend)
 
 ## Plan (small PRs)
 
 1. textedit_core engine + host tests
 2. TextField integration + context menu + markers
 3. docs and OS selftest hook (later tasks use it)
-

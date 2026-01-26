@@ -53,7 +53,8 @@ Deliver:
    - `store.rate.write`
    - enforce via `policyd.require(...)` (system-only default)
 4. Fixtures:
-   - deterministic `pkg://store/feed.json`, icons, and signed bundles (or references to existing fixtures)
+   - deterministic `pkg://store/feed.nxf` (Cap'n Proto; canonical), icons, and signed bundles (or references to existing fixtures)
+     - optional authoring/derived view: `pkg://store/feed.json` (not canonical)
 5. OS selftests (bounded):
    - wait for readiness: `storefeedd: ready`, `storemgrd: ready`, `bundlemgrd: ready`
    - install app from feed and verify it appears as installed
@@ -131,4 +132,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU (when unblocked), Storefront can install/update/remove a signed local bundle from the offline feed, and ratings stub works when `/state` exists.
-

@@ -34,7 +34,7 @@ Deliver:
    - line numbers
    - syntax highlight stubs for `.nx/.rs/.toml` (fast tokenization; no full parser)
 2. Autosave + recovery:
-   - autosave every N seconds to `state://<appId>/.autosave/...`
+   - autosave every N seconds to `state:/<appId>/.autosave/...`
    - on launch, detect newer autosaves and offer restore
    - markers:
      - `text: open uri=...`
@@ -82,7 +82,7 @@ UART markers:
 
 - `userspace/apps/text/` (new)
 - `tests/ui_v13c_host/`
-- `docs/ui/text-editor.md` (new)
+- `docs/dev/ui/text-editor.md` (new)
 
 ## Plan (small PRs)
 
@@ -90,4 +90,3 @@ UART markers:
 2. autosave/recovery + host tests
 3. clipboard v3 paste handling + print integration
 4. docs
-

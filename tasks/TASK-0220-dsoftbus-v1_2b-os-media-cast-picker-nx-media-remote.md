@@ -100,7 +100,7 @@ Deliver:
 - `tools/nx-media/` (extend)
 - `source/apps/selftest-client/`
 - `schemas/dsoftbus_media_v1_2.schema.json`
-- `docs/media/remote.md` + `docs/tools/nx-media.md` + `docs/ui/testing.md`
+- `docs/media/remote.md` + `docs/tools/nx-media.md` + `docs/dev/ui/testing.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

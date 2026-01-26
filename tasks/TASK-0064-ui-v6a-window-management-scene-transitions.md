@@ -86,7 +86,7 @@ UART markers (order tolerant):
 - `tests/ui_v6a_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v6a.sh` (delegates)
-- `docs/ui/wm.md` + `docs/ui/transitions.md` (new)
+- `docs/dev/ui/wm.md` + `docs/dev/ui/transitions.md` (new)
 
 ## Plan (small PRs)
 
@@ -94,4 +94,3 @@ UART markers (order tolerant):
 2. focus/z-order rules + host tests
 3. transitions engine + reduced motion + host tests
 4. OS selftest markers + docs + postflight
-

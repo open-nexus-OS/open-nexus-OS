@@ -14,6 +14,7 @@ links:
   - Clipboard v2 substrate (optional demo): tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
   - Share v2 (intents) later: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -45,7 +46,8 @@ Deliver:
    - system apps (SystemUI + share-demo) are pre-granted in the test profile
    - marker: `policy: dsoftbus caps enforced`
 3. Device registry persistence (OS-gated):
-   - path: `state:/dsoftbus/peers.json`
+   - path: `state:/dsoftbus/peers.nxs` (Cap'n Proto snapshot; canonical)
+   - optional derived/debug view: `nx bus peers --json` emits deterministic JSON
    - if `/state` is unavailable: registry is RAM-only and must emit explicit `stub/placeholder` markers (never “persist ok”)
 4. Share Demo app:
    - deterministic UI flow (pick peer, pair if needed, send text / send small file / ping-pong)

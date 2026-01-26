@@ -11,6 +11,7 @@ links:
   - MIME defaults (chooser “always use”): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Clipboard v3 target (optional): tasks/TASK-0087-ui-v13a-clipboard-v3.md
   - contentd saveAs (Save target dependency): tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -33,7 +34,8 @@ Deliver:
    - dispatch to a target and return a request id (`dispatch`)
    - await result with timeout (`awaitResult`)
    - MRU ranking (`bumpRank`) with deterministic ordering rules
-   - persistence of registered targets to `state:/intents/targets.json` (if `/state` exists; otherwise host tests simulate persistence)
+   - persistence of registered targets to `state:/intents/targets.nxs` (Cap'n Proto snapshot; canonical) (if `/state` exists; otherwise host tests simulate persistence)
+     - optional derived/debug view: `nx intents export --json` emits deterministic JSON
 2. IDL contract:
    - `tools/nexus-idl/schemas/intent.capnp` describing Target/Payload/Result and Intents API
    - contract must be versioned and compatible with OS constraints (bounded allocations, stable errors)

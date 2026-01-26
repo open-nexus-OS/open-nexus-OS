@@ -12,6 +12,7 @@ links:
   - SecureFS overlay baseline (OS-gated): tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
   - Keystored v1.1 lifecycle/non-exportable ops: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -75,7 +76,7 @@ Deliver:
     - and deterministic/seeded RNG only in tests (labeled insecure).
 
 - **YELLOW (identity storage backend drift)**:
-  - Existing identity task uses `state:/identity/users.json` + Argon2id.
+  - Existing identity task uses `state:/identity/users.nxs` + Argon2id.
   - Do not silently switch to libSQL + scrypt without a decision; keep one canonical contract and document migrations explicitly.
 
 ## Stop conditions (Definition of Done)

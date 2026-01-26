@@ -14,6 +14,7 @@ links:
   - Policy v1.1 OS UI/CLI direction: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -35,7 +36,7 @@ Deliver:
    - per-locale files (deterministic naming), e.g.:
      - `state:/secure/ime/<lang>/user_dict.jsonl`
      - `state:/secure/ime/<lang>/ctx_bigram.jsonl`
-     - `state:/secure/ime/meta.json`
+     - `state:/secure/ime/meta.nxs` (Cap'n Proto snapshot; canonical)
    - quotas enforced (rows/bytes) with deterministic eviction policy (as per v2.1a)
    - markers:
      - `imestore: open ok lang=<...>`
@@ -126,4 +127,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU (when unblocked by SecureFS + /state), IME personalization adapts deterministically and export/import/toggle are proven by selftest markers.
-

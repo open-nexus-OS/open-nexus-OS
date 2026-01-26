@@ -49,7 +49,10 @@ Deliver:
    - enumerate all grants (admin/system)
    - revoke by appId+cap (and optionally by scope if needed; decide and document)
 4. Storage format (host-first):
-   - define JSONL persistence format under `state:/policy/grants/<appId>.jsonl`
+   - canonical persistence format:
+     - `state:/policy/grants/<appId>.nxs` (Cap'n Proto snapshot; canonical)
+     - optional derived/debug view: `nx policy grants export --json` emits deterministic JSON
+   - JSONL is reserved for **append-only logs** (audit/event streams), not for canonical grant snapshots.
    - host tests use a tempdir adapter; OS persistence is gated on `/state`
 5. Deterministic audit emission:
    - for `grant`, `revoke`, and denied `require`
@@ -111,4 +114,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests prove scoped grants + expiry + enumeration/revocation deterministically.
-

@@ -41,7 +41,7 @@ Deliver:
    - `tools/nexus-idl/schemas/perf.capnp` defining start/stop/markBegin/markEnd/frameTick/exportLast
 3. Trace export:
    - host-first: export to a temp directory (test fixture)
-   - OS-gated: export to `state://perf/traces/<name>-<ts>.json` once `/state` exists
+   - OS-gated: export to `state:/perf/traces/<name>.trace.json` once `/state` exists (atomic replace; no timestamps in filenames)
 4. Markers:
    - `perfd: ready`
    - `perf: start <name> (budget=...)`
@@ -75,7 +75,7 @@ New deterministic host tests (suggested: `tests/perf_v1_host/`):
 Once `/state` is available and perfd is wired:
 
 - `perfd: ready` marker appears
-- `perf: trace state://perf/traces/...` appears after an export trigger
+- `perf: trace state:/perf/traces/...` appears after an export trigger
 
 ## Touched paths (allowlist)
 

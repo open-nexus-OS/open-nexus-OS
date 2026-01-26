@@ -41,7 +41,7 @@ Deliver:
      - accepts text/html/image/URIs and writes to `clipboardd` (v3 flavors preferred; fall back if not available)
      - marker: `share: clipboard ok (mimes=...)`
    - Save-to-Files target:
-     - uses `contentd.saveAs` into `state://Downloads/` (v1 fixed destination is acceptable)
+     - uses `contentd.saveAs` into `state:/Downloads/` (v1 fixed destination is acceptable)
      - marker: `share: save ok (uri=...)`
    - Notes target:
      - registers for `text/plain` and optionally `image/png` / `text/html` (HTML→plain conversion)
@@ -96,4 +96,3 @@ UART markers include:
 1. chooser overlay UI + markers
 2. clipboard/save/notes targets + registration + markers
 3. grants plumbing end-to-end + host tests
-

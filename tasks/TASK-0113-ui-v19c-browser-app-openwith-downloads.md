@@ -21,7 +21,7 @@ With `webviewd` available (v19a) and a simple `contentd.saveAs` helper (v19b), w
 - strictly offline,
 - tabs + omnibox for allowed schemes,
 - find-in-page,
-- downloads shelf for saving `data:` and `content://` items into `state://Downloads/`,
+- downloads shelf for saving `data:` and `content://` items into `state:/Downloads/`,
 - Open With wiring for `text/html` (and optionally `image/svg+xml`).
 
 ## Goal
@@ -34,7 +34,7 @@ Deliver:
    - zoom controls (fit/actual/step)
    - tabs (minimal)
    - find-in-page using `webviewd.find/findNext`
-   - downloads shelf using `contentd.saveAs` to `state://Downloads/`
+   - downloads shelf using `contentd.saveAs` to `state:/Downloads/`
    - markers:
      - `browser: open uri=..`
      - `browser: tab new`
@@ -96,4 +96,3 @@ UART markers:
 1. browser shell + webviewd integration + markers
 2. downloads shelf + saveAs integration + recents hook
 3. open-with registration + host tests + OS selftests + docs + postflight
-

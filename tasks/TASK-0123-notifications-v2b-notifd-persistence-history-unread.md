@@ -10,6 +10,7 @@ links:
   - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Policy as Code (quotas/limits): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Logging/audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -37,7 +38,8 @@ Deliver:
      - `actions[]` (including inline reply as a kind/stub)
      - grouping keys and timestamps
 2. Persistence (via `/state`):
-   - channels persisted under `state:/notifs/channels/<appId>.json`
+   - channels persisted under `state:/notifs/channels/<appId>.nxs` (Cap'n Proto snapshot; canonical)
+     - optional derived/debug view: `nx notifs channels --json` emits deterministic JSON
    - history ring persisted as `state:/notifs/history.log` (JSONL)
 3. Read APIs:
    - `list(limit)` for current notifications
@@ -97,4 +99,3 @@ UART markers include at least:
 1. notifd: model + IDL (or on-wire contract) + markers
 2. persistence: channels + history ring (JSONL) with bounds
 3. unread counts + host tests
-

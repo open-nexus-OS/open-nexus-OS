@@ -10,6 +10,7 @@ links:
   - UI layout baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -33,10 +34,29 @@ Recommended layout (apps and SystemUI can both follow this shape):
 
 - `ui/pages/**.nx` — top-level pages/screens
 - `ui/components/**.nx` — reusable components
-- `ui/composables/**.nx` — stores/reducers/effects helpers (no IO; pure helpers only)
-- `ui/themes/**.nxtheme` — theme/token mappings (read-only in v0.1)
+- `ui/composables/**.nx` — **pure** helpers and store definitions (no IO; deterministic only)
+- (optional) `ui/services/**.nx` — service adapters called from **effects only** (no reducers; v0.2+)
+- `ui/themes/**.nxtheme.toml` — theme/token mappings (authoring; human-editable)
+  - compiled artifact (canonical, Cap'n Proto): `**.nxtheme` (optional in v0.1; see `TASK-0076`)
 - `ui/platform/<profile>/**` — profile overrides (resolution rules are defined in v0.2; see `TASK-0077`)
-- `ui/tests/**` — host fixtures / goldens / interaction scripts (format is tracked separately)
+- `ui/tests/**` — host fixtures / goldens / interaction scripts
+  - keep v0.1 minimal; v0.2 introduces optional sub-layout via generators (see below)
+
+### Layout posture: minimal by default; expanded by generators
+
+We intentionally do **not** force a heavy scaffold (lots of empty folders/files) in v0.1.
+Instead, `nx dsl` provides generators that create an expanded structure **only when needed**, keeping repos small and avoiding “fake structure”.
+
+Recommended (optional) conventions once an app grows:
+
+- Naming (recommended, not required):
+  - `ui/composables/**.store.nx` — store definitions (state/events/reducers/effects; v0.2+)
+  - `ui/services/**.service.nx` — effect-side service adapters (v0.2b+)
+- Tests (optional structure):
+  - `ui/tests/unit/{stores,services,composables}/`
+  - `ui/tests/component/{pages,components}/`
+  - `ui/tests/e2e/`
+  - `ui/tests/fixtures/` + `ui/tests/goldens/`
 
 ## Goal
 
@@ -50,18 +70,28 @@ Deliver:
 2. Minimal DSL grammar (v0.1 subset):
    - Page/Component/State/Prop/Import/@computed
    - view expressions (Stack/Text/Image/Icon/Button/Card/TextField/List/Spacer)
-   - modifiers (padding/margin/size/opacity/cornerRadius/color(role))
+     - optional escape hatch: `NativeWidget(handle, props)` for rare custom widgets
+       - deterministic given inputs; bounded CPU/memory
+       - no direct IO inside the widget; IO is only via `svc.*` in effects
+       - must provide a11y semantics or be lint-rejected where required
+   - modifiers (styling/layout annotations):
+     - canonical form: `modifier { ... }`
+     - syntactic sugar: chaining (`.padding(2).bg(accent)`) lowers to an equivalent `modifier { ... }`
+     - deterministic conflict posture: duplicate setters are rejected by lint (preferred) or deterministically resolved (documented)
+     - initial set (v0.1): padding/margin/size/opacity/cornerRadius/color(role)
    - bindings ($state read/write) and events (on Tap → set/emit/navigate)
 3. Deterministic Scene-IR:
-   - stable ordering, stable subtree hashes, stable JSON serializer
+   - stable ordering, stable subtree hashes
+   - **canonical on-disk format**: Cap'n Proto binary (`.nxir`) for determinism + bounded parsing + future OS use
+   - **derived view**: stable canonical JSON (`.nxir.json`) for host goldens, diffs, and debugging
 4. Host tests:
    - parse/format idempotence
-   - AST→IR golden JSON stability
+   - AST→IR golden JSON stability (JSON is a view derived from canonical IR)
    - diagnostics for missing @key and missing a11y label hints
 
 5. Module resolution (no auto-import; deterministic):
    - explicit `import "..."`
-   - optional stable alias roots (e.g. `@app/...`) configured by tooling (documented in `docs/dsl/cli.md`)
+   - optional stable alias roots (e.g. `@app/...`) configured by tooling (documented in `docs/dev/dsl/cli.md`)
    - stable conflict errors (same symbol defined in two imports is an error with deterministic ordering)
 
 ### Lint posture (v0.1a)
@@ -94,6 +124,17 @@ Follow-ups that are **out of scope for v0.1a** (tracked in v0.2+ tasks):
   - cap identifier lengths.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
+## v1 readiness gates (DevX, directional)
+
+This task anchors the “feel” of the DSL by making the surface deterministic and easy:
+
+- `$state.field` remains the canonical, intuitive state access idiom (bindings are explicit; IO stays out of view/reducers).
+- Modifiers remain token-driven and deterministic (`modifier {}` canonical; chaining sugar lowers 1:1).
+- `@when ... @else ...` is canonical; `match(expr) { ... else ... }` is sugar only and lowers 1:1.
+- The formatter/linter/IR must stay stable to support a SwiftUI/ArkUI/Compose-like iteration loop (goldens, snapshots).
+
+Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
+
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
@@ -108,7 +149,8 @@ CLI:
 
 - `nx dsl fmt --check` exits non-zero on needed changes
 - `nx dsl lint` returns non-zero on errors (warnings are reported but do not fail unless `--deny-warn`)
-- `nx dsl build` emits `.nxir.json` under `target/nxir/` deterministically
+- `nx dsl build` emits **canonical** `.nxir` under `target/nxir/` deterministically
+- `nx dsl build --emit-json` also emits `.nxir.json` under `target/nxir/` deterministically (derived view for goldens)
 
 ## Touched paths (allowlist)
 
@@ -116,7 +158,7 @@ CLI:
 - `userspace/dsl/nx_ir/` (new)
 - `tools/nx-dsl/` (new)
 - `tests/dsl_v0_1a_host/` (new)
-- `docs/dsl/overview.md` + `docs/dsl/syntax.md` + `docs/dsl/ir.md` + `docs/dsl/cli.md` (new)
+- `docs/dev/dsl/overview.md` + `docs/dev/dsl/syntax.md` + `docs/dev/dsl/ir.md` + `docs/dev/dsl/cli.md` (new)
 
 ## Plan (small PRs)
 

@@ -49,7 +49,8 @@ Prompt mapping note (avoid drift from older plans):
 Deliver `source/services/updated` v2 behavior (service name remains `updated` to avoid drift) with:
 
 1. Offline feed:
-   - `pkg://updates/feeds/stable.json` lists manifest URIs deterministically
+   - `pkg://updates/feeds/stable.nxf` lists manifest URIs deterministically (Cap'n Proto; canonical)
+     - optional authoring/fixture input: `stable.json` compiled to `stable.nxf` at build time
    - deterministic “current version” reporting
    - marker: `updates: feed loaded items=<n>`
 2. Manifest verification:

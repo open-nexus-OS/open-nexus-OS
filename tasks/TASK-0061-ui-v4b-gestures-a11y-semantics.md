@@ -86,7 +86,7 @@ UART markers (order tolerant):
 - `tests/ui_v4b_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v4b.sh` (delegates)
-- `docs/ui/gestures.md` + `docs/accessibility/semantics.md` (new)
+- `docs/dev/ui/gestures.md` + `docs/accessibility/semantics.md` (new)
 
 ## Plan (small PRs)
 
@@ -94,4 +94,3 @@ UART markers (order tolerant):
 2. windowd integration + inertial scroll
 3. a11yd service + reader stub + focus navigation
 4. tests + docs + postflight
-

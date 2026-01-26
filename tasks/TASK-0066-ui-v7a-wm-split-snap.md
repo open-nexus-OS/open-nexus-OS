@@ -78,7 +78,7 @@ UART markers:
 - `tests/ui_v7a_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v7a.sh` (delegates)
-- `docs/ui/wm-snap.md`
+- `docs/dev/ui/wm-snap.md`
 
 ## Plan (small PRs)
 
@@ -86,4 +86,3 @@ UART markers:
 2. IDL changes and WM snap/unsnap implementation
 3. policy constraints integration
 4. host tests + OS selftest markers + docs + postflight
-

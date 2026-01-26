@@ -63,7 +63,7 @@ Deliver:
 - **No paths** exposed to apps for document access (only `content://` URIs and stream handles).
 - Deterministic provider behavior for tests (especially demo-cloud).
 - Policy guardrails:
-  - sandbox `state://` per-app subtree,
+  - sandbox `state:/` per-app subtree,
   - `pkg://` is read-only,
   - `demo-cloud://` off by default except tests.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
@@ -79,7 +79,7 @@ Deliver:
   - mime→assoc query
   - setDefault persists (in-memory for host test) and returns deterministic results
 - Content providers:
-  - `state://` create/list/open/read/write roundtrip (mocked backing store)
+  - `state:/` create/list/open/read/write roundtrip (mocked backing store)
   - `pkg://` rejects writes
   - `mem://` is ephemeral (restart loses entries)
   - `demo-cloud://` gated and deterministic

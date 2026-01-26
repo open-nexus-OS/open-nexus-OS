@@ -32,7 +32,9 @@ Deliver:
      - layout nodes
      - kit primitives
    - wire events (tap) and two-way bindings (TextField) minimally
-   - theme read-through (and `.nxtheme` read-only override, optional)
+   - theme read-through:
+     - authoring input: `ui/themes/**.nxtheme.toml`
+     - optional compiled theme override (canonical, Cap'n Proto): `ui/themes/**.nxtheme`
    - marker: `dsl: interpreter on`
 2. `nx dsl snapshot`:
    - render headless scenes via interpreter into PNGs
@@ -63,6 +65,16 @@ Deliver:
 - Bounded interpreter work per frame (caps on node count and event queue).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
+## v1 readiness gates (DevX, directional)
+
+This task is where the DSL becomes “real” for developers:
+
+- A fast host interpreter + snapshots is our “preview-ish” loop (not necessarily live previews, but fast and deterministic).
+- Profile/locale/theme fixtures must be first-class so developers can prove cross-device correctness early.
+- Binding behavior must be deterministic (TextField etc.) so `$state.field` feels safe and predictable.
+
+Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
+
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
@@ -92,7 +104,7 @@ UART markers:
 - `tests/dsl_v0_1b_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-dsl-v0-1.sh` (delegates)
-- `docs/dsl/testing.md` (new/extend)
+- `docs/dev/dsl/testing.md` (new/extend)
 
 ## Plan (small PRs)
 

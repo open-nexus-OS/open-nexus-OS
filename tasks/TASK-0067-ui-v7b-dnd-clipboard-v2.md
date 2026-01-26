@@ -92,11 +92,10 @@ UART markers:
 - `tests/ui_v7b_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v7b.sh` (delegates)
-- `docs/ui/dnd.md` + `docs/ui/clipboard.md`
+- `docs/dev/ui/dnd.md` + `docs/dev/ui/clipboard.md`
 
 ## Plan (small PRs)
 
 1. dnd IDL + controller + drag image overlay + markers
 2. clipboardd + history ring + policy/budgets + markers
 3. host tests + OS markers + docs + postflight
-

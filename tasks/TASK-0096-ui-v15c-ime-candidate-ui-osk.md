@@ -94,7 +94,7 @@ UART markers:
 - `source/services/imed/` (new or extend if already exists as stub)
 - SystemUI candidate overlay + OSK plugin
 - `tests/ui_v15c_host/`
-- `docs/ui/ime.md` (new)
+- `docs/dev/ui/ime.md` (new)
 
 ## Plan (small PRs)
 

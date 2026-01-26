@@ -10,6 +10,7 @@ links:
   - Real DHCP/ICMP (on-device): tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
   - Config system (future defaults): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy gates (network.configure): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -45,7 +46,7 @@ Deliver:
 3. `dnsd` (hosts + cache only):
    - resolves from:
      - `pkg://net/hosts.json` (fixtures)
-     - optional `state:/net/hosts.json` overrides (gated until `/state` exists)
+     - optional `state:/net/hosts.nxs` overrides (Cap'n Proto snapshot; canonical) (gated until `/state` exists)
    - cache with negative caching (deterministic TTL using injectable clock)
    - **never** performs upstream lookups
    - markers:
@@ -105,4 +106,3 @@ Deliver:
 3. Add dnsd hosts+cache (injectable clock) + markers
 4. Add timesyncd local-offset model + markers
 5. Host tests
-

@@ -36,12 +36,16 @@ Deliver:
 2. `licensed` (license verification) core model:
    - NLT v1 fields:
      - appId/sku/type(full|trial)/device_fp/aud/iat/nbf/exp/meta + signature
-   - canonical JSON encoding rules (sorted keys, no whitespace) and signature verification (Ed25519)
+   - canonical encoding rules:
+     - **Cap'n Proto** is the canonical token encoding (deterministic, compact, versioned)
+     - deterministic JSON is a derived/debug view only (`nx store nlt export --json`)
+   - signature verification (Ed25519)
    - verify outcomes:
      - `ok` + computed entitlement, or deterministic deny reason
    - device binding and max device count rules
 3. `storepaymentsd` (sandbox wallet):
-   - deterministic catalog under `pkg://fixtures/store/catalog.json`
+   - deterministic catalog under `pkg://fixtures/store/catalog.json` (fixture/authoring; not canonical)
+     - compiled artifact for runtime may be `pkg://fixtures/store/catalog.nxf` (Cap'n Proto; canonical) if/when needed
    - quote/purchase/refund actions that produce:
      - an NLT (purchase/trial) signed by the issuer key
      - ledger events
@@ -115,4 +119,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove trial/purchase/refund/revocation/parental behaviors and stable verification outcomes.
-

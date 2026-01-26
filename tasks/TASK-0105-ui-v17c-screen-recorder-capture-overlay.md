@@ -11,6 +11,7 @@ links:
   - Mic input: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
   - Media decoders (optional): tasks/TASK-0099-ui-v16a-media-decoders.md
   - Share sheet (after stop): tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -38,6 +39,8 @@ Deliver:
    - reads PCM windows from `micd` when enabled
    - writes `state:/captures/<ts>-capture.nxc`:
      - NXC = zip with `manifest.json`, `video.mjpeg`, and optional `audio.wav` (v1)
+       - `manifest.json` is an **interop artifact**: keep it JSON for easy inspection/sharing.
+       - JSON must be **canonical** (stable field ordering, no timestamps/mtimes, explicit `schemaVersion`), so host tests can validate deterministically.
    - emits privacy indicator events for `screen`
    - markers:
      - `recorderd: ready`
@@ -88,4 +91,3 @@ Deliver:
 1. recorderd core + NXC container writer + markers
 2. SystemUI capture overlay + privacy chips + markers
 3. host tests + docs
-

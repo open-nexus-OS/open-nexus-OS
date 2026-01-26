@@ -107,7 +107,7 @@ UART markers (order tolerant):
 - `tests/ui_v3b_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v3.sh` (delegates)
-- `docs/ui/scroll.md` + `docs/ui/effects.md` + `docs/ui/input-text.md` (new)
+- `docs/dev/ui/scroll.md` + `docs/dev/ui/effects.md` + `docs/dev/ui/input-text.md` (new)
 
 ## Plan (small PRs)
 

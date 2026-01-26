@@ -96,7 +96,7 @@ UART markers (order tolerant):
 - `userspace/apps/notes/` (demo app, minimal)
 - `tests/ui_v6b_host/` (new)
 - `tools/postflight-ui-v6b.sh` (delegates)
-- `docs/ui/lifecycle.md` + `docs/ui/notifications.md` (new)
+- `docs/dev/ui/lifecycle.md` + `docs/dev/ui/notifications.md` (new)
 
 ## Plan (small PRs)
 
@@ -109,4 +109,3 @@ UART markers (order tolerant):
 ## Follow-ups
 
 - Ability/Lifecycle v1.1 (backoff/crash-loop/kill reasons/FG-BG policies): `TASK-0234` (host-first) and `TASK-0235` (OS extension of appmgrd).
-

@@ -50,7 +50,7 @@ Deliver:
    - a11y semantics (caret/selection and format announcements)
 2. `userspace/apps/notes`:
    - toolbar + status bar (words/chars/lang)
-   - autosave to `state://notes/.autosave/...` (reuse patterns)
+   - autosave to `state:/notes/.autosave/...` (reuse patterns)
    - export:
      - HTML export (sanitized)
      - PDF export via `printd.renderView`
@@ -96,7 +96,7 @@ UART markers:
 - `userspace/ui/kit/richtext/` (new)
 - `userspace/apps/notes/` (new)
 - `tests/ui_v15e_host/`
-- `docs/ui/richtext.md` (new)
+- `docs/dev/ui/richtext.md` (new)
 
 ## Plan (small PRs)
 

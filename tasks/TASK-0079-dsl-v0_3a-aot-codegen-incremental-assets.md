@@ -11,6 +11,8 @@ links:
   - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - UI svg safe subset baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
 ---
 
 ## Context
@@ -37,7 +39,8 @@ Deliver:
    - reachability graph from Routes for tree-shaking
    - marker string: `dsl: ir stable` (host-visible; OS marker only in v0.3b)
 2. `nx_codegen` crate:
-   - input: `.nxir.json` (+ assets)
+   - input: canonical `.nxir` (Cap'n Proto) (+ assets)
+     - optional derived view input for tooling/debug: `.nxir.json` (must be derived from the canonical IR)
    - output: generated Rust crate under `userspace/apps/generated/<app>_dsl/`
    - generated API: `mount_<page>(...) -> ViewRootHandle`
    - router generation for routes
@@ -85,6 +88,16 @@ Deliver:
   - guard watch mode from infinite loops (debounce)
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
+## v1 readiness gates (DevX, directional)
+
+AOT is optional, but it must never change “the feel”:
+
+- Interpreter and AOT must be behavior-identical for the same `{locale, profile, env}` inputs (goldens prove parity).
+- Asset embedding (SVG/i18n) must remain deterministic so “first-party polish” doesn’t become flaky.
+- Codegen must preserve boundedness (no unbounded compile-time explosion, stable module counts).
+
+Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
+
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
@@ -104,7 +117,7 @@ Deliver:
 - `userspace/dsl/nx_codegen/` (new)
 - `tools/nx-dsl/` (extend: --aot build/run/watch)
 - `tests/dsl_v0_3a_host/` (new)
-- `docs/dsl/codegen.md` + `docs/dsl/incremental.md` (new)
+- `docs/dev/dsl/codegen.md` + `docs/dev/dsl/incremental.md` (new)
 
 ## Plan (small PRs)
 

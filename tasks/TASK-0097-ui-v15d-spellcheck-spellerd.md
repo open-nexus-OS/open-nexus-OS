@@ -76,11 +76,10 @@ UART markers:
 - `source/services/spellerd/` (new)
 - `userspace/ui/textedit_core/` and/or TextField integration points
 - `tests/ui_v15d_host/`
-- `docs/ui/spellcheck.md` (new)
+- `docs/dev/ui/spellcheck.md` (new)
 
 ## Plan (small PRs)
 
 1. spellerd core + dictionaries + markers
 2. TextField integration (underlines + suggestions) + markers
 3. host tests + docs
-

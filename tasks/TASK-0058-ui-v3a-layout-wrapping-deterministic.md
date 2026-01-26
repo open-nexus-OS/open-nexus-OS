@@ -90,7 +90,7 @@ Once windowd/plugins consume layout:
 - `userspace/ui/shape/` (extend: wrapping)
 - `userspace/ui/renderer/` (optional: draw_wrapped_text helper)
 - `tests/ui_v3a_host/` (new)
-- `docs/ui/layout.md` + `docs/ui/wrapping.md` (new)
+- `docs/dev/ui/layout.md` + `docs/dev/ui/wrapping.md` (new)
 
 ## Plan (small PRs)
 
@@ -109,4 +109,3 @@ Once windowd/plugins consume layout:
 
 4. **Docs**
    - determinism rules and unsupported features
-

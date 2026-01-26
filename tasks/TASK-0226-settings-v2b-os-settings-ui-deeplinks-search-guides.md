@@ -76,7 +76,7 @@ Deliver:
    - `docs/settings/overview.md` (scopes/types/providers)
    - `docs/settings/deeplinks.md` (setting:// canonical)
    - `docs/settings/search.md` (settings source integration)
-   - update `docs/ui/testing.md`
+   - update `docs/dev/ui/testing.md`
 
 ## Non-Goals
 
@@ -121,4 +121,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, Settings deep links work, settings entries are searchable and activate, and guided cards resolve deterministically.
-

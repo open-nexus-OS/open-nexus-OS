@@ -93,8 +93,8 @@ UART markers:
 - SystemUI launcher tiles
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-dsl-v0-3.sh` (delegates)
-- `docs/dsl/perf.md` (new)
-- `docs/dsl/cli.md` (extend: --aot perf/watch)
+- `docs/dev/dsl/perf.md` (new)
+- `docs/dev/dsl/cli.md` (extend: --aot perf/watch)
 
 ## Plan (small PRs)
 
@@ -102,4 +102,3 @@ UART markers:
 2. AOT demo app integration + SystemUI tiles + markers
 3. OS selftest parity + i18n markers
 4. postflight + docs
-

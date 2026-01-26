@@ -79,7 +79,9 @@ Deliver:
 
 ## Constraints / invariants (hard requirements)
 
-- Offline & deterministic: all quotes/catalog are from `pkg://fixtures/store/catalog.json`.
+- Offline & deterministic:
+  - all quotes/catalog are from `pkg://fixtures/store/catalog.json` (fixture/authoring; not canonical),
+  - runtime may consume a compiled Cap'n Proto catalog (e.g. `catalog.nxf`) if/when needed for bounded parsing.
 - `/state` gating: persistence is only real when `TASK-0009` exists.
 - No fake success markers.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
@@ -120,4 +122,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, trial/buy/refund/parental flows are proven deterministically via selftests; paid SKU install is denied without entitlement and allowed with it.
-

@@ -83,7 +83,7 @@ UART markers:
 - `tests/ui_v12c_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v12.sh` (delegates)
-- `docs/ui/files.md` (new)
+- `docs/dev/ui/files.md` (new)
 
 ## Plan (small PRs)
 

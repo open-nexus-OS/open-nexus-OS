@@ -12,6 +12,7 @@ links:
   - Power/idle OS: tasks/TASK-0237-power-v1_0b-os-powerd-alarmsd-standbyd-idle-hooks-selftests.md
   - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -40,7 +41,8 @@ On OS/QEMU:
 3. **batteryd service** (`source/services/batteryd/`; repo reality: replace/rename `source/services/batterymgr/` placeholder):
    - deterministic model: simple Coulomb counter with OCV clamp between `voltage_empty_mv..voltage_full_mv`; temperature stable 25 °C unless injected (using library from `TASK-0256`)
    - charger: when `plug=true`, state `charging` until 100%, then `full`; unplug sets `discharging` (using library from `TASK-0256`)
-   - persistence: store cycles and last SoC under `state:/battery/state.json` (gated on `/state`)
+   - persistence: store cycles and last SoC under `state:/battery/state.nxs` (Cap'n Proto snapshot; canonical; gated on `/state`)
+     - optional derived/debug view: `nx battery export --json` emits deterministic JSON
    - publish to `powerd` on each sample; trigger threshold events (low/critical/thermal hot/cold) (using library from `TASK-0256`)
    - API (`battery.capnp`): `get()` → `Sample`, `subscribe()` → `samples:List(Sample)`, `calibrate(mwh)`, `inject(deltaPct, plug)` (test-only deterministic)
    - markers: `batteryd: ready`, `batteryd: sample pct=.. mv=.. ma=.. state=charging`, `batteryd: threshold low`, `batteryd: threshold critical`

@@ -11,6 +11,11 @@ links:
   - UI runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
   - UI layout baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+follow-up-tasks:
+  - TASK-0077B: DevX ergonomics (local state/bindings/env/async recipes)
+  - TASK-0077C: Pro primitives + NativeWidget blessed path (tables/timelines)
 ---
 
 ## Context
@@ -55,6 +60,19 @@ Override resolution must be:
 Inline branching (`@when device.profile==... { ... }`) is allowed, but must lower to deterministic IR with bounded
 branch evaluation (no hidden time-based switching).
 
+### Canonical conditional form (v0.x)
+
+We standardize on one canonical conditional form for UI branching:
+
+- **canonical**: `@when <cond> { ... }` with optional `@else { ... }`
+- **sugar**: `match(device.profile) { ... else ... }` lowers to an equivalent `@when` chain (no new semantics)
+
+Lint posture:
+
+- `@when` chains are evaluated top-to-bottom; first match wins.
+- For profile-driven layout branching, **missing `@else` is a lint warning by default** (upgradeable via `--deny-warn`).
+  (Rationale: avoid “works on phone, broken on tv” drift.)
+
 ## Goal
 
 Deliver:
@@ -66,16 +84,26 @@ Deliver:
    - i18n key declarations and `@t("key")` usage
 2. IR extensions:
    - IrStore / IrReducer / IrEffect / IrRoutes / IrI18n
-   - stable hashing and JSON serialization remain deterministic
+   - stable hashing remains deterministic
+   - IR serialization:
+     - canonical: Cap'n Proto (`.nxir`)
+     - derived: canonical JSON view (`.nxir.json`) remains deterministic for host goldens/debugging
 3. Lowering validations:
    - reducers are pure (no IO, no service calls)
    - exhaustive event enums / unreachable diagnostics (where feasible)
    - unique routes, param type validation
    - `@t("key")` keys exist and are collected
 4. Interpreter runtime additions:
-   - store runtime: dispatch → reduce → schedule effects (effect steps are abstract in v0.2a)
+   - store runtime:
+     - **model**: state + events + reducers + effects (JS “getters/actions” naming is avoided; reducers/effects match the language semantics)
+     - dispatch → reduce (pure) → commit → schedule effects (effect steps are abstract in v0.2a)
+     - **boundaries**:
+       - reducers are pure: no IO, no `svc.*`, no DB, no file access
+       - effects may call service adapters (v0.2b) and must be bounded/time-limited
    - navigation runtime: history push/replace/back, param parsing, subtree mount/unmount
    - i18n runtime: locale packs loader + `t(key)` lookup + locale switch signal
+     - authoring packs may be JSON for human editing
+     - runtime prefers compiled, compact binary catalogs when available (see `TASK-0240/0241`)
    - device env runtime: fixture-backed on host; plumbed from OS later
    - markers:
      - `dsl: store runtime on`
@@ -117,7 +145,40 @@ Recommended **warnings** (v0.2a+ follow-ups):
   - cap queued events per frame,
   - cap effect queue length,
   - cap route history length.
+- Bounded language constructs:
+  - loops are allowed, but must be **bounded** (no unbounded `while`/infinite loops in v0.x).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
+
+## Session management + persistence posture (v0.2a guidance)
+
+This task does not implement a DB, but it must keep app state architecture clean and deterministic.
+Recommended tiering (applies to both interpreter and AOT):
+
+1. **Session state (default)**:
+   - in-memory store state scoped to the app instance/window/session
+   - examples: selection, scroll position, in-flight request state, current route history
+2. **Durable small state (typed snapshots)**:
+   - persisted via a typed snapshot (`.nxs`) through the platform preferences/settings substrate
+   - examples: last-opened page/doc id, user UI prefs, locale preference, pinned items
+3. **Durable large/queryable state (DB)**:
+   - only when real querying/indexing is required (notes content, message history, search index)
+   - must be host-first and OS-gated; do not make v0.2a semantics depend on DB availability
+
+Tooling implication:
+
+- `nx dsl lint` may warn when reducers attempt to encode persistence/IO logic (even if syntactically allowed elsewhere),
+  and should guide developers toward “effects + adapters + snapshots” instead.
+
+## v1 readiness gates (DevX, directional)
+
+v0.2 is where the DSL becomes app-capable. For v1 “feel”, we also require:
+
+- Local state ergonomics and bindings remain intuitive (`$state.field`) without hidden magic (tracked in `TASK-0077B`).
+- Environment (theme/locale/device) is fixture-testable and deterministic (avoid host-dependent behavior).
+- Navigation is simple and deterministic (typed params, bounded history; deep link shape is explicit).
+- Large data surfaces do not require DSL “power language”: pro primitives + NativeWidget are the path (tracked in `TASK-0077C`).
+
+Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
 
 ## Stop conditions (Definition of Done)
 
@@ -138,8 +199,8 @@ Recommended **warnings** (v0.2a+ follow-ups):
 - `userspace/dsl/nx_interp/` (extend: store/nav/i18n runtimes)
 - `userspace/dsl/nx_env/` (new or in `nx_interp`: device env types + host fixtures)
 - `tests/dsl_v0_2a_host/` (new)
-- `docs/dsl/state.md` + `docs/dsl/navigation.md` + `docs/dsl/i18n.md` (new/extend)
-- `docs/dsl/profiles.md` (new: device env + override resolution rules)
+- `docs/dev/dsl/state.md` + `docs/dev/dsl/navigation.md` + `docs/dev/dsl/i18n.md` (new/extend)
+- `docs/dev/dsl/profiles.md` (new: device env + override resolution rules)
 
 ## Plan (small PRs)
 

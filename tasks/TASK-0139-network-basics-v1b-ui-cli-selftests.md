@@ -10,6 +10,7 @@ links:
   - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
   - Policy gates (network.configure): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -30,7 +31,8 @@ Deliver:
    - controls:
      - mode selector (Offline / Airplane / Sim DHCP / Static)
      - static fields (IP/mask/gw/dns)
-     - hosts editor (writes to `state:/net/hosts.json` if `/state` exists; otherwise uses in-memory override with explicit “non-persistent” label)
+     - hosts editor (writes to `state:/net/hosts.nxs` if `/state` exists; otherwise uses in-memory override with explicit “non-persistent” label)
+       - authoring/debug view remains JSON: `nx net hosts export --json` (and optional import) uses deterministic JSON
      - “Sync Time Now” (calls timesyncd)
    - markers:
      - `settings:network open`
@@ -107,4 +109,3 @@ UART includes:
 1. DSL Network page + bridge adapters + markers (host-first)
 2. nx-net CLI + stable output
 3. selftests + postflight + docs
-

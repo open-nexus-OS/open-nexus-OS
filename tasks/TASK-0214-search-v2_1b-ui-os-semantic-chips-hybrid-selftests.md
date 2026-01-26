@@ -90,7 +90,7 @@ Deliver:
 - `tools/nx-search/` (extend)
 - `source/apps/selftest-client/`
 - `schemas/search_v2_1.schema.json` (new)
-- `docs/search/` + `docs/tools/nx-search.md` + `docs/ui/testing.md`
+- `docs/search/` + `docs/tools/nx-search.md` + `docs/dev/ui/testing.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)
@@ -102,4 +102,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, semantic-lite reindex/query/tag filtering/hybrid explain behaviors are proven deterministically via selftest markers.
-

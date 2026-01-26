@@ -13,6 +13,7 @@ links:
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Policy cap matrix baseline: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -39,7 +40,8 @@ Deliver:
      - `webhistory: record url=<...> id=<n>`
      - `webhistory: export bytes=<n>`
 2. Session restore/crash recovery:
-   - persist `state:/web/session.json` bounded
+   - persist `state:/web/session.nxs` (Cap'n Proto snapshot; canonical) bounded
+     - optional derived/debug view: `nx web session export --json` emits deterministic JSON
    - restore prompt on startup (WebView sample or browser shell)
    - markers:
      - `webview: session save tabs=<n>`
@@ -67,11 +69,41 @@ Deliver:
 5. Cookie jar v0:
    - remains **disabled by default** and is dev-only
    - OS enablement (if any) must be gated behind devnet and config
-6. `nx-web` extensions:
+6. **Servo experimental browser app (opt-in, parallel to simple browser)**:
+   - new app: `source/apps/browser_servo/` (only built when `EXPERIMENTAL_SERVO=1` or via `just build-servo`)
+   - SystemUI launcher entry: "Browser (Servo, Experimental)" with ⚠️ badge
+   - first-launch warning: "This browser is experimental and may crash. Use at your own risk."
+   - **Crash isolation proofs (critical)**:
+     - Servo crash → SystemUI remains responsive (no freeze/hang)
+     - Servo crash → other apps continue running (no system-wide impact)
+     - Servo crash → kernel/samgr/windowd remain stable (no kernel panic)
+   - **Structured crash reporting integration**:
+     - on Servo crash, `logd` generates structured crash report:
+       - symbolized stack trace (all threads)
+       - last URL loaded
+       - last user action (input event from windowd)
+       - process state (memory usage, thread count, capability set)
+       - policy context (which caps were active, which were denied)
+     - crash report stored under `state:/crashes/servo/<timestamp>.nxs` (Cap'n Proto snapshot; canonical)
+       - derived/debug view: `nx crash export <id> --json` emits deterministic JSON
+     - optional: `nx crash upload <id>` sends report to Servo project (opt-in, user consent required)
+   - markers:
+     - `browser_servo: launched (experimental)`
+     - `browser_servo: page loaded url=<...> (best-effort)` (may be flaky; not gated)
+     - `browser_servo: crashed` (expected during testing)
+     - `logd: crash report generated id=<...>`
+     - `SELFTEST: browser_servo isolation ok` (SystemUI sends SIGKILL to Servo, verifies system stability)
+     - `SELFTEST: browser_servo crash report ok` (verifies crash report is complete and parsable)
+7. `nx-web` extensions:
    - history recent/search/export/clear
    - download list/pause/resume/open/clear
    - NOTE: QEMU selftests must not rely on running host tools inside QEMU
-7. OS selftests (bounded, deterministic):
+8. `nx crash` CLI (new, for Servo crash debugging):
+   - `nx crash list` — list recent crashes (Servo + other apps)
+   - `nx crash show <id>` — display structured crash report (human-readable)
+   - `nx crash export <id> --json` — export crash report as deterministic JSON
+   - `nx crash upload <id>` — upload to Servo project (opt-in, requires user consent + network)
+9. OS selftests (bounded, deterministic):
    - session restore:
      - `SELFTEST: web session restore ok`
    - downloads:
@@ -81,6 +113,9 @@ Deliver:
      - `SELFTEST: web export ok` (history + CSP exports exist; gated on `/state`)
    - clear history:
      - `SELFTEST: web history clear ok`
+   - **Servo experimental (only when built with `EXPERIMENTAL_SERVO=1`)**:
+     - `SELFTEST: browser_servo isolation ok` (crash isolation proof)
+     - `SELFTEST: browser_servo crash report ok` (structured crash report proof)
 
 ## Non-Goals
 
@@ -93,6 +128,10 @@ Deliver:
 - `/state` gating: without `TASK-0009`, persistence/export must be disabled or explicitly `stub/placeholder`.
 - devnet gating: Range/resume must not claim success unless real backend is enabled (`TASK-0194`).
 - No fake success: selftests must validate outcomes by reading service state / file existence, not log greps.
+- **Servo crash isolation (critical)**: Servo crashes must NOT crash SystemUI, kernel, or other apps. This is a hard microkernel
+  isolation proof. If Servo crash causes system instability, that is a blocker bug.
+- **Crash report completeness**: Structured crash reports must include all required fields (stack trace, URL, action, state, policy).
+  Incomplete reports are a quality bug (not a blocker, but must be tracked).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)
@@ -108,6 +147,13 @@ Deliver:
     - `SELFTEST: web history clear ok`
   - Optional (only when devnet enabled/unblocked):
     - `SELFTEST: web download resume ok`
+  - **Servo experimental (only when built with `EXPERIMENTAL_SERVO=1`)**:
+    - `browser_servo: launched (experimental)`
+    - `browser_servo: page loaded url=<...> (best-effort)` (may be flaky; not a hard gate)
+    - `browser_servo: crashed` (expected during isolation test)
+    - `logd: crash report generated id=<...>`
+    - `SELFTEST: browser_servo isolation ok` (SystemUI responsive after Servo crash)
+    - `SELFTEST: browser_servo crash report ok` (crash report complete and parsable)
 
 ## Touched paths (allowlist)
 
@@ -115,12 +161,19 @@ Deliver:
 - `userspace/ui/controls/webview/` + `userspace/libs/webview-core/`
 - `source/services/downloadd/` (resume + leases)
 - `source/services/fetchd/` (backend selection already tracked; consumption here)
+- `source/services/logd/` (extend: structured crash report generation for Servo)
+- `source/apps/browser_servo/` (new; `#[cfg(feature = "experimental-servo")]` only)
 - SystemUI Settings pages (CSP viewer) + downloads UI (optional)
+- SystemUI launcher (add "Browser (Servo, Experimental)" entry with ⚠️ badge)
 - `tools/nx-web/`
-- `source/apps/selftest-client/`
+- `tools/nx-crash/` (new; crash report CLI)
+- `source/apps/selftest-client/` (extend: Servo isolation + crash report tests)
 - `schemas/webview_v1_2.schema.json`
+- `schemas/crash_report_v1.schema.json` (new; structured crash report format)
 - `docs/webview/` + `docs/downloads/` + `docs/tools/nx-web.md`
-- `scripts/qemu-test.sh`
+- `docs/webview/servo-experimental.md` (extend: OS integration + crash reporting)
+- `docs/tools/nx-crash.md` (new; crash report CLI + Servo debugging)
+- `scripts/qemu-test.sh` (extend: Servo experimental markers)
 
 ## Plan (small PRs)
 
@@ -128,10 +181,34 @@ Deliver:
 2. session restore wiring + selftests
 3. CSP report log + viewer + export/clear + selftests (gated)
 4. downloadd resume semantics (devnet-gated) + content leases + selftests
-5. nx-web extensions + docs + marker contract update
+5. Servo experimental browser app + SystemUI launcher entry + first-launch warning
+6. Servo crash isolation proofs (SIGKILL test + SystemUI responsiveness check)
+7. Structured crash reporting integration (logd extension + crash report schema + nx crash CLI)
+8. Servo crash report selftests (completeness + parsability + optional upload flow)
+9. nx-web extensions + docs + marker contract update
+
+## Red flags / decision points (track explicitly)
+
+- **RED FLAG (pre-release Servo stability assessment)**:
+  - **Context**: Servo experimental is built and integrated in v1.2, but shipping it in the first public release requires a stability assessment.
+  - **Decision point**: Before first public release, assess Servo's crash rate, memory leaks, and security posture:
+    - **Option 1 (ship experimental)**: If Servo crash rate is acceptable (e.g., <10% of page loads crash, no kernel panics, no data loss),
+      ship it as "Browser (Servo, Experimental)" with clear warnings. This gives users a real browser and proves OS isolation.
+    - **Option 2 (developer-only)**: If Servo is too unstable (frequent kernel panics, data corruption, unacceptable crash rate),
+      keep it as a developer-only build (`EXPERIMENTAL_SERVO=1`) and do not include it in the default OS image.
+    - **Option 3 (promote to default)**: If Servo becomes production-ready (stable, secure, passes all tests), promote it to the
+      default browser and demote the simple renderer to a fallback for lightweight use cases.
+  - **Metrics to track (for decision)**:
+    - Crash rate (% of page loads that crash Servo)
+    - Kernel panic rate (must be 0%)
+    - SystemUI freeze rate after Servo crash (must be 0%)
+    - Memory leak severity (acceptable if bounded and recoverable)
+    - Security audit status (CVE count, exploit feasibility)
+  - **Timeline**: Assess 2-4 weeks before first public release; revisit every release cycle.
 
 ## Acceptance criteria (behavioral)
 
 - In QEMU, WebView history/session persistence and CSP report viewing/export behave deterministically when `/state` exists.
 - Download resume is only claimed when devnet is enabled and Range support is proven; otherwise behavior is explicit and deterministic.
-
+- **Servo experimental (when built)**: Servo crashes do not crash SystemUI, kernel, or other apps. Structured crash reports are
+  complete and parsable. This proves microkernel isolation and crash reporting quality.

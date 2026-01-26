@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - L10n/i18n v1a baseline (Fluent + ICU4X): tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
   - Settings v2 (provider keys): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -27,7 +28,9 @@ Deliver on host:
 
 1. **Catalog compiler** (`tools/nx-l10n`):
    - source format: JSON with ICU-lite fragments (e.g., `{count, plural, one {# file} other {# files}}`)
-   - produces `.lc` (compact binary): interning key strings, bytecode for message AST (literals, `{var}`, `plural`, `number`)
+   - produces `.lc` (compact binary, Cap'n Proto encoded):
+     - schema-defined, versionable, deterministic bytes (signable if needed later)
+     - interning key strings, bytecode for message AST (literals, `{var}`, `plural`, `number`)
    - deterministic ordering and stable hashing
    - CLI: `extract`, `compile`, `pseudo`, `coverage`
    - markers: `i18n-compile: en-US keys=n`, `i18n-extract: found=m`, `i18n-coverage: de-DE missing=k`

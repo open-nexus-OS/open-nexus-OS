@@ -77,6 +77,7 @@ Deliver host-first support for:
 - **Safety**:
   - only equality predicates (v0.2c)
   - no string interpolation; all values are typed
+  - field names must be **typed** (enum/handle), not arbitrary strings (avoid injection-by-field-name)
   - results are bounded by policy caps (rows + bytes)
 - **No fake success**:
   - if results are truncated due to caps, the response must indicate `truncated=true` with deterministic reason code
@@ -122,4 +123,4 @@ Recommended **warnings** (policy-guarded but often unintended):
 - `userspace/dsl/nx_interp/` (extend: value model + passing QuerySpec to stubs)
 - `userspace/dsl/nx_stubs/` (extend: optional generic query call surface; no new authority)
 - `tests/dsl_v0_2c_host/`
-- `docs/dsl/db-queries.md` (new; builder + defaults + caps + paging token contract)
+- `docs/dev/dsl/db-queries.md` (new; builder + defaults + caps + paging token contract)

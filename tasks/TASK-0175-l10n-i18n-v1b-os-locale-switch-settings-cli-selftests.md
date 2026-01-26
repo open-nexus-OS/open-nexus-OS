@@ -14,6 +14,7 @@ links:
   - Prefs substrate: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
   - Policy v1.1 caps (optional): tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -31,7 +32,7 @@ With the host-first i18n and font fallback core in place (`TASK-0174`), we need 
 Deliver:
 
 1. Locale storage + broadcast:
-   - store current locale in prefs (e.g. `state:/prefs/locale.json` via prefsd when present)
+   - store current locale via `settingsd` key `ui.locale` (persisted as `.nxs` snapshots; see `TASK-0225`)
    - broadcast a “locale changed” signal to SystemUI
    - marker: `i18n: locale set <tag>`
 2. SystemUI integration:
@@ -72,7 +73,9 @@ Deliver:
 - Kernel changes.
 - Full locale coverage and full ICU datasets.
 - Full RTL layout engine correctness (separate text/layout tasks).
-- `l10nd` service or compiled catalog format (`.lc`) (handled by `TASK-0241` as a lightweight alternative; this task uses prefs + broadcast).
+- Defining a second, parallel i18n runtime format.
+  - Runtime catalogs are **compiled `.lc`** (Cap'n Proto encoded) from `TASK-0240` and loaded by `l10nd` (`TASK-0241`).
+  - This task consumes that runtime contract and focuses on locale switching + UI integration + selftests.
 
 ## Constraints / invariants (hard requirements)
 

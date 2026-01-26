@@ -10,6 +10,7 @@ links:
   - Policy as Code (identity guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config broker (argon2 params): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -28,7 +29,8 @@ Keychain, lockscreen, and UI flows are separate tasks.
 Deliver:
 
 1. `identityd` service:
-   - user DB persisted at `state:/identity/users.json`
+   - user DB persisted at `state:/identity/users.nxs` (Cap'n Proto snapshot; canonical)
+     - optional derived/debug view: `nx identity export --json` emits deterministic JSON
    - list/create/remove users
    - set password/PIN
    - auth (password/pin) returning a session token

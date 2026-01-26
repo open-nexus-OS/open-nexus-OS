@@ -47,7 +47,7 @@ Deliver:
    - `tools/postflight-pkg-v1.sh` delegates to host tests + QEMU marker run
 5. Docs:
    - `docs/packages/installer.md`
-   - update `docs/ui/testing.md` with package v1 marker list
+   - update `docs/dev/ui/testing.md` with package v1 marker list
 
 ## Non-Goals
 

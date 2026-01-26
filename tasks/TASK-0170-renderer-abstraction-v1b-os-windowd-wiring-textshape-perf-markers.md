@@ -88,7 +88,7 @@ Deliver:
 - `source/services/windowd/` (replace placeholder with real wiring)
 - `source/apps/selftest-client/`
 - `scripts/qemu-test.sh`
-- `docs/renderer/overview.md` + `docs/renderer/testing.md` + `docs/ui/architecture.md`
+- `docs/renderer/overview.md` + `docs/renderer/testing.md` + `docs/dev/ui/architecture.md`
 
 ## Plan (small PRs)
 

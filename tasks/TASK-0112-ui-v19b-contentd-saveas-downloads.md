@@ -1,5 +1,5 @@
 ---
-title: TASK-0112 UI v19b: contentd saveAs helper (data:/content:// → state://Downloads) + recents integration + tests
+title: TASK-0112 UI v19b: contentd saveAs helper (data:/content:// → state:/Downloads) + recents integration + tests
 status: Draft
 owner: @platform
 created: 2025-12-23
@@ -17,7 +17,7 @@ links:
 
 Browser v1 needs a minimal “downloads shelf” even without networking:
 
-- `data:` URLs (generated content) and `content://` URIs should be saveable to `state://Downloads/`.
+- `data:` URLs (generated content) and `content://` URIs should be saveable to `state:/Downloads/`.
 
 Rather than duplicating copy logic in apps, add a small `contentd.saveAs` helper:
 
@@ -33,7 +33,7 @@ Deliver:
 
 1. Extend `contentd` with `saveAs(uri, destParent, name) -> outUri, bytes`:
    - supports `data:` and `content://` inputs
-   - writes into `state://` destination
+   - writes into `state:/` destination
    - bounded copy (chunking; max bytes)
 2. Policy gates:
    - allow `data:` saveAs only for permitted subjects (default: Browser/SystemUI; tests allow selftest)
@@ -77,4 +77,3 @@ Deliver:
 1. contentd saveAs implementation + bounds + marker logs (if needed)
 2. policy gates + recents hook
 3. host tests + docs update
-

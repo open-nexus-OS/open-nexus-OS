@@ -12,6 +12,7 @@ links:
   - SDK OS install proof (catalog decision): tasks/TASK-0166-sdk-v1-part2b-os-local-catalog-install-launch-proofs.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -35,7 +36,9 @@ OS UI/selftests are in `TASK-0181`.
 Deliver:
 
 1. `storefeedd` service (host-testable):
-   - reads `pkg://store/feed.json` (canonical schema `NEX-STORE/1`)
+   - reads `pkg://store/feed.nxf` (Cap'n Proto; canonical, deterministic, signable)
+     - authoring/fixture input may be `pkg://store/feed.json` (human-readable), compiled to `.nxf` at build time
+     - optional derived/debug view: `nx store feed export --json` emits deterministic JSON
    - exposes RPC:
      - `list()`, `get(appId)`, `search(q)` (substring on title/summary; deterministic ordering)
    - markers (throttled):
@@ -51,7 +54,8 @@ Deliver:
    - markers (throttled):
      - `store: plan app=<id> action=<...>`
 3. Ratings/comments stub library (host-first) and service surface decision:
-   - store local ratings at `state:/store/ratings/<appId>.json` when `/state` exists
+   - store local ratings at `state:/store/ratings/<appId>.nxs` (Cap'n Proto snapshot; canonical) when `/state` exists
+     - optional derived/debug view: `nx store ratings export --json` emits deterministic JSON
    - stable schema: `stars/title/text/ts/device_id_hash`
    - rules:
      - one rating per device per app (overwrite allowed)

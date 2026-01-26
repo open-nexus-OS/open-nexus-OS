@@ -74,7 +74,7 @@ Deliver:
 - `source/services/printd/` (new)
 - SystemUI print preview overlay (new)
 - `tests/ui_v13b_host/`
-- `docs/ui/print.md` (new)
+- `docs/dev/ui/print.md` (new)
 
 ## Plan (small PRs)
 
@@ -82,4 +82,3 @@ Deliver:
 2. printd IDL + render/preview + markers
 3. SystemUI print preview overlay + markers
 4. host tests + docs
-

@@ -114,7 +114,7 @@ Deliver:
 - `tools/nx-user/` (or `nx session` subcommands)
 - `source/apps/selftest-client/`
 - `schemas/accounts_v1_2.schema.json`
-- `docs/accounts/` + `docs/tools/nx-user.md` + `docs/ui/testing.md`
+- `docs/accounts/` + `docs/tools/nx-user.md` + `docs/dev/ui/testing.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

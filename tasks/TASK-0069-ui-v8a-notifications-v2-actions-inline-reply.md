@@ -90,7 +90,7 @@ UART markers (order tolerant):
 - `tests/ui_v8a_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v8a.sh` (delegates)
-- `docs/ui/notifications-v2.md`
+- `docs/dev/ui/notifications-v2.md`
 
 ## Plan (small PRs)
 

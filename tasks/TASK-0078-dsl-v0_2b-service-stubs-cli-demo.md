@@ -18,7 +18,9 @@ links:
   - App lifecycle launch (demo integration): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - Virtualized list (demo uses it if present): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
   - DSL query objects (optional data ergonomics): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -37,8 +39,19 @@ Deliver:
    - effect runner integration: `Call(ServiceFn)` with timeouts and error mapping
 2. `nx dsl` CLI upgrades:
    - `nx dsl run <appdir> --route ... --locale ... --profile ...` (headless run; OS mount optional)
-   - `nx dsl i18n extract <appdir> -o i18n/en.json`
+   - `nx dsl i18n extract <appdir> -o i18n/en.json` (authoring/view output; human-editable)
+   - (optional) `nx dsl i18n compile <appdir> --locale en --out pkg://i18n/catalogs/en.lc` (compiled runtime catalog; see `TASK-0240/0241`)
    - stronger lint rules (reducers pure, routes unique, i18n coverage)
+   - generator commands (keep default scaffold minimal; expand structure only when needed):
+     - `nx dsl init <appdir>` creates `ui/pages`, `ui/components`, `ui/composables`, `ui/themes`, `ui/tests` (minimal)
+     - `nx dsl add page <Name>` adds a page under `ui/pages/`
+     - `nx dsl add component <Name>` adds a component under `ui/components/`
+     - `nx dsl add store <Name> [--scope session|durable]`:
+       - creates `ui/composables/<name>.store.nx` with a skeleton for `State/Event/reducers/effects`
+       - if `--scope durable`, includes a comment block pointing to typed snapshot persistence (`.nxs`) instead of DB
+     - `nx dsl add service <Name>` adds `ui/services/<name>.service.nx` (effect-only adapter; reducers remain pure)
+     - `nx dsl add test <unit|component|e2e> <target>` places tests under `ui/tests/{unit,component,e2e}/...`
+     - (optional) `nx dsl session {inspect|clear|export --json}` for debugging session state during host runs
 3. Example app: `dsl_masterdetail`
    - routes `/` and `/detail/:id`
    - store loads data via stub service call
@@ -62,6 +75,16 @@ Deliver:
   - effects run after reducer commit,
   - bounded concurrency and timeouts.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
+
+## v1 readiness gates (DevX, directional)
+
+This task is the “apps feel real” bridge:
+
+- `svc.*` calls must be bounded (timeouts/bytes/rows) and return stable error codes (no stringly failures).
+- The “build spec (pure) / execute in effect (IO)” pattern is the default for queries/connectors (no raw unbounded GraphQL/SQL everywhere).
+- Demo apps should model first-party patterns (search-first surfaces, master-detail, i18n) to teach developers the right mental model.
+
+Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
 
 ## Stop conditions (Definition of Done)
 
@@ -96,7 +119,7 @@ UART markers:
 - `tests/dsl_v0_2_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-dsl-v0-2.sh` (delegates)
-- `docs/dsl/services.md` + `docs/dsl/cli.md` (extend)
+- `docs/dev/dsl/services.md` + `docs/dev/dsl/cli.md` (extend)
 
 ## Plan (small PRs)
 

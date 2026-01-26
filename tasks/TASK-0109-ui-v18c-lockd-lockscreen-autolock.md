@@ -86,11 +86,10 @@ UART markers:
 - `source/services/lockd/` (new)
 - SystemUI lockscreen overlay
 - `tests/ui_v18c_host/`
-- `docs/ui/oobe-greeter-lock.md` (new/extend)
+- `docs/dev/ui/oobe-greeter-lock.md` (new/extend)
 
 ## Plan (small PRs)
 
 1. lockd core + idle integration + markers + host tests
 2. lockscreen overlay + redaction + markers
 3. docs
-

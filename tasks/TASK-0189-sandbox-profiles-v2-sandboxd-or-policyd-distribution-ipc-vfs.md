@@ -37,7 +37,7 @@ Deliver:
    - profile fields:
      - sys: rules + optional rate buckets (v2 guardrail only unless kernel sysfilter exists)
      - ipc: allowlist patterns (`service` and optional scope strings)
-     - vfs: read/write URI prefixes (`pkg://`, `state://apps/<id>/...`)
+    - vfs: read/write URI prefixes (`pkg://`, `state:/apps/<id>/...`)
      - limits: rss/fds (audit-only until enforceable)
 2. Distribution service decision:
    - **Option A (preferred):** `policyd` serves sandbox profiles (avoid new service)
@@ -114,4 +114,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests prove deterministic allow/deny decisions for IPC and VFS; OS selftests prove denies with stable markers.
-

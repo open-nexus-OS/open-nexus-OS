@@ -92,7 +92,7 @@ UART markers:
 - `userspace/apps/settings/` (privacy page extension)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v17.sh` (delegates)
-- `docs/apps/camera.md` + `docs/apps/gallery.md` + `docs/privacy/overview.md` (extend) + `docs/ui/testing.md` (extend)
+- `docs/apps/camera.md` + `docs/apps/gallery.md` + `docs/privacy/overview.md` (extend) + `docs/dev/ui/testing.md` (extend)
 
 ## Plan (small PRs)
 

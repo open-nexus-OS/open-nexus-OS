@@ -10,6 +10,7 @@ links:
   - Policy authority + audit direction: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - Policy v1.1 grant semantics (modes/expiry): tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
   - SystemUI Settings pages (DSL): tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -31,8 +32,10 @@ Deliver:
      - type mismatch → deterministic `EINVAL`-class error
      - unknown key → deterministic `ENOENT`-class error
 2. Deterministic storage (NO libSQL in v2):
-   - device scope file: `state:/prefs/device.json` (or JSONL if the repo standardizes JSONL)
-   - user scope file: `state:/prefs/user/<uid>.json` (or host tests use temp dir adapter)
+   - **canonical on-disk snapshot** (Cap'n Proto): 
+     - device scope file: `state:/prefs/device.nxs`
+     - user scope file: `state:/prefs/user/<uid>.nxs`
+   - **derived/debug view**: `nx settings export --json` emits deterministic JSON (not a storage contract)
    - atomic write: temp → fsync(best-effort) → rename
    - bounded size/depth and stable reject rules
 3. Provider “apply” hooks (host-proof, side effects mocked):
@@ -88,4 +91,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove typed validation, canonicalization, atomic persistence, and provider apply hooks.
-

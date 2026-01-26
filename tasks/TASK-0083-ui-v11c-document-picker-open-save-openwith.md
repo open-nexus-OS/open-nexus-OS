@@ -101,7 +101,7 @@ UART markers:
 - `tests/ui_v11_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v11.sh` (delegates)
-- `docs/ui/doc-picker.md` (new)
+- `docs/dev/ui/doc-picker.md` (new)
 
 ## Plan (small PRs)
 

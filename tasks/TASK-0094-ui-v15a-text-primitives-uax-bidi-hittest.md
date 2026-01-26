@@ -66,11 +66,10 @@ Deliver:
 
 - `userspace/text/` (new/extend)
 - `tests/ui_v15a_host/`
-- `docs/ui/text-stack.md` (new; v15 umbrella doc, but started here)
+- `docs/dev/ui/text-stack.md` (new; v15 umbrella doc, but started here)
 
 ## Plan (small PRs)
 
 1. segmentation + line break tables/subset + deterministic APIs
 2. bidi basic implementation + hit-testing helpers
 3. host tests + docs + markers
-

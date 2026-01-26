@@ -97,7 +97,7 @@ UART markers (order tolerant):
 - `tests/ui_v5a_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v5a.sh` (delegates)
-- `docs/ui/runtime.md` + `docs/ui/animation.md` (new)
+- `docs/dev/ui/runtime.md` + `docs/dev/ui/animation.md` (new)
 
 ## Plan (small PRs)
 
@@ -105,4 +105,3 @@ UART markers (order tolerant):
 2. timeline (keyframes/springs) + markers
 3. windowd implicit transitions + reduced motion
 4. host tests + OS markers + docs
-

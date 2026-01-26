@@ -76,7 +76,7 @@ Deliver:
 - `userspace/ui/kit/` (new)
 - `tests/ui_v10_goldens/` (new)
 - `tools/gen-goldens.sh` (new helper, optional)
-- `docs/ui/design-system.md` + `docs/ui/goldens.md` (new)
+- `docs/dev/ui/design-system.md` + `docs/dev/ui/goldens.md` (new)
 
 ## Plan (small PRs)
 
@@ -84,4 +84,3 @@ Deliver:
 2. core primitives (button/textfield/checkbox/switch/slider)
 3. extended primitives (listrow/card/dialog/sheet/toast view)
 4. goldens harness + a11y lints + docs
-

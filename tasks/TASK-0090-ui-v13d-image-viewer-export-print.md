@@ -76,7 +76,7 @@ UART markers:
 
 - `userspace/apps/images/` (new)
 - `tests/ui_v13d_host/`
-- `docs/ui/image-viewer.md` (new)
+- `docs/dev/ui/image-viewer.md` (new)
 
 ## Plan (small PRs)
 

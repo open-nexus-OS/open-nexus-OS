@@ -116,7 +116,7 @@ UART markers (order tolerant):
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui.sh` (delegates)
 - `scripts/qemu-test.sh` (marker list)
-- `docs/ui/overview.md` + `docs/ui/testing.md` + `docs/ui/profiles.md`
+- `docs/dev/ui/overview.md` + `docs/dev/ui/testing.md` + `docs/dev/ui/profiles.md`
 
 ## Plan (small PRs)
 

@@ -111,7 +111,7 @@ UART markers (order tolerant):
 - `tests/ui_v4a_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v4a.sh` (delegates)
-- `docs/ui/compositor.md` + `docs/ui/atlas.md` (new)
+- `docs/dev/ui/compositor.md` + `docs/dev/ui/atlas.md` (new)
 
 ## Plan (small PRs)
 

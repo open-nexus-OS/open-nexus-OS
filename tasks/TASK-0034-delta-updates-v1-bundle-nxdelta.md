@@ -15,6 +15,7 @@ links:
   - Persistence substrate (resume checkpoints): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - VMO plumbing (optional fast path): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 depends-on:
 
@@ -57,7 +58,7 @@ Deliver:
 
 2. **Persistent bootctl** (from TASK-0007):
    - Integrate `updated` with TASK-0009 statefs
-   - `/state/bootctl.json` survives reboot
+   - `/state/bootctl.nxs` survives reboot (Cap'n Proto snapshot; canonical)
    - Marker: `updated: ready (persistent)`
 
 3. **Delta format and tooling** (`.nxdelta`):

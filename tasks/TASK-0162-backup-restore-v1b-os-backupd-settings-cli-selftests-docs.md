@@ -121,7 +121,7 @@ Deliver:
 - `scripts/qemu-test.sh` (marker contract update)
 - `tools/postflight-backup-v1.sh` (delegates)
 - `docs/backup/` (new)
-- `docs/ui/testing.md` (link)
+- `docs/dev/ui/testing.md` (link)
 
 ## Plan (small PRs)
 
@@ -134,4 +134,3 @@ Deliver:
 
 - Host tests prove deterministic NBK behavior; OS/QEMU selftests prove create/verify/restore/retention markers.
 - Any missing dependencies (`/state`, keystored seal/unseal) are handled explicitly without “ok” markers.
-

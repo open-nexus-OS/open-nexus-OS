@@ -67,7 +67,9 @@ Deliver:
 - Kernel changes.
 - Shipping full ICU datasets or full locale coverage (minimal set only).
 - Full RTL shaping correctness beyond the existing text stack plan (bidi/hit-test remains `TASK-0094/0148` scope).
-- Compiled catalog format (`.lc`) or ICU-lite (handled by `TASK-0240`/`TASK-0241` as a lightweight alternative).
+- Shipping a second, parallel runtime format for OS:
+  - **Canonical runtime catalogs are `.lc` (Cap'n Proto encoded)** per `TASK-0240`/`TASK-0241`.
+  - This task focuses on **authoring semantics** (Fluent + ICU4X) and host proofs; OS uses compiled `.lc` catalogs.
 
 ## Constraints / invariants (hard requirements)
 
@@ -83,8 +85,9 @@ Deliver:
 
 - **YELLOW (Fluent in OS)**:
   - Fluent runtime may be `std`-heavy. If OS cannot support it, we may need:
-    - host-precompiled message tables (asset pipeline), or
-    - a smaller message format for OS while keeping Fluent as authoring format.
+    - a **compiler pipeline**: Fluent (`.ftl`) → compiled `.lc` (Cap'n Proto encoded; deterministic), keeping Fluent as authoring format,
+    - or a smaller authoring format for some domains (JSON catalogs) while still compiling to `.lc` for runtime.
+  - **Do not** make OS load `.ftl` directly unless the feasibility/data budgets are explicitly proven.
 
 ## Stop conditions (Definition of Done)
 

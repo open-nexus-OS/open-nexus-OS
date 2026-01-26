@@ -12,6 +12,7 @@ links:
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -38,7 +39,8 @@ Deliver:
 2. `recentsd` service:
    - append `{uri,mime,appId,tsNs}`
    - list(limit)
-   - persisted under `/state/recents.json` once `/state` exists (host uses temp dir)
+   - persisted under `/state/recents.nxs` (Cap'n Proto snapshot) once `/state` exists (host uses temp dir)
+     - optional derived/debug view: `nx recents export --json` emits deterministic `recents.json`
    - markers:
      - `recentsd: ready`
      - `recentsd: added (uri=..., app=...)`
@@ -80,7 +82,7 @@ Deliver:
 - `source/services/thumbd/` (new)
 - `source/services/recentsd/` (new)
 - `tests/ui_v11b_host/`
-- `docs/platform/thumbnailer.md` + `docs/ui/recents.md` (new)
+- `docs/platform/thumbnailer.md` + `docs/dev/ui/recents.md` (new)
 
 ## Plan (small PRs)
 

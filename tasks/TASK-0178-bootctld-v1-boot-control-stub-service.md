@@ -10,6 +10,7 @@ links:
   - OTA v2 state machine baseline: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -33,7 +34,7 @@ Create `source/services/bootctld` with an IDL (`bootctl.capnp`) and a determinis
 - `markBad(slot)` (deny boot until re-imaged; state is sticky)
 - `reboot()` (QEMU stub: emits marker only)
 
-Persist under `state:/bootctl/state.json` when `/state` exists; otherwise store in RAM and emit explicit `stub/placeholder` markers.
+Persist under `state:/bootctl/state.nxs` (Cap'n Proto snapshot; canonical) when `/state` exists; otherwise store in RAM and emit explicit `stub/placeholder` markers.
 
 Markers:
 
@@ -68,7 +69,8 @@ Markers:
 - **Proof (Host)**:
   - `cargo test -p bootctld_host -- --nocapture` (new tiny test crate) proving:
     - setActive/confirm/markBad determinism
-    - serialization roundtrip stability for `state.json` (golden JSON)
+    - serialization roundtrip stability for `state.nxs` (byte-stable)
+    - optional derived/debug view export to JSON is deterministic (if implemented)
 
 - **Proof (QEMU)**:
   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s ./scripts/qemu-test.sh`
@@ -94,4 +96,3 @@ Markers:
 ## Acceptance criteria (behavioral)
 
 - `bootctld` API is stable and deterministic; QEMU shows readiness and a bootctl API smoke-test marker.
-

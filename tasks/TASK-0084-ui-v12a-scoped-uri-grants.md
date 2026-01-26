@@ -10,6 +10,7 @@ links:
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -35,7 +36,8 @@ Deliver:
 
 1. `grantsd` service:
    - issues opaque grant tokens for `content://` URIs (read/write modes)
-   - TTL for non-persist grants; persistable grants stored under `/state/grants.json`
+   - TTL for non-persist grants; persistable grants stored under `/state/grants.nxs` (Cap'n Proto snapshot; canonical)
+     - optional derived/debug view: `nx grants export --json` emits deterministic JSON
    - regrant (handoff token to another subject) and revoke
    - markers:
      - `grantsd: ready`

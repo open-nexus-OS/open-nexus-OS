@@ -73,11 +73,10 @@ UART markers:
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v20.sh` (delegates)
 - `docs/a11y/overview.md` + `docs/a11y/vision.md` + `docs/a11y/screen-reader.md` (extend)
-- `docs/ui/testing.md` (extend)
+- `docs/dev/ui/testing.md` (extend)
 
 ## Plan (small PRs)
 
 1. settings pages + prefs wiring + marker
 2. app wiring hardening (roles/actions/focus events)
 3. OS selftests + postflight + docs
-

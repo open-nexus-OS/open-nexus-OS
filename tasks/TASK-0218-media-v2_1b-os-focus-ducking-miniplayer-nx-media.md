@@ -111,7 +111,7 @@ Deliver:
 - `pkg://fixtures/audio/`
 - `source/apps/selftest-client/`
 - `schemas/media_v2_1.schema.json`
-- `docs/media/` + `docs/tools/nx-media.md` + `docs/ui/testing.md`
+- `docs/media/` + `docs/tools/nx-media.md` + `docs/dev/ui/testing.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

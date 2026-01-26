@@ -10,6 +10,7 @@ links:
   - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Audit/observability (optional): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Testing contract: scripts/qemu-test.sh
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -32,7 +33,7 @@ This task focuses on the **userspace state machine** and provides **honest proof
 
 Deliver a userspace A/B OTA v2 state machine with:
 
-- durable slot state under `/state/boot/slot.json`,
+- durable slot state under `/state/boot/slot.nxs` (Cap'n Proto snapshot; canonical),
 - atomic stage/commit semantics (inactive slot),
 - a health multiplexer (quorum + timeouts),
 - rollback timer (boots-left and/or deadline),
@@ -101,7 +102,7 @@ Once statefs exists, selftest proves:
 ## Plan (small PRs)
 
 1. **Slot state model (`slotstate`)**
-   - Persist at `/state/boot/slot.json`:
+   - Persist at `/state/boot/slot.nxs` (Cap'n Proto snapshot; canonical):
      - `current`, `next`, `last_good`
      - `trial`, `boots_left`, `deadline_ns`
    - Provide atomic update helpers (statefs put_atomic once available).

@@ -9,6 +9,7 @@ links:
   - Soak core (host-first): tasks/TASK-0242-soak-v1_0a-host-repro-recorder-deterministic-retry-gates.md
   - Testing contract: scripts/qemu-test.sh
   - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
@@ -31,7 +32,8 @@ On OS/QEMU:
    - executes cases through repro-recorder (from `TASK-0242`)
    - on failure, performs deterministic retries up to `retry_flake.attempts`, nudging seed by `seed_delta`
    - marks case as **flake** if any retry passes
-   - writes run summary `state:/soak/summary/<run>.json`
+   - writes run summary `state:/soak/summary/<run>.nxs` (Cap'n Proto snapshot; canonical)
+     - optional derived/debug view: `nx soak status --json` emits deterministic JSON
    - API (`soak.capnp`): `start`, `status`, `list`, `last`, `export`
    - markers: `soakd: ready`, `soakd: start run=<id>`, `soakd: case id=… result=pass|fail|flake retries=n`, `soakd: export bytes=…`
 2. **qemu.log rotation extension**:

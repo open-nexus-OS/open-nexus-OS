@@ -108,7 +108,7 @@ UART markers (order tolerant):
 - `tests/ui_v2a_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v2a.sh` (delegating)
-- `docs/ui/input.md` + `docs/ui/renderer.md` (new/extend)
+- `docs/dev/ui/input.md` + `docs/dev/ui/renderer.md` (new/extend)
 
 ## Plan (small PRs)
 

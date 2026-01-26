@@ -172,6 +172,14 @@ When touching crypto, auth, IPC, network, or capabilities:
 
 ---
 
+## Git / Commit Discipline (anti-surprise)
+
+- **Never run `git commit` (or create commits indirectly) without explicit user approval** in the current chat.
+- If the user asks to “make a commit”, first show `git status --short` and propose a concise commit message, then wait for “yes”.
+- Prefer **small, scoped commits** (one intent per commit).
+
+---
+
 ## QEMU Marker Contract
 
 Markers must appear in order defined by `scripts/qemu-test.sh`.
