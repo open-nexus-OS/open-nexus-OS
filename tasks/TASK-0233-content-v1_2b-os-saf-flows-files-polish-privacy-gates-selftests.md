@@ -15,6 +15,7 @@ links:
   - Policy capability matrix / privacy categories: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - permsd/privacyd wiring (runtime consent + indicators): tasks/TASK-0103-ui-v17a-permissions-privacyd.md
   - /state (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Removable storage track (provider + SAF folder grants + fileops): tasks/TRACK-REMOVABLE-STORAGE.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -57,6 +58,7 @@ On OS/QEMU, deliver deterministic, proven UX flows:
 - Introducing a new URI scheme. We keep `content://...` as defined by `TASK-0081`.
 - Implementing “cloud providers” beyond deterministic stubs.
 - Full version history UI beyond listing the stub versions created by `TASK-0232` (if/when present).
+- Treating removable storage as “global mounts” for apps. Removable media must be surfaced as a `contentd` provider and accessed via SAF/grants (see `tasks/TRACK-REMOVABLE-STORAGE.md`).
 
 ## Constraints / invariants (hard requirements)
 

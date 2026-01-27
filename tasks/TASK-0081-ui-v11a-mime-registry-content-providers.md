@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - VFS substrate: tasks/TASK-0002-userspace-vfs-proof.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Removable storage track (USB/SD/external disks as provider): tasks/TRACK-REMOVABLE-STORAGE.md
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config broker: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - UI v6b app launch (Open With later): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
@@ -57,6 +58,7 @@ Deliver:
 - Thumbnail generation (v11b).
 - Full cloud integration (demo-cloud is a deterministic stub only).
 - Durable write semantics (atomic create/replace, temp+commit, fsync barriers) or crash-recovery (handled by `TASK-0264`/`TASK-0265` as an extension; this task focuses on content provider API with stream handles).
+- Defining removable storage as “mounted filesystem paths” for apps. Removable media must appear as a `contentd` provider with stream handles (see `tasks/TRACK-REMOVABLE-STORAGE.md`).
 
 ## Constraints / invariants (hard requirements)
 

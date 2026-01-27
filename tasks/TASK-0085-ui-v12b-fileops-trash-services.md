@@ -10,6 +10,7 @@ links:
   - Scoped grants: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - Removable storage track (copy/move to USB/SD via streams): tasks/TRACK-REMOVABLE-STORAGE.md
 ---
 
 ## Context
@@ -52,6 +53,7 @@ Deliver:
 - Kernel changes.
 - Full delta copy optimization; v12b is correctness-first with bounded chunking.
 - Files app UI (v12c).
+- Introducing “path copy” APIs to apps. Cross-provider moves/copies (including removable media) must remain stream-based through `fileopsd` and scoped grants (see `tasks/TRACK-REMOVABLE-STORAGE.md`).
 
 ## Constraints / invariants (hard requirements)
 

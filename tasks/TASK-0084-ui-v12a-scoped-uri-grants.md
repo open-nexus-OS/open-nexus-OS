@@ -9,6 +9,7 @@ links:
   - Content providers (contentd): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Removable storage track (provider + SAF grants): tasks/TRACK-REMOVABLE-STORAGE.md
   - Testing contract: scripts/qemu-test.sh
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
@@ -55,6 +56,7 @@ Deliver:
 - Files app UI (v12c).
 - File operations manager and trash (v12b).
 - A full cryptographic token format (opaque tokens are acceptable v1; can be upgraded later under Policy-as-Code).
+- Granting ambient access to removable media (USB/SD/external disks). Removable access must be mediated via `content://` URIs + scoped grants (see `tasks/TRACK-REMOVABLE-STORAGE.md`).
 
 ## Constraints / invariants (hard requirements)
 
