@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - VFS substrate: tasks/TASK-0002-userspace-vfs-proof.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Removable storage track (USB/SD/external disks as provider): tasks/TRACK-REMOVABLE-STORAGE.md
@@ -31,6 +32,7 @@ Deliver:
 
 1. `mimed` service (MIME registry + associations):
    - ext → mime
+     - include at least: `.png`, `.jpg/.jpeg`, `.webp`, `.avif`, `.svg`, `.txt`
    - mime → assoc (apps list + default app)
    - register app supported mimes
    - set default app per mime

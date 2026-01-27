@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - Media apps product track (quick viewers vs library apps): tasks/TRACK-MEDIA-APPS.md
   - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
@@ -30,9 +31,9 @@ Deliver:
 
 1. `userspace/apps/images`:
    - open via picker or Open With arg (`openUri`)
-   - decode PNG/JPEG and render SVG via existing safe subset pipeline
+   - decode PNG/JPEG/WebP (AVIF optional follow-up) and render SVG via existing safe subset pipeline
    - zoom (fit/actual), pan, rotate 90° steps, flip (optional)
-   - export as PNG to a Save As destination (picker)
+   - export as PNG (baseline) to a Save As destination (picker); WebP export optional
    - markers:
      - `images: open uri=...`
      - `images: export ok`

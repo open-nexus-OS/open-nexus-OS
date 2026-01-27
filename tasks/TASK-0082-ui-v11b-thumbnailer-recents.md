@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - Content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - SVG mini pipeline baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - Theme/text baseline (TXT thumbnail): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
@@ -31,7 +32,7 @@ Deliver:
 1. `thumbd` service:
    - input: `(uri, mime)` via `contentd.openUri` and returned stream
    - output: thumbnail BGRA VMO (e.g., 160×160) + metadata
-   - supported v1: PNG/JPEG/SVG/TXT
+   - supported v1: PNG/JPEG/WebP/SVG/TXT (AVIF as a follow-up; keep decoders small and safe)
    - LRU cache with strict byte budget, keyed by `(uri, rev)`
    - markers:
      - `thumbd: ready`
@@ -70,7 +71,7 @@ Deliver:
 `tests/ui_v11b_host/`:
 
 - thumbnails:
-  - PNG/JPEG/SVG/TXT fixtures produce expected checksum or golden PNGs
+  - PNG/JPEG/WebP/SVG/TXT fixtures produce expected checksum or golden PNGs
   - second request hits cache (counters improve)
   - budget pressure triggers deterministic eviction
 - recents:

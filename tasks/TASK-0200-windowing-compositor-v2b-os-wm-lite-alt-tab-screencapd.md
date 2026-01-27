@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - Windowing v2 host substrate: tasks/TASK-0199-windowing-compositor-v2a-host-damage-occlusion-screencap.md
   - windowd↔renderer OS wiring baseline: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - Present scheduler + input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
@@ -25,7 +26,7 @@ With deterministic compositor primitives proven host-first (v2a), we wire them i
 - deterministic vsync tick/present latch,
 - minimal WM policies (move/resize/snap/stack),
 - Alt-Tab switcher using deterministic thumbnails,
-- and a deterministic screencap service exporting PNG.
+- and a deterministic screencap service exporting PNG (baseline) with WebP export option (preferred for smaller artifacts).
 
 This is QEMU-tolerant and kernel-unchanged.
 
@@ -59,7 +60,7 @@ Deliver:
    - markers:
      - `wm: switcher open`
      - `wm: switcher select win=<id>`
-6. Screencap service `screencapd` (deterministic PNG):
+6. Screencap service `screencapd` (deterministic PNG baseline; WebP export option):
    - `full`, `window`, `thumb` APIs
    - size caps and stable errors
    - markers:
@@ -122,6 +123,7 @@ Deliver:
 2. input routing via regions + focus markers
 3. wm-lite move/resize/snap + alt-tab overlay + thumbnails
 4. screencapd deterministic PNG + selftests + docs + marker contract update
+   - WebP export option (preferred) may be added without changing marker contracts; tests should validate pixels
 
 ## Acceptance criteria (behavioral)
 

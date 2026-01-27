@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - UI v4a compositor baseline (readback): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - UI v6a WM baseline (grab window): tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
   - Clipboard v2 (destination): tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
@@ -38,6 +39,7 @@ Deliver:
 2. Share broker service (name TBD: `shared`/`sharesheetd`):
    - accepts payloads (screenshot VMO, clipboard items, app-provided)
    - exports to clipboard or `/state/pictures` (peer stub optional)
+   - file export format: WebP preferred (smaller) with PNG fallback (deterministic baseline)
 3. SystemUI share sheet overlay (minimal):
    - open sheet, show targets, export
 4. Privacy/policy:
@@ -68,7 +70,7 @@ Deliver:
 
 - render a checkerboard into a composed buffer fixture
 - `grabRegion` returns correct checksum
-- share-to-file writes expected PNG (or raw BGRA with documented format)
+- share-to-file writes expected PNG (baseline) and supports WebP export (preferred); tests may validate by decoding and hashing pixels rather than comparing encoded bytes
 - policy deny case blocks capture without consent flag (host simulated)
 
 ### Proof (OS/QEMU) — gated

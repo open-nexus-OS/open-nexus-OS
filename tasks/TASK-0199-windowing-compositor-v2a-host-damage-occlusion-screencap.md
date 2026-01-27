@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - Renderer abstraction (Scene-IR + cpu2d goldens): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - windowd↔renderer OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - Present scheduler + input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
@@ -53,7 +54,8 @@ Deliver:
    - hit-testing walks top→bottom and respects `input_region`
    - pass-through overlays are supported by narrowing input regions
 5. Deterministic screencap/thumb pipeline (host-first):
-   - encode composed BGRA to PNG deterministically (fixed zlib level, no timestamps)
+   - encode composed BGRA to PNG deterministically (fixed zlib level, no timestamps) for goldens/baseline
+   - support WebP encode as a smaller export artifact (tests should validate by decoding and hashing pixels rather than comparing encoded bytes)
    - thumbnails are deterministic downscale (nearest or fixed kernel; pick one and lock it)
 6. Host tests (`tests/windowing_v2_host/`):
    - damage union correctness (move window, union old/new minus overlap)
@@ -99,4 +101,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host goldens and metrics prove that damage/occlusion/input routing work deterministically.
-
