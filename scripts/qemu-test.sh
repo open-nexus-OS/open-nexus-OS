@@ -5,8 +5,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-UART_LOG=${UART_LOG:-uart.log}
-QEMU_LOG=${QEMU_LOG:-qemu.log}
+UART_LOG=${UART_LOG:-"$ROOT/uart.log"}
+QEMU_LOG=${QEMU_LOG:-"$ROOT/qemu.log"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
@@ -119,6 +119,8 @@ expected_sequence=(
   "init: start"
   "init: start keystored"
   "init: up keystored"
+  "init: start rngd"
+  "init: up rngd"
   "init: start policyd"
   "init: up policyd"
   "init: start logd"
@@ -142,6 +144,7 @@ expected_sequence=(
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
   # services report `*: ready` after `init: ready`.
   "keystored: ready"
+  "rngd: ready"
   "policyd: ready"
   "samgrd: ready"
   "bundlemgrd: ready"
@@ -159,6 +162,10 @@ expected_sequence=(
   "bundlemgrd: slot a active"
   "SELFTEST: ipc routing keystored ok"
   "SELFTEST: keystored v1 ok"
+  "SELFTEST: rng entropy ok"
+  "SELFTEST: rng entropy oversized ok"
+  "SELFTEST: device key pubkey ok"
+  "SELFTEST: device key private export rejected ok"
   "SELFTEST: net udp dns ok"
   "SELFTEST: net tcp listen ok"
   "netstackd: facade up"

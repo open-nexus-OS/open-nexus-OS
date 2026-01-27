@@ -25,6 +25,7 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 | **Logging (logd journal)** | ✅ (31 tests) | ✅ (`logd-e2e`, 7 tests) | ✅ | ❌ |
 | **Crash reporting (execd → logd)** | ❌ | ✅ (`logd-e2e`) | ✅ | ❌ |
 | **Multi-service concurrency** | ❌ | ✅ (`logd-e2e`) | ✅ | ❌ |
+| **Device identity (rngd + keystored keygen)** | ✅ (unit) | ❌ | ✅ (selftest markers) | ❌ |
 
 ---
 

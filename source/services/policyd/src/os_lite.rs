@@ -68,6 +68,9 @@ const OP_CHECK: u8 = 1;
 const OP_ROUTE: u8 = 2;
 const OP_EXEC: u8 = 3;
 const OP_CHECK_CAP: u8 = 4;
+// Delegated capability check: enforcement points may ask policyd to evaluate a capability
+// for an arbitrary subject service id, provided the enforcement point itself is authorized.
+const OP_CHECK_CAP_DELEGATED: u8 = 5;
 
 const STATUS_ALLOW: u8 = 0;
 const STATUS_DENY: u8 = 1;
@@ -121,42 +124,42 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         let mut progressed = false;
 
         match recv_with_meta_nonblock(ctl_route_recv_slot, &mut ctl_route_buf) {
-            Ok((_hdr, sender_service_id, n)) => {
+            Ok((hdr, sender_service_id, n)) => {
                 progressed = true;
                 let rsp = handle_frame(
                     &ctl_route_buf[..n],
                     sender_service_id,
                     sender_service_id == init_lite_id,
                 );
-                let _ = send_reply_nonblock(ctl_route_send_slot, &rsp.buf[..rsp.len]);
+                let _ = send_reply_nonblock(ctl_route_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
             Err(_) => {}
         }
 
         match recv_with_meta_nonblock(ctl_exec_recv_slot, &mut ctl_exec_buf) {
-            Ok((_hdr, sender_service_id, n)) => {
+            Ok((hdr, sender_service_id, n)) => {
                 progressed = true;
                 let rsp = handle_frame(
                     &ctl_exec_buf[..n],
                     sender_service_id,
                     sender_service_id == init_lite_id,
                 );
-                let _ = send_reply_nonblock(ctl_exec_send_slot, &rsp.buf[..rsp.len]);
+                let _ = send_reply_nonblock(ctl_exec_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
             Err(_) => {}
         }
 
         match recv_with_meta_nonblock(server_recv_slot, &mut server_buf) {
-            Ok((_hdr, sender_service_id, n)) => {
+            Ok((hdr, sender_service_id, n)) => {
                 progressed = true;
                 let rsp = handle_frame(
                     &server_buf[..n],
                     sender_service_id,
                     sender_service_id == init_lite_id,
                 );
-                let _ = send_reply_nonblock(server_send_slot, &rsp.buf[..rsp.len]);
+                let _ = send_reply_nonblock(server_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
             Err(_) => {}
@@ -185,9 +188,20 @@ fn recv_with_meta_nonblock(
     Ok((hdr, sid, n as usize))
 }
 
-fn send_reply_nonblock(send_slot: u32, frame: &[u8]) -> Result<(), nexus_abi::IpcError> {
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0)?;
+fn send_reply_nonblock(
+    send_slot: u32,
+    hdr: &nexus_abi::MsgHeader,
+    frame: &[u8],
+) -> Result<(), nexus_abi::IpcError> {
+    if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+        let reply_slot = hdr.src;
+        let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+        nexus_abi::ipc_send_v1(reply_slot, &rh, frame, nexus_abi::IPC_SYS_NONBLOCK, 0)?;
+        let _ = nexus_abi::cap_close(reply_slot);
+        return Ok(());
+    }
+    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    nexus_abi::ipc_send_v1(send_slot, &rh, frame, nexus_abi::IPC_SYS_NONBLOCK, 0)?;
     Ok(())
 }
 
@@ -276,6 +290,49 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
                 subject_id,
                 None,
+                AuditReason::Policy,
+            );
+            rsp_v1(op, status)
+        }
+        (VERSION, OP_CHECK_CAP_DELEGATED) => {
+            // v1 delegated CAP check request (policy authority):
+            // [P, O, ver=1, OP_CHECK_CAP_DELEGATED, subject_id:u64le, cap_len:u8, cap...]
+            if frame.len() < 4 + 8 + 1 {
+                return rsp_v1(op, STATUS_MALFORMED);
+            }
+            let subject_id = u64::from_le_bytes([
+                frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
+            ]);
+            let cap_len = frame[12] as usize;
+            if cap_len == 0 || cap_len > 48 || frame.len() != 13 + cap_len {
+                return rsp_v1(op, STATUS_MALFORMED);
+            }
+            let cap = &frame[13..13 + cap_len];
+
+            // Security: only allow delegated checks from authorized enforcement points.
+            // This prevents arbitrary services from querying policy for other identities.
+            let delegate_ok = POLICY.allows(sender_service_id, "policy.delegate");
+            if !delegate_ok {
+                emit_audit(
+                    op,
+                    AuditDecision::Deny,
+                    sender_service_id,
+                    Some(subject_id),
+                    AuditReason::Policy,
+                );
+                return rsp_v1(op, STATUS_DENY);
+            }
+
+            let status = if POLICY.allows(subject_id, core::str::from_utf8(cap).unwrap_or("")) {
+                STATUS_ALLOW
+            } else {
+                STATUS_DENY
+            };
+            emit_audit(
+                op,
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
+                sender_service_id,
+                Some(subject_id),
                 AuditReason::Policy,
             );
             rsp_v1(op, status)
@@ -691,6 +748,7 @@ fn audit_op_name(op: u8) -> &'static [u8] {
     match op {
         OP_CHECK => b"check",
         OP_CHECK_CAP => b"check_cap",
+        OP_CHECK_CAP_DELEGATED => b"check_cap_delegated",
         OP_ROUTE => b"route",
         OP_EXEC => b"exec",
         _ => b"unknown",

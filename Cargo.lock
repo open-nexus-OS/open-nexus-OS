@@ -1903,6 +1903,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rng-virtio"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-hal",
+]
+
+[[package]]
+name = "rngd"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+ "rng-virtio",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

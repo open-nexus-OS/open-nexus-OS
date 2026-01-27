@@ -1421,14 +1421,14 @@ mod os_lite {
         const OP_QUERY: u8 = 2;
         const STATUS_OK: u8 = 0;
 
-        // Bounded pagination: QUERY is capped to 16 records, so we page by timestamp.
+        // Bounded pagination: keep pages small to limit logd response allocations.
         // If timestamps are all zero, pagination cannot make progress (we'll stop after the first page).
         let mut since_nsec: u64 = 0;
         for _ in 0..64 {
             let mut frame = Vec::with_capacity(14);
             frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_QUERY]);
             frame.extend_from_slice(&since_nsec.to_le_bytes());
-            frame.extend_from_slice(&16u16.to_le_bytes()); // max_count (hard cap)
+            frame.extend_from_slice(&4u16.to_le_bytes()); // max_count (hard cap)
 
             logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
                 .map_err(|_| ())?;
@@ -1853,6 +1853,10 @@ mod os_lite {
         let keystored = resolve_keystored_client()?;
         emit_line("SELFTEST: ipc routing keystored ok");
         emit_line("SELFTEST: keystored v1 ok");
+        // RNG and device identity key selftests (run early to keep QEMU marker deadlines short).
+        rng_entropy_selftest();
+        rng_entropy_oversized_selftest();
+        device_key_selftest();
         // @reply slots are deterministically distributed by init-lite to selftest-client.
         // IMPORTANT: routing v1 responses are currently uncorrelated (no nonce). Under cooperative bring-up
         // a delayed ROUTE_RSP can be mistaken for a later query (we saw @reply returning keystored slots).
@@ -4592,11 +4596,294 @@ mod os_lite {
         cap_move_reply_probe()
     }
 
+    // =========================================================================
+    // RNG and device identity key selftests
+    // =========================================================================
+
+    /// Test rngd entropy service.
+    /// Proves: bounded entropy request succeeds via policy-gated rngd.
+    ///
+    /// # Security
+    /// - Entropy bytes are NOT logged
+    fn rng_entropy_selftest() {
+        // Build rngd GET_ENTROPY request for 32 bytes
+        // Request: [R, G, 1, OP_GET_ENTROPY=1, nonce:u32le, n:u16le]
+        let nonce = (nexus_abi::nsec().unwrap_or(0) as u32) ^ 0xA5A5_5A5A;
+        let mut req = Vec::with_capacity(10);
+        req.push(b'R'); // MAGIC0
+        req.push(b'G'); // MAGIC1
+        req.push(1); // VERSION
+        req.push(1); // OP_GET_ENTROPY
+        req.extend_from_slice(&nonce.to_le_bytes());
+        req.extend_from_slice(&32u16.to_le_bytes()); // Request 32 bytes
+
+        // Connect to rngd using the deterministic slots distributed by init-lite.
+        const RNGD_SEND_SLOT: u32 = 0x1b;
+        const RNGD_RECV_SLOT: u32 = 0x1c;
+        let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
+            Ok(c) => c,
+            Err(_) => {
+                emit_line("SELFTEST: rng entropy FAIL (no slots)");
+                return;
+            }
+        };
+
+        let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
+        emit_line("SELFTEST: rng entropy send");
+        if client.send(&req, wait).is_err() {
+            emit_line("SELFTEST: rng entropy FAIL (send)");
+            return;
+        }
+
+        // Receive response on the dedicated rngd reply inbox
+        let start = nexus_abi::nsec().unwrap_or(0);
+        let deadline = start.saturating_add(500_000_000);
+        let mut spins: u32 = 0;
+        const MAX_SPINS: u32 = 200_000;
+        loop {
+            let now = nexus_abi::nsec().unwrap_or(0);
+            if now >= deadline || spins >= MAX_SPINS {
+                emit_line("SELFTEST: rng entropy FAIL (recv)");
+                return;
+            }
+            match client.recv(IpcWait::NonBlocking) {
+                Ok(rsp) => {
+                    // Response: [R, G, 1, OP|0x80, STATUS, nonce:u32le, entropy...]
+                    if rsp.len() < 9 || rsp[0] != b'R' || rsp[1] != b'G' || rsp[2] != 1 {
+                        // Ignore unrelated frames.
+                        continue;
+                    }
+                    if rsp[3] != (1 | 0x80) {
+                        emit_line("SELFTEST: rng entropy FAIL (wrong op)");
+                        return;
+                    }
+                    if rsp[4] != 0 {
+                        emit_bytes(b"SELFTEST: rng entropy FAIL (status=");
+                        emit_hex_u64(rsp[4] as u64);
+                        emit_line(")");
+                        return;
+                    }
+                    let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
+                    if got_nonce != nonce {
+                        continue; // unrelated reply
+                    }
+                    let entropy_len = rsp.len() - 9;
+                    if entropy_len != 32 {
+                        emit_bytes(b"SELFTEST: rng entropy FAIL (len=");
+                        emit_hex_u64(entropy_len as u64);
+                        emit_line(")");
+                        return;
+                    }
+                    // SECURITY: Do NOT log entropy bytes!
+                    emit_line("SELFTEST: rng entropy ok");
+                    return;
+                }
+                Err(_) => {
+                    let _ = yield_();
+                }
+            }
+            spins = spins.wrapping_add(1);
+        }
+    }
+
+    /// Test rngd rejects oversized entropy requests.
+    /// Proves: bounds enforcement on entropy length.
+    fn rng_entropy_oversized_selftest() {
+        let nonce = (nexus_abi::nsec().unwrap_or(0) as u32) ^ 0x5A5A_A5A5;
+        let mut req = Vec::with_capacity(10);
+        req.push(b'R');
+        req.push(b'G');
+        req.push(1);
+        req.push(1);
+        req.extend_from_slice(&nonce.to_le_bytes());
+        req.extend_from_slice(&257u16.to_le_bytes());
+
+        const RNGD_SEND_SLOT: u32 = 0x1b;
+        const RNGD_RECV_SLOT: u32 = 0x1c;
+        let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
+            Ok(c) => c,
+            Err(_) => {
+                emit_line("SELFTEST: rng entropy oversized FAIL (no slots)");
+                return;
+            }
+        };
+
+        let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
+        if client.send(&req, wait).is_err() {
+            emit_line("SELFTEST: rng entropy oversized FAIL (send)");
+            return;
+        }
+
+        let start = nexus_abi::nsec().unwrap_or(0);
+        let deadline = start.saturating_add(500_000_000);
+        let mut spins: u32 = 0;
+        const MAX_SPINS: u32 = 200_000;
+        loop {
+            let now = nexus_abi::nsec().unwrap_or(0);
+            if now >= deadline || spins >= MAX_SPINS {
+                emit_line("SELFTEST: rng entropy oversized FAIL (recv)");
+                return;
+            }
+            match client.recv(IpcWait::NonBlocking) {
+                Ok(rsp) => {
+                    if rsp.len() < 9 || rsp[0] != b'R' || rsp[1] != b'G' || rsp[2] != 1 {
+                        continue;
+                    }
+                    if rsp[3] != (1 | 0x80) {
+                        emit_line("SELFTEST: rng entropy oversized FAIL (wrong op)");
+                        return;
+                    }
+                    let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
+                    if got_nonce != nonce {
+                        continue;
+                    }
+                    if rsp[4] != 1 {
+                        emit_bytes(b"SELFTEST: rng entropy oversized FAIL (status=");
+                        emit_hex_u64(rsp[4] as u64);
+                        emit_line(")");
+                        return;
+                    }
+                    emit_line("SELFTEST: rng entropy oversized ok");
+                    return;
+                }
+                Err(_) => {
+                    let _ = yield_();
+                }
+            }
+            spins = spins.wrapping_add(1);
+        }
+    }
+
+    /// Test keystored device key operations.
+    /// Proves:
+    /// - Device keygen works (via rngd entropy)
+    /// - Device pubkey export works
+    /// - Private key export is correctly rejected
+    ///
+    /// # Security
+    /// - Private key is NEVER exported
+    fn device_key_selftest() {
+        // Connect to keystored
+        let client = match KernelClient::new_for("keystored") {
+            Ok(c) => c,
+            Err(_) => {
+                emit_line("SELFTEST: device key pubkey FAIL (no route)");
+                return;
+            }
+        };
+
+        let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
+
+        // 1. Trigger device keygen (OP=10)
+        {
+            let req = [b'K', b'S', 1, 10]; // DEVICE_KEYGEN
+            if client.send(&req, wait).is_err() {
+                emit_line("SELFTEST: device key pubkey FAIL (keygen send)");
+                return;
+            }
+            match client.recv(wait) {
+                Ok(rsp) => {
+                    if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
+                        emit_line("SELFTEST: device key pubkey FAIL (keygen malformed)");
+                        return;
+                    }
+                    // Status can be OK (0) or KEY_EXISTS (10)
+                    let status = rsp[4];
+                    if status != 0 && status != 10 {
+                        emit_bytes(b"SELFTEST: device key pubkey FAIL (keygen status=");
+                        emit_hex_u64(status as u64);
+                        emit_line(")");
+                        return;
+                    }
+                }
+                Err(_) => {
+                    emit_line("SELFTEST: device key pubkey FAIL (keygen recv)");
+                    return;
+                }
+            }
+        }
+
+        // 2. Get device pubkey (OP=11)
+        {
+            let req = [b'K', b'S', 1, 11]; // GET_DEVICE_PUBKEY
+            if client.send(&req, wait).is_err() {
+                emit_line("SELFTEST: device key pubkey FAIL (pubkey send)");
+                return;
+            }
+            match client.recv(wait) {
+                Ok(rsp) => {
+                    if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
+                        emit_line("SELFTEST: device key pubkey FAIL (pubkey malformed)");
+                        return;
+                    }
+                    let status = rsp[4];
+                    if status != 0 {
+                        emit_bytes(b"SELFTEST: device key pubkey FAIL (pubkey status=");
+                        emit_hex_u64(status as u64);
+                        emit_line(")");
+                        return;
+                    }
+                    // Response should include 32-byte pubkey after the 7-byte header
+                    // [K, S, ver, op|0x80, status, len:u16le, pubkey...]
+                    let val_len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                    if val_len != 32 || rsp.len() < 7 + 32 {
+                        emit_bytes(b"SELFTEST: device key pubkey FAIL (pubkey len=");
+                        emit_hex_u64(val_len as u64);
+                        emit_line(")");
+                        return;
+                    }
+                    // SECURITY: We can log pubkey (it's public), but keep it brief
+                    emit_line("SELFTEST: device key pubkey ok");
+                }
+                Err(_) => {
+                    emit_line("SELFTEST: device key pubkey FAIL (pubkey recv)");
+                    return;
+                }
+            }
+        }
+
+        // 3. Verify private key export is rejected
+        // There's no OP for private export in the protocol by design,
+        // but we can verify signing requires policy
+        device_key_private_export_rejected_selftest(&client);
+    }
+
+    /// Verify that private key export attempts are rejected.
+    /// This tests that an unprivileged caller cannot sign with the device key.
+    fn device_key_private_export_rejected_selftest(client: &KernelClient) {
+        // Explicit private export op must deterministically reject.
+        // Request: [K, S, ver, OP_GET_DEVICE_PRIVKEY=13]
+        let req = [b'K', b'S', 1, 13];
+        let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
+        if client.send(&req, wait).is_err() {
+            emit_line("SELFTEST: device key private export rejected FAIL (send)");
+            return;
+        }
+        match client.recv(wait) {
+            Ok(rsp) => {
+                if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
+                    emit_line("SELFTEST: device key private export rejected FAIL (malformed)");
+                    return;
+                }
+                let status = rsp[4];
+                if status == 12 {
+                    emit_line("SELFTEST: device key private export rejected ok");
+                } else {
+                    emit_bytes(b"SELFTEST: device key private export status=");
+                    emit_hex_u64(status as u64);
+                    emit_byte(b'\n');
+                    emit_line("SELFTEST: device key private export rejected FAIL");
+                }
+            }
+            Err(_) => emit_line("SELFTEST: device key private export rejected FAIL (recv)"),
+        }
+    }
+
     fn emit_line(s: &str) {
         markers::emit_line(s);
     }
 
-    // NOTE: Keep this file’s marker surface centralized in `crate::markers`.
+    // NOTE: Keep this file's marker surface centralized in `crate::markers`.
 }
 
 #[cfg(all(

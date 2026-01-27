@@ -76,7 +76,7 @@ set_env_var() {
 build_os_once() {
   export RUSTFLAGS="$RUSTFLAGS_OS"
 
-  local services="keystored,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
+  local services="keystored,rngd,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
   export INIT_LITE_SERVICE_LIST="$services"
 
   IFS=',' read -r -a svcs <<<"$services"

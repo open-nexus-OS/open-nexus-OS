@@ -1,4 +1,4 @@
-// Copyright 2025 Open Nexus OS Contributors
+// Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Keystored daemon – loads anchor keys and verifies signatures via Cap'n Proto IPC.

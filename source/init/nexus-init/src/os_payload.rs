@@ -353,6 +353,11 @@ struct CtrlChannel {
     exe_recv_slot: Option<u32>,
     key_send_slot: Option<u32>,
     key_recv_slot: Option<u32>,
+    /// Optional routing for target "rngd" from the perspective of this PID:
+    /// - send_slot: where this PID should send entropy requests
+    /// - recv_slot: where this PID should receive direct replies (if used)
+    rng_send_slot: Option<u32>,
+    rng_recv_slot: Option<u32>,
     net_send_slot: Option<u32>,
     net_recv_slot: Option<u32>,
     log_send_slot: Option<u32>,
@@ -713,6 +718,8 @@ where
                     exe_recv_slot: None,
                     key_send_slot: None,
                     key_recv_slot: None,
+                    rng_send_slot: None,
+                    rng_recv_slot: None,
                     net_send_slot: None,
                     net_recv_slot: None,
                     log_send_slot: None,
@@ -790,6 +797,7 @@ where
     let samgrd_pid = find_pid(&ctrl_channels, "samgrd").ok_or(InitError::MissingElf)?;
     let execd_pid = find_pid(&ctrl_channels, "execd").ok_or(InitError::MissingElf)?;
     let keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
+    let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
 
     // selftest-client <-> service endpoint pairs
@@ -827,6 +835,14 @@ where
     let key_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, keystored_pid, 8)
         .map_err(InitError::Abi)?;
     let key_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+        .map_err(InitError::Abi)?;
+
+    // rngd <-> clients endpoints:
+    // - rng_req owned by rngd (server receives requests)
+    // - rng_rsp owned by selftest-client (server can send direct replies to selftest without CAP_MOVE)
+    let rng_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, rngd_pid, 8)
+        .map_err(InitError::Abi)?;
+    let rng_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
 
     // logd (optional) service endpoints (request/response).
@@ -1257,6 +1273,52 @@ where
                     chan.log_send_slot = Some(send_slot);
                     chan.log_recv_slot = Some(reply_recv_slot);
                 }
+
+                // Allow keystored to call policyd (reply via CAP_MOVE/@reply).
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.pol_send_slot = Some(send_slot);
+                chan.pol_recv_slot = Some(reply_recv_slot);
+
+                // Allow keystored to send entropy requests to rngd (replies via CAP_MOVE/@reply).
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, rng_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.rng_send_slot = Some(send_slot);
+                // Use reply inbox recv slot for routing responses (CAP_MOVE replies land here).
+                chan.rng_recv_slot = Some(reply_recv_slot);
+            }
+            "rngd" => {
+                // Server-side endpoints for rngd.
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, rng_req, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, rng_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                chan.rng_send_slot = Some(send_slot);
+                chan.rng_recv_slot = Some(recv_slot);
+
+                // Provide a reply inbox for CAP_MOVE reply routing (used by clients).
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                if let Some(req) = log_req {
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
+
+                // Allow rngd to call policyd (reply via CAP_MOVE/@reply).
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.pol_send_slot = Some(send_slot);
+                chan.pol_recv_slot = Some(reply_recv_slot);
             }
             "logd" => {
                 if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
@@ -1395,6 +1457,19 @@ where
                     .map_err(InitError::Abi)?;
                 chan.dsoft_send_slot = Some(send_slot);
                 chan.dsoft_recv_slot = Some(recv_slot);
+
+                // Allow selftest-client to send requests to rngd and receive direct replies.
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, rng_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, rng_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.rng_send_slot = Some(send_slot);
+                chan.rng_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest rngd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
             }
             "policyd" | "samgrd" | "bundlemgrd" | "packagefsd" | "vfsd" | "netstackd" => {
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
@@ -1414,6 +1489,8 @@ where
                     chan.log_send_slot = Some(send_slot);
                     chan.log_recv_slot = Some(reply_recv_slot);
                 }
+
+                // Other services can use existing policy flow (selftest-client uses pol_rsp).
             }
             _ => {}
         }
@@ -1727,11 +1804,25 @@ where
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }
+            } else if name == b"rngd" {
+                match (chan.rng_send_slot, chan.rng_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
             } else {
                 (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32)
             };
             if name == b"samgrd" && chan.svc_name == "selftest-client" {
                 debug_write_bytes(b"init: route samgrd rsp status=0x");
+                debug_write_hex(status as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
+            }
+            if name == b"rngd" && chan.svc_name == "selftest-client" {
+                debug_write_bytes(b"init: route rngd rsp status=0x");
                 debug_write_hex(status as usize);
                 debug_write_bytes(b" send=0x");
                 debug_write_hex(send_slot as usize);

@@ -1,3 +1,18 @@
+// Copyright 2024 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Keystored (os-lite) — key/value shim plus device identity key operations (bring-up)
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 9 unit tests (os-lite)
+//! ADR: docs/adr/0017-service-architecture.md
+//!
+//! SECURITY INVARIANTS:
+//! - Never log entropy bytes or private key material
+//! - Bind policy checks to `sender_service_id` (kernel-provided identity)
+//! - Deny-by-default via policyd for sensitive operations
+
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -100,6 +115,39 @@ pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> L
     Err(ServerError::Unsupported("keystored run_with_transport_default_anchors"))
 }
 
+/// Device identity keypair storage.
+/// Stores the signing key (private) and allows deriving the verifying key (public).
+struct DeviceKeyPair {
+    signing_key: Option<ed25519_dalek::SigningKey>,
+}
+
+impl DeviceKeyPair {
+    const fn new() -> Self {
+        Self { signing_key: None }
+    }
+
+    fn is_generated(&self) -> bool {
+        self.signing_key.is_some()
+    }
+
+    fn generate(&mut self, entropy: &[u8; 32]) -> bool {
+        if self.signing_key.is_some() {
+            return false; // Already generated
+        }
+        self.signing_key = Some(ed25519_dalek::SigningKey::from_bytes(entropy));
+        true
+    }
+
+    fn public_key(&self) -> Option<[u8; 32]> {
+        self.signing_key.as_ref().map(|sk| sk.verifying_key().to_bytes())
+    }
+
+    fn sign(&self, message: &[u8]) -> Option<[u8; 64]> {
+        use ed25519_dalek::Signer;
+        self.signing_key.as_ref().map(|sk| sk.sign(message).to_bytes())
+    }
+}
+
 /// Main service loop; notifies readiness and yields cooperatively.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
@@ -113,6 +161,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // NOTE: this is not a full policy model; it is a safety floor until policyd-mediated access
     // control is wired for the keystore protocol.
     let mut store: BTreeMap<(u64, Vec<u8>), Vec<u8>> = BTreeMap::new();
+    // Device identity keypair (OS-lite bring-up).
+    let mut device_keypair = DeviceKeyPair::new();
     let mut logged_capmove = false;
     let mut logged_capmove_req = false;
     loop {
@@ -142,7 +192,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         }
                     }
                 }
-                let rsp = handle_frame(&mut store, sender_service_id, frame.as_slice());
+                let rsp = handle_frame(
+                    &mut store,
+                    &mut device_keypair,
+                    sender_service_id,
+                    frame.as_slice(),
+                );
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
                 } else {
@@ -176,42 +231,80 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
 }
 
-fn route_keystored_blocking() -> Option<KernelServer> {
+fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     const CTRL_SEND_SLOT: u32 = 1;
     const CTRL_RECV_SLOT: u32 = 2;
-    let name = b"keystored";
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
-    let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    loop {
-        if nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req[..req_len], 0, 0).is_err() {
-            let _ = yield_();
-            continue;
-        }
+    if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
+        return None;
+    }
+
+    // Drain stale responses; routing has no nonce.
+    for _ in 0..32 {
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 32];
         match nexus_abi::ipc_recv_v1(
             CTRL_RECV_SLOT,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
             0,
         ) {
-            Ok(n) => {
-                let n = n as usize;
-                let (status, send_slot, recv_slot) =
-                    nexus_abi::routing::decode_route_rsp(&buf[..n])?;
-                if status != nexus_abi::routing::STATUS_OK {
+            Ok(_) => continue,
+            Err(nexus_abi::IpcError::QueueEmpty) => break,
+            Err(_) => break,
+        }
+    }
+
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
+    let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+    loop {
+        loop {
+            match nexus_abi::ipc_send_v1(
+                CTRL_SEND_SLOT,
+                &hdr,
+                &req[..req_len],
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            ) {
+                Ok(_) => break,
+                Err(nexus_abi::IpcError::QueueFull) => {
                     let _ = yield_();
-                    continue;
                 }
-                return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+                Err(_) => return None,
             }
-            Err(_) => {
-                let _ = yield_();
+        }
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        loop {
+            match nexus_abi::ipc_recv_v1(
+                CTRL_RECV_SLOT,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => {
+                    let n = n as usize;
+                    let (status, send_slot, recv_slot) =
+                        nexus_abi::routing::decode_route_rsp(&buf[..n])?;
+                    if status == nexus_abi::routing::STATUS_OK {
+                        return Some((send_slot, recv_slot));
+                    }
+                    break;
+                }
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = yield_();
+                }
+                Err(_) => return None,
             }
         }
     }
+}
+
+fn route_keystored_blocking() -> Option<KernelServer> {
+    let (send_slot, recv_slot) = route_blocking(b"keystored")?;
+    KernelServer::new_with_slots(recv_slot, send_slot).ok()
 }
 
 const MAGIC0: u8 = b'K';
@@ -223,6 +316,11 @@ const OP_GET: u8 = 2;
 const OP_DEL: u8 = 3;
 const OP_VERIFY: u8 = 4;
 const OP_SIGN: u8 = 5;
+// Device identity key operations
+const OP_DEVICE_KEYGEN: u8 = 10;
+const OP_GET_DEVICE_PUBKEY: u8 = 11;
+const OP_DEVICE_SIGN: u8 = 12;
+const OP_GET_DEVICE_PRIVKEY: u8 = 13;
 
 const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
@@ -230,6 +328,11 @@ const STATUS_MALFORMED: u8 = 2;
 const STATUS_TOO_LARGE: u8 = 3;
 const STATUS_UNSUPPORTED: u8 = 4;
 const STATUS_DENY: u8 = 5;
+// Device identity key status codes
+const STATUS_KEY_EXISTS: u8 = 10;
+const STATUS_KEY_NOT_FOUND: u8 = 11;
+#[allow(dead_code)] // Used in test_reject_device_key_private_export
+const STATUS_PRIVATE_EXPORT_DENIED: u8 = 12;
 
 const MAX_KEY_LEN: usize = 64;
 const MAX_VAL_LEN: usize = 256;
@@ -238,11 +341,12 @@ const MAX_SIGN_PAYLOAD: usize = 1 * 1024 * 1024;
 
 fn handle_frame(
     store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>,
+    device_keypair: &mut DeviceKeyPair,
     sender_service_id: u64,
     frame: &[u8],
 ) -> Vec<u8> {
-    // Request: [K, S, ver, op, key_len:u8, val_len:u16le, key..., val...]
-    if frame.len() < 7 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
+    // Request: [K, S, ver, op, ...]
+    if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return rsp(OP_GET, STATUS_MALFORMED, &[]);
     }
     let ver = frame[2];
@@ -255,6 +359,24 @@ fn handle_frame(
     }
     if op == OP_SIGN {
         return handle_sign(sender_service_id, frame);
+    }
+    // Device identity key operations
+    if op == OP_DEVICE_KEYGEN {
+        return handle_device_keygen(device_keypair, sender_service_id);
+    }
+    if op == OP_GET_DEVICE_PUBKEY {
+        return handle_get_device_pubkey(device_keypair, sender_service_id);
+    }
+    if op == OP_DEVICE_SIGN {
+        return handle_device_sign(device_keypair, sender_service_id, frame);
+    }
+    if op == OP_GET_DEVICE_PRIVKEY {
+        return handle_get_device_privkey();
+    }
+
+    // For PUT/GET/DEL, require minimum frame length
+    if frame.len() < 7 {
+        return rsp(op, STATUS_MALFORMED, &[]);
     }
 
     let key_len = frame[4] as usize;
@@ -354,7 +476,7 @@ fn handle_sign(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
         return rsp(OP_SIGN, STATUS_DENY, &[]);
     }
 
-    // NOTE: Real device keys and signing are handled in TASK-0008B.
+    // NOTE: Device-identity signing is handled via OP_DEVICE_SIGN.
     rsp(OP_SIGN, STATUS_UNSUPPORTED, &[])
 }
 
@@ -362,7 +484,9 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     const MAGIC0: u8 = b'P';
     const MAGIC1: u8 = b'O';
     const VERSION: u8 = 1;
-    const OP_CHECK_CAP: u8 = nexus_abi::policyd::OP_CHECK_CAP;
+    // Delegated check: keystored is an enforcement point; policyd validates that keystored is allowed
+    // to query policy for another subject id.
+    const OP_CHECK_CAP_DELEGATED: u8 = 5;
     const STATUS_ALLOW: u8 = 0;
 
     if cap.is_empty() || cap.len() > 48 {
@@ -372,17 +496,31 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     frame.push(MAGIC0);
     frame.push(MAGIC1);
     frame.push(VERSION);
-    frame.push(OP_CHECK_CAP);
+    frame.push(OP_CHECK_CAP_DELEGATED);
     frame.extend_from_slice(&subject_id.to_le_bytes());
     frame.push(cap.len() as u8);
     frame.extend_from_slice(cap);
 
-    let client = match nexus_ipc::KernelClient::new_for("policyd") {
-        Ok(client) => client,
+    // Send to policyd and receive reply via CAP_MOVE on @reply.
+    let (send_slot, _recv_slot) = match route_blocking(b"policyd") {
+        Some(slots) => slots,
+        None => return false,
+    };
+    let (reply_send_slot, reply_recv_slot) = match route_blocking(b"@reply") {
+        Some(slots) => slots,
+        None => return false,
+    };
+    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
+        Ok(c) => c,
         Err(_) => return false,
     };
-    let (send_slot, recv_slot) = client.slots();
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
     let start = match nexus_abi::nsec() {
         Ok(value) => value,
         Err(_) => return false,
@@ -400,6 +538,7 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
                         Err(_) => return false,
                     };
                     if now >= deadline {
+                        let _ = nexus_abi::cap_close(reply_send_clone);
                         return false;
                     }
                 }
@@ -424,7 +563,7 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
             }
         }
         match nexus_abi::ipc_recv_v1(
-            recv_slot,
+            reply_recv_slot,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
@@ -435,7 +574,7 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
                 if n != 6 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION {
                     continue;
                 }
-                if buf[3] != (OP_CHECK_CAP | 0x80) {
+                if buf[3] != (OP_CHECK_CAP_DELEGATED | 0x80) {
                     continue;
                 }
                 return buf[4] == STATUS_ALLOW;
@@ -449,6 +588,247 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     }
 }
 
+// =============================================================================
+// Device identity key operations (keygen + pubkey + signing)
+// =============================================================================
+
+/// Handle DEVICE_KEYGEN request.
+/// Generates a device identity keypair using entropy from rngd.
+///
+/// # Security
+/// - Policy-gated via `device.keygen` capability
+/// - Entropy is NOT logged
+fn handle_device_keygen(device_keypair: &mut DeviceKeyPair, sender_service_id: u64) -> Vec<u8> {
+    handle_device_keygen_with(
+        device_keypair,
+        sender_service_id,
+        |sid| policyd_allows(sid, b"device.keygen"),
+        request_entropy_from_rngd,
+    )
+}
+
+fn handle_device_keygen_with<P, E>(
+    device_keypair: &mut DeviceKeyPair,
+    sender_service_id: u64,
+    policy_check: P,
+    entropy_source: E,
+) -> Vec<u8>
+where
+    P: FnOnce(u64) -> bool,
+    E: FnOnce(usize) -> Option<Vec<u8>>,
+{
+    // Policy check: caller must have device.keygen capability
+    if !policy_check(sender_service_id) {
+        return rsp(OP_DEVICE_KEYGEN, STATUS_DENY, &[]);
+    }
+
+    // Check if key already exists
+    if device_keypair.is_generated() {
+        return rsp(OP_DEVICE_KEYGEN, STATUS_KEY_EXISTS, &[]);
+    }
+
+    // Request entropy from rngd (entropy authority service).
+    let entropy = match entropy_source(32) {
+        Some(bytes) if bytes.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            arr
+        }
+        _ => {
+            emit_line("keystored: entropy request failed");
+            return rsp(OP_DEVICE_KEYGEN, STATUS_UNSUPPORTED, &[]);
+        }
+    };
+
+    // Generate the keypair
+    // SECURITY: Do NOT log entropy or private key bytes!
+    if device_keypair.generate(&entropy) {
+        emit_line("keystored: device key generated");
+        rsp(OP_DEVICE_KEYGEN, STATUS_OK, &[])
+    } else {
+        rsp(OP_DEVICE_KEYGEN, STATUS_KEY_EXISTS, &[])
+    }
+}
+
+/// Handle GET_DEVICE_PUBKEY request.
+/// Returns the device's public key (32 bytes).
+///
+/// # Security
+/// - Policy-gated via `device.pubkey.read` capability
+/// - Only returns public key, NEVER private key
+fn handle_get_device_pubkey(device_keypair: &DeviceKeyPair, sender_service_id: u64) -> Vec<u8> {
+    handle_get_device_pubkey_with(device_keypair, sender_service_id, |sid| {
+        policyd_allows(sid, b"device.pubkey.read")
+    })
+}
+
+fn handle_get_device_pubkey_with<P>(
+    device_keypair: &DeviceKeyPair,
+    sender_service_id: u64,
+    policy_check: P,
+) -> Vec<u8>
+where
+    P: FnOnce(u64) -> bool,
+{
+    // Policy check: caller must have device.pubkey.read capability
+    if !policy_check(sender_service_id) {
+        return rsp(OP_GET_DEVICE_PUBKEY, STATUS_DENY, &[]);
+    }
+
+    match device_keypair.public_key() {
+        Some(pubkey) => rsp(OP_GET_DEVICE_PUBKEY, STATUS_OK, &pubkey),
+        None => rsp(OP_GET_DEVICE_PUBKEY, STATUS_KEY_NOT_FOUND, &[]),
+    }
+}
+
+/// Handle DEVICE_SIGN request.
+/// Signs a payload with the device's private key.
+///
+/// # Security
+/// - Policy-gated via `crypto.sign` capability
+/// - Private key NEVER leaves keystored
+/// - Only signature is returned
+fn handle_device_sign(
+    device_keypair: &DeviceKeyPair,
+    sender_service_id: u64,
+    frame: &[u8],
+) -> Vec<u8> {
+    // DEVICE_SIGN request: [K, S, ver, OP, payload_len:u32le, payload...]
+    const HEADER_LEN: usize = 4 + 4;
+    if frame.len() < HEADER_LEN {
+        return rsp(OP_DEVICE_SIGN, STATUS_MALFORMED, &[]);
+    }
+    let payload_len = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as usize;
+    if payload_len > MAX_SIGN_PAYLOAD {
+        return rsp(OP_DEVICE_SIGN, STATUS_TOO_LARGE, &[]);
+    }
+    let expected = HEADER_LEN.saturating_add(payload_len);
+    if frame.len() != expected {
+        return rsp(OP_DEVICE_SIGN, STATUS_MALFORMED, &[]);
+    }
+
+    // Policy check: caller must have crypto.sign capability
+    if !policyd_allows(sender_service_id, b"crypto.sign") {
+        return rsp(OP_DEVICE_SIGN, STATUS_DENY, &[]);
+    }
+
+    // Check if key exists
+    if !device_keypair.is_generated() {
+        return rsp(OP_DEVICE_SIGN, STATUS_KEY_NOT_FOUND, &[]);
+    }
+
+    let payload = &frame[HEADER_LEN..expected];
+    match device_keypair.sign(payload) {
+        Some(signature) => rsp(OP_DEVICE_SIGN, STATUS_OK, &signature),
+        None => rsp(OP_DEVICE_SIGN, STATUS_KEY_NOT_FOUND, &[]),
+    }
+}
+
+/// Handle GET_DEVICE_PRIVKEY request.
+///
+/// This operation is intentionally unsupported: private key export is forbidden.
+fn handle_get_device_privkey() -> Vec<u8> {
+    rsp(OP_GET_DEVICE_PRIVKEY, STATUS_PRIVATE_EXPORT_DENIED, &[])
+}
+
+/// Request entropy from rngd service.
+///
+/// # Security
+/// - Entropy bytes are NOT logged
+fn request_entropy_from_rngd(n: usize) -> Option<Vec<u8>> {
+    if n == 0 || n > 256 {
+        return None;
+    }
+
+    // Build rngd GET_ENTROPY request with nonce.
+    // Request: [R, G, 1, OP_GET_ENTROPY=1, nonce:u32le, n:u16le]
+    let nonce = nexus_abi::nsec().ok()? as u32;
+    let mut req = Vec::with_capacity(10);
+    req.push(b'R'); // MAGIC0
+    req.push(b'G'); // MAGIC1
+    req.push(1); // VERSION
+    req.push(1); // OP_GET_ENTROPY
+    req.extend_from_slice(&nonce.to_le_bytes());
+    req.extend_from_slice(&(n as u16).to_le_bytes());
+
+    // Route to rngd (send slot), but receive replies via @reply CAP_MOVE.
+    let (rng_send_slot, _rng_recv_slot) = route_blocking(b"rngd")?;
+    let (reply_send_slot, reply_recv_slot) = route_blocking(b"@reply")?;
+    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
+
+    // Send request with CAP_MOVE reply cap so rngd can reply to us deterministically.
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        req.len() as u32,
+    );
+
+    // Send request
+    let start = nexus_abi::nsec().ok()?;
+    let deadline = start.saturating_add(500_000_000);
+
+    let mut i: usize = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(rng_send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if (i & 0x7f) == 0 && nexus_abi::nsec().ok()? >= deadline {
+                    let _ = nexus_abi::cap_close(reply_send_clone);
+                    return None;
+                }
+                let _ = yield_();
+            }
+            Err(_) => return None,
+        }
+        i = i.wrapping_add(1);
+    }
+
+    // Receive response
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 9 + 256]; // max response: header + nonce + entropy
+    let mut j: usize = 0;
+    loop {
+        if (j & 0x7f) == 0 && nexus_abi::nsec().ok()? >= deadline {
+            return None;
+        }
+        match nexus_abi::ipc_recv_v1(
+            reply_recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(len) => {
+                let len = core::cmp::min(len as usize, buf.len());
+                // Response: [R, G, 1, OP|0x80, STATUS, nonce:u32le, entropy...]
+                if len < 9 || buf[0] != b'R' || buf[1] != b'G' || buf[2] != 1 {
+                    return None;
+                }
+                if buf[3] != (1 | 0x80) {
+                    return None; // Not a GET_ENTROPY response
+                }
+                if buf[4] != 0 {
+                    return None; // Not STATUS_OK
+                }
+                let got_nonce = u32::from_le_bytes([buf[5], buf[6], buf[7], buf[8]]);
+                if got_nonce != nonce {
+                    // Ignore unrelated replies on shared inbox.
+                    j = j.wrapping_add(1);
+                    continue;
+                }
+                // SECURITY: Do NOT log entropy bytes!
+                return Some(buf[9..len].to_vec());
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => return None,
+        }
+        j = j.wrapping_add(1);
+    }
+}
 fn rsp(op: u8, status: u8, value: &[u8]) -> Vec<u8> {
     // Response: [K, S, ver, op|0x80, status, val_len:u16le, val...]
     let mut out = Vec::with_capacity(7 + value.len());
@@ -503,5 +883,99 @@ mod tests {
         let sender_service_id = nexus_abi::service_id_from_name(b"samgrd");
         let out = handle_sign(sender_service_id, &frame);
         assert_eq!(rsp_status(out), STATUS_TOO_LARGE);
+    }
+
+    #[test]
+    fn test_reject_device_key_private_export() {
+        // Private export operation must deterministically reject.
+        let out = handle_get_device_privkey();
+        assert_eq!(rsp_status(out), STATUS_PRIVATE_EXPORT_DENIED);
+    }
+
+    #[test]
+    fn test_device_keygen_denied_by_policy() {
+        let mut keypair = DeviceKeyPair::new();
+        let out = handle_device_keygen_with(
+            &mut keypair,
+            nexus_abi::service_id_from_name(b"demo.testsvc"),
+            |_| false,
+            |_| Some(vec![0u8; 32]),
+        );
+        assert_eq!(rsp_status(out), STATUS_DENY);
+        assert!(!keypair.is_generated());
+    }
+
+    #[test]
+    fn test_device_keygen_entropy_unavailable() {
+        let mut keypair = DeviceKeyPair::new();
+        let out = handle_device_keygen_with(
+            &mut keypair,
+            nexus_abi::service_id_from_name(b"selftest-client"),
+            |_| true,
+            |_| None,
+        );
+        assert_eq!(rsp_status(out), STATUS_UNSUPPORTED);
+        assert!(!keypair.is_generated());
+    }
+
+    #[test]
+    fn test_device_keygen_success_and_pubkey() {
+        let mut keypair = DeviceKeyPair::new();
+        let out = handle_device_keygen_with(
+            &mut keypair,
+            nexus_abi::service_id_from_name(b"selftest-client"),
+            |_| true,
+            |_| Some(vec![0x5a; 32]),
+        );
+        assert_eq!(rsp_status(out), STATUS_OK);
+        assert!(keypair.is_generated());
+        let pubkey_out = handle_get_device_pubkey_with(
+            &keypair,
+            nexus_abi::service_id_from_name(b"selftest-client"),
+            |_| true,
+        );
+        assert_eq!(rsp_status(pubkey_out.clone()), STATUS_OK);
+        let val_len = u16::from_le_bytes([pubkey_out[5], pubkey_out[6]]) as usize;
+        assert_eq!(val_len, 32);
+    }
+
+    #[test]
+    fn test_device_keygen_idempotent() {
+        let mut keypair = DeviceKeyPair::new();
+        let _ = handle_device_keygen_with(
+            &mut keypair,
+            nexus_abi::service_id_from_name(b"selftest-client"),
+            |_| true,
+            |_| Some(vec![0x11; 32]),
+        );
+        let out = handle_device_keygen_with(
+            &mut keypair,
+            nexus_abi::service_id_from_name(b"selftest-client"),
+            |_| true,
+            |_| Some(vec![0x22; 32]),
+        );
+        assert_eq!(rsp_status(out), STATUS_KEY_EXISTS);
+    }
+
+    #[test]
+    fn test_device_pubkey_denied_by_policy() {
+        let keypair = DeviceKeyPair::new();
+        let out = handle_get_device_pubkey_with(
+            &keypair,
+            nexus_abi::service_id_from_name(b"demo.testsvc"),
+            |_| false,
+        );
+        assert_eq!(rsp_status(out), STATUS_DENY);
+    }
+
+    #[test]
+    fn test_device_pubkey_missing_key() {
+        let keypair = DeviceKeyPair::new();
+        let out = handle_get_device_pubkey_with(
+            &keypair,
+            nexus_abi::service_id_from_name(b"selftest-client"),
+            |_| true,
+        );
+        assert_eq!(rsp_status(out), STATUS_KEY_NOT_FOUND);
     }
 }

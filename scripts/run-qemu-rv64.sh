@@ -29,6 +29,8 @@ NEURON_BOOT_FEATURES=${NEURON_BOOT_FEATURES:-}
 # Allow overriding the QEMU net backend (default: usernet) for opt-in harnesses.
 QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
 QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE:--device virtio-net-device,netdev=n0}
+QEMU_RNG_OBJECT=${QEMU_RNG_OBJECT:--object rng-random,id=rng0,filename=/dev/urandom}
+QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
 
 join_by() {
   local IFS="$1"
@@ -45,7 +47,7 @@ set_env_var() {
 
 declare -a SERVICES=()
 
-DEFAULT_SERVICE_LIST="keystored,policyd,logd,samgrd,bundlemgrd,updated,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
+DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,samgrd,bundlemgrd,updated,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
 
 prepare_service_payloads() {
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
@@ -518,6 +520,8 @@ COMMON_ARGS=(
   # for marker-driven bring-up.
   ${QEMU_NETDEV}
   ${QEMU_NETDEV_DEVICE}
+  ${QEMU_RNG_OBJECT}
+  ${QEMU_RNG_DEVICE}
 )
 
 # Enable heavy QEMU tracing only when explicitly requested

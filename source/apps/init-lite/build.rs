@@ -64,6 +64,7 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
     let default_candidates = [
         "keystored",
         "identityd",
+        "rngd",
         "policyd",
         "logd",
         "samgrd",

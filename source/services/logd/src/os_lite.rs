@@ -66,9 +66,9 @@ impl fmt::Display for ServerError {
 /// Schema warmer placeholder for API parity.
 pub fn touch_schemas() {}
 
-const JOURNAL_CAP_RECORDS: u32 = 256;
-const JOURNAL_CAP_BYTES: u32 = 64 * 1024;
-const JOURNAL_ALLOC_CAP_BYTES: u32 = 128 * 1024;
+const JOURNAL_CAP_RECORDS: u32 = 128;
+const JOURNAL_CAP_BYTES: u32 = 16 * 1024;
+const JOURNAL_ALLOC_CAP_BYTES: u32 = 24 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
@@ -173,6 +173,7 @@ fn route_logd_blocking() -> Option<KernelServer> {
 
 enum ResponseFrame {
     Small { buf: [u8; 64], len: usize },
+    Medium { buf: [u8; 512], len: usize },
     Large(Vec<u8>),
 }
 
@@ -180,6 +181,7 @@ impl ResponseFrame {
     fn as_slice(&self) -> &[u8] {
         match self {
             ResponseFrame::Small { buf, len } => &buf[..*len],
+            ResponseFrame::Medium { buf, len } => &buf[..*len],
             ResponseFrame::Large(buf) => buf.as_slice(),
         }
     }
@@ -215,6 +217,13 @@ fn handle_frame(
     match frame[3] {
         OP_APPEND => match decode_append(frame) {
             Ok((level, scope, message, fields)) => {
+                // Keep stored records compact to stay within the os-lite heap budget.
+                const STORE_MAX_SCOPE_LEN: usize = 32;
+                const STORE_MAX_MSG_LEN: usize = 128;
+                const STORE_MAX_FIELDS_LEN: usize = 128;
+                let scope = &scope[..core::cmp::min(scope.len(), STORE_MAX_SCOPE_LEN)];
+                let message = &message[..core::cmp::min(message.len(), STORE_MAX_MSG_LEN)];
+                let fields = &fields[..core::cmp::min(fields.len(), STORE_MAX_FIELDS_LEN)];
                 match journal.append(sender_service_id, now, level, scope, message, fields) {
                     Ok(outcome) => encode_append_response_small(
                         STATUS_OK,
@@ -233,9 +242,9 @@ fn handle_frame(
         OP_QUERY => match decode_query(frame) {
             Ok((since, max_count)) => {
                 let records = journal.query(since, max_count);
-                ResponseFrame::Large(encode_query_response(STATUS_OK, stats, &records))
+                encode_query_response_bounded(STATUS_OK, stats, &records)
             }
-            Err(err) => ResponseFrame::Large(encode_query_response(err, stats, &[])),
+            Err(err) => encode_query_response_bounded(err, stats, &[]),
         },
         OP_STATS => encode_stats_response_small(STATUS_OK, stats),
         _ => encode_stats_response_small(STATUS_UNSUPPORTED, stats),
@@ -285,6 +294,16 @@ fn decode_query(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
     Ok((TimestampNsec(since), max_count))
 }
 
+fn encode_level(level: crate::journal::LogLevel) -> u8 {
+    match level {
+        crate::journal::LogLevel::Error => 0,
+        crate::journal::LogLevel::Warn => 1,
+        crate::journal::LogLevel::Info => 2,
+        crate::journal::LogLevel::Debug => 3,
+        crate::journal::LogLevel::Trace => 4,
+    }
+}
+
 fn encode_append_response_small(status: u8, record_id: RecordId, dropped: u64) -> ResponseFrame {
     let mut buf = [0u8; 64];
     buf[0] = MAGIC0;
@@ -311,6 +330,86 @@ fn encode_stats_response_small(status: u8, stats: crate::journal::JournalStats) 
     buf[29..33].copy_from_slice(&stats.used_records.to_le_bytes());
     buf[33..37].copy_from_slice(&stats.used_bytes.to_le_bytes());
     ResponseFrame::Small { buf, len: 37 }
+}
+
+fn encode_query_response_bounded(
+    status: u8,
+    stats: crate::journal::JournalStats,
+    records: &[crate::journal::LogRecord],
+) -> ResponseFrame {
+    const BUF_CAP: usize = 512;
+    let mut buf = [0u8; BUF_CAP];
+    let mut idx = 0usize;
+
+    let mut write_u8 = |value: u8, out: &mut [u8], pos: &mut usize| {
+        if *pos < out.len() {
+            out[*pos] = value;
+        }
+        *pos += 1;
+    };
+    let mut write_u16 = |value: u16, out: &mut [u8], pos: &mut usize| {
+        let bytes = value.to_le_bytes();
+        for b in bytes {
+            write_u8(b, out, pos);
+        }
+    };
+    let mut write_u64 = |value: u64, out: &mut [u8], pos: &mut usize| {
+        let bytes = value.to_le_bytes();
+        for b in bytes {
+            write_u8(b, out, pos);
+        }
+    };
+    let mut write_bytes = |data: &[u8], out: &mut [u8], pos: &mut usize| {
+        for b in data {
+            write_u8(*b, out, pos);
+        }
+    };
+
+    write_u8(MAGIC0, &mut buf, &mut idx);
+    write_u8(MAGIC1, &mut buf, &mut idx);
+    write_u8(VERSION, &mut buf, &mut idx);
+    write_u8(OP_QUERY | 0x80, &mut buf, &mut idx);
+    write_u8(status, &mut buf, &mut idx);
+    write_u64(stats.total_records, &mut buf, &mut idx);
+    write_u64(stats.dropped_records, &mut buf, &mut idx);
+    let count_pos = idx;
+    write_u16(0, &mut buf, &mut idx); // placeholder
+
+    let mut count: u16 = 0;
+    for rec in records.iter() {
+        let scope_len = core::cmp::min(rec.scope.len(), MAX_SCOPE_LEN) as u16;
+        let msg_len = core::cmp::min(rec.message.len(), MAX_MSG_LEN) as u16;
+        let fields_len = core::cmp::min(rec.fields.len(), MAX_FIELDS_LEN) as u16;
+        let record_len =
+            8 + 8 + 1 + 8 + 1 + 2 + 2 + scope_len as usize + msg_len as usize + fields_len as usize;
+        if idx.saturating_add(record_len) > buf.len() {
+            break;
+        }
+        write_u64(rec.record_id.0, &mut buf, &mut idx);
+        write_u64(rec.timestamp_nsec.0, &mut buf, &mut idx);
+        write_u8(encode_level(rec.level), &mut buf, &mut idx);
+        write_u64(rec.service_id, &mut buf, &mut idx);
+        write_u8(scope_len as u8, &mut buf, &mut idx);
+        write_u16(msg_len, &mut buf, &mut idx);
+        write_u16(fields_len, &mut buf, &mut idx);
+        write_bytes(&rec.scope[..scope_len as usize], &mut buf, &mut idx);
+        write_bytes(&rec.message[..msg_len as usize], &mut buf, &mut idx);
+        write_bytes(&rec.fields[..fields_len as usize], &mut buf, &mut idx);
+        count = count.saturating_add(1);
+        if count == u16::MAX {
+            break;
+        }
+    }
+
+    // Write count into reserved slot.
+    if count_pos + 1 < buf.len() {
+        let count_bytes = count.to_le_bytes();
+        buf[count_pos] = count_bytes[0];
+        buf[count_pos + 1] = count_bytes[1];
+    }
+
+    let len = core::cmp::min(idx, buf.len());
+    ResponseFrame::Medium { buf, len }
 }
 
 fn emit_line(message: &str) {

@@ -33,8 +33,8 @@ use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
 use nexus_ipc::{Client, Wait};
 use std::io::Cursor;
 
-const CORE_SERVICES: [&str; 7] =
-    ["keystored", "policyd", "samgrd", "bundlemgrd", "packagefsd", "vfsd", "execd"];
+const CORE_SERVICES: [&str; 8] =
+    ["keystored", "rngd", "policyd", "samgrd", "bundlemgrd", "packagefsd", "vfsd", "execd"];
 
 #[cfg(nexus_env = "host")]
 const BUNDLE_OPCODE_QUERY: u8 = 2;

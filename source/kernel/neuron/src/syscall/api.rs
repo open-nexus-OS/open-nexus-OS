@@ -1996,6 +1996,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let mut service_id: u64 = 0;
     let mut is_selftest_client = false;
     let mut is_netstackd = false;
+    let mut is_rngd = false;
     if typed.name_len != 0 {
         // SAFETY: checked in ExecV2ArgsTyped::check.
         let name_bytes =
@@ -2015,6 +2016,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         let base = base.iter().position(|b| *b == b'@').map(|i| &base[..i]).unwrap_or(base);
         is_selftest_client = base == b"selftest-client";
         is_netstackd = base == b"netstackd";
+        is_rngd = base == b"rngd";
         // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
         // This is deterministic, does not allocate, and can be recomputed by userland for display.
         service_id = 0xcbf29ce484222325u64;
@@ -2102,7 +2104,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Bind identity to the spawned task (kernel-derived): used for IPC sender attribution.
     if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
         t.set_service_id(service_id);
-        if is_selftest_client || is_netstackd {
+        if is_selftest_client || is_netstackd || is_rngd {
             // TASK-0010 bring-up: grant selftest-client a fixed, bounded virtio-mmio window so it
             // can prove userspace MMIO mapping works on QEMU `virt`.
             //
@@ -2668,9 +2670,13 @@ mod tests {
                 Capability { kind: CapabilityKind::Endpoint(endpoint), rights: Rights::SEND },
             )
             .unwrap();
-            // Movable cap in slot 3 (no MANAGE).
-            caps.set(3, Capability { kind: CapabilityKind::Endpoint(123), rights: Rights::SEND })
-                .unwrap();
+            // Movable cap in slot 3 (no MANAGE). Use a live endpoint to avoid hardening rejection.
+            let live_cap_ep = router.create_endpoint(1, None).unwrap();
+            caps.set(
+                3,
+                Capability { kind: CapabilityKind::Endpoint(live_cap_ep), rights: Rights::SEND },
+            )
+            .unwrap();
         }
 
         let mut ctx =
@@ -2713,7 +2719,7 @@ mod tests {
         // Fill all cap slots in the current task so allocation of the moved cap will fail.
         {
             let caps = tasks.bootstrap_mut().caps_mut();
-            for i in 0..64 {
+            for i in 0..96 {
                 caps.set(
                     i,
                     Capability { kind: CapabilityKind::Endpoint(i as u32), rights: Rights::SEND },
@@ -2776,10 +2782,10 @@ mod tests {
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
 
-        // Fill all cap slots (64). Ensure there is a valid cap at slot 0 to clone.
+        // Fill all cap slots (96). Ensure there is a valid cap at slot 0 to clone.
         {
             let caps = tasks.bootstrap_mut().caps_mut();
-            for i in 0..64 {
+            for i in 0..96 {
                 caps.set(
                     i,
                     Capability { kind: CapabilityKind::Endpoint(i as u32), rights: Rights::SEND },
@@ -2818,7 +2824,7 @@ mod tests {
         // Fill the child's cap table fully so allocation fails.
         {
             let child_caps = tasks.task_mut(child).unwrap().caps_mut();
-            for i in 0..64 {
+            for i in 0..96 {
                 let _ = child_caps.set(
                     i,
                     Capability { kind: CapabilityKind::Endpoint(i as u32), rights: Rights::SEND },
@@ -2841,7 +2847,7 @@ mod tests {
     fn ipc_endpoint_create_quota_enforced() {
         let mut router = ipc::Router::new(0);
         // Keep this aligned with ipc::MAX_ENDPOINTS.
-        for _ in 0..256 {
+        for _ in 0..384 {
             router.create_endpoint(1, None).expect("create");
         }
         match router.create_endpoint(1, None) {
@@ -2854,7 +2860,7 @@ mod tests {
     fn ipc_endpoint_create_owner_quota_enforced() {
         let mut router = ipc::Router::new(0);
         // Keep this aligned with ipc::MAX_ENDPOINTS_PER_OWNER.
-        for _ in 0..64 {
+        for _ in 0..96 {
             router.create_endpoint(1, Some(7)).expect("create");
         }
         match router.create_endpoint(1, Some(7)) {

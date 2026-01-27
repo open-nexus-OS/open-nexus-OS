@@ -280,8 +280,13 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         table
             .dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &stack_map_args)
             .expect("as_map stack syscall");
-        // Supply valid sp and as_handle
-        let spawn_args = Args::new([entry, user_stack_top, handle_raw, 0, 0, 0]);
+        // Supply valid sp/as_handle and a gp derived from the current pointer to avoid gp=0 in child.
+        let current_gp: usize;
+        unsafe {
+            core::arch::asm!("mv {0}, gp", out(reg) current_gp);
+        }
+        let gp = if current_gp == 0 { user_stack_top.wrapping_add(0x800) } else { current_gp };
+        let spawn_args = Args::new([entry, user_stack_top, handle_raw, 0, gp, 0]);
         child_pid =
             table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).expect("spawn syscall");
         verbose!("KSELFTEST: after spawn (raw)\n");
