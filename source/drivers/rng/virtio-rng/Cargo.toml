@@ -1,0 +1,16 @@
+[package]
+name = "rng-virtio"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+default = ["std"]
+std = []
+os-lite = ["dep:nexus-abi"]
+
+[dependencies]
+nexus-hal = { path = "../../../libs/nexus-hal" }
+nexus-abi = { path = "../../../libs/nexus-abi", optional = true }
+
+[dev-dependencies]
