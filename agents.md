@@ -13,6 +13,8 @@ Codex frequently contributes to `open-nexus-OS`. This guide captures the expecta
 3. **Kernel exec is the only loader.** Init-lite is just a wrapper; do not reintroduce userspace ELF mapping or scratch-page tricks—hand off to the kernel `exec` path.
 4. **Favour incremental steps.** Large rewrites should be decomposed into prompts that each produce a runnable tree (tests passing, UART markers intact). Avoid sprawling edits.
 4. **No kernel edits unless requested.** Userland and service layers are fair game; the kernel stays untouched by default.
+   - Exception: tasks that are explicitly kernel-scoped (e.g. `TASK-0010`) require kernel work by design. In those cases,
+     keep kernel changes minimal (enforce-only primitives) and push policy/distribution to userspace.
 5. **Testing discipline.** At the end of every prompt, run the minimal necessary checks (workspace `cargo test`, targeted e2e harness, or UART marker verification). Document expected markers in the prompt itself.
 6. **Header + ADR hygiene.** Every Rust/IDL file must carry the CONTEXT header described in `docs/standards/DOCUMENTATION_STANDARDS.md` (CONTEXT/OWNERS/STATUS/API_STABILITY/TEST_COVERAGE + ADR). Update fields when behaviour changes; never delete the block. If a change crosses architectural boundaries, reference (or add) the matching ADR before landing code.
 
@@ -44,6 +46,27 @@ Every Codex prompt should:
 - Reference relevant docs/markers so reviewers know what to inspect.
 
 Copy the format from previous prompts (section headers, fenced code for commands, etc.) and adjust the details for the current task.
+
+---
+
+## Task Brief: TASK-0010 (Device MMIO access model v1)
+
+When prompting Codex/Opus for `TASK-0010`, include these non-negotiables up front to avoid drift:
+
+- **Kernel boundary**: kernel provides enforce-only primitives (DeviceMmio cap + map syscall); kernel is not a policy authority.
+- **Distribution model**: init distributes caps; `policyd` is deny-by-default authority; decisions audited via `logd`.
+- **No name-check as “foundation complete”**: bring-up wiring may exist temporarily, but “Done” requires removing kernel string/name checks.
+- **Least privilege**: per-device MMIO windows (rng/net/blk split) rather than a single broad virtio-mmio window.
+- **Proof**:
+  - `scripts/qemu-test.sh` must include `SELFTEST: mmio map ok` (already required).
+  - Add negative kernel tests for bounds/no-cap/exec-attempt.
+  - Add at least one QEMU proof that a **designated owner service** (not only `selftest-client`) receives and maps its window.
+
+Suggested prompt addendum (copy/paste into agent prompts):
+
+- **Goal**: make `TASK-0010` “foundation complete” per the normative contract in `tasks/TASK-0010-device-mmio-access-model.md`.
+- **Constraints**: deterministic proofs, no secrets in logs, avoid expanding scope into IRQ/DMA.
+- **Stop conditions**: kernel tests + QEMU marker ladder stays green; no “ok” markers without real capability mapping.
 
 ---
 

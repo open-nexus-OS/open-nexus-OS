@@ -1,16 +1,44 @@
 # Identity and session security
 
-Open Nexus OS assigns every device a long-term Ed25519 identity. The
-`userspace/identity` crate generates the keypair, derives a stable textual device
-identifier by hashing the verifying key, and exposes helpers to sign or verify
-payloads. Keys are currently kept in-memory, but the API is designed so that a
-future keystore can back the same serialization logic without touching callers.
+Open Nexus OS assigns every device a long-term Ed25519 identity. The identity
+material is treated as high-value secret state and is intended to be held by a
+dedicated authority service rather than being copied into arbitrary callers.
 
 This follows the system hybrid approach: keep APIs stable now, and later move key custody to secure
 hardware (Secure Element / TEE) per device class without ABI churn (see `docs/agents/VISION.md`).
 
-The identity daemon (`identityd`) is the single entry point for other userland
-services. It exposes three Cap'n Proto calls:
+## Device identity keys on OS builds (virtio-rng → rngd → keystored)
+
+On OS/QEMU builds, “real” device identity keys require real entropy. OS builds
+must not depend on `getrandom`, so entropy is provided via:
+
+- a userspace **virtio-rng** frontend (MMIO),
+- `rngd` as the **single entropy authority** (bounded requests),
+- `keystored` as the **device key custody** authority:
+  - generates the device identity keypair using entropy from `rngd`,
+  - exposes **only** the public key (no private key export),
+  - performs signing operations without releasing private key material.
+
+All sensitive operations are deny-by-default via `policyd`, binding to
+kernel-provided `sender_service_id`, and allow/deny decisions are audit-logged
+via `logd`.
+
+Contract/proofs:
+
+- Task: `tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md`
+- RFC: `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
+- MMIO primitive: `tasks/TASK-0010-device-mmio-access-model.md`
+- Persistence/rotation is out of scope here (see `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` and follow-ups).
+
+## Identity service surface (today)
+
+The identity daemon (`identityd`) is intended to be the single entry point for
+other userland services that need identity operations. In early OS bring-up,
+key custody and signing are enforced in `keystored`, and identity APIs may
+either call into `keystored` or be consolidated as the system hardens.
+
+If/when `identityd` is the public-facing API surface, it should expose three
+Cap'n Proto calls:
 
 - `GetDeviceId` returns the textual identifier derived from the verifying key.
 - `Sign` produces signatures for attestation payloads.

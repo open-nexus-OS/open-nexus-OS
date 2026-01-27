@@ -64,6 +64,13 @@ out-of-band via VMOs and `map()`.
 - **Proof**: `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os` (policy markers green as of 2026-01-25).
 - **RFC**: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`.
 
+## Device identity keys (TASK-0008B)
+
+- **OS entropy path**: virtio-rng MMIO → `rngd` (single entropy authority) → `keystored` device keygen
+- **Security invariants**: no entropy/private key logging; pubkey export only; deny-by-default via `policyd`; audit via `logd`
+- **Contract**: `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
+- **Narrative**: `docs/security/identity-and-sessions.md` and `docs/architecture/13-identity-and-keystore.md`
+
 Canonical: this is the single architecture page. For deeper details, read the source files listed above.
 
 ## Architecture index (start here for deeper docs)

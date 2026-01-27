@@ -3,16 +3,29 @@ title: TASK-0009 Persistence v1 (OS): userspace block device + statefs journal f
 status: Draft
 owner: @runtime
 created: 2025-12-22
-updated: 2026-01-15
+updated: 2026-01-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Depends-on (device keys): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - Depends-on (MMIO mapping primitive): tasks/TASK-0010-device-mmio-access-model.md
+  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Storage docs: docs/storage/vfs.md
   - Testing contract: scripts/qemu-test.sh
 enables:
   - TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints)
   - TASK-0007 v1.1: Persistent A/B updates (moved to TASK-0034)
+follow-up-tasks:
+  - TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints)
+  - TASK-0130: Packages v1b (install into `/state/apps/...` with atomic commit)
+  - TASK-0018: Crashdumps v1 (store crash artifacts under `/state/crash/...`)
+  - TASK-0241: L10n v1.0b OS (persist `ui.locale` / catalogs state)
+  - TASK-0243: Soak v1.0b OS (persist run summaries/exports under `/state/...`)
+  - TASK-0031: Zero-copy VMOs v1 plumbing (mentions persistence/statefs as prerequisite)
+  - TASK-0027: StateFS encryption-at-rest v2b (builds on statefs v1 substrate)
+  - TASK-0132: Storage errors vfs semantic contract (tighten error semantics)
+  - TASK-0133: StateFS quotas v1 (accounting/enforcement)
+  - TASK-0134: StateFS v3 (snapshots/compaction/mounts)
 ---
 
 ## Context
@@ -30,12 +43,50 @@ This task introduces a minimal persistence layer:
 
 Kernel remains unchanged.
 
+## Current repo state (to prevent drift)
+
+- There is **no** `statefs`/`statefsd` implementation in-tree yet.
+- There is a low-level virtio-blk scaffold under `source/drivers/storage/virtio-blk/`, but OS/QEMU integration
+  depends on the MMIO access model from `TASK-0010` being complete enough for virtio-blk.
+- Today’s OS-lite `vfsd` is a read-only proxy for `pkg:/` (no writable mounts); `/state` must be a dedicated
+  service authority in v1 (mounting into VFS is a follow-up).
+
 ## Goal
 
 Prove (host + QEMU) that:
 
 - state can be written, synced, and recovered after a “restart cycle” (soft reboot simulation),
 - `bootctl` and keystore device key material are stored under `/state` and reloaded on the next cycle.
+
+To satisfy follow-up tasks, v1 must also provide:
+
+- **Path-as-key semantics**: keys are UTF-8, normalized, and may contain `/` for hierarchical prefixes
+  (e.g. `/state/apps/<appId>/...`, `/state/crash/...`, `/state/boot/...`).
+- **Bounded values**: enforce a maximum value size (v1: choose a fixed cap and prove rejection).
+- **Atomic replace**: `put(key, bytes)` replaces the full value atomically; no partial writes.
+- **List by prefix**: `list(prefix)` returns deterministic ordering, bounded count, and supports prefix queries.
+- **Explicit durability**: `sync()` is the only durability boundary; proofs must show “write → sync → restart → read”.
+
+## Expected `/state` layout (v1)
+
+This task defines `/state` as a **logical namespace** served by `statefsd` (not a POSIX filesystem mount in v1).
+Keys are treated as normalized UTF-8 paths.
+
+Required prefixes (v1):
+
+- **Updates / boot control**:
+  - `/state/boot/bootctl.*` (owned by updates/boot control service; exact keys defined by follow-up tasks)
+- **Device identity / keystore persistence**:
+  - `/state/keystore/*` (restricted to `keystored` via policy; no other service may read/write these keys)
+- **Crash artifacts**:
+  - `/state/crash/*` (written by crash pipeline per `TASK-0018`; readable by authorized export/tools only)
+- **Apps/registry (future but v1-compatible)**:
+  - `/state/apps/<appId>/...` (used by `TASK-0130`; v1 must support atomic replace + sync for these keys)
+
+Notes:
+
+- v1 does not require directory semantics; prefixes exist to support bounded `list(prefix)` and policy rules.
+- Follow-up tasks own the exact key naming under their prefixes, but must remain within the v1 bounds (size/count/replay).
 
 ## Non-Goals
 
@@ -47,13 +98,16 @@ Prove (host + QEMU) that:
 ## Constraints / invariants (hard requirements)
 
 - **Kernel changes (required prerequisite)**: userspace virtio-blk on QEMU `virt` requires safe MMIO access.
-  This is implemented as kernel work in `TASK-0010`. After `TASK-0010` is complete, `statefs/statefsd`
-  remain userspace-only.
+  This is kernel work in `TASK-0010`. This task must not add new kernel surface; it only consumes the MMIO
+  mapping primitive once it exists and is policy/capability gated.
 - **Bounded parsing + bounded replay**: journal replay must be bounded and reject malformed records deterministically.
 - **Integrity**: journal records include checksums (CRC32 is fine for v1 integrity; authenticity handled elsewhere).
 - **Determinism**: markers stable; tests bounded; no unbounded scanning of a “disk”.
 - **No fake success**: “persist ok” markers only after re-open/replay proves the data is present.
 - **Rust hygiene**: no new `unwrap/expect` in OS daemons; no blanket `allow(dead_code)`.
+- **Policy + audit**:
+  - all `statefsd` operations are deny-by-default via `policyd`, binding to `sender_service_id`;
+  - access decisions are audit-logged via `logd` (no UART scraping as “truth”).
 
 ## Red flags / decision points
 
@@ -64,14 +118,33 @@ Prove (host + QEMU) that:
     “kernel untouched”. In that case we must:
     - create **TASK-0010** (device MMIO access model / safe mapping capability), or
     - explicitly relax the constraint for this task (kernel exposes a safe device mapping capability).
+
+  Decision (to avoid drift):
+
+  - **We will pull `TASK-0010` before `TASK-0009` (required)**:
+    - **What it means**: `TASK-0010` delivers the MMIO mapping primitive + capability distribution model first.
+      Then `TASK-0009` implements virtio-blk userspace frontend + `statefsd` on top.
+    - **Why it’s drift-resistant**: v9’s OS/QEMU proofs (`blk: virtio-blk up`, persistence markers) are only
+      possible when the kernel contract exists. Keeping the kernel work explicitly in v10 prevents “hidden”
+      kernel edits in v9 and keeps responsibility boundaries clear.
+    - **Proof posture**: v10 can prove *security invariants* (cap-gated, W^X, bounds, deny-by-default distribution)
+      independent of storage semantics; v9 proves *durability semantics* on top (sync/restart/replay).
+    - **Risk**: schedule coupling — v9 is blocked until v10 is done enough for virtio-blk.
 - **YELLOW (risky / likely drift / needs follow-up)**:
   - **VFS integration drift**: current `vfsd` os-lite is a read-only proxy for `pkg:/` and does not support
     mount or generic write paths. Trying to “mount /state into vfsd” in v1 will balloon scope.
     Best-for-OS v1 is: `statefsd` is the `/state` authority with a dedicated client API; VFS mounting is a follow-up.
   - **Soft reboot definition**: with kernel untouched we likely cannot perform a real reboot. We must define
     an honest proof cycle (restart `statefsd` and re-open the block backend; restart the consuming service; or a new init cycle hook).
-  - **Device key generation entropy**: persistence does not solve entropy. If keystore device keys are still
-    “bring-up insecure”, that must remain explicitly labeled (see TASK-0008B).
+    - **Drift-free v1 definition**:
+      - “restart cycle” = `statefsd` process restart + re-open block backend + replay, followed by a read/verify by a client
+      - “reboot” / VM reset / bootloader persistence remains **out of scope** for v1 (see Non-Goals) and is a dedicated follow-up proof.
+    - **Kernel hook note**:
+      - If we choose to add a minimal kernel feature to make the restart cycle cleaner (e.g. a deterministic process restart primitive),
+        that change belongs to `TASK-0010` (device/MMIO model track) or a dedicated kernel task, not silently inside v9.
+  - **Device key generation entropy**: persistence does not solve entropy. This was previously a bring-up risk,
+    but real entropy for OS builds is now provided by `TASK-0008B` (virtio-rng → `rngd` authority → `keystored` keygen).
+    v9 should treat entropy as solved and focus on **storage confidentiality boundaries** (policy-gated `/state/keystore/*`, no secret logging).
 - **GREEN (confirmed assumptions)**:
   - We already have a stub virtio-blk crate (`source/drivers/storage/virtio-blk`) that can be reused as low-level scaffolding once access exists.
 
@@ -123,12 +196,13 @@ Prove (host + QEMU) that:
 ### Audit tests (negative cases)
 
 - Command(s):
-  - `cargo test -p statefs -- reject --nocapture`
+  - `cargo test -p statefs -- reject --nocapture` (crate to be introduced by this task; name may split host/os)
 - Required tests:
   - `test_reject_corrupted_journal` — CRC mismatch → record ignored
   - `test_reject_unauthorized_keystore_access` — wrong service → denied
   - `test_reject_malformed_record` — invalid format → rejected
   - `test_bounded_replay` — replay depth limited
+  - `test_reject_value_oversized` — enforce v1 value size cap deterministically
 
 ### Hardening markers (QEMU)
 
@@ -155,7 +229,10 @@ Prove (host + QEMU) that:
 
 ### Proof (OS / QEMU)
 
-- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- **Blocked until `TASK-0010` is complete enough for virtio-blk MMIO mapping**.
+  This task’s OS/QEMU proof is only valid once the userspace MMIO capability/mapping primitive exists.
+
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh`
   - Extend expected markers with (order tolerant):
     - `blk: virtio-blk up`
     - `statefsd: ready`
@@ -191,7 +268,8 @@ Notes:
    - Emit `statefsd: ready` when endpoints are live.
 
 3. **OS block backend (virtio-blk)**
-   - Only proceed if the RED MMIO access requirement is satisfied.
+   - Only proceed once `TASK-0010` has delivered the virtio-blk MMIO capability + mapping primitive and init can
+     distribute it safely to the block authority service.
    - Emit `blk: virtio-blk up (ss=... nsec=...)` once probed.
 
 4. **Migrate consumers**
@@ -212,7 +290,7 @@ Notes:
 
 - Host tests prove replay and integrity checks deterministically.
 - QEMU run proves put + persist-after-restart and shows bootctl/device key persistence markers.
-- Kernel untouched.
+- Kernel changes required for MMIO mapping live in `TASK-0010`; `TASK-0009` adds no kernel changes.
 
 ## RFC seeds (for later, once green)
 

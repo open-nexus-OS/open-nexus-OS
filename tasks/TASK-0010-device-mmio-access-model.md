@@ -7,16 +7,34 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Unblocks: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - Used-by (already done): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - Used-by (already done): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - Used-by (already done): tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
   - Unblocks: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Unblocks: tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
+  - Unblocks: tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (GPU/NPU/VPU/Audio/Camera/ISP userspace drivers)
   - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (virtio-net userspace frontend)
+follow-up-tasks:
+  - TASK-0009: Persistence v1 (virtio-blk + statefs) — blocked until this task is complete enough for virtio-blk
+  - TASK-0247: RISC-V bring-up v1.1b (virtioblkd + pkgfs from disk) — needs virtio-blk MMIO caps
+  - TASK-0249: RISC-V bring-up v1.2b (virtionetd/netstackd) — needs virtio-net MMIO caps
+  - TASK-0032: packagefs v2 blk-backed OS path (optional) — gated on virtio-blk MMIO caps
+  - TASK-0280: DriverKit v1 core contracts — depends on MMIO caps being real and auditable
+  - TASK-0284: DMA buffer ownership prototype — builds on the same device-class boundary (MMIO now, DMA later)
+  - TASK-0251: Display v1.0b OS (fbdevd) — may require MMIO caps for real devices
+  - TASK-0253: Input v1.0b OS (hidrawd/touchd) — may require MMIO caps for real devices
+  - TASK-0255: Audio v0.9b OS (audiod + codec/i2s) — may require MMIO caps for real devices
+  - TASK-0257: Battery v0.9b OS — may require MMIO caps for fuel-gauge/charger
+  - TASK-0259: Sensor bus v0.9b OS (i2cd/spid) — may require MMIO caps for bus controllers
 ---
 
 ## Context
 
 Our vision is “kernel minimal, drivers in userspace”. On QEMU `virt`, virtio devices are MMIO.
-Today userspace can map VMOs (`as_map`) but cannot map arbitrary physical MMIO ranges.
+Historically userspace could map VMOs (`as_map`) but could not map device MMIO ranges.
+Today the kernel provides a **DeviceMmio capability + mapping syscall**, so userspace can map MMIO
+**only when explicitly granted a bounded MMIO capability**.
 
 That makes true userspace virtio frontends (net/blk) **impossible** unless the kernel provides a safe,
 capability-gated way to expose device MMIO to a specific userspace driver/service.
@@ -36,7 +54,8 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 
 - A full device manager and dynamic enumeration framework.
 - Exposing arbitrary physical memory to userspace.
-- Interrupt routing (polling-only is acceptable for MVP).
+- Interrupt routing / delivery to userspace (polling-only is acceptable for v1).
+- DMA buffer pinning, IOMMU/GPU-MMU isolation, or “safe DMA” primitives (follow-ups; see Drivers/Accelerators track).
 
 ## Constraints / invariants (hard requirements)
 
@@ -46,16 +65,67 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
   - mapping range must be fixed and bounded to the device BAR/MMIO window.
 - **Kernel minimal**: provide a tiny primitive; policy and driver logic remain in userspace.
 - **Determinism**: mapping errors deterministic; no “success” logs without real capability.
+- **No selftest-only escape hatch**: device MMIO capabilities must be distributable to the **real owner service**
+  (e.g. `rngd`, `virtionetd`/`netstackd`, `virtioblkd`/`statefsd`), not only to selftests.
+- **No name-check distribution as the v1 foundation**: temporary bring-up wiring may exist, but v1 “foundation complete”
+  requires that MMIO capabilities are distributed by init configuration and gated by `policyd` (auditable), not by
+  kernel string/name checks.
+
+## Normative v1 contract (MMIO capability + distribution)
+
+This section defines what follow-up tasks (networking, persistence, driverkit) may **rely on** once v1 is “foundation complete”.
+
+### Capability model
+
+- The kernel provides `CapabilityKind::DeviceMmio { base, len }` with `Rights::MAP`.
+- The kernel provides `SYSCALL_MMIO_MAP` / userspace `nexus_abi::mmio_map(handle, va, offset)`:
+  - MUST map only within the bounded window \([base, base+len)\) using page granularity.
+  - MUST create mappings as **USER|RW, never executable**.
+  - MUST fail deterministically on invalid offsets, missing caps, or out-of-window mapping attempts.
+
+### Distribution model (who gets MMIO caps)
+
+- **Init is the distributor**:
+  - Init (e.g. init-lite) is responsible for placing device capabilities into designated services at spawn time
+    (or via an explicit handoff IPC during early boot).
+  - The kernel MUST NOT grant device MMIO caps based on service names/strings once v1 is “foundation complete”.
+- **Policy is the authority**:
+  - Whether a given service is allowed to receive a device MMIO cap is a deny-by-default decision by `policyd`,
+    bound to `sender_service_id` (no payload identity).
+  - Init uses delegated policy checks (the same pattern used elsewhere for privileged routing) and logs allow/deny via `logd`.
+- **Auditability**:
+  - Capability distribution events MUST be auditable (allow/deny + target service + device kind/window), without leaking secrets.
+
+### Least privilege (per-device windows)
+
+- Prefer **per-device** bounded windows over one broad “virtio-mmio region” cap:
+  - virtio-rng owner gets only the rng window,
+  - virtio-net owner gets only the net window,
+  - virtio-blk owner gets only the blk window.
+- If early bring-up uses a shared window, it MUST be explicitly labeled as bring-up only and removed before calling v1 “foundation complete”.
+
+### Deterministic slots (early boot ergonomics)
+
+- Early boot MAY use deterministic capability slot assignments (for reproducible bring-up), but:
+  - the assignment MUST be owned by init configuration, not hard-coded kernel name checks,
+  - and it MUST be consistent with the IPC/capability model (CAP_MOVE hygiene, no leaks).
 
 ## Red flags / decision points
 
 - **RED (blocking / must decide now)**:
-  - This task **requires kernel work**. If "kernel untouched" is absolute, then userspace virtio drivers
+  - This task **requires kernel work**. If "kernel untouched" were absolute, then userspace virtio drivers
     must be deferred or replaced with a different backend (e.g., host-provided VMO block service) and the
     vision "userspace drivers" is not achievable on QEMU `virt`.
+  - **Status (today)**: the minimal kernel primitive exists (DeviceMmio cap + map syscall) and is proven in QEMU.
+    The remaining “foundation complete” work is to remove bring-up hard-wiring and make MMIO capability distribution
+    init-controlled + policy-gated + auditable (see normative contract above).
+  - Boundary (v1): kernel work here must remain a **minimal enforce-only primitive** (cap kind + map syscall).
+    Policy decisions and capability distribution are explicitly userspace responsibilities (init + `policyd` + audit).
 - **YELLOW (risky / likely drift / needs follow-up)**:
   - Device enumeration: we can start with a fixed, build-time wired device list for QEMU `virt`, but must
     document how it evolves.
+    v1 rule: enumeration may live in init/DT parsing (trusted) but must not be exposed as an ambient kernel “device list”
+    to untrusted services.
 
 ## Security considerations
 
@@ -103,7 +173,7 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 ### Audit tests (negative cases)
 
 - Command(s):
-  - `cargo test -p neuron -- mmio_reject --nocapture`
+  - `cargo test -p neuron -- mmio_reject --nocapture` (to be added by this task; name is a suggested filter)
 - Required tests:
   - `test_reject_mmio_outside_window` — mapping beyond device bounds → denied
   - `test_reject_mmio_exec` — executable mapping attempt → denied
@@ -122,20 +192,35 @@ Provide the minimal kernel/userspace contract to allow a userspace service to:
 
 ## Stop conditions (Definition of Done)
 
-- Host/unit tests for capability + mapping invariants (as applicable).
+- Kernel tests exist for capability + mapping invariants (negative cases above).
 - QEMU selftest marker proving a userspace driver can map its MMIO window and read a known virtio register:
   - `SELFTEST: mmio map ok`
+- QEMU proof that the MMIO capability reaches a **designated owner service** without relying on selftest-only paths
+  (init distributes the cap; policy gates/audit the decision).
 
 ## Current state
 
+Completed (today):
+
 - Kernel cap kind exists: `CapabilityKind::DeviceMmio { base, len }` (bounded physical window).
 - Kernel syscall exists: `SYSCALL_MMIO_MAP` enforcing **USER|RW** and **never EXEC** for device mappings.
-- OS selftest exercises the path end-to-end and emits:
+- Userspace wrappers exist in `nexus-abi`:
+  - `mmio_map(handle, va, offset)` (maps a page within the cap window at `va`)
+  - `cap_query(cap, out)` (diagnostics: base/len + kind tag)
+- OS selftest exercises the path end-to-end (maps and reads a known virtio-mmio register) and emits:
   - `SELFTEST: mmio map ok`
-- Canonical QEMU harness now requires the marker (no silent “green”).
-- **Bring-up caveat**: current virtio-net testing uses a temporary “selftest-client injection” path.
-  For `TASK-0003` to complete, capability distribution must target the **networking owner service**
-  (e.g. `netstackd` / `virtionetd`), not only selftests.
+- Canonical QEMU harness requires the marker (no silent “green”).
+- Bring-up distribution exists, but is still hard-wired:
+  - the kernel currently grants a fixed virtio-mmio `DeviceMmio` cap at a fixed slot to selected services
+    via a name-check in `sys_spawn` (bring-up convenience).
+
+Remaining for v1 “foundation complete” (to satisfy follow-ups cleanly):
+
+- Replace name-check MMIO grants with **init-controlled capability distribution** to designated owner services.
+- Gate/record distribution decisions via `policyd` + `logd` audit (deny-by-default).
+- Prefer **per-device** bounded windows (virtio-net vs virtio-blk vs virtio-rng) over a single broad shared window,
+  so follow-ups can prove “least privilege” device access.
+- Add the kernel negative tests listed above (currently missing).
 
 ## Touched paths (allowlist)
 

@@ -58,6 +58,30 @@ As of TASK-0008, `keystored` enforces policy-gated signing:
 
 **QEMU proof marker:** `SELFTEST: keystored sign denied ok`
 
+## Device identity keys on OS builds (TASK-0008B)
+
+OS builds cannot depend on `getrandom`, so “real” device identity keys require an OS-native entropy path.
+The v1 direction is:
+
+- **Entropy source**: userspace virtio-rng frontend (MMIO on QEMU `virt`)
+- **Entropy authority**: `rngd` is the single entropy authority (bounded requests; policy-gated; audited)
+- **Key custody**: `keystored` generates the device identity keypair using `rngd` entropy and forbids any private key export
+  (public key export is allowed only via explicit policy gate).
+
+Security invariants:
+
+- No entropy bytes or private key material is logged (UART/logd).
+- Authorization binds to `sender_service_id` and is deny-by-default via `policyd`.
+- Allow/deny decisions are audit-logged via `logd`.
+
+Contract + proofs:
+
+- Task: `tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md`
+- RFC: `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
+
+Key persistence/rotation is explicitly out of scope for 8B and is handled by persistence/lifecycle follow-ups
+(see `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` and the identity/keystore lifecycle tasks).
+
 ## Proof expectations
 
 - Host-first tests should cover key derivation and signing/verification behavior deterministically.

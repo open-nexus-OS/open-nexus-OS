@@ -57,6 +57,14 @@ The OS uses a capability-based policy model with deny-by-default semantics:
 
 See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` and `docs/architecture/11-policyd-and-policy-flow.md`.
 
+## Security (Device Identity Keys)
+
+OS builds cannot rely on `getrandom` for entropy. Device identity keys are generated on OS/QEMU via a bounded, policy-gated path:
+
+- virtio-rng MMIO → `rngd` (entropy authority) → `keystored` (device keygen + pubkey-only export)
+
+See `docs/rfcs/RFC-0016-device-identity-keys-v1.md` and `docs/security/identity-and-sessions.md`.
+
 ## Documentation and standards
 
 - **Project overview**: `docs/overview.md`

@@ -49,11 +49,20 @@ while remaining **sandboxed and auditable**:
 - **Device-class boundary**: any real userspace block/USB frontend relies on capability-gated device access (MMIO caps now; IRQ/DMA later).
   Source: `TASK-0010` (and DriverKit ABI policy `ADR-0018`).
 
+Clarifications (to avoid drift):
+
+- `/state` is a **logical namespace** served by a `/state` authority (v1: `statefsd`), not a global POSIX mount in `vfsd`.
+  This keeps removable storage metadata/grants consistent with `TASK-0009`’s v1 scope.
+- “Device access model” means the v1 foundation: init-controlled capability distribution + `policyd` as authority (deny-by-default),
+  not kernel name/string checks as a long-term mechanism (see `TASK-0010` normative contract).
+
 ## Gates (RED / YELLOW / GREEN)
 
 - **RED (blocking)**:
   - “Real” userspace device frontends require a real device access model (MMIO caps now; IRQ/DMA isolation later).
     Gate: `TASK-0010` (and follow-ups for IRQ/DMA when needed).
+  - Persistence-backed “remember access” (persistable grants) is not real until `/state` exists.
+    Gate: `TASK-0009` (which is itself gated on `TASK-0010`).
   - OS build hygiene: removable FS implementations must not pull forbidden crates into OS graphs (`parking_lot`, `getrandom`, `std`).
     Gate: `docs/standards/BUILD_STANDARDS.md` + `just dep-gate`.
 - **YELLOW (risky / drift-prone)**:
@@ -71,6 +80,9 @@ while remaining **sandboxed and auditable**:
   - SAF flows can browse removable provider and issue scoped grants (folder grants included).
   - FileOps can copy/move between `state://` and removable via streams.
   - Proof: host tests for provider invariants + grants + fileops (no fake success markers).
+-  Notes:
+   - Until `TASK-0009` exists, persistable grants must be treated as **non-persistent** (memory-only) and labeled honestly
+     (no “persist ok” markers).
 - **Phase 1 (FAT32 v1)**:
   - Userspace FAT32 filesystem authority behind the removable provider (read/write).
   - Format tool supports **FAT32 format (no password)** with explicit user intent and policy gating.

@@ -96,6 +96,7 @@ Key distributed-systems references:
 
 * [DSoftBus-lite overview](distributed/dsoftbus-lite.md)
 * [Identity and session security](security/identity-and-sessions.md)
+* Device identity keys v1 (contract): `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
 
 ## How to navigate
 

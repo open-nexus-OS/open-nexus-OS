@@ -86,7 +86,12 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 **Current Status (2026-01-25)**:
 - TASK-0008: ✅ Done (policy engine, audit trail, policy-gated operations)
-- TASK-0008B: Next (device identity keys via virtio-rng)
+- TASK-0008B: ✅ Done (device identity keys via virtio-rng + rngd authority + keystored keygen)
+
+Related:
+
+- **RFC-0016**: Device Identity Keys v1 (virtio-rng + rngd + keystored) — `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
+- Identity/keystore onboarding: `13-identity-and-keystore.md`
 
 ## Onboarding landing pages (this directory)
 
