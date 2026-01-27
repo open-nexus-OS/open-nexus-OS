@@ -70,10 +70,8 @@ fn os_entry() -> core::result::Result<(), ()> {
     const OP_UDP_RECV_FROM: u8 = 8;
     const OP_LOCAL_ADDR: u8 = 10;
     const STATUS_OK: u8 = 0;
-    const STATUS_NOT_FOUND: u8 = 1;
     const STATUS_MALFORMED: u8 = 2;
     const STATUS_WOULD_BLOCK: u8 = 3;
-    const STATUS_IO: u8 = 4;
 
     // Reply correlation for shared inbox (CAP_MOVE reply routing):
     // Netstackd requests may include a trailing u64 nonce (LE) which is echoed back at the end of
@@ -889,7 +887,6 @@ fn os_entry() -> core::result::Result<(), ()> {
                 continue;
             }
             return Err(());
-            let _ = nexus_abi::yield_();
         }
         Err(())
     }
@@ -1344,7 +1341,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
     use alloc::vec::Vec;
     use nexus_abi::yield_;
     use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
-    use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
+    use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
     use nexus_peer_lru::{PeerEntry, PeerLru};
 
     const MAGIC0: u8 = b'N';
@@ -2188,7 +2185,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
 
 #[cfg(all(target_os = "none", target_arch = "riscv64"))]
 fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
-    use nexus_ipc::{Client as _, KernelClient, Wait};
+    use nexus_ipc::{KernelClient, Wait};
 
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';

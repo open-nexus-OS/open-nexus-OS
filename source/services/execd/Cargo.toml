@@ -37,7 +37,7 @@ nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = 
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-log = { path = "../../libs/nexus-log", optional = true, default-features = false, features = ["sink-logd"] }
 nexus-loader = { path = "../../../userspace/nexus-loader", optional = true }
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }
 thiserror = { version = "1", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 

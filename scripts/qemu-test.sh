@@ -192,7 +192,7 @@ expected_sequence=(
   "SELFTEST: ota stage ok"
   "bundlemgrd: slot b active"
   "SELFTEST: ota switch ok"
-  "init: health ok (slot b)"
+  "SELFTEST: ota health ok"
   "SELFTEST: ota rollback ok"
   "SELFTEST: policy allow ok"
   "SELFTEST: policy deny ok"

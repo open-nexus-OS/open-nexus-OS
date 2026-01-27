@@ -136,14 +136,16 @@ arch-check:
 # -----------------------------------------------------------------------------
 
 test-all:
+    just fmt-check
+    just lint
+    just deny-check
     just test-host
     just test-e2e
     just miri-strict
     just miri-fs
     just arch-check
-    just deny-check
     just build-kernel
-    just test-os
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
 
 # -----------------------------------------------------------------------------
 # Diagnostics (reproduce editor/rust-analyzer output)

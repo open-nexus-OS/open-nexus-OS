@@ -8,7 +8,6 @@ use core::fmt;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use nexus_abi::{debug_putc, yield_};
-use nexus_ipc::KernelServer;
 use nexus_sel::Policy;
 
 /// Result alias used by the lite policyd backend.

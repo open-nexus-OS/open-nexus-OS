@@ -22,9 +22,8 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::journal::{Journal, RecordId, TimestampNsec};
 use crate::protocol::{
-    encode_query_response, encode_stats_response, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN,
-    MAX_SCOPE_LEN, OP_APPEND, OP_QUERY, OP_STATS, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE,
-    STATUS_UNSUPPORTED, VERSION,
+    encode_stats_response, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND,
+    OP_QUERY, OP_STATS, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED, VERSION,
 };
 
 /// Result alias surfaced by the lite logd backend.
@@ -341,25 +340,25 @@ fn encode_query_response_bounded(
     let mut buf = [0u8; BUF_CAP];
     let mut idx = 0usize;
 
-    let mut write_u8 = |value: u8, out: &mut [u8], pos: &mut usize| {
+    let write_u8 = |value: u8, out: &mut [u8], pos: &mut usize| {
         if *pos < out.len() {
             out[*pos] = value;
         }
         *pos += 1;
     };
-    let mut write_u16 = |value: u16, out: &mut [u8], pos: &mut usize| {
+    let write_u16 = |value: u16, out: &mut [u8], pos: &mut usize| {
         let bytes = value.to_le_bytes();
         for b in bytes {
             write_u8(b, out, pos);
         }
     };
-    let mut write_u64 = |value: u64, out: &mut [u8], pos: &mut usize| {
+    let write_u64 = |value: u64, out: &mut [u8], pos: &mut usize| {
         let bytes = value.to_le_bytes();
         for b in bytes {
             write_u8(b, out, pos);
         }
     };
-    let mut write_bytes = |data: &[u8], out: &mut [u8], pos: &mut usize| {
+    let write_bytes = |data: &[u8], out: &mut [u8], pos: &mut usize| {
         for b in data {
             write_u8(*b, out, pos);
         }

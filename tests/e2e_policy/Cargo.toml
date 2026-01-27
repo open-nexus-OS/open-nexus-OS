@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-capnp = "0.19"
+capnp = "0.24"
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
 nexus-ipc = { path = "../../userspace/nexus-ipc" }
 policyd = { path = "../../source/services/policyd", features = ["idl-capnp"] }

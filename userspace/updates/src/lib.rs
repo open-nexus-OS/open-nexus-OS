@@ -21,7 +21,9 @@
 //!
 //! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 
-#![forbid(unsafe_code)]
+// Note: deny(unsafe_code) instead of forbid to allow generated capnp code
+// which uses unsafe for RawStructSchema initialization (capnp >= 0.24).
+#![deny(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
@@ -31,7 +33,7 @@ extern crate alloc;
 compile_error!("Either 'std' or 'os-lite' feature must be enabled");
 
 // Generated Cap'n Proto bindings - allow clippy lints we don't control.
-#[allow(clippy::unwrap_used, clippy::needless_lifetimes)]
+#[allow(unsafe_code, clippy::unwrap_used, clippy::needless_lifetimes)]
 pub mod system_set_capnp {
     include!(concat!(env!("OUT_DIR"), "/system_set_capnp.rs"));
 }

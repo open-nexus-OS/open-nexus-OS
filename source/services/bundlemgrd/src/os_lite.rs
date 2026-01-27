@@ -115,7 +115,6 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // Emit on first request (not at process start) so init-lite has time to provision logd/@reply routes.
     let mut probe_emitted = false;
     let mut logged_capmove = false;
-    let mut logged_capmove_err = false;
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
@@ -131,7 +130,6 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 }
                 let rsp = handle_frame_vec(frame.as_slice());
                 if let Some(reply) = reply {
-                    let _ = logged_capmove_err;
                     let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);
                 } else {
                     let _ = server.send(&rsp, Wait::Blocking);
@@ -429,24 +427,6 @@ fn append_probe_to_logd() -> bool {
 fn emit_line(message: &str) {
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
-    }
-}
-
-fn emit_byte(byte: u8) {
-    let _ = debug_putc(byte);
-}
-
-fn emit_bytes(bytes: &[u8]) {
-    for &b in bytes {
-        emit_byte(b);
-    }
-}
-
-fn emit_hex_u64(mut value: u64) {
-    for shift in (0..16).rev() {
-        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-        emit_byte(ch);
     }
 }
 

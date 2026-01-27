@@ -3,7 +3,7 @@
 - Status: Done
 - Owners: @runtime @security
 - Created: 2026-01-26
-- Last Updated: 2026-01-26
+- Last Updated: 2026-01-27
 - Links:
   - Tasks: `tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md`
   - ADRs: `docs/adr/0006-device-identity-architecture.md`
@@ -14,9 +14,9 @@
 ## Status at a Glance
 
 - **Phase 0 (virtio-rng frontend)**: ✅ Implemented (host tests + OS compile check)
-- **Phase 1 (rngd authority service)**: 🟨 Partially implemented (IPC + policy gate done; virtio-rng MMIO integration pending)
-- **Phase 2 (keystored keygen + pubkey API)**: 🟨 Partially implemented (protocol + OS-lite logic done; end-to-end QEMU proof pending)
-- **Phase 3 (QEMU smoke + negative proofs)**: 🟨 Partially implemented (host negative tests added; QEMU markers/harness integration pending)
+- **Phase 1 (rngd authority service)**: ✅ Implemented (policy gate + virtio-rng MMIO integration + QEMU proof)
+- **Phase 2 (keystored keygen + pubkey API)**: ✅ Implemented (keygen via rngd; pubkey export only; QEMU proof)
+- **Phase 3 (QEMU smoke + negative proofs)**: ✅ Implemented (oversized entropy reject; private export reject; deny-by-default)
 
 Definition: "Complete" means the contract is defined and the proof gates are green.
 
@@ -272,12 +272,11 @@ caps = ["rng.entropy", "device.pubkey.read"]
 **This section tracks implementation progress. Update as phases complete.**
 
 - [x] **Phase 0**: virtio-rng frontend library — proof: `cargo test -p rng-virtio`
-- [ ] **Phase 1**: rngd service + IPC + policy — proof: `RUN_PHASE=bring-up just test-os` shows `rngd: ready`
-  - Note: OS-lite rngd currently does not use virtio-rng MMIO; virtqueue/MMIO wiring is required to meet “real entropy” goal.
-- [ ] **Phase 2**: keystored keygen + pubkey API — proof: `SELFTEST: device key pubkey ok`
-  - Note: keystored OS-lite now implements keygen/pubkey/sign ops, but QEMU proof requires rngd to be started by init-lite and the harness markers to be enforced.
-- [ ] **Phase 3**: negative proofs — proof: `cargo test -- reject && SELFTEST: device key private export rejected ok`
-  - Host-only negative tests exist for rngd request bounds + deny-by-policy.
+- [x] **Phase 1**: rngd service + IPC + policy — proof: QEMU shows `rngd: ready` + `SELFTEST: rng entropy ok`
+- [x] **Phase 2**: keystored keygen + pubkey API — proof: QEMU shows `SELFTEST: device key pubkey ok`
+- [x] **Phase 3**: negative proofs — proof: QEMU shows:
+  - `SELFTEST: rng entropy oversized ok`
+  - `SELFTEST: device key private export rejected ok`
 - [x] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
-- [x] Security-relevant negative tests exist (`test_reject_*`) (host-side for rngd).
+- [x] QEMU markers appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

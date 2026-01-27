@@ -9,7 +9,7 @@ default = ["capnp"]
 capnp = ["dep:capnp", "dep:capnpc"]
 
 [dependencies]
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }
 
 [build-dependencies]
-capnpc = { version = "0.19", optional = true }
+capnpc = { version = "0.24", optional = true }

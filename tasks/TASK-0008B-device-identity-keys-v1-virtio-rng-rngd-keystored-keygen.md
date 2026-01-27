@@ -1,6 +1,6 @@
 ---
 title: TASK-0008B Device identity keys v1 (OS): virtio-rng entropy + rngd + keystored keygen (enables real keys)
-status: In Review
+status: Done
 owner: @runtime @security
 created: 2026-01-23
 links:

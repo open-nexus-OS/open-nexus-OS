@@ -9,7 +9,7 @@ default = ["idl-capnp"]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 
 [dependencies]
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }
 nexus-ipc = { path = "../nexus-ipc" }
 thiserror = "1"

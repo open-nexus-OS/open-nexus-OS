@@ -75,9 +75,15 @@ const VIRTIO_DEVICE_ID_RNG: u32 = 0x04;
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 mod mmio {
     pub const REG_MAGIC: usize = 0x000;
+    // Present in the virtio-mmio register map; unused by the current minimal driver.
+    #[allow(dead_code)]
     pub const REG_VERSION: usize = 0x004;
     pub const REG_DEVICE_ID: usize = 0x008;
+    // Present in the virtio-mmio register map; unused by the current minimal driver.
+    #[allow(dead_code)]
     pub const REG_DEVICE_FEATURES: usize = 0x010;
+    // Present in the virtio-mmio register map; unused by the current minimal driver.
+    #[allow(dead_code)]
     pub const REG_DEVICE_FEATURES_SEL: usize = 0x014;
     pub const REG_DRIVER_FEATURES: usize = 0x020;
     pub const REG_DRIVER_FEATURES_SEL: usize = 0x024;
@@ -391,14 +397,13 @@ pub fn read_entropy_via_virtio_mmio(
     // Allocate queue memory (1 page) + buffer memory (1 page) once and reuse.
     const Q_VA: usize = 0x2004_0000;
     const BUF_VA: usize = 0x2006_0000;
-    const NQ: usize = 1;
     const N: usize = 1;
     static mut QUEUE_INIT: bool = false;
     static mut Q_VMO: u32 = 0;
     static mut BUF_VMO: u32 = 0;
     static mut DESC_PA: u64 = 0;
     static mut BUF_PA: u64 = 0;
-    let (q_vmo, buf_vmo, desc_pa, buf_pa) = unsafe {
+    let (_q_vmo, _buf_vmo, desc_pa, buf_pa) = unsafe {
         if !QUEUE_INIT {
             let q_vmo = vmo_create(4096).map_err(|_| RngError::MapFailed)?;
             let buf_vmo = vmo_create(4096).map_err(|_| RngError::MapFailed)?;

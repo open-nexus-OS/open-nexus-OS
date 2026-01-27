@@ -17,4 +17,4 @@ os-kernel = ["nexus-ipc/os-lite", "nexus-ipc/kernel-ipc"]
 [dependencies]
 nexus-ipc = { path = "../nexus-ipc", default-features = false }
 nexus-idl-runtime = { path = "../nexus-idl-runtime", optional = true }
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }

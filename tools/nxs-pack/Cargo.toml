@@ -7,7 +7,7 @@ license = "Apache-2.0"
 description = "Packs .nxb bundles into signed .nxs system-set archives"
 
 [dependencies]
-capnp = "0.19"
+capnp = "0.24"
 ed25519-dalek = "2"
 hex = "0.4"
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
@@ -16,4 +16,4 @@ tar = "0.4"
 toml = "0.8"
 
 [build-dependencies]
-capnpc = "0.19"
+capnpc = "0.24"

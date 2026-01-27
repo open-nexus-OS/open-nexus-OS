@@ -1129,7 +1129,7 @@ where
                 debug_write_hex(send_slot as usize);
                 debug_write_byte(b'\n');
 
-                let mut transfer = |cap: u32, rights: Rights, label: &'static str| -> Option<u32> {
+                let transfer = |cap: u32, rights: Rights, label: &'static str| -> Option<u32> {
                     match nexus_abi::cap_transfer(pid, cap, rights) {
                         Ok(slot) => Some(slot),
                         Err(err) => {
@@ -1470,27 +1470,6 @@ where
                 debug_write_bytes(b" recv=0x");
                 debug_write_hex(recv_slot as usize);
                 debug_write_byte(b'\n');
-            }
-            "policyd" | "samgrd" | "bundlemgrd" | "packagefsd" | "vfsd" | "netstackd" => {
-                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-
-                if let Some(req) = log_req {
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
-                }
-
-                // Other services can use existing policy flow (selftest-client uses pol_rsp).
             }
             _ => {}
         }
@@ -2189,7 +2168,6 @@ fn updated_get_status(upd_req: u32, reply_send: u32, reply_recv: u32) -> Result<
 
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    let mut got_n: usize = 0;
     let mut j: usize = 0;
     loop {
         if (j & 0x7f) == 0 {
@@ -2206,8 +2184,8 @@ fn updated_get_status(upd_req: u32, reply_send: u32, reply_recv: u32) -> Result<
             0,
         ) {
             Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n < 7
+                let got_n = core::cmp::min(n as usize, buf.len());
+                if got_n < 7
                     || buf[0] != nexus_abi::updated::MAGIC0
                     || buf[1] != nexus_abi::updated::MAGIC1
                 {
@@ -2222,27 +2200,30 @@ fn updated_get_status(upd_req: u32, reply_send: u32, reply_recv: u32) -> Result<
                 if buf[4] != nexus_abi::updated::STATUS_OK {
                     return Err(InitError::Map("updated status failed"));
                 }
-                got_n = n;
-                break;
+                let payload_len = u16::from_le_bytes([buf[5], buf[6]]) as usize;
+                if payload_len < 1 || got_n < 7 + payload_len {
+                    return Err(InitError::Map("updated status payload missing"));
+                }
+                let active = buf[7];
+                return match active {
+                    1 => Ok(b'a'),
+                    2 => Ok(b'b'),
+                    _ => Err(InitError::Map("updated status slot invalid")),
+                };
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {
+                if (j & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().map_err(InitError::Abi)?;
+                    if now >= deadline {
+                        return Err(InitError::Map("updated status timeout"));
+                    }
+                }
                 let _ = nexus_abi::yield_();
             }
             Err(e) => return Err(InitError::Ipc(e)),
         }
         j = j.wrapping_add(1);
     }
-    let payload_len = u16::from_le_bytes([buf[5], buf[6]]) as usize;
-    if payload_len < 1 || got_n < 7 + payload_len {
-        return Err(InitError::Map("updated status payload missing"));
-    }
-    let active = buf[7];
-    let slot = match active {
-        1 => b'a',
-        2 => b'b',
-        _ => return Err(InitError::Map("updated status slot invalid")),
-    };
-    Ok(slot)
 }
 
 fn policyd_exec_allowed(

@@ -33,7 +33,7 @@ os-lite = [
 ]
 
 [dependencies]
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }
 log = { version = "0.4", optional = true }
 parking_lot = { version = "0.12", optional = true }
 thiserror = { version = "1.0", optional = true }

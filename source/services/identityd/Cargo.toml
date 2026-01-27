@@ -11,6 +11,6 @@ idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 [dependencies]
 identity = { path = "../../../userspace/identity" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc" }
 ed25519-dalek = "2"

@@ -14,6 +14,10 @@ use std::{env, fs, io, path::PathBuf};
 use capnp::message::Builder;
 
 fn main() -> Result<(), io::Error> {
+    // Silence rustc's "unexpected cfg condition name" warning for our custom cfg.
+    // (The crate uses `cfg(nexus_env, ...)` in its sources.)
+    println!("cargo::rustc-check-cfg=cfg(nexus_env, values(\"os\", \"host\"))");
+
     // Ensure rebuild if schema changes (single source of truth).
     println!("cargo:rerun-if-changed=../../tools/nexus-idl/schemas/manifest.capnp");
     println!("cargo:rerun-if-changed=src/hello_elf.rs");

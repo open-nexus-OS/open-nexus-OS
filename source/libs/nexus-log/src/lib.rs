@@ -551,7 +551,12 @@ static USERS_TEXT_FALLBACK: AtomicUsize = AtomicUsize::new(0);
 #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
 static USERS_STR_PROBE: AtomicUsize = AtomicUsize::new(0);
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    feature = "userspace-linker-bounds",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static IMAGE_BOUNDS_LOGGED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
 static USERS_BAD_PTRS: AtomicUsize = AtomicUsize::new(0);

@@ -141,9 +141,14 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
                         .into());
                     };
                     let gp = sdata.address().saturating_add(0x800);
-                    println!(
-                        "cargo:warning=init-lite: service {name} missing __global_pointer$; using gp=.sdata+0x800 (0x{gp:x})"
-                    );
+                    // This fallback is expected for stripped bare-metal release artifacts (no `.symtab`).
+                    // Keep output quiet by default; enable explicit warnings by setting:
+                    //   NEXUS_INIT_LITE_WARN_GP_FALLBACK=1
+                    if std::env::var_os("NEXUS_INIT_LITE_WARN_GP_FALLBACK").is_some() {
+                        println!(
+                            "cargo:warning=init-lite: service {name} missing __global_pointer$; using gp=.sdata+0x800 (0x{gp:x})"
+                        );
+                    }
                     gp
                 }
             }

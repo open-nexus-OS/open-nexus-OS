@@ -8,20 +8,27 @@
 //! INVARIANTS: Global allocator lock strategy differs in debug vs release; no_std OS builds
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
-#![cfg_attr(not(test), no_std)]
+// The kernel is only built for `target_os = "none"`. For host builds (`cargo test --workspace`)
+// we compile a small stub API to keep the workspace warning-clean.
+#![cfg_attr(all(not(test), target_os = "none"), no_std)]
 // Keep *kernel* builds warning-clean; allow host builds (`cargo test`) to compile modules that are
 // only reachable on the riscv64/none target without turning dead-code into hard errors.
 #![cfg_attr(all(not(test), target_arch = "riscv64", target_os = "none"), deny(warnings))]
 #![deny(unsafe_op_in_unsafe_fn)] // deny instead of forbid to allow naked functions
 #![feature(alloc_error_handler)]
 
+#[cfg(target_os = "none")]
 extern crate alloc;
 
+#[cfg(target_os = "none")]
 use core::alloc::{GlobalAlloc, Layout};
+#[cfg(target_os = "none")]
 use core::ptr::NonNull;
+#[cfg(target_os = "none")]
 use core::ptr::{self, addr_of_mut};
+#[cfg(target_os = "none")]
 use linked_list_allocator::Heap;
-#[cfg(not(debug_assertions))]
+#[cfg(all(target_os = "none", not(debug_assertions)))]
 use spin::Mutex;
 
 // Global allocator using spin::Mutex instead of lock_api to avoid HPM CSR access
@@ -29,21 +36,26 @@ use spin::Mutex;
 // Kernel heap backs page-table allocations, kernel stacks, and early bring-up metadata.
 // NOTE: This region lives in `.bss.heap` and must not overlap the page-table pool range.
 // Keep it large enough to avoid ALLOC-FAIL during bring-up selftests, but below the pool base.
+#[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 1664 * 1024; // 1.625 MiB
 
+#[cfg(target_os = "none")]
 #[repr(align(4096))]
 struct HeapRegion([u8; HEAP_SIZE]);
 
-#[cfg_attr(not(test), link_section = ".bss.heap")]
+#[cfg(all(target_os = "none", not(test)))]
+#[link_section = ".bss.heap"]
 static mut HEAP: HeapRegion = HeapRegion([0; HEAP_SIZE]);
 
-#[cfg(debug_assertions)]
+#[cfg(all(target_os = "none", debug_assertions))]
 type HeapLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
-#[cfg(not(debug_assertions))]
+#[cfg(all(target_os = "none", not(debug_assertions)))]
 type HeapLock<T> = Mutex<T>;
 
+#[cfg(target_os = "none")]
 struct SpinLockedHeap(HeapLock<Heap>);
 
+#[cfg(target_os = "none")]
 unsafe impl GlobalAlloc for SpinLockedHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // Debug redzones: add header/tail canaries; release builds use raw allocation.
@@ -177,8 +189,10 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
 }
 
 #[cfg_attr(all(not(test), target_os = "none"), global_allocator)]
+#[cfg(target_os = "none")]
 static ALLOC: SpinLockedHeap = SpinLockedHeap(HeapLock::new(Heap::empty()));
 
+#[cfg(target_os = "none")]
 fn init_heap() {
     // SAFETY: single-threaded early boot; we only pass a raw pointer + length.
     unsafe {
@@ -226,31 +240,53 @@ fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
 
 // Modules
 
+#[cfg(target_os = "none")]
 #[macro_use]
 mod log;
+#[cfg(target_os = "none")]
 mod arch;
+#[cfg(target_os = "none")]
 mod boot;
+#[cfg(target_os = "none")]
 mod bootstrap;
+#[cfg(target_os = "none")]
 mod cap;
+#[cfg(target_os = "none")]
 mod determinism;
+#[cfg(target_os = "none")]
 mod hal;
+#[cfg(target_os = "none")]
 mod ipc;
+#[cfg(target_os = "none")]
 mod kmain;
+#[cfg(target_os = "none")]
 mod liveness;
+#[cfg(target_os = "none")]
 mod mm;
+#[cfg(target_os = "none")]
 mod satp;
+#[cfg(target_os = "none")]
 mod sched;
+#[cfg(target_os = "none")]
 mod selftest;
-#[cfg(debug_assertions)]
+#[cfg(all(target_os = "none", debug_assertions))]
 pub mod sync;
+#[cfg(target_os = "none")]
 mod syscall;
+#[cfg(target_os = "none")]
 mod task;
+#[cfg(target_os = "none")]
 mod trap;
+#[cfg(target_os = "none")]
 mod types;
+#[cfg(target_os = "none")]
 mod uart;
 
+#[cfg(target_os = "none")]
 pub use bootstrap::{BootstrapInfo, BootstrapMsg};
+#[cfg(target_os = "none")]
 pub use log::Level as LogLevel;
+#[cfg(target_os = "none")]
 pub use task::{Pid, TaskTable, TransferError};
 // compile the kernel panic handler automatically for no_std targets (OS = "none")
 #[cfg(all(not(test), target_os = "none"))]
@@ -265,19 +301,31 @@ mod panic;
 ///
 /// Must be invoked exactly once on the boot CPU before any other kernel code
 /// runs. Callers must ensure the stack is valid and interrupts are masked.
+#[cfg(target_os = "none")]
 pub unsafe fn early_boot_init() {
     boot::early_boot_init();
 }
 
 /// Entry point for the kernel runtime. Assumes early boot setup was performed
 /// and never returns.
+#[cfg(target_os = "none")]
 pub fn kmain() -> ! {
     kmain::kmain()
 }
 
+/// Host build stub: the kernel is not runnable on non-`none` targets, but we still want the crate
+/// to compile as part of `cargo test --workspace` without warnings.
+#[cfg(not(target_os = "none"))]
+pub unsafe fn early_boot_init() {}
+
+#[cfg(not(target_os = "none"))]
+pub fn kmain() -> ! {
+    panic!("neuron kernel is only runnable for target_os=none")
+}
+
 // Tests
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "none"))]
 mod tests {
     use super::ipc::header::MessageHeader;
     use static_assertions::const_assert_eq;

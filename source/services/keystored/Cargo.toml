@@ -26,7 +26,7 @@ os-lite = [
 [dependencies]
 keystore = { path = "../../../userspace/keystore", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 thiserror = { version = "1", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

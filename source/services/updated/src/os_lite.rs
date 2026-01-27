@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use nexus_abi::{debug_putc, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK};
-use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
+use nexus_ipc::{Client as _, KernelClient, KernelServer, Wait};
 
 use updates::{
     BootCtrl, BootCtrlError, SignatureVerifier, Slot, SystemSet, SystemSetError, VerifyError,
@@ -40,7 +40,6 @@ const STATUS_MALFORMED: u8 = nexus_abi::updated::STATUS_MALFORMED;
 const STATUS_UNSUPPORTED: u8 = nexus_abi::updated::STATUS_UNSUPPORTED;
 const STATUS_FAILED: u8 = nexus_abi::updated::STATUS_FAILED;
 
-const DEFAULT_TRIES_LEFT: u8 = 2;
 const MAX_STAGE_FRAME: usize = nexus_abi::updated::MAX_STAGE_BYTES + 8;
 
 const KEYSTORE_MAGIC0: u8 = b'K';
@@ -681,27 +680,4 @@ fn emit_hex_u8(value: u8) {
     let lo_ch = if lo < 10 { b'0' + lo } else { b'a' + (lo - 10) };
     emit_byte(hi_ch);
     emit_byte(lo_ch);
-}
-
-fn emit_ipc_err(err: nexus_ipc::IpcError) {
-    match err {
-        nexus_ipc::IpcError::WouldBlock => emit_bytes(b"wouldblock"),
-        nexus_ipc::IpcError::Timeout => emit_bytes(b"timeout"),
-        nexus_ipc::IpcError::Disconnected => emit_bytes(b"disconnected"),
-        nexus_ipc::IpcError::NoSpace => emit_bytes(b"nospace"),
-        nexus_ipc::IpcError::Unsupported => emit_bytes(b"unsupported"),
-        nexus_ipc::IpcError::Kernel(err) => {
-            emit_bytes(b"kernel:");
-            match err {
-                nexus_abi::IpcError::NoSuchEndpoint => emit_bytes(b"nosuch"),
-                nexus_abi::IpcError::QueueFull => emit_bytes(b"queuefull"),
-                nexus_abi::IpcError::QueueEmpty => emit_bytes(b"queueempty"),
-                nexus_abi::IpcError::PermissionDenied => emit_bytes(b"denied"),
-                nexus_abi::IpcError::TimedOut => emit_bytes(b"timedout"),
-                nexus_abi::IpcError::NoSpace => emit_bytes(b"nospace"),
-                nexus_abi::IpcError::Unsupported => emit_bytes(b"unsupported"),
-            }
-        }
-        _ => emit_bytes(b"other"),
-    }
 }

@@ -10,5 +10,5 @@ build = "build.rs"
 nexus-abi = { path = "../../source/libs/nexus-abi" }
 
 [build-dependencies]
-capnp = "0.19"
+capnp = "0.24"
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }

@@ -77,6 +77,8 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - Host unit/property: `just test-host`
 - Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
+- Full gate (recommended before “everything is green”): `just test-all`
+  - Includes `fmt-check`, `lint`, `deny-check`, host tests, Miri tiers, `arch-check`, and QEMU selftests.
 
 ### Phase-gated QEMU smoke (triage helper)
 

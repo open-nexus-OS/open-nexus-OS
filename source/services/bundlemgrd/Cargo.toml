@@ -31,7 +31,7 @@ os-lite = [
 [dependencies]
 bundlemgr = { path = "../../../userspace/bundlemgr", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
-capnp = { version = "0.19", optional = true }
+capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 keystored = { path = "../keystored", features = ["idl-capnp"], optional = true }
 memchr = { version = "2", optional = true }
