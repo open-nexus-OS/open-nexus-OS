@@ -29,6 +29,7 @@ help:
     @echo "  just build-nexus-log-os  # cross-compile nexus-log (userspace sink)"
     @echo "  just build-init-lite-os  # cross-compile init-lite userspace payload"
     @echo "  just test-os             # run kernel selftests in QEMU"
+    @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
     @echo "  INIT_LITE_LOG_TOPICS=svc-meta just qemu  # opt-in init-lite log topics"
@@ -75,6 +76,10 @@ qemu *args:
 test-os:
     scripts/qemu-test.sh
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
+
+# Run only until device-MMIO proofs are complete (faster local iteration).
+test-mmio:
+    RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
 
 test-init:
     scripts/host-init-test.sh

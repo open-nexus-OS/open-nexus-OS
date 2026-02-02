@@ -10,12 +10,16 @@
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use nexus_abi::{debug_putc, yield_};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::protocol::*;
 use crate::MAX_ENTROPY_BYTES;
+
+/// Flag to emit MMIO proof marker only once (proves designated owner service mapped its window).
+static MMIO_PROOF_EMITTED: AtomicBool = AtomicBool::new(false);
 
 /// Result type for rngd operations.
 pub type RngdResult<T> = Result<T, RngdError>;
@@ -239,12 +243,19 @@ fn handle_get_entropy(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
 /// # Security
 /// - Entropy bytes are NEVER logged
 fn read_entropy_from_device(n: usize) -> Result<Vec<u8>, rng_virtio::RngError> {
-    // Virtio-mmio DeviceMmio cap is injected into OS processes at a fixed slot for bring-up.
-    // This service is the single entropy authority.
+    // DeviceMmio cap is distributed by init (policy-gated) into a deterministic slot.
     const MMIO_CAP_SLOT: u32 = 48;
     const MMIO_VA: usize = 0x2000_e000;
-    const MAX_SLOTS: usize = 8;
-    rng_virtio::read_entropy_via_virtio_mmio(MMIO_CAP_SLOT, MMIO_VA, MAX_SLOTS, n)
+    const MAX_SLOTS: usize = 1;
+
+    let result = rng_virtio::read_entropy_via_virtio_mmio(MMIO_CAP_SLOT, MMIO_VA, MAX_SLOTS, n);
+
+    // Emit proof marker on first successful read (proves owner service mapped its MMIO window).
+    if result.is_ok() && !MMIO_PROOF_EMITTED.swap(true, Ordering::Relaxed) {
+        emit_line("rngd: mmio window mapped ok");
+    }
+
+    result
 }
 
 /// Check if the caller has the required capability via policyd.

@@ -143,6 +143,19 @@ impl CapTable {
         }
     }
 
+    /// Inserts a capability only if the slot is empty.
+    pub fn set_if_empty(&mut self, slot: usize, cap: Capability) -> Result<(), CapError> {
+        if slot >= self.slots.len() {
+            return Err(CapError::InvalidSlot);
+        }
+        let entry = self.slots.get_mut(slot).ok_or(CapError::InvalidSlot)?;
+        if entry.is_some() {
+            return Err(CapError::PermissionDenied);
+        }
+        *entry = Some(cap);
+        Ok(())
+    }
+
     /// Allocates the first free slot and inserts `cap`, returning the slot index.
     pub fn allocate(&mut self, cap: Capability) -> Result<usize, CapError> {
         for (index, entry) in self.slots.iter_mut().enumerate() {

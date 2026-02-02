@@ -1841,6 +1841,35 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
     }
 }
 
+/// Transfers a capability from the current task to `dst_task` into `dst_slot`.
+#[cfg(nexus_env = "os")]
+pub fn cap_transfer_to_slot(
+    dst_task: Pid,
+    cap: Cap,
+    rights: Rights,
+    dst_slot: Cap,
+) -> SysResult<Cap> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_CAP_TRANSFER_TO: usize = 31;
+        let raw = unsafe {
+            ecall4(
+                SYSCALL_CAP_TRANSFER_TO,
+                dst_task as usize,
+                cap as usize,
+                rights.bits() as usize,
+                dst_slot as usize,
+            )
+        };
+        decode_syscall(raw).map(|slot| slot as Cap)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (dst_task, cap, rights, dst_slot);
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Creates a new kernel IPC endpoint and returns a capability slot for it.
 ///
 /// Bring-up rule: this syscall is currently restricted to init-lite (the direct child of the
@@ -2201,6 +2230,25 @@ pub fn cap_query(_cap: Cap, _out: &mut CapQuery) -> SysResult<()> {
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
         let _ = (_cap, _out);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Creates a DeviceMmio capability in the caller's cap table (init-only).
+///
+/// If `slot_raw` is `usize::MAX`, the kernel allocates a fresh slot; otherwise, the cap is placed
+/// into the requested slot (must be empty).
+#[cfg(nexus_env = "os")]
+pub fn device_mmio_cap_create(_base: usize, _len: usize, _slot_raw: usize) -> SysResult<Cap> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
+        let raw = unsafe { ecall3(SYSCALL_DEVICE_CAP_CREATE, _base, _len, _slot_raw) };
+        decode_syscall(raw).map(|slot| slot as Cap)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_base, _len, _slot_raw);
         Err(AbiError::Unsupported)
     }
 }

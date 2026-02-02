@@ -38,6 +38,7 @@ fi
 # A "phase" is a named slice of the marker ladder. Failures should report the first failing phase.
 declare -a PHASES=(
   "bring-up"
+  "mmio"
   "routing"
   "ota"
   "policy"
@@ -47,6 +48,7 @@ declare -a PHASES=(
 )
 declare -A PHASE_START_MARKER=(
   ["bring-up"]="init: start"
+  ["mmio"]="execd: ready"
   ["routing"]="SELFTEST: ipc routing keystored ok"
   ["ota"]="SELFTEST: ota stage ok"
   ["policy"]="SELFTEST: policy allow ok"
@@ -56,6 +58,7 @@ declare -A PHASE_START_MARKER=(
 )
 declare -A PHASE_END_MARKER=(
   ["bring-up"]="execd: ready"
+  ["mmio"]="SELFTEST: cap query vmo ok"
   ["routing"]="SELFTEST: ipc routing ok"
   ["ota"]="SELFTEST: ota rollback ok"
   ["policy"]="SELFTEST: policy malformed ok"
@@ -137,6 +140,8 @@ expected_sequence=(
   "init: up execd"
   "init: start netstackd"
   "init: up netstackd"
+  "init: start virtioblkd"
+  "init: up virtioblkd"
   "init: start dsoftbusd"
   "init: up dsoftbusd"
   "init: ready"
@@ -153,15 +158,18 @@ expected_sequence=(
   "vfsd: ready"
   "execd: ready"
   "netstackd: ready"
+  "virtioblkd: ready"
   "net: virtio-net up"
   "SELFTEST: net iface ok"
   "net: dhcp bound"
   "net: smoltcp iface up"
   "SELFTEST: net ping ok"
+  "virtioblkd: mmio window mapped ok"
   "logd: ready"
   "bundlemgrd: slot a active"
   "SELFTEST: ipc routing keystored ok"
   "SELFTEST: keystored v1 ok"
+  "rngd: mmio window mapped ok"
   "SELFTEST: rng entropy ok"
   "SELFTEST: rng entropy oversized ok"
   "SELFTEST: device key pubkey ok"
@@ -196,6 +204,7 @@ expected_sequence=(
   "SELFTEST: ota rollback ok"
   "SELFTEST: policy allow ok"
   "SELFTEST: policy deny ok"
+  "SELFTEST: mmio policy deny ok"
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"
   "SELFTEST: ipc routing execd ok"

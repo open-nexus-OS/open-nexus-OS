@@ -76,6 +76,16 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Proof**: `just test-e2e`, `cargo test -p logd-e2e`, `cargo test -p e2e_policy`, `just test-os`
 - **Why it matters**: prevents multi-day QEMU debugging by shifting left to host-first contract tests
 
+### Device MMIO access model v1
+
+- **Contract**: capability-gated MMIO mapping, init-controlled distribution, policy deny-by-default, per-device windows
+- **Canonical spec**: `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (Done)
+- **Task**: `tasks/TASK-0010-device-mmio-access-model.md` (Done)
+- **Proof**: kernel negative tests (`test_reject_mmio_*`) + QEMU markers (`SELFTEST: mmio map ok`, `rngd: mmio window mapped ok`, `virtioblkd: mmio window mapped ok`, `SELFTEST: mmio policy deny ok`)
+- **Testing guide**: `docs/testing/device-mmio-access.md`
+- **Fast local run**: `just test-mmio` (RUN_PHASE=mmio)
+- **Why it matters**: establishes userspace driver capability model + policy enforcement for device access; enables virtio-rng (keystored), virtio-net (netstackd), virtio-blk (virtioblkd)
+
 ## Adding a new contract
 
 When a change introduces a new stable interface or cross-boundary behavior:

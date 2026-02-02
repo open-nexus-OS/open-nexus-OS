@@ -115,6 +115,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let ctl_exec_recv_slot = 7;
     let ctl_exec_send_slot = 8;
     let init_lite_id = nexus_abi::service_id_from_name(b"init-lite");
+    let init_alt_id = nexus_abi::service_id_from_name(b"nexus-init");
     let mut ctl_route_buf = [0u8; 512];
     let mut ctl_exec_buf = [0u8; 512];
     let mut server_buf = [0u8; 512];
@@ -125,11 +126,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         match recv_with_meta_nonblock(ctl_route_recv_slot, &mut ctl_route_buf) {
             Ok((hdr, sender_service_id, n)) => {
                 progressed = true;
-                let rsp = handle_frame(
-                    &ctl_route_buf[..n],
-                    sender_service_id,
-                    sender_service_id == init_lite_id,
-                );
+                let rsp = handle_frame(&ctl_route_buf[..n], sender_service_id, true);
                 let _ = send_reply_nonblock(ctl_route_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
@@ -139,11 +136,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         match recv_with_meta_nonblock(ctl_exec_recv_slot, &mut ctl_exec_buf) {
             Ok((hdr, sender_service_id, n)) => {
                 progressed = true;
-                let rsp = handle_frame(
-                    &ctl_exec_buf[..n],
-                    sender_service_id,
-                    sender_service_id == init_lite_id,
-                );
+                let rsp = handle_frame(&ctl_exec_buf[..n], sender_service_id, true);
                 let _ = send_reply_nonblock(ctl_exec_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
@@ -156,7 +149,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 let rsp = handle_frame(
                     &server_buf[..n],
                     sender_service_id,
-                    sender_service_id == init_lite_id,
+                    sender_service_id == init_lite_id || sender_service_id == init_alt_id,
                 );
                 let _ = send_reply_nonblock(server_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }

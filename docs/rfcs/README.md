@@ -73,6 +73,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0008: DSoftBus Noise XK v1 (authentication + identity binding)
 - RFC-0009: no_std Dependency Hygiene v1 (build security)
 - RFC-0015: Policy Authority & Audit Baseline v1 (policy engine + audit trail)
+- RFC-0017: Device MMIO Access Model v1 (capability-gated device access)
 
 ## Index
 
@@ -108,3 +109,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
 - RFC-0016: Device Identity Keys v1 — virtio-rng + rngd authority + keystored keygen
   - docs/rfcs/RFC-0016-device-identity-keys-v1.md
+- RFC-0017: Device MMIO Access Model v1 — capability-gated MMIO + init-controlled distribution
+  - docs/rfcs/RFC-0017-device-mmio-access-model-v1.md

@@ -31,6 +31,9 @@ QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
 QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE:--device virtio-net-device,netdev=n0}
 QEMU_RNG_OBJECT=${QEMU_RNG_OBJECT:--object rng-random,id=rng0,filename=/dev/urandom}
 QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
+QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/blk.img}
+QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
+QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
 
 join_by() {
   local IFS="$1"
@@ -47,7 +50,7 @@ set_env_var() {
 
 declare -a SERVICES=()
 
-DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,samgrd,bundlemgrd,updated,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
+DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,samgrd,bundlemgrd,updated,packagefsd,vfsd,execd,netstackd,virtioblkd,dsoftbusd,selftest-client"
 
 prepare_service_payloads() {
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
@@ -481,6 +484,12 @@ finish() {
 
 prepare_service_payloads
 
+# Ensure a deterministic virtio-blk backing image exists for QEMU.
+mkdir -p "$ROOT/build"
+if [[ ! -f "$QEMU_BLK_IMG" ]]; then
+  truncate -s 64M "$QEMU_BLK_IMG"
+fi
+
 # Always rebuild init-lite and kernel to pick up changes
 (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release)
 kernel_build() {
@@ -522,6 +531,8 @@ COMMON_ARGS=(
   ${QEMU_NETDEV_DEVICE}
   ${QEMU_RNG_OBJECT}
   ${QEMU_RNG_DEVICE}
+  ${QEMU_BLK_DRIVE}
+  ${QEMU_BLK_DEVICE}
 )
 
 # Enable heavy QEMU tracing only when explicitly requested

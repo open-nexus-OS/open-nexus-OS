@@ -1,7 +1,7 @@
 # TASK-0010 Handoff: Device access model v1 (safe userspace MMIO foundation)
 
 **Date**: 2026-01-27  
-**Status**: In Progress (kernel mapping primitive proven; “foundation complete” distribution still pending)  
+**Status**: Done (v1 foundation contract; net/rng proven in QEMU; blk consumer proof is follow-up)  
 **Scope note**: This task is the **foundation gate** for userspace drivers on QEMU `virt` (virtio-* MMIO devices). It must remain enforce-only in kernel and keep policy/distribution in userspace.
 
 ---
@@ -75,11 +75,17 @@ Implemented and proven:
 - `SYSCALL_MMIO_MAP` exists and is wrapped by `nexus_abi::mmio_map`.
 - QEMU harness requires `SELFTEST: mmio map ok` and it is emitted by `selftest-client`.
 
-Still incomplete for “foundation complete”:
+Completed (foundation):
 
-- MMIO cap distribution still has bring-up hard-wiring (kernel name-check in spawn path) for a fixed slot/window.
-- Kernel negative tests listed in the task are not yet present.
-- Per-device window distribution (rng/net/blk split) must replace broad/shared windows.
+- Kernel `DeviceMmio` + `SYSCALL_MMIO_MAP` security floor (USER|RW only, never EXEC) proven.
+- Kernel negative tests exist (incl. exec-attempt proof via leaf flags).
+- Kernel name/string based MMIO grants removed.
+- Init distributes per-device MMIO caps using policyd deny-by-default checks; decisions are auditable via logd.
+- QEMU proof includes `rngd: mmio window mapped ok` and `SELFTEST: mmio map ok`.
+
+Still pending for follow-ups that need **virtio-blk** specifically:
+
+- Grant/proof path for virtio-blk owner service (e.g. `virtioblkd`) when the device/service is present in QEMU.
 
 ---
 

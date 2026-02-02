@@ -86,6 +86,10 @@ pub const SYSCALL_MMIO_MAP: usize = 27;
 /// This is a small introspection primitive needed by userspace drivers to obtain physical
 /// addresses for DMA-capable resources (e.g., VMOs) without exposing ambient physical memory.
 pub const SYSCALL_CAP_QUERY: usize = 28;
+/// Creates a DeviceMmio capability in the caller's cap table (privileged; init-only).
+pub const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
+/// Transfers a capability into a specific slot in the child task.
+pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).
 pub const SYSCALL_SPAWN_LAST_ERROR: usize = 29;
 

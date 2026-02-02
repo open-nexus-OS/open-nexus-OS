@@ -2,7 +2,11 @@
 //! OWNERS: @init-team @runtime
 //! STATUS: Functional (bring-up)
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Marker-driven via just test-os
+//! TEST_COVERAGE: QEMU marker ladder (just test-os)
+//!   - Service spawn/readiness markers (init: start/up, *: ready)
+//!   - Policy-gated MMIO distribution (device.mmio.net/rng/blk)
+//!   - Routing responder (IPC channel grants for services)
+//!   - Control channel setup (policyd/logd/samgrd/bundlemgrd)
 //! ADR: docs/adr/0017-service-architecture.md
 //!
 //! This module is compiled only for `nexus_env="os"` and is used by `init-lite` as the minimal
@@ -447,6 +451,62 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 // Nonce for policyd v2 (correlated) control-plane requests.
 static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
+// Deterministic DeviceMmio slot (per-service cap table).
+const DEVICE_MMIO_CAP_SLOT: u32 = 48;
+// QEMU `virt` virtio-mmio layout (per-device windows).
+const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
+const VIRTIO_MMIO_STRIDE: usize = 0x1000;
+
+fn virtio_mmio_window(slot: usize) -> (usize, usize) {
+    (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)
+}
+
+fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>)> {
+    // Map the full virtio-mmio window to discover device slots, then mint per-device caps.
+    const MAX_SLOTS: usize = 8;
+    const MMIO_VA: usize = 0x2000_e000;
+    const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976; // "virt"
+    const VIRTIO_DEVICE_ID_NET: u32 = 1;
+    const VIRTIO_DEVICE_ID_RNG: u32 = 4;
+    const VIRTIO_DEVICE_ID_BLK: u32 = 2;
+
+    let full_len = VIRTIO_MMIO_STRIDE * MAX_SLOTS;
+    let cap =
+        nexus_abi::device_mmio_cap_create(VIRTIO_MMIO_BASE, full_len, usize::MAX)
+            .map_err(InitError::Abi)?;
+
+    let mut net_slot: Option<usize> = None;
+    let mut rng_slot: Option<usize> = None;
+    let mut blk_slot: Option<usize> = None;
+    for slot in 0..MAX_SLOTS {
+        let off = slot * VIRTIO_MMIO_STRIDE;
+        let va = MMIO_VA + off;
+        match nexus_abi::mmio_map(cap, va, off) {
+            Ok(()) => {}
+            Err(nexus_abi::AbiError::InvalidArgument) => {}
+            Err(_) => continue,
+        }
+        let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
+        if magic != VIRTIO_MMIO_MAGIC {
+            continue;
+        }
+        let device_id = unsafe { core::ptr::read_volatile((va + 0x008) as *const u32) };
+        if device_id == VIRTIO_DEVICE_ID_NET {
+            net_slot = Some(slot);
+        } else if device_id == VIRTIO_DEVICE_ID_RNG {
+            rng_slot = Some(slot);
+        } else if device_id == VIRTIO_DEVICE_ID_BLK {
+            blk_slot = Some(slot);
+        }
+        if net_slot.is_some() && rng_slot.is_some() && blk_slot.is_some() {
+            break;
+        }
+    }
+    let _ = nexus_abi::cap_close(cap);
+    let net_slot = net_slot.ok_or(InitError::Map("virtio-net slot not found"))?;
+    let rng_slot = rng_slot.ok_or(InitError::Map("virtio-rng slot not found"))?;
+    Ok((net_slot, rng_slot, blk_slot))
+}
 
 fn debug_write_byte(byte: u8) {
     let _ = nexus_abi::debug_putc(byte);
@@ -780,7 +840,6 @@ where
     debug_write_str("init: ready");
     debug_write_byte(b'\n');
     debug_write_bytes(b"!init-lite ready\n");
-    let _ = nexus_abi::yield_();
     // Second pass: create request endpoints owned by the target service PID and distribute caps.
     fn find_pid(ctrls: &[CtrlChannel], name: &str) -> Option<u32> {
         ctrls.iter().find(|c| c.svc_name == name).map(|c| c.pid)
@@ -912,6 +971,97 @@ where
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, policyd_pid, 8)
             .map_err(InitError::Abi)?;
 
+    // Ensure policyd control channels are live before policy-gated grants.
+    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_route_req, Rights::RECV)
+        .map_err(InitError::Abi)?;
+    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_route_rsp, Rights::SEND)
+        .map_err(InitError::Abi)?;
+    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_exec_req, Rights::RECV)
+        .map_err(InitError::Abi)?;
+    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_exec_rsp, Rights::SEND)
+        .map_err(InitError::Abi)?;
+
+    // Policy-gated DeviceMmio grants (per-device windows) before other cap transfers.
+    let grant_mmio_with_wait =
+        |pid: u32, svc_name: &str, cap_name: &str, slot: usize| -> Result<()> {
+            let (mmio_base, mmio_len) = virtio_mmio_window(slot);
+            let deadline = match nexus_abi::nsec() {
+                Ok(now) => now.saturating_add(1_000_000_000),
+                Err(_) => 0,
+            };
+            loop {
+                match grant_mmio_cap(
+                    pid,
+                    svc_name,
+                    cap_name,
+                    mmio_base,
+                    mmio_len,
+                    pol_ctl_route_req,
+                    pol_ctl_route_rsp,
+                    DEVICE_MMIO_CAP_SLOT,
+                )? {
+                    Some(_) => break,
+                    None => {
+                        let now = match nexus_abi::nsec() {
+                            Ok(value) => value,
+                            Err(_) => 0,
+                        };
+                        if now >= deadline {
+                            return Err(InitError::Map("mmio policy timeout"));
+                        }
+                        let _ = nexus_abi::yield_();
+                    }
+                }
+            }
+            Ok(())
+        };
+
+    // Policy negative proof: deny-by-default for a non-matching MMIO capability.
+    //
+    // Today we use a stable, always-present subject (`netstackd`) and a capability that must not
+    // be granted to it (`device.mmio.blk`). This is independent of device enumeration and proves:
+    // - init consults policyd (no local allowlist)
+    // - policyd denies by default for a capability not in policy
+    // - a deterministic UART marker is emitted only on real denial
+    let deny_deadline = match nexus_abi::nsec() {
+        Ok(now) => now.saturating_add(1_000_000_000),
+        Err(_) => 0,
+    };
+    loop {
+        let subject_id = nexus_abi::service_id_from_name(b"netstackd");
+        match policyd_cap_allowed(pol_ctl_route_req, pol_ctl_route_rsp, subject_id, b"device.mmio.blk")
+        {
+            Some(false) => {
+                debug_write_str("init: mmio policy deny ok");
+                debug_write_byte(b'\n');
+                break;
+            }
+            Some(true) => {
+                return Err(InitError::Map("mmio policy deny unexpectedly allowed"));
+            }
+            None => {
+                let now = match nexus_abi::nsec() {
+                    Ok(value) => value,
+                    Err(_) => 0,
+                };
+                if now >= deny_deadline {
+                    return Err(InitError::Map("mmio policy deny timeout"));
+                }
+                let _ = nexus_abi::yield_();
+            }
+        }
+    }
+
+    let (net_slot, rng_slot, blk_slot) = probe_virtio_mmio_slots()?;
+    grant_mmio_with_wait(netstackd_pid, "netstackd", "device.mmio.net", net_slot)?;
+    grant_mmio_with_wait(rngd_pid, "rngd", "device.mmio.rng", rng_slot)?;
+    grant_mmio_with_wait(selftest_pid, "selftest-client", "device.mmio.net", net_slot)?;
+
+    if let Some(virtioblkd_pid) = find_pid(&ctrl_channels, "virtioblkd") {
+        let blk_slot = blk_slot.ok_or(InitError::Map("virtio-blk slot not found"))?;
+        grant_mmio_with_wait(virtioblkd_pid, "virtioblkd", "device.mmio.blk", blk_slot)?;
+    }
+
     for chan in &mut ctrl_channels {
         let pid = chan.pid;
         match chan.svc_name {
@@ -1036,16 +1186,6 @@ where
                 debug_write_bytes(b" send=0x");
                 debug_write_hex(send_slot as usize);
                 debug_write_byte(b'\n');
-
-                // policyd receives queries on *_req and sends replies on *_rsp
-                let _ = nexus_abi::cap_transfer(pid, pol_ctl_route_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let _ = nexus_abi::cap_transfer(pid, pol_ctl_route_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                let _ = nexus_abi::cap_transfer(pid, pol_ctl_exec_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let _ = nexus_abi::cap_transfer(pid, pol_ctl_exec_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
                 let reply_ep =
@@ -1474,6 +1614,9 @@ where
             _ => {}
         }
     }
+
+    // Yield after cap distribution so services observe a consistent slot layout.
+    let _ = nexus_abi::yield_();
 
     match updated_boot_attempt(upd_req, init_reply_send, pol_ctl_route_rsp) {
         Ok(Some(slot)) => {
@@ -1920,6 +2063,102 @@ fn policyd_route_allowed(
             _ => None,
         };
     }
+}
+
+fn policyd_cap_allowed(
+    pol_send_slot: u32,
+    pol_recv_slot: u32,
+    subject_id: u64,
+    cap: &[u8],
+) -> Option<bool> {
+    if cap.is_empty() || cap.len() > 48 {
+        return None;
+    }
+    // policyd OP_CHECK_CAP request (v1):
+    // [P,O,ver=1,OP_CHECK_CAP, subject_id:u64le, cap_len:u8, cap...]
+    let mut frame = [0u8; 13 + 48];
+    frame[0] = b'P';
+    frame[1] = b'O';
+    frame[2] = nexus_abi::policyd::VERSION_V1;
+    frame[3] = nexus_abi::policyd::OP_CHECK_CAP;
+    frame[4..12].copy_from_slice(&subject_id.to_le_bytes());
+    frame[12] = cap.len() as u8;
+    frame[13..13 + cap.len()].copy_from_slice(cap);
+    let n = 13 + cap.len();
+
+    let deadline = match nexus_abi::nsec() {
+        Ok(now) => now.saturating_add(1_000_000_000),
+        Err(_) => 0,
+    };
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
+    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, deadline).is_err() {
+        return None;
+    }
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 16];
+    let got = nexus_abi::ipc_recv_v1(
+        pol_recv_slot,
+        &mut rh,
+        &mut buf,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    )
+    .ok()? as usize;
+    let got = core::cmp::min(got, buf.len());
+    if got < 6 || buf[0] != b'P' || buf[1] != b'O' || buf[2] != nexus_abi::policyd::VERSION_V1 {
+        return None;
+    }
+    if buf[3] != (nexus_abi::policyd::OP_CHECK_CAP | 0x80) {
+        return None;
+    }
+    match buf[4] {
+        nexus_abi::policyd::STATUS_ALLOW => Some(true),
+        nexus_abi::policyd::STATUS_DENY => Some(false),
+        _ => None,
+    }
+}
+
+fn grant_mmio_cap(
+    pid: u32,
+    svc_name: &str,
+    cap_name: &str,
+    base: usize,
+    len: usize,
+    pol_send: u32,
+    pol_recv: u32,
+    expected_slot: u32,
+) -> Result<Option<bool>> {
+    let subject_id = nexus_abi::service_id_from_name(svc_name.as_bytes());
+    let allowed = match policyd_cap_allowed(pol_send, pol_recv, subject_id, cap_name.as_bytes()) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    if !allowed {
+        debug_write_bytes(b"init: mmio grant DENIED svc=");
+        debug_write_str(svc_name);
+        debug_write_bytes(b" cap=");
+        debug_write_str(cap_name);
+        debug_write_byte(b'\n');
+        return Ok(Some(false));
+    }
+    let cap = nexus_abi::device_mmio_cap_create(base, len, usize::MAX).map_err(InitError::Abi)?;
+    let slot =
+        nexus_abi::cap_transfer_to_slot(pid, cap, Rights::MAP, expected_slot).map_err(InitError::Abi)?;
+    let _ = nexus_abi::cap_close(cap);
+    if slot != expected_slot {
+        debug_write_bytes(b"init: mmio grant slot mismatch svc=");
+        debug_write_str(svc_name);
+        debug_write_bytes(b" got=0x");
+        debug_write_hex(slot as usize);
+        debug_write_byte(b'\n');
+        return Err(InitError::Map("mmio slot mismatch"));
+    }
+    debug_write_bytes(b"init: mmio grant svc=");
+    debug_write_str(svc_name);
+    debug_write_bytes(b" slot=0x");
+    debug_write_hex(slot as usize);
+    debug_write_byte(b'\n');
+    Ok(Some(true))
 }
 
 fn updated_boot_attempt(upd_req: u32, reply_send: u32, reply_recv: u32) -> Result<Option<u8>> {

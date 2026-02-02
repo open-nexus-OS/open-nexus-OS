@@ -6,6 +6,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0013**: Boot gates v1 — readiness contract + spawn failure reasons (Complete)
 - **RFC-0014**: Testing contracts v1 — host-first service contract tests + phased QEMU smoke (Phase 0 complete)
 - **RFC-0015**: Policy Authority & Audit Baseline v1 — policy engine + audit trail (Complete)
+- **RFC-0017**: Device MMIO access model v1 — capability-gated MMIO mapping + init/policy distribution (Done)
 
 ## Philosophy
 
@@ -64,6 +65,10 @@ For a detailed feature-by-feature breakdown, see: **[E2E Coverage Matrix](e2e-co
 4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
 5. **Run OS build hygiene checks**: `just diag-os` and `just dep-gate` (catches forbidden dependencies).
 6. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
+
+## Topic guides
+
+- `docs/testing/device-mmio-access.md` — Device MMIO access tests today + extension plan.
 
 ## Scaffold sanity
 

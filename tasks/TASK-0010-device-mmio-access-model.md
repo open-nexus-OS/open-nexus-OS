@@ -1,12 +1,13 @@
 ---
 title: TASK-0010 Device access model v1: safe userspace MMIO for virtio devices (enables virtio-net/virtio-blk)
-status: In Progress
+status: In Review
 owner: @kernel-team @runtime
 created: 2025-12-22
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - RFC: docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
+  - Related RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Used-by (already done): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Used-by (already done): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Used-by (already done): tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
@@ -200,7 +201,7 @@ This section defines what follow-up tasks (networking, persistence, driverkit) m
 
 ## Current state
 
-Completed (today):
+**Done** (2026-02-02):
 
 - Kernel cap kind exists: `CapabilityKind::DeviceMmio { base, len }` (bounded physical window).
 - Kernel syscall exists: `SYSCALL_MMIO_MAP` enforcing **USER|RW** and **never EXEC** for device mappings.
@@ -210,17 +211,21 @@ Completed (today):
 - OS selftest exercises the path end-to-end (maps and reads a known virtio-mmio register) and emits:
   - `SELFTEST: mmio map ok`
 - Canonical QEMU harness requires the marker (no silent “green”).
-- Bring-up distribution exists, but is still hard-wired:
-  - the kernel currently grants a fixed virtio-mmio `DeviceMmio` cap at a fixed slot to selected services
-    via a name-check in `sys_spawn` (bring-up convenience).
+- Init-controlled distribution (policy-gated via `policyd`, audited via `logd`) replaces kernel name checks.
+- Per-device windows: init probes virtio-mmio slots and grants **net** and **rng** windows.
+- Kernel negative tests added: `test_reject_mmio_no_cap`, `test_reject_mmio_wrong_cap_kind`,
+  `test_reject_mmio_outside_window`, `test_reject_mmio_insufficient_rights`, `test_reject_mmio_exec`.
+- Designated owner service proof: `rngd: mmio window mapped ok` marker verified in QEMU.
+- RFC-0017 seed exists and is kept in sync with the proofs.
 
-Remaining for v1 “foundation complete” (to satisfy follow-ups cleanly):
+Virtio consumers proven in QEMU:
 
-- Replace name-check MMIO grants with **init-controlled capability distribution** to designated owner services.
-- Gate/record distribution decisions via `policyd` + `logd` audit (deny-by-default).
-- Prefer **per-device** bounded windows (virtio-net vs virtio-blk vs virtio-rng) over a single broad shared window,
-  so follow-ups can prove “least privilege” device access.
-- Add the kernel negative tests listed above (currently missing).
+- `rngd: mmio window mapped ok`
+- `virtioblkd: mmio window mapped ok`
+
+Policy enforcement proven in QEMU:
+
+- `SELFTEST: mmio policy deny ok` (deny-by-default for non-matching capabilities)
 
 ## Touched paths (allowlist)
 

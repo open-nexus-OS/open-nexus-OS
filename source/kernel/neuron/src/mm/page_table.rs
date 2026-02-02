@@ -155,6 +155,32 @@ impl PageTable {
         None
     }
 
+    /// Returns the leaf flags for the mapping at `va`.
+    pub fn leaf_flags(&self, va: usize) -> Result<PageFlags, MapError> {
+        if va % PAGE_SIZE != 0 || !is_canonical_sv39(va) {
+            return Err(MapError::OutOfRange);
+        }
+        let indices = vpn_indices(va);
+        let mut table = self.root;
+        for (level, index) in indices.iter().enumerate() {
+            let entry = unsafe { (*table.as_ptr()).entries[*index] };
+            if entry & PageFlags::VALID.bits() == 0 {
+                return Err(MapError::OutOfRange);
+            }
+            let is_leaf = entry & LEAF_PERMS.bits() != 0;
+            if is_leaf {
+                let flags = PageFlags::from_bits_truncate(entry & 0x3FF);
+                return Ok(flags);
+            }
+            if level == indices.len() - 1 {
+                return Err(MapError::OutOfRange);
+            }
+            let next = ((entry >> 10) << 12) as *mut PageTablePage;
+            table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
+        }
+        Err(MapError::OutOfRange)
+    }
+
     /// Installs a 4 KiB mapping from `va` to `pa` using `flags`.
     pub fn map(&mut self, va: usize, pa: usize, flags: PageFlags) -> Result<(), MapError> {
         if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {

@@ -348,6 +348,34 @@ impl MmioMapArgsTyped {
 }
 
 #[derive(Copy, Clone)]
+struct DeviceCapCreateArgsTyped {
+    base: usize,
+    len: usize,
+    slot_raw: usize,
+}
+
+impl DeviceCapCreateArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self { base: args.get(0), len: args.get(1), slot_raw: args.get(2) })
+    }
+    #[inline]
+    fn check(&self) -> Result<(), Error> {
+        if self.len == 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        if (self.base & (PAGE_SIZE - 1)) != 0 || (self.len & (PAGE_SIZE - 1)) != 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        let end = self.base.checked_add(self.len).ok_or(AddressSpaceError::InvalidArgs)?;
+        if end <= self.base {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
 struct VmoCreateArgsTyped {
     slot_raw: usize,
     len: usize,
@@ -415,12 +443,39 @@ impl CapTransferArgsTyped {
     }
 }
 
+#[derive(Copy, Clone)]
+struct CapTransferToArgsTyped {
+    child: task::Pid,
+    parent_slot: SlotIndex,
+    rights_bits: u32,
+    child_slot: SlotIndex,
+}
+
+impl CapTransferToArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        Ok(Self {
+            child: args.get(0) as task::Pid,
+            parent_slot: SlotIndex::decode(args.get(1)),
+            rights_bits: args.get(2) as u32,
+            child_slot: SlotIndex::decode(args.get(3)),
+        })
+    }
+    #[inline]
+    fn check(&self) -> Result<Rights, Error> {
+        Rights::from_bits(self.rights_bits).ok_or_else(|| {
+            Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
+        })
+    }
+}
+
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_QUERY,
-    SYSCALL_CAP_TRANSFER, SYSCALL_DEBUG_PUTC, SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT,
-    SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MAP,
-    SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
-    SYSCALL_SPAWN_LAST_ERROR, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEVICE_CAP_CREATE,
+    SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
+    SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
+    SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
+    SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -490,10 +545,12 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_MAP, sys_map);
     table.register(SYSCALL_MMIO_MAP, sys_mmio_map);
     table.register(SYSCALL_CAP_QUERY, sys_cap_query);
+    table.register(SYSCALL_DEVICE_CAP_CREATE, sys_device_cap_create);
     table.register(SYSCALL_VMO_CREATE, sys_vmo_create);
     table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
+    table.register(SYSCALL_CAP_TRANSFER_TO, sys_cap_transfer_to);
     table.register(SYSCALL_AS_CREATE, sys_as_create);
     table.register(SYSCALL_AS_MAP, sys_as_map);
     table.register(SYSCALL_EXIT, sys_exit);
@@ -1323,6 +1380,10 @@ fn sys_mmio_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     if typed.offset >= len {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
+    // Enforce page-granularity offsets (per normative v1 contract).
+    if (typed.offset & (PAGE_SIZE - 1)) != 0 {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
 
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
@@ -1337,6 +1398,32 @@ fn sys_mmio_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
     ctx.address_spaces.map_page(handle, typed.va.raw(), pa, flags)?;
     Ok(0)
+}
+
+fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let typed = DeviceCapCreateArgsTyped::decode(args)?;
+    typed.check()?;
+
+    // Privileged gate: require EndpointFactory with MANAGE (init-lite only).
+    let factory_cap =
+        ctx.tasks.current_caps_mut().get(1).map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    if factory_cap.kind != CapabilityKind::EndpointFactory
+        || !factory_cap.rights.contains(Rights::MANAGE)
+    {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+
+    let cap = Capability {
+        kind: CapabilityKind::DeviceMmio { base: typed.base, len: typed.len },
+        rights: Rights::MAP,
+    };
+    let slot = if typed.slot_raw == usize::MAX {
+        ctx.tasks.current_caps_mut().allocate(cap)?
+    } else {
+        ctx.tasks.current_caps_mut().set(typed.slot_raw, cap)?;
+        typed.slot_raw
+    };
+    Ok(slot)
 }
 
 fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
@@ -1994,29 +2081,10 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
     let (meta_pa, _meta_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
     let mut service_id: u64 = 0;
-    let mut is_selftest_client = false;
-    let mut is_netstackd = false;
-    let mut is_rngd = false;
     if typed.name_len != 0 {
         // SAFETY: checked in ExecV2ArgsTyped::check.
         let name_bytes =
             unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
-        // Defensive: tolerate an optional trailing NUL in the provided name buffer.
-        // This keeps bring-up robust across build modes while still matching only exact names.
-        let trimmed =
-            name_bytes.iter().position(|b| *b == 0).map(|n| &name_bytes[..n]).unwrap_or(name_bytes);
-        // Normalize the service label used for bring-up gates:
-        // - If init-lite passes a path, use the last path component.
-        // - If init-lite passes a versioned label (e.g. "netstackd@0.1.0"), strip the suffix.
-        let base = trimmed
-            .iter()
-            .rposition(|b| *b == b'/' || *b == b'\\')
-            .map(|i| &trimmed[i + 1..])
-            .unwrap_or(trimmed);
-        let base = base.iter().position(|b| *b == b'@').map(|i| &base[..i]).unwrap_or(base);
-        is_selftest_client = base == b"selftest-client";
-        is_netstackd = base == b"netstackd";
-        is_rngd = base == b"rngd";
         // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
         // This is deterministic, does not allocate, and can be recomputed by userland for display.
         service_id = 0xcbf29ce484222325u64;
@@ -2104,42 +2172,6 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Bind identity to the spawned task (kernel-derived): used for IPC sender attribution.
     if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
         t.set_service_id(service_id);
-        if is_selftest_client || is_netstackd || is_rngd {
-            // TASK-0010 bring-up: grant selftest-client a fixed, bounded virtio-mmio window so it
-            // can prove userspace MMIO mapping works on QEMU `virt`.
-            //
-            // NOTE: this is intentionally minimal and wired for bring-up. A follow-up will route
-            // device capabilities via a policy/service boundary rather than a name check.
-            const SELFTEST_MMIO_SLOT: usize = 48;
-            const VIRTIO_MMIO0_BASE: usize = 0x1000_1000;
-            // Expose a bounded window large enough to cover the built-in virtio-mmio slots on
-            // QEMU `virt` (8 * 4KiB).
-            const VIRTIO_MMIO_LEN: usize = 0x8000;
-            t.caps_mut().set(
-                SELFTEST_MMIO_SLOT,
-                Capability {
-                    kind: CapabilityKind::DeviceMmio {
-                        base: VIRTIO_MMIO0_BASE,
-                        len: VIRTIO_MMIO_LEN,
-                    },
-                    rights: Rights::MAP,
-                },
-            )?;
-            #[cfg(feature = "ipc_trace_ring")]
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let _ = writeln!(
-                    u,
-                    "EXEC-MMIO grant pid=0x{:x} name_len=0x{:x} slot=0x{:x} base=0x{:x} len=0x{:x}",
-                    pid as usize,
-                    typed.name_len,
-                    SELFTEST_MMIO_SLOT,
-                    VIRTIO_MMIO0_BASE,
-                    VIRTIO_MMIO_LEN
-                );
-            }
-        }
         // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
         let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         t.set_user_guard_info(task::UserGuardInfo {
@@ -2266,6 +2298,49 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     let slot = ctx.tasks.transfer_cap(parent, typed.child, typed.parent_slot.0, rights)?;
     Ok(slot)
+}
+
+fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let typed = CapTransferToArgsTyped::decode(args)?;
+    let rights = typed.check()?;
+    let parent = ctx.tasks.current_pid();
+    // RFC-0005 Phase 2 (hardening): `Rights::MANAGE` is not transferable for endpoints.
+    //
+    // Exception: allow transferring MANAGE for the EndpointFactory capability, so init-lite can
+    // hold endpoint-create authority without relying on PID/parentage checks.
+    if rights.contains(Rights::MANAGE) {
+        let parent_caps =
+            ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
+        let base = parent_caps
+            .get(typed.parent_slot.0)
+            .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
+        if base.kind != CapabilityKind::EndpointFactory {
+            return Err(Error::Transfer(task::TransferError::Capability(
+                CapError::PermissionDenied,
+            )));
+        }
+    }
+
+    // Phase-2 hardening (factory distribution): EndpointFactory is not a general transferable cap.
+    // Until policyd-gated distribution exists, only bootstrap (PID 0) may transfer it into init-lite (PID 1).
+    // This keeps endpoint-mint authority centralized in init-lite during bring-up.
+    if let Ok(parent_caps) =
+        ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))
+    {
+        // (This block is structured as "check then act" to keep denial deterministic.)
+        if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
+            if base.kind == CapabilityKind::EndpointFactory {
+                if !(parent == 0 && typed.child == 1) {
+                    return Err(Error::Transfer(task::TransferError::Capability(
+                        CapError::PermissionDenied,
+                    )));
+                }
+            }
+        }
+    }
+    ctx.tasks
+        .transfer_cap_to_slot(parent, typed.child, typed.parent_slot.0, rights, typed.child_slot.0)?;
+    Ok(typed.child_slot.0)
 }
 
 const PROT_READ: u32 = 1 << 0;
@@ -3639,5 +3714,373 @@ mod tests {
             .dispatch(SYSCALL_IPC_ENDPOINT_CREATE, &mut ctx, &Args::new([8, 0, 0, 0, 0, 0]))
             .unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    // ==========================================================================
+    // MMIO capability negative tests (security floor for device access model)
+    // ==========================================================================
+
+    /// Test that mapping without a capability in the slot is rejected.
+    /// Security invariant: MMIO access must be capability-gated.
+    #[test]
+    fn test_reject_mmio_no_cap() {
+        use super::SYSCALL_MMIO_MAP;
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Slot 48 is empty (no capability).
+        // The task has an address space but no MMIO capability.
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Attempt to map via empty slot 48.
+        let args = Args::new([
+            48,           // slot (empty)
+            0x2000_0000,  // va (page-aligned)
+            0,            // offset
+            0,
+            0,
+            0,
+        ]);
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::InvalidSlot));
+    }
+
+    /// Test that mapping with the wrong capability kind (Endpoint instead of DeviceMmio) is rejected.
+    /// Security invariant: Only DeviceMmio capabilities can be used for MMIO mapping.
+    #[test]
+    fn test_reject_mmio_wrong_cap_kind() {
+        use super::SYSCALL_MMIO_MAP;
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Set up an Endpoint capability in slot 48 (wrong kind for MMIO).
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                48,
+                Capability {
+                    kind: CapabilityKind::Endpoint(0),
+                    rights: Rights::MAP | Rights::SEND | Rights::RECV,
+                },
+            )
+            .unwrap();
+        }
+
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Attempt to map via slot 48 (Endpoint, not DeviceMmio).
+        let args = Args::new([
+            48,           // slot (has Endpoint, not DeviceMmio)
+            0x2000_0000,  // va (page-aligned)
+            0,            // offset
+            0,
+            0,
+            0,
+        ]);
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    /// Test that mapping beyond the device window bounds is rejected.
+    /// Security invariant: MMIO mappings must be bounded to the device window.
+    #[test]
+    fn test_reject_mmio_outside_window() {
+        use super::SYSCALL_MMIO_MAP;
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Set up a DeviceMmio capability with a small window (2 pages = 0x2000 bytes).
+        const MMIO_BASE: usize = 0x1000_0000;
+        const MMIO_LEN: usize = 0x2000; // 2 pages
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                48,
+                Capability {
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                    rights: Rights::MAP,
+                },
+            )
+            .unwrap();
+        }
+
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Attempt to map at offset 0x2000 (equals len, therefore out of bounds).
+        let args = Args::new([
+            48,           // slot (DeviceMmio)
+            0x2000_0000,  // va (page-aligned)
+            MMIO_LEN,     // offset = len (out of bounds)
+            0,
+            0,
+            0,
+        ]);
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+
+        // Also test offset way beyond the window.
+        let args_far = Args::new([
+            48,           // slot
+            0x2000_0000,  // va
+            0x1_0000,     // offset = 64KiB (way beyond 8KiB window)
+            0,
+            0,
+            0,
+        ]);
+        let err_far = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args_far).unwrap_err();
+        assert_eq!(err_far, Error::Capability(CapError::PermissionDenied));
+    }
+
+    /// Test that mapping without MAP rights is rejected.
+    /// Security invariant: MMIO mapping requires Rights::MAP.
+    #[test]
+    fn test_reject_mmio_insufficient_rights() {
+        use super::SYSCALL_MMIO_MAP;
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        // Set up a DeviceMmio capability WITHOUT Rights::MAP (only SEND, which is meaningless).
+        const MMIO_BASE: usize = 0x1000_0000;
+        const MMIO_LEN: usize = 0x2000;
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                48,
+                Capability {
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                    rights: Rights::SEND, // Wrong rights for MMIO
+                },
+            )
+            .unwrap();
+        }
+
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        // Attempt to map with insufficient rights.
+        let args = Args::new([
+            48,           // slot
+            0x2000_0000,  // va
+            0,            // offset (valid)
+            0,
+            0,
+            0,
+        ]);
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    /// Test that executable MMIO mappings are rejected (no EXEC in leaf flags).
+    /// Security invariant: device MMIO is USER|RW only (never executable).
+    #[test]
+    fn test_reject_mmio_exec() {
+        use super::SYSCALL_MMIO_MAP;
+        use crate::mm::page_table::PageFlags;
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        const MMIO_BASE: usize = 0x1000_0000;
+        const MMIO_LEN: usize = 0x1000;
+        const MMIO_VA: usize = 0x2000_0000;
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                48,
+                Capability {
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                    rights: Rights::MAP,
+                },
+            )
+            .unwrap();
+        }
+
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let args = Args::new([48, MMIO_VA, 0, 0, 0, 0]);
+        table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap();
+
+        let handle = ctx.tasks.current_task().address_space().unwrap();
+        let flags = ctx.address_spaces.get(handle).unwrap().page_table().leaf_flags(MMIO_VA).unwrap();
+        assert!(flags.contains(PageFlags::USER));
+        assert!(flags.contains(PageFlags::READ));
+        assert!(flags.contains(PageFlags::WRITE));
+        assert!(!flags.contains(PageFlags::EXECUTE));
+    }
+
+    /// Test that non-page-aligned virtual addresses are rejected.
+    #[test]
+    fn test_reject_mmio_unaligned_va() {
+        use super::SYSCALL_MMIO_MAP;
+        use crate::mm::address_space::AddressSpaceError;
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        const MMIO_BASE: usize = 0x1000_0000;
+        const MMIO_LEN: usize = 0x1000;
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                48,
+                Capability {
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                    rights: Rights::MAP,
+                },
+            )
+            .unwrap();
+        }
+
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let args = Args::new([48, 0x2000_0001, 0, 0, 0, 0]); // va not page-aligned
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
+    }
+
+    /// Test that non-page-aligned offsets are rejected.
+    #[test]
+    fn test_reject_mmio_unaligned_offset() {
+        use super::SYSCALL_MMIO_MAP;
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        const MMIO_BASE: usize = 0x1000_0000;
+        const MMIO_LEN: usize = 0x2000;
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                48,
+                Capability {
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                    rights: Rights::MAP,
+                },
+            )
+            .unwrap();
+        }
+
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let args = Args::new([48, 0x2000_0000, 1, 0, 0, 0]); // offset not page-aligned
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    /// Test that remapping the same VA deterministically fails (no silent overwrite).
+    #[test]
+    fn test_reject_mmio_overlap_same_va() {
+        use super::SYSCALL_MMIO_MAP;
+        use crate::mm::{address_space::AddressSpaceError, page_table::MapError};
+
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+
+        const MMIO_BASE: usize = 0x1000_0000;
+        const MMIO_LEN: usize = 0x2000;
+        const MMIO_VA: usize = 0x2000_0000;
+        {
+            let caps = tasks.bootstrap_mut().caps_mut();
+            caps.set(
+                48,
+                Capability {
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                    rights: Rights::MAP,
+                },
+            )
+            .unwrap();
+        }
+
+        let kernel_as = as_manager.create().unwrap();
+        as_manager.attach(kernel_as, 0).unwrap();
+        tasks.bootstrap_mut().address_space = Some(kernel_as);
+
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        let mut table = SyscallTable::new();
+        install_handlers(&mut table);
+
+        let args = Args::new([48, MMIO_VA, 0, 0, 0, 0]);
+        table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap();
+
+        // Second map to the same VA must fail (overlap).
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::AddressSpace(AddressSpaceError::Mapping(MapError::Overlap)));
     }
 }

@@ -768,6 +768,24 @@ impl TaskTable {
         child_task.caps_mut().allocate(derived).map_err(TransferError::from)
     }
 
+    /// Duplicates a capability from `parent` into `child` at an explicit slot.
+    pub fn transfer_cap_to_slot(
+        &mut self,
+        parent: Pid,
+        child: Pid,
+        parent_slot: usize,
+        rights: Rights,
+        child_slot: usize,
+    ) -> Result<(), TransferError> {
+        let parent_task = self.tasks.get(parent as usize).ok_or(TransferError::InvalidParent)?;
+        let derived = parent_task.caps.derive(parent_slot, rights)?;
+        let child_task = self.tasks.get_mut(child as usize).ok_or(TransferError::InvalidChild)?;
+        child_task
+            .caps_mut()
+            .set_if_empty(child_slot, derived)
+            .map_err(TransferError::from)
+    }
+
     /// Marks the current task as exited and transitions it to the zombie state.
     pub fn exit_current(&mut self, status: i32) {
         let pid = self.current_pid() as usize;

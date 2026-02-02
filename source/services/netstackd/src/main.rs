@@ -110,35 +110,45 @@ fn os_entry() -> core::result::Result<(), ()> {
     let _ = nexus_abi::debug_println("netstackd: ready");
 
     // Bring up networking owner stack.
-    let mut net = match SmoltcpVirtioNetStack::new_default() {
-        Ok(n) => n,
-        Err(err) => {
-            // Triage: netstackd expects the virtio-mmio device capability in slot 48.
-            // If bring-up fails, emit a single diagnostic record (no secrets).
-            #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-            {
-                let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-                if nexus_abi::cap_query(48, &mut q).is_ok() {
-                    let _ = nexus_abi::debug_println("netstackd: mmio cap48 present");
-                } else {
-                    let _ = nexus_abi::debug_println("netstackd: mmio cap48 missing");
+    let mut net = {
+        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(1_000_000_000);
+        loop {
+            match SmoltcpVirtioNetStack::new_default() {
+                Ok(n) => break n,
+                Err(err) => {
+                    let now = nexus_abi::nsec().unwrap_or(0);
+                    if now < deadline {
+                        let _ = yield_();
+                        continue;
+                    }
+                    // Triage: netstackd expects the virtio-mmio device capability in slot 48.
+                    // If bring-up fails, emit a single diagnostic record (no secrets).
+                    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+                    {
+                        let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+                        if nexus_abi::cap_query(48, &mut q).is_ok() {
+                            let _ = nexus_abi::debug_println("netstackd: mmio cap48 present");
+                        } else {
+                            let _ = nexus_abi::debug_println("netstackd: mmio cap48 missing");
+                        }
+                    }
+                    // Emit a stable error label (no dynamic formatting; keep UART deterministic).
+                    let _ = nexus_abi::debug_println(match err {
+                        nexus_net::NetError::Unsupported => "netstackd: net FAIL unsupported",
+                        nexus_net::NetError::NoBufs => "netstackd: net FAIL no-bufs",
+                        nexus_net::NetError::Internal(msg) => match msg {
+                            "mmio cap not found" => "netstackd: net FAIL mmio-cap-missing",
+                            "mmio_map failed" => "netstackd: net FAIL mmio-map",
+                            "virtio probe failed" => "netstackd: net FAIL virtio-probe",
+                            "virtio features" => "netstackd: net FAIL virtio-features",
+                            _ => "netstackd: net FAIL internal",
+                        },
+                        _ => "netstackd: net FAIL other",
+                    });
+                    loop {
+                        let _ = yield_();
+                    }
                 }
-            }
-            // Emit a stable error label (no dynamic formatting; keep UART deterministic).
-            let _ = nexus_abi::debug_println(match err {
-                nexus_net::NetError::Unsupported => "netstackd: net FAIL unsupported",
-                nexus_net::NetError::NoBufs => "netstackd: net FAIL no-bufs",
-                nexus_net::NetError::Internal(msg) => match msg {
-                    "mmio cap not found" => "netstackd: net FAIL mmio-cap-missing",
-                    "mmio_map failed" => "netstackd: net FAIL mmio-map",
-                    "virtio probe failed" => "netstackd: net FAIL virtio-probe",
-                    "virtio features" => "netstackd: net FAIL virtio-features",
-                    _ => "netstackd: net FAIL internal",
-                },
-                _ => "netstackd: net FAIL other",
-            });
-            loop {
-                let _ = yield_();
             }
         }
     };

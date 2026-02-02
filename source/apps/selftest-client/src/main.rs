@@ -5,7 +5,18 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: No tests
+//! TEST_COVERAGE: QEMU marker ladder (just test-os)
+//!   - IPC routing (samgrd, bundlemgrd, keystored, policyd, execd, updated, vfsd, packagefsd)
+//!   - Policy enforcement (allow/deny/malformed + audit records + requester spoof denial)
+//!   - Device MMIO (mapping + capability query + policy deny-by-default for non-matching caps)
+//!   - VFS (stat/read/ebadf)
+//!   - OTA (stage/switch/health/rollback)
+//!   - Network (virtio-net, DHCP, ICMP ping, UDP DNS, TCP listen)
+//!   - DSoftBus (OS session, discovery, dual-node)
+//!   - Exec (ELF load, exit0, exit42/crash report, exec denied)
+//!   - Keystored (device key pubkey, private export denied, sign denied)
+//!   - RNG (entropy fetch, oversized request)
+//!   - Logd (query, audit records, core services log)
 //!
 //! PUBLIC API:
 //!   - main(): Application entry point
@@ -1877,6 +1888,17 @@ mod os_lite {
         } else {
             emit_line("SELFTEST: policy deny FAIL");
         }
+
+        // Device-MMIO policy negative proof: a stable service must NOT be granted a non-matching MMIO capability.
+        // netstackd is allowed `device.mmio.net` but must be denied `device.mmio.blk`.
+        let mmio_deny_ok =
+            policyd_check_cap(&policyd, "netstackd", "device.mmio.blk").unwrap_or(false) == false;
+        if mmio_deny_ok {
+            emit_line("SELFTEST: mmio policy deny ok");
+        } else {
+            emit_line("SELFTEST: mmio policy deny FAIL");
+        }
+
         let logd = route_with_retry("logd")?;
         emit_bytes(b"SELFTEST: logd slots ");
         let (logd_send, logd_recv) = logd.slots();
@@ -2688,13 +2710,11 @@ mod os_lite {
     }
 
     fn mmio_map_probe() -> core::result::Result<(), ()> {
-        // Capability is injected by the kernel exec_v2 path for bring-up (TASK-0010).
+        // Capability is distributed by init (policy-gated) for the virtio-net window.
         const MMIO_CAP_SLOT: u32 = 48;
         // Choose a VA in the same region already used by the exec_v2 stack/meta/info mappings to
         // avoid allocating additional page-table levels (keeps kernel heap usage bounded).
         const MMIO_VA: usize = 0x2000_e000;
-        const SLOT_STRIDE: usize = 0x1000;
-        const MAX_SLOTS: usize = 8;
 
         fn emit_mmio_err(stage: &str, err: nexus_abi::AbiError) {
             emit_bytes(b"SELFTEST: mmio ");
@@ -2732,48 +2752,17 @@ mod os_lite {
             return Err(());
         }
 
-        // Step 2 (TASK-0003 Track B seed): attempt to locate a virtio-net slot (device_id == 1)
-        // within the built-in QEMU `virt` virtio-mmio window. This must remain bounded and
-        // must not probe outside the known virtio-mmio slot range.
-        let mut found_net_slot: Option<usize> = None;
-        for slot in 0..MAX_SLOTS {
-            let off = slot * SLOT_STRIDE;
-            let va = MMIO_VA + off;
-            // Slot 0 is already mapped above; avoid overlapping map requests.
-            if slot != 0 {
-                match nexus_abi::mmio_map(MMIO_CAP_SLOT, va, off) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        emit_mmio_err("mapN", e);
-                        return Err(());
-                    }
-                }
-            }
-
-            // VirtIO MMIO registers (v2):
-            // 0x000 magic, 0x004 version, 0x008 device_id, 0x00c vendor_id.
-            let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
-            if magic != VIRTIO_MMIO_MAGIC {
-                continue;
-            }
-            let version = unsafe { core::ptr::read_volatile((va + 0x004) as *const u32) };
-            let device_id = unsafe { core::ptr::read_volatile((va + 0x008) as *const u32) };
-            let _vendor_id = unsafe { core::ptr::read_volatile((va + 0x00c) as *const u32) };
-
-            // QEMU may expose either legacy (version=1) or modern (version=2) virtio-mmio.
-            if (version == 1 || version == 2) && device_id == VIRTIO_DEVICE_ID_NET {
-                found_net_slot = Some(slot);
-                break;
-            }
-        }
-
-        if let Some(slot) = found_net_slot {
+        // Step 2 (TASK-0003 Track B seed): verify virtio-net device ID in the granted window.
+        // This stays within the bounded per-device window (no slot scanning).
+        let version = unsafe { core::ptr::read_volatile((MMIO_VA + 0x004) as *const u32) };
+        let device_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x008) as *const u32) };
+        let _vendor_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x00c) as *const u32) };
+        if (version == 1 || version == 2) && device_id == VIRTIO_DEVICE_ID_NET {
             // TASK-0010 proof scope: MMIO map + safe register reads only.
             //
             // Networking ownership is moving to `netstackd` (TASK-0003 Track B), so this client
             // must NOT bring up virtio queues or smoltcp when netstackd is present.
-            let dev_va = MMIO_VA + slot * SLOT_STRIDE;
-            let dev = VirtioNetMmio::new(MmioBus { base: dev_va });
+            let dev = VirtioNetMmio::new(MmioBus { base: MMIO_VA });
             let info = match dev.probe() {
                 Ok(info) => info,
                 Err(_) => {
@@ -3565,11 +3554,6 @@ mod os_lite {
         // NOTE: This is best-effort and bounded; the marker is emitted only on success.
         const MMIO_CAP_SLOT: u32 = 48;
         const MMIO_VA: usize = 0x2000_e000;
-        const SLOT_STRIDE: usize = 0x1000;
-        const MAX_SLOTS: usize = 8;
-
-        // Find virtio-net slot.
-        //
         // NOTE: `mmio_map_probe()` may have already mapped this window earlier in the selftest.
         // Treat InvalidArgument as "already mapped" rather than a hard failure.
         let mmio_map_ok = |va: usize, off: usize| -> core::result::Result<(), ()> {
@@ -3580,31 +3564,13 @@ mod os_lite {
             }
         };
         mmio_map_ok(MMIO_VA, 0)?;
-        let mut found: Option<usize> = None;
-        for slot in 0..MAX_SLOTS {
-            let off = slot * SLOT_STRIDE;
-            let va = MMIO_VA + off;
-            if slot != 0 {
-                if mmio_map_ok(va, off).is_err() {
-                    continue;
-                }
-            }
-            let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
-            if magic != VIRTIO_MMIO_MAGIC {
-                continue;
-            }
-            let device_id = unsafe { core::ptr::read_volatile((va + 0x008) as *const u32) };
-            if device_id == VIRTIO_DEVICE_ID_NET {
-                found = Some(slot);
-                break;
-            }
-        }
-        let Some(slot) = found else {
+        let magic = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
+        let device_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x008) as *const u32) };
+        if magic != VIRTIO_MMIO_MAGIC || device_id != VIRTIO_DEVICE_ID_NET {
             emit_line("SELFTEST: smoltcp no virtio-net");
             return Err(());
-        };
-        let dev_va = MMIO_VA + slot * SLOT_STRIDE;
-        let dev = VirtioNetMmio::new(MmioBus { base: dev_va });
+        }
+        let dev = VirtioNetMmio::new(MmioBus { base: MMIO_VA });
         if dev.probe().is_err() {
             emit_line("SELFTEST: smoltcp probe FAIL");
             return Err(());
