@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (share to Notes, open in Browser): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusNet SDK (HTTP/providers): tasks/TRACK-NEXUSNET-SDK.md
   - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Notes (share target): tasks/TRACK-NOTES-APP.md
@@ -35,6 +36,12 @@ Deliver a first-party **Feeds** app that proves:
 - share:
   - “Share to Notes” (rich content excerpt)
   - “Open in Browser”
+
+## System Delegation integration
+
+Feeds should express outward actions as delegation:
+- “Open in Browser” should be an intent/default-handler flow (not app-specific URL plumbing),
+- “Share to Notes” and “Send via Chat” should go through Intents/Chooser so targets evolve independently.
 
 ## Security invariants (feeds are hostile input)
 

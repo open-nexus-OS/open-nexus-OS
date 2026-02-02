@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (share/open-with, send via chat): tasks/TRACK-SYSTEM-DELEGATION.md
   - Media Apps umbrella (shared UX + sessions): tasks/TRACK-MEDIA-APPS.md
   - NexusMedia SDK (decode/playback): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusNet SDK (HTTP/providers): tasks/TRACK-NEXUSNET-SDK.md
@@ -51,6 +52,12 @@ Deliver a first-party **Podcasts** app that is daily-usable and proves:
 - RSS/Atom parsing is treated as hostile input (strict budgets).
 - Audio is played through NexusMedia and exposed via media sessions for system controls.
 - Downloads use `contentd.saveAs`-style helpers; no direct filesystem bypass.
+
+## System Delegation integration
+
+Podcasts should reuse system delegation for:
+- share episode link/metadata to Notes/Chat (Intents/Chooser),
+- open downloaded files via Open With defaults (mimed + picker), not custom handler logic.
 
 ## Provider model (future-friendly)
 

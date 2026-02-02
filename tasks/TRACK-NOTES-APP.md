@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (share targets + defaults): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Zero-Copy App Platform (RichContent + autosave patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Richtext widget + Notes v1 task: tasks/TASK-0098-ui-v15e-richtext-widget-app.md
@@ -38,6 +39,12 @@ Notes is an app. It consumes:
 - `logd` for audit/log sink (no secrets).
 
 Notes must not implement its own parallel content broker or policy engine.
+
+## System Delegation integration
+
+Notes should be a first-class **system surface** for capture:
+- register as a Share v2 target (text/html/image within budgets),
+- support “quick capture” entry points that other apps can delegate to (without embedding note editors).
 
 ## Phase map
 

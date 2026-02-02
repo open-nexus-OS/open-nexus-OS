@@ -6,6 +6,8 @@ created: 2025-12-25
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
+  - System Delegation / System Surfaces (track): tasks/TRACK-SYSTEM-DELEGATION.md
   - Policy authority + unification: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Security hardening baseline (nexus-sel + audit): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
   - Permissions broker (runtime consent): tasks/TASK-0103-ui-v17a-permissions-privacyd.md
@@ -31,6 +33,11 @@ portable enforcement model:
 - service-side adapters call `policyd.require(...)` and emit auditable denies,
 - deterministic host tests and OS markers (gated).
 
+System Delegation note:
+- v1 starts with `intents.send` / `intents.receive` enforcement for `intentsd`.
+- Follow-up “system surfaces” (chat/contacts/maps compose) may introduce finer-grained caps later, but must still route
+  all allow/deny decisions through `policyd` (see `tasks/TRACK-SYSTEM-DELEGATION.md`).
+
 Scope note:
 
 - Policy v1.1 (scoped grants + expiry + enumerate/revoke) is tracked as `TASK-0167` (host-first semantics)
@@ -50,6 +57,14 @@ Deliver:
    - `intents.send`, `intents.receive`
    - `webview.net` **hard-denied in v1** (even if granted)
    - `storage.manage` (system/admin only)
+
+Future note (out of scope for v1, but important for System Delegation):
+- A unified “default chat surface” (NexusChat) may later support multiple transports (Matrix + SMS/MMS + others).
+  When SMS/MMS exists, prefer stable capability names like:
+  - `sms.send` / `sms.receive`
+  - `mms.send` / `mms.receive`
+  and keep enforcement centralized (telephony/sms authority service + `policyd`), with clear user-mediated sending UX
+  and auditable receiving/ingress.
 2. Per-app grants:
    - persist effective grants under `/state` once available (gated on `TASK-0009`)
    - deterministic grant merge semantics (installer baseline + settings toggles)

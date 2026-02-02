@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (messaging reply routing): tasks/TRACK-SYSTEM-DELEGATION.md
   - UI v6b notifications baseline: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - UI v3b IME/text-input baseline (inline reply widget): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - Policy as Code (notif quotas): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -22,6 +23,10 @@ UI v6 introduced minimal notifications/toasts. UI v8a upgrades notifications int
 - actionable notifications (buttons),
 - inline reply for messaging-style notifications,
 - SystemUI rendering for actions and reply field.
+
+System Delegation note:
+- Inline reply should remain a system surface; for messaging apps this can later dispatch to action-based intents
+  (e.g. `chat.compose`/`chat.reply`) instead of each app inventing separate reply routing semantics.
 
 WM resize/move and shortcuts/settings overlays are in v8b (`TASK-0070`).
 

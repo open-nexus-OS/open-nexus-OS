@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (pick-location + navigation intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
@@ -50,6 +51,12 @@ Maps consumes canonical authorities:
 - `windowd`: UI/present
 
 Maps must not implement location policy or device access itself.
+
+## System Delegation integration (system surfaces)
+
+Maps should expose system delegation surfaces so other apps don’t re-implement mapping UX:
+- `maps.pick_location`: one-shot pick (returns a single location object; no live tracking).
+- `maps.navigate_to`: open navigation UI with a destination (user-mediated; policy-gated).
 
 ## Capability gates (directional, stable strings)
 

@@ -6,6 +6,7 @@ created: 2025-12-29
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Typed settings substrate (host-first): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
   - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
   - SystemUI→DSL OS wiring baseline: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md

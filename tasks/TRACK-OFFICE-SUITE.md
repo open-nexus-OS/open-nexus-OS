@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (Open With, share/export, collaboration entry points): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (foundation): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Service architecture (hybrid control/data plane): docs/adr/0017-service-architecture.md
   - Richtext widget/app baseline: tasks/TASK-0098-ui-v15e-richtext-widget-app.md
@@ -54,6 +55,12 @@ The suite shares a common foundation (library and/or service boundaries):
 - **Clipboard**: RichContent canonical payload with plain/markdown fallbacks.
 
 Note: This track does not mandate a single “monolithic app”; it mandates shared contracts and primitives.
+
+## System Delegation integration (avoid duplicated document UX)
+
+Office apps should lean on system delegation instead of re-implementing platform flows:
+- “Open With…” and document selection should use the system picker/associations direction (`TASK-0083`, `TASK-0081`).
+- Share/export (PDF/HTML/links) should be expressed as intents (Share v2) so targets (Files/Notes/Chat) can evolve independently.
 
 ## App 1: Word (RichText)
 

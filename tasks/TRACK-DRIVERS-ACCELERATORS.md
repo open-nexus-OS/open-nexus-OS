@@ -110,6 +110,12 @@ These are *not* tasks yet; they become real `TASK-XXXX` items only when they can
   - **Proof idea**: host tests for frame graph determinism; QEMU markers for “frame produced” using fixtures  
   - **Status**: candidate
 
+- **CAND-DRV-040: NPU device-class service (inference submit + model cache + power profiles)**  
+  - **What**: NPU inference contract (model VMO, tensor I/O buffers, fence completion, power/thermal hints)  
+  - **Depends on**: `TASK-0010`, `TASK-0031`, `CAND-DRV-000`  
+  - **Proof idea**: host tests (model validation, tensor shape checks), QEMU markers for "inference submitted/completed" (deterministic fixture)  
+  - **Status**: candidate (low priority, future hardware)
+
 - **CAND-DRV-090: Track integration list (consumers)**  
   - **What**: keep a short list of major consumers that must remain compatible with DriverKit contracts  
   - **Examples**: renderer/windowd, media, privacy indicators, DSoftBus share streams  

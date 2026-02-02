@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (share/edit/cast as intents, not per-app stacks): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (foundation): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - NexusMedia SDK (decoders/playback): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusNet SDK (cloud + streaming APIs): tasks/TRACK-NEXUSNET-SDK.md
@@ -67,6 +68,13 @@ The suite shares a common foundation (library and/or service boundaries):
 - **Sync engine**: optional iCloud-style sync for libraries/playlists/watch history (via NexusNet cloud.sync).
 
 Note: This track does not mandate a single "monolithic app"; it mandates shared contracts and primitives.
+
+## System Delegation integration (avoid per-app media glue)
+
+Media apps should prefer intent-based delegation for user-mediated flows:
+- share/export media via Share v2 (targets: Files/Notes/Chat),
+- “Edit in …” should route via chooser/defaults (e.g. “Edit in NexusFrame”, “Edit in Video Editor”),
+- casting pickers and “play on device” should be expressed as stable system surfaces (not custom UI per app).
 
 ## App architecture: double strategy (6 apps total)
 

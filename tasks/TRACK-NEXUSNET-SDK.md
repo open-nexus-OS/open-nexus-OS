@@ -6,6 +6,7 @@ created: 2026-01-18
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (avoid app-embedded networking/social glue): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (apps consume NexusNet via svc.*): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Mail app (IMAP/SMTP client; consumer): tasks/TRACK-MAIL-APP.md
   - Weather app (HTTP provider + location-gated): tasks/TRACK-WEATHER-APP.md
@@ -33,6 +34,10 @@ Deliver a first-party **NexusNet SDK** that enables:
 - optional **cloud scale** (sync/replication, GraphQL gateways, remote services),
 - and safe, ergonomic access to **DSoftBus distributed features**
   without requiring every app developer to become a networking/security expert.
+
+System Delegation note:
+- Where a flow is primarily **user-mediated** (share-to-peer, “send via chat”, “invite player”), prefer expressing it as an
+  intent routed via System Delegation instead of pushing DSoftBus/HTTP plumbing into each app UI layer.
 
 All while preserving Open Nexus OS invariants:
 

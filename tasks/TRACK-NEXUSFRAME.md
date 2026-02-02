@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (“Edit in Frame”, export/share): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Creative apps foundation (gates mindset): tasks/TRACK-CREATIVE-APPS.md
   - Zero-Copy App Platform (autosave/recovery patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
@@ -59,6 +60,12 @@ Frame must remain capability-gated:
 - file/content access via `content://` + scoped grants (no paths)
 - optional network features (if ever added) must be policy-gated and bounded
 - any “import from Photos/Gallery” uses picker/intents + grants
+
+## System Delegation integration
+
+Frame should register as a system editing surface so other apps don’t ship their own editors:
+- “Edit in NexusFrame” should be a chooser/default-driven flow (intents + grants),
+- exports should be shared via Share v2 targets (Files/Notes/Chat) with bounded payloads.
 
 ## Keystone gates / blockers
 

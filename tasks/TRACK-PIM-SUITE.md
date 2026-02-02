@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (pickers/targets): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusAccount (identity + online grants): tasks/TRACK-NEXUSACCOUNT.md
   - NexusNet SDK (sync/providers): tasks/TRACK-NEXUSNET-SDK.md
   - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
@@ -37,6 +38,12 @@ This suite is intentionally local-first, but becomes “account-aware” via Nex
 - **Share integration**:
   - “Add to Calendar” intent target
   - “Save contact” intent target
+
+### System Delegation integration (reduce per-app reimplementation)
+
+PIM is also a **system surface provider**:
+- Other apps should use `contacts.pick` (one selection, no enumeration) instead of implementing their own contact pickers.
+- Calendar should provide a safe “add event” flow (intent target) so apps can delegate event creation to the system UI.
 
 ## Account + sync stance
 

@@ -6,7 +6,11 @@ created: 2025-12-25
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
+  - System Delegation / System Surfaces (track): tasks/TRACK-SYSTEM-DELEGATION.md
   - Share v2a intentsd/policy: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - Follow-up (action-based system delegation): tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
+  - Chat transfer (default chat eligibility): tasks/TASK-0126C-chat-transfer-v1a-host-export-import-eligibility.md
   - Grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - contentd saveAs: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
   - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
@@ -22,6 +26,13 @@ With `intentsd` (Share v2a) we can build a real share experience:
 - result callbacks to show toasts/success,
 - first-party share targets for common workflows,
 - strict enforcement of `content://` + grant tokens across subjects.
+
+This task also establishes a reusable “chooser + defaults” pattern that System Delegation can reuse for
+action-based intents (see follow-up `TASK-0126B`).
+
+Default eligibility note (directional):
+- For certain “powerful defaults” (e.g. default chat surface), the “Always use” / “Set default” UX must enforce
+  eligibility rules (e.g. chat apps must support export/import transfer; see `TASK-0126C`).
 
 ## Goal
 

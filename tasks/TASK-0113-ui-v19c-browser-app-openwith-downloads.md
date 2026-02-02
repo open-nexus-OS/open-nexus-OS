@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
+  - System Delegation / System Surfaces (default handlers/Open With): tasks/TRACK-SYSTEM-DELEGATION.md
   - WebView daemon: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
   - Content saveAs helper: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
   - MIME registry/Open With: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md

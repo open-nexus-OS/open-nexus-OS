@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (Open With + export/share): tasks/TRACK-SYSTEM-DELEGATION.md
   - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - MIME/content foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Print pipeline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
@@ -86,4 +87,3 @@ UART markers:
 1. markdown parser subset + render tree + markers
 2. export to PDF via printd + markers
 3. nx md export + host tests + Open With wiring + docs
-

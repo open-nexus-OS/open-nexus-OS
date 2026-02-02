@@ -6,12 +6,15 @@ created: 2025-12-25
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
+  - System Delegation / System Surfaces (track): tasks/TRACK-SYSTEM-DELEGATION.md
   - Share sheet v1 (screenshot broker baseline): tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
   - Grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - MIME defaults (chooser “always use”): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Clipboard v3 target (optional): tasks/TASK-0087-ui-v13a-clipboard-v3.md
   - contentd saveAs (Save target dependency): tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - Follow-up (action-based system delegation): tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
 ---
 
 ## Context
@@ -61,6 +64,10 @@ Deliver:
 - Built-in targets/providers (follow-up).
 - App sender wiring and OS selftests/postflight (follow-up).
 - Ability lifecycle state machine (handled by `appmgrd` + `TASK-0234`/`TASK-0235`; `intentsd` only routes intents, not manages ability states).
+
+Note:
+- “System Surfaces” / action-based delegation (chat compose, contacts pickers, etc.) is explicitly tracked in `TASK-0126B`
+  to keep Share v2 scoped and shippable.
 
 ## Constraints / invariants (hard requirements)
 

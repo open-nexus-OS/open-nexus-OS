@@ -6,6 +6,7 @@ created: 2026-01-18
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (game invites/joins via intents, not ad-hoc UI): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusGfx SDK track (render/compute): tasks/TRACK-NEXUSGFX-SDK.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
@@ -51,6 +52,12 @@ The game SDK is primarily a composition of shared primitives:
 - **Input**: stable event model (bounded queues, deterministic ordering) with OS owners/services.
 - **Timing**: frame clock + deadlines; no reliance on wall-clock jitter for correctness.
 - **Assets**: content-addressed or hash-checked bundles, with bounded decode and deterministic loaders.
+
+## System Delegation integration (multiplayer/social without per-game stacks)
+
+Games should use intent-based delegation for “social glue”:
+- `game.invite` / `game.join` style actions (future expansion of the intents action catalog) so games don’t build their own invite UIs.
+- Chat integration should delegate to the system chat surface (NexusChat) instead of embedding per-game chat.
 
 ## Reference inspirations (design, not compatibility)
 

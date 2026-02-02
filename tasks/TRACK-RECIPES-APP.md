@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (import/export via intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Content/URIs + picker + grants: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - Share v2 intents + chooser: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
@@ -45,6 +46,12 @@ Recipes is an app. It consumes:
 - `contentd`/`mimed`/`grantsd` for import/export (no raw filesystem paths),
 - `policyd` for any sensitive operations (e.g., future cloud sync),
 - `logd` for audit/log sink (no secrets; no personal data leaks).
+
+## System Delegation integration
+
+Recipes is a natural “import target” surface:
+- other apps should dispatch to Recipes via Intents (bounded payload or `content://` + grants),
+- avoid “custom plugin-in-app” imports; keep it chooser/default driven.
 
 ## Data model stance (v1)
 

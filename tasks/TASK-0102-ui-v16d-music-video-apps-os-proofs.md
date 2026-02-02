@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (Open With defaults + share/export): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - Media apps product track (quick players vs library/hubs): tasks/TRACK-MEDIA-APPS.md
   - Media decoders: tasks/TASK-0099-ui-v16a-media-decoders.md

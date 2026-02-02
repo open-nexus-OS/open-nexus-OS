@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (compose + attachment open/save): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusAccount (identity + online grants): tasks/TRACK-NEXUSACCOUNT.md
   - NexusNet SDK (network/OAuth/providers): tasks/TRACK-NEXUSNET-SDK.md
   - Zero-Copy App Platform (content/grants/saveAs): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
@@ -49,6 +50,12 @@ Deliver a first-party **Mail** app that is good enough for daily use and proves:
   - preview safe types (text/plain, images) with strict limits
   - “Save to Files…” and “Open With…” flows
 - multi-account support (basic)
+
+## System Delegation integration
+
+Mail should be usable as a system surface so other apps don’t implement email composition stacks:
+- future action intent: `mail.compose` (user-mediated compose UI; returns status only),
+- attachments must remain `content://` + scoped grants (no ambient filesystem paths).
 
 ## Architecture stance
 

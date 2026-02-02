@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Packages install authority (bundlemgrd): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
   - Bundle authoring/signing (pkgr): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
   - Trust store unification (Ed25519): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md

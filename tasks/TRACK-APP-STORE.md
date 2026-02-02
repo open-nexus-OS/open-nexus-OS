@@ -6,6 +6,8 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
+  - System Delegation / System Surfaces (no “store inside another app” anti-pattern): tasks/TRACK-SYSTEM-DELEGATION.md
   - DevX nx CLI (scaffold/pack/sign/inspect): tasks/TASK-0045-devx-nx-cli-v1.md
   - Packaging toolchain (bundle authoring/signing): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
   - Packages install authority (bundlemgrd): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
@@ -30,6 +32,12 @@ Close the ecosystem loop so that “we have a DSL and apps” becomes a sustaina
 - **Licensing (optional)**: purchases/entitlements and parental controls.
 
 This track is a keystone gate: without it, future apps have no credible distribution path.
+
+## System Delegation note
+
+We explicitly avoid the “super-app store inside a chat app” pattern:
+- Storefront is a first-party app/service with its own policy gates and auditability.
+- Deep links into the Store should be routed via system navigation/delegation surfaces (not embedded web flows).
 
 ## Scope boundaries (anti-drift)
 

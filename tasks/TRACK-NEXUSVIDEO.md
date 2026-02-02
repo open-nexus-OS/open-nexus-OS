@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (share/send via chat without per-app stacks): tasks/TRACK-SYSTEM-DELEGATION.md
   - Media Apps track (players + TV hub direction): tasks/TRACK-MEDIA-APPS.md
   - NexusNet SDK (network/account/grants): tasks/TRACK-NEXUSNET-SDK.md
   - Recipes app (recipe attachment import target): tasks/TRACK-RECIPES-APP.md
@@ -40,6 +41,12 @@ Deliver **NexusVideo**, a first-party federated video experience built on **Peer
 - Account and payments must follow the NexusNet + NexusAccount model (per-app grants; tokens are secrets; auditable).
 - Policy decisions (network, payments, mature content controls) are mediated by `policyd` and parental controls where relevant.
 - Media playback and system surfaces should align with Media UX tracks (media sessions, mini-player, casting direction).
+
+## System Delegation integration
+
+To avoid “every app builds its own chat”:
+- Any “share this video / send to a person” UX should delegate to the system chat compose surface (NexusChat) instead of embedding parallel messaging UIs.
+- NexusVideo’s live-chat is still a product feature, but direct messaging and cross-app sharing should route through Intents/Chooser.
 
 ## Recipe attachment (optional extension; creator-friendly)
 

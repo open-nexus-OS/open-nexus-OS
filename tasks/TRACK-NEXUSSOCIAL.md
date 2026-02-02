@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (avoid per-app chat/compose reimplementation): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusNet SDK (network/OAuth surfaces): tasks/TRACK-NEXUSNET-SDK.md
   - Zero-Copy App Platform (UI primitives/caching patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
@@ -225,6 +226,31 @@ NexusMoments supports **short-form video posts** (Instagram “Reels”-class *i
 - **Message types**: text, emoji reactions, read receipts.
 - **Media sharing**: images, videos, files (bounded sizes).
 - **Notifications**: new message alerts (policy-gated).
+
+#### System Delegation stance (avoid per-app chat stacks)
+
+- NexusChat is the **default system chat surface**.
+- Other apps should delegate messaging UX to NexusChat (compose/send/share targets), instead of embedding their own chat.
+- Future: SMS/MMS (and similar external transports) should deliver into the NexusChat inbox via an ingress adapter,
+  not via separate user-facing “SMS apps”.
+
+Transport extensibility note:
+- NexusChat should be architected as a **multi-transport inbox**:
+  - Matrix is the first supported protocol.
+  - Additional transports (SMS/MMS, future open standards) can be added via policy-gated adapter services,
+    selected by recipient address type (e.g., phone-number vs Matrix ID), without changing the core “chat surface” UX.
+
+Data portability / anti-lock-in note:
+- NexusChat (and any app that wants to be the default chat surface) must support **chat export + import/transfer**
+  so users can switch defaults without losing their history (see `tasks/TRACK-SYSTEM-DELEGATION.md` and `TASK-0126C`).
+
+#### Inline action cards (MVP comfort without mini-app runtime)
+
+To keep “WeChat-like convenience” while preserving OS security:
+- NexusChat should support **inline action cards** for low-risk flows like `track.inline`, `confirm.inline`, `open.inline`.
+- Cards should persist as **snapshots** in the chat log; refresh is explicit (no background polling).
+- Providers supply **data only**; NexusChat renders canonical UI (no embedded web/JS runtime).
+  - See: `TASK-0126D-chat-action-cards-v0-host-inline-track-confirm-open.md`
 
 #### Encryption
 - **E2EE by default**: all DMs and private rooms use Matrix E2EE.

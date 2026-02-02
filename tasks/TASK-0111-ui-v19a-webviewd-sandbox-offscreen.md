@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Content provider API: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Text stack (find semantics): tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
   - UI renderer baseline: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md

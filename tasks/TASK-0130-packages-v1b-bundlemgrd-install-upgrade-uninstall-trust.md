@@ -6,6 +6,7 @@ created: 2025-12-25
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - NXB format/tooling: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
   - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Supply-chain sign policy: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md

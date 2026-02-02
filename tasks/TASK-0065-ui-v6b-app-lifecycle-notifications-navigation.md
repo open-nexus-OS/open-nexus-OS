@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
   - Process-per-service: docs/rfcs/RFC-0002-process-per-service-architecture.md
   - Execd supervisor: source/services/execd/

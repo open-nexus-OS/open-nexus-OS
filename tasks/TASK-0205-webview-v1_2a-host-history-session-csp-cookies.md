@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - WebView v1.1 core (history/find/storage/CSP strict): tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
   - WebView Net v1 OS services (fetchd/downloadd fixtures-only): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
   - Devnet TLS fetch path (real HTTP(S), host-first): tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md

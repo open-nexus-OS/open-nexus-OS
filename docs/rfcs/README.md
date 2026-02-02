@@ -69,7 +69,6 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 
 **Security RFCs in this repo:**
 
-
 - RFC-0005: Kernel IPC & Capability Model (capability-based security)
 - RFC-0008: DSoftBus Noise XK v1 (authentication + identity binding)
 - RFC-0009: no_std Dependency Hygiene v1 (build security)

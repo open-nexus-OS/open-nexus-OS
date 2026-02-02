@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (share/export as intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Share v2 / Intents (registry + dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
   - Share v2 (targets + senders + selftests): tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
@@ -64,6 +65,11 @@ These are intentionally small, but they prove OS completeness, accessibility, sh
 - list recordings (recent-first)
 - trim/crop (simple non-destructive window)
 - export/share (audio file via `content://` + scoped grants)
+
+### System Delegation integration
+
+Voice Memos should route “send recording to …” through Intents/Chooser (Chat/Notes/Files), so no app needs
+custom “audio share” code or ad-hoc permissions.
 
 ### Constraints
 

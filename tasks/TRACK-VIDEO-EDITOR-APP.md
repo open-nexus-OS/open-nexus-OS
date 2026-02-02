@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (Edit-in target + export/share via intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - NexusMedia SDK (audio/video/image contracts): tasks/TRACK-NEXUSMEDIA-SDK.md
@@ -28,6 +29,12 @@ Deliver a first-party **mobile-first video editor** with functionality comparabl
 - overlays (text, stickers/graphics), transitions, simple keyframes,
 - audio bed + clip audio + basic mixing,
 - export to modern formats and share.
+
+## System Delegation integration
+
+Video Editor should be a standard “Edit in …” destination:
+- other apps (Photos/Camera/Files/NexusMoments/NexusVideo) should delegate to the editor via intents + scoped grants,
+- export/share should route back through Share v2 (no custom per-app sharing code paths).
 
 This app is a **reference workload** for:
 

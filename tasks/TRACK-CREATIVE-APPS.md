@@ -6,6 +6,7 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - System Delegation / System Surfaces (import/export/share/open-with primitives): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - Drivers & accelerators (GPU/NPU/VPU contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
@@ -52,6 +53,13 @@ Creative apps consume these canonical authorities (see `tasks/TRACK-AUTHORITY-NA
 - **Persistence substrate**: `statefsd` (durable `/state`)
 
 No creative app or SDK may introduce parallel “gfx manager”, “input manager”, or duplicate policy logic.
+
+## System Delegation integration
+
+Creative apps should rely on platform delegation primitives (not ad-hoc integrations):
+- open/import via picker/Open With (mimed + appmgrd),
+- export/share via Intents/Chooser (Files/Notes/Chat),
+- optional “Edit in …” surfaces should be chooser/default driven instead of embedding cross-app UIs.
 
 ## Keystone gates (closure definitions)
 

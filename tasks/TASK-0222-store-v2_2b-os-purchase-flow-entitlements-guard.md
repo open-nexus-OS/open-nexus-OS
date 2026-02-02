@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Store v2.2 host core: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
   - Store v1 OS storefront baseline: tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
   - Packages install authority (bundlemgrd): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md

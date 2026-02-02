@@ -6,6 +6,7 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Store v1 host baseline: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
   - Supply-chain hardening v2 (sigchain/trust primitives): tasks/TASK-0197-supply-chain-v2a-host-sigchain-translog-sbom-provenance.md
   - Trust store unification: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
