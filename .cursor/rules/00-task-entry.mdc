@@ -16,24 +16,38 @@ You must follow this flow whenever a task file is in focus.
 - Read: the task file and any linked RFC/ADR contracts.
 - Do **NOT** scan `@codebase`. Only read within the task's **Touched paths** allowlist.
 
-## 1) Switch to Plan Mode
+## 1) RFC seed (if new contract)
+**Before Plan Mode**, check if this task defines a new contract:
+- Does it introduce a new syscall, service API, storage format, or protocol?
+- If YES: create RFC seed **now** (before implementation)
+  - Read: `@docs/rfcs/RFC-TEMPLATE.md` and `@docs/rfcs/README.md`
+  - Create: `docs/rfcs/RFC-00XX-<topic>.md` (use next available number)
+  - Status: `Draft`
+  - Link from task header: `links: - RFC: docs/rfcs/RFC-00XX-*.md`
+  - Update: `docs/rfcs/README.md` index (add new RFC entry)
+
+## 2) Switch to Plan Mode
 Request Plan Mode and produce a plan that lists **every** acceptance criterion and how it will be proven.
 
 Your plan must include:
-- **Contracts**: which RFCs/ADRs are the seed contracts
+- **Contracts**: which RFCs/ADRs are the seed contracts (existing or newly created)
+- **RFC checkpoints**: when to update RFC status (Draft → In Progress → Complete)
 - **Touched paths**: allowlist + any needed additions (explicitly justified)
 - **Invariants**: security + determinism + build hygiene risks for this task
 - **Tests/Proof**: tests validate the **desired behavior** (Soll-Zustand), not implementation quirks
 - **Quality gates**: reference `@.cursor/pre_flight.md` and `@.cursor/stop_conditions.md`
 - **Docs sync**: which headers/ADRs/arch/testing docs must change (or why not)
 
-## 2) Execution discipline
+## 3) Execution discipline
 - Implement **only** what the task/RFC specifies. Anything extra becomes a follow-up task.
 - No fake success: never emit `ready/ok` markers for stub paths (use `stub/placeholder`).
 - No `unwrap/expect` on untrusted input in services; propagate errors with context.
+- **RFC sync (progressive)**: Update RFC checkboxes/status as phases complete
 
-## 3) Wrap-up (mandatory)
+## 4) Wrap-up (mandatory)
 At the end, update (in the same session/task):
+- **RFC**: Update status to `Complete` if all proofs green; update Implementation Checklist
+- `docs/rfcs/README.md`: Update RFC entry status
 - `.cursor/current_state.md` (overwrite, compressed "why")
 - `.cursor/handoff/current.md` (proof + next steps)
 - `.cursor/next_task_prep.md` (drift-check the next task)

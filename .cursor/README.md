@@ -22,10 +22,12 @@ This folder contains the *session system* used to keep tasks deterministic, drif
   - confirm acceptance criteria and non-goals are explicit and testable
   - confirm security considerations are complete (including negative tests where applicable)
   - confirm the task has a **Touched paths** allowlist
+  - **identify if new RFC seed needed** (new contract/interface/format)
 - Update **`handoff/current.md`**:
   - what is done (with proof)
   - what is next (concrete steps)
   - constraints/invariants to watch
+  - **first action for new task**: create RFC seed if needed
 
 ### 2) Starting a new chat/session
 
@@ -43,6 +45,10 @@ The Cursor rules will push planning first (plan mode), then contract-first imple
 
 ### 3) During implementation
 
+- **RFC discipline**:
+  - Create RFC seed **first** if task defines new contract (use RFC-TEMPLATE.md)
+  - Update RFC progressively: checkboxes when phases complete, status when all green
+  - RFC status gates task status (task can't be Done if RFC still Draft)
 - Stay within the task's **Touched paths** allowlist.
 - Implement only what the task/RFC specifies; anything extra becomes a follow-up task.
 - Prefer tests for the **desired behavior** (Soll-Zustand), not implementation quirks.
@@ -50,6 +56,10 @@ The Cursor rules will push planning first (plan mode), then contract-first imple
 ### 4) End of task (wrap-up)
 
 - Run **`pre_flight.md`** and ensure **`stop_conditions.md`** are satisfied.
+- **RFC finalization**:
+  - Update RFC status to `Complete` (only if all proofs green)
+  - Fill Implementation Checklist
+  - Update `docs/rfcs/README.md` index entry
 - Overwrite/update:
   - `current_state.md` (compressed new truth)
   - `handoff/current.md` (proof + next steps)

@@ -1,9 +1,7 @@
 ---
-description: Documentation discipline — headers, ADR/arch/testing sync
+description: Docs discipline — RFCs, headers, testing docs
 globs:
   - docs/**/*.md
-  - README.md
-  - **/*README*.md
 ---
 
 # Docs discipline
@@ -11,6 +9,34 @@ globs:
 ## Contract mindset
 - Documentation is a contract surface when referenced by tasks/RFCs/ADRs.
 - Keep docs changes consistent with the actual implemented behavior and proof artifacts.
+
+## RFC workflow (new task = new RFC seed)
+
+When starting a **new task** that defines a stable contract:
+
+### 1) Analyze & create RFC seed (first session action)
+- **Read**: `docs/rfcs/RFC-TEMPLATE.md` and `docs/rfcs/README.md`
+- **Analyze**: Does this task define a new contract/interface? (e.g., new syscall, new service API, new storage format)
+- **If YES**: Create RFC seed **before implementation**
+  - Use next available RFC number (check `docs/rfcs/README.md`)
+  - Follow RFC-TEMPLATE.md structure
+  - Set `Status: Draft` initially
+  - Link from task header: `links: - RFC: docs/rfcs/RFC-00XX-*.md`
+
+### 2) Update RFC README index
+- Add new RFC entry to `docs/rfcs/README.md` in correct status section
+- Include: number, title, status, linked task
+
+### 3) Progressive RFC updates (during implementation)
+- **When proofs green**: Update RFC checkboxes/Implementation Checklist
+- **When phase complete**: Update Status (Draft → In Progress → Complete)
+- **When behavior changes**: Update contract sections (API, failure model, security)
+- **Never fake status**: Only mark Complete when all proofs are green
+
+### 4) RFC stays in sync with reality
+- If implementation diverges from RFC: update RFC (it's the contract)
+- If RFC is wrong: fix RFC first, then align code
+- RFC status gates task status (task can't be Done if RFC is still Draft)
 
 ## Header discipline (when editing code modules)
 - If you touched code, ensure affected modules keep the standard CONTEXT header (per `docs/standards/DOCUMENTATION_STANDARDS.md`).

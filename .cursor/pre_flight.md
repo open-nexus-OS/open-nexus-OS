@@ -1,12 +1,9 @@
-# Pre-Flight Quality Gate
+# Pre-Flight (End-of-Task Quality Gate)
 
 <!--
 CONTEXT
-Quality gate checklist run at the end of each implementation task.
-
-Design:
-- Split into "automatic" vs "manual" checks.
-- Prefer concrete commands and proof artifacts.
+Run this checklist before updating task status to Done.
+This is the "everything green" guard against fake success.
 -->
 
 ## Automatic (must be green when applicable)
@@ -21,9 +18,16 @@ Design:
 - [ ] Acceptance Criteria satisfied (from task + linked RFC)
 - [ ] Tests validate the **specified desired behavior** (Soll-Zustand), not current implementation quirks
 - [ ] No fake-success logs/markers introduced (ready/ok only after real behavior)
-- [ ] Security invariants met (secrets, identity, bounded input, policy, W^X)
-- [ ] Touched paths stayed within allowlist (or explicitly justified + recorded)
-- [ ] Header blocks updated (CONTEXT/STATUS/TEST_COVERAGE/ADR references)
-- [ ] Architecture docs/ADRs updated if contracts/boundaries changed
-- [ ] `.cursor/current_state.md` updated (compressed "why" + open threads)
-- [ ] `.cursor/handoff/current.md` updated (what's done/next/constraints)
+
+## Post-implementation (before claiming "Done")
+
+- [ ] **RFC**: Status updated to `Complete` if all proofs green; Implementation Checklist filled
+- [ ] **RFC README**: Entry updated with correct status in `docs/rfcs/README.md`
+- [ ] Tests green (`just test-host`, `just test-e2e`, and relevant QEMU markers)
+- [ ] OS build hygiene passed (if OS code touched): `just dep-gate`, `just diag-os`
+- [ ] Lint + format passed: `just lint`, `just fmt-check`
+- [ ] No `unwrap`/`expect` on untrusted data in services
+- [ ] Security negative tests (`test_reject_*`) exist if security-relevant
+- [ ] Markers honest (no `ready/ok` for stub paths)
+- [ ] Headers updated (CONTEXT, TEST_COVERAGE, ADR)
+- [ ] Docs synced (architecture, testing, contracts)

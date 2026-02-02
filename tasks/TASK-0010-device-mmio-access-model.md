@@ -1,6 +1,6 @@
 ---
 title: TASK-0010 Device access model v1: safe userspace MMIO for virtio devices (enables virtio-net/virtio-blk)
-status: In Review
+status: Done
 owner: @kernel-team @runtime
 created: 2025-12-22
 links:
