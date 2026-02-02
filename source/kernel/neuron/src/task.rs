@@ -780,10 +780,7 @@ impl TaskTable {
         let parent_task = self.tasks.get(parent as usize).ok_or(TransferError::InvalidParent)?;
         let derived = parent_task.caps.derive(parent_slot, rights)?;
         let child_task = self.tasks.get_mut(child as usize).ok_or(TransferError::InvalidChild)?;
-        child_task
-            .caps_mut()
-            .set_if_empty(child_slot, derived)
-            .map_err(TransferError::from)
+        child_task.caps_mut().set_if_empty(child_slot, derived).map_err(TransferError::from)
     }
 
     /// Marks the current task as exited and transitions it to the zombie state.

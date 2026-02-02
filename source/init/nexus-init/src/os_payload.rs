@@ -471,9 +471,8 @@ fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>)> {
     const VIRTIO_DEVICE_ID_BLK: u32 = 2;
 
     let full_len = VIRTIO_MMIO_STRIDE * MAX_SLOTS;
-    let cap =
-        nexus_abi::device_mmio_cap_create(VIRTIO_MMIO_BASE, full_len, usize::MAX)
-            .map_err(InitError::Abi)?;
+    let cap = nexus_abi::device_mmio_cap_create(VIRTIO_MMIO_BASE, full_len, usize::MAX)
+        .map_err(InitError::Abi)?;
 
     let mut net_slot: Option<usize> = None;
     let mut rng_slot: Option<usize> = None;
@@ -1029,8 +1028,12 @@ where
     };
     loop {
         let subject_id = nexus_abi::service_id_from_name(b"netstackd");
-        match policyd_cap_allowed(pol_ctl_route_req, pol_ctl_route_rsp, subject_id, b"device.mmio.blk")
-        {
+        match policyd_cap_allowed(
+            pol_ctl_route_req,
+            pol_ctl_route_rsp,
+            subject_id,
+            b"device.mmio.blk",
+        ) {
             Some(false) => {
                 debug_write_str("init: mmio policy deny ok");
                 debug_write_byte(b'\n');
@@ -2142,8 +2145,8 @@ fn grant_mmio_cap(
         return Ok(Some(false));
     }
     let cap = nexus_abi::device_mmio_cap_create(base, len, usize::MAX).map_err(InitError::Abi)?;
-    let slot =
-        nexus_abi::cap_transfer_to_slot(pid, cap, Rights::MAP, expected_slot).map_err(InitError::Abi)?;
+    let slot = nexus_abi::cap_transfer_to_slot(pid, cap, Rights::MAP, expected_slot)
+        .map_err(InitError::Abi)?;
     let _ = nexus_abi::cap_close(cap);
     if slot != expected_slot {
         debug_write_bytes(b"init: mmio grant slot mismatch svc=");

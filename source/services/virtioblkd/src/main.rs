@@ -57,5 +57,10 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 }
 
-#[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite")))]
+#[cfg(not(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+)))]
 fn main() {}

@@ -1405,8 +1405,11 @@ fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
     typed.check()?;
 
     // Privileged gate: require EndpointFactory with MANAGE (init-lite only).
-    let factory_cap =
-        ctx.tasks.current_caps_mut().get(1).map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    let factory_cap = ctx
+        .tasks
+        .current_caps_mut()
+        .get(1)
+        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
     if factory_cap.kind != CapabilityKind::EndpointFactory
         || !factory_cap.rights.contains(Rights::MANAGE)
     {
@@ -2338,8 +2341,13 @@ fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             }
         }
     }
-    ctx.tasks
-        .transfer_cap_to_slot(parent, typed.child, typed.parent_slot.0, rights, typed.child_slot.0)?;
+    ctx.tasks.transfer_cap_to_slot(
+        parent,
+        typed.child,
+        typed.parent_slot.0,
+        rights,
+        typed.child_slot.0,
+    )?;
     Ok(typed.child_slot.0)
 }
 
@@ -3745,9 +3753,9 @@ mod tests {
 
         // Attempt to map via empty slot 48.
         let args = Args::new([
-            48,           // slot (empty)
-            0x2000_0000,  // va (page-aligned)
-            0,            // offset
+            48,          // slot (empty)
+            0x2000_0000, // va (page-aligned)
+            0,           // offset
             0,
             0,
             0,
@@ -3792,9 +3800,9 @@ mod tests {
 
         // Attempt to map via slot 48 (Endpoint, not DeviceMmio).
         let args = Args::new([
-            48,           // slot (has Endpoint, not DeviceMmio)
-            0x2000_0000,  // va (page-aligned)
-            0,            // offset
+            48,          // slot (has Endpoint, not DeviceMmio)
+            0x2000_0000, // va (page-aligned)
+            0,           // offset
             0,
             0,
             0,
@@ -3841,9 +3849,9 @@ mod tests {
 
         // Attempt to map at offset 0x2000 (equals len, therefore out of bounds).
         let args = Args::new([
-            48,           // slot (DeviceMmio)
-            0x2000_0000,  // va (page-aligned)
-            MMIO_LEN,     // offset = len (out of bounds)
+            48,          // slot (DeviceMmio)
+            0x2000_0000, // va (page-aligned)
+            MMIO_LEN,    // offset = len (out of bounds)
             0,
             0,
             0,
@@ -3853,9 +3861,9 @@ mod tests {
 
         // Also test offset way beyond the window.
         let args_far = Args::new([
-            48,           // slot
-            0x2000_0000,  // va
-            0x1_0000,     // offset = 64KiB (way beyond 8KiB window)
+            48,          // slot
+            0x2000_0000, // va
+            0x1_0000,    // offset = 64KiB (way beyond 8KiB window)
             0,
             0,
             0,
@@ -3902,9 +3910,9 @@ mod tests {
 
         // Attempt to map with insufficient rights.
         let args = Args::new([
-            48,           // slot
-            0x2000_0000,  // va
-            0,            // offset (valid)
+            48,          // slot
+            0x2000_0000, // va
+            0,           // offset (valid)
             0,
             0,
             0,
@@ -3954,7 +3962,8 @@ mod tests {
         table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap();
 
         let handle = ctx.tasks.current_task().address_space().unwrap();
-        let flags = ctx.address_spaces.get(handle).unwrap().page_table().leaf_flags(MMIO_VA).unwrap();
+        let flags =
+            ctx.address_spaces.get(handle).unwrap().page_table().leaf_flags(MMIO_VA).unwrap();
         assert!(flags.contains(PageFlags::USER));
         assert!(flags.contains(PageFlags::READ));
         assert!(flags.contains(PageFlags::WRITE));
