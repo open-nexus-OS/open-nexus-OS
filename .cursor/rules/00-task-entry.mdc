@@ -1,0 +1,39 @@
+---
+description: Task entry router — deterministic plan-first execution
+globs:
+  - tasks/TASK-*.md
+  - tasks/TRACK-*.md
+---
+
+# Task Entry: Plan-first, contract-first, drift-free
+
+You must follow this flow whenever a task file is in focus.
+
+## 0) Context (low-token, strict)
+- Read: `@.cursor/current_state.md`
+- Read: `@.cursor/handoff/current.md` (if present)
+- Read: `@.cursor/next_task_prep.md` (if present)
+- Read: the task file and any linked RFC/ADR contracts.
+- Do **NOT** scan `@codebase`. Only read within the task's **Touched paths** allowlist.
+
+## 1) Switch to Plan Mode
+Request Plan Mode and produce a plan that lists **every** acceptance criterion and how it will be proven.
+
+Your plan must include:
+- **Contracts**: which RFCs/ADRs are the seed contracts
+- **Touched paths**: allowlist + any needed additions (explicitly justified)
+- **Invariants**: security + determinism + build hygiene risks for this task
+- **Tests/Proof**: tests validate the **desired behavior** (Soll-Zustand), not implementation quirks
+- **Quality gates**: reference `@.cursor/pre_flight.md` and `@.cursor/stop_conditions.md`
+- **Docs sync**: which headers/ADRs/arch/testing docs must change (or why not)
+
+## 2) Execution discipline
+- Implement **only** what the task/RFC specifies. Anything extra becomes a follow-up task.
+- No fake success: never emit `ready/ok` markers for stub paths (use `stub/placeholder`).
+- No `unwrap/expect` on untrusted input in services; propagate errors with context.
+
+## 3) Wrap-up (mandatory)
+At the end, update (in the same session/task):
+- `.cursor/current_state.md` (overwrite, compressed "why")
+- `.cursor/handoff/current.md` (proof + next steps)
+- `.cursor/next_task_prep.md` (drift-check the next task)

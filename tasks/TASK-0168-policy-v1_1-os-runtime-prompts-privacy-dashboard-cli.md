@@ -53,7 +53,7 @@ Deliver:
    - markers (rate-limited):
      - `ui: privacy indicators mic=<on|off> cam=<on|off> screen=<on|off>`
      - `privacy: kill <cap>=<true|false>`
-2. Privacy Dashboard (Settings, DSL):
+3. Privacy Dashboard (Settings, DSL):
    - per-app list of effective grants (cap + scope + mode + expiry)
    - revoke and set-expiry actions
    - history tab (audit trail):
@@ -63,10 +63,10 @@ Deliver:
    - markers:
      - `privacy: revoke app=<a> cap=<c>`
      - `privacy: export audit bytes=<n>`
-3. CLI `nx policy`:
+4. CLI `nx policy`:
    - list/grant/revoke/require/devmode
    - stable output lines for tests
-4. OS selftests (bounded, QEMU-safe):
+5. OS selftests (bounded, QEMU-safe):
    - wait for `policyd: ready v1.1` and `permsd: ready`
    - trigger a runtime prompt via a known service operation; auto-decision “allow once” → marker
    - verify `require()` behavior changes after revoke
@@ -74,7 +74,7 @@ Deliver:
      - `SELFTEST: policy v1.1 prompt ok`
      - `SELFTEST: policy v1.1 require ok`
      - `SELFTEST: policy v1.1 revoke ok`
-5. Docs:
+6. Docs:
    - `docs/policy/overview.md` (scopes/modes/expiry/devmode)
    - `docs/policy/runtime-prompts.md`
    - `docs/policy/privacy-dashboard.md`

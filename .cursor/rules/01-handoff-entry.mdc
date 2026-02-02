@@ -1,0 +1,24 @@
+---
+description: Handoff router — new chat must start with planning
+globs:
+  - .cursor/handoff/**/*.md
+---
+
+# Handoff Entry: new chat startup behavior
+
+When a handoff file is provided or referenced:
+
+## Startup rule
+- Read `@.cursor/handoff/current.md`
+- Read `@.cursor/current_state.md`
+- Read the referenced task + linked RFC/ADR contracts.
+- Stay scoped: only consult paths inside the task's **Touched paths** allowlist.
+
+## Mandatory: plan first
+Request Plan Mode and produce a plan with:
+- Acceptance criteria coverage (one-by-one)
+- Proof strategy (tests/markers) for the specified desired behavior
+- Security invariants and negative tests (`test_reject_*`) when applicable
+- Doc/header/ADR sync items
+
+Do not start implementation before a plan exists.

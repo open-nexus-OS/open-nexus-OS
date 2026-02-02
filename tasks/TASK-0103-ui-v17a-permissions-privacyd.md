@@ -50,8 +50,8 @@ Deliver:
 - Kernel changes.
 - UI prompts/overlays (later tasks).
 - A full user identity model (use appId/subject strings).
- - Replacing policyd as the capability authority; permsd is runtime consent and should be combined with `policyd` gates (see `TASK-0136`).
- - Location indicators/permissions (tracked separately once a location service contract is finalized; do not overload v17a).
+- Replacing policyd as the capability authority; permsd is runtime consent and should be combined with `policyd` gates (see `TASK-0136`).
+- Location indicators/permissions (tracked separately once a location service contract is finalized; do not overload v17a).
 
 ## Constraints / invariants
 

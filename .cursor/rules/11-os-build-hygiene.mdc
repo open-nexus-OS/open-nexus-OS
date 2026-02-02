@@ -1,0 +1,22 @@
+---
+description: OS build hygiene — feature gates + dep gate discipline
+globs:
+  - source/**
+  - userspace/**
+---
+
+# OS build hygiene
+
+When changing OS-relevant code (`source/**`, `userspace/**`):
+
+## Feature gates
+- OS services must build with `--no-default-features --features os-lite` where applicable.
+- Keep host-vs-os backends byte-compatible where required (init/spawner paths).
+
+## Dependency hygiene
+- Forbidden crates in OS graph: `parking_lot`, `parking_lot_core`, `getrandom`.
+- Run `just dep-gate` for OS changes before claiming success.
+
+## Determinism + markers
+- Marker strings must be stable (no random IDs).
+- Never emit `*: ready` / `SELFTEST: * ok` for stub behavior.

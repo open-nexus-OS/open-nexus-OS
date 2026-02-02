@@ -1,0 +1,23 @@
+---
+description: Documentation discipline — headers, ADR/arch/testing sync
+globs:
+  - docs/**/*.md
+  - README.md
+  - **/*README*.md
+---
+
+# Docs discipline
+
+## Contract mindset
+- Documentation is a contract surface when referenced by tasks/RFCs/ADRs.
+- Keep docs changes consistent with the actual implemented behavior and proof artifacts.
+
+## Header discipline (when editing code modules)
+- If you touched code, ensure affected modules keep the standard CONTEXT header (per `docs/standards/DOCUMENTATION_STANDARDS.md`).
+- Update header fields instead of deleting them (STATUS/OWNERS/ADR/TEST_COVERAGE/API_STABILITY).
+
+## Testing documentation
+- If you add/modify tests or markers, ensure docs explain:
+  - where tests live
+  - how to run them
+  - what they prove (Soll-Zustand)

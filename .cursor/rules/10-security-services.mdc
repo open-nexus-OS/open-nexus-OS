@@ -1,0 +1,21 @@
+---
+description: Security enforcer for services — invariants + negative tests
+globs:
+  - source/services/**
+---
+
+# Security enforcer (services)
+
+When changing anything under `source/services/`:
+
+## Always enforce
+- **Secrets**: never log keys/credentials/secrets
+- **Identity**: use `sender_service_id` from kernel IPC; do not trust payload strings for identity
+- **Input**: bound sizes, validate before parse; no `unwrap/expect` on untrusted input
+- **Policy**: sensitive operations route through `policyd` (deny-by-default); do not duplicate policy logic elsewhere
+
+## Security proof
+- For security-relevant changes (crypto/auth/IPC/network/caps):
+  - Add `test_reject_*` tests proving rejection of invalid inputs/unauthorized requests
+  - Add deterministic markers/logs that prove enforcement (never fake `ok`)
+  - Label bring-up keys: `// SECURITY: bring-up test keys, NOT production custody`

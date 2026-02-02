@@ -1,0 +1,24 @@
+---
+description: Architecture sync — update ADR/arch/testing docs when contracts change
+globs:
+  - source/services/**/*.rs
+  - userspace/**/*.rs
+---
+
+# Architecture sync rule
+
+If a code change affects any of the following, you must update docs in the same task:
+- Service boundaries / IPC contracts
+- Capability/policy enforcement shape (who is authority)
+- Security model or invariants
+- Test/marker contract (new markers, changed semantics)
+
+## Required doc targets (as applicable)
+- `docs/adr/**` (new or updated ADR when boundaries/tradeoffs change)
+- `docs/testing/**` (how to run and what tests prove)
+- `docs/arch/**` (if architecture diagrams/contracts need updates)
+- Relevant module headers (STATUS/ADR/TEST_COVERAGE)
+
+If docs are intentionally deferred, create an explicit follow-up task and add it to:
+- the task header follow-ups, and
+- `.cursor/current_state.md` open threads.

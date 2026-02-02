@@ -33,7 +33,7 @@ Deliver:
      - type mismatch → deterministic `EINVAL`-class error
      - unknown key → deterministic `ENOENT`-class error
 2. Deterministic storage (NO libSQL in v2):
-   - **canonical on-disk snapshot** (Cap'n Proto): 
+   - **canonical on-disk snapshot** (Cap'n Proto):
      - device scope file: `state:/prefs/device.nxs`
      - user scope file: `state:/prefs/user/<uid>.nxs`
    - **derived/debug view**: `nx settings export --json` emits deterministic JSON (not a storage contract)

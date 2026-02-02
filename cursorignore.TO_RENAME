@@ -1,0 +1,37 @@
+# Rename this file to `.cursorignore` at repo root.
+# (Creation of `.cursorignore` directly may be blocked in this environment.)
+#
+# Cursor ignore (token + noise reduction)
+# Keep contract sources (tasks/, docs/rfcs/, docs/adr/, docs/standards/) readable.
+
+# Rust / build outputs
+**/target/**
+**/build/**
+**/out/**
+**/.cache/**
+
+# Logs / traces / dumps
+**/*.log
+**/*.trace
+**/*.dump
+**/*.core
+**/*.dmp
+
+# Images / binaries (usually not useful for reasoning)
+**/*.img
+**/*.iso
+**/*.bin
+**/*.elf
+**/*.o
+**/*.a
+**/*.so
+
+# QEMU / emulator artifacts
+**/qemu.log
+**/qemu-*.log
+**/*.qcow2
+**/*.raw
+
+# Editor / OS noise
+**/.DS_Store
+**/Thumbs.db

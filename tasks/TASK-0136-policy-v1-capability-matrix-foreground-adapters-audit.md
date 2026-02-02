@@ -57,14 +57,6 @@ Deliver:
    - `intents.send`, `intents.receive`
    - `webview.net` **hard-denied in v1** (even if granted)
    - `storage.manage` (system/admin only)
-
-Future note (out of scope for v1, but important for System Delegation):
-- A unified “default chat surface” (NexusChat) may later support multiple transports (Matrix + SMS/MMS + others).
-  When SMS/MMS exists, prefer stable capability names like:
-  - `sms.send` / `sms.receive`
-  - `mms.send` / `mms.receive`
-  and keep enforcement centralized (telephony/sms authority service + `policyd`), with clear user-mediated sending UX
-  and auditable receiving/ingress.
 2. Per-app grants:
    - persist effective grants under `/state` once available (gated on `TASK-0009`)
    - deterministic grant merge semantics (installer baseline + settings toggles)
@@ -85,13 +77,21 @@ Future note (out of scope for v1, but important for System Delegation):
    - runtime prompts must be denied if the app did not declare the requested cap in its package manifest
    - do **not** introduce a parallel `manifest.json` contract; reuse the repo’s existing package/bundle manifest direction
      (caps are part of install-time metadata and must be auditable)
-5. Audit events:
+6. Audit events:
    - `policyd.require()` emits a structured audit record for allow/deny
    - sink alignment:
      - preferred: emit via `logd` (TASK-0006)
      - fallback (bring-up): deterministic UART markers only, explicitly labeled
-6. Stable errors:
+7. Stable errors:
    - denials map to `EPERM` via the shared storage error contract (`TASK-0132`) where applicable
+
+Future note (out of scope for v1, but important for System Delegation):
+- A unified “default chat surface” (NexusChat) may later support multiple transports (Matrix + SMS/MMS + others).
+  When SMS/MMS exists, prefer stable capability names like:
+  - `sms.send` / `sms.receive`
+  - `mms.send` / `mms.receive`
+  and keep enforcement centralized (telephony/sms authority service + `policyd`), with clear user-mediated sending UX
+  and auditable receiving/ingress.
 
 ## Non-Goals
 
