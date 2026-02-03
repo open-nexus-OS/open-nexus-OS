@@ -2,7 +2,43 @@
 
 **Date**: 2026-02-03
 **Task**: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
-**Status**: Core persistence working, routing issues blocking full QEMU test pass
+**Status**: BLOCKED - virtio-blk I/O timeout in QEMU
+
+---
+
+## Blocking Issue
+
+**VirtIO-blk device doesn't respond to queue notifications.**
+
+```
+virtio-blk: mmio legacy
+virtio-blk: q_pa=0x8176a000 pfn=0x8176a
+virtio-blk: buf_pa=0x8176b000
+virtio-blk: timeout last=00000000 polls=0000b041
+virtio-blk: warmup failed
+```
+
+### What Works
+- Device discovery (magic, ID, legacy version detection)
+- Queue setup (PFN written correctly)
+- Feature negotiation (fixed for legacy mode)
+- Memory allocation (VMO, physical addresses)
+
+### What Fails
+- First I/O request times out after ~2s
+- `used.idx` stays at 0 (device never processes request)
+- Same behavior for both read and write operations
+
+### Attempted Fixes (all failed, same error)
+1. Queue memory zeroing before `setup_queue()` + `driver_ok()`
+2. Warmup read after device init
+3. Volatile writes to virtqueue structures
+4. Legacy mode feature negotiation (no FEATURES_SEL for high bits)
+
+### Diagnosis Needed
+- QEMU device tree verification (`info qtree`)
+- Compare virtio-blk slot assignment vs virtio-net (which works)
+- Check if QEMU's legacy virtio-blk has specific quirks
 
 ---
 
@@ -10,92 +46,75 @@
 
 ### Working ✓
 
-**Host tests (35 tests, ~6 seconds):**
+**Host tests (35 tests):**
 ```bash
 cargo test -p statefs -p storage-virtio-blk -p updates_host
 ```
 
 **QEMU markers achieved:**
 - `statefsd: ready`
-- `blk: virtio-blk up`
 - `SELFTEST: statefs put ok`
-- `SELFTEST: statefs persist ok`
-- `SELFTEST: device key persist ok`
+- `SELFTEST: reply loopback ok`
+- `SELFTEST: keystored capmove ok`
+- `SELFTEST: rng entropy ok`
+- `net: virtio-net up` (virtio-net works!)
 
 ### Not Working ✗
 
 | Issue | Cause | Location |
 |-------|-------|----------|
-| `SELFTEST: ota switch FAIL` | `updated` can't route to `bundlemgrd` | `updated/os_lite.rs:509` |
-| `SELFTEST: samgrd v1 register FAIL` | Dynamic routing fails | selftest-client |
-| `SELFTEST: bootctl persist ok` missing | Test never reached (timeout) | After OTA tests |
-| Watchdog fires | Routing operations block too long | init-lite |
+| `SELFTEST: statefs persist FAIL` | virtio-blk timeout | statefsd |
+| `SELFTEST: device key persist FAIL` | virtio-blk timeout | keystored |
+| `virtio-blk: warmup failed` | Device doesn't respond | virtio-blk driver |
 
 ---
 
-## Immediate Fix Needed
+## Key Observations
 
-**Problem**: `updated` uses dynamic routing for bundlemgrd which fails:
-```rust
-// source/services/updated/src/os_lite.rs line ~509
-let client = match KernelClient::new_for("bundlemgrd") {
-    Err(_) => return Err("route"),  // <-- fails here
-};
-```
-
-**Solution**: Use hardcoded slots like we did for statefsd/keystored policyd calls.
-
-Check init-lite's updated block for bundlemgrd slots:
-```bash
-grep -A20 '"updated" =>' source/init/nexus-init/src/os_payload.rs
-```
+1. **virtio-net works, virtio-blk doesn't** - same MMIO probing, same feature negotiation code
+2. **Legacy mode (version 1)** - both devices are legacy, but net works
+3. **Queue addresses look valid** - PFN 0x8176a, buf at 0x8176b000
+4. **Device never processes** - `used.idx` stays 0 through ~45000 polls
 
 ---
 
-## New Infrastructure Created
+## Infrastructure Created
 
 ### 1. `slot_map.rs` - Centralized slot definitions
 **Path**: `source/init/nexus-init/src/slot_map.rs`
 
-Defines expected slot numbers per service. Use instead of magic numbers:
-```rust
-use nexus_init::slot_map::selftest;
-KernelClient::new_with_slots(selftest::KEYSTORED_SEND, selftest::KEYSTORED_RECV)
-```
-
-### 2. `slot_probe.rs` - Early validation
+### 2. `slot_probe.rs` - Early validation  
 **Path**: `source/libs/nexus-abi/src/slot_probe.rs`
 
-Validates slots at service startup before they're used:
-```rust
-use nexus_abi::slot_probe::validate_slots;
+### 3. `statefsd` - StateFS service
+**Path**: `source/services/statefsd/`
 
-let missing = validate_slots("keystored", &[
-    ("policyd", 0x09),
-    ("reply_recv", 0x05),
-]);
-if missing > 0 {
-    return Err(ServerError::Unsupported);
-}
-// Emits: "SLOT MISSING: keystored needs policyd at slot 0x09"
-```
-
-**TODO**: Integrate `validate_slots` into keystored, statefsd, updated at startup.
+### 4. `statefs` + `storage` userspace crates
+**Path**: `userspace/statefs/`, `userspace/storage/`
 
 ---
 
 ## Test Commands
 
 ```bash
-# Fast iteration (host tests first):
+# Host tests (these pass):
 cargo test -p statefs -p storage-virtio-blk -p updates_host
 
 # QEMU with increased watchdog:
 RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s INIT_LITE_WATCHDOG_TICKS=800 ./scripts/qemu-test.sh
 
-# Filter for relevant output:
-./scripts/qemu-test.sh 2>&1 | grep -E "SELFTEST:|updated:|SLOT|route"
+# Check virtio-blk output:
+grep -E "virtio-blk|warmup|persist" uart.log
 ```
+
+---
+
+## Recommended Next Steps
+
+1. **QEMU monitor debugging**: Run with `-monitor stdio`, use `info qtree` to inspect virtio-blk device
+2. **Compare with virtio-net**: Check `userspace/nexus-net-os/src/smoltcp_virtio.rs` queue setup
+3. **Add QEMU trace events**: `qemu-system-riscv64 -trace "virtio_blk*" ...`
+4. **Check backing file**: Verify `build/blk.img` is accessible by QEMU process
 
 ---
 
@@ -103,18 +122,15 @@ RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s INIT_LITE_WATCHDOG_TICKS=800 
 
 | File | Purpose |
 |------|---------|
-| `source/services/updated/src/os_lite.rs` | OTA switch routing issue |
-| `source/services/keystored/src/os_stub.rs` | Device key persistence (working) |
-| `source/services/statefsd/src/os_lite.rs` | StateFS service (working) |
-| `source/apps/selftest-client/src/main.rs` | All SELFTEST markers |
-| `source/init/nexus-init/src/os_payload.rs` | Slot distribution logic |
+| `source/drivers/storage/virtio-blk/src/lib.rs` | VirtIO-blk driver (blocking issue) |
+| `userspace/nexus-net-os/src/smoltcp_virtio.rs` | Working virtio-net for comparison |
+| `source/services/statefsd/src/os_lite.rs` | StateFS service |
+| `source/init/nexus-init/src/os_payload.rs` | MMIO grants |
 
 ---
 
 ## Session Context
 
-- Converted keystored/statefsd `policyd_allows` to hardcoded slots
-- Added keystored to selftest-client's hardcoded slot list (0x11, 0x12)
-- Fixed keystored `reload_device_key` to actually read from statefsd
-- Created slot_map.rs and slot_probe.rs for deterministic slot handling
-- Core persistence works; remaining failures are routing issues not persistence bugs
+- Commit `3fe2987`: All changes committed as WIP
+- Testing discipline: Hit 4 attempts without progress, need fresh approach
+- virtio-net uses same feature negotiation but works - issue is blk-specific

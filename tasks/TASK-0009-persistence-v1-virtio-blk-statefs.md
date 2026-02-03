@@ -1,9 +1,9 @@
 ---
 title: TASK-0009 Persistence v1 (OS): userspace block device + statefs journal for /state (device keys + bootctl)
-status: Draft
+status: In Progress (Blocked)
 owner: @runtime
 created: 2025-12-22
-updated: 2026-01-27
+updated: 2026-02-03
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -26,6 +26,32 @@ follow-up-tasks:
   - TASK-0132: Storage errors vfs semantic contract (tighten error semantics)
   - TASK-0133: StateFS quotas v1 (accounting/enforcement)
   - TASK-0134: StateFS v3 (snapshots/compaction/mounts)
+---
+
+## Current Status (2026-02-03)
+
+**BLOCKED**: VirtIO-blk I/O timeout in QEMU.
+
+### Completed
+- [x] `statefsd` service with memory + virtio-blk backends
+- [x] `statefs` userspace crate with JournalEngine
+- [x] `storage-virtio-blk` crate with BlockDevice trait
+- [x] Host tests passing (35 tests)
+- [x] IPC slot routing infrastructure (slot_map, slot_probe)
+- [x] MMIO grants from init-lite to statefsd
+
+### Blocking Issue
+```
+virtio-blk: mmio legacy
+virtio-blk: q_pa=0x8176a000 pfn=0x8176a
+virtio-blk: timeout last=00000000 polls=0000b041
+```
+
+Device discovery works, but first I/O request times out. `used.idx` stays 0.
+Virtio-net works with same codebase - issue is blk-specific.
+
+**Handoff**: `.cursor/handoff/current.md`
+
 ---
 
 ## Context
