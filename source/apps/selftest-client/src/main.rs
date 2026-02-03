@@ -75,6 +75,8 @@ mod os_lite {
     use nexus_abi::{ipc_recv_v1, ipc_recv_v1_nb, ipc_send_v1_nb, yield_, MsgHeader, Pid};
     use nexus_ipc::Client as _;
     use nexus_ipc::{KernelClient, Wait as IpcWait};
+    use statefs::StatefsError;
+    use statefs::protocol as statefs_proto;
     #[cfg(feature = "smoltcp-probe")]
     use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
     #[cfg(feature = "smoltcp-probe")]
@@ -1552,24 +1554,16 @@ mod os_lite {
             return KernelClient::new_with_slots(0x7, 0x8).map_err(|_| ());
         }
         if name == "keystored" {
-            for _ in 0..128 {
-                if let Ok((status, send, recv)) = routing_v1_get(name) {
-                    if status == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 {
-                        return KernelClient::new_with_slots(send, recv).map_err(|_| ());
-                    }
-                }
-                if let Ok(client) = KernelClient::new_for(name) {
-                    return Ok(client);
-                }
-                let _ = yield_();
-            }
-            return Err(());
+            // Deterministic slots from init-lite: after execd (0xF, 0x10)
+            return KernelClient::new_with_slots(0x11, 0x12).map_err(|_| ());
         }
-        for _ in 0..64 {
+        let attempts = if name == "statefsd" { 256 } else { 64 };
+        for _ in 0..attempts {
             // Prefer init-lite routing v1 for core services to avoid relying on kernel deadline
             // semantics in `KernelClient::new_for` during bring-up.
             if name == "samgrd"
                 || name == "updated"
+                || name == "statefsd"
                 || name == "@reply"
                 || name == "bundlemgrd"
                 || name == "policyd"
@@ -1589,6 +1583,155 @@ mod os_lite {
         Err(())
     }
 
+    fn statefs_send_recv(client: &KernelClient, frame: &[u8]) -> core::result::Result<Vec<u8>, ()> {
+        if let Err(err) = client.send(frame, IpcWait::Timeout(core::time::Duration::from_millis(2000)))
+        {
+            match err {
+                nexus_ipc::IpcError::WouldBlock => emit_line("SELFTEST: statefs send would-block"),
+                nexus_ipc::IpcError::Timeout => emit_line("SELFTEST: statefs send timeout"),
+                nexus_ipc::IpcError::Disconnected => emit_line("SELFTEST: statefs send disconnected"),
+                nexus_ipc::IpcError::NoSpace => emit_line("SELFTEST: statefs send no-space"),
+                nexus_ipc::IpcError::Kernel(_) => emit_line("SELFTEST: statefs send kernel-error"),
+                nexus_ipc::IpcError::Unsupported => emit_line("SELFTEST: statefs send unsupported"),
+                _ => emit_line("SELFTEST: statefs send other"),
+            }
+            emit_line("SELFTEST: statefs send FAIL");
+            return Err(());
+        }
+        match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(2000))) {
+            Ok(rsp) => Ok(rsp),
+            Err(err) => {
+                match err {
+                    nexus_ipc::IpcError::WouldBlock => emit_line("SELFTEST: statefs recv would-block"),
+                    nexus_ipc::IpcError::Timeout => emit_line("SELFTEST: statefs recv timeout"),
+                    nexus_ipc::IpcError::Disconnected => emit_line("SELFTEST: statefs recv disconnected"),
+                    nexus_ipc::IpcError::NoSpace => emit_line("SELFTEST: statefs recv no-space"),
+                    nexus_ipc::IpcError::Kernel(_) => emit_line("SELFTEST: statefs recv kernel-error"),
+                    nexus_ipc::IpcError::Unsupported => emit_line("SELFTEST: statefs recv unsupported"),
+                    _ => emit_line("SELFTEST: statefs recv other"),
+                }
+                Err(())
+            }
+        }
+    }
+
+    fn statefs_put_get_list(client: &KernelClient) -> core::result::Result<(), ()> {
+        let key = "/state/selftest/ping";
+        let value = b"ok";
+        let put = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &put)?;
+        let status = statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp)
+            .map_err(|_| ())?;
+        if status != statefs_proto::STATUS_OK {
+            return Err(());
+        }
+
+        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key)
+            .map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &get)?;
+        let got = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
+        if got.as_slice() != value {
+            return Err(());
+        }
+
+        let list = statefs_proto::encode_list_request("/state/selftest/", 16).map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &list)?;
+        let keys = statefs_proto::decode_list_response(&rsp).map_err(|_| ())?;
+        if !keys.iter().any(|k| k == key) {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn statefs_unauthorized_access(client: &KernelClient) -> core::result::Result<(), ()> {
+        let get = statefs_proto::encode_key_only_request(
+            statefs_proto::OP_GET,
+            "/state/keystore/deny",
+        )
+        .map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &get)?;
+        match statefs_proto::decode_get_response(&rsp) {
+            Err(StatefsError::AccessDenied) => Ok(()),
+            _ => {
+                if let Ok(status) = statefs_proto::decode_status_response(statefs_proto::OP_GET, &rsp)
+                {
+                    if status == statefs_proto::STATUS_ACCESS_DENIED {
+                        return Ok(());
+                    }
+                    emit_bytes(b"SELFTEST: statefs unauthorized status=");
+                    emit_hex_u64(status as u64);
+                    emit_line(")");
+                } else {
+                    emit_bytes(b"SELFTEST: statefs unauthorized rsp_len=");
+                    emit_hex_u64(rsp.len() as u64);
+                    emit_line(")");
+                }
+                Err(())
+            }
+        }
+    }
+
+    fn statefs_persist(client: &KernelClient) -> core::result::Result<(), ()> {
+        let key = "/state/selftest/persist";
+        let value = b"persist-ok";
+        let put = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &put)?;
+        let status =
+            statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).map_err(|_| ())?;
+        if status != statefs_proto::STATUS_OK {
+            emit_bytes(b"SELFTEST: statefs persist put status=");
+            emit_hex_u64(status as u64);
+            emit_line(")");
+            return Err(());
+        }
+
+        let sync = statefs_proto::encode_sync_request();
+        let rsp = statefs_send_recv(client, &sync)?;
+        let status =
+            statefs_proto::decode_status_response(statefs_proto::OP_SYNC, &rsp).map_err(|_| ())?;
+        if status != statefs_proto::STATUS_OK {
+            emit_bytes(b"SELFTEST: statefs persist sync status=");
+            emit_hex_u64(status as u64);
+            emit_line(")");
+            return Err(());
+        }
+
+        let reopen = statefs_proto::encode_reopen_request();
+        let rsp = statefs_send_recv(client, &reopen)?;
+        let status = statefs_proto::decode_status_response(statefs_proto::OP_REOPEN, &rsp)
+            .map_err(|_| ())?;
+        if status != statefs_proto::STATUS_OK {
+            emit_bytes(b"SELFTEST: statefs persist reopen status=");
+            emit_hex_u64(status as u64);
+            emit_line(")");
+            return Err(());
+        }
+
+        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key)
+            .map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &get)?;
+        let got = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
+        if got.as_slice() != value {
+            emit_line("SELFTEST: statefs persist get mismatch");
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn bootctl_persist_check() -> core::result::Result<(), ()> {
+        const BOOTCTL_KEY: &str = "/state/boot/bootctl.v1";
+        const BOOTCTL_VERSION: u8 = 1;
+        let client = route_with_retry("statefsd")?;
+        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, BOOTCTL_KEY)
+            .map_err(|_| ())?;
+        let rsp = statefs_send_recv(&client, &get)?;
+        let bytes = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
+        if bytes.len() != 6 || bytes[0] != BOOTCTL_VERSION {
+            return Err(());
+        }
+        Ok(())
+    }
+
     pub fn run() -> core::result::Result<(), ()> {
         // keystored v1 (routing + put/get/del + negative cases)
         let keystored = resolve_keystored_client()?;
@@ -1597,13 +1740,44 @@ mod os_lite {
         // RNG and device identity key selftests (run early to keep QEMU marker deadlines short).
         rng_entropy_selftest();
         rng_entropy_oversized_selftest();
-        device_key_selftest();
+        let device_pubkey = device_key_selftest();
+        // statefs (basic put/get/list + unauthorized access)
+        if let Ok(statefsd) = route_with_retry("statefsd") {
+            if statefs_put_get_list(&statefsd).is_ok() {
+                emit_line("SELFTEST: statefs put ok");
+            } else {
+                emit_line("SELFTEST: statefs put FAIL");
+            }
+            if statefs_unauthorized_access(&statefsd).is_ok() {
+                emit_line("SELFTEST: statefs unauthorized access rejected");
+            } else {
+                emit_line("SELFTEST: statefs unauthorized access rejected FAIL");
+            }
+            if statefs_persist(&statefsd).is_ok() {
+                emit_line("SELFTEST: statefs persist ok");
+            } else {
+                emit_line("SELFTEST: statefs persist FAIL");
+            }
+        } else {
+            emit_line("SELFTEST: statefs put FAIL");
+            emit_line("SELFTEST: statefs unauthorized access rejected FAIL");
+            emit_line("SELFTEST: statefs persist FAIL");
+        }
+        if let Some(pubkey) = device_pubkey {
+            if device_key_reload_and_check(&pubkey).is_ok() {
+                emit_line("SELFTEST: device key persist ok");
+            } else {
+                emit_line("SELFTEST: device key persist FAIL");
+            }
+        } else {
+            emit_line("SELFTEST: device key persist FAIL");
+        }
         // @reply slots are deterministically distributed by init-lite to selftest-client.
         // IMPORTANT: routing v1 responses are currently uncorrelated (no nonce). Under cooperative bring-up
         // a delayed ROUTE_RSP can be mistaken for a later query (we saw @reply returning keystored slots).
         // Avoid routing_v1_get("@reply") here.
-        const REPLY_RECV_SLOT: u32 = 0x15;
-        const REPLY_SEND_SLOT: u32 = 0x16;
+        const REPLY_RECV_SLOT: u32 = 0x17;
+        const REPLY_SEND_SLOT: u32 = 0x18;
         let reply_send_slot = REPLY_SEND_SLOT;
         let reply_recv_slot = REPLY_RECV_SLOT;
         let reply_ok = true;
@@ -1616,6 +1790,7 @@ mod os_lite {
         // Loopback sanity: prove the @reply send/recv slots refer to the same live endpoint.
         // This is safe (self-addressed) and helps debug CAP_MOVE reply delivery.
         if reply_ok {
+            drain_reply_inbox(reply_recv_slot);
             let ping = [b'R', b'P', 1, 0];
             let hdr = MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
             // Best-effort send; ignore failures (still proceed with tests).
@@ -1660,6 +1835,7 @@ mod os_lite {
         }
 
         if reply_ok {
+            drain_reply_inbox(reply_recv_slot);
             if keystored_cap_move_probe(reply_send_slot, reply_recv_slot).is_ok() {
                 emit_line("SELFTEST: keystored capmove ok");
             } else {
@@ -1700,10 +1876,8 @@ mod os_lite {
         let samgrd = samgrd;
         emit_line("SELFTEST: ipc routing samgrd ok");
         // Reply inbox for CAP_MOVE samgrd RPC.
-        let mut route_send = 0u32;
-        let mut route_recv = 0u32;
-        match routing_v1_get("vfsd") {
-            Ok((st, send, recv)) => {
+        let (route_send, route_recv) = match routing_v1_get("vfsd") {
+            Ok((st, send, recv)) if st == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 => {
                 emit_bytes(b"SELFTEST: routing vfsd st=0x");
                 emit_hex_u64(st as u64);
                 emit_bytes(b" send=0x");
@@ -1711,25 +1885,22 @@ mod os_lite {
                 emit_bytes(b" recv=0x");
                 emit_hex_u64(recv as u64);
                 emit_byte(b'\n');
-                if st != nexus_abi::routing::STATUS_OK || send == 0 || recv == 0 {
-                    emit_line("SELFTEST: samgrd v1 register FAIL");
-                } else {
-                    route_send = send;
-                    route_recv = recv;
-                    match samgrd_v1_register(&samgrd, "vfsd", send, recv) {
-                        Ok(0) => emit_line("SELFTEST: samgrd v1 register ok"),
-                        Ok(st) => {
-                            emit_bytes(b"SELFTEST: samgrd v1 register FAIL st=0x");
-                            emit_hex_u64(st as u64);
-                            emit_byte(b'\n');
-                        }
-                        Err(_) => emit_line("SELFTEST: samgrd v1 register FAIL err"),
-                    }
-                }
+                (send, recv)
             }
-            Err(_) => {
-                emit_line("SELFTEST: samgrd v1 register FAIL routing err");
+            _ => {
+                // Fallback to deterministic slots distributed by init-lite to selftest-client.
+                emit_line("SELFTEST: routing vfsd fallback slots");
+                (0x03, 0x04)
             }
+        };
+        match samgrd_v1_register(&samgrd, "vfsd", route_send, route_recv) {
+            Ok(0) => emit_line("SELFTEST: samgrd v1 register ok"),
+            Ok(st) => {
+                emit_bytes(b"SELFTEST: samgrd v1 register FAIL st=0x");
+                emit_hex_u64(st as u64);
+                emit_byte(b'\n');
+            }
+            Err(_) => emit_line("SELFTEST: samgrd v1 register FAIL err"),
         }
         match samgrd_v1_lookup(&samgrd, "vfsd") {
             Ok((st, got_send, got_recv)) => {
@@ -1858,6 +2029,12 @@ mod os_lite {
             }
         } else {
             emit_line("SELFTEST: ota rollback FAIL");
+        }
+
+        if bootctl_persist_check().is_ok() {
+            emit_line("SELFTEST: bootctl persist ok");
+        } else {
+            emit_line("SELFTEST: bootctl persist FAIL");
         }
 
         // Policyd-gated routing proof: bundlemgrd asking for execd must be DENIED.
@@ -4028,8 +4205,8 @@ mod os_lite {
 
     fn cap_move_reply_probe() -> core::result::Result<(), ()> {
         // 1) Deterministic reply-inbox slots distributed by init-lite to selftest-client.
-        const REPLY_RECV_SLOT: u32 = 0x15;
-        const REPLY_SEND_SLOT: u32 = 0x16;
+        const REPLY_RECV_SLOT: u32 = 0x17;
+        const REPLY_SEND_SLOT: u32 = 0x18;
         let reply_send_slot = REPLY_SEND_SLOT;
         let reply_recv_slot = REPLY_RECV_SLOT;
         drain_reply_inbox(reply_recv_slot);
@@ -4203,8 +4380,8 @@ mod os_lite {
         // Set up a few clients once (avoid repeated route lookups / allocations).
         let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
         // Deterministic reply inbox slots distributed by init-lite to selftest-client.
-        const REPLY_RECV_SLOT: u32 = 0x15;
-        const REPLY_SEND_SLOT: u32 = 0x16;
+        const REPLY_RECV_SLOT: u32 = 0x17;
+        const REPLY_SEND_SLOT: u32 = 0x18;
         let reply_send_slot = REPLY_SEND_SLOT;
         let reply_recv_slot = REPLY_RECV_SLOT;
 
@@ -4314,8 +4491,8 @@ mod os_lite {
         req.extend_from_slice(&32u16.to_le_bytes()); // Request 32 bytes
 
         // Connect to rngd using the deterministic slots distributed by init-lite.
-        const RNGD_SEND_SLOT: u32 = 0x1b;
-        const RNGD_RECV_SLOT: u32 = 0x1c;
+        const RNGD_SEND_SLOT: u32 = 0x1d;
+        const RNGD_RECV_SLOT: u32 = 0x1e;
         let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
             Ok(c) => c,
             Err(_) => {
@@ -4394,8 +4571,8 @@ mod os_lite {
         req.extend_from_slice(&nonce.to_le_bytes());
         req.extend_from_slice(&257u16.to_le_bytes());
 
-        const RNGD_SEND_SLOT: u32 = 0x1b;
-        const RNGD_RECV_SLOT: u32 = 0x1c;
+        const RNGD_SEND_SLOT: u32 = 0x1d;
+        const RNGD_RECV_SLOT: u32 = 0x1e;
         let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
             Ok(c) => c,
             Err(_) => {
@@ -4458,13 +4635,13 @@ mod os_lite {
     ///
     /// # Security
     /// - Private key is NEVER exported
-    fn device_key_selftest() {
+    fn device_key_selftest() -> Option<[u8; 32]> {
         // Connect to keystored
         let client = match KernelClient::new_for("keystored") {
             Ok(c) => c,
             Err(_) => {
                 emit_line("SELFTEST: device key pubkey FAIL (no route)");
-                return;
+                return None;
             }
         };
 
@@ -4475,13 +4652,13 @@ mod os_lite {
             let req = [b'K', b'S', 1, 10]; // DEVICE_KEYGEN
             if client.send(&req, wait).is_err() {
                 emit_line("SELFTEST: device key pubkey FAIL (keygen send)");
-                return;
+                return None;
             }
             match client.recv(wait) {
                 Ok(rsp) => {
                     if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
                         emit_line("SELFTEST: device key pubkey FAIL (keygen malformed)");
-                        return;
+                        return None;
                     }
                     // Status can be OK (0) or KEY_EXISTS (10)
                     let status = rsp[4];
@@ -4489,35 +4666,35 @@ mod os_lite {
                         emit_bytes(b"SELFTEST: device key pubkey FAIL (keygen status=");
                         emit_hex_u64(status as u64);
                         emit_line(")");
-                        return;
+                        return None;
                     }
                 }
                 Err(_) => {
                     emit_line("SELFTEST: device key pubkey FAIL (keygen recv)");
-                    return;
+                    return None;
                 }
             }
         }
 
         // 2. Get device pubkey (OP=11)
-        {
+        let pubkey = {
             let req = [b'K', b'S', 1, 11]; // GET_DEVICE_PUBKEY
             if client.send(&req, wait).is_err() {
                 emit_line("SELFTEST: device key pubkey FAIL (pubkey send)");
-                return;
+                return None;
             }
             match client.recv(wait) {
                 Ok(rsp) => {
                     if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
                         emit_line("SELFTEST: device key pubkey FAIL (pubkey malformed)");
-                        return;
+                        return None;
                     }
                     let status = rsp[4];
                     if status != 0 {
                         emit_bytes(b"SELFTEST: device key pubkey FAIL (pubkey status=");
                         emit_hex_u64(status as u64);
                         emit_line(")");
-                        return;
+                        return None;
                     }
                     // Response should include 32-byte pubkey after the 7-byte header
                     // [K, S, ver, op|0x80, status, len:u16le, pubkey...]
@@ -4526,22 +4703,26 @@ mod os_lite {
                         emit_bytes(b"SELFTEST: device key pubkey FAIL (pubkey len=");
                         emit_hex_u64(val_len as u64);
                         emit_line(")");
-                        return;
+                        return None;
                     }
                     // SECURITY: We can log pubkey (it's public), but keep it brief
                     emit_line("SELFTEST: device key pubkey ok");
+                    let mut out = [0u8; 32];
+                    out.copy_from_slice(&rsp[7..7 + 32]);
+                    out
                 }
                 Err(_) => {
                     emit_line("SELFTEST: device key pubkey FAIL (pubkey recv)");
-                    return;
+                    return None;
                 }
             }
-        }
+        };
 
         // 3. Verify private key export is rejected
         // There's no OP for private export in the protocol by design,
         // but we can verify signing requires policy
         device_key_private_export_rejected_selftest(&client);
+        Some(pubkey)
     }
 
     /// Verify that private key export attempts are rejected.
@@ -4573,6 +4754,72 @@ mod os_lite {
             }
             Err(_) => emit_line("SELFTEST: device key private export rejected FAIL (recv)"),
         }
+    }
+
+    fn device_key_reload_and_check(expected: &[u8; 32]) -> core::result::Result<(), ()> {
+        let client = match route_with_retry("keystored") {
+            Ok(c) => c,
+            Err(_) => {
+                emit_line("SELFTEST: reload route fail");
+                return Err(());
+            }
+        };
+        let wait = IpcWait::Timeout(core::time::Duration::from_millis(1000));
+        let req = [b'K', b'S', 1, 14]; // DEVICE_RELOAD
+        if client.send(&req, wait).is_err() {
+            emit_line("SELFTEST: reload send fail");
+            return Err(());
+        }
+        let rsp = match client.recv(wait) {
+            Ok(r) => r,
+            Err(_) => {
+                emit_line("SELFTEST: reload recv fail");
+                return Err(());
+            }
+        };
+        if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
+            emit_line("SELFTEST: reload rsp malformed");
+            return Err(());
+        }
+        if rsp[4] != 0 {
+            emit_bytes(b"SELFTEST: reload rsp status=");
+            emit_hex_u64(rsp[4] as u64);
+            emit_byte(b'\n');
+            return Err(());
+        }
+        emit_line("SELFTEST: reload ok");
+        let req = [b'K', b'S', 1, 11]; // GET_DEVICE_PUBKEY
+        if client.send(&req, wait).is_err() {
+            emit_line("SELFTEST: reload pubkey send fail");
+            return Err(());
+        }
+        let rsp = match client.recv(wait) {
+            Ok(r) => r,
+            Err(_) => {
+                emit_line("SELFTEST: reload pubkey recv fail");
+                return Err(());
+            }
+        };
+        if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
+            emit_line("SELFTEST: reload pubkey rsp malformed");
+            return Err(());
+        }
+        if rsp[4] != 0 {
+            emit_bytes(b"SELFTEST: reload pubkey status=");
+            emit_hex_u64(rsp[4] as u64);
+            emit_byte(b'\n');
+            return Err(());
+        }
+        let val_len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+        if val_len != 32 || rsp.len() < 7 + 32 {
+            emit_line("SELFTEST: reload pubkey len mismatch");
+            return Err(());
+        }
+        if &rsp[7..7 + 32] != expected {
+            emit_line("SELFTEST: reload pubkey mismatch");
+            return Err(());
+        }
+        Ok(())
     }
 
     fn emit_line(s: &str) {

@@ -69,6 +69,7 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         "logd",
         "samgrd",
         "bundlemgrd",
+        "statefsd",
         "updated",
         "packagefsd",
         "vfsd",

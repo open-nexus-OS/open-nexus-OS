@@ -111,3 +111,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0016-device-identity-keys-v1.md
 - RFC-0017: Device MMIO Access Model v1 — capability-gated MMIO + init-controlled distribution
   - docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
+- RFC-0018: StateFS Journal Format v1 — journaled KV store for /state persistence
+  - docs/rfcs/RFC-0018-statefs-journal-format-v1.md

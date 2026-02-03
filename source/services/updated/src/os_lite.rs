@@ -8,7 +8,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: No tests
 //!
-//! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
+//! ADR: docs/adr/0024-updates-ab-packaging-architecture.md
 
 extern crate alloc;
 
@@ -18,7 +18,10 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use nexus_abi::{debug_putc, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK};
+use nexus_abi::slot_probe::{slot_is_valid, validate_slots};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Wait};
+use statefs::client::StatefsClient;
+use statefs::StatefsError;
 
 use updates::{
     BootCtrl, BootCtrlError, SignatureVerifier, Slot, SystemSet, SystemSetError, VerifyError,
@@ -47,6 +50,10 @@ const KEYSTORE_MAGIC1: u8 = b'S';
 const KEYSTORE_VERSION: u8 = 1;
 const KEYSTORE_OP_VERIFY: u8 = 4;
 const KEYSTORE_STATUS_OK: u8 = 0;
+
+const BOOTCTRL_STATE_KEY: &str = "/state/boot/bootctl.v1";
+const BOOTCTRL_STATE_VERSION: u8 = 1;
+const SLOT_NONE: u8 = 0xff;
 
 /// Result alias used by the os-lite backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -99,26 +106,55 @@ impl UpdatedState {
 /// Touches schema types to keep host parity; no-op in the stub.
 pub fn touch_schemas() {}
 
+fn wait_for_required_slots(required: &[u32]) -> bool {
+    let start = match nsec() {
+        Ok(value) => value,
+        Err(_) => 0,
+    };
+    let deadline = start.saturating_add(5_000_000_000);
+    loop {
+        if required.iter().all(|slot| slot_is_valid(*slot)) {
+            return true;
+        }
+        let now = match nsec() {
+            Ok(value) => value,
+            Err(_) => 0,
+        };
+        if now >= deadline {
+            return false;
+        }
+        let _ = yield_();
+    }
+}
+
 /// Main service loop used by the lite backend.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
+    emit_line("updated: entry");
+    let required = [0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b];
+    if !wait_for_required_slots(&required) {
+        let missing = validate_slots(
+            "updated",
+            &[
+                ("service_recv", 0x03),
+                ("service_send", 0x04),
+                ("bundlemgrd_send", 0x05),
+                ("bundlemgrd_recv", 0x06),
+                ("keystored_send", 0x07),
+                ("keystored_recv", 0x08),
+                ("statefsd_send", 0x09),
+                ("reply_recv", 0x0a),
+                ("reply_send", 0x0b),
+            ],
+        );
+        let _ = missing;
+    }
     notifier.notify();
-    emit_line("updated: ready (non-persistent)");
-    let server = match KernelServer::new_for("updated") {
-        Ok(server) => server,
-        Err(err) => {
-            emit_line(match err {
-                nexus_ipc::IpcError::Timeout => "updated: route err timeout",
-                nexus_ipc::IpcError::NoSpace => "updated: route err nospace",
-                nexus_ipc::IpcError::WouldBlock => "updated: route err wouldblock",
-                nexus_ipc::IpcError::Disconnected => "updated: route err disconnected",
-                nexus_ipc::IpcError::Unsupported => "updated: route err unsupported",
-                nexus_ipc::IpcError::Kernel(_) => "updated: route err kernel",
-                _ => "updated: route err other",
-            });
-            emit_line("updated: route fallback");
-            KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
-        }
-    };
+    // init-lite transfers the updated service endpoints into deterministic slots:
+    // - recv: slot 3
+    // - send: slot 4
+    //
+    // Using these directly avoids routing-time races during early bring-up.
+    let server = KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?;
     let (recv_slot, send_slot) = server.slots();
     emit_bytes(b"updated: slots ");
     emit_hex_u8((recv_slot >> 8) as u8);
@@ -128,8 +164,40 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_hex_u8(send_slot as u8);
     emit_byte(b'\n');
     let (recv_slot, _) = server.slots();
+    let mut statefs = None;
+    emit_line("updated: statefs init");
+    // init-lite distributes a per-service statefsd SEND cap plus a per-service reply inbox
+    // for CAP_MOVE. Prefer these deterministic slots during early bring-up to avoid routing races.
+    const STATEFS_SEND_SLOT: u32 = 0x09;
+    const REPLY_RECV_SLOT: u32 = 0x0a;
+    const REPLY_SEND_SLOT: u32 = 0x0b;
+    if let Ok(client) = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT) {
+        let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
+        statefs = Some(StatefsClient::from_clients(client, reply));
+        emit_line("updated: statefs slot fallback");
+    }
+    if statefs.is_some() {
+        emit_line("updated: statefs available");
+    } else {
+        emit_line("updated: statefs unavailable");
+    }
     let mut probe_emitted = false;
     let mut state = UpdatedState::new();
+    if let Some(client) = statefs.as_mut() {
+        match load_bootctrl_state(client) {
+            Ok(boot) => {
+                state.boot = boot;
+                emit_line("updated: bootctl load ok");
+            }
+            Err(StatefsError::NotFound) => emit_line("updated: bootctl load miss"),
+            Err(_) => emit_line("updated: bootctl load err"),
+        }
+    }
+    emit_line(if statefs.is_some() {
+        "updated: ready (statefs)"
+    } else {
+        "updated: ready (non-persistent)"
+    });
     let mut recv_buf = Vec::with_capacity(MAX_STAGE_FRAME);
     recv_buf.resize(MAX_STAGE_FRAME, 0);
     let mut logged_rx = false;
@@ -168,7 +236,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 if reply_cap.is_some() {
                     emit_line("updated: capmove");
                 }
-                let rsp = handle_frame(&mut state, frame);
+                let rsp = handle_frame(&mut state, &mut statefs, frame);
                 if let Some(cap) = reply_cap {
                     if rsp.len() >= 4 {
                         emit_bytes(b"updated: tx op ");
@@ -259,18 +327,22 @@ fn duration_to_ns(duration: core::time::Duration) -> u64 {
     duration.as_secs().saturating_mul(1_000_000_000).saturating_add(duration.subsec_nanos() as u64)
 }
 
-fn handle_frame(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
+fn handle_frame(
+    state: &mut UpdatedState,
+    statefs: &mut Option<StatefsClient>,
+    frame: &[u8],
+) -> Vec<u8> {
     let op = match nexus_abi::updated::decode_request_op(frame) {
         Some(op) => op,
         None => return rsp(OP_STAGE, STATUS_MALFORMED, &[]),
     };
 
     match op {
-        OP_STAGE => handle_stage(state, frame),
-        OP_SWITCH => handle_switch(state, frame),
-        OP_HEALTH_OK => handle_health_ok(state, frame),
+        OP_STAGE => handle_stage(state, statefs, frame),
+        OP_SWITCH => handle_switch(state, statefs, frame),
+        OP_HEALTH_OK => handle_health_ok(state, statefs, frame),
         OP_GET_STATUS => handle_get_status(state),
-        OP_BOOT_ATTEMPT => handle_boot_attempt(state, frame),
+        OP_BOOT_ATTEMPT => handle_boot_attempt(state, statefs, frame),
         OP_LOG_PROBE => {
             emit_line("updated: log probe");
             rsp(OP_LOG_PROBE, STATUS_OK, &[])
@@ -279,7 +351,11 @@ fn handle_frame(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
     }
 }
 
-fn handle_stage(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
+fn handle_stage(
+    state: &mut UpdatedState,
+    statefs: &mut Option<StatefsClient>,
+    frame: &[u8],
+) -> Vec<u8> {
     let payload = match nexus_abi::updated::decode_stage_req(frame) {
         Some(bytes) => bytes,
         None => return rsp(OP_STAGE, STATUS_MALFORMED, &[]),
@@ -300,6 +376,10 @@ fn handle_stage(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
             state.staged = Some(payload.to_vec());
             let slot = state.boot.stage();
             state.staged_slot = Some(slot);
+            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
+                audit("stage", "fail", Some("persist"));
+                return rsp(OP_STAGE, STATUS_FAILED, &[]);
+            }
             audit("stage", "ok", None);
             rsp(OP_STAGE, STATUS_OK, &[])
         }
@@ -332,7 +412,11 @@ fn stage_error_detail(err: &SystemSetError) -> (&'static str, Option<&'static st
     }
 }
 
-fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
+fn handle_switch(
+    state: &mut UpdatedState,
+    statefs: &mut Option<StatefsClient>,
+    frame: &[u8],
+) -> Vec<u8> {
     let tries_left = match nexus_abi::updated::decode_switch_req(frame) {
         Some(value) => value,
         None => return rsp(OP_SWITCH, STATUS_MALFORMED, &[]),
@@ -343,6 +427,12 @@ fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
             if slot_result.is_ok() {
                 state.staged = None;
                 state.staged_slot = None;
+                if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
+                    let _ = state.boot.rollback();
+                    let _ = bundlemgrd_set_active_slot(state.boot.active_slot());
+                    audit("switch", "fail", Some("persist"));
+                    return rsp(OP_SWITCH, STATUS_FAILED, &[]);
+                }
                 audit(
                     "switch",
                     "ok",
@@ -375,12 +465,20 @@ fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
     }
 }
 
-fn handle_health_ok(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
+fn handle_health_ok(
+    state: &mut UpdatedState,
+    statefs: &mut Option<StatefsClient>,
+    frame: &[u8],
+) -> Vec<u8> {
     if !nexus_abi::updated::decode_health_ok_req(frame) {
         return rsp(OP_HEALTH_OK, STATUS_MALFORMED, &[]);
     }
     match state.boot.commit_health() {
         Ok(()) => {
+            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
+                audit("health_ok", "fail", Some("persist"));
+                return rsp(OP_HEALTH_OK, STATUS_FAILED, &[]);
+            }
             audit("health_ok", "ok", None);
             rsp(OP_HEALTH_OK, STATUS_OK, &[])
         }
@@ -406,12 +504,20 @@ fn handle_get_status(state: &UpdatedState) -> Vec<u8> {
     rsp(OP_GET_STATUS, STATUS_OK, &payload)
 }
 
-fn handle_boot_attempt(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
+fn handle_boot_attempt(
+    state: &mut UpdatedState,
+    statefs: &mut Option<StatefsClient>,
+    frame: &[u8],
+) -> Vec<u8> {
     if !nexus_abi::updated::decode_boot_attempt_req(frame) {
         return rsp(OP_BOOT_ATTEMPT, STATUS_MALFORMED, &[]);
     }
     match state.boot.tick_boot_attempt() {
         Ok(Some(slot)) => {
+            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
+                audit("boot_attempt", "fail", Some("persist"));
+                return rsp(OP_BOOT_ATTEMPT, STATUS_FAILED, &[]);
+            }
             audit(
                 "boot_attempt",
                 "rollback",
@@ -423,6 +529,10 @@ fn handle_boot_attempt(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
             rsp(OP_BOOT_ATTEMPT, STATUS_OK, &[encode_slot(slot)])
         }
         Ok(None) => {
+            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
+                audit("boot_attempt", "fail", Some("persist"));
+                return rsp(OP_BOOT_ATTEMPT, STATUS_FAILED, &[]);
+            }
             audit("boot_attempt", "ok", None);
             rsp(OP_BOOT_ATTEMPT, STATUS_OK, &[0])
         }
@@ -436,16 +546,18 @@ fn handle_boot_attempt(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
 fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     // Note: bundlemgrd's default response endpoint is currently wired for selftest-client.
     // For updated -> bundlemgrd, we must use CAP_MOVE so bundlemgrd can reply on the moved cap.
-    let client = match KernelClient::new_for("bundlemgrd") {
-        Ok(client) => client,
-        Err(_) => return Err("route"),
-    };
-    let reply = KernelClient::new_for("@reply").map_err(|_| "reply-route")?;
-    let (reply_send_slot, reply_recv_slot) = reply.slots();
-    if reply_send_slot == 0 || reply_recv_slot == 0 {
-        return Err("reply-zero");
-    }
-    let (bnd_send_slot, _bnd_recv_slot) = client.slots();
+    //
+    // init-lite deterministic slots for updated (from slot_map.rs):
+    // - bundlemgrd send cap: 0x05
+    // - bundlemgrd recv cap: 0x06 (unused, we use reply inbox)
+    // - reply inbox: recv=0x0A, send=0x0B
+    const BND_SEND_SLOT: u32 = 0x05;
+    const REPLY_RECV_SLOT: u32 = 0x0A;
+    const REPLY_SEND_SLOT: u32 = 0x0B;
+
+    let bnd_send_slot = BND_SEND_SLOT;
+    let reply_send_slot = REPLY_SEND_SLOT;
+    let reply_recv_slot = REPLY_RECV_SLOT;
     let slot_id = match slot {
         Slot::A => 1,
         Slot::B => 2,
@@ -515,6 +627,103 @@ fn encode_slot(slot: Slot) -> u8 {
     }
 }
 
+fn decode_slot(byte: u8) -> Result<Option<Slot>, StatefsError> {
+    match byte {
+        1 => Ok(Some(Slot::A)),
+        2 => Ok(Some(Slot::B)),
+        SLOT_NONE => Ok(None),
+        _ => Err(StatefsError::Corrupted),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BootCtrlState {
+    active: Slot,
+    pending: Option<Slot>,
+    staged: Option<Slot>,
+    tries_left: u8,
+    health_ok: bool,
+}
+
+impl BootCtrlState {
+    fn from_bootctrl(boot: &BootCtrl) -> Self {
+        Self {
+            active: boot.active_slot(),
+            pending: boot.pending_slot(),
+            staged: boot.staged_slot(),
+            tries_left: boot.tries_left(),
+            health_ok: boot.health_ok(),
+        }
+    }
+}
+
+fn encode_bootctrl_state(boot: &BootCtrl) -> [u8; 6] {
+    let state = BootCtrlState::from_bootctrl(boot);
+    [
+        BOOTCTRL_STATE_VERSION,
+        encode_slot(state.active),
+        state.pending.map(encode_slot).unwrap_or(SLOT_NONE),
+        state.staged.map(encode_slot).unwrap_or(SLOT_NONE),
+        state.tries_left,
+        if state.health_ok { 1 } else { 0 },
+    ]
+}
+
+fn decode_bootctrl_state(bytes: &[u8]) -> Result<BootCtrlState, StatefsError> {
+    if bytes.len() != 6 || bytes[0] != BOOTCTRL_STATE_VERSION {
+        return Err(StatefsError::Corrupted);
+    }
+    let active = decode_slot(bytes[1])?.ok_or(StatefsError::Corrupted)?;
+    let pending = decode_slot(bytes[2])?;
+    let staged = decode_slot(bytes[3])?;
+    let tries_left = bytes[4];
+    let health_ok = bytes[5] == 1;
+    Ok(BootCtrlState { active, pending, staged, tries_left, health_ok })
+}
+
+fn bootctrl_from_state(state: BootCtrlState) -> Result<BootCtrl, BootCtrlError> {
+    if state.pending.is_some() {
+        let base = state.active.other();
+        let mut boot = BootCtrl::new(base);
+        boot.stage();
+        let _ = boot.switch(state.tries_left)?;
+        return Ok(boot);
+    }
+    if state.health_ok {
+        let base = state.active.other();
+        let mut boot = BootCtrl::new(base);
+        boot.stage();
+        let _ = boot.switch(0)?;
+        let _ = boot.commit_health()?;
+        return Ok(boot);
+    }
+    let mut boot = BootCtrl::new(state.active);
+    if state.staged.is_some() {
+        boot.stage();
+    }
+    Ok(boot)
+}
+
+fn load_bootctrl_state(client: &mut StatefsClient) -> Result<BootCtrl, StatefsError> {
+    let bytes = client.get(BOOTCTRL_STATE_KEY)?;
+    let state = decode_bootctrl_state(&bytes)?;
+    bootctrl_from_state(state).map_err(|_| StatefsError::Corrupted)
+}
+
+fn persist_bootctrl_state(
+    boot: &BootCtrl,
+    statefs: &mut Option<StatefsClient>,
+) -> Result<(), StatefsError> {
+    let client = match statefs.as_mut() {
+        Some(client) => client,
+        None => return Ok(()),
+    };
+    let payload = encode_bootctrl_state(boot);
+    client.put(BOOTCTRL_STATE_KEY, &payload)?;
+    client.sync()?;
+    Ok(())
+}
+
 struct KeystoredVerifier;
 
 impl SignatureVerifier for KeystoredVerifier {
@@ -550,7 +759,10 @@ fn keystored_verify(
     message: &[u8],
     signature: &[u8; 64],
 ) -> Result<bool, VerifyError> {
-    let client = KernelClient::new_for("keystored").map_err(|_| VerifyError::Backend("route"))?;
+    // init-lite deterministic slots for updated -> keystored:
+    // - send=0x07, recv=0x08
+    let client =
+        KernelClient::new_with_slots(0x07, 0x08).map_err(|_| VerifyError::Backend("route"))?;
     let mut frame = Vec::with_capacity(4 + 4 + 32 + 64 + message.len());
     frame.push(KEYSTORE_MAGIC0);
     frame.push(KEYSTORE_MAGIC1);

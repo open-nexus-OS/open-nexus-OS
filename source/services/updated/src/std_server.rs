@@ -7,7 +7,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: No tests
 //!
-//! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
+//! ADR: docs/adr/0024-updates-ab-packaging-architecture.md
 
 use std::io;
 

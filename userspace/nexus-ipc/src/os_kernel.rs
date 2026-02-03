@@ -37,7 +37,7 @@ const CTRL_RECV_SLOT: u32 = 2; // init-lite transfers control RSP (child RECV) i
 
 // Routing queries can be policy-gated inside init-lite (policyd roundtrip). Keep this comfortably
 // above the policyd control-plane deadline to avoid flaky bring-up under QEMU.
-const ROUTE_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
+const ROUTE_QUERY_TIMEOUT: Duration = Duration::from_secs(8);
 
 fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     let name = target.as_bytes();

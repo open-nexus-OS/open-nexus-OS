@@ -14,11 +14,14 @@ When a handoff file is provided or referenced:
 - Read the referenced task + linked RFC/ADR contracts.
 - Stay scoped: only consult paths inside the task's **Touched paths** allowlist.
 
-## Mandatory: plan first
-Request Plan Mode and produce a plan with:
-- Acceptance criteria coverage (one-by-one)
-- Proof strategy (tests/markers) for the specified desired behavior
-- Security invariants and negative tests (`test_reject_*`) when applicable
-- Doc/header/ADR sync items
+## Plan mode decision
+- **New task (first time in this task)**: Request Plan Mode and produce a plan with:
+  - Acceptance criteria coverage (one-by-one)
+  - Proof strategy (tests/markers) for the specified desired behavior
+  - Security invariants and negative tests (`test_reject_*`) when applicable
+  - Doc/header/ADR sync items
+- **Task continuation (handoff explicitly says we're continuing)**: Skip Plan Mode and proceed with focused debugging/implementation.
 
-Do not start implementation before a plan exists.
+## Context budget discipline
+- Prefer strict manual context (1–3 relevant files) for continuation/debugging.
+- Avoid auto-including or expanding large diffs unless explicitly requested.

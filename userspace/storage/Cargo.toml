@@ -1,0 +1,17 @@
+[package]
+name = "storage"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "Block device abstractions for userspace storage backends"
+
+[features]
+default = ["std"]
+std = []
+os-lite = ["storage-virtio-blk/os-lite"]
+
+[dependencies]
+nexus-abi = { path = "../../source/libs/nexus-abi" }
+storage-virtio-blk = { path = "../../source/drivers/storage/virtio-blk" }
+nexus-hal = { path = "../../source/libs/nexus-hal" }

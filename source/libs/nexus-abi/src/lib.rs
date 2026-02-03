@@ -2480,6 +2480,10 @@ unsafe fn ecall6(
     r0
 }
 
+// Fast capability slot probing for early boot validation (OS only).
+#[cfg(nexus_env = "os")]
+pub mod slot_probe;
+
 #[cfg(test)]
 mod tests {
     use super::{IpcRecvV2Desc, MsgHeader};

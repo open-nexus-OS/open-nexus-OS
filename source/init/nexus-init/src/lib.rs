@@ -28,6 +28,10 @@
 //! variant uses a cooperative bootstrap stub that will gain capabilities in
 //! later stages of the migration.
 
+/// Deterministic capability slot assignment map for early boot validation.
+#[cfg(all(feature = "os-payload", nexus_env = "os"))]
+pub mod slot_map;
+
 /// Shared os-lite loader facade used by the deprecated init-lite wrapper.
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod os_payload;

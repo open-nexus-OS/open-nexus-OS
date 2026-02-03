@@ -1,0 +1,53 @@
+# Cursor Ignore — prevent indexing of build artifacts, caches, large binaries
+
+# Build outputs
+target/
+build/
+dist/
+*.img
+*.bin
+*.elf
+*.o
+*.a
+*.so
+*.rlib
+
+# Cargo / Rust artifacts
+Cargo.lock
+.cargo/
+**/target/
+
+# QEMU / emulation
+*.qcow2
+*.raw
+*.iso
+
+# Logs
+*.log
+qemu.log
+serial.log
+
+# Podman / container artifacts
+podman/cache/
+.buildah/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git internals (no need to index)
+.git/
+
+# Large generated docs (if they exist)
+docs/api/generated/
+docs/rustdoc/
+
+# Vendored dependencies (if populated)
+vendor/
+
+# Test artifacts
+**/tests/fixtures/large-*
+**/tests/tmp/

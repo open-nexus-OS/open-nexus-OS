@@ -27,6 +27,8 @@ os-lite = [
     "nexus-ipc/kernel-ipc",
     "dep:nexus-log",
     "dep:ed25519-dalek",
+    "dep:statefs",
+    "statefs/ipc-client",
 ]
 
 [lib]
@@ -42,6 +44,7 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
+statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
 
 [[bin]]
 name = "updated"

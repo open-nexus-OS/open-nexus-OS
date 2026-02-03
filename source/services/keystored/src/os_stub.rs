@@ -17,13 +17,17 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use core::fmt;
 use core::marker::PhantomData;
 
 use nexus_abi::{debug_putc, yield_};
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_abi::slot_probe::{slot_is_valid, validate_slots};
+use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
+use statefs::client::StatefsClient;
+use statefs::StatefsError;
 
 /// Result type surfaced by the lite keystored shim.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -61,6 +65,27 @@ impl ReadyNotifier {
     /// Signals readiness to the caller.
     pub fn notify(self) {
         (self.0)();
+    }
+}
+
+fn wait_for_required_slots(required: &[u32]) -> bool {
+    let start = match nexus_abi::nsec() {
+        Ok(value) => value,
+        Err(_) => 0,
+    };
+    let deadline = start.saturating_add(5_000_000_000);
+    loop {
+        if required.iter().all(|slot| slot_is_valid(*slot)) {
+            return true;
+        }
+        let now = match nexus_abi::nsec() {
+            Ok(value) => value,
+            Err(_) => 0,
+        };
+        if now >= deadline {
+            return false;
+        }
+        let _ = yield_();
     }
 }
 
@@ -115,6 +140,183 @@ pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> L
     Err(ServerError::Unsupported("keystored run_with_transport_default_anchors"))
 }
 
+enum KeyStoreBackend {
+    Statefs(StatefsStore),
+    Memory(BTreeMap<(u64, Vec<u8>), Vec<u8>>),
+}
+
+struct KeyStore {
+    backend: KeyStoreBackend,
+    device_key_bytes: Option<[u8; 32]>,
+}
+
+impl KeyStore {
+    fn new() -> Self {
+        if let Some(mut store) = StatefsStore::new() {
+            emit_line("keystored: statefs backend ok");
+            let device_key_bytes = store.load_device_key().ok().flatten();
+            return Self { backend: KeyStoreBackend::Statefs(store), device_key_bytes };
+        }
+        emit_line("keystored: memory backend fallback");
+        Self { backend: KeyStoreBackend::Memory(BTreeMap::new()), device_key_bytes: None }
+    }
+
+    #[cfg(test)]
+    fn new_memory() -> Self {
+        Self { backend: KeyStoreBackend::Memory(BTreeMap::new()), device_key_bytes: None }
+    }
+
+    fn get(&mut self, sender_service_id: u64, key: &[u8]) -> Result<Option<Vec<u8>>, StatefsError> {
+        match &mut self.backend {
+            KeyStoreBackend::Statefs(store) => store.get(sender_service_id, key),
+            KeyStoreBackend::Memory(map) => {
+                Ok(map.get(&(sender_service_id, key.to_vec())).cloned())
+            }
+        }
+    }
+
+    fn put(
+        &mut self,
+        sender_service_id: u64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), StatefsError> {
+        match &mut self.backend {
+            KeyStoreBackend::Statefs(store) => store.put(sender_service_id, key, value),
+            KeyStoreBackend::Memory(map) => {
+                map.insert((sender_service_id, key.to_vec()), value.to_vec());
+                Ok(())
+            }
+        }
+    }
+
+    fn delete(&mut self, sender_service_id: u64, key: &[u8]) -> Result<bool, StatefsError> {
+        match &mut self.backend {
+            KeyStoreBackend::Statefs(store) => store.delete(sender_service_id, key),
+            KeyStoreBackend::Memory(map) => Ok(map.remove(&(sender_service_id, key.to_vec())).is_some()),
+        }
+    }
+
+    fn device_key_bytes(&self) -> Option<[u8; 32]> {
+        self.device_key_bytes
+    }
+
+    /// Reload device key from statefsd (for persistence proof after reboot).
+    fn reload_device_key(&mut self) -> Result<Option<[u8; 32]>, StatefsError> {
+        match &mut self.backend {
+            KeyStoreBackend::Statefs(store) => {
+                match store.load_device_key() {
+                    Ok(Some(bytes)) => {
+                        emit_line("keystored: reload from statefs ok");
+                        self.device_key_bytes = Some(bytes);
+                        Ok(Some(bytes))
+                    }
+                    Ok(None) => {
+                        emit_line("keystored: reload from statefs (not found)");
+                        Ok(None)
+                    }
+                    Err(err) => {
+                        emit_line("keystored: reload from statefs err");
+                        Err(err)
+                    }
+                }
+            }
+            KeyStoreBackend::Memory(_) => {
+                emit_line("keystored: reload from memory backend");
+                Ok(self.device_key_bytes)
+            }
+        }
+    }
+
+    fn set_device_key_bytes(&mut self, bytes: [u8; 32]) -> Result<(), StatefsError> {
+        if let KeyStoreBackend::Statefs(store) = &mut self.backend {
+            store.store_device_key(&bytes)?;
+        }
+        self.device_key_bytes = Some(bytes);
+        Ok(())
+    }
+}
+
+struct StatefsStore {
+    client: StatefsClient,
+}
+
+impl StatefsStore {
+    fn new() -> Option<Self> {
+        // init-lite deterministic slots for keystored -> statefsd:
+        // - send=0x07, reply recv=0x05, reply send=0x06
+        const STATEFS_SEND_SLOT: u32 = 0x07;
+        const REPLY_RECV_SLOT: u32 = 0x05;
+        const REPLY_SEND_SLOT: u32 = 0x06;
+        let client = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
+        let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
+        let client = StatefsClient::from_clients(client, reply);
+        Some(Self { client })
+    }
+
+    fn get(&mut self, sender_service_id: u64, key: &[u8]) -> Result<Option<Vec<u8>>, StatefsError> {
+        let path = self.key_path(sender_service_id, key)?;
+        match self.client.get(&path) {
+            Ok(value) => Ok(Some(value)),
+            Err(StatefsError::NotFound) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn put(
+        &mut self,
+        sender_service_id: u64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), StatefsError> {
+        let path = self.key_path(sender_service_id, key)?;
+        self.client.put(&path, value)
+    }
+
+    fn delete(&mut self, sender_service_id: u64, key: &[u8]) -> Result<bool, StatefsError> {
+        let path = self.key_path(sender_service_id, key)?;
+        match self.client.delete(&path) {
+            Ok(()) => Ok(true),
+            Err(StatefsError::NotFound) => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn load_device_key(&mut self) -> Result<Option<[u8; 32]>, StatefsError> {
+        match self.client.get(STATEFS_DEVICE_KEY_PATH) {
+            Ok(bytes) => {
+                if bytes.len() != 32 {
+                    return Err(StatefsError::Corrupted);
+                }
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&bytes);
+                Ok(Some(out))
+            }
+            Err(StatefsError::NotFound) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn store_device_key(&mut self, key_bytes: &[u8; 32]) -> Result<(), StatefsError> {
+        self.client.put(STATEFS_DEVICE_KEY_PATH, key_bytes)
+    }
+
+    fn key_path(&self, sender_service_id: u64, key: &[u8]) -> Result<String, StatefsError> {
+        if key.is_empty() || key.len() > MAX_KEY_LEN {
+            return Err(StatefsError::KeyTooLong);
+        }
+        let mut path = String::with_capacity(STATEFS_KEY_PREFIX.len() + 16 + 1 + key.len() * 2);
+        path.push_str(STATEFS_KEY_PREFIX);
+        push_hex_u64(&mut path, sender_service_id);
+        path.push('/');
+        push_hex_bytes(&mut path, key);
+        if path.len() > statefs::MAX_KEY_LEN {
+            return Err(StatefsError::KeyTooLong);
+        }
+        Ok(path)
+    }
+}
+
 /// Device identity keypair storage.
 /// Stores the signing key (private) and allows deriving the verifying key (public).
 struct DeviceKeyPair {
@@ -124,6 +326,10 @@ struct DeviceKeyPair {
 impl DeviceKeyPair {
     const fn new() -> Self {
         Self { signing_key: None }
+    }
+
+    fn load_from_bytes(&mut self, bytes: [u8; 32]) {
+        self.signing_key = Some(ed25519_dalek::SigningKey::from_bytes(&bytes));
     }
 
     fn is_generated(&self) -> bool {
@@ -150,9 +356,25 @@ impl DeviceKeyPair {
 
 /// Main service loop; notifies readiness and yields cooperatively.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
+    let required = [0x03, 0x04, 0x05, 0x06, 0x07, 0x09, 0x0a];
+    if !wait_for_required_slots(&required) {
+        let missing = validate_slots(
+            "keystored",
+            &[
+                ("service_recv", 0x03),
+                ("service_send", 0x04),
+                ("reply_recv", 0x05),
+                ("reply_send", 0x06),
+                ("statefsd_send", 0x07),
+                ("policyd_send", 0x09),
+                ("rngd_send", 0x0a),
+            ],
+        );
+        let _ = missing;
+    }
+    let server = route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
     notifier.notify();
     emit_line("keystored: ready");
-    let server = route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
     // Identity-binding hardening (bring-up semantics):
     //
     // This keystore implementation is a bring-up shim. To avoid cross-service key collisions and
@@ -160,9 +382,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     //
     // NOTE: this is not a full policy model; it is a safety floor until policyd-mediated access
     // control is wired for the keystore protocol.
-    let mut store: BTreeMap<(u64, Vec<u8>), Vec<u8>> = BTreeMap::new();
+    let mut store = KeyStore::new();
     // Device identity keypair (OS-lite bring-up).
     let mut device_keypair = DeviceKeyPair::new();
+    if let Some(bytes) = store.device_key_bytes() {
+        device_keypair.load_from_bytes(bytes);
+    }
     let mut logged_capmove = false;
     let mut logged_capmove_req = false;
     loop {
@@ -303,8 +528,7 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
 }
 
 fn route_keystored_blocking() -> Option<KernelServer> {
-    let (send_slot, recv_slot) = route_blocking(b"keystored")?;
-    KernelServer::new_with_slots(recv_slot, send_slot).ok()
+    KernelServer::new_with_slots(3, 4).ok()
 }
 
 const MAGIC0: u8 = b'K';
@@ -321,6 +545,7 @@ const OP_DEVICE_KEYGEN: u8 = 10;
 const OP_GET_DEVICE_PUBKEY: u8 = 11;
 const OP_DEVICE_SIGN: u8 = 12;
 const OP_GET_DEVICE_PRIVKEY: u8 = 13;
+const OP_DEVICE_RELOAD: u8 = 14;
 
 const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
@@ -339,8 +564,11 @@ const MAX_VAL_LEN: usize = 256;
 const MAX_VERIFY_PAYLOAD: usize = 1 * 1024 * 1024;
 const MAX_SIGN_PAYLOAD: usize = 1 * 1024 * 1024;
 
+const STATEFS_KEY_PREFIX: &str = "/state/keystore/";
+const STATEFS_DEVICE_KEY_PATH: &str = "/state/keystore/device.signing";
+
 fn handle_frame(
-    store: &mut BTreeMap<(u64, Vec<u8>), Vec<u8>>,
+    store: &mut KeyStore,
     device_keypair: &mut DeviceKeyPair,
     sender_service_id: u64,
     frame: &[u8],
@@ -362,16 +590,20 @@ fn handle_frame(
     }
     // Device identity key operations
     if op == OP_DEVICE_KEYGEN {
-        return handle_device_keygen(device_keypair, sender_service_id);
+        return handle_device_keygen(device_keypair, store, sender_service_id);
     }
     if op == OP_GET_DEVICE_PUBKEY {
-        return handle_get_device_pubkey(device_keypair, sender_service_id);
+        return handle_get_device_pubkey(device_keypair, store, sender_service_id);
     }
     if op == OP_DEVICE_SIGN {
-        return handle_device_sign(device_keypair, sender_service_id, frame);
+        return handle_device_sign(device_keypair, store, sender_service_id, frame);
     }
     if op == OP_GET_DEVICE_PRIVKEY {
         return handle_get_device_privkey();
+    }
+    if op == OP_DEVICE_RELOAD {
+        emit_line("keystored: rx reload");
+        return handle_device_reload(device_keypair, store, sender_service_id);
     }
 
     // For PUT/GET/DEL, require minimum frame length
@@ -399,20 +631,24 @@ fn handle_frame(
     let val_end = val_start + val_len;
     let key = &frame[key_start..key_end];
     let val = &frame[val_start..val_end];
-    let scoped_key = (sender_service_id, key.to_vec());
-
     match op {
         OP_PUT => {
-            store.insert(scoped_key, val.to_vec());
-            rsp(OP_PUT, STATUS_OK, &[])
+            match store.put(sender_service_id, key, val) {
+                Ok(()) => rsp(OP_PUT, STATUS_OK, &[]),
+                Err(err) => rsp(OP_PUT, status_from_statefs_error(err), &[]),
+            }
         }
-        OP_GET => match store.get(&scoped_key) {
-            Some(v) => rsp(OP_GET, STATUS_OK, v),
-            None => rsp(OP_GET, STATUS_NOT_FOUND, &[]),
+        OP_GET => match store.get(sender_service_id, key) {
+            Ok(Some(v)) => rsp(OP_GET, STATUS_OK, &v),
+            Ok(None) => rsp(OP_GET, STATUS_NOT_FOUND, &[]),
+            Err(err) => rsp(OP_GET, status_from_statefs_error(err), &[]),
         },
         OP_DEL => {
-            let existed = store.remove(&scoped_key).is_some();
-            rsp(OP_DEL, if existed { STATUS_OK } else { STATUS_NOT_FOUND }, &[])
+            match store.delete(sender_service_id, key) {
+                Ok(true) => rsp(OP_DEL, STATUS_OK, &[]),
+                Ok(false) => rsp(OP_DEL, STATUS_NOT_FOUND, &[]),
+                Err(err) => rsp(OP_DEL, status_from_statefs_error(err), &[]),
+            }
         }
         _ => rsp(op, STATUS_UNSUPPORTED, &[]),
     }
@@ -489,6 +725,13 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     const OP_CHECK_CAP_DELEGATED: u8 = 5;
     const STATUS_ALLOW: u8 = 0;
 
+    // init-lite deterministic slots for keystored:
+    // - reply inbox: recv=5, send=6
+    // - policyd send cap: 9 (after log_req at slot 8)
+    const POL_SEND_SLOT: u32 = 0x09;
+    const REPLY_RECV_SLOT: u32 = 0x05;
+    const REPLY_SEND_SLOT: u32 = 0x06;
+
     if cap.is_empty() || cap.len() > 48 {
         return false;
     }
@@ -501,15 +744,9 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     frame.push(cap.len() as u8);
     frame.extend_from_slice(cap);
 
-    // Send to policyd and receive reply via CAP_MOVE on @reply.
-    let (send_slot, _recv_slot) = match route_blocking(b"policyd") {
-        Some(slots) => slots,
-        None => return false,
-    };
-    let (reply_send_slot, reply_recv_slot) = match route_blocking(b"@reply") {
-        Some(slots) => slots,
-        None => return false,
-    };
+    let send_slot = POL_SEND_SLOT;
+    let reply_send_slot = REPLY_SEND_SLOT;
+    let reply_recv_slot = REPLY_RECV_SLOT;
     let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
         Ok(c) => c,
         Err(_) => return false,
@@ -598,9 +835,14 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
 /// # Security
 /// - Policy-gated via `device.keygen` capability
 /// - Entropy is NOT logged
-fn handle_device_keygen(device_keypair: &mut DeviceKeyPair, sender_service_id: u64) -> Vec<u8> {
+fn handle_device_keygen(
+    device_keypair: &mut DeviceKeyPair,
+    store: &mut KeyStore,
+    sender_service_id: u64,
+) -> Vec<u8> {
     handle_device_keygen_with(
         device_keypair,
+        store,
         sender_service_id,
         |sid| policyd_allows(sid, b"device.keygen"),
         request_entropy_from_rngd,
@@ -609,6 +851,7 @@ fn handle_device_keygen(device_keypair: &mut DeviceKeyPair, sender_service_id: u
 
 fn handle_device_keygen_with<P, E>(
     device_keypair: &mut DeviceKeyPair,
+    store: &mut KeyStore,
     sender_service_id: u64,
     policy_check: P,
     entropy_source: E,
@@ -640,7 +883,12 @@ where
         }
     };
 
-    // Generate the keypair
+    // Persist key bytes before acknowledging generation.
+    if let Err(err) = store.set_device_key_bytes(entropy) {
+        return rsp(OP_DEVICE_KEYGEN, status_from_statefs_error(err), &[]);
+    }
+
+    // Generate the keypair (in-memory cache).
     // SECURITY: Do NOT log entropy or private key bytes!
     if device_keypair.generate(&entropy) {
         emit_line("keystored: device key generated");
@@ -656,7 +904,16 @@ where
 /// # Security
 /// - Policy-gated via `device.pubkey.read` capability
 /// - Only returns public key, NEVER private key
-fn handle_get_device_pubkey(device_keypair: &DeviceKeyPair, sender_service_id: u64) -> Vec<u8> {
+fn handle_get_device_pubkey(
+    device_keypair: &mut DeviceKeyPair,
+    store: &mut KeyStore,
+    sender_service_id: u64,
+) -> Vec<u8> {
+    if !device_keypair.is_generated() {
+        if let Some(bytes) = store.device_key_bytes() {
+            device_keypair.load_from_bytes(bytes);
+        }
+    }
     handle_get_device_pubkey_with(device_keypair, sender_service_id, |sid| {
         policyd_allows(sid, b"device.pubkey.read")
     })
@@ -689,7 +946,8 @@ where
 /// - Private key NEVER leaves keystored
 /// - Only signature is returned
 fn handle_device_sign(
-    device_keypair: &DeviceKeyPair,
+    device_keypair: &mut DeviceKeyPair,
+    store: &mut KeyStore,
     sender_service_id: u64,
     frame: &[u8],
 ) -> Vec<u8> {
@@ -712,7 +970,12 @@ fn handle_device_sign(
         return rsp(OP_DEVICE_SIGN, STATUS_DENY, &[]);
     }
 
-    // Check if key exists
+    // Ensure key is loaded (if persisted).
+    if !device_keypair.is_generated() {
+        if let Some(bytes) = store.device_key_bytes() {
+            device_keypair.load_from_bytes(bytes);
+        }
+    }
     if !device_keypair.is_generated() {
         return rsp(OP_DEVICE_SIGN, STATUS_KEY_NOT_FOUND, &[]);
     }
@@ -729,6 +992,31 @@ fn handle_device_sign(
 /// This operation is intentionally unsupported: private key export is forbidden.
 fn handle_get_device_privkey() -> Vec<u8> {
     rsp(OP_GET_DEVICE_PRIVKEY, STATUS_PRIVATE_EXPORT_DENIED, &[])
+}
+
+/// Handle DEVICE_RELOAD request.
+///
+/// # Security
+/// - Policy-gated via `device.key.reload` capability
+fn handle_device_reload(
+    device_keypair: &mut DeviceKeyPair,
+    store: &mut KeyStore,
+    sender_service_id: u64,
+) -> Vec<u8> {
+    if !policyd_allows(sender_service_id, b"device.key.reload") {
+        emit_line("keystored: reload denied by policy");
+        return rsp(OP_DEVICE_RELOAD, STATUS_DENY, &[]);
+    }
+    emit_line("keystored: reload policy ok");
+    // Re-read from statefsd to prove persistence across reboots
+    match store.reload_device_key() {
+        Ok(Some(bytes)) => {
+            device_keypair.load_from_bytes(bytes);
+            rsp(OP_DEVICE_RELOAD, STATUS_OK, &[])
+        }
+        Ok(None) => rsp(OP_DEVICE_RELOAD, STATUS_KEY_NOT_FOUND, &[]),
+        Err(_) => rsp(OP_DEVICE_RELOAD, STATUS_UNSUPPORTED, &[]),
+    }
 }
 
 /// Request entropy from rngd service.
@@ -751,9 +1039,12 @@ fn request_entropy_from_rngd(n: usize) -> Option<Vec<u8>> {
     req.extend_from_slice(&nonce.to_le_bytes());
     req.extend_from_slice(&(n as u16).to_le_bytes());
 
-    // Route to rngd (send slot), but receive replies via @reply CAP_MOVE.
-    let (rng_send_slot, _rng_recv_slot) = route_blocking(b"rngd")?;
-    let (reply_send_slot, reply_recv_slot) = route_blocking(b"@reply")?;
+    // init-lite deterministic slots for keystored:
+    // - rngd send: 0x0A
+    // - reply inbox: recv=0x05, send=0x06
+    let rng_send_slot = 0x0a;
+    let reply_send_slot = 0x06;
+    let reply_recv_slot = 0x05;
     let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
 
     // Send request with CAP_MOVE reply cap so rngd can reply to us deterministically.
@@ -843,6 +1134,33 @@ fn rsp(op: u8, status: u8, value: &[u8]) -> Vec<u8> {
     out
 }
 
+fn status_from_statefs_error(err: StatefsError) -> u8 {
+    match err {
+        StatefsError::NotFound => STATUS_NOT_FOUND,
+        StatefsError::AccessDenied => STATUS_DENY,
+        StatefsError::ValueTooLarge | StatefsError::KeyTooLong => STATUS_TOO_LARGE,
+        StatefsError::InvalidKey | StatefsError::Corrupted => STATUS_MALFORMED,
+        StatefsError::IoError | StatefsError::ReplayLimitExceeded => STATUS_UNSUPPORTED,
+    }
+}
+
+fn push_hex_u64(out: &mut String, value: u64) {
+    for shift in (0..16).rev() {
+        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        out.push(ch as char);
+    }
+}
+
+fn push_hex_bytes(out: &mut String, bytes: &[u8]) {
+    for byte in bytes {
+        let high = (byte >> 4) & 0xF;
+        let low = byte & 0xF;
+        out.push(if high < 10 { (b'0' + high) as char } else { (b'a' + (high - 10)) as char });
+        out.push(if low < 10 { (b'0' + low) as char } else { (b'a' + (low - 10)) as char });
+    }
+}
+
 /// Touches schema types to keep host parity; no-op in the stub.
 pub fn touch_schemas() {}
 
@@ -895,8 +1213,10 @@ mod tests {
     #[test]
     fn test_device_keygen_denied_by_policy() {
         let mut keypair = DeviceKeyPair::new();
+        let mut store = KeyStore::new_memory();
         let out = handle_device_keygen_with(
             &mut keypair,
+            &mut store,
             nexus_abi::service_id_from_name(b"demo.testsvc"),
             |_| false,
             |_| Some(vec![0u8; 32]),
@@ -908,8 +1228,10 @@ mod tests {
     #[test]
     fn test_device_keygen_entropy_unavailable() {
         let mut keypair = DeviceKeyPair::new();
+        let mut store = KeyStore::new_memory();
         let out = handle_device_keygen_with(
             &mut keypair,
+            &mut store,
             nexus_abi::service_id_from_name(b"selftest-client"),
             |_| true,
             |_| None,
@@ -921,8 +1243,10 @@ mod tests {
     #[test]
     fn test_device_keygen_success_and_pubkey() {
         let mut keypair = DeviceKeyPair::new();
+        let mut store = KeyStore::new_memory();
         let out = handle_device_keygen_with(
             &mut keypair,
+            &mut store,
             nexus_abi::service_id_from_name(b"selftest-client"),
             |_| true,
             |_| Some(vec![0x5a; 32]),
@@ -942,14 +1266,17 @@ mod tests {
     #[test]
     fn test_device_keygen_idempotent() {
         let mut keypair = DeviceKeyPair::new();
+        let mut store = KeyStore::new_memory();
         let _ = handle_device_keygen_with(
             &mut keypair,
+            &mut store,
             nexus_abi::service_id_from_name(b"selftest-client"),
             |_| true,
             |_| Some(vec![0x11; 32]),
         );
         let out = handle_device_keygen_with(
             &mut keypair,
+            &mut store,
             nexus_abi::service_id_from_name(b"selftest-client"),
             |_| true,
             |_| Some(vec![0x22; 32]),

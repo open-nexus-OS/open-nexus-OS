@@ -1,78 +1,120 @@
-# Handoff (Current)
+# TASK-0009 Continuation: Persistence v1 (StateFS + VirtIO-blk)
 
-<!--
-CONTEXT
-This is the entry-point for a new chat/session.
-Keep it short, factual, and proof-oriented.
-Update it at the end of each task.
--->
+**Date**: 2026-02-03
+**Task**: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+**Status**: Core persistence working, routing issues blocking full QEMU test pass
 
-## What was just completed
-- **task**: `tasks/TASK-0010-device-mmio-access-model.md` (Status: Done)
-- **contracts**:
-  - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (Status: Done)
-  - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability distribution model)
-  - `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy enforcement)
-- **touched_paths**:
-  - `source/kernel/neuron/` (syscalls: DEVICE_CAP_CREATE, CAP_TRANSFER_TO, negative tests)
-  - `source/libs/nexus-abi/` (userspace wrappers)
-  - `source/init/nexus-init/` (policy-gated MMIO distribution, dynamic virtio probing)
-  - `source/services/{rngd,netstackd,virtioblkd}/` (MMIO consumers)
-  - `source/services/policyd/` (privileged proxy for init)
-  - `recipes/policy/base.toml` (device.mmio.{net,rng,blk} capabilities)
-  - `scripts/{qemu-test.sh,run-qemu-rv64.sh}` (virtio-blk device, markers, RUN_PHASE=mmio)
-  - `justfile` (test-mmio target)
-  - `docs/rfcs/`, `docs/testing/`, `docs/architecture/` (RFC-0017, device-mmio-access.md, contracts-map.md)
+---
 
-## Proof (links / commands)
-- **tests**:
-  - `just fmt-check` ✅
-  - `just lint` ✅
-  - `just deny-check` ✅
-  - `just test-host` ✅
-  - `just test-e2e` ✅
-  - `just arch-check` ✅
-  - `just dep-gate` ✅ (critical: no forbidden crates)
-  - `just build-kernel` ✅
-  - `just test-os` ✅ (all markers including new policy deny test)
-  - `just test-mmio` ✅ (fast local MMIO phase test)
-  - `make test` ✅ (261 tests via nextest)
-  - `make build` ✅ (host + OS services + kernel)
-  - `make run` ✅ (QEMU boot + all markers)
-- **qemu markers (all green)**:
-  - `SELFTEST: mmio map ok` ✅
-  - `rngd: mmio window mapped ok` ✅
-  - `virtioblkd: mmio window mapped ok` ✅ (NEW - virtio-blk consumer proof)
-  - `SELFTEST: mmio policy deny ok` ✅ (NEW - policy deny-by-default proof)
+## Current State
 
-## Current state summary (compressed)
-- **why**:
-  - Userspace drivers can now safely access device MMIO windows via capability-gated syscalls
-  - Init distributes device capabilities dynamically (policy-gated, audited, per-device windows)
-  - Kernel enforces W^X at MMIO boundary (USER|RW only, never EXEC)
-  - virtio-blk MMIO access proven end-to-end (unblocks TASK-0009 persistence)
-- **new invariants / constraints**:
-  - Device MMIO mappings MUST be capability-gated (no ambient access)
-  - MMIO caps MUST be distributed by init (policy-checked, sender_service_id bound)
-  - MMIO mappings MUST be non-executable (W^X enforced at page table level)
-  - Per-device windows MUST be bounded to exact device BAR (least privilege)
-  - Policy decisions MUST be audited via logd (no secrets in logs)
-- **known risks**:
-  - DMA/IRQ delivery not yet implemented (follow-up tasks required)
-  - virtio virtqueue operations beyond basic MMIO probing (follow-up)
+### Working ✓
 
-## Next steps (drift-free)
-1. **TASK-0009: Persistence v1 (virtio-blk + statefs)** - READY TO START
-   - **First action**: Create RFC seed for statefs journal format (use `docs/rfcs/RFC-TEMPLATE.md`, update `docs/rfcs/README.md`)
-   - virtio-blk MMIO access is proven (TASK-0010 Done)
-   - Implement statefs journal engine (host-first: BlockDevice trait + mem backend)
-   - Create `statefsd` service (journaled KV store over block device)
-   - Migrate keystored device keys to `/state/keystore/*`
-   - Migrate updated bootctl to `/state/boot/bootctl.*`
-   - Prove persistence via soft reboot (restart statefsd, replay journal, verify data)
-   - QEMU markers: `blk: virtio-blk up`, `statefsd: ready`, `SELFTEST: statefs persist ok`
-   - **Progressive**: Update RFC checkboxes as phases complete
-   - **Final**: Update RFC status to Complete when all proofs green
+**Host tests (35 tests, ~6 seconds):**
+```bash
+cargo test -p statefs -p storage-virtio-blk -p updates_host
+```
 
-## Blockers / Open threads
-- NONE - TASK-0009 is fully unblocked
+**QEMU markers achieved:**
+- `statefsd: ready`
+- `blk: virtio-blk up`
+- `SELFTEST: statefs put ok`
+- `SELFTEST: statefs persist ok`
+- `SELFTEST: device key persist ok`
+
+### Not Working ✗
+
+| Issue | Cause | Location |
+|-------|-------|----------|
+| `SELFTEST: ota switch FAIL` | `updated` can't route to `bundlemgrd` | `updated/os_lite.rs:509` |
+| `SELFTEST: samgrd v1 register FAIL` | Dynamic routing fails | selftest-client |
+| `SELFTEST: bootctl persist ok` missing | Test never reached (timeout) | After OTA tests |
+| Watchdog fires | Routing operations block too long | init-lite |
+
+---
+
+## Immediate Fix Needed
+
+**Problem**: `updated` uses dynamic routing for bundlemgrd which fails:
+```rust
+// source/services/updated/src/os_lite.rs line ~509
+let client = match KernelClient::new_for("bundlemgrd") {
+    Err(_) => return Err("route"),  // <-- fails here
+};
+```
+
+**Solution**: Use hardcoded slots like we did for statefsd/keystored policyd calls.
+
+Check init-lite's updated block for bundlemgrd slots:
+```bash
+grep -A20 '"updated" =>' source/init/nexus-init/src/os_payload.rs
+```
+
+---
+
+## New Infrastructure Created
+
+### 1. `slot_map.rs` - Centralized slot definitions
+**Path**: `source/init/nexus-init/src/slot_map.rs`
+
+Defines expected slot numbers per service. Use instead of magic numbers:
+```rust
+use nexus_init::slot_map::selftest;
+KernelClient::new_with_slots(selftest::KEYSTORED_SEND, selftest::KEYSTORED_RECV)
+```
+
+### 2. `slot_probe.rs` - Early validation
+**Path**: `source/libs/nexus-abi/src/slot_probe.rs`
+
+Validates slots at service startup before they're used:
+```rust
+use nexus_abi::slot_probe::validate_slots;
+
+let missing = validate_slots("keystored", &[
+    ("policyd", 0x09),
+    ("reply_recv", 0x05),
+]);
+if missing > 0 {
+    return Err(ServerError::Unsupported);
+}
+// Emits: "SLOT MISSING: keystored needs policyd at slot 0x09"
+```
+
+**TODO**: Integrate `validate_slots` into keystored, statefsd, updated at startup.
+
+---
+
+## Test Commands
+
+```bash
+# Fast iteration (host tests first):
+cargo test -p statefs -p storage-virtio-blk -p updates_host
+
+# QEMU with increased watchdog:
+RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s INIT_LITE_WATCHDOG_TICKS=800 ./scripts/qemu-test.sh
+
+# Filter for relevant output:
+./scripts/qemu-test.sh 2>&1 | grep -E "SELFTEST:|updated:|SLOT|route"
+```
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `source/services/updated/src/os_lite.rs` | OTA switch routing issue |
+| `source/services/keystored/src/os_stub.rs` | Device key persistence (working) |
+| `source/services/statefsd/src/os_lite.rs` | StateFS service (working) |
+| `source/apps/selftest-client/src/main.rs` | All SELFTEST markers |
+| `source/init/nexus-init/src/os_payload.rs` | Slot distribution logic |
+
+---
+
+## Session Context
+
+- Converted keystored/statefsd `policyd_allows` to hardcoded slots
+- Added keystored to selftest-client's hardcoded slot list (0x11, 0x12)
+- Fixed keystored `reload_device_key` to actually read from statefsd
+- Created slot_map.rs and slot_probe.rs for deterministic slot handling
+- Core persistence works; remaining failures are routing issues not persistence bugs

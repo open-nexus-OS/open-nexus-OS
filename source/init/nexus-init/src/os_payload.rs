@@ -317,7 +317,7 @@ type Result<T> = core::result::Result<T, InitError>;
 static PROBE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 // RFC-0005: per-service bootstrap routing protocol (init-lite responder over a private control EP).
-const CTRL_EP_DEPTH: usize = 4;
+const CTRL_EP_DEPTH: usize = 8;
 const CTRL_CHILD_SEND_SLOT: u32 = 1; // First cap_transfer into a freshly spawned task (slot 0 is reserved).
 const CTRL_CHILD_RECV_SLOT: u32 = 2; // Second cap_transfer (paired reply endpoint).
 
@@ -357,6 +357,8 @@ struct CtrlChannel {
     exe_recv_slot: Option<u32>,
     key_send_slot: Option<u32>,
     key_recv_slot: Option<u32>,
+    state_send_slot: Option<u32>,
+    state_recv_slot: Option<u32>,
     /// Optional routing for target "rngd" from the perspective of this PID:
     /// - send_slot: where this PID should send entropy requests
     /// - recv_slot: where this PID should receive direct replies (if used)
@@ -741,6 +743,13 @@ where
                 let child_recv_slot =
                     nexus_abi::cap_transfer(pid, ctrl_rsp_parent_slot, Rights::RECV)
                         .map_err(InitError::Abi)?;
+                if image.name == "updated" {
+                    debug_write_bytes(b"init: updated ctrl slots send=0x");
+                    debug_write_hex(child_send_slot as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(child_recv_slot as usize);
+                    debug_write_byte(b'\n');
+                }
                 if probes_enabled()
                     && (child_send_slot != CTRL_CHILD_SEND_SLOT
                         || child_recv_slot != CTRL_CHILD_RECV_SLOT)
@@ -777,6 +786,8 @@ where
                     exe_recv_slot: None,
                     key_send_slot: None,
                     key_recv_slot: None,
+                    state_send_slot: None,
+                    state_recv_slot: None,
                     rng_send_slot: None,
                     rng_recv_slot: None,
                     net_send_slot: None,
@@ -855,6 +866,7 @@ where
     let samgrd_pid = find_pid(&ctrl_channels, "samgrd").ok_or(InitError::MissingElf)?;
     let execd_pid = find_pid(&ctrl_channels, "execd").ok_or(InitError::MissingElf)?;
     let keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
+    let statefsd_pid = find_pid(&ctrl_channels, "statefsd").ok_or(InitError::MissingElf)?;
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
 
@@ -893,6 +905,10 @@ where
     let key_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, keystored_pid, 8)
         .map_err(InitError::Abi)?;
     let key_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+        .map_err(InitError::Abi)?;
+    let state_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, statefsd_pid, 8)
+        .map_err(InitError::Abi)?;
+    let state_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
 
     // rngd <-> clients endpoints:
@@ -1064,6 +1080,10 @@ where
         let blk_slot = blk_slot.ok_or(InitError::Map("virtio-blk slot not found"))?;
         grant_mmio_with_wait(virtioblkd_pid, "virtioblkd", "device.mmio.blk", blk_slot)?;
     }
+    if let Some(statefsd_pid) = find_pid(&ctrl_channels, "statefsd") {
+        let blk_slot = blk_slot.ok_or(InitError::Map("virtio-blk slot not found"))?;
+        grant_mmio_with_wait(statefsd_pid, "statefsd", "device.mmio.blk", blk_slot)?;
+    }
 
     for chan in &mut ctrl_channels {
         let pid = chan.pid;
@@ -1200,6 +1220,7 @@ where
                     nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+                chan.state_recv_slot = Some(reply_recv_slot);
                 debug_write_bytes(b"init: policyd reply slots recv=0x");
                 debug_write_hex(reply_recv_slot as usize);
                 debug_write_bytes(b" send=0x");
@@ -1302,6 +1323,15 @@ where
                     chan.key_recv_slot = Some(recv_slot);
                 }
 
+                // Allow updated to call statefsd for persistence.
+                let send_slot = transfer(state_req, Rights::SEND, "statefsd send");
+                if let Some(send_slot) = send_slot {
+                    chan.state_send_slot = Some(send_slot);
+                    debug_write_bytes(b"init: updated statefsd send slot=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_byte(b'\n');
+                }
+
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
                 let reply_ep =
                     nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
@@ -1313,6 +1343,13 @@ where
                 {
                     chan.reply_recv_slot = Some(reply_recv_slot);
                     chan.reply_send_slot = Some(reply_send_slot);
+                    chan.state_recv_slot = Some(reply_recv_slot);
+                    debug_write_bytes(b"init: updated reply recv slot=0x");
+                    debug_write_hex(reply_recv_slot as usize);
+                    debug_write_byte(b'\n');
+                    debug_write_bytes(b"init: updated reply send slot=0x");
+                    debug_write_hex(reply_send_slot as usize);
+                    debug_write_byte(b'\n');
                 }
 
                 // TASK-0006: allow updated to send structured logs to logd via CAP_MOVE (reply inbox).
@@ -1399,7 +1436,7 @@ where
                 chan.key_send_slot = Some(send_slot);
                 chan.key_recv_slot = Some(recv_slot);
 
-                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                // Provide a reply inbox for CAP_MOVE reply routing (used by statefsd + log sinks).
                 let reply_ep =
                     nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
                         .map_err(InitError::Abi)?;
@@ -1409,6 +1446,12 @@ where
                     nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
+
+                // statefsd SEND cap + use reply inbox for responses
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, state_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.state_send_slot = Some(send_slot);
+                chan.state_recv_slot = Some(reply_recv_slot);
 
                 if let Some(req) = log_req {
                     let send_slot =
@@ -1429,6 +1472,36 @@ where
                 chan.rng_send_slot = Some(send_slot);
                 // Use reply inbox recv slot for routing responses (CAP_MOVE replies land here).
                 chan.rng_recv_slot = Some(reply_recv_slot);
+            }
+            "statefsd" => {
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, state_req, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, state_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                chan.state_send_slot = Some(send_slot);
+                chan.state_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: statefsd slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
+
+                // Provide a reply inbox for CAP_MOVE reply routing (policyd checks, logd).
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                // Allow statefsd to call policyd (reply via CAP_MOVE/@reply).
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.pol_send_slot = Some(send_slot);
+                chan.pol_recv_slot = Some(reply_recv_slot);
             }
             "rngd" => {
                 // Server-side endpoints for rngd.
@@ -1553,6 +1626,18 @@ where
                 chan.key_send_slot = Some(send_slot);
                 chan.key_recv_slot = Some(recv_slot);
                 debug_write_bytes(b"init: selftest keystored slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
+
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, state_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, state_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.state_send_slot = Some(send_slot);
+                chan.state_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: selftest statefsd slots send=0x");
                 debug_write_hex(send_slot as usize);
                 debug_write_bytes(b" recv=0x");
                 debug_write_hex(recv_slot as usize);
@@ -1695,6 +1780,9 @@ where
                 Err(nexus_abi::IpcError::QueueEmpty) => continue,
                 Err(_) => continue,
             };
+            if chan.svc_name == "updated" {
+                debug_write_bytes(b"init: ctrl req from updated\n");
+            }
             // Health gate: allow selftest-client to notify init.
             if chan.svc_name == "selftest-client" && decode_init_health_ok_req(&buf[..n]) {
                 let status = match updated_health_ok(upd_req, upd_reply_send, upd_reply_recv) {
@@ -1785,6 +1873,11 @@ where
             };
             if name == b"samgrd" && chan.svc_name == "selftest-client" {
                 debug_write_bytes(b"init: route samgrd from selftest-client\n");
+            }
+            if name == b"statefsd" {
+                debug_write_bytes(b"init: route statefsd from ");
+                debug_write_str(chan.svc_name);
+                debug_write_byte(b'\n');
             }
             if name == b"vfsd" {
                 debug_write_bytes(b"init: route vfsd from ");
@@ -1914,6 +2007,11 @@ where
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }
+            } else if name == b"statefsd" {
+                match (chan.state_send_slot, chan.state_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
             } else if name == b"netstackd" {
                 match (chan.net_send_slot, chan.net_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
@@ -2027,7 +2125,7 @@ fn policyd_route_allowed(
     let n = nexus_abi::policyd::encode_route_v3_id(nonce, requester_id, target_id, &mut frame)?;
 
     let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
+        Ok(now) => now.saturating_add(200_000_000),
         Err(_) => 0,
     };
 

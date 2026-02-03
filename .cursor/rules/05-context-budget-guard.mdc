@@ -1,0 +1,41 @@
+---
+description: Context budget guard — warn on oversized implicit context
+globs:
+  - tasks/**/*.md
+  - .cursor/**/*.md
+  - source/**/*.rs
+  - userspace/**/*.rs
+  - scripts/**/*.sh
+  - recipes/**/*.toml
+---
+
+# Context Budget Guard (anti token-explosion)
+
+This is a *guardrail rule* to prevent accidental massive "cache read tokens" caused by
+large git diffs, many changed files, or long chat history.
+
+## Mandatory: quick budget check before deep work
+
+Before doing any non-trivial response (planning, debugging, implementation), do a fast check:
+- `git status --short`
+- `git diff --stat`
+- `git diff | wc -l`
+
+## Warn & propose mitigation when budget is large
+
+If any of these are true, **warn explicitly** that context may explode and propose mitigations:
+- `git diff | wc -l` > 400
+- more than ~10 modified files
+- many untracked files in new directories (e.g. new crates / large docs)
+
+Mitigations to propose (pick the smallest that works):
+- Start a **new chat** (resets long accumulated history).
+- Work with **strict manual context**: only the 1-3 relevant files, no auto-added diffs.
+- If debugging a tiny change: ask user to temporarily **disable** auto-including git diffs / changed files / codebase retrieval.
+- If a large diff is unavoidable: split into smaller, separately scoped sessions.
+
+## Output discipline
+
+When warning, keep it short and action-oriented:
+- say *why* (diff/changed-files is big)
+- say *what to do* (new chat / narrow context)

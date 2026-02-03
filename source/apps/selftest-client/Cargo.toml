@@ -39,6 +39,7 @@ os-lite = [
     "dep:sha2",
     "dep:net-virtio",
     "dep:nexus-noise-xk",
+    "dep:statefs",
 ]
 # Optional: legacy/bounded smoltcp-over-virtio probe for bring-up debugging.
 # Keep off by default to avoid marker drift and unused-code warnings.
@@ -72,6 +73,7 @@ ed25519-dalek = { version = "2", default-features = false, features = ["alloc"],
 sha2 = { version = "0.10", default-features = false, optional = true }
 net-virtio = { path = "../../drivers/net/virtio", optional = true }
 nexus-noise-xk = { path = "../../libs/nexus-noise-xk", optional = true }
+statefs = { path = "../../../userspace/statefs", default-features = false, optional = true }
 smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-icmp", "socket-udp", "medium-ethernet"], optional = true }
 nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"], optional = true }
 

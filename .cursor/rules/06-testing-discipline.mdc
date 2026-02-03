@@ -1,0 +1,81 @@
+---
+description: Testing discipline — systematic, autonomous, but bounded (anti token-explosion)
+globs:
+  - scripts/qemu-test.sh
+  - scripts/run-qemu-*.sh
+  - scripts/**/*.sh
+  - source/**/tests/**
+  - Makefile
+---
+
+# Testing Discipline (autonomous but bounded)
+
+This rule governs testing/debugging to keep it efficient and token-safe.
+
+## Philosophy
+- **Autonomous testing is OK**: Try 2–3 hypotheses/fixes without asking (faster iteration).
+- **But**: Hard-stop before exponential context explosion (no endless retry chains).
+- **Systematic > guessing**: Check docs/troubleshooting first, then test.
+
+## Workflow (mandatory)
+
+### 1) Before first hypothesis
+- **Read** `docs/testing/index.md` → Troubleshooting section (if it exists).
+- **Read** `.cursor/current_state.md` → "Known risks / DON'T DO" (common pitfalls).
+- **Identify** exact error message / missing marker / unexpected behavior.
+
+### 2) Autonomous testing (up to 3 tries)
+- Formulate 1 clear hypothesis.
+- Make minimal change (1–2 files max).
+- Run test.
+- Observe result.
+- Repeat up to **3 times total** if no progress.
+
+### 3) Hard-stop after 3 failed attempts
+If after 3 tries there's **no clear progress** (same error, unclear root cause):
+- **STOP trying more fixes.**
+- **Propose ONE of**:
+  - Start **fresh chat** (reset context, re-approach with clean slate).
+  - Add **better instrumentation** (logs/markers/assertions) to pinpoint issue.
+  - Escalate to user: "Need more info: X is unclear, should we add logging for Y?"
+
+## What counts as "progress"
+- ✅ Error message changed (getting closer).
+- ✅ New marker appeared (partial success).
+- ✅ Clear indication of root cause (even if not fixed yet).
+- ❌ Same error 3 times with different "guesses" = NO progress.
+
+## Context discipline during testing
+- **Only read** files directly mentioned in error / test output.
+- **No speculative codebase scanning** ("let me check 10 related files").
+- **Keep responses short**: "Hypothesis → change → test command" (not long explanations).
+
+## When to propose tooling improvement
+If stuck and:
+- Error messages are vague.
+- Missing markers / logs to pinpoint issue.
+- Would need to "guess" at 4th+ attempt.
+
+→ Propose: "Let's add [specific logging/marker] to X so we can see Y" (separate mini-task, fresh chat).
+
+## Example (good)
+1. Test fails: `SELFTEST: statefs persist MISSING`
+2. Check `docs/testing/index.md` → troubleshooting (nothing relevant).
+3. Check `.cursor/current_state.md` → no known issue.
+4. Hypothesis 1: journal not flushed → add explicit flush, test → still missing.
+5. Hypothesis 2: marker condition wrong → check test assertion → find bug, fix → ✅ passes.
+(2 tries, clear progress, done)
+
+## Example (stop point)
+1. Test fails: `virtio-blk: read failed`
+2. Hypothesis 1: offset wrong → change offset, test → same error.
+3. Hypothesis 2: buffer size wrong → change size, test → same error.
+4. Hypothesis 3: queue setup wrong → change init order, test → same error.
+→ **STOP here.** Error is too vague, guessing isn't working.
+→ Propose: "Add debug logging in virtio-blk::read to show offset/size/status → then re-test in fresh chat."
+
+## Anti-patterns (forbidden)
+- ❌ 5+ retry loops in same chat without progress.
+- ❌ Reading entire codebase speculatively ("let me check all virtio code").
+- ❌ Changing 10 things at once ("maybe this helps").
+- ❌ Ignoring `docs/testing/index.md` troubleshooting (read it first).
