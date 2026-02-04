@@ -2,135 +2,90 @@
 
 **Date**: 2026-02-03
 **Task**: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
-**Status**: BLOCKED - virtio-blk I/O timeout in QEMU
+**Status**: BLOCKED - virtio-blk I/O timeout in QEMU (extensive debugging done)
 
 ---
 
-## Blocking Issue
+## Summary
 
-**VirtIO-blk device doesn't respond to queue notifications.**
+VirtIO-blk driver is fully configured but QEMU never processes queue entries.
+All configuration parameters are correct; the issue appears to be QEMU-side.
+
+## Debug Findings
 
 ```
 virtio-blk: mmio legacy
-virtio-blk: q_pa=0x8176a000 pfn=0x8176a
-virtio-blk: buf_pa=0x8176b000
-virtio-blk: timeout last=00000000 polls=0000b041
-virtio-blk: warmup failed
+virtio-blk: q_pa=0x8176b000 pfn=0x8176b
+virtio-blk: q_max=00000400           <- Device reports max queue=1024, we use 8 ✓
+virtio-blk: status=00000003          <- ACK | DRIVER ✓
+virtio-blk: status_ok=00000007       <- + DRIVER_OK ✓
+virtio-blk: buf_pa=0x8176c000        <- Buffer PA valid ✓
+virtio-blk: cap=0x20000 sectors      <- 131072 sectors = 64MB ✓
+virtio-blk: notify avail_idx=00000001 <- We added one entry ✓
+virtio-blk: timeout last=00000000    <- used.idx stays 0 ✗
 ```
 
-### What Works
-- Device discovery (magic, ID, legacy version detection)
-- Queue setup (PFN written correctly)
-- Feature negotiation (fixed for legacy mode)
-- Memory allocation (VMO, physical addresses)
+**Key observation**: virtio-net works with identical code patterns.
+Both use legacy mode (version 1), same queue setup, same MMIO access.
 
-### What Fails
-- First I/O request times out after ~2s
-- `used.idx` stays at 0 (device never processes request)
-- Same behavior for both read and write operations
+## Attempted Fixes (all failed)
 
-### Attempted Fixes (all failed, same error)
-1. Queue memory zeroing before `setup_queue()` + `driver_ok()`
+1. Queue memory zeroing order (before/after setup_queue)
 2. Warmup read after device init
 3. Volatile writes to virtqueue structures
 4. Legacy mode feature negotiation (no FEATURES_SEL for high bits)
+5. Initial queue kick after driver_ok
+6. Delay between driver_ok and first I/O
+7. Various debug instrumentation
 
-### Diagnosis Needed
-- QEMU device tree verification (`info qtree`)
-- Compare virtio-blk slot assignment vs virtio-net (which works)
-- Check if QEMU's legacy virtio-blk has specific quirks
+## Hypothesis
 
----
+The issue is likely one of:
+1. **QEMU virtio-blk-device quirk** - different behavior from virtio-net in legacy mode
+2. **icount timing** - QEMU's `-icount 1,sleep=on` may affect virtio-blk differently
+3. **Backing file access** - QEMU may have issues with the raw file I/O
 
-## Current State
+## What Works
 
-### Working ✓
+- Host tests: 35 tests pass
+- Device discovery: magic, version, capacity all correct
+- Queue setup: PFN written, device acknowledges
+- virtio-net: works with same code patterns
+- SELFTEST markers (except persist tests):
+  - `SELFTEST: reply loopback ok`
+  - `SELFTEST: keystored capmove ok`
+  - `SELFTEST: rng entropy ok`
 
-**Host tests (35 tests):**
-```bash
-cargo test -p statefs -p storage-virtio-blk -p updates_host
-```
+## Recommended Next Steps
 
-**QEMU markers achieved:**
-- `statefsd: ready`
-- `SELFTEST: statefs put ok`
-- `SELFTEST: reply loopback ok`
-- `SELFTEST: keystored capmove ok`
-- `SELFTEST: rng entropy ok`
-- `net: virtio-net up` (virtio-net works!)
-
-### Not Working ✗
-
-| Issue | Cause | Location |
-|-------|-------|----------|
-| `SELFTEST: statefs persist FAIL` | virtio-blk timeout | statefsd |
-| `SELFTEST: device key persist FAIL` | virtio-blk timeout | keystored |
-| `virtio-blk: warmup failed` | Device doesn't respond | virtio-blk driver |
-
----
-
-## Key Observations
-
-1. **virtio-net works, virtio-blk doesn't** - same MMIO probing, same feature negotiation code
-2. **Legacy mode (version 1)** - both devices are legacy, but net works
-3. **Queue addresses look valid** - PFN 0x8176a, buf at 0x8176b000
-4. **Device never processes** - `used.idx` stays 0 through ~45000 polls
-
----
-
-## Infrastructure Created
-
-### 1. `slot_map.rs` - Centralized slot definitions
-**Path**: `source/init/nexus-init/src/slot_map.rs`
-
-### 2. `slot_probe.rs` - Early validation  
-**Path**: `source/libs/nexus-abi/src/slot_probe.rs`
-
-### 3. `statefsd` - StateFS service
-**Path**: `source/services/statefsd/`
-
-### 4. `statefs` + `storage` userspace crates
-**Path**: `userspace/statefs/`, `userspace/storage/`
-
----
+1. **Test outside icount mode**: Try `QEMU_ICOUNT=off` (requires script modification)
+2. **Compare with known-good driver**: Check Linux's virtio-blk for legacy mode quirks
+3. **QEMU monitor debugging**: Run with `-monitor stdio` and inspect device state
+4. **Escalate to mini-task**: Create focused debugging task for virtio-blk
 
 ## Test Commands
 
 ```bash
-# Host tests (these pass):
+# Host tests (pass):
 cargo test -p statefs -p storage-virtio-blk -p updates_host
 
-# QEMU with increased watchdog:
+# QEMU test (virtio-blk fails, others work):
 RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s INIT_LITE_WATCHDOG_TICKS=800 ./scripts/qemu-test.sh
 
 # Check virtio-blk output:
-grep -E "virtio-blk|warmup|persist" uart.log
+grep -E "virtio-blk:|warmup|persist" uart.log
 ```
-
----
-
-## Recommended Next Steps
-
-1. **QEMU monitor debugging**: Run with `-monitor stdio`, use `info qtree` to inspect virtio-blk device
-2. **Compare with virtio-net**: Check `userspace/nexus-net-os/src/smoltcp_virtio.rs` queue setup
-3. **Add QEMU trace events**: `qemu-system-riscv64 -trace "virtio_blk*" ...`
-4. **Check backing file**: Verify `build/blk.img` is accessible by QEMU process
-
----
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `source/drivers/storage/virtio-blk/src/lib.rs` | VirtIO-blk driver (blocking issue) |
+| `source/drivers/storage/virtio-blk/src/lib.rs` | Driver with debug instrumentation |
 | `userspace/nexus-net-os/src/smoltcp_virtio.rs` | Working virtio-net for comparison |
 | `source/services/statefsd/src/os_lite.rs` | StateFS service |
-| `source/init/nexus-init/src/os_payload.rs` | MMIO grants |
 
----
+## Commits This Session
 
-## Session Context
-
-- Commit `3fe2987`: All changes committed as WIP
-- Testing discipline: Hit 4 attempts without progress, need fresh approach
-- virtio-net uses same feature negotiation but works - issue is blk-specific
+- `7264519`: Update TASK-0009 status - blocked on virtio-blk I/O timeout
+- `3fe2987`: TASK-0009: StateFS persistence v1 + virtio-blk driver WIP
+- `ae26c51`: virtio-blk: add debug instrumentation for queue setup
