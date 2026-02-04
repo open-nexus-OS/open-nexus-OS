@@ -266,7 +266,8 @@ mod mmio_backend {
 
     use super::{
         QueueSetup, VirtioBlk, VirtioError, VIRTIO_DEVICE_ID_BLK, VIRTIO_MMIO_MAGIC,
-        VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN,
+        VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN, REG_STATUS,
+        REG_QUEUE_SEL, REG_QUEUE_NUM_MAX,
     };
     use nexus_abi::{cap_query, debug_putc, mmio_map, nsec, vmo_create, vmo_map_page_sys, AbiError, CapQuery};
     use nexus_hal::Bus;
@@ -456,6 +457,13 @@ mod mmio_backend {
             // The device starts using the queue as soon as driver_ok is called.
             unsafe { core::ptr::write_bytes(Q_MEM_VA as *mut u8, 0, Q_PAGES * 4096) };
 
+            // Debug: check QUEUE_NUM_MAX before setup
+            dev.bus.write(REG_QUEUE_SEL, 0);
+            let q_max = dev.bus.read(REG_QUEUE_NUM_MAX);
+            emit_bytes(b"virtio-blk: q_max=");
+            emit_hex_u32(q_max);
+            emit_byte(b'\n');
+
             dev.setup_queue(
                 0,
                 &QueueSetup {
@@ -465,7 +473,23 @@ mod mmio_backend {
                     used_paddr: q_base_pa + used_off as u64,
                 },
             )?;
+
+            // Debug: verify queue configuration before driver_ok
+            let status_before = dev.bus.read(REG_STATUS);
+            emit_bytes(b"virtio-blk: status=");
+            emit_hex_u32(status_before);
+            emit_byte(b'\n');
+
             dev.driver_ok();
+
+            // Debug: verify driver_ok was accepted
+            let status_after = dev.bus.read(REG_STATUS);
+            emit_bytes(b"virtio-blk: status_ok=");
+            emit_hex_u32(status_after);
+            emit_byte(b'\n');
+
+            // Initial queue kick to ensure QEMU's virtio-blk is ready
+            dev.notify_queue(0);
 
             // Buffer memory (single page).
             let buf_vmo = vmo_create(BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
@@ -492,6 +516,12 @@ mod mmio_backend {
             let capacity_sectors = dev.capacity_sectors();
             let sector_size = 512u32;
 
+            // Debug: show device capacity
+            emit_bytes(b"virtio-blk: cap=");
+            emit_hex_u32((capacity_sectors >> 32) as u32);
+            emit_hex_u32(capacity_sectors as u32);
+            emit_bytes(b" sectors\n");
+
             let blk = Self {
                 dev,
                 queue_len: QUEUE_LEN,
@@ -508,6 +538,11 @@ mod mmio_backend {
                 capacity_sectors,
                 sector_size,
             };
+
+            // Give QEMU time to fully initialize the device after driver_ok
+            for _ in 0..1000 {
+                let _ = nexus_abi::yield_();
+            }
 
             // Warm-up read to ensure the device is actually responding.
             // This catches early failures before the caller tries to use the device.
@@ -605,6 +640,13 @@ mod mmio_backend {
             }
 
             fence(Ordering::SeqCst);
+
+            // Debug: show avail.idx before notify
+            let avail_idx_now = unsafe { core::ptr::read_volatile(&(*self.avail).idx) };
+            emit_bytes(b"virtio-blk: notify avail_idx=");
+            emit_hex_u32(avail_idx_now as u32);
+            emit_byte(b'\n');
+
             let last_before = self.last_used.get();
             self.dev.notify_queue(0);
 

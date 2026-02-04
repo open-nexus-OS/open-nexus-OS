@@ -34,10 +34,17 @@ This rule governs testing/debugging to keep it efficient and token-safe.
 ### 3) Hard-stop after 3 failed attempts
 If after 3 tries there's **no clear progress** (same error, unclear root cause):
 - **STOP trying more fixes.**
-- **Propose ONE of**:
-  - Start **fresh chat** (reset context, re-approach with clean slate).
+- **Mandatory context trim step (before continuing in this chat)**:
+  - Run `/summarize` (or use the UI action to summarize chat context).
+  - Update `.cursor/handoff/current.md` with a *tight rolling summary*:
+    - symptom + exact failing marker/error
+    - hypotheses tried (1–3) + outcomes
+    - what changed (files/areas) in one line
+    - next best experiment (single step)
+- **Then propose ONE of**:
+  - Start **fresh chat** (using `.cursor/handoff/current.md` as the only history replacement).
   - Add **better instrumentation** (logs/markers/assertions) to pinpoint issue.
-  - Escalate to user: "Need more info: X is unclear, should we add logging for Y?"
+  - Escalate: "Need more info: X is unclear; should we add logging for Y?"
 
 ## What counts as "progress"
 - ✅ Error message changed (getting closer).
@@ -49,6 +56,11 @@ If after 3 tries there's **no clear progress** (same error, unclear root cause):
 - **Only read** files directly mentioned in error / test output.
 - **No speculative codebase scanning** ("let me check 10 related files").
 - **Keep responses short**: "Hypothesis → change → test command" (not long explanations).
+
+## Mode hint (cost control)
+If token usage starts spiking during testing:
+- Prefer `/summarize` over continuing long chains.
+- Prefer a fresh chat seeded only by `.cursor/handoff/current.md` + the 1–2 relevant files.
 
 ## When to propose tooling improvement
 If stuck and:

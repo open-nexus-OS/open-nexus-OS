@@ -31,6 +31,9 @@ If any of these are true, **warn explicitly** that context may explode and propo
 Mitigations to propose (pick the smallest that works):
 - Start a **new chat** (resets long accumulated history).
 - Work with **strict manual context**: only the 1-3 relevant files, no auto-added diffs.
+- If debugging a cross-cutting invariant (e.g., kernel ↔ init ↔ ABI), use a **controlled context pack**:
+  - explicitly name up to ~5 files/paths to include (no `@codebase`)
+  - prefer 1 log excerpt + 1 failing test + 2–3 contract/impl files
 - If debugging a tiny change: ask user to temporarily **disable** auto-including git diffs / changed files / codebase retrieval.
 - If a large diff is unavoidable: split into smaller, separately scoped sessions.
 

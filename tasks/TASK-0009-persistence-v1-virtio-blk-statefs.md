@@ -41,7 +41,7 @@ follow-up-tasks:
 - [x] MMIO grants from init-lite to statefsd
 
 ### Blocking Issue
-```
+``` text
 virtio-blk: mmio legacy
 virtio-blk: q_pa=0x8176a000 pfn=0x8176a
 virtio-blk: timeout last=00000000 polls=0000b041
