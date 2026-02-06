@@ -12,12 +12,13 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (Status: Done)
+- **last_decision**: `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (Status: Complete, nonce correlation + modern virtio-mmio harness policy)
 - **rationale**:
-  - Userspace drivers need safe device access without kernel trust assumptions
-  - Capability-gated MMIO prevents arbitrary physical memory access
-  - Init-controlled distribution enables policy enforcement + audit trail
-  - Per-device windows enforce least privilege (no broad MMIO grants)
+  - Deterministic persistence substrate for `/state` with bounded replay and CRC32-C integrity
+  - Deterministic request/reply correlation (nonces + bounded dispatcher) to avoid shared-inbox desync under QEMU/OS
+  - QEMU harness defaults to modern virtio-mmio (legacy opt-in) for virtio-blk determinism
+  - QEMU smoke proofs must be deterministic; networking proofs are opt-in (ADR-0025)
+  - StateFS v1 remains a service authority (no VFS mount in v1)
 - **active_constraints**:
   - No fake success markers (only emit `ok` after real behavior proven)
   - OS-lite feature gating (`--no-default-features --features os-lite`)
@@ -25,6 +26,7 @@ Rules:
   - Policy decisions bound to kernel `sender_service_id` (not payload strings)
   - All security decisions audited via logd (no secrets in logs)
   - Kernel remains minimal (device enumeration, policy logic in userspace)
+  - CRC32-C (Castagnoli) is the StateFS v1 integrity contract
 
 ## Active invariants (must hold)
 - **security**
@@ -47,16 +49,26 @@ Rules:
   - `just diag-os` verifies OS services compile for riscv64
 
 ## Open threads / follow-ups
-- `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` — READY (virtio-blk MMIO access proven)
-- `tasks/TASK-0034-delta-updates-v1_1-persistent-bootctl.md` — blocked on TASK-0009 (needs statefs)
+- `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` — **COMPLETED** (host tests + QEMU persistence markers green under modern virtio-mmio)
+- `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` — **COMPLETED** (Phases 0/1/2 green; LO v2 nonce frames implemented for multiplexed logd RPCs)
+- `userspace/nexus-ipc::reqrep` exists (bounded reply buffer + unit tests) and core services use strict nonce matching on shared inboxes.
+- Deterministic host tests now exist for IPC budget + **logd/policyd wire parsing**: `cargo test -p nexus-ipc` (no QEMU required for these proof slices)
+- `tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md` — draft; no longer blocked on persistence (TASK-0009 done); remaining gates are the update/apply/verify/commit implementation + proofs
 - DMA capability model (future) — out of scope for MMIO v1
 - IRQ delivery to userspace (future) — separate RFC needed
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
 
 ## Known risks / hazards
-- **virtio-blk driver**: currently only MMIO probing proven, not full virtqueue operations
-  - Risk: statefs block backend will need full read/write operations
-  - Mitigation: scaffold exists in `source/drivers/storage/virtio-blk/`, extend incrementally
+- **QEMU smoke gating**:
+  - Default `just test-os` now reaches `SELFTEST: end` deterministically and early-exits within the 90s harness timeout (no missing-marker deadlocks).
+  - `REQUIRE_QEMU_DHCP=1` is green because we accept the honest static fallback marker when DHCP does not bind.
+  - `REQUIRE_QEMU_DHCP_STRICT=1` is green and now reaches DHCP bound again:
+    - Root cause (resolved): virtio-net RX parsing assumed a 10-byte header, but QEMU delivered frames with the 12-byte MRG_RXBUF header → Ethernet frames were misaligned and RX traffic was unreadable.
+    - After fixing the header length, strict mode reaches `net: dhcp bound ...` and emits the dependent proofs (`SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: icmp ping ok`).
+  - **Operational gotcha**: do not run multiple QEMU smoke runs in parallel; they contend on `build/blk.img` and can trip QEMU “write lock” errors. Run sequentially in CI/dev.
+- **Shared inbox correlation**:
+  - **StateFS** now uses a nonce-correlated `SF v2` frame shape for shared reply inbox calls (removes “drain stale replies” from the persistence proof path).
+  - Init-lite routing now supports a backwards-compatible routing v1+nonce extension so ctrl-plane queries no longer rely on stale-drain patterns.
 - **Policy timing**: early boot race between policyd readiness and init cap distribution
   - Current: retry loops with bounded timeout (1s deadline)
   - Future: explicit readiness channel to avoid retry polling

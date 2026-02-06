@@ -18,6 +18,20 @@ make build
 make run
 ```
 
+### QEMU (virtio-mmio modern for persistence)
+
+StateFS persistence requires **modern virtio-mmio** semantics for virtio-blk.
+The canonical QEMU harness (`scripts/run-qemu-rv64.sh` via `just test-os`) enforces this by default using:
+`-global virtio-mmio.force-legacy=off`.
+
+If you need a standalone QEMU build with force-modern defaults (e.g. an external harness that cannot set QEMU globals),
+you can build the local modern-QEMU variant:
+
+```sh
+./tools/qemu/build-modern.sh
+export PATH="$PWD/tools/qemu-src/build:$PATH"
+```
+
 ## Day-to-day development
 
 Use the `justfile` for the primary developer workflow (host-first tests and diagnostics; QEMU-last smoke):
@@ -39,6 +53,12 @@ Start here:
 
 - `tasks/README.md` (workflow + anti-drift rules)
 - `docs/rfcs/README.md` (RFC process + authority model)
+
+## Git workflow (quick reference)
+
+- Run `make initial-setup` to install hooks.
+- Use `just diag-host` and `just dep-gate` before OS commits.
+- Keep commits scoped to a single task intent.
 
 ## Updates (OTA v1.0)
 

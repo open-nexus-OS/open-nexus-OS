@@ -31,6 +31,14 @@ Marker details drift quickly; keep them centralized in the harness and the testi
 - Marker contract: `scripts/qemu-test.sh`
 - Testing guide (methodology + marker sequence notes): `docs/testing/index.md`
 
+Some proofs (notably slirp/usernet DHCP and DSoftBus OS transport) can be environment-sensitive.
+They remain available as explicit, opt-in requirements controlled by the QEMU smoke harness:
+
+- `REQUIRE_QEMU_DHCP=1` — enforce DHCP lease + dependent network proofs
+- `REQUIRE_DSOFTBUS=1` — enforce DSoftBus discovery/session proof markers
+
+See `docs/adr/0025-qemu-smoke-proof-gating.md` for rationale and usage.
+
 ## CI pipeline
 
 CI lives under `.github/workflows/`:

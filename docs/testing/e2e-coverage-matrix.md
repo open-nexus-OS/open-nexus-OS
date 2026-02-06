@@ -47,7 +47,10 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 | Suite           | Scope                     | Command                       | Duration |
 | --------------- | ------------------------- | ----------------------------- | -------- |
 | `qemu-test.sh`  | 1-VM smoke (95+ markers)  | `just test-os`                | ~60s     |
+| `qemu-test.sh`  | 1-VM smoke (DHCP requested) | `just test-os-dhcp`         | ~60-120s |
+| `qemu-test.sh`  | 1-VM smoke (Strict DHCP gate: bound OR TX+fallback) | `just test-os-dhcp-strict` | ~60-120s |
 | `os2vm.sh`      | 2-VM cross-VM DSoftBus    | `RUN_OS2VM=1 tools/os2vm.sh`  | ~180s    |
+| `os2vm.sh`      | 2-VM cross-VM DSoftBus (PCAP) | `just test-dsoftbus-2vm-pcap` | ~180s |
 
 ---
 

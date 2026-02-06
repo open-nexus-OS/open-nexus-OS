@@ -1,91 +1,65 @@
-# TASK-0009 Continuation: Persistence v1 (StateFS + VirtIO-blk)
+# Current Handoff: IPC Correlation v1 + QEMU modern virtio-mmio (RFC-0019)
 
-**Date**: 2026-02-03
-**Task**: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
-**Status**: BLOCKED - virtio-blk I/O timeout in QEMU (extensive debugging done)
+**Date**: 2026-02-06  
+**Goal**: Make QEMU smoke gates deterministic end-to-end by fixing the root cause: **request/reply correlation** under shared inboxes, while keeping virtio-mmio policy drift-free.
 
 ---
 
-## Summary
+## What changed (contract-level)
 
-VirtIO-blk driver is fully configured but QEMU never processes queue entries.
-All configuration parameters are correct; the issue appears to be QEMU-side.
+- **New RFC**: `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
+  - Defines nonce-based request/reply correlation + a bounded dispatcher for shared inboxes.
+  - Also owns the normative **QEMU harness policy** for modern virtio-mmio default (legacy opt-in only).
+- **RFC-0018 note**: `docs/rfcs/RFC-0018-statefs-journal-format-v1.md` now links to RFC-0019 for correlation, to keep StateFS v1 scope drift-free.
+- **Host determinism tests**:
+  - `userspace/nexus-ipc` now contains deterministic host tests for:
+    - budgeted non-blocking IPC loops (`nexus_ipc::budget`)
+    - logd v1+v2 wire parsing (`nexus_ipc::logd_wire`, including LO v2 nonce frames)
+    - policyd v2/v3 response decoding (`nexus_ipc::policyd_wire`)
+  - Proof: `cargo test -p nexus-ipc`
 
-## Debug Findings
+## Current reality (QEMU smoke)
 
-```
-virtio-blk: mmio legacy
-virtio-blk: q_pa=0x8176b000 pfn=0x8176b
-virtio-blk: q_max=00000400           <- Device reports max queue=1024, we use 8 ✓
-virtio-blk: status=00000003          <- ACK | DRIVER ✓
-virtio-blk: status_ok=00000007       <- + DRIVER_OK ✓
-virtio-blk: buf_pa=0x8176c000        <- Buffer PA valid ✓
-virtio-blk: cap=0x20000 sectors      <- 131072 sectors = 64MB ✓
-virtio-blk: notify avail_idx=00000001 <- We added one entry ✓
-virtio-blk: timeout last=00000000    <- used.idx stays 0 ✗
-```
+- **Modern virtio-mmio**:
+  - Canonical harness (`scripts/run-qemu-rv64.sh`) defaults to `-global virtio-mmio.force-legacy=off`.
+  - Legacy mode remains opt-in via `QEMU_FORCE_LEGACY=1` (debug/bisect).
+- **What is green now**:
+  - Default `RUN_TIMEOUT=90s just test-os` reaches `SELFTEST: end` (after fixing init-lite wiring races, shared reply inbox filtering in statefs client, and updated bootctrl persist corruption).
+  - `RUN_TIMEOUT=90s REQUIRE_QEMU_DHCP=1 just test-os` is green (non-strict policy accepts honest static fallback when DHCP does not bind).
+  - `RUN_TIMEOUT=90s REQUIRE_QEMU_DHCP=1 REQUIRE_QEMU_DHCP_STRICT=1 just test-os` is green and proves **DHCP bound** (RX works again) + dependent proofs (`SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: icmp ping ok`).
 
-**Key observation**: virtio-net works with identical code patterns.
-Both use legacy mode (version 1), same queue setup, same MMIO access.
+## Additional progress since last handoff update
 
-## Attempted Fixes (all failed)
+- **StateFS shared-inbox correlation**:
+  - `userspace/statefs` now supports `SF v2` frames with an explicit `nonce:u64` after the header.
+  - `statefsd` echoes the nonce in replies and the OS-lite client uses it to deterministically match replies on the shared `@reply` inbox (removes “drain stale replies” from the StateFS proof path).
+- **Routing ctrl-plane determinism**:
+  - init-lite routing responder now supports a backwards-compatible **routing v1+nonce extension**.
+  - Key clients (`bundlemgrd` route-status, `rngd`, `statefsd`, `logd` bootstrap routing, `selftest-client` probes) use it to avoid stale-drain patterns on ctrl slot 2.
+- **Shared `@reply` hygiene**:
+  - `samgrd` and `bundlemgrd` “core service log probe” paths now deterministically wait for the logd APPEND ACK (bounded), preventing reply inbox buildup.
+  - `rngd` uses policyd **v2 delegated-cap** replies (nonce-correlated) with strict matching on the shared inbox.
+- **logd LO v2 (nonce frames)**:
+  - logd now supports LO v2 nonce-correlated frames for APPEND/QUERY/STATS, enabling safe multiplexing over a shared reply inbox.
+  - QEMU proof paths (`RUN_PHASE=logd`) use strict nonce matching (no stale-drain patterns).
 
-1. Queue memory zeroing order (before/after setup_queue)
-2. Warmup read after device init
-3. Volatile writes to virtqueue structures
-4. Legacy mode feature negotiation (no FEATURES_SEL for high bits)
-5. Initial queue kick after driver_ok
-6. Delay between driver_ok and first I/O
-7. Various debug instrumentation
+## Why this is the root cause
 
-## Hypothesis
+- Without a nonce echoed in replies, any multi-step or concurrent IPC over a shared inbox can desync.
+- “Drain/yield/budget” loops reduce flakiness but do not make matching **correct-by-construction**.
+- RFC-0019 standardizes the correct pattern so future OS work does not repeat the same class of bugs.
 
-The issue is likely one of:
-1. **QEMU virtio-blk-device quirk** - different behavior from virtio-net in legacy mode
-2. **icount timing** - QEMU's `-icount 1,sleep=on` may affect virtio-blk differently
-3. **Backing file access** - QEMU may have issues with the raw file I/O
+## Next steps (implementation slice; task-owned)
 
-## What Works
+1. **DHCP determinism decision (harness policy)**:
+   - Keep `REQUIRE_QEMU_DHCP=1` permissive (accept deterministic static fallback) as the default CI proof.
+   - Gate `REQUIRE_QEMU_DHCP_STRICT=1` only on backends/environments where inbound RX is proven deterministic (or after a QEMU/backend change that restores RX).
+2. **RFC-0019 adoption audit (keep it honest)**:
+   - Inventory which clients still rely on uncorrelated replies on shared inboxes.
+   - Convert remaining multi-step flows to nonce-correlated request/reply (or explicit “no-reply” fire-and-forget).
 
-- Host tests: 35 tests pass
-- Device discovery: magic, version, capacity all correct
-- Queue setup: PFN written, device acknowledges
-- virtio-net: works with same code patterns
-- SELFTEST markers (except persist tests):
-  - `SELFTEST: reply loopback ok`
-  - `SELFTEST: keystored capmove ok`
-  - `SELFTEST: rng entropy ok`
+## Drift guards (do not regress)
 
-## Recommended Next Steps
-
-1. **Test outside icount mode**: Try `QEMU_ICOUNT=off` (requires script modification)
-2. **Compare with known-good driver**: Check Linux's virtio-blk for legacy mode quirks
-3. **QEMU monitor debugging**: Run with `-monitor stdio` and inspect device state
-4. **Escalate to mini-task**: Create focused debugging task for virtio-blk
-
-## Test Commands
-
-```bash
-# Host tests (pass):
-cargo test -p statefs -p storage-virtio-blk -p updates_host
-
-# QEMU test (virtio-blk fails, others work):
-RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s INIT_LITE_WATCHDOG_TICKS=800 ./scripts/qemu-test.sh
-
-# Check virtio-blk output:
-grep -E "virtio-blk:|warmup|persist" uart.log
-```
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `source/drivers/storage/virtio-blk/src/lib.rs` | Driver with debug instrumentation |
-| `userspace/nexus-net-os/src/smoltcp_virtio.rs` | Working virtio-net for comparison |
-| `source/services/statefsd/src/os_lite.rs` | StateFS service |
-
-## Commits This Session
-
-- `7264519`: Update TASK-0009 status - blocked on virtio-blk I/O timeout
-- `3fe2987`: TASK-0009: StateFS persistence v1 + virtio-blk driver WIP
-- `ae26c51`: virtio-blk: add debug instrumentation for queue setup
+- QEMU runs used for proofs MUST continue to default to modern virtio-mmio (`virtio-mmio.force-legacy=off`).
+- Any new OS service protocol that expects a reply on a shared inbox MUST adopt RFC-0019 nonce correlation (or a successor RFC).
+- Do not run multiple QEMU smoke runs concurrently (they contend on `build/blk.img` and can trip QEMU “write lock” errors).

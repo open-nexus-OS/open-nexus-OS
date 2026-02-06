@@ -41,6 +41,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - `02-selftest-and-ci.md` — how we validate: deterministic markers + CI wiring (high level)
 - **Canonical QEMU harness + marker contract**: `scripts/qemu-test.sh` (do not duplicate marker lists here)
 - **CI workflows**: `.github/workflows/ci.yml`, `.github/workflows/build.yml`
+- **QEMU smoke proof gating (networking/DSoftBus)**: `docs/adr/0025-qemu-smoke-proof-gating.md`
 
 ## Networking
 

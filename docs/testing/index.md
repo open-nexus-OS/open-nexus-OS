@@ -7,6 +7,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0014**: Testing contracts v1 — host-first service contract tests + phased QEMU smoke (Phase 0 complete)
 - **RFC-0015**: Policy Authority & Audit Baseline v1 — policy engine + audit trail (Complete)
 - **RFC-0017**: Device MMIO access model v1 — capability-gated MMIO mapping + init/policy distribution (Done)
+- **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
 
 ## Philosophy
 
@@ -82,6 +83,10 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - Host unit/property: `just test-host`
 - Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
+- QEMU smoke (DHCP requested): `just test-os-dhcp`
+- QEMU smoke (Strict DHCP gate): `just test-os-dhcp-strict`
+- DSoftBus 2-VM harness (TASK-0005): `just test-dsoftbus-2vm` (or `just os2vm`)
+- DSoftBus 2-VM harness + PCAP: `just test-dsoftbus-2vm-pcap` (or `just os2vm-pcap`)
 - Full gate (recommended before “everything is green”): `just test-all`
   - Includes `fmt-check`, `lint`, `deny-check`, host tests, Miri tiers, `arch-check`, and QEMU selftests.
 
@@ -107,6 +112,28 @@ On failure, the harness prints:
 - `first_failed_phase=<name>`
 - `missing_marker='<marker>'`
 - a **bounded** UART excerpt scoped to the failed phase.
+
+### QEMU smoke proof knobs (determinism)
+
+Some networking proofs are environment-sensitive under QEMU (slirp/usernet DHCP). The smoke harness keeps
+the default gate deterministic and allows stricter proofs via opt-in flags:
+
+- Default smoke: requires `net: smoltcp iface up ...` (no DHCP/DSoftBus required).
+- `REQUIRE_QEMU_DHCP=1` to request DHCP; if DHCP binds (`net: dhcp bound`) the harness additionally requires dependent proofs (`SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: icmp ping ok`).
+- `REQUIRE_QEMU_DHCP_STRICT=1` (with `REQUIRE_QEMU_DHCP=1`) enforces **DHCP bound** (`net: dhcp bound`) and fails otherwise.
+  - Rationale: “Strict” is reserved for environments/backends where slirp DHCP is proven deterministic under `-icount`.
+  - If you want deterministic signal without requiring DHCP RX, use `REQUIRE_QEMU_DHCP=1` (non-strict), which accepts the honest fallback marker `net: dhcp unavailable (fallback static ...)` and skips DHCP-dependent proofs.
+- `REQUIRE_DSOFTBUS=1` to require DSoftBus OS transport markers (loopback scope).
+
+Host-first DHCP invariants should be validated via:
+
+```bash
+cargo test -p nexus-net-os
+```
+
+See `docs/adr/0025-qemu-smoke-proof-gating.md` for the rationale and gating policy.
+
+Operational note: do not run multiple QEMU smoke runs concurrently (they contend on `build/blk.img` and can trip QEMU “write lock” errors). Run sequentially in CI/dev.
 
 ### Miri tiers
 
@@ -360,6 +387,18 @@ cargo tree --target riscv64imac-unknown-none-elf -p dsoftbusd -i parking_lot
 - Escape-coded UART (E-prefixed) is currently forced off to keep logs clean. Old logs can still be decoded with `tools/uart-filter.py --strip-escape uart.log`. If you need probe framing, add it locally in code, but keep it disabled for shared runs.
 - For stubborn host/container mismatches, rebuild the Podman image and ensure the same targets are installed inside and outside the container.
 
+### QEMU smoke proof knobs (determinism)
+
+QEMU smoke runs validate a strict UART marker ladder in `scripts/qemu-test.sh`. Some networking proofs can be environment-sensitive (e.g. slirp/usernet DHCP), so they are **optional by default** and can be explicitly required when appropriate:
+
+- **Default smoke**: requires `net: smoltcp iface up ...` and does **not** require DHCP or DSoftBus.
+- **Require DHCP proof**: set `REQUIRE_QEMU_DHCP=1` (enforces `net: dhcp bound`, gateway ping, and UDP DNS proof markers).
+- **Require DSoftBus proof**: set `REQUIRE_DSOFTBUS=1` (enforces DSoftBus discovery/session markers).
+
+Single-VM smoke builds `netstackd` in a compatibility mode (`feature = "qemu-smoke"`) so that if DHCP is unavailable the stack falls back to `10.0.2.15/24` (slirp/usernet convention), preserving deterministic loopback bring-up.
+
+See `docs/adr/0025-qemu-smoke-proof-gating.md` for the decision record.
+
 ### Capturing OS networking traffic (PCAP / Wireshark)
 
 When debugging cross-VM networking issues (ARP/UDP/TCP handshakes), it is often fastest to capture the QEMU network traffic into PCAP files and inspect them with Wireshark/tshark.
@@ -390,6 +429,7 @@ Networking issues are notoriously easy to “fake-green” (e.g. a connect sysca
   - Parse/encode of wire formats (golden vectors).
   - State machine stepping (Noise handshake, discovery cache, session framing) using host backends / fakes.
   - Negative cases (`test_reject_*`): malformed frames, oversized input, identity mismatch.
+  - Networking: DHCP on-wire invariants + integration logic: `cargo test -p nexus-net-os`
 - **OS (unit smoke)**:
   - `netstackd` facade health: interface up, socket bind/listen works.
   - **L2**: ARP request/response observed (PCAP or bounded in-OS marker derived from real traffic).

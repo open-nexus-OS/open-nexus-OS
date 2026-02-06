@@ -15,6 +15,33 @@ This folder contains the *session system* used to keep tasks deterministic, drif
 
 ## Daily usage
 
+## Recommended Cursor settings (low-token + deterministic)
+
+These are **recommended defaults** for contributors who set up Cursor fresh.
+They reduce accidental "cache read token" explosions caused by implicit context (diffs, open files, auto-retrieval).
+
+Add to **User** settings (`~/.config/Cursor/User/settings.json`) or equivalent UI toggles:
+
+```json
+{
+  "cursor.chat.autoIncludeGitDiff": false,
+  "cursor.chat.autoIncludeOpenFiles": false,
+  "cursor.chat.autoIncludeRelatedFiles": false,
+  "cursor.codebase.indexingMode": "manual"
+}
+```
+
+Rationale:
+- **autoIncludeGitDiff = false**: prevents huge diffs from being silently attached to every message.
+- **autoIncludeOpenFiles = false**: prevents large open tabs (e.g. multi-KLOC files) from bloating context.
+- **autoIncludeRelatedFiles = false**: prevents speculative file fan-out during debugging.
+- **indexingMode = manual**: keeps codebase retrieval/semantic context opt-in (use `@codebase` only when needed).
+
+Optional / UI-only toggles (names vary by Cursor version):
+- **Memories: Off** (if available): reduces background memory generation and hidden context growth.
+- **Background agent/composer: Off** (if available): avoids background actions that may expand context implicitly.
+- Use **`/summarize`** when a debug/test chain starts growing; then continue from `.cursor/handoff/current.md`.
+
 ### 1) Before starting a new task (prep)
 
 - Update **`next_task_prep.md`**:

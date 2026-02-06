@@ -30,6 +30,20 @@ This document clarifies the networking architecture authority to prevent drift b
 
 **Feature Gate**: `cfg(feature = "net-canonical")`
 
+### QEMU smoke vs 2-VM harness (determinism)
+
+The **single-VM QEMU smoke** path is a bounded, deterministic-ish wiring proof. To reduce flakiness:
+
+- The smoke harness validates `net: smoltcp iface up ...` as the default “iface configured” proof.
+- DHCP and DSoftBus proofs are optional and can be explicitly required via harness flags:
+  - `REQUIRE_QEMU_DHCP=1`
+  - `REQUIRE_DSOFTBUS=1`
+- When DHCP is unavailable in single-VM smoke, `netstackd` may fall back to `10.0.2.15/24`
+  (slirp/usernet convention) to keep loopback-based DSoftBus bring-up deterministic.
+
+The **2-VM harness** (`just os2vm`) remains the canonical proof for cross-VM discovery/sessions and
+must not depend on slirp/usernet DHCP.
+
 ---
 
 ## Alternative Path: Bring-up Lite (Secondary)

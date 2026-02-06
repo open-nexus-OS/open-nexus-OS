@@ -44,6 +44,14 @@ Fast local run:
 just test-mmio
 ```
 
+Related QEMU smoke runs (full ladder):
+
+```bash
+just test-os
+just test-os-dhcp
+just test-os-dhcp-strict
+```
+
 ## What we will extend later (when capability exists)
 
 ### 1) Per-device “bring-up steps” beyond mapping

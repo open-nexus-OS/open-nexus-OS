@@ -1,21 +1,22 @@
 # RFC-0018: StateFS Journal Format v1
 
-- Status: Draft
+- Status: Complete (v1 contract implemented; host + QEMU proofs green)
 - Owners: @runtime
 - Created: 2026-02-02
-- Last Updated: 2026-02-02
+- Last Updated: 2026-02-06
 - Links:
   - Tasks: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (execution + proof)
   - ADRs: `docs/adr/0023-statefs-persistence-architecture.md`
   - Related RFCs: `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (MMIO access for virtio-blk)
   - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability-gated access)
   - Related RFCs: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy enforcement)
+  - Engineering: `docs/dev/platform/qemu-virtio-mmio-modern.md` (force modern virtio-mmio in QEMU)
 
 ## Status at a Glance
 
-- **Phase 0 (Journal Core)**: ✅ Host-only journal engine + BlockDevice trait
+- **Phase 0 (Journal Core)**: ✅ Host-only journal engine + BlockDevice trait (host tests green)
 - **Phase 1 (statefsd Service)**: ✅ IPC endpoints + policy-gated access
-- **Phase 2 (OS Integration)**: 🟥 virtio-blk backend timeouts; persistence proof blocked
+- **Phase 2 (OS Integration)**: ✅ QEMU proof is deterministic under modern virtio-mmio (`blk: virtio-blk up`, persistence markers)
 
 Definition:
 
@@ -37,6 +38,12 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
   - Snapshots, compaction, quotas (follow-ups)
   - Encryption-at-rest (follow-up: `TASK-0027`)
   - Real VM reboot/bootloader integration (follow-up)
+  - Journal authenticity / anti-rollback (follow-ups; see Security considerations)
+  - Offline repair / fsck tooling (follow-up)
+  - RPC framing improvements (request IDs / conversation IDs) beyond v1 byte frames.
+    - Note (2026-02-05): request/reply correlation is now specified in
+      `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` because deterministic QEMU proofs (and future OS
+      correctness) require nonce-based request/reply matching rather than ad-hoc drains/yields on shared inboxes.
   - DMA or IRQ delivery (separate RFCs)
 
 ### Relationship to tasks (single execution truth)
@@ -125,15 +132,15 @@ Each journal record is a variable-length entry:
 - **ValueLen**: Little-endian u32 (max 64 KiB for v1)
 - **Key**: UTF-8 normalized path (e.g., `/state/keystore/device.key`)
 - **Value**: Raw bytes (opaque to journal)
-- **CRC32**: CRC32-C over Magic..Value, little-endian u32
+- **CRC32**: CRC32-C (Castagnoli) over Magic..Value (everything except the CRC itself), little-endian u32
 
-Total header overhead: 15 bytes + CRC32 (4 bytes) = 19 bytes fixed overhead.
+Fixed overhead: 15 bytes total (11 bytes header + 4 bytes CRC32).
 
 #### Replay Semantics
 
 1. Scan journal from start, reading records sequentially
 2. For each record:
-   - Verify CRC32 matches; skip (log warning) if mismatch
+   - Verify CRC32 matches; on mismatch treat as corruption (stop replay at last valid record)
    - Apply operation to in-memory key-value map
    - Put: insert/replace key with value
    - Delete: remove key
@@ -191,12 +198,13 @@ Keys are UTF-8 strings treated as paths:
 - **Journal corruption**: Attacker corrupts journal to cause data loss or boot failure
 - **Replay attack on journal**: Attacker replays old journal entries to restore revoked keys
 - **Unauthorized access to /state**: Service without proper capability accesses stored secrets
+- **Physical extraction**: attacker reads unencrypted storage media
 
 ### Security invariants (MUST hold)
 
 - Device keys and sensitive credentials MUST only be accessible to authorized services
-- Journal records MUST include CRC32 integrity checksums
-- Journal replay MUST reject corrupted or tampered records deterministically
+- Journal records MUST include CRC32-C integrity checksums
+- Journal replay MUST reject corrupted or tampered records deterministically (no heuristic recovery in v1)
 - statefsd access MUST be capability-gated via kernel `sender_service_id`
 - Key paths (`/state/keystore/*`) MUST be restricted to keystored only via policy
 - No secrets in logs or error messages
@@ -208,6 +216,7 @@ Keys are UTF-8 strings treated as paths:
 - DON'T assume storage is reliable (always verify checksums on read)
 - DON'T skip capability checks for "trusted" services
 - DON'T log key values or sensitive data
+- DON'T treat CRC32 as authenticity (it is integrity only)
 
 ### Mitigations
 
@@ -215,13 +224,13 @@ Keys are UTF-8 strings treated as paths:
 - Capability-gated access to statefsd endpoints
 - Key paths restricted by `sender_service_id` (keystored only for `/state/keystore/*`)
 - Bounded journal replay: reject malformed records, limit replay depth
-- Future: at-rest encryption for sensitive paths, HMAC for authenticity
+- Future: at-rest encryption for sensitive paths; authentication/anti-rollback (HMAC/AEAD + monotonic counter)
 
 ## Failure model (normative)
 
 | Condition | Behavior |
 |-----------|----------|
-| CRC32 mismatch | Skip record, log warning, continue replay |
+| CRC32 mismatch | Stop replay at last valid record (explicit corruption) |
 | Truncated record | Stop replay at last valid record |
 | Key too long (>255) | Return KEY_TOO_LONG error |
 | Value too large (>64K) | Return VALUE_TOO_LARGE error |
@@ -242,16 +251,25 @@ cd /home/jenning/open-nexus-OS && cargo test -p statefs -- --nocapture
 Required test coverage:
 - `test_put_get_delete_list` — basic operations
 - `test_replay_after_reopen` — crash/replay integrity
-- `test_reject_corrupted_journal` — CRC mismatch rejection
+- `test_reject_corrupted_journal` — CRC mismatch → replay stops deterministically
 - `test_reject_value_oversized` — size limit enforcement
 - `test_reject_key_too_long` — key length limit
 - `test_bounded_replay` — replay depth limit
+- `test_truncated_tail_stops_replay` — truncated final record stops replay at last valid record
+- `test_partial_record_boundary_replay` — record spans >2 blocks; replay must not truncate/stop early
 
 ### Proof (OS/QEMU)
 
 ```bash
 cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
 ```
+
+Note: Current QEMU needs modern virtio-mmio for virtio-blk to progress the used ring; see
+`docs/dev/platform/qemu-virtio-mmio-modern.md`.
+
+Note (determinism): OS/QEMU proofs that depend on cross-service IPC (audit sink / crash reports / statefs control plane)
+must avoid shared-inbox ambiguity. We standardize request/reply correlation via nonces in
+`docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` so statefs persistence proofs remain deterministic as the OS grows.
 
 ### Deterministic markers
 
@@ -271,7 +289,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- (None for v1; compaction/quotas deferred to follow-ups)
+- (None for v1; compaction/quotas/authenticity deferred to follow-ups)
 
 ---
 
@@ -281,7 +299,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 - [x] **Phase 0**: Journal core (host-first) — proof: `cargo test -p statefs`
   - [x] BlockDevice trait + MemBlockDevice
-  - [x] Journal record format + CRC32
+  - [x] Journal record format + CRC32 (implementation must align to CRC32-C contract)
   - [x] Put/Get/Delete/List/Sync operations
   - [x] Replay engine with bounded depth
   - [x] Negative tests (`test_reject_*`)
@@ -289,11 +307,12 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
   - [x] IPC endpoints over kernel IPC
   - [x] Policy-gated access via policyd
   - [x] Audit logging for access decisions
-- [ ] **Phase 2**: OS integration — proof: QEMU persistence markers
+- [x] **Phase 2**: OS integration — proof: QEMU persistence markers
   - [x] virtio-blk backend for statefsd
   - [x] keystored migration to `/state/keystore/*`
   - [x] updated migration to `/state/boot/*`
-  - [ ] Soft reboot proof (restart + replay + verify)
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+  - [x] QEMU virtio-mmio modern mode wired into canonical harness (force-legacy=off)
+  - [x] Soft reboot proof (restart + replay + verify) wired into CI/QEMU phases
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).
