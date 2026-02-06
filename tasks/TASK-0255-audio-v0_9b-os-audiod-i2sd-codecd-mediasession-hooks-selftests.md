@@ -79,7 +79,8 @@ On OS/QEMU:
 - **No duplicate mixer authority**: `audiod` uses the mixer library from `TASK-0254`. `TASK-0100`/`TASK-0217` should share the same mixer contracts to avoid drift.
 - **Determinism**: ringbuffer, mixer, levels, and file sink must be stable given the same inputs.
 - **Bounded resources**: ringbuffer size is bounded; mixer streams are capped.
-- **Device MMIO gating**: userspace I²S/codec drivers may require `TASK-0010` (device MMIO access model) or equivalent.
+- **Device access**: assumes `TASK-0010` (device MMIO access model) is Done; real I²S/I²C hardware paths may additionally
+  require device-class caps (bus/controller access) beyond the v1 MMIO primitive.
 - **Power/idle gating**: mediasessiond wakelock requires `TASK-0236` (power governor, wake-locks) or equivalent.
 - **Persistence gating**: file sink requires `/state` (`TASK-0009`) or equivalent. Without `/state`, file sink must be disabled or explicit `stub/placeholder` (no "written ok" claims).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.

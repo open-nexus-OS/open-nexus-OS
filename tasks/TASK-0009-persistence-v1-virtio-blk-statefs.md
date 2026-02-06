@@ -1,9 +1,9 @@
 ---
 title: TASK-0009 Persistence v1 (OS): userspace block device + statefs journal for /state (device keys + bootctl)
-status: In Progress (Blocked)
+status: In review
 owner: @runtime
 created: 2025-12-22
-updated: 2026-02-03
+updated: 2026-02-06
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -17,8 +17,11 @@ enables:
   - TASK-0007 v1.1: Persistent A/B updates (moved to TASK-0034)
 follow-up-tasks:
   - TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints)
+  - TASK-0025: StateFS write-path hardening (integrity envelopes + atomic commit + budgets + audit)
+  - TASK-0026: StateFS v2a (2PC crash-atomicity + bounded compaction + fsck tool)
   - TASK-0130: Packages v1b (install into `/state/apps/...` with atomic commit)
   - TASK-0018: Crashdumps v1 (store crash artifacts under `/state/crash/...`)
+  - TASK-0051: Recovery mode v1b (safe tools: fsck/slot/ota + recovery CLI + proofs)
   - TASK-0241: L10n v1.0b OS (persist `ui.locale` / catalogs state)
   - TASK-0243: Soak v1.0b OS (persist run summaries/exports under `/state/...`)
   - TASK-0031: Zero-copy VMOs v1 plumbing (mentions persistence/statefs as prerequisite)
@@ -28,9 +31,9 @@ follow-up-tasks:
   - TASK-0134: StateFS v3 (snapshots/compaction/mounts)
 ---
 
-## Current Status (2026-02-03)
+## Current Status (2026-02-06)
 
-**BLOCKED**: VirtIO-blk I/O timeout in QEMU.
+**Completed**: Host + QEMU persistence proofs are deterministic and green under modern virtio-mmio.
 
 ### Completed
 - [x] `statefsd` service with memory + virtio-blk backends
@@ -40,15 +43,11 @@ follow-up-tasks:
 - [x] IPC slot routing infrastructure (slot_map, slot_probe)
 - [x] MMIO grants from init-lite to statefsd
 
-### Blocking Issue
-``` text
-virtio-blk: mmio legacy
-virtio-blk: q_pa=0x8176a000 pfn=0x8176a
-virtio-blk: timeout last=00000000 polls=0000b041
-```
-
-Device discovery works, but first I/O request times out. `used.idx` stays 0.
-Virtio-net works with same codebase - issue is blk-specific.
+### Known integration gate (QEMU/CI)
+- QEMU persistence proof requires **modern virtio-mmio** settings for virtio-blk; see
+  `docs/dev/platform/qemu-virtio-mmio-modern.md`.
+- Canonical harness phases must not mix unrelated late markers (e.g. DHCP) into the persistence proof phase.
+- DHCP/virtio-net debugging is out of scope for this task; handle it in a separate networking/debug slice.
 
 **Handoff**: `.cursor/handoff/current.md`
 
@@ -71,7 +70,8 @@ Kernel remains unchanged.
 
 ## Current repo state (to prevent drift)
 
-- There is **no** `statefs`/`statefsd` implementation in-tree yet.
+- `userspace/statefs/` contains the host-first journal engine and tests.
+- `source/services/statefsd/` contains the `/state` authority service for OS-lite.
 - There is a low-level virtio-blk scaffold under `source/drivers/storage/virtio-blk/`, but OS/QEMU integration
   depends on the MMIO access model from `TASK-0010` being complete enough for virtio-blk.
 - Today’s OS-lite `vfsd` is a read-only proxy for `pkg:/` (no writable mounts); `/state` must be a dedicated
@@ -127,7 +127,7 @@ Notes:
   This is kernel work in `TASK-0010`. This task must not add new kernel surface; it only consumes the MMIO
   mapping primitive once it exists and is policy/capability gated.
 - **Bounded parsing + bounded replay**: journal replay must be bounded and reject malformed records deterministically.
-- **Integrity**: journal records include checksums (CRC32 is fine for v1 integrity; authenticity handled elsewhere).
+- **Integrity**: journal records include checksums (CRC32-C for v1 integrity; authenticity handled elsewhere).
 - **Determinism**: markers stable; tests bounded; no unbounded scanning of a “disk”.
 - **No fake success**: “persist ok” markers only after re-open/replay proves the data is present.
 - **Rust hygiene**: no new `unwrap/expect` in OS daemons; no blanket `allow(dead_code)`.
@@ -224,11 +224,13 @@ Notes:
 - Command(s):
   - `cargo test -p statefs -- reject --nocapture` (crate to be introduced by this task; name may split host/os)
 - Required tests:
-  - `test_reject_corrupted_journal` — CRC mismatch → record ignored
+  - `test_reject_corrupted_journal` — CRC mismatch → replay stops deterministically at last valid record
   - `test_reject_unauthorized_keystore_access` — wrong service → denied
   - `test_reject_malformed_record` — invalid format → rejected
   - `test_bounded_replay` — replay depth limited
   - `test_reject_value_oversized` — enforce v1 value size cap deterministically
+  - `test_truncated_tail_stops_replay` — truncated final record stops replay deterministically
+  - `test_partial_record_boundary_replay` — record spans >2 blocks; replay must not truncate/stop early
 
 ### Hardening markers (QEMU)
 
@@ -245,18 +247,20 @@ Notes:
 
 ### Proof (Host)
 
-- Add deterministic tests for the statefs journal engine and replay/compaction:
+- Add deterministic tests for the statefs journal engine and replay:
   - `cargo test -p statefs -- --nocapture` (or `-p statefs-host` if split is needed)
   - Coverage:
     - Put/Get/Delete/List
     - crash/replay: write records, drop instance, reopen and replay → data intact
-    - CRC mismatch rejection
+    - CRC mismatch rejection (deterministic stop at last valid record)
+    - truncated tail stops replay deterministically
+    - partial record at block boundary does not cause early EOF
     - size limits / path normalization / ENOENT
 
 ### Proof (OS / QEMU)
 
-- **Blocked until `TASK-0010` is complete enough for virtio-blk MMIO mapping**.
-  This task’s OS/QEMU proof is only valid once the userspace MMIO capability/mapping primitive exists.
+- **Unblocked**: `TASK-0010` (MMIO access model) is complete enough for virtio-blk MMIO mapping.
+  This task’s OS/QEMU proof is now valid and enforced by the canonical harness.
 
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh`
   - Extend expected markers with (order tolerant):
@@ -317,6 +321,18 @@ Notes:
 - Host tests prove replay and integrity checks deterministically.
 - QEMU run proves put + persist-after-restart and shows bootctl/device key persistence markers.
 - Kernel changes required for MMIO mapping live in `TASK-0010`; `TASK-0009` adds no kernel changes.
+
+## Follow-ups (explicitly out of v1 scope; require separate tasks)
+
+These items are valuable for the OS vision (security + maintainability + extensibility) but are
+out of scope for v1 and MUST NOT be smuggled into this task:
+
+- **Authenticity & anti-rollback**: HMAC/AEAD for journal authenticity + monotonic counters to prevent rollback.
+- **Encryption-at-rest**: key custody + sealing policy (builds on `TASK-0027`).
+- **VFS mount integration**: mount `/state` into VFS with writable semantics (see `TASK-0134`).
+- **Compaction/snapshots/quotas**: multi-generation journal management and accounting (`TASK-0133`/`TASK-0134`).
+- **Offline tooling**: fsck-like verification/repair, export/import, and telemetry summaries.
+- **IPC framing hardening**: request IDs / conversation IDs in statefs frames to avoid shared-inbox ambiguities.
 
 ## RFC seeds (for later, once green)
 

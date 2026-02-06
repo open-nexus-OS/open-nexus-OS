@@ -50,7 +50,8 @@ Deliver on host:
 - **No duplicate sensor authority**: This task provides sensor HAL library. OS/QEMU integration (`TASK-0259`) should use the same HAL to avoid drift.
 - **Determinism**: sensor HAL, accelerometer driver, scaling/units, and fixture mode must be stable given the same inputs.
 - **Bounded resources**: sensor samples are bounded; fixture files are size-bounded.
-- **Device MMIO gating**: I²C sim backend does not require real MMIO, but real hardware drivers would require `TASK-0010` (device MMIO access model).
+- **Device access note**: the I²C sim backend does not require real MMIO. Real hardware drivers assume `TASK-0010`
+  (device MMIO access model) is Done and may require additional device-class caps.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points

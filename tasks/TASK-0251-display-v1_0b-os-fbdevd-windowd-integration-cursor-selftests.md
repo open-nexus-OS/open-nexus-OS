@@ -74,7 +74,8 @@ On OS/QEMU:
 - **No duplicate compositor backend**: windowd simplefb backend extends the renderer abstraction from `TASK-0169`. Do not create a parallel rendering system.
 - **Determinism**: framebuffer mapping, vsync timing, and compositing must be stable given the same inputs.
 - **Bounded resources**: dirty rect accumulation is bounded; vsync timer is configurable.
-- **Device MMIO gating**: userspace framebuffer mapping requires `TASK-0010` (device MMIO access model) or equivalent.
+- **Device access**: assumes `TASK-0010` (device MMIO access model) is Done; simplefb/physmem mapping may additionally
+  require device-class specific caps beyond virtio-mmio.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points

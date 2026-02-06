@@ -42,7 +42,11 @@ On OS/QEMU:
 2. **virtionetd service** (`source/services/virtionetd/`):
    - implement virtio-mmio net frontend using library from `TASK-0248`
    - probe MMIO base/IRQ from DT
-   - negotiate features: no multi-queue, no mergeable buffers, checksum offload off
+   - negotiate a minimal, proven feature set:
+     - no multi-queue
+     - checksum offload off
+     - accept `VIRTIO_NET_F_MRG_RXBUF` when required by the QEMU backend, and derive virtio-net header length
+       from the accepted feature set (10 bytes vs 12 bytes `virtio_net_hdr_mrg_rxbuf`)
    - TX/RX rings with fixed-size descriptors; RX pre-posted buffers from a slab
    - deterministic MAC (e.g., `02:00:00:00:00:01`) exposed in config
    - API (`net.capnp`): `info()` (name, mac, mtu, up), `send(frame)` (raw Ethernet), `recv()` (blocking with bounded wait)
@@ -84,7 +88,7 @@ On OS/QEMU:
   to the smoltcp-based system path in `TASK-0003`. If both exist, document which one is authoritative for the boot profile.
 - **Determinism**: virtio-net operations, DHCP stub, and loopback must be stable given the same inputs.
 - **Bounded resources**: DHCP stub is in-process only; loopback is bounded.
-- **Device MMIO gating**: userspace virtio-net requires `TASK-0010` (device MMIO access model).
+- **Device access**: assumes `TASK-0010` (device MMIO access model) is Done for userspace virtio-net.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points

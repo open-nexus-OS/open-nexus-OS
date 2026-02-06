@@ -73,7 +73,8 @@ On OS/QEMU:
 - **No duplicate keymap authority**: `inputd` uses the keymaps library from `TASK-0252`. `TASK-0146` (IME) should share the same keymap tables to avoid drift.
 - **Determinism**: HID parsing, touch normalization, keymaps, repeat, and acceleration must be stable given the same inputs.
 - **Bounded resources**: keymaps are table-bounded; repeat timing is bounded.
-- **Device MMIO gating**: userspace HID/touch drivers may require `TASK-0010` (device MMIO access model) or equivalent.
+- **Device access**: assumes `TASK-0010` (device MMIO access model) is Done; real HID/I²C touch paths may additionally
+  require device-class caps (USB/I²C controller access) beyond the v1 MMIO primitive.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points

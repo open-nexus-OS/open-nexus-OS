@@ -58,7 +58,7 @@ Deliver:
 
 2. **Persistent bootctl** (from TASK-0007):
    - Integrate `updated` with TASK-0009 statefs
-   - `/state/bootctl.nxs` survives reboot (Cap'n Proto snapshot; canonical)
+   - `/state/boot/bootctl.v1` survives reboot (Cap'n Proto snapshot; canonical)
    - Marker: `updated: ready (persistent)`
 
 3. **Delta format and tooling** (`.nxdelta`):

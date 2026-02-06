@@ -62,7 +62,8 @@ Clarifications (to avoid drift):
   - “Real” userspace device frontends require a real device access model (MMIO caps now; IRQ/DMA isolation later).
     Gate: `TASK-0010` (and follow-ups for IRQ/DMA when needed).
   - Persistence-backed “remember access” (persistable grants) is not real until `/state` exists.
-    Gate: `TASK-0009` (which is itself gated on `TASK-0010`).
+    Gate: `TASK-0009` (Done). The v1 device access model (MMIO caps) is provided by `TASK-0010` (Done);
+    future removable hardware paths may additionally require follow-up IRQ/DMA isolation tasks.
   - OS build hygiene: removable FS implementations must not pull forbidden crates into OS graphs (`parking_lot`, `getrandom`, `std`).
     Gate: `docs/standards/BUILD_STANDARDS.md` + `just dep-gate`.
 - **YELLOW (risky / drift-prone)**:

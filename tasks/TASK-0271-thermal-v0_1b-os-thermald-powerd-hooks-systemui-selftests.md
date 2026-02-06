@@ -43,7 +43,8 @@ On OS/QEMU:
 
 ## Non-Goals
 
-- Real hardware thermal sensors in v0.1 (future: may use I²C/SPI or DT-based zones; gated on `TASK-0010`).
+- Real hardware thermal sensors in v0.1 (future: may use I²C/SPI or DT-based zones; assumes `TASK-0010` is Done and may
+  require device-class caps beyond the v1 MMIO primitive).
 - Kernel thermal framework.
 - Background daemon sprawl (no parallel `thermalmgr`).
 

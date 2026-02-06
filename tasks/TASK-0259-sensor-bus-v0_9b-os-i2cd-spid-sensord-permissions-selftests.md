@@ -72,7 +72,8 @@ On OS/QEMU:
 - **No duplicate bus authority**: `i2cd`/`spid` are the single authorities for I²C/SPI bus access. Do not create parallel bus services.
 - **Determinism**: bus services, sensor aggregator, permissions, and indicators must be stable given the same inputs.
 - **Bounded resources**: sensor subscriptions are bounded; privacy log is size-bounded.
-- **Device MMIO gating**: real hardware I²C/SPI drivers require `TASK-0010` (device MMIO access model). For v0.9, sim backend is sufficient.
+- **Device access**: real hardware I²C/SPI drivers assume `TASK-0010` (device MMIO access model) is Done. For v0.9, the
+  sim backend is sufficient.
 - **Persistence gating**: privacy log requires `/state` (`TASK-0009`) or equivalent. Without `/state`, privacy log must be disabled or explicit `stub/placeholder` (no "written ok" claims).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 

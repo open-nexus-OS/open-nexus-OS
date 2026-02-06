@@ -77,7 +77,8 @@ On OS/QEMU:
 - **No duplicate power authority**: `powerd` is the single authority for power management. This task extends `powerd` with battery hooks, not a new power service.
 - **Determinism**: fuel-gauge model, charger state, thresholds, and persistence must be stable given the same inputs.
 - **Bounded resources**: battery state is bounded; cycles counter is bounded.
-- **Device MMIO gating**: userspace fuel-gauge/charger drivers may require `TASK-0010` (device MMIO access model) or equivalent.
+- **Device access**: assumes `TASK-0010` (device MMIO access model) is Done; real fuel-gauge/charger paths may additionally
+  require device-class caps (I²C/GPIO controller access) beyond the v1 MMIO primitive.
 - **Persistence gating**: persistence requires `/state` (`TASK-0009`) or equivalent. Without `/state`, persistence must be disabled or explicit `stub/placeholder` (no "written ok" claims).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 

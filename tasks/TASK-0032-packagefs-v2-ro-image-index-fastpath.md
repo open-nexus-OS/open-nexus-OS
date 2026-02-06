@@ -38,7 +38,7 @@ Key properties:
 
 ## Non-Goals
 
-- Full “blk-backed mount on OS” without MMIO access (gated on TASK-0010).
+- Full “blk-backed mount on OS” without a defined blk authority + proof ladder.
 - Cross-process VMO splice (separate task; depends on VMO transfer semantics).
 - Writable packagefs.
 
@@ -58,9 +58,10 @@ Key properties:
     - operate on `manifest.nxb` only, or
     - explicitly support both formats during a transition and document it.
 - **YELLOW (OS storage path)**:
-  - If we want OS to mount from `virtio-blk`, that is blocked by the MMIO access model (TASK-0010).
-  - Short-term OS path can continue to fetch the image bytes from `bundlemgrd` (already exists), which
-    avoids block device access in v2.
+  - If we want OS to mount from `virtio-blk`, this is **no longer blocked by MMIO** (TASK-0010 is Done),
+    but it *is* gated on selecting a single blk authority and proving deterministic reads end-to-end.
+  - Short-term OS path can continue to fetch the image bytes from `bundlemgrd` (already exists), which avoids
+    direct block device access in v2.
 
 ## Contract sources (single source of truth)
 
@@ -137,5 +138,4 @@ Once OS can provide the image (via existing `bundlemgrd.fetch_image` or blk-back
 ## Follow-ups (separate tasks)
 
 - VMO splice from package image (requires VMO transfer semantics and budgets).
-- blk-backed mount on OS once virtio-blk MMIO access exists (TASK-0010).
-
+- blk-backed mount on OS (TASK-0010 MMIO primitive is Done; remaining gate is choosing the blk authority + QEMU proof ladder).

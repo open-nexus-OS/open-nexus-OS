@@ -62,7 +62,10 @@ On OS/QEMU:
 ## Constraints / invariants (hard requirements)
 
 - **No duplicate SMP authority**: This task extends `TASK-0012` with RISC-V-specific SBI HSM/IPI. Do not create a parallel SMP implementation.
-- **No duplicate virtio-blk authority**: `virtioblkd` uses the library from `TASK-0246`. `TASK-0009` will use the same library for statefs (read-write).
+- **No duplicate virtio-blk authority**: exactly one blk authority may own the virtio-blk device in a given boot profile.
+  `virtioblkd` (this task) uses the library from `TASK-0246`. The persistence path from `TASK-0009` already consumes
+  virtio-blk for statefs (read-write) in the current OS profile; if `virtioblkd` is introduced, document which profile
+  uses which authority and keep the ownership exclusive.
 - **Determinism**: SMP bring-up, per-hart timers, and virtio-blk operations must be stable given the same inputs.
 - **Bounded resources**: SMP is limited to 4 harts; virtio-blk reads are bounded (128 KiB per call).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
