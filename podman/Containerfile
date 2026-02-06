@@ -22,7 +22,10 @@ RUN apt-get update \
         pkg-config \
         git \
         python3 \
+        python3-venv \
         python3-pip \
+        meson \
+        ninja-build \
         capnproto \
         flatbuffers-compiler \
         qemu-system-misc \

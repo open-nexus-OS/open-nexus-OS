@@ -30,6 +30,10 @@ help:
     @echo "  just build-init-lite-os  # cross-compile init-lite userspace payload"
     @echo "  just test-os             # run kernel selftests in QEMU"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
+    @echo "  just test-os-dhcp         # QEMU smoke with DHCP requested (bounded, deterministic fallback allowed)"
+    @echo "  just test-os-dhcp-strict  # QEMU smoke with strict DHCP gate (bound OR TX+fallback)"
+    @echo "  just test-dsoftbus-2vm    # TASK-0005: 2-VM DSoftBus harness"
+    @echo "  just test-dsoftbus-2vm-pcap # 2-VM DSoftBus harness + PCAP capture"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
     @echo "  INIT_LITE_LOG_TOPICS=svc-meta just qemu  # opt-in init-lite log topics"
@@ -77,6 +81,15 @@ test-os:
     scripts/qemu-test.sh
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
 
+# QEMU smoke variants (networking / DSoftBus gates).
+#
+# IMPORTANT: run these sequentially (not in parallel) to avoid blk.img lock contention.
+test-os-dhcp:
+    REQUIRE_QEMU_DHCP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
+
+test-os-dhcp-strict:
+    REQUIRE_QEMU_DHCP=1 REQUIRE_QEMU_DHCP_STRICT=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
+
 # Run only until device-MMIO proofs are complete (faster local iteration).
 test-mmio:
     RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
@@ -93,6 +106,13 @@ os2vm:
 
 os2vm-pcap:
     @RUN_OS2VM=1 OS2VM_PCAP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} tools/os2vm.sh
+
+# Friendlier aliases for DSoftBus bring-up.
+test-dsoftbus-2vm:
+    just os2vm
+
+test-dsoftbus-2vm-pcap:
+    just os2vm-pcap
 
 # -----------------------------------------------------------------------------
 # Host test suites

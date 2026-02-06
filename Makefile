@@ -14,10 +14,14 @@ SELINUX_LABEL := $(shell command -v selinuxenabled >/dev/null 2>&1 && selinuxena
 initial-setup:
 	@echo "==> Checking podman rootless support"
 	@scripts/check-rootless.sh
+	@echo "==> Checking QEMU build deps (for virtio-mmio modern patch)"
+	@command -v ninja >/dev/null 2>&1 || echo "[warn] ninja not found (required for QEMU build)"
+	@command -v meson >/dev/null 2>&1 || echo "[warn] meson not found (required for QEMU build)"
 	@echo "==> Installing Rust targets"
 	@rustup target add riscv64imac-unknown-none-elf
 	@echo "==> Installing git hooks"
 	@./scripts/fmt-clippy-deny.sh
+	@echo "==> QEMU modern virtio-mmio patch: run ./tools/qemu/build-modern.sh"
 
 build:
 ifeq ($(MODE),container)

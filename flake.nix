@@ -19,6 +19,10 @@
             toolchain
             pkgs.just
             pkgs.qemu
+            pkgs.ninja
+            pkgs.meson
+            pkgs.python3
+            pkgs.git
             pkgs.pkg-config
             pkgs.gnumake
             pkgs.capnproto           # provides `capnp` for Cap’n Proto codegen

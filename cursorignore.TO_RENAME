@@ -11,7 +11,6 @@
 **/.cache/**
 
 # Logs / traces / dumps
-**/*.log
 **/*.trace
 **/*.dump
 **/*.core
@@ -27,8 +26,6 @@
 **/*.so
 
 # QEMU / emulator artifacts
-**/qemu.log
-**/qemu-*.log
 **/*.qcow2
 **/*.raw
 

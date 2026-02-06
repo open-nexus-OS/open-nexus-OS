@@ -23,8 +23,6 @@ Cargo.lock
 *.iso
 
 # Logs
-*.log
-qemu.log
 serial.log
 
 # Podman / container artifacts

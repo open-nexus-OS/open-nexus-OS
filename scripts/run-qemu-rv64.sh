@@ -21,6 +21,7 @@ RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) 
 export RUSTFLAGS="$RUSTFLAGS_OS"
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-0}
+QEMU_TIMEOUT_SIGNAL=${QEMU_TIMEOUT_SIGNAL:-TERM}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
@@ -486,9 +487,9 @@ prepare_service_payloads
 
 # Ensure a deterministic virtio-blk backing image exists for QEMU.
 mkdir -p "$ROOT/build"
-if [[ ! -f "$QEMU_BLK_IMG" ]]; then
-  truncate -s 64M "$QEMU_BLK_IMG"
-fi
+# Always recreate the image to avoid stale QEMU "write lock" issues after aborted runs.
+rm -f "$QEMU_BLK_IMG"
+truncate -s 64M "$QEMU_BLK_IMG"
 
 # Always rebuild init-lite and kernel to pick up changes
 (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release)
@@ -521,9 +522,25 @@ COMMON_ARGS=(
   -smp "${SMP:-1}"
   -nographic
   -serial mon:stdio
-  -icount 1,sleep=on
   -bios default
   -kernel "$KERNEL_BIN"
+)
+
+# Default to modern virtio-mmio for determinism (legacy virtio-mmio has known virtio-blk issues).
+# Legacy is still available for opt-in debugging/bisecting via QEMU_FORCE_LEGACY=1.
+if [[ "${QEMU_FORCE_LEGACY:-0}" == "1" ]]; then
+  COMMON_ARGS+=( -global virtio-mmio.force-legacy=on )
+else
+  COMMON_ARGS+=( -global virtio-mmio.force-legacy=off )
+fi
+
+# icount mode for deterministic execution (can be disabled for debugging)
+if [[ "${QEMU_NO_ICOUNT:-0}" != "1" ]]; then
+  QEMU_ICOUNT_ARGS=${QEMU_ICOUNT_ARGS:-"1,sleep=on"}
+  COMMON_ARGS+=( -icount "$QEMU_ICOUNT_ARGS" )
+fi
+
+COMMON_ARGS+=(
   # Networking: attach a virtio-net device on the virtio-mmio bus.
   # This is self-contained (user-mode net), requires no host TAP and remains deterministic enough
   # for marker-driven bring-up.
@@ -535,10 +552,35 @@ COMMON_ARGS=(
   ${QEMU_BLK_DEVICE}
 )
 
+# Debug aid: print the resolved QEMU arguments (bounded).
+echo "[info] QEMU_NETDEV=${QEMU_NETDEV}" >&2
+echo "[info] QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE}" >&2
+if [[ "${QEMU_NO_ICOUNT:-0}" == "1" ]]; then
+  echo "[info] QEMU icount: disabled" >&2
+else
+  echo "[info] QEMU icount: enabled" >&2
+  echo "[info] QEMU icount args: ${QEMU_ICOUNT_ARGS:-}" >&2
+fi
+if [[ -n "${QEMU_TRACE_EVENTS:-}" ]]; then
+  echo "[info] QEMU trace events: ${QEMU_TRACE_EVENTS}" >&2
+  echo "[info] QEMU trace file: ${QEMU_TRACE_FILE:-qemu.trace}" >&2
+fi
+
 # Enable heavy QEMU tracing only when explicitly requested
 if [[ "${QEMU_TRACE:-0}" == "1" ]]; then
   TRACE_FLAGS=${QEMU_TRACE_FLAGS:-int,mmu,unimp}
   COMMON_ARGS+=( -d "$TRACE_FLAGS" -D "$QEMU_LOG" )
+fi
+
+# Enable QEMU trace events (separate from `-d` logging).
+#
+# Example:
+#   QEMU_TRACE_EVENTS="net_rx_pkt_parsed" QEMU_TRACE_FILE="qemu.trace" scripts/run-qemu-rv64.sh
+#
+# NOTE: This is used for debugging RX/TX delivery issues (e.g. slirp DHCP under `-icount`).
+if [[ -n "${QEMU_TRACE_EVENTS:-}" ]]; then
+  QEMU_TRACE_FILE=${QEMU_TRACE_FILE:-qemu.trace}
+  COMMON_ARGS+=( -trace "enable=${QEMU_TRACE_EVENTS},file=${QEMU_TRACE_FILE}" )
 fi
 
 # Optional GDB stub for interactive debugging
@@ -549,14 +591,16 @@ fi
 status=0
 if [[ "$RUN_UNTIL_MARKER" != "0" ]]; then
   set +e
-  timeout --foreground "$RUN_TIMEOUT" stdbuf -oL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+  timeout --signal="$QEMU_TIMEOUT_SIGNAL" --foreground "$RUN_TIMEOUT" stdbuf -oL -eL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+    2> >(tee "$QEMU_LOG" >&2) \
     | tee >(monitor_uart) \
     | tee "$UART_LOG"
   status=${PIPESTATUS[0]}
   set -e
 else
   set +e
-  timeout --foreground "$RUN_TIMEOUT" stdbuf -oL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+  timeout --signal="$QEMU_TIMEOUT_SIGNAL" --foreground "$RUN_TIMEOUT" stdbuf -oL -eL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+    2> >(tee "$QEMU_LOG" >&2) \
     | tee "$UART_LOG"
   status=${PIPESTATUS[0]}
   set -e
