@@ -13,8 +13,6 @@ os-lite = []
 ipc-client = ["dep:nexus-ipc", "dep:nexus-abi", "nexus-ipc/os-lite", "nexus-ipc/kernel-ipc"]
 
 [dependencies]
-# CRC32-C for journal integrity (no_std compatible)
-crc32fast = { version = "1.4", default-features = false }
 nexus-abi = { path = "../../source/libs/nexus-abi", optional = true, default-features = false }
 nexus-ipc = { path = "../nexus-ipc", optional = true, default-features = false }
 storage = { path = "../storage", default-features = false }

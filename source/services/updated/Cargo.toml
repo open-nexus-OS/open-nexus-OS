@@ -29,6 +29,7 @@ os-lite = [
     "dep:ed25519-dalek",
     "dep:statefs",
     "statefs/ipc-client",
+    "statefs/os-lite",
 ]
 
 [lib]

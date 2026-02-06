@@ -220,6 +220,17 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         let ok = append_probe_to_logd_deterministic();
         return rsp_v1(op, if ok { STATUS_ALLOW } else { STATUS_UNSUPPORTED });
     }
+    // Delegate the policy decision to the side-effect-free, host-testable handler.
+    let out = crate::lite_protocol::handle_frame(&POLICY, frame, sender_service_id, privileged_proxy);
+    // Best-effort audit emission (never blocks). Only for allow/deny statuses.
+    if out.len >= 5 {
+        match out.buf[4] {
+            STATUS_ALLOW => emit_audit(op, AuditDecision::Allow, sender_service_id, None, AuditReason::Policy),
+            STATUS_DENY => emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::Policy),
+            _ => {}
+        }
+    }
+    return FrameOut { buf: out.buf, len: out.len };
     match (ver, op) {
         (VERSION, OP_CHECK) => {
             // Debug: log CHECK request receipt.
@@ -328,6 +339,51 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 AuditReason::Policy,
             );
             rsp_v1(op, status)
+        }
+        (nexus_abi::policyd::VERSION_V2, OP_CHECK_CAP_DELEGATED) => {
+            // v2 delegated CAP check request (nonce-correlated):
+            // [P, O, ver=2, OP_CHECK_CAP_DELEGATED, nonce:u32le, subject_id:u64le, cap_len:u8, cap...]
+            if frame.len() < 4 + 4 + 8 + 1 {
+                return rsp_v2(OP_CHECK_CAP_DELEGATED, 0, STATUS_MALFORMED);
+            }
+            let nonce = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+            let subject_id = u64::from_le_bytes([
+                frame[8], frame[9], frame[10], frame[11], frame[12], frame[13], frame[14],
+                frame[15],
+            ]);
+            let cap_len = frame[16] as usize;
+            if cap_len == 0 || cap_len > 48 || frame.len() != 17 + cap_len {
+                return rsp_v2(OP_CHECK_CAP_DELEGATED, nonce, STATUS_MALFORMED);
+            }
+            let cap = &frame[17..17 + cap_len];
+
+            // Security: only allow delegated checks from authorized enforcement points.
+            // Allow init-lite proxy unconditionally (bring-up topology).
+            let delegate_ok = privileged_proxy || POLICY.allows(sender_service_id, "policy.delegate");
+            if !delegate_ok {
+                emit_audit(
+                    op,
+                    AuditDecision::Deny,
+                    sender_service_id,
+                    Some(subject_id),
+                    AuditReason::Policy,
+                );
+                return rsp_v2(OP_CHECK_CAP_DELEGATED, nonce, STATUS_DENY);
+            }
+
+            let status = if POLICY.allows(subject_id, core::str::from_utf8(cap).unwrap_or("")) {
+                STATUS_ALLOW
+            } else {
+                STATUS_DENY
+            };
+            emit_audit(
+                op,
+                if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
+                sender_service_id,
+                Some(subject_id),
+                AuditReason::Policy,
+            );
+            rsp_v2(OP_CHECK_CAP_DELEGATED, nonce, status)
         }
         (VERSION, OP_ROUTE) => {
             if frame.len() < 7 {
@@ -793,9 +849,11 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
 
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
-    const VERSION: u8 = 1;
+    const VERSION: u8 = 2;
     const OP_APPEND: u8 = 1;
     const LEVEL_INFO: u8 = 2;
+    const STATUS_OK: u8 = 0;
+    static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
     if scope.len() > 64 || msg.len() > 256 {
         return false;
@@ -803,11 +861,14 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
 
     let mut frame = [0u8; 512];
     let mut len = 0usize;
-    if frame.len() < 4 + 1 + 1 + 2 + 2 + scope.len().saturating_add(msg.len()) {
+    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if frame.len() < 4 + 8 + 1 + 1 + 2 + 2 + scope.len().saturating_add(msg.len()) {
         return false;
     }
     frame[len..len + 4].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
     len += 4;
+    frame[len..len + 8].copy_from_slice(&nonce.to_le_bytes());
+    len += 8;
     frame[len] = LEVEL_INFO;
     len += 1;
     frame[len] = scope.len() as u8;
@@ -820,23 +881,6 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
     len += scope.len();
     frame[len..len + msg.len()].copy_from_slice(msg);
     len += msg.len();
-
-    // Drain stale replies on the reply inbox.
-    for _ in 0..8 {
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 64];
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(_) => continue,
-            Err(nexus_abi::IpcError::QueueEmpty) => break,
-            Err(_) => break,
-        }
-    }
 
     let moved = match nexus_abi::cap_clone(REPLY_SEND_SLOT) {
         Ok(slot) => slot,
@@ -871,14 +915,16 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
         i = i.wrapping_add(1);
     }
 
-    // Drain the logd append response from the reply inbox (keeps queues bounded).
+    // Deterministic: wait (bounded) for the APPEND ack so the reply inbox cannot fill.
     let mut ah = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut abuf = [0u8; 64];
+    let mut j: usize = 0;
     loop {
-        let now = nexus_abi::nsec().ok().unwrap_or(0);
-        if now >= deadline {
-            emit_line("policyd: audit logd timeout");
-            return false;
+        if (j & 0x7f) == 0 {
+            let now = nexus_abi::nsec().ok().unwrap_or(0);
+            if now >= deadline {
+                return false;
+            }
         }
         match nexus_abi::ipc_recv_v1(
             REPLY_RECV_SLOT,
@@ -888,28 +934,29 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
             0,
         ) {
             Ok(n) => {
-                // Debug: check response status
-                if n >= 5
-                    && abuf[0] == b'L'
-                    && abuf[1] == b'O'
-                    && abuf[2] == 1
-                    && abuf[3] == (1 | 0x80)
+                let n = core::cmp::min(n as usize, abuf.len());
+                if n >= 13
+                    && abuf[0] == MAGIC0
+                    && abuf[1] == MAGIC1
+                    && abuf[2] == VERSION
+                    && abuf[3] == (OP_APPEND | 0x80)
                 {
-                    if abuf[4] != 0 {
-                        // logd returned non-OK status
-                        emit_line("policyd: audit logd FAIL status");
+                    if let Ok((status, got_nonce)) =
+                        nexus_ipc::logd_wire::parse_append_response_v2_prefix(&abuf[..n])
+                    {
+                        if got_nonce == nonce {
+                            return status == STATUS_OK;
+                        }
                     }
                 }
-                break;
+                // Unexpected reply on the inbox (should be rare); keep waiting until deadline.
+                let _ = yield_();
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {
                 let _ = yield_();
             }
-            Err(_) => {
-                emit_line("policyd: audit logd recv err");
-                return false;
-            }
+            Err(_) => return false,
         }
+        j = j.wrapping_add(1);
     }
-    true
 }

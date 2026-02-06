@@ -17,9 +17,10 @@
 use logd::journal::{Journal, JournalError, LogLevel, LogRecord, RecordId, TimestampNsec};
 use logd::protocol::{
     decode_request, encode_append_response, encode_query_response, encode_stats_response,
-    DecodeError, Request, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND,
-    OP_QUERY, OP_STATS, STATUS_OK, VERSION,
+    encode_query_response_bounded_iter, DecodeError, Request, MAGIC0, MAGIC1, MAX_FIELDS_LEN,
+    MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY, OP_STATS, STATUS_OK, VERSION,
 };
+use logd::lite_handler;
 use proptest::prelude::*;
 
 // ============================================================================
@@ -34,9 +35,25 @@ fn journal_drop_oldest_by_records() {
     j.append(1, TimestampNsec(3), LogLevel::Info, b"s", b"m3", b"").unwrap();
     let out = j.query(TimestampNsec(0), 10);
     assert_eq!(out.len(), 2);
-    assert_eq!(out[0].message, b"m2");
-    assert_eq!(out[1].message, b"m3");
+    assert_eq!(out[0].message.as_slice(), b"m2");
+    assert_eq!(out[1].message.as_slice(), b"m3");
     assert_eq!(j.stats().dropped_records, 1);
+}
+
+#[test]
+fn journal_alloc_cap_is_lifetime_budget() {
+    // In OS-lite, services often use a bump allocator: dropping records does not reclaim heap.
+    // The alloc cap therefore acts as a lifetime budget and must reject deterministically once
+    // exceeded, rather than exhausting the service heap.
+    let mut j = Journal::new_with_alloc_cap(2, 200, 220);
+    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m", b"").unwrap();
+    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m", b"").unwrap();
+    j.append(1, TimestampNsec(3), LogLevel::Info, b"s", b"m", b"").unwrap();
+    // Next append should exceed the lifetime budget and be rejected.
+    assert_eq!(
+        j.append(1, TimestampNsec(4), LogLevel::Info, b"s", b"m", b""),
+        Err(JournalError::TooLarge)
+    );
 }
 
 #[test]
@@ -82,6 +99,88 @@ fn protocol_decode_stats_smoke() {
         Request::Stats(_) => {}
         _ => panic!("wrong request"),
     }
+}
+
+#[test]
+fn bounded_query_skips_oversized_records_and_returns_later_hits() {
+    // Build a journal that contains an oversized record (won't fit into 512-byte QUERY response),
+    // followed by a small record that must still be returned.
+    let mut j = Journal::new(128, 64 * 1024);
+    let huge_fields = vec![b'x'; MAX_FIELDS_LEN]; // makes record > 512 once headers included
+    j.append(
+        1,
+        TimestampNsec(1),
+        LogLevel::Info,
+        b"svc",
+        b"this record is too large for bounded query",
+        &huge_fields,
+    )
+    .unwrap();
+    j.append(1, TimestampNsec(2), LogLevel::Info, b"svc", b"needle-here", b"")
+        .unwrap();
+
+    let stats = j.stats();
+    let out = encode_query_response_bounded_iter(STATUS_OK, stats, &j, TimestampNsec(0), 10);
+    let buf = out.as_slice();
+    // count is at offset: [L,O,ver,op,status] + total(u64) + dropped(u64) = 5+8+8=21
+    assert!(buf.len() >= 23);
+    let count = u16::from_le_bytes([buf[21], buf[22]]) as usize;
+    assert!(count >= 1, "expected at least one record encoded");
+    assert!(
+        buf.windows(b"needle-here".len()).any(|w| w == b"needle-here"),
+        "expected bounded response to contain the later small record"
+    );
+}
+
+#[test]
+fn host_inprocess_append_then_paged_query_finds_needle() {
+    // This is a deterministic mini-E2E: it runs the OS-lite wire handler in-process and then
+    // scans QUERY pages using the same parsing logic the selftest uses.
+    let mut j = Journal::new(128, 64 * 1024);
+    let sid = 0x1234_u64;
+
+    // Append a few records, including one that is too large to fit in a bounded QUERY response.
+    let huge_scope = vec![b's'; MAX_SCOPE_LEN];
+    let huge_msg = vec![b'm'; MAX_MSG_LEN];
+    let huge_fields = vec![b'f'; MAX_FIELDS_LEN];
+    let mut t = 1u64;
+    for payload in [
+        (b"svc".as_slice(), b"hello".as_slice(), b"".as_slice()),
+        (&huge_scope[..], &huge_msg[..], &huge_fields[..]),
+        (b"svc", b"needle-here", b""),
+    ] {
+        let (scope, msg, fields) = payload;
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+        frame.push(2); // INFO
+        frame.push(scope.len() as u8);
+        frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+        frame.extend_from_slice(&(fields.len() as u16).to_le_bytes());
+        frame.extend_from_slice(scope);
+        frame.extend_from_slice(msg);
+        frame.extend_from_slice(fields);
+        let _rsp = lite_handler::handle_frame(&mut j, sid, TimestampNsec(t), &frame);
+        t += 1;
+    }
+
+    // Page through QUERY responses until we find the needle.
+    let mut since = 0u64;
+    for _ in 0..16 {
+        let mut q = Vec::new();
+        q.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_QUERY]);
+        q.extend_from_slice(&since.to_le_bytes());
+        q.extend_from_slice(&2u16.to_le_bytes()); // small page
+        let rsp = lite_handler::handle_frame(&mut j, sid, TimestampNsec(t), &q);
+        let scan = nexus_ipc::logd_wire::scan_query_page(&rsp, b"needle-here").unwrap();
+        if scan.found {
+            return;
+        }
+        let Some(next) = nexus_ipc::logd_wire::next_since_nsec(since, scan.max_timestamp_nsec) else {
+            break;
+        };
+        since = next;
+    }
+    panic!("needle not found via paged query");
 }
 
 // ============================================================================
@@ -444,9 +543,9 @@ fn integration_append_query_roundtrip() {
     // Query back
     let records = journal.query(TimestampNsec(0), 10);
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].scope, b"test");
-    assert_eq!(records[0].message, b"hello");
-    assert_eq!(records[0].fields, b"k=v");
+    assert_eq!(records[0].scope.as_slice(), b"test");
+    assert_eq!(records[0].message.as_slice(), b"hello");
+    assert_eq!(records[0].fields.as_slice(), b"k=v");
     assert_eq!(records[0].service_id, 123);
 }
 

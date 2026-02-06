@@ -71,6 +71,10 @@ const VIRTIO_MAGIC: u32 = 0x74726976;
 /// VirtIO device ID for RNG.
 const VIRTIO_DEVICE_ID_RNG: u32 = 0x04;
 
+/// VirtIO MMIO version constant for modern virtio-mmio (v2).
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
+const VIRTIO_MMIO_VERSION_MODERN: u32 = 2;
+
 // VirtIO MMIO register offsets (bytes) for virtio-mmio devices.
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 mod mmio {
@@ -95,6 +99,14 @@ mod mmio {
     pub const REG_QUEUE_PFN: usize = 0x040; // legacy only
     pub const REG_QUEUE_NOTIFY: usize = 0x050;
     pub const REG_STATUS: usize = 0x070;
+
+    pub const REG_QUEUE_DESC_LOW: usize = 0x080;
+    pub const REG_QUEUE_DESC_HIGH: usize = 0x084;
+    pub const REG_QUEUE_DRIVER_LOW: usize = 0x090;
+    pub const REG_QUEUE_DRIVER_HIGH: usize = 0x094;
+    pub const REG_QUEUE_DEVICE_LOW: usize = 0x0a0;
+    pub const REG_QUEUE_DEVICE_HIGH: usize = 0x0a4;
+    pub const REG_QUEUE_READY: usize = 0x044;
 
     // Status bits
     pub const STATUS_ACKNOWLEDGE: u32 = 1;
@@ -367,6 +379,12 @@ pub fn read_entropy_via_virtio_mmio(
     let Some(slot) = found else { return Err(RngError::NotFound) };
     let dev_va = mmio_base_va + slot * SLOT_STRIDE;
 
+    let version = unsafe { core::ptr::read_volatile((dev_va + mmio::REG_VERSION) as *const u32) };
+    // Enforce modern virtio-mmio (QEMU: `-global virtio-mmio.force-legacy=off`).
+    if version != VIRTIO_MMIO_VERSION_MODERN {
+        return Err(RngError::NotReady);
+    }
+
     // Minimal feature negotiation (accept none).
     unsafe {
         core::ptr::write_volatile((dev_va + mmio::REG_STATUS) as *mut u32, 0);
@@ -434,8 +452,10 @@ pub fn read_entropy_via_virtio_mmio(
     let avail_va = desc_va + core::mem::size_of::<VqDesc>() * N;
     let used_va =
         desc_va + align4(core::mem::size_of::<VqDesc>() * N + core::mem::size_of::<VqAvail<N>>());
+    let avail_pa = desc_pa + (avail_va - desc_va) as u64;
+    let used_pa = desc_pa + (used_va - desc_va) as u64;
 
-    // Program legacy queue 0 (PFN of desc base).
+    // Program queue 0.
     unsafe {
         core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_SEL) as *mut u32, 0);
         let max = core::ptr::read_volatile((dev_va + mmio::REG_QUEUE_NUM_MAX) as *const u32);
@@ -443,36 +463,50 @@ pub fn read_entropy_via_virtio_mmio(
             return Err(RngError::NotReady);
         }
         core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_NUM) as *mut u32, N as u32);
-        core::ptr::write_volatile((dev_va + mmio::REG_GUEST_PAGE_SIZE) as *mut u32, 4096);
-        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_ALIGN) as *mut u32, 4);
+        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_DESC_LOW) as *mut u32, desc_pa as u32);
         core::ptr::write_volatile(
-            (dev_va + mmio::REG_QUEUE_PFN) as *mut u32,
-            (desc_pa >> 12) as u32,
+            (dev_va + mmio::REG_QUEUE_DESC_HIGH) as *mut u32,
+            (desc_pa >> 32) as u32,
         );
+        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_DRIVER_LOW) as *mut u32, avail_pa as u32);
+        core::ptr::write_volatile(
+            (dev_va + mmio::REG_QUEUE_DRIVER_HIGH) as *mut u32,
+            (avail_pa >> 32) as u32,
+        );
+        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_DEVICE_LOW) as *mut u32, used_pa as u32);
+        core::ptr::write_volatile(
+            (dev_va + mmio::REG_QUEUE_DEVICE_HIGH) as *mut u32,
+            (used_pa >> 32) as u32,
+        );
+        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_READY) as *mut u32, 1);
     }
 
     // Prepare one writable descriptor pointing at the buffer page.
     unsafe {
-        let d = &mut *(desc_va as *mut VqDesc);
-        d.addr = buf_pa;
-        d.len = MAX_ENTROPY_BYTES as u32;
-        d.flags = VIRTQ_DESC_F_WRITE;
-        d.next = 0;
-        let avail = &mut *(avail_va as *mut VqAvail<N>);
-        avail.flags = 0;
-        avail.ring[0] = 0;
-        avail.idx = 1;
+        let d = desc_va as *mut VqDesc;
+        core::ptr::write_volatile(&mut (*d).addr, buf_pa);
+        core::ptr::write_volatile(&mut (*d).len, MAX_ENTROPY_BYTES as u32);
+        core::ptr::write_volatile(&mut (*d).flags, VIRTQ_DESC_F_WRITE);
+        core::ptr::write_volatile(&mut (*d).next, 0);
+
+        let avail = avail_va as *mut VqAvail<N>;
+        core::ptr::write_volatile(&mut (*avail).flags, 0);
+        core::ptr::write_volatile(&mut (*avail).ring[0], 0);
+        core::ptr::write_volatile(&mut (*avail).idx, 1);
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_NOTIFY) as *mut u32, 0);
     }
 
-    // Mark driver OK.
+    // Mark driver OK before notify.
     unsafe {
         let st = core::ptr::read_volatile((dev_va + mmio::REG_STATUS) as *const u32);
         core::ptr::write_volatile(
             (dev_va + mmio::REG_STATUS) as *mut u32,
             st | mmio::STATUS_DRIVER_OK,
         );
+    }
+
+    unsafe {
+        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_NOTIFY) as *mut u32, 0);
     }
 
     // Poll for completion (bounded).

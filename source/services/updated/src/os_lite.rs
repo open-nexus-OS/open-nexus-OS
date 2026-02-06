@@ -18,7 +18,6 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use nexus_abi::{debug_putc, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK};
-use nexus_abi::slot_probe::{slot_is_valid, validate_slots};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Wait};
 use statefs::client::StatefsClient;
 use statefs::StatefsError;
@@ -106,55 +105,41 @@ impl UpdatedState {
 /// Touches schema types to keep host parity; no-op in the stub.
 pub fn touch_schemas() {}
 
-fn wait_for_required_slots(required: &[u32]) -> bool {
-    let start = match nsec() {
-        Ok(value) => value,
-        Err(_) => 0,
-    };
-    let deadline = start.saturating_add(5_000_000_000);
-    loop {
-        if required.iter().all(|slot| slot_is_valid(*slot)) {
-            return true;
-        }
-        let now = match nsec() {
-            Ok(value) => value,
-            Err(_) => 0,
-        };
-        if now >= deadline {
-            return false;
-        }
-        let _ = yield_();
-    }
-}
-
 /// Main service loop used by the lite backend.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("updated: entry");
-    let required = [0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b];
-    if !wait_for_required_slots(&required) {
-        let missing = validate_slots(
-            "updated",
-            &[
-                ("service_recv", 0x03),
-                ("service_send", 0x04),
-                ("bundlemgrd_send", 0x05),
-                ("bundlemgrd_recv", 0x06),
-                ("keystored_send", 0x07),
-                ("keystored_recv", 0x08),
-                ("statefsd_send", 0x09),
-                ("reply_recv", 0x0a),
-                ("reply_send", 0x0b),
-            ],
-        );
-        let _ = missing;
-    }
     notifier.notify();
     // init-lite transfers the updated service endpoints into deterministic slots:
     // - recv: slot 3
     // - send: slot 4
     //
     // Using these directly avoids routing-time races during early bring-up.
-    let server = KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?;
+    let server = {
+        const RECV_SLOT: u32 = 0x03;
+        const SEND_SLOT: u32 = 0x04;
+        let deadline = match nexus_abi::nsec() {
+            Ok(now) => now.saturating_add(10_000_000_000), // 10s
+            Err(_) => 0,
+        };
+        loop {
+            let recv_ok =
+                nexus_abi::cap_clone(RECV_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
+            let send_ok =
+                nexus_abi::cap_clone(SEND_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
+            if recv_ok && send_ok {
+                break KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT)
+                    .map_err(|_| ServerError::Unsupported)?;
+            }
+            if deadline != 0 {
+                if let Ok(now) = nexus_abi::nsec() {
+                    if now >= deadline {
+                        return Err(ServerError::Unsupported);
+                    }
+                }
+            }
+            let _ = yield_();
+        }
+    };
     let (recv_slot, send_slot) = server.slots();
     emit_bytes(b"updated: slots ");
     emit_hex_u8((recv_slot >> 8) as u8);
@@ -183,6 +168,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
     let mut probe_emitted = false;
     let mut state = UpdatedState::new();
+    let mut logged_recv_err = false;
     if let Some(client) = statefs.as_mut() {
         match load_bootctrl_state(client) {
             Ok(boot) => {
@@ -264,11 +250,27 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(nexus_abi::IpcError::QueueEmpty) | Err(nexus_abi::IpcError::TimedOut) => {
                 let _ = yield_();
             }
-            Err(_) => {
-                emit_line("updated: recv err");
+            Err(err) => {
+                if !logged_recv_err {
+                    emit_bytes(b"updated: recv err kernel=");
+                    emit_line(ipc_error_label(err));
+                    logged_recv_err = true;
+                }
                 let _ = yield_();
             }
         }
+    }
+}
+
+fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
+    match err {
+        nexus_abi::IpcError::TimedOut => "TimedOut",
+        nexus_abi::IpcError::QueueEmpty => "QueueEmpty",
+        nexus_abi::IpcError::QueueFull => "QueueFull",
+        nexus_abi::IpcError::NoSpace => "NoSpace",
+        nexus_abi::IpcError::NoSuchEndpoint => "NoSuchEndpoint",
+        nexus_abi::IpcError::PermissionDenied => "PermissionDenied",
+        nexus_abi::IpcError::Unsupported => "Unsupported",
     }
 }
 
@@ -719,8 +721,36 @@ fn persist_bootctrl_state(
         None => return Ok(()),
     };
     let payload = encode_bootctrl_state(boot);
-    client.put(BOOTCTRL_STATE_KEY, &payload)?;
-    client.sync()?;
+    // #region agent log (persist failure detail; rate-limited)
+    static PERSIST_ERR_LOGGED: core::sync::atomic::AtomicBool =
+        core::sync::atomic::AtomicBool::new(false);
+    let label = |e: StatefsError| -> &'static str {
+        match e {
+            StatefsError::NotFound => "NotFound",
+            StatefsError::AccessDenied => "AccessDenied",
+            StatefsError::ValueTooLarge => "ValueTooLarge",
+            StatefsError::KeyTooLong => "KeyTooLong",
+            StatefsError::IoError => "IoError",
+            StatefsError::Corrupted => "Corrupted",
+            StatefsError::InvalidKey => "InvalidKey",
+            StatefsError::ReplayLimitExceeded => "ReplayLimitExceeded",
+        }
+    };
+    if let Err(e) = client.put(BOOTCTRL_STATE_KEY, &payload) {
+        if !PERSIST_ERR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            emit_bytes(b"updated: bootctl persist put err=");
+            emit_line(label(e));
+        }
+        return Err(e);
+    }
+    if let Err(e) = client.sync() {
+        if !PERSIST_ERR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            emit_bytes(b"updated: bootctl persist sync err=");
+            emit_line(label(e));
+        }
+        return Err(e);
+    }
+    // #endregion agent log
     Ok(())
 }
 

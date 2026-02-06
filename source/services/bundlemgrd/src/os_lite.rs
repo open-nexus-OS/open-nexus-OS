@@ -167,24 +167,16 @@ const CTRL_RECV_SLOT: u32 = 2;
 
 fn route_status(target: &str) -> Option<u8> {
     let name = target.as_bytes();
-    // Routing v1 has no nonce; drain stale control replies to avoid consuming an unrelated ROUTE_RSP.
-    for _ in 0..32 {
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut tmp = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
-            &mut rh,
-            &mut tmp,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(_) => continue,
-            Err(nexus_abi::IpcError::QueueEmpty) => break,
-            Err(_) => break,
-        }
-    }
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
-    let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
+    static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
+    let nonce = ROUTE_NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
+    // Routing v1+nonce extension:
+    // GET: [R,T,1,OP_ROUTE_GET, name_len, name..., nonce:u32le]
+    // RSP: [R,T,1,OP_ROUTE_RSP, status, send_slot:u32le, recv_slot:u32le, nonce:u32le]
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
+    let base_len = nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()])?;
+    req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
+    let req_len = base_len + 4;
     let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
     // Avoid deadline-based blocking IPC; use bounded NONBLOCK loops.
     let start = nexus_abi::nsec().ok()?;
@@ -215,7 +207,7 @@ fn route_status(target: &str) -> Option<u8> {
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 32];
     let mut j: usize = 0;
-    let n = loop {
+    loop {
         if (j & 0x7f) == 0 {
             let now = nexus_abi::nsec().ok()?;
             if now >= deadline {
@@ -229,7 +221,21 @@ fn route_status(target: &str) -> Option<u8> {
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
             0,
         ) {
-            Ok(n) => break n as usize,
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n != 17 {
+                    // Deterministic: ignore legacy/non-correlated control frames.
+                    let _ = yield_();
+                    continue;
+                }
+                let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
+                if got_nonce != nonce {
+                    let _ = yield_();
+                    continue;
+                }
+                let (status, _send, _recv) = nexus_abi::routing::decode_route_rsp(&buf[..13])?;
+                return Some(status);
+            }
             Err(nexus_abi::IpcError::QueueEmpty) => {
                 let _ = yield_();
             }
@@ -237,8 +243,6 @@ fn route_status(target: &str) -> Option<u8> {
         }
         j = j.wrapping_add(1);
     };
-    let (status, _send, _recv) = nexus_abi::routing::decode_route_rsp(&buf[..n])?;
-    Some(status)
 }
 
 fn handle_frame(frame: &[u8]) -> [u8; 8] {
@@ -388,9 +392,11 @@ fn rsp2(op: u8, status: u8, route_status: u8) -> [u8; 8] {
 fn append_probe_to_logd() -> bool {
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
-    const VERSION: u8 = 1;
+    const VERSION: u8 = 2;
     const OP_APPEND: u8 = 1;
     const LEVEL_INFO: u8 = 2;
+    const STATUS_OK: u8 = 0;
+    static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
     let logd = match nexus_ipc::KernelClient::new_for("logd") {
         Ok(c) => c,
@@ -400,7 +406,7 @@ fn append_probe_to_logd() -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    let (reply_send, _reply_recv) = reply.slots();
+    let (reply_send, reply_recv) = reply.slots();
     let moved = match nexus_abi::cap_clone(reply_send) {
         Ok(slot) => slot,
         Err(_) => return false,
@@ -412,8 +418,10 @@ fn append_probe_to_logd() -> bool {
         return false;
     }
 
-    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let mut frame = alloc::vec::Vec::with_capacity(12 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
     frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.extend_from_slice(&nonce.to_le_bytes());
     frame.push(LEVEL_INFO);
     frame.push(scope.len() as u8);
     frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
@@ -421,7 +429,58 @@ fn append_probe_to_logd() -> bool {
     frame.extend_from_slice(scope);
     frame.extend_from_slice(msg);
 
-    logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok()
+    // Deterministic: require an APPEND ack (bounded). This keeps the shared @reply inbox from filling.
+    if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
+        let _ = nexus_abi::cap_close(moved);
+        return false;
+    }
+    let _ = nexus_abi::cap_close(moved);
+
+    let start = nexus_abi::nsec().ok().unwrap_or(0);
+    let deadline = start.saturating_add(250_000_000); // 250ms
+    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 64];
+    let mut spins: usize = 0;
+    loop {
+        if (spins & 0x7f) == 0 {
+            let now = nexus_abi::nsec().ok().unwrap_or(0);
+            if now >= deadline {
+                return false;
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            reply_recv,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n >= 13
+                    && buf[0] == MAGIC0
+                    && buf[1] == MAGIC1
+                    && buf[2] == VERSION
+                    && buf[3] == (OP_APPEND | 0x80)
+                {
+                    if let Ok((status, got_nonce)) =
+                        nexus_ipc::logd_wire::parse_append_response_v2_prefix(&buf[..n])
+                    {
+                        if got_nonce == nonce {
+                            return status == STATUS_OK;
+                        }
+                    }
+                }
+                // Unexpected reply on shared inbox: keep waiting until deadline (deterministic).
+                let _ = yield_();
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => return false,
+        }
+        spins = spins.wrapping_add(1);
+    }
 }
 
 fn emit_line(message: &str) {

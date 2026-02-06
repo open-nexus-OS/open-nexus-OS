@@ -6,8 +6,11 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use core::fmt;
+use core::time::Duration;
 
 use nexus_abi::{debug_putc, exec, service_id_from_name, wait, yield_, Pid};
+use nexus_ipc::budget::{deadline_after, OsClock};
+use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT42_ELF};
@@ -127,11 +130,13 @@ struct TrackedChild {
 
 struct State {
     children: Vec<TrackedChild>,
+    policy_nonce: u32,
+    pending_policy: ReplyBuffer<8, 16>,
 }
 
 impl State {
     fn new() -> Self {
-        Self { children: Vec::new() }
+        Self { children: Vec::new(), policy_nonce: 1, pending_policy: ReplyBuffer::new() }
     }
 
     fn track_child(&mut self, pid: u32, image_id: u8) {
@@ -192,12 +197,8 @@ fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
     const MAGIC1: u8 = b'O';
     const VERSION: u8 = 1;
     const OP_APPEND: u8 = 1;
-    const LEVEL_WARN: u8 = 3;
-    // Deterministic slots distributed by init-lite for execd:
-    // - reply inbox: recv=0x5 send=0x6
-    // - logd sink:  send=0x7 (responses land on reply inbox when using CAP_MOVE)
-    const REPLY_RECV_SLOT: u32 = 5;
-    const REPLY_SEND_SLOT: u32 = 6;
+    const LEVEL_WARN: u8 = 1;
+    // Deterministic logd send slot distributed by init-lite for execd.
     const LOGD_SEND_SLOT: u32 = 7;
 
     let scope = b"execd";
@@ -225,87 +226,62 @@ fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
     frame.extend_from_slice(&msg);
     frame.extend_from_slice(fields);
 
-    // Drain stale replies on the reply inbox.
-    for _ in 0..8 {
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 64];
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(_) => continue,
-            Err(nexus_abi::IpcError::QueueEmpty) => break,
-            Err(_) => break,
-        }
-    }
+    // Determinism: treat the crash append as fire-and-forget.
+    //
+    // logd reply delivery via CAP_MOVE is not relied upon here because the reply inbox
+    // plumbing can be flaky under QEMU. The selftest proves persistence by querying logd
+    // for the crash record contents (not by receiving the APPEND response).
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    let clock = nexus_ipc::budget::OsClock;
+    let deadline_ns =
+        nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
+        .map_err(|_| ())?;
 
-    // Use CAP_MOVE so logd replies on the moved cap (reply inbox) rather than polluting unrelated queues.
-    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| ())?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    let start2 = nexus_abi::nsec().ok().unwrap_or(0);
-    let deadline2 = start2.saturating_add(2_000_000_000);
-    let mut si: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(LOGD_SEND_SLOT, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (si & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().ok().unwrap_or(0);
-                    if now >= deadline2 {
-                        return Err(());
+    nexus_ipc::budget::raw::send_budgeted(&clock, LOGD_SEND_SLOT, &hdr, &frame, deadline_ns)
+        .map_err(|e| {
+            match e {
+                nexus_ipc::IpcError::Timeout => emit_line("execd: crash logd send timeout"),
+                nexus_ipc::IpcError::Kernel(inner) => {
+                    emit_line_no_nl("execd: crash logd send kernel=");
+                    emit_line(ipc_error_label(inner));
+                    if inner == nexus_abi::IpcError::NoSuchEndpoint {
+                        let mut info = nexus_abi::CapQuery {
+                            kind_tag: 0,
+                            reserved: 0,
+                            base: 0,
+                            len: 0,
+                        };
+                        match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
+                            Ok(()) => {
+                                emit_line_no_nl("execd: crash logd slot kind=");
+                                emit_u64(info.kind_tag as u64);
+                                emit_line("");
+                            }
+                            Err(_) => emit_line("execd: crash logd slot query err"),
+                        }
                     }
                 }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        si = si.wrapping_add(1);
-    }
-    let mut ah = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut abuf = [0u8; 64];
-    loop {
-        let now = nexus_abi::nsec().ok().unwrap_or(0);
-        if now >= deadline2 {
-            return Err(());
-        }
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut ah,
-            &mut abuf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, abuf.len());
-                // Validate this is a logd APPEND response:
-                // [L,O,ver=1, OP_APPEND|0x80, status=0, ...]
-                if n >= 5
-                    && abuf[0] == b'L'
-                    && abuf[1] == b'O'
-                    && abuf[2] == 1
-                    && abuf[3] == (1 | 0x80)
-                    && abuf[4] == 0
-                {
-                    break;
+                nexus_ipc::IpcError::NoSpace => emit_line("execd: crash logd send nospace"),
+                other => {
+                    let _ = other;
+                    emit_line("execd: crash logd send err");
                 }
-                // Not our response; keep waiting until deadline.
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-    }
+            ()
+        })?;
     Ok(())
+}
+
+fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
+    match err {
+        nexus_abi::IpcError::PermissionDenied => "PermissionDenied",
+        nexus_abi::IpcError::NoSuchEndpoint => "NoSuchEndpoint",
+        nexus_abi::IpcError::QueueFull => "QueueFull",
+        nexus_abi::IpcError::QueueEmpty => "QueueEmpty",
+        nexus_abi::IpcError::NoSpace => "NoSpace",
+        nexus_abi::IpcError::TimedOut => "TimedOut",
+        nexus_abi::IpcError::Unsupported => "Unsupported",
+    }
 }
 
 fn push_u32_dec(out: &mut Vec<u8>, mut value: u32) {
@@ -422,8 +398,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     }
 
     // Ask init-lite (control channel) to authorize this exec via policyd.
-    // NOTE: init-lite policyd proxy currently does not correlate by nonce; keep nonce fixed.
-    let nonce: nexus_abi::policy::Nonce = 1;
+    let nonce: nexus_abi::policy::Nonce = {
+        let n = state.policy_nonce;
+        state.policy_nonce = state.policy_nonce.wrapping_add(1);
+        if state.policy_nonce == 0 {
+            state.policy_nonce = 1;
+        }
+        n
+    };
     let mut q = [0u8; 10 + 48];
     let qn = match nexus_abi::policy::encode_exec_check(nonce, requester, image_id, &mut q) {
         Some(n) => n,
@@ -451,32 +433,47 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         }
         i = i.wrapping_add(1);
     }
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut rb = [0u8; 16];
-    let mut j: usize = 0;
-    let rn = loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().ok().unwrap_or(0);
-            if now >= deadline {
-                return rsp(op, STATUS_FAILED, 0).to_vec();
+    struct CtlInbox;
+    impl nexus_ipc::Client for CtlInbox {
+        fn send(&self, _frame: &[u8], _wait: Wait) -> nexus_ipc::Result<()> {
+            Err(nexus_ipc::IpcError::Unsupported)
+        }
+
+        fn recv(&self, _wait: Wait) -> nexus_ipc::Result<Vec<u8>> {
+            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut rb = [0u8; 16];
+            match nexus_abi::ipc_recv_v1(
+                2,
+                &mut rh,
+                &mut rb,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => Ok(rb[..core::cmp::min(n as usize, rb.len())].to_vec()),
+                Err(nexus_abi::IpcError::QueueEmpty) => Err(nexus_ipc::IpcError::WouldBlock),
+                Err(other) => Err(nexus_ipc::IpcError::Kernel(other)),
             }
         }
-        match nexus_abi::ipc_recv_v1(
-            2,
-            &mut rh,
-            &mut rb,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => break n as usize,
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
-        }
-        j = j.wrapping_add(1);
+    }
+
+    let clock = OsClock;
+    let deadline_ns = match deadline_after(&clock, Duration::from_secs(2)) {
+        Ok(v) => v,
+        Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
     };
-    let (_rsp_nonce, decision) = nexus_abi::policy::decode_exec_check_rsp(&rb[..rn])
+
+    let rb = match recv_match_until(
+        &clock,
+        &CtlInbox,
+        &mut state.pending_policy,
+        nonce as u64,
+        deadline_ns,
+        |frame| nexus_abi::policy::decode_exec_check_rsp(frame).map(|(n, _)| n as u64),
+    ) {
+        Ok(v) => v,
+        Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
+    };
+    let (_rsp_nonce, decision) = nexus_abi::policy::decode_exec_check_rsp(&rb)
         .unwrap_or((nonce, nexus_abi::policy::STATUS_ALLOW));
     if decision != nexus_abi::policy::STATUS_ALLOW {
         emit_line("execd: spawn denied (policy)");

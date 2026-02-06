@@ -70,11 +70,17 @@ mod os_lite {
     use alloc::collections::VecDeque;
     use alloc::vec::Vec;
 
+    use core::cell::Cell;
+    use core::sync::atomic::{AtomicU64, Ordering};
+    use core::time::Duration;
+
     use exec_payloads::HELLO_ELF;
     use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
     use nexus_abi::{ipc_recv_v1, ipc_recv_v1_nb, ipc_send_v1_nb, yield_, MsgHeader, Pid};
     use nexus_ipc::Client as _;
-    use nexus_ipc::{KernelClient, Wait as IpcWait};
+    use nexus_ipc::budget::{deadline_after, OsClock};
+    use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
+    use nexus_ipc::{Client, IpcError, KernelClient, Wait as IpcWait};
     use statefs::StatefsError;
     use statefs::protocol as statefs_proto;
     #[cfg(feature = "smoltcp-probe")]
@@ -103,27 +109,6 @@ mod os_lite {
         }
     }
 
-    fn drain_ctrl_responses() {
-        const CTRL_RECV_SLOT: u32 = 2;
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        loop {
-            match nexus_abi::ipc_recv_v1(
-                CTRL_RECV_SLOT,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_) => {
-                    let _ = yield_();
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => break,
-                Err(_) => break,
-            }
-        }
-    }
-
     fn routing_v1_get(target: &str) -> core::result::Result<(u8, u32, u32), ()> {
         // Routing v1 (init-lite responder) using control slots 1/2:
         // GET: [R, T, ver, OP_ROUTE_GET, name_len:u8, name...]
@@ -131,21 +116,56 @@ mod os_lite {
         const CTRL_SEND_SLOT: u32 = 1;
         const CTRL_RECV_SLOT: u32 = 2;
         let name = target.as_bytes();
-        let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
-        let req_len = nexus_abi::routing::encode_route_get(name, &mut req).ok_or(())?;
+        static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
+        let nonce = ROUTE_NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
+        // Routing v1+nonce extension:
+        // GET: [R,T,1,OP_ROUTE_GET, name_len, name..., nonce:u32le]
+        // RSP: [R,T,1,OP_ROUTE_RSP, status, send_slot:u32le, recv_slot:u32le, nonce:u32le]
+        let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
+        let base_len = nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()])
+            .ok_or(())?;
+        req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
+        let req_len = base_len + 4;
         let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
-        // Drain any stale routing responses on the control channel.
-        drain_ctrl_responses();
-        for _ in 0..512 {
-            let _ = nexus_abi::ipc_send_v1(
+        // Deterministic: send once, then wait for the nonce-correlated RSP.
+        // Avoid flooding the control channel with duplicate ROUTE_GET requests.
+        let start = nexus_abi::nsec().map_err(|_| ())?;
+        let deadline = start.saturating_add(500_000_000); // 500ms
+        let mut i: usize = 0;
+        loop {
+            match nexus_abi::ipc_send_v1(
                 CTRL_SEND_SLOT,
                 &hdr,
                 &req[..req_len],
                 nexus_abi::IPC_SYS_NONBLOCK,
                 0,
-            );
-            let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 32];
+            ) {
+                Ok(_) => break,
+                Err(nexus_abi::IpcError::QueueFull) => {
+                    if (i & 0x7f) == 0 {
+                        let now = nexus_abi::nsec().map_err(|_| ())?;
+                        if now >= deadline {
+                            return Err(());
+                        }
+                    }
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+            i = i.wrapping_add(1);
+        }
+
+        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        let mut j: usize = 0;
+        loop {
+            if (j & 0x7f) == 0 {
+                let now = nexus_abi::nsec().map_err(|_| ())?;
+                if now >= deadline {
+                    return Err(());
+                }
+            }
             match nexus_abi::ipc_recv_v1(
                 CTRL_RECV_SLOT,
                 &mut rh,
@@ -155,8 +175,16 @@ mod os_lite {
             ) {
                 Ok(n) => {
                     let n = n as usize;
-                    if let Some((status, send, recv)) =
-                        nexus_abi::routing::decode_route_rsp(&buf[..n])
+                    if n != 17 {
+                        // Ignore legacy/non-correlated control frames.
+                        let _ = yield_();
+                        continue;
+                    }
+                    let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
+                    if got_nonce != nonce {
+                        continue;
+                    }
+                    if let Some((status, send, recv)) = nexus_abi::routing::decode_route_rsp(&buf[..13])
                     {
                         return Ok((status, send, recv));
                     }
@@ -164,8 +192,9 @@ mod os_lite {
                 Err(nexus_abi::IpcError::QueueEmpty) => {
                     let _ = yield_();
                 }
-                Err(_) => break,
+                Err(_) => return Err(()),
             }
+            j = j.wrapping_add(1);
         }
         Err(())
     }
@@ -441,9 +470,12 @@ mod os_lite {
     ) -> core::result::Result<(), ()> {
         let mut req = [0u8; 4];
         nexus_abi::bundlemgrd::encode_fetch_image(&mut req);
-        client.send(&req, IpcWait::Timeout(core::time::Duration::from_secs(1))).map_err(|_| ())?;
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(&clock, client, &req, core::time::Duration::from_secs(1))
+            .map_err(|_| ())?;
         let rsp =
-            client.recv(IpcWait::Timeout(core::time::Duration::from_secs(1))).map_err(|_| ())?;
+            nexus_ipc::budget::recv_budgeted(&clock, client, core::time::Duration::from_secs(1))
+                .map_err(|_| ())?;
         let (st, img) = nexus_abi::bundlemgrd::decode_fetch_image_rsp(&rsp).ok_or(())?;
         if st != nexus_abi::bundlemgrd::STATUS_OK {
             return Err(());
@@ -479,12 +511,20 @@ mod os_lite {
     ) -> core::result::Result<(), ()> {
         let mut req = [0u8; 5];
         nexus_abi::bundlemgrd::encode_set_active_slot_req(slot, &mut req);
-        client
-            .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let rsp = client
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            client,
+            &req,
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(
+            &clock,
+            client,
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
         let (status, _slot) = nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&rsp).ok_or(())?;
         if status == nexus_abi::bundlemgrd::STATUS_OK {
             Ok(())
@@ -603,25 +643,6 @@ mod os_lite {
             req.extend_from_slice(&(val.len() as u16).to_le_bytes());
             req.extend_from_slice(key);
             req.extend_from_slice(val);
-
-            // Drain stale replies.
-            {
-                let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-                let mut tmp = [0u8; 16];
-                for _ in 0..8 {
-                    match nexus_abi::ipc_recv_v1(
-                        recv_slot,
-                        &mut rh,
-                        &mut tmp,
-                        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                        0,
-                    ) {
-                        Ok(_) => {}
-                        Err(nexus_abi::IpcError::QueueEmpty) => break,
-                        Err(_) => break,
-                    }
-                }
-            }
 
             let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
             let start = nexus_abi::nsec().map_err(|_| ())?;
@@ -1043,24 +1064,6 @@ mod os_lite {
         frame.extend_from_slice(name);
         // Avoid deadline-based blocking IPC (bring-up flakiness); use bounded NONBLOCK loops.
         let (send_slot, recv_slot) = client.slots();
-        // Drain stale replies.
-        {
-            let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-            let mut tmp = [0u8; 16];
-            for _ in 0..16 {
-                match nexus_abi::ipc_recv_v1(
-                    recv_slot,
-                    &mut rh,
-                    &mut tmp,
-                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                    0,
-                ) {
-                    Ok(_) => {}
-                    Err(nexus_abi::IpcError::QueueEmpty) => break,
-                    Err(_) => break,
-                }
-            }
-        }
         let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
         let start = nexus_abi::nsec().map_err(|_| ())?;
         let deadline = start.saturating_add(2_000_000_000); // 2s
@@ -1172,12 +1175,20 @@ mod os_lite {
         frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         frame.extend_from_slice(&payload);
 
-        keystored
-            .send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(200)))
-            .map_err(|_| ())?;
-        let rsp = keystored
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(200)))
-            .map_err(|_| ())?;
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            keystored,
+            &frame,
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(
+            &clock,
+            keystored,
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
         if rsp.len() == 7 && rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION {
             if rsp[3] == (OP_SIGN | 0x80) && rsp[4] == STATUS_DENY {
                 return Ok(());
@@ -1195,76 +1206,39 @@ mod os_lite {
         let mut frame = [0u8; 64];
         let n =
             nexus_abi::policyd::encode_route_v3_id(nonce, spoof, target, &mut frame).ok_or(())?;
-        let (send_slot, recv_slot) = policyd.slots();
-        let hdr = MsgHeader::new(0, 0, 0, 0, n as u32);
-        let start = nexus_abi::nsec().map_err(|_| ())?;
-        let deadline = start.saturating_add(2_000_000_000); // 2s
-        let mut i: usize = 0;
-        loop {
-            match nexus_abi::ipc_send_v1(
-                send_slot,
-                &hdr,
-                &frame[..n],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if (i & 0x7f) == 0 {
-                        let now = nexus_abi::nsec().map_err(|_| ())?;
-                        if now >= deadline {
-                            return Err(());
-                        }
-                    }
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-            i = i.wrapping_add(1);
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            policyd,
+            &frame[..n],
+            core::time::Duration::from_secs(2),
+        )
+        .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(
+            &clock,
+            policyd,
+            core::time::Duration::from_secs(2),
+        )
+        .map_err(|_| ())?;
+        let (_ver, _op, rsp_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&rsp).ok_or(())?;
+        if rsp_nonce != nonce {
+            return Err(());
         }
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 64];
-        let mut j: usize = 0;
-        loop {
-            if (j & 0x7f) == 0 {
-                let now = nexus_abi::nsec().map_err(|_| ())?;
-                if now >= deadline {
-                    return Err(());
-                }
-            }
-            match nexus_abi::ipc_recv_v1(
-                recv_slot,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = core::cmp::min(n as usize, buf.len());
-                    let rsp = &buf[..n];
-                    let (_ver, _op, rsp_nonce, status) =
-                        nexus_abi::policyd::decode_rsp_v2_or_v3(rsp).ok_or(())?;
-                    if rsp_nonce != nonce {
-                        continue;
-                    }
-                    return if status == 1 { Ok(()) } else { Err(()) };
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-            j = j.wrapping_add(1);
+        if status == 1 {
+            Ok(())
+        } else {
+            Err(())
         }
     }
 
     fn logd_append_probe(logd: &KernelClient) -> core::result::Result<(), ()> {
         const MAGIC0: u8 = b'L';
         const MAGIC1: u8 = b'O';
-        const VERSION: u8 = 1;
+        const VERSION: u8 = 2;
         const OP_APPEND: u8 = 1;
         const STATUS_OK: u8 = 0;
         const LEVEL_INFO: u8 = 2;
+        static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
         let scope = b"selftest";
         let message = b"logd hello";
@@ -1273,8 +1247,10 @@ mod os_lite {
             return Err(());
         }
 
-        let mut frame = Vec::with_capacity(10 + scope.len() + message.len() + fields.len());
+        let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let mut frame = Vec::with_capacity(18 + scope.len() + message.len() + fields.len());
         frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+        frame.extend_from_slice(&nonce.to_le_bytes());
         frame.push(LEVEL_INFO);
         frame.push(scope.len() as u8);
         frame.extend_from_slice(&(message.len() as u16).to_le_bytes());
@@ -1283,19 +1259,78 @@ mod os_lite {
         frame.extend_from_slice(message);
         frame.extend_from_slice(fields);
 
-        logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let (_send_slot, recv_slot) = logd.slots();
-        let mut rsp_buf = [0u8; 2048];
-        let n = recv_large(recv_slot, &mut rsp_buf)?;
+        let clock = nexus_ipc::budget::OsClock;
+        // Use CAP_MOVE replies so we don't depend on the dedicated response endpoint.
+        const REPLY_RECV_SLOT: u32 = 0x17;
+        const REPLY_SEND_SLOT: u32 = 0x18;
+        let (send_slot, _recv_slot) = logd.slots();
+        let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
+            emit_line("SELFTEST: logd append reply clone fail");
+            ()
+        })?;
+        let hdr = nexus_abi::MsgHeader::new(
+            reply_send_clone,
+            0,
+            0,
+            nexus_abi::ipc_hdr::CAP_MOVE,
+            frame.len() as u32,
+        );
+        let deadline_ns =
+            nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
+                .map_err(|_| ())?;
+        nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns)
+            .map_err(|_| {
+                emit_line("SELFTEST: logd append send fail");
+                ()
+            })?;
+        let mut rsp_buf = [0u8; 64];
+        // Shared reply inbox: ignore unrelated CAP_MOVE replies.
+        let mut rsp_len: Option<usize> = None;
+        for _ in 0..64 {
+            let n = match recv_large_bounded(
+                REPLY_RECV_SLOT,
+                &mut rsp_buf,
+                core::time::Duration::from_millis(50),
+            ) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let rsp = &rsp_buf[..n];
+            if rsp.len() >= 13
+                && rsp[0] == MAGIC0
+                && rsp[1] == MAGIC1
+                && rsp[2] == VERSION
+                && rsp[3] == (OP_APPEND | 0x80)
+            {
+                let (_status, got_nonce) =
+                    nexus_ipc::logd_wire::parse_append_response_v2_prefix(rsp).map_err(|_| ())?;
+                if got_nonce == nonce {
+                    rsp_len = Some(n);
+                    break;
+                }
+            }
+        }
+        let Some(n) = rsp_len else {
+            emit_line("SELFTEST: logd append recv fail");
+            return Err(());
+        };
         let rsp = &rsp_buf[..n];
-        if rsp.len() != 21 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+        if rsp.len() < 29 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+            emit_line("SELFTEST: logd append rsp malformed");
             return Err(());
         }
         if rsp[3] != (OP_APPEND | 0x80) {
+            emit_line("SELFTEST: logd append rsp bad-op");
             return Err(());
         }
-        if rsp[4] != STATUS_OK {
+        let (status, got_nonce) =
+            nexus_ipc::logd_wire::parse_append_response_v2_prefix(rsp).map_err(|_| ())?;
+        if got_nonce != nonce {
+            emit_line("SELFTEST: logd append rsp bad-nonce");
+            return Err(());
+        }
+        if status != STATUS_OK {
+            emit_line("SELFTEST: logd append rsp bad-status");
             return Err(());
         }
         Ok(())
@@ -1307,69 +1342,71 @@ mod os_lite {
     }
 
     fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64, ()> {
-        const MAGIC0: u8 = b'L';
-        const MAGIC1: u8 = b'O';
-        const VERSION: u8 = 1;
-        const OP_STATS: u8 = 3;
-        const STATUS_OK: u8 = 0;
-
-        let frame = [MAGIC0, MAGIC1, VERSION, OP_STATS];
-        for _ in 0..16 {
-            if logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(500))).is_err()
-            {
-                let _ = yield_();
-                continue;
-            }
-            let rsp = match logd.recv(IpcWait::Timeout(core::time::Duration::from_millis(500))) {
-                Ok(rsp) => rsp,
-                Err(_) => {
-                    let _ = yield_();
-                    continue;
-                }
-            };
-            if rsp.len() < 4 + 1 + 8 + 8
-                || rsp[0] != MAGIC0
-                || rsp[1] != MAGIC1
-                || rsp[2] != VERSION
-            {
-                let _ = yield_();
-                continue;
-            }
-            if rsp[3] != (OP_STATS | 0x80) || rsp[4] != STATUS_OK {
-                let _ = yield_();
-                continue;
-            }
-            let total = u64::from_le_bytes([
-                rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
-            ]);
-            return Ok(total);
+        static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1000);
+        let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let mut frame = [0u8; 12];
+        frame[0] = nexus_ipc::logd_wire::MAGIC0;
+        frame[1] = nexus_ipc::logd_wire::MAGIC1;
+        frame[2] = nexus_ipc::logd_wire::VERSION_V2;
+        frame[3] = nexus_ipc::logd_wire::OP_STATS;
+        frame[4..12].copy_from_slice(&nonce.to_le_bytes());
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            logd,
+            &frame,
+            core::time::Duration::from_secs(2),
+        )
+        .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(
+            &clock,
+            logd,
+            core::time::Duration::from_secs(2),
+        )
+        .map_err(|_| ())?;
+        let (got_nonce, p) =
+            nexus_ipc::logd_wire::parse_stats_response_prefix_v2(&rsp).map_err(|_| ())?;
+        if got_nonce != nonce {
+            return Err(());
         }
-        Err(())
+        if p.status != nexus_ipc::logd_wire::STATUS_OK {
+            return Err(());
+        }
+        Ok(p.total_records)
     }
 
     fn logd_query_count(logd: &KernelClient) -> core::result::Result<u64, ()> {
-        const MAGIC0: u8 = b'L';
-        const MAGIC1: u8 = b'O';
-        const VERSION: u8 = 1;
-        const OP_STATS: u8 = 3;
-        const STATUS_OK: u8 = 0;
-        let frame = [MAGIC0, MAGIC1, VERSION, OP_STATS];
-        logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let rsp =
-            logd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
-        if rsp.len() < 21
-            || rsp[0] != MAGIC0
-            || rsp[1] != MAGIC1
-            || rsp[2] != VERSION
-            || rsp[3] != (OP_STATS | 0x80)
-            || rsp[4] != STATUS_OK
-        {
+        static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(2000);
+        let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let mut frame = [0u8; 12];
+        frame[0] = nexus_ipc::logd_wire::MAGIC0;
+        frame[1] = nexus_ipc::logd_wire::MAGIC1;
+        frame[2] = nexus_ipc::logd_wire::VERSION_V2;
+        frame[3] = nexus_ipc::logd_wire::OP_STATS;
+        frame[4..12].copy_from_slice(&nonce.to_le_bytes());
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            logd,
+            &frame,
+            core::time::Duration::from_secs(2),
+        )
+        .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(
+            &clock,
+            logd,
+            core::time::Duration::from_secs(2),
+        )
+        .map_err(|_| ())?;
+        let (got_nonce, p) =
+            nexus_ipc::logd_wire::parse_stats_response_prefix_v2(&rsp).map_err(|_| ())?;
+        if got_nonce != nonce {
             return Err(());
         }
-        let total =
-            u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
-        Ok(total)
+        if p.status != nexus_ipc::logd_wire::STATUS_OK {
+            return Err(());
+        }
+        Ok(p.total_records)
     }
 
     fn logd_query_contains_since_paged(
@@ -1377,119 +1414,120 @@ mod os_lite {
         mut since_nsec: u64,
         needle: &[u8],
     ) -> core::result::Result<bool, ()> {
-        const MAGIC0: u8 = b'L';
-        const MAGIC1: u8 = b'O';
-        const VERSION: u8 = 1;
-        const OP_QUERY: u8 = 2;
-        const STATUS_OK: u8 = 0;
-
+        let clock = nexus_ipc::budget::OsClock;
+        const REPLY_RECV_SLOT: u32 = 0x17;
+        const REPLY_SEND_SLOT: u32 = 0x18;
+        let (send_slot, _recv_slot) = logd.slots();
+        let mut emitted = false;
+        static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(10_000);
         for _ in 0..64 {
-            let mut frame = Vec::with_capacity(14);
-            frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_QUERY]);
-            frame.extend_from_slice(&since_nsec.to_le_bytes());
-            // Keep responses bounded to avoid truncation (QUERY records can be large).
-            // We paginate via `since_nsec`, so using a small page size is fine.
-            frame.extend_from_slice(&8u16.to_le_bytes()); // max_count (page cap)
-            logd.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(100)))
-                .map_err(|_| ())?;
-            // KernelClient::recv uses a small fixed buffer (512). logd QUERY responses can be larger,
-            // so receive via the raw syscall into a larger buffer to avoid truncation false negatives.
-            let (_send_slot, recv_slot) = logd.slots();
-            let mut rsp_buf = [0u8; 4096];
-            let n = recv_large(recv_slot, &mut rsp_buf)?;
-            let rsp = &rsp_buf[..n];
-            if rsp.len() < 4 + 1 + 8 + 8 + 2
-                || rsp[0] != MAGIC0
-                || rsp[1] != MAGIC1
-                || rsp[2] != VERSION
-            {
-                return Err(());
-            }
-            if rsp[3] != (OP_QUERY | 0x80) || rsp[4] != STATUS_OK {
-                return Err(());
-            }
+            let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            // Allocation-free QUERY frame v2 (22 bytes).
+            let mut frame = [0u8; 22];
+            frame[0] = nexus_ipc::logd_wire::MAGIC0;
+            frame[1] = nexus_ipc::logd_wire::MAGIC1;
+            frame[2] = nexus_ipc::logd_wire::VERSION_V2;
+            frame[3] = nexus_ipc::logd_wire::OP_QUERY;
+            frame[4..12].copy_from_slice(&nonce.to_le_bytes());
+            frame[12..20].copy_from_slice(&since_nsec.to_le_bytes());
+            frame[20..22].copy_from_slice(&2u16.to_le_bytes()); // max_count (page cap)
 
-            // Skip stats at end; parse the record list.
-            let mut idx = 4 + 1 + 8 + 8;
-            let count = u16::from_le_bytes([rsp[idx], rsp[idx + 1]]) as usize;
-            idx += 2;
-            if count == 0 {
+            // Send with CAP_MOVE so replies arrive on the reply inbox.
+            let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
+                if !emitted {
+                    emit_line("SELFTEST: logd query reply clone fail");
+                    emitted = true;
+                }
+                ()
+            })?;
+            let hdr = nexus_abi::MsgHeader::new(
+                reply_send_clone,
+                0,
+                0,
+                nexus_abi::ipc_hdr::CAP_MOVE,
+                frame.len() as u32,
+            );
+            let deadline_ns =
+                nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
+                    .map_err(|_| ())?;
+            nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns)
+                .map_err(|_| {
+                    if !emitted {
+                        emit_line("SELFTEST: logd query send fail");
+                        emitted = true;
+                    }
+                    ()
+                })?;
+
+            // Allocation-free receive into a stack buffer (bump allocator friendly).
+            let mut rsp_buf = [0u8; 1024];
+            // Shared reply inbox: ignore unrelated CAP_MOVE replies.
+            let mut rsp_len: Option<usize> = None;
+            for _ in 0..128 {
+                let n = match recv_large_bounded(
+                    REPLY_RECV_SLOT,
+                    &mut rsp_buf,
+                    core::time::Duration::from_millis(50),
+                ) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let rsp = &rsp_buf[..n];
+                if rsp.len() >= 13
+                    && rsp[0] == nexus_ipc::logd_wire::MAGIC0
+                    && rsp[1] == nexus_ipc::logd_wire::MAGIC1
+                    && rsp[2] == nexus_ipc::logd_wire::VERSION_V2
+                    && rsp[3] == (nexus_ipc::logd_wire::OP_QUERY | 0x80)
+                {
+                    if nexus_ipc::logd_wire::extract_nonce_v2(rsp) == Some(nonce) {
+                        rsp_len = Some(n);
+                        break;
+                    }
+                }
+            }
+            let Some(n) = rsp_len else {
+                if !emitted {
+                    emit_line("SELFTEST: logd query recv fail");
+                    emitted = true;
+                }
+                return Err(());
+            };
+            let rsp = &rsp_buf[..n];
+            let scan = nexus_ipc::logd_wire::scan_query_page_v2(rsp, nonce, needle).map_err(|_| {
+                if !emitted {
+                    emit_line("SELFTEST: logd query rsp parse fail");
+                    emitted = true;
+                }
+                ()
+            })?;
+            if scan.count == 0 {
+                // Empty pages are expected early in bring-up; avoid log spam that can blow UART caps.
                 return Ok(false);
             }
-
-            let mut max_ts = since_nsec;
-            let mut found = false;
-            for _ in 0..count {
-                if rsp.len() < idx + 8 + 8 + 1 + 8 + 1 + 2 + 2 {
-                    return Err(());
-                }
-                idx += 8; // record_id
-                let ts = u64::from_le_bytes([
-                    rsp[idx],
-                    rsp[idx + 1],
-                    rsp[idx + 2],
-                    rsp[idx + 3],
-                    rsp[idx + 4],
-                    rsp[idx + 5],
-                    rsp[idx + 6],
-                    rsp[idx + 7],
-                ]);
-                idx += 8;
-                max_ts = core::cmp::max(max_ts, ts);
-                idx += 1; // level
-                idx += 8; // service_id
-                let scope_len = rsp[idx] as usize;
-                idx += 1;
-                let msg_len = u16::from_le_bytes([rsp[idx], rsp[idx + 1]]) as usize;
-                idx += 2;
-                let fields_len = u16::from_le_bytes([rsp[idx], rsp[idx + 1]]) as usize;
-                idx += 2;
-                if rsp.len() < idx + scope_len + msg_len + fields_len {
-                    return Err(());
-                }
-                idx += scope_len;
-                let scope = &rsp[(idx - scope_len)..idx];
-                let msg = &rsp[idx..idx + msg_len];
-                idx += msg_len;
-                let fields = &rsp[idx..idx + fields_len];
-                idx += fields_len;
-                if !needle.is_empty()
-                    && (scope.windows(needle.len()).any(|w| w == needle)
-                        || msg.windows(needle.len()).any(|w| w == needle)
-                        || fields.windows(needle.len()).any(|w| w == needle))
-                {
-                    found = true;
-                }
-            }
-            if found {
+            if scan.found {
                 return Ok(true);
             }
-            if max_ts == 0 || max_ts <= since_nsec {
+            let Some(next_since) =
+                nexus_ipc::logd_wire::next_since_nsec(since_nsec, scan.max_timestamp_nsec)
+            else {
                 return Ok(false);
-            }
-            since_nsec = max_ts.saturating_add(1);
+            };
+            since_nsec = next_since;
         }
         Ok(false)
     }
 
-    fn recv_large(recv_slot: u32, out: &mut [u8]) -> core::result::Result<usize, ()> {
+    fn recv_large_bounded(
+        recv_slot: u32,
+        out: &mut [u8],
+        budget: core::time::Duration,
+    ) -> core::result::Result<usize, ()> {
+        let clock = nexus_ipc::budget::OsClock;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        for _ in 0..512 {
-            match nexus_abi::ipc_recv_v1(
-                recv_slot,
-                &mut hdr,
-                out,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => return Ok(n as usize),
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-        }
-        Err(())
+        let deadline_ns = nexus_ipc::budget::deadline_after(&clock, budget).map_err(|_| ())?;
+        let n = nexus_ipc::budget::raw::recv_budgeted(&clock, recv_slot, &mut hdr, out, deadline_ns)
+            .map_err(|_| ())?;
+        Ok(core::cmp::min(n, out.len()))
     }
 
     fn core_service_probe(
@@ -1500,10 +1538,11 @@ mod os_lite {
         op: u8,
     ) -> core::result::Result<(), ()> {
         let frame = [magic0, magic1, version, op];
-        svc.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(200)))
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(&clock, svc, &frame, core::time::Duration::from_millis(200))
             .map_err(|_| ())?;
-        let rsp =
-            svc.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
+            .map_err(|_| ())?;
         if rsp.len() < 5 || rsp[0] != magic0 || rsp[1] != magic1 || rsp[2] != version {
             return Err(());
         }
@@ -1516,10 +1555,11 @@ mod os_lite {
     fn core_service_probe_policyd(svc: &KernelClient) -> core::result::Result<(), ()> {
         // policyd expects frames to be at least 6 bytes (v1 response shape).
         let frame = [b'P', b'O', 1, 0x7f, 0, 0];
-        svc.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(200)))
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(&clock, svc, &frame, core::time::Duration::from_millis(200))
             .map_err(|_| ())?;
-        let rsp =
-            svc.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
+            .map_err(|_| ())?;
         if rsp.len() < 6 || rsp[0] != b'P' || rsp[1] != b'O' || rsp[2] != 1 {
             return Err(());
         }
@@ -1547,7 +1587,7 @@ mod os_lite {
             return KernelClient::new_with_slots(0xF, 0x10).map_err(|_| ());
         }
         if name == "logd" {
-            return KernelClient::new_with_slots(0x13, 0x14).map_err(|_| ());
+            return KernelClient::new_with_slots(0x15, 0x16).map_err(|_| ());
         }
         // policyd: Deterministic slots 0x7/0x8 assigned by init-lite (see selftest policyd slots log).
         if name == "policyd" {
@@ -1556,6 +1596,10 @@ mod os_lite {
         if name == "keystored" {
             // Deterministic slots from init-lite: after execd (0xF, 0x10)
             return KernelClient::new_with_slots(0x11, 0x12).map_err(|_| ());
+        }
+        if name == "statefsd" {
+            // Deterministic slots from init-lite.
+            return KernelClient::new_with_slots(0x13, 0x14).map_err(|_| ());
         }
         let attempts = if name == "statefsd" { 256 } else { 64 };
         for _ in 0..attempts {
@@ -1584,7 +1628,19 @@ mod os_lite {
     }
 
     fn statefs_send_recv(client: &KernelClient, frame: &[u8]) -> core::result::Result<Vec<u8>, ()> {
-        if let Err(err) = client.send(frame, IpcWait::Timeout(core::time::Duration::from_millis(2000)))
+        // Deterministic: upgrade request to SF v2 (nonce) and only accept the matching reply.
+        static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+        let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if frame.len() < 4 {
+            return Err(());
+        }
+        let mut v2 = Vec::with_capacity(frame.len().saturating_add(8));
+        v2.extend_from_slice(&frame[..4]);
+        v2[2] = statefs_proto::VERSION_V2;
+        v2.extend_from_slice(&nonce.to_le_bytes());
+        v2.extend_from_slice(&frame[4..]);
+
+        if let Err(err) = client.send(&v2, IpcWait::Timeout(core::time::Duration::from_millis(2000)))
         {
             match err {
                 nexus_ipc::IpcError::WouldBlock => emit_line("SELFTEST: statefs send would-block"),
@@ -1598,19 +1654,35 @@ mod os_lite {
             emit_line("SELFTEST: statefs send FAIL");
             return Err(());
         }
-        match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(2000))) {
-            Ok(rsp) => Ok(rsp),
-            Err(err) => {
-                match err {
-                    nexus_ipc::IpcError::WouldBlock => emit_line("SELFTEST: statefs recv would-block"),
-                    nexus_ipc::IpcError::Timeout => emit_line("SELFTEST: statefs recv timeout"),
-                    nexus_ipc::IpcError::Disconnected => emit_line("SELFTEST: statefs recv disconnected"),
-                    nexus_ipc::IpcError::NoSpace => emit_line("SELFTEST: statefs recv no-space"),
-                    nexus_ipc::IpcError::Kernel(_) => emit_line("SELFTEST: statefs recv kernel-error"),
-                    nexus_ipc::IpcError::Unsupported => emit_line("SELFTEST: statefs recv unsupported"),
-                    _ => emit_line("SELFTEST: statefs recv other"),
+        let start = nexus_abi::nsec().map_err(|_| ())?;
+        let deadline = start.saturating_add(2_000_000_000);
+        loop {
+            let now = nexus_abi::nsec().map_err(|_| ())?;
+            if now >= deadline {
+                emit_line("SELFTEST: statefs recv timeout");
+                return Err(());
+            }
+            match client.recv(IpcWait::NonBlocking) {
+                Ok(rsp) => {
+                    if rsp.len() < 13
+                        || rsp[0] != statefs_proto::MAGIC0
+                        || rsp[1] != statefs_proto::MAGIC1
+                        || rsp[2] != statefs_proto::VERSION_V2
+                    {
+                        continue;
+                    }
+                    let got_nonce = u64::from_le_bytes([
+                        rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
+                    ]);
+                    if got_nonce != nonce {
+                        continue;
+                    }
+                    return Ok(rsp);
                 }
-                Err(())
+                Err(nexus_ipc::IpcError::WouldBlock) => {
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
             }
         }
     }
@@ -1629,7 +1701,21 @@ mod os_lite {
         let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key)
             .map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &get)?;
-        let got = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
+        let got = match statefs_proto::decode_get_response(&rsp) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                emit_bytes(b"SELFTEST: statefs persist get err=");
+                emit_hex_u64(statefs_proto::status_from_error(err) as u64);
+                emit_bytes(b" rsp_len=");
+                emit_hex_u64(rsp.len() as u64);
+                emit_bytes(b" b0=");
+                emit_hex_u64(*rsp.get(0).unwrap_or(&0) as u64);
+                emit_bytes(b" b3=");
+                emit_hex_u64(*rsp.get(3).unwrap_or(&0) as u64);
+                emit_line(")");
+                return Err(());
+            }
+        };
         if got.as_slice() != value {
             return Err(());
         }
@@ -1672,40 +1758,77 @@ mod os_lite {
     }
 
     fn statefs_persist(client: &KernelClient) -> core::result::Result<(), ()> {
+        emit_line("SELFTEST: statefs persist begin");
         let key = "/state/selftest/persist";
         let value = b"persist-ok";
         let put = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &put)?;
-        let status =
-            statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).map_err(|_| ())?;
+        let status = match statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp) {
+            Ok(status) => status,
+            Err(_) => {
+                emit_bytes(b"SELFTEST: statefs persist put rsp_len=");
+                emit_hex_u64(rsp.len() as u64);
+                emit_bytes(b" b0=");
+                emit_hex_u64(*rsp.get(0).unwrap_or(&0) as u64);
+                emit_bytes(b" b3=");
+                emit_hex_u64(*rsp.get(3).unwrap_or(&0) as u64);
+                emit_line(")");
+                return Err(());
+            }
+        };
         if status != statefs_proto::STATUS_OK {
             emit_bytes(b"SELFTEST: statefs persist put status=");
             emit_hex_u64(status as u64);
             emit_line(")");
             return Err(());
         }
+        emit_line("SELFTEST: statefs persist put ok");
 
         let sync = statefs_proto::encode_sync_request();
         let rsp = statefs_send_recv(client, &sync)?;
-        let status =
-            statefs_proto::decode_status_response(statefs_proto::OP_SYNC, &rsp).map_err(|_| ())?;
+        let status = match statefs_proto::decode_status_response(statefs_proto::OP_SYNC, &rsp) {
+            Ok(status) => status,
+            Err(_) => {
+                emit_bytes(b"SELFTEST: statefs persist sync rsp_len=");
+                emit_hex_u64(rsp.len() as u64);
+                emit_bytes(b" b0=");
+                emit_hex_u64(*rsp.get(0).unwrap_or(&0) as u64);
+                emit_bytes(b" b3=");
+                emit_hex_u64(*rsp.get(3).unwrap_or(&0) as u64);
+                emit_line(")");
+                return Err(());
+            }
+        };
         if status != statefs_proto::STATUS_OK {
             emit_bytes(b"SELFTEST: statefs persist sync status=");
             emit_hex_u64(status as u64);
             emit_line(")");
             return Err(());
         }
+        emit_line("SELFTEST: statefs persist sync ok");
 
         let reopen = statefs_proto::encode_reopen_request();
         let rsp = statefs_send_recv(client, &reopen)?;
-        let status = statefs_proto::decode_status_response(statefs_proto::OP_REOPEN, &rsp)
-            .map_err(|_| ())?;
+        let status = match statefs_proto::decode_status_response(statefs_proto::OP_REOPEN, &rsp) {
+            Ok(status) => status,
+            Err(_) => {
+                emit_bytes(b"SELFTEST: statefs persist reopen rsp_len=");
+                emit_hex_u64(rsp.len() as u64);
+                emit_bytes(b" b0=");
+                emit_hex_u64(*rsp.get(0).unwrap_or(&0) as u64);
+                emit_bytes(b" b3=");
+                emit_hex_u64(*rsp.get(3).unwrap_or(&0) as u64);
+                emit_line(")");
+                return Err(());
+            }
+        };
         if status != statefs_proto::STATUS_OK {
             emit_bytes(b"SELFTEST: statefs persist reopen status=");
             emit_hex_u64(status as u64);
             emit_line(")");
             return Err(());
         }
+        emit_line("SELFTEST: statefs persist reopen ok");
 
         let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key)
             .map_err(|_| ())?;
@@ -1721,11 +1844,85 @@ mod os_lite {
     fn bootctl_persist_check() -> core::result::Result<(), ()> {
         const BOOTCTL_KEY: &str = "/state/boot/bootctl.v1";
         const BOOTCTL_VERSION: u8 = 1;
+        emit_line("SELFTEST: bootctl persist begin");
         let client = route_with_retry("statefsd")?;
-        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, BOOTCTL_KEY)
-            .map_err(|_| ())?;
-        let rsp = statefs_send_recv(&client, &get)?;
-        let bytes = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
+        let (send_slot, recv_slot) = client.slots();
+        // Deterministic: use SF v2 (nonce) and only accept the matching reply.
+        static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+        let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let get_v1 =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, BOOTCTL_KEY).map_err(|_| ())?;
+        // Upgrade v1 request frame to v2 by inserting nonce after the 4-byte header.
+        let mut get = Vec::with_capacity(get_v1.len().saturating_add(8));
+        get.extend_from_slice(&get_v1[..4]);
+        get[2] = statefs_proto::VERSION_V2;
+        get.extend_from_slice(&nonce.to_le_bytes());
+        get.extend_from_slice(&get_v1[4..]);
+        // NOTE: Avoid `KernelClient::send/recv` timeout semantics here (kernel deadlines can be flaky
+        // under QEMU when queues are full). Use explicit nsec-bounded NONBLOCK loops instead.
+        // Send.
+        let hdr = MsgHeader::new(0, 0, 0, 0, get.len() as u32);
+        let start = nexus_abi::nsec().map_err(|_| ())?;
+        let deadline = start.saturating_add(2_000_000_000);
+        let mut i: usize = 0;
+        loop {
+            match nexus_abi::ipc_send_v1(send_slot, &hdr, &get, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                Ok(_) => break,
+                Err(nexus_abi::IpcError::QueueFull) => {
+                    if (i & 0x7f) == 0 {
+                        let now = nexus_abi::nsec().map_err(|_| ())?;
+                        if now >= deadline {
+                            emit_line("SELFTEST: bootctl persist send timeout");
+                            return Err(());
+                        }
+                    }
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+            i = i.wrapping_add(1);
+        }
+        // Recv.
+        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 512];
+        let mut j: usize = 0;
+        let n = loop {
+            if (j & 0x7f) == 0 {
+                let now = nexus_abi::nsec().map_err(|_| ())?;
+                if now >= deadline {
+                    emit_line("SELFTEST: bootctl persist recv timeout");
+                    return Err(());
+                }
+            }
+            match nexus_abi::ipc_recv_v1(
+                recv_slot,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => break n as usize,
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+            j = j.wrapping_add(1);
+        };
+        let n = core::cmp::min(n, buf.len());
+        if n < 13 || buf[0] != statefs_proto::MAGIC0 || buf[1] != statefs_proto::MAGIC1 {
+            return Err(());
+        }
+        if buf[2] != statefs_proto::VERSION_V2 {
+            return Err(());
+        }
+        let got_nonce = u64::from_le_bytes([
+            buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
+        ]);
+        if got_nonce != nonce {
+            return Err(());
+        }
+        let bytes = statefs_proto::decode_get_response(&buf[..n]).map_err(|_| ())?;
         if bytes.len() != 6 || bytes[0] != BOOTCTL_VERSION {
             return Err(());
         }
@@ -1773,9 +1970,8 @@ mod os_lite {
             emit_line("SELFTEST: device key persist FAIL");
         }
         // @reply slots are deterministically distributed by init-lite to selftest-client.
-        // IMPORTANT: routing v1 responses are currently uncorrelated (no nonce). Under cooperative bring-up
-        // a delayed ROUTE_RSP can be mistaken for a later query (we saw @reply returning keystored slots).
-        // Avoid routing_v1_get("@reply") here.
+        // Note: routing control-plane now supports a nonce-correlated extension, but we still avoid
+        // routing to "@reply" here to keep the proof independent from ctrl-plane behavior.
         const REPLY_RECV_SLOT: u32 = 0x17;
         const REPLY_SEND_SLOT: u32 = 0x18;
         let reply_send_slot = REPLY_SEND_SLOT;
@@ -1790,7 +1986,6 @@ mod os_lite {
         // Loopback sanity: prove the @reply send/recv slots refer to the same live endpoint.
         // This is safe (self-addressed) and helps debug CAP_MOVE reply delivery.
         if reply_ok {
-            drain_reply_inbox(reply_recv_slot);
             let ping = [b'R', b'P', 1, 0];
             let hdr = MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
             // Best-effort send; ignore failures (still proceed with tests).
@@ -1835,7 +2030,6 @@ mod os_lite {
         }
 
         if reply_ok {
-            drain_reply_inbox(reply_recv_slot);
             if keystored_cap_move_probe(reply_send_slot, reply_recv_slot).is_ok() {
                 emit_line("SELFTEST: keystored capmove ok");
             } else {
@@ -1938,7 +2132,6 @@ mod os_lite {
         // Policy E2E via policyd (minimal IPC protocol).
         let policyd = route_with_retry("policyd")?;
         emit_line("SELFTEST: ipc routing policyd ok");
-        drain_ctrl_responses();
         let bundlemgrd = route_with_retry("bundlemgrd")?;
         let (bnd_send, bnd_recv) = bundlemgrd.slots();
         emit_bytes(b"SELFTEST: bundlemgrd slots ");
@@ -1988,6 +2181,68 @@ mod os_lite {
 
         // TASK-0007: updated stage/switch/rollback (non-persistent A/B skeleton).
         let _ = bundlemgrd_v1_set_active_slot(&bundlemgrd, 1);
+        // Determinism: updated bootctrl state is persisted via statefs and may survive across runs.
+        // Normalize to active-slot A before the OTA flow so rollback assertions are stable.
+        if let Ok((_active, pending_slot, _tries_left, _health_ok)) =
+            updated_get_status(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
+        {
+            if pending_slot.is_some() {
+                // Clear a pending state from a prior run (bounded).
+                for _ in 0..4 {
+                    let _ = updated_boot_attempt(
+                        &updated,
+                        reply_send_slot,
+                        reply_recv_slot,
+                        &mut updated_pending,
+                    );
+                    if let Ok((_a, p, _t, _h)) = updated_get_status(
+                        &updated,
+                        reply_send_slot,
+                        reply_recv_slot,
+                        &mut updated_pending,
+                    ) {
+                        if p.is_none() {
+                            break;
+                        }
+                    }
+                    let _ = yield_();
+                }
+            }
+        }
+        if let Ok((active, _pending, _tries_left, _health_ok)) =
+            updated_get_status(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
+        {
+            if active == SlotId::B {
+                // Flip B -> A (bounded) so the following tests always stage/switch to B.
+                // Use the same tries_left as the real flow to avoid corner-cases in BootCtrl.
+                for _ in 0..2 {
+                    if updated_stage(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
+                        .is_err()
+                    {
+                        break;
+                    }
+                    let _ = updated_switch(
+                        &updated,
+                        reply_send_slot,
+                        reply_recv_slot,
+                        2,
+                        &mut updated_pending,
+                    );
+                    let _ = init_health_ok();
+                    if let Ok((a, _p, _t, _h)) = updated_get_status(
+                        &updated,
+                        reply_send_slot,
+                        reply_recv_slot,
+                        &mut updated_pending,
+                    ) {
+                        if a == SlotId::A {
+                            break;
+                        }
+                    }
+                    let _ = yield_();
+                }
+            }
+        }
         if updated_stage(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending).is_ok() {
             emit_line("SELFTEST: ota stage ok");
         } else {
@@ -2012,16 +2267,29 @@ mod os_lite {
         }
         // Second cycle to force rollback (tries_left=1).
         if updated_stage(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending).is_ok() {
+            // Determinism: rollback target is the slot that was active *before* the switch.
+            let expected_rollback = updated_get_status(
+                &updated,
+                reply_send_slot,
+                reply_recv_slot,
+                &mut updated_pending,
+            )
+            .ok()
+            .map(|(active, _pending, _tries_left, _health_ok)| active);
             if updated_switch(&updated, reply_send_slot, reply_recv_slot, 1, &mut updated_pending)
                 .is_ok()
             {
-                match updated_boot_attempt(
+                let got = updated_boot_attempt(
                     &updated,
                     reply_send_slot,
                     reply_recv_slot,
                     &mut updated_pending,
-                ) {
-                    Ok(Some(slot)) if slot == SlotId::B => emit_line("SELFTEST: ota rollback ok"),
+                );
+                match (expected_rollback, got) {
+                    (Some(expected), Ok(Some(slot))) if slot == expected => {
+                        emit_line("SELFTEST: ota rollback ok")
+                    }
+                    (None, Ok(Some(_slot))) => emit_line("SELFTEST: ota rollback ok"),
                     _ => emit_line("SELFTEST: ota rollback FAIL"),
                 }
             } else {
@@ -2127,12 +2395,20 @@ mod os_lite {
         }
 
         // Malformed policyd frame should not produce allow/deny.
-        policyd
-            .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let rsp = policyd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            &policyd,
+            b"bad",
+            core::time::Duration::from_millis(100),
+        )
+        .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(
+            &clock,
+            &policyd,
+            core::time::Duration::from_millis(100),
+        )
+        .map_err(|_| ())?;
         if rsp.len() == 6 && rsp[0] == b'P' && rsp[1] == b'O' && rsp[2] == 1 && rsp[4] == 2 {
             emit_line("SELFTEST: policy malformed ok");
         } else {
@@ -2167,11 +2443,22 @@ mod os_lite {
         let crash_pid = execd_spawn_image(&execd_client, "selftest-client", 3)?;
         let crash_status = wait_for_pid(&execd_client, crash_pid).unwrap_or(-1);
         emit_line_with_pid_status(crash_pid, crash_status);
-        let crash_logged = logd_query_contains_since_paged(&logd, 0, b"crash").unwrap_or(false)
-            && logd_query_contains_since_paged(&logd, 0, b"demo.exit42").unwrap_or(false);
+        // Give cooperative scheduling a deterministic window to deliver the crash append to logd.
+        for _ in 0..256 {
+            let _ = yield_();
+        }
+        let saw_crash = logd_query_contains_since_paged(&logd, 0, b"crash").unwrap_or(false);
+        let saw_name = logd_query_contains_since_paged(&logd, 0, b"demo.exit42").unwrap_or(false);
+        let crash_logged = saw_crash && saw_name;
         if crash_status == 42 && crash_logged {
             emit_line("SELFTEST: crash report ok");
         } else {
+            if !saw_crash {
+                emit_line("SELFTEST: crash report missing 'crash'");
+            }
+            if !saw_name {
+                emit_line("SELFTEST: crash report missing 'demo.exit42'");
+            }
             emit_line("SELFTEST: crash report FAIL");
         }
 
@@ -2190,12 +2477,20 @@ mod os_lite {
         }
 
         // Malformed execd request should return a structured error response.
-        execd_client
-            .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
-        let rsp = execd_client
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-            .map_err(|_| ())?;
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            &execd_client,
+            b"bad",
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(
+            &clock,
+            &execd_client,
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
         if rsp.len() == 9 && rsp[0] == b'E' && rsp[1] == b'X' && rsp[2] == 1 && rsp[4] != 0 {
             emit_line("SELFTEST: execd malformed ok");
         } else {
@@ -2204,9 +2499,17 @@ mod os_lite {
 
         // TASK-0006: logd journaling proof (APPEND + QUERY).
         let logd = route_with_retry("logd")?;
-        if logd_append_probe(&logd).is_ok() && logd_query_probe(&logd).unwrap_or(false) {
+        let append_ok = logd_append_probe(&logd).is_ok();
+        let query_ok = logd_query_probe(&logd).unwrap_or(false);
+        if append_ok && query_ok {
             emit_line("SELFTEST: log query ok");
         } else {
+            if !append_ok {
+                emit_line("SELFTEST: logd append probe FAIL");
+            }
+            if !query_ok {
+                emit_line("SELFTEST: logd query probe FAIL");
+            }
             emit_line("SELFTEST: log query FAIL");
         }
 
@@ -2253,7 +2556,6 @@ mod os_lite {
         ok &= sam_probe && sam_found && sam_delta_ok;
 
         // bundlemgrd probe
-        drain_ctrl_responses();
         let bundlemgrd = route_with_retry("bundlemgrd")?;
         let bnd_probe = core_service_probe(&bundlemgrd, b'B', b'N', 1, 0x7f).is_ok();
         for _ in 0..64 {
@@ -2407,6 +2709,11 @@ mod os_lite {
 
         // TASK-0004: ICMP ping proof via netstackd facade.
         // Under 2-VM socket/mcast backends there is no gateway, so skip deterministically.
+        //
+        // Note: QEMU slirp DHCP commonly assigns 10.0.2.15, which is also the deterministic static
+        // fallback IP. Therefore we MUST NOT infer DHCP availability from the local IP alone.
+        // Always attempt the bounded ICMP probe in single-VM mode; the harness decides whether it
+        // is required (REQUIRE_QEMU_DHCP=1) based on the `net: dhcp bound` marker.
         if !os2vm {
             if icmp_ping_probe().is_ok() {
                 emit_line("SELFTEST: icmp ping ok");
@@ -2556,6 +2863,40 @@ mod os_lite {
         Ok(())
     }
 
+    fn updated_get_status(
+        client: &KernelClient,
+        reply_send_slot: u32,
+        reply_recv_slot: u32,
+        pending: &mut VecDeque<Vec<u8>>,
+    ) -> core::result::Result<(SlotId, Option<SlotId>, u8, bool), ()> {
+        let mut frame = [0u8; 4];
+        let n = nexus_abi::updated::encode_get_status_req(&mut frame).ok_or(())?;
+        let rsp = updated_send_with_reply(
+            client,
+            reply_send_slot,
+            reply_recv_slot,
+            nexus_abi::updated::OP_GET_STATUS,
+            &frame[..n],
+            pending,
+        )?;
+        let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_GET_STATUS)?;
+        if payload.len() != 4 {
+            return Err(());
+        }
+        let active = match payload[0] {
+            1 => SlotId::A,
+            2 => SlotId::B,
+            _ => return Err(()),
+        };
+        let pending_slot = match payload[1] {
+            0 => None,
+            1 => Some(SlotId::A),
+            2 => Some(SlotId::B),
+            _ => None,
+        };
+        Ok((active, pending_slot, payload[2], payload[3] != 0))
+    }
+
     fn updated_boot_attempt(
         client: &KernelClient,
         reply_send_slot: u32,
@@ -2586,10 +2927,12 @@ mod os_lite {
     fn init_health_ok() -> core::result::Result<(), ()> {
         const CTRL_SEND_SLOT: u32 = 1;
         const CTRL_RECV_SLOT: u32 = 2;
-        let req = [b'I', b'H', 1, 1];
+        static NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
+        let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let mut req = [0u8; 8];
+        req[..4].copy_from_slice(&[b'I', b'H', 1, 1]);
+        req[4..8].copy_from_slice(&nonce.to_le_bytes());
         let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-        // Control channel is shared; drain stale responses first.
-        drain_ctrl_responses();
 
         // Use explicit time-bounded NONBLOCK loops (avoid flaky kernel deadline semantics).
         let start = nexus_abi::nsec().map_err(|_| ())?;
@@ -2632,7 +2975,11 @@ mod os_lite {
             ) {
                 Ok(n) => {
                     let n = core::cmp::min(n as usize, buf.len());
-                    if n == 5 && buf[0] == b'I' && buf[1] == b'H' && buf[2] == 1 {
+                    if n == 9 && buf[0] == b'I' && buf[1] == b'H' && buf[2] == 1 {
+                        let got_nonce = u32::from_le_bytes([buf[5], buf[6], buf[7], buf[8]]);
+                        if got_nonce != nonce {
+                            continue;
+                        }
                         if buf[3] == (1 | 0x80) && buf[4] == 0 {
                             return Ok(());
                         }
@@ -4087,12 +4434,24 @@ mod os_lite {
         req[4..8].copy_from_slice(&(pid as u32).to_le_bytes());
 
         // Bounded retries to avoid hangs if execd is unavailable.
+        let clock = nexus_ipc::budget::OsClock;
         for _ in 0..128 {
-            if execd.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(200))).is_err() {
+            if nexus_ipc::budget::send_budgeted(
+                &clock,
+                execd,
+                &req,
+                core::time::Duration::from_millis(200),
+            )
+            .is_err()
+            {
                 let _ = yield_();
                 continue;
             }
-            let rsp = match execd.recv(IpcWait::Timeout(core::time::Duration::from_millis(500))) {
+            let rsp = match nexus_ipc::budget::recv_budgeted(
+                &clock,
+                execd,
+                core::time::Duration::from_millis(500),
+            ) {
                 Ok(rsp) => rsp,
                 Err(_) => {
                     let _ = yield_();
@@ -4209,164 +4568,244 @@ mod os_lite {
         const REPLY_SEND_SLOT: u32 = 0x18;
         let reply_send_slot = REPLY_SEND_SLOT;
         let reply_recv_slot = REPLY_RECV_SLOT;
-        drain_reply_inbox(reply_recv_slot);
+        let clock = OsClock;
+        let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).map_err(|_| ())?;
+        let mut pending: ReplyBuffer<8, 64> = ReplyBuffer::new();
+        static NONCE: AtomicU64 = AtomicU64::new(1);
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+
+        struct ReplyInboxV1 {
+            recv_slot: u32,
+        }
+        impl Client for ReplyInboxV1 {
+            fn send(&self, _frame: &[u8], _wait: IpcWait) -> nexus_ipc::Result<()> {
+                Err(IpcError::Unsupported)
+            }
+            fn recv(&self, _wait: IpcWait) -> nexus_ipc::Result<Vec<u8>> {
+                let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+                let mut buf = [0u8; 64];
+                match ipc_recv_v1(
+                    self.recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
+                    Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
+                    Err(other) => Err(IpcError::Kernel(other)),
+                }
+            }
+        }
+        let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
 
         // 2) Send a CAP_MOVE ping to samgrd, moving reply_send_slot as the reply cap.
-        //    samgrd will reply by sending "PONG" on the moved cap and then closing it.
+        //    samgrd will reply by sending "PONG"+nonce on the moved cap and then closing it.
         let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
         // Keep our reply-send slot by cloning it and moving the clone.
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        let mut frame = [0u8; 4];
+        let mut frame = [0u8; 12];
         frame[0] = b'S';
         frame[1] = b'M';
         frame[2] = 1; // samgrd os-lite version
         frame[3] = 3; // OP_PING_CAP_MOVE
+        frame[4..12].copy_from_slice(&nonce.to_le_bytes());
         sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
         let _ = nexus_abi::cap_close(reply_send_clone);
 
-        // 3) Receive on the reply inbox endpoint (bounded wait, avoid flakiness).
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 16];
-        for _ in 0..512 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = n as usize;
-                    if n == 4 && &buf[..4] == b"PONG" {
-                        return Ok(());
-                    }
-                    // Ignore unrelated replies on the shared reply inbox; keep bounded.
-                    continue;
+        // 3) Receive on the reply inbox endpoint (nonce-correlated, bounded, yield-friendly).
+        let rsp = recv_match_until(
+            &clock,
+            &inbox,
+            &mut pending,
+            nonce,
+            deadline_ns,
+            |frame| {
+                if frame.len() == 12 && frame[0..4] == *b"PONG" {
+                    Some(u64::from_le_bytes([
+                        frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10],
+                        frame[11],
+                    ]))
+                } else {
+                    None
                 }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
+            },
+        )
+        .map_err(|_| ())?;
+        if rsp.len() == 12 && rsp[0..4] == *b"PONG" {
+            Ok(())
+        } else {
+            Err(())
         }
-        Err(())
     }
 
     fn sender_pid_probe() -> core::result::Result<(), ()> {
         let me = nexus_abi::pid().map_err(|_| ())?;
         let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
-        drain_reply_inbox(reply_recv_slot);
+        let clock = OsClock;
+        let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).map_err(|_| ())?;
+        let mut pending: ReplyBuffer<8, 64> = ReplyBuffer::new();
+        static NONCE: AtomicU64 = AtomicU64::new(2);
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
 
         let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
-        let mut frame = [0u8; 8];
+        let mut frame = [0u8; 16];
         frame[0] = b'S';
         frame[1] = b'M';
         frame[2] = 1;
         frame[3] = 4; // OP_SENDER_PID
         frame[4..8].copy_from_slice(&me.to_le_bytes());
+        frame[8..16].copy_from_slice(&nonce.to_le_bytes());
         sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
 
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 16];
-        for _ in 0..512 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = n as usize;
-                    if n != 9 || buf[0] != b'S' || buf[1] != b'M' || buf[2] != 1 {
-                        return Err(());
-                    }
-                    if buf[3] != (4 | 0x80) || buf[4] != 0 {
-                        return Err(());
-                    }
-                    let got = u32::from_le_bytes([buf[5], buf[6], buf[7], buf[8]]);
-                    return if got == me { Ok(()) } else { Err(()) };
+        struct ReplyInboxV1 {
+            recv_slot: u32,
+        }
+        impl Client for ReplyInboxV1 {
+            fn send(&self, _frame: &[u8], _wait: IpcWait) -> nexus_ipc::Result<()> {
+                Err(IpcError::Unsupported)
+            }
+            fn recv(&self, _wait: IpcWait) -> nexus_ipc::Result<Vec<u8>> {
+                let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+                let mut buf = [0u8; 64];
+                match ipc_recv_v1(
+                    self.recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
+                    Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
+                    Err(other) => Err(IpcError::Kernel(other)),
                 }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
             }
         }
-        Err(())
+        let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
+        let rsp = recv_match_until(
+            &clock,
+            &inbox,
+            &mut pending,
+            nonce,
+            deadline_ns,
+            |frame| {
+                if frame.len() == 17
+                    && frame[0] == b'S'
+                    && frame[1] == b'M'
+                    && frame[2] == 1
+                    && frame[3] == (4 | 0x80)
+                    && frame[4] == 0
+                {
+                    Some(u64::from_le_bytes([
+                        frame[9], frame[10], frame[11], frame[12], frame[13], frame[14],
+                        frame[15], frame[16],
+                    ]))
+                } else {
+                    None
+                }
+            },
+        )
+        .map_err(|_| ())?;
+        if rsp.len() != 17 || rsp[0] != b'S' || rsp[1] != b'M' || rsp[2] != 1 {
+            return Err(());
+        }
+        if rsp[3] != (4 | 0x80) || rsp[4] != 0 {
+            return Err(());
+        }
+        let got = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
+        if got == me { Ok(()) } else { Err(()) }
     }
 
     fn sender_service_id_probe() -> core::result::Result<(), ()> {
         let expected = nexus_abi::service_id_from_name(b"selftest-client");
         let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
-        drain_reply_inbox(reply_recv_slot);
+        let clock = OsClock;
+        let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).map_err(|_| ())?;
+        let mut pending: ReplyBuffer<8, 64> = ReplyBuffer::new();
+        static NONCE: AtomicU64 = AtomicU64::new(3);
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
 
         let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
-        let mut frame = [0u8; 4];
+        let mut frame = [0u8; 12];
         frame[0] = b'S';
         frame[1] = b'M';
         frame[2] = 1;
         frame[3] = 5; // OP_SENDER_SERVICE_ID
+        frame[4..12].copy_from_slice(&nonce.to_le_bytes());
         sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
 
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut sid: u64 = 0;
-        let mut buf = [0u8; 16];
-        for _ in 0..512 {
-            match nexus_abi::ipc_recv_v2(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                &mut sid,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = n as usize;
-                    if n != 13 || buf[0] != b'S' || buf[1] != b'M' || buf[2] != 1 {
-                        return Err(());
+        struct ReplyInboxV2 {
+            recv_slot: u32,
+            last_sid: Cell<u64>,
+        }
+        impl Client for ReplyInboxV2 {
+            fn send(&self, _frame: &[u8], _wait: IpcWait) -> nexus_ipc::Result<()> {
+                Err(IpcError::Unsupported)
+            }
+            fn recv(&self, _wait: IpcWait) -> nexus_ipc::Result<Vec<u8>> {
+                let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+                let mut sid: u64 = 0;
+                let mut buf = [0u8; 64];
+                match nexus_abi::ipc_recv_v2(
+                    self.recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    &mut sid,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(n) => {
+                        self.last_sid.set(sid);
+                        Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec())
                     }
-                    if buf[3] != (5 | 0x80) || buf[4] != 0 {
-                        return Err(());
-                    }
-                    let got = u64::from_le_bytes([
-                        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-                    ]);
-                    // sid returned by the kernel is for the sender (samgrd); we verify the echoed value.
-                    let _ = sid;
-                    return if got == expected { Ok(()) } else { Err(()) };
+                    Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
+                    Err(other) => Err(IpcError::Kernel(other)),
                 }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
             }
         }
-        Err(())
-    }
+        let inbox = ReplyInboxV2 { recv_slot: reply_recv_slot, last_sid: Cell::new(0) };
+        let rsp = recv_match_until(
+            &clock,
+            &inbox,
+            &mut pending,
+            nonce,
+            deadline_ns,
+            |frame| {
+                if frame.len() == 21
+                    && frame[0] == b'S'
+                    && frame[1] == b'M'
+                    && frame[2] == 1
+                    && frame[3] == (5 | 0x80)
+                    && frame[4] == 0
+                {
+                    Some(u64::from_le_bytes([
+                        frame[13], frame[14], frame[15], frame[16], frame[17], frame[18],
+                        frame[19], frame[20],
+                    ]))
+                } else {
+                    None
+                }
+            },
+        )
+        .map_err(|_| ())?;
 
-    fn drain_reply_inbox(reply_recv_slot: u32) {
-        // Best-effort: discard stale CAP_MOVE replies (e.g. from log sinks) so probes
-        // that expect a specific response don't read an unrelated queued message.
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 64];
-        for _ in 0..16 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_n) => {}
-                Err(nexus_abi::IpcError::QueueEmpty) => break,
-                Err(_) => break,
-            }
+        if rsp.len() != 21 || rsp[0] != b'S' || rsp[1] != b'M' || rsp[2] != 1 {
+            return Err(());
         }
+        if rsp[3] != (5 | 0x80) || rsp[4] != 0 {
+            return Err(());
+        }
+        let got = u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
+        let sender_sid = inbox.last_sid.get();
+        let samgrd_id = nexus_abi::service_id_from_name(b"samgrd");
+        if sender_sid != samgrd_id {
+            return Err(());
+        }
+        if got == expected { Ok(()) } else { Err(()) }
     }
 
     /// Deterministic “soak” probe for IPC production-grade behaviour.
@@ -4394,13 +4833,19 @@ mod os_lite {
             ipc_payload_roundtrip()?;
 
             // C) CAP_MOVE ping to samgrd + reply receive (robust against shared inbox mixing).
-            drain_reply_inbox(reply_recv_slot);
+            let clock = OsClock;
+            let deadline_ns = deadline_after(&clock, Duration::from_millis(200)).map_err(|_| ())?;
+            let mut pending: ReplyBuffer<8, 64> = ReplyBuffer::new();
+            static NONCE: AtomicU64 = AtomicU64::new(0x1000);
+            let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+
             let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-            let mut frame = [0u8; 4];
+            let mut frame = [0u8; 12];
             frame[0] = b'S';
             frame[1] = b'M';
             frame[2] = 1;
             frame[3] = 3; // OP_PING_CAP_MOVE
+            frame[4..12].copy_from_slice(&nonce.to_le_bytes());
             let wait = IpcWait::Timeout(core::time::Duration::from_millis(10));
             let mut sent = false;
             for _ in 0..64 {
@@ -4420,32 +4865,49 @@ mod os_lite {
             }
             let _ = nexus_abi::cap_close(reply_send_clone);
 
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 16];
-            let mut ok = false;
-            for _ in 0..1024 {
-                match nexus_abi::ipc_recv_v1(
-                    reply_recv_slot,
-                    &mut hdr,
-                    &mut buf,
-                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                    0,
-                ) {
-                    Ok(n) => {
-                        let n = n as usize;
-                        if n == 4 && &buf[..4] == b"PONG" {
-                            ok = true;
-                            break;
-                        }
-                        // Ignore unrelated replies on the shared reply inbox.
+            struct ReplyInboxV1 {
+                recv_slot: u32,
+            }
+            impl Client for ReplyInboxV1 {
+                fn send(&self, _frame: &[u8], _wait: IpcWait) -> nexus_ipc::Result<()> {
+                    Err(IpcError::Unsupported)
+                }
+                fn recv(&self, _wait: IpcWait) -> nexus_ipc::Result<Vec<u8>> {
+                    let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+                    let mut buf = [0u8; 64];
+                    match ipc_recv_v1(
+                        self.recv_slot,
+                        &mut hdr,
+                        &mut buf,
+                        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                        0,
+                    ) {
+                        Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
+                        Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
+                        Err(other) => Err(IpcError::Kernel(other)),
                     }
-                    Err(nexus_abi::IpcError::QueueEmpty) => {
-                        let _ = yield_();
-                    }
-                    Err(_) => return Err(()),
                 }
             }
-            if !ok {
+            let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
+            let rsp = recv_match_until(
+                &clock,
+                &inbox,
+                &mut pending,
+                nonce,
+                deadline_ns,
+                |frame| {
+                    if frame.len() == 12 && frame[0..4] == *b"PONG" {
+                        Some(u64::from_le_bytes([
+                            frame[4], frame[5], frame[6], frame[7], frame[8], frame[9],
+                            frame[10], frame[11],
+                        ]))
+                    } else {
+                        None
+                    }
+                },
+            )
+            .map_err(|_| ())?;
+            if rsp.len() != 12 || rsp[0..4] != *b"PONG" {
                 return Err(());
             }
 

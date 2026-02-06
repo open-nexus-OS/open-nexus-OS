@@ -165,7 +165,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 {
                     // Reply on the moved cap slot (allocated into this process as hdr.src).
                     // Always best-effort and non-blocking for bring-up.
-                    let _ = KernelServer::send_on_cap(hdr.src, b"PONG");
+                    if frame.len() == 12 {
+                        // Optional nonce correlation (RFC-0019 adoption): echo u64 nonce at end.
+                        let mut rsp = [0u8; 12];
+                        rsp[0..4].copy_from_slice(b"PONG");
+                        rsp[4..12].copy_from_slice(&frame[4..12]);
+                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    } else {
+                        let _ = KernelServer::send_on_cap(hdr.src, b"PONG");
+                    }
                     let _ = cap_close(hdr.src as u32);
                     continue;
                 }
@@ -178,14 +186,27 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     && frame[3] == OP_SENDER_PID
                     && (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0
                 {
-                    let mut rsp = [0u8; 9];
-                    rsp[0] = MAGIC0;
-                    rsp[1] = MAGIC1;
-                    rsp[2] = VERSION;
-                    rsp[3] = OP_SENDER_PID | 0x80;
-                    rsp[4] = STATUS_OK;
-                    rsp[5..9].copy_from_slice(&hdr.dst.to_le_bytes());
-                    let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    if frame.len() == 16 {
+                        // Optional nonce correlation: request appends u64 nonce; reply echoes it at end.
+                        let mut rsp = [0u8; 17];
+                        rsp[0] = MAGIC0;
+                        rsp[1] = MAGIC1;
+                        rsp[2] = VERSION;
+                        rsp[3] = OP_SENDER_PID | 0x80;
+                        rsp[4] = STATUS_OK;
+                        rsp[5..9].copy_from_slice(&hdr.dst.to_le_bytes());
+                        rsp[9..17].copy_from_slice(&frame[8..16]);
+                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    } else {
+                        let mut rsp = [0u8; 9];
+                        rsp[0] = MAGIC0;
+                        rsp[1] = MAGIC1;
+                        rsp[2] = VERSION;
+                        rsp[3] = OP_SENDER_PID | 0x80;
+                        rsp[4] = STATUS_OK;
+                        rsp[5..9].copy_from_slice(&hdr.dst.to_le_bytes());
+                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    }
                     let _ = cap_close(hdr.src as u32);
                     continue;
                 }
@@ -198,14 +219,27 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     && frame[3] == OP_SENDER_SERVICE_ID
                     && (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0
                 {
-                    let mut rsp = [0u8; 13];
-                    rsp[0] = MAGIC0;
-                    rsp[1] = MAGIC1;
-                    rsp[2] = VERSION;
-                    rsp[3] = OP_SENDER_SERVICE_ID | 0x80;
-                    rsp[4] = STATUS_OK;
-                    rsp[5..13].copy_from_slice(&sender_service_id.to_le_bytes());
-                    let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    if frame.len() == 12 {
+                        // Optional nonce correlation: request appends u64 nonce; reply echoes it at end.
+                        let mut rsp = [0u8; 21];
+                        rsp[0] = MAGIC0;
+                        rsp[1] = MAGIC1;
+                        rsp[2] = VERSION;
+                        rsp[3] = OP_SENDER_SERVICE_ID | 0x80;
+                        rsp[4] = STATUS_OK;
+                        rsp[5..13].copy_from_slice(&sender_service_id.to_le_bytes());
+                        rsp[13..21].copy_from_slice(&frame[4..12]);
+                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    } else {
+                        let mut rsp = [0u8; 13];
+                        rsp[0] = MAGIC0;
+                        rsp[1] = MAGIC1;
+                        rsp[2] = VERSION;
+                        rsp[3] = OP_SENDER_SERVICE_ID | 0x80;
+                        rsp[4] = STATUS_OK;
+                        rsp[5..13].copy_from_slice(&sender_service_id.to_le_bytes());
+                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                    }
                     let _ = cap_close(hdr.src as u32);
                     continue;
                 }
@@ -361,9 +395,11 @@ fn emit_hex_u32(value: u32) {
 fn append_probe_to_logd() -> bool {
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
-    const VERSION: u8 = 1;
+    const VERSION: u8 = 2;
     const OP_APPEND: u8 = 1;
     const LEVEL_INFO: u8 = 2;
+    const STATUS_OK: u8 = 0;
+    static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
     let logd = match KernelClient::new_for("logd") {
         Ok(c) => c,
@@ -373,7 +409,7 @@ fn append_probe_to_logd() -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    let (reply_send, _reply_recv) = reply.slots();
+    let (reply_send, reply_recv) = reply.slots();
     let moved = match nexus_abi::cap_clone(reply_send) {
         Ok(slot) => slot,
         Err(_) => return false,
@@ -385,8 +421,10 @@ fn append_probe_to_logd() -> bool {
         return false;
     }
 
-    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let mut frame = alloc::vec::Vec::with_capacity(12 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
     frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.extend_from_slice(&nonce.to_le_bytes());
     frame.push(LEVEL_INFO);
     frame.push(scope.len() as u8);
     frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
@@ -394,5 +432,52 @@ fn append_probe_to_logd() -> bool {
     frame.extend_from_slice(scope);
     frame.extend_from_slice(msg);
 
-    logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok()
+    // Deterministic: require an APPEND ack (bounded). This keeps the shared @reply inbox from filling.
+    if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
+        let _ = cap_close(moved);
+        return false;
+    }
+    let _ = cap_close(moved);
+
+    let start = nexus_abi::nsec().ok().unwrap_or(0);
+    let deadline = start.saturating_add(250_000_000); // 250ms
+    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 64];
+    let mut spins: usize = 0;
+    loop {
+        if (spins & 0x7f) == 0 {
+            let now = nexus_abi::nsec().ok().unwrap_or(0);
+            if now >= deadline {
+                return false;
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            reply_recv,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n >= 13 && buf[0] == MAGIC0 && buf[1] == MAGIC1 && buf[2] == VERSION {
+                    if buf[3] == (OP_APPEND | 0x80) {
+                        if let Ok((status, got_nonce)) =
+                            nexus_ipc::logd_wire::parse_append_response_v2_prefix(&buf[..n])
+                        {
+                            if got_nonce == nonce {
+                                return status == STATUS_OK;
+                            }
+                        }
+                    }
+                }
+                let _ = yield_();
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = yield_();
+            }
+            Err(_) => return false,
+        }
+        spins = spins.wrapping_add(1);
+    }
 }

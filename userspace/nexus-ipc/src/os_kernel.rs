@@ -81,60 +81,44 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     let deadline_ns = start_ns.saturating_add(per_attempt_ns);
 
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(
+    if matches!(wait, Wait::NonBlocking) {
+        nexus_abi::ipc_send_v1(
             CTRL_SEND_SLOT,
             &hdr,
             &req[..req_len],
             nexus_abi::IPC_SYS_NONBLOCK,
             0,
-        ) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if matches!(wait, Wait::NonBlocking) {
-                    return Err(IpcError::WouldBlock);
-                }
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| IpcError::Unsupported)?;
-                    if now >= deadline_ns {
-                        return Err(IpcError::Timeout);
-                    }
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(e) => return Err(map_send_err(e, wait)),
-        }
-        i = i.wrapping_add(1);
+        )
+        .map(|_| ())
+        .map_err(|e| map_send_err(e, wait))?;
+    } else {
+        let clock = crate::budget::OsClock;
+        crate::budget::raw::send_budgeted(&clock, CTRL_SEND_SLOT, &hdr, &req[..req_len], deadline_ns)
+            .map_err(|e| match e {
+                IpcError::Timeout => IpcError::Timeout,
+                other => other,
+            })?;
     }
 
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 32];
-    let mut j: usize = 0;
-    let n = loop {
-        match nexus_abi::ipc_recv_v1(
+    let n = if matches!(wait, Wait::NonBlocking) {
+        nexus_abi::ipc_recv_v1(
             CTRL_RECV_SLOT,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
             0,
-        ) {
-            Ok(n) => break n as usize,
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if matches!(wait, Wait::NonBlocking) {
-                    return Err(IpcError::WouldBlock);
-                }
-                if (j & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| IpcError::Unsupported)?;
-                    if now >= deadline_ns {
-                        return Err(IpcError::Timeout);
-                    }
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(e) => return Err(map_recv_err(e, wait)),
-        }
-        j = j.wrapping_add(1);
+        )
+        .map(|n| n as usize)
+        .map_err(|e| map_recv_err(e, wait))?
+    } else {
+        let clock = crate::budget::OsClock;
+        crate::budget::raw::recv_budgeted(&clock, CTRL_RECV_SLOT, &mut rh, &mut buf, deadline_ns)
+            .map_err(|e| match e {
+                IpcError::Timeout => IpcError::Timeout,
+                other => other,
+            })?
     };
     let (status, send_slot, recv_slot) =
         nexus_abi::routing::decode_route_rsp(&buf[..n]).ok_or(IpcError::Unsupported)?;
@@ -276,6 +260,16 @@ pub struct ReplyCap {
 }
 
 impl ReplyCap {
+    /// Returns the underlying capability slot number in the receiver.
+    pub fn slot(&self) -> u32 {
+        self.slot
+    }
+
+    /// Closes the reply capability without sending.
+    pub fn close(self) {
+        let _ = nexus_abi::cap_close(self.slot);
+    }
+
     /// Sends `frame` on the reply cap and then closes it (one-shot).
     pub fn reply_and_close(self, frame: &[u8]) -> Result<()> {
         KernelServer::send_on_cap_wait(self.slot, frame, Wait::NonBlocking)?;
@@ -384,6 +378,38 @@ impl KernelServer {
         } else {
             Ok((frame, sid, None))
         }
+    }
+
+    /// Receives a request into a caller-provided buffer and returns:
+    /// `(frame_len, sender_service_id, reply_cap_if_cap_move)`.
+    ///
+    /// This is the preferred API for os-lite services that use a bump allocator: it avoids
+    /// per-message heap allocations (which would otherwise monotonically consume heap).
+    pub fn recv_request_with_meta_into(
+        &self,
+        wait: Wait,
+        out: &mut [u8],
+    ) -> Result<(usize, u64, Option<ReplyCap>)> {
+        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut sid: u64 = 0;
+        let n = nexus_abi::ipc_recv_v2(
+            self.recv_slot,
+            &mut hdr,
+            out,
+            &mut sid,
+            sys_flags,
+            deadline_ns,
+        )
+        .map_err(|e| map_recv_err(e, wait))? as usize;
+        let n = core::cmp::min(n, out.len());
+        let reply = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+            Some(ReplyCap { slot: hdr.src })
+        } else {
+            None
+        };
+        Ok((n, sid, reply))
     }
 
     /// Sends a frame on an arbitrary endpoint capability slot (e.g. one received via CAP_MOVE).

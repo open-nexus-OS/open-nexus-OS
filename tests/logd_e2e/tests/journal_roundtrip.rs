@@ -15,9 +15,10 @@ use std::time::Duration;
 
 use logd::journal::{Journal, LogLevel, RecordId, TimestampNsec};
 use logd::protocol::{
-    decode_request, encode_append_response, encode_query_response, encode_stats_response,
-    AppendRequest, QueryRequest, Request, StatsRequest, MAGIC0, MAGIC1, OP_APPEND, OP_QUERY,
-    OP_STATS, STATUS_OK, VERSION,
+    decode_request, encode_append_response, encode_append_response_v2, encode_query_response,
+    encode_query_response_v2, encode_stats_response, encode_stats_response_v2, AppendRequest,
+    AppendRequestV2, QueryRequest, QueryRequestV2, Request, StatsRequest, StatsRequestV2, MAGIC0,
+    MAGIC1, OP_APPEND, OP_QUERY, OP_STATS, STATUS_OK, VERSION,
 };
 use nexus_ipc::{Client, LoopbackClient, Server, Wait};
 
@@ -55,14 +56,38 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                         Err(_) => encode_append_response(3, RecordId(0), 0), // TooLarge
                     }
                 }
+                Request::AppendV2(AppendRequestV2 { nonce, level, scope, message, fields }) => {
+                    let service_id = next_service_id;
+                    next_service_id += 1;
+                    let timestamp_nsec = TimestampNsec(next_timestamp);
+                    next_timestamp += 1000;
+                    match journal.append(service_id, timestamp_nsec, level, &scope, &message, &fields) {
+                        Ok(outcome) => encode_append_response_v2(
+                            STATUS_OK,
+                            nonce,
+                            outcome.record_id,
+                            outcome.dropped_records,
+                        ),
+                        Err(_) => encode_append_response_v2(3, nonce, RecordId(0), 0),
+                    }
+                }
                 Request::Query(QueryRequest { since_nsec, max_count }) => {
                     let records = journal.query(since_nsec, max_count);
                     let stats = journal.stats();
                     encode_query_response(STATUS_OK, stats, &records)
                 }
+                Request::QueryV2(QueryRequestV2 { nonce, since_nsec, max_count }) => {
+                    let records = journal.query(since_nsec, max_count);
+                    let stats = journal.stats();
+                    encode_query_response_v2(STATUS_OK, nonce, stats, &records)
+                }
                 Request::Stats(StatsRequest) => {
                     let stats = journal.stats();
                     encode_stats_response(STATUS_OK, stats)
+                }
+                Request::StatsV2(StatsRequestV2 { nonce }) => {
+                    let stats = journal.stats();
+                    encode_stats_response_v2(STATUS_OK, nonce, stats)
                 }
             };
             if server.send(&response_frame, Wait::Blocking).is_err() {
@@ -374,10 +399,11 @@ fn logd_empty_fields_allowed() {
 fn logd_bounded_scope_message_fields() {
     let client = spawn_logd_service(10, 4096);
 
-    // Max allowed sizes
-    let max_scope = vec![b'a'; 64];
-    let max_msg = vec![b'b'; 256];
-    let max_fields = vec![b'c'; 512];
+    // The wire protocol allows larger frames, but the in-memory journal stores bounded bytes
+    // to control heap footprint under bump allocators. Assert against the storage contract.
+    let max_scope = vec![b'a'; logd::journal::STORE_MAX_SCOPE_LEN];
+    let max_msg = vec![b'b'; logd::journal::STORE_MAX_MSG_LEN];
+    let max_fields = vec![b'c'; logd::journal::STORE_MAX_FIELDS_LEN];
 
     let (record_id, dropped) = append(&client, LogLevel::Info, &max_scope, &max_msg, &max_fields);
     assert_eq!(record_id.0, 1);
@@ -385,9 +411,9 @@ fn logd_bounded_scope_message_fields() {
 
     let records = query(&client, 0, 10);
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].scope.len(), 64);
-    assert_eq!(records[0].message.len(), 256);
-    assert_eq!(records[0].fields.len(), 512);
+    assert_eq!(records[0].scope.len(), logd::journal::STORE_MAX_SCOPE_LEN);
+    assert_eq!(records[0].message.len(), logd::journal::STORE_MAX_MSG_LEN);
+    assert_eq!(records[0].fields.len(), logd::journal::STORE_MAX_FIELDS_LEN);
 
     drop(client);
 }

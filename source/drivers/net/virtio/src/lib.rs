@@ -108,7 +108,7 @@ impl<B: Bus> VirtioNetMmio<B> {
     /// Minimal feature negotiation: accept feature bits exactly as provided.
     ///
     /// Bring-up policy: caller typically passes 0 (disable all optional features).
-    pub fn negotiate_features(&self, driver_features: u64) -> Result<(), VirtioError> {
+    pub fn negotiate_features(&self, driver_features: u64) -> Result<u64, VirtioError> {
         // ACK + DRIVER
         self.bus.write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
@@ -137,7 +137,7 @@ impl<B: Bus> VirtioNetMmio<B> {
             self.bus.write(REG_STATUS, st2 | STATUS_FAILED);
             return Err(VirtioError::DeviceRejectedFeatures);
         }
-        Ok(())
+        Ok(accept)
     }
 
     /// Programs a queue's descriptor/avail/used addresses (physical) and marks it READY.

@@ -23,3 +23,8 @@ nexus-abi = { path = "../../source/libs/nexus-abi", optional = true }
 nexus-hal = { path = "../../source/libs/nexus-hal", optional = true }
 net-virtio = { path = "../../source/drivers/net/virtio", optional = true }
 smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-udp", "socket-tcp", "socket-icmp", "socket-dhcpv4", "medium-ethernet"], optional = true }
+
+[dev-dependencies]
+# Deterministic host-first unit tests:
+# - Validate DHCP integration logic and on-wire invariants (ports/IPs) without QEMU.
+smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-udp", "socket-dhcpv4", "medium-ethernet"] }

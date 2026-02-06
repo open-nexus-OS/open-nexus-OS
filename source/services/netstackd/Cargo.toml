@@ -9,6 +9,10 @@ publish = false
 default = ["std"]
 std = []
 os-lite = []
+# QEMU smoke harness compatibility:
+# - Prefer the slirp/usernet-compatible fallback IP (10.0.2.15) when DHCP is unavailable
+# - This keeps loopback-based DSoftBus bring-up deterministic in single-VM smoke runs
+qemu-smoke = []
 
 [dependencies]
 

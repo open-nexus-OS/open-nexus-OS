@@ -35,6 +35,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     use nexus_abi::yield_;
     use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
     use nexus_ipc::{IpcError as IpcErrorLite, KernelClient, Wait};
+    use nexus_ipc::reqrep::ReplyBuffer;
     use nexus_peer_lru::{PeerEntry, PeerLru};
 
     // dsoftbusd must NOT own MMIO; it uses netstackd's IPC facade.
@@ -92,6 +93,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 
     fn rpc_nonce(
+        pending: &mut ReplyBuffer<16, 512>,
         net: &KernelClient,
         req: &[u8],
         expect_rsp_op: u8,
@@ -100,10 +102,14 @@ fn os_entry() -> core::result::Result<(), ()> {
         let reply_send_slot = DSOFT_REPLY_SEND_SLOT;
         let reply_recv_slot = DSOFT_REPLY_RECV_SLOT;
 
+        static CAP_CLONE_FAIL_LOGGED_NONCE: core::sync::atomic::AtomicBool =
+            core::sync::atomic::AtomicBool::new(false);
         let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
             Ok(slot) => slot,
             Err(_) => {
-                let _ = nexus_abi::debug_println("dsoftbusd: cap clone fail");
+                if !CAP_CLONE_FAIL_LOGGED_NONCE.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    let _ = nexus_abi::debug_println("dsoftbusd: cap clone fail");
+                }
                 return Err(());
             }
         };
@@ -136,6 +142,21 @@ fn os_entry() -> core::result::Result<(), ()> {
 
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 512];
+        // If the reply already arrived out-of-order, return it from the pending buffer first.
+        {
+            let mut tmp = [0u8; 512];
+            if let Some(n) = pending.take_into(nonce, &mut tmp) {
+                if n >= 5
+                    && tmp[0] == MAGIC0
+                    && tmp[1] == MAGIC1
+                    && tmp[2] == VERSION
+                    && tmp[3] == expect_rsp_op
+                    && nonce_matches(&tmp, n, nonce)
+                {
+                    return Ok(tmp);
+                }
+            }
+        }
         let start = nexus_abi::nsec().ok().unwrap_or(0);
         let deadline = start.saturating_add(500_000_000); // 500ms
         loop {
@@ -161,97 +182,14 @@ fn os_entry() -> core::result::Result<(), ()> {
                     {
                         return Ok(buf);
                     }
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-        }
-        Err(())
-    }
-
-    fn rpc(net: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-        // Deterministic reply slots provisioned by init-lite for dsoftbusd:
-        // recv=0x5 send=0x6
-        let reply_send_slot = DSOFT_REPLY_SEND_SLOT;
-        let reply_recv_slot = DSOFT_REPLY_RECV_SLOT;
-        // Drain stale replies to keep the inbox from filling under bring-up jitter.
-        {
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 32];
-            for _ in 0..4 {
-                match nexus_abi::ipc_recv_v1(
-                    reply_recv_slot,
-                    &mut hdr,
-                    &mut buf,
-                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                    0,
-                ) {
-                    Ok(_) => {}
-                    Err(nexus_abi::IpcError::QueueEmpty) => break,
-                    Err(_) => break,
-                }
-            }
-        }
-        static CAP_CLONE_FAIL_LOGGED: core::sync::atomic::AtomicBool =
-            core::sync::atomic::AtomicBool::new(false);
-        let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
-            Ok(slot) => slot,
-            Err(_) => {
-                if !CAP_CLONE_FAIL_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-                    let _ = nexus_abi::debug_println("dsoftbusd: cap clone fail");
-                }
-                return Err(());
-            }
-        };
-        let wait = Wait::Timeout(core::time::Duration::from_millis(20));
-        let mut sent = false;
-        for _ in 0..64 {
-            match net.send_with_cap_move_wait(req, reply_send_clone, wait) {
-                Ok(()) => {
-                    sent = true;
-                    static SEND_OK_LOGGED: core::sync::atomic::AtomicBool =
-                        core::sync::atomic::AtomicBool::new(false);
-                    if !SEND_OK_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-                        let _ = nexus_abi::debug_println("dsoftbusd: rpc send ok");
+                    // Unmatched reply on shared inbox: buffer by nonce if it looks like a netstackd reply.
+                    if n >= 13 && buf[0] == MAGIC0 && buf[1] == MAGIC1 && buf[2] == VERSION {
+                        let mut b = [0u8; 8];
+                        b.copy_from_slice(&buf[n - 8..n]);
+                        let other = u64::from_le_bytes(b);
+                        let _ = pending.push(other, &buf[..n]);
                     }
-                    break;
                 }
-                Err(IpcErrorLite::WouldBlock)
-                | Err(IpcErrorLite::Timeout)
-                | Err(IpcErrorLite::NoSpace) => {
-                    let _ = yield_();
-                }
-                Err(_) => {
-                    let _ = nexus_abi::cap_close(reply_send_clone);
-                    return Err(());
-                }
-            }
-        }
-        if !sent {
-            static SEND_FAIL_LOGGED: core::sync::atomic::AtomicBool =
-                core::sync::atomic::AtomicBool::new(false);
-            if !SEND_FAIL_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-                let _ = nexus_abi::debug_println("dsoftbusd: rpc send fail");
-            }
-            let _ = nexus_abi::cap_close(reply_send_clone);
-            return Err(());
-        }
-        // Best-effort close: keep the local cap table bounded even though the cap was moved.
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 512];
-        // Fast timeout: 50 iterations (~50ms) for quick retry when netstackd isn't ready yet.
-        for _ in 0..50 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_n) => return Ok(buf),
                 Err(nexus_abi::IpcError::QueueEmpty) => {
                     let _ = yield_();
                 }
@@ -262,8 +200,16 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 
     let mut nonce_ctr: u64 = 1;
+    // Shared reply inbox correlation: keep a bounded buffer of unmatched netstackd replies keyed by nonce.
+    // This prevents silent drops when multiple netstackd ops share one reply inbox.
+    let mut pending_replies: ReplyBuffer<16, 512> = ReplyBuffer::new();
 
-    fn get_local_ip(net: &KernelClient, nonce_ctr: &mut u64, iter: u32) -> Option<[u8; 4]> {
+    fn get_local_ip(
+        pending: &mut ReplyBuffer<16, 512>,
+        net: &KernelClient,
+        nonce_ctr: &mut u64,
+        iter: u32,
+    ) -> Option<[u8; 4]> {
         let nonce = next_nonce(nonce_ctr);
         let mut req = [0u8; 12];
         req[0] = MAGIC0;
@@ -271,7 +217,7 @@ fn os_entry() -> core::result::Result<(), ()> {
         req[2] = VERSION;
         req[3] = OP_LOCAL_ADDR;
         req[4..12].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = match rpc_nonce(net, &req, OP_LOCAL_ADDR | 0x80, nonce) {
+        let rsp = match rpc_nonce(pending, net, &req, OP_LOCAL_ADDR | 0x80, nonce) {
             Ok(r) => r,
             Err(_) => {
                 // Log once at iteration 30 to show RPC is failing.
@@ -303,7 +249,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut local_ip_resolved = false;
     // 300 attempts with 500 yields between = ~150s coverage (within 190s timeout).
     for i in 0..300u32 {
-        if let Some(ip) = get_local_ip(&net, &mut nonce_ctr, i) {
+        if let Some(ip) = get_local_ip(&mut pending_replies, &net, &mut nonce_ctr, i) {
             local_ip = ip;
             local_ip_resolved = true;
             break;
@@ -349,7 +295,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     for _ in 0..500 {
         let nonce = next_nonce(&mut nonce_ctr);
         req[10..18].copy_from_slice(&nonce.to_le_bytes());
-        match rpc_nonce(&net, &req, OP_UDP_BIND | 0x80, nonce) {
+        match rpc_nonce(&mut pending_replies, &net, &req, OP_UDP_BIND | 0x80, nonce) {
             Ok(rsp) => {
                 if rsp[0] == MAGIC0
                     && rsp[1] == MAGIC1
@@ -451,6 +397,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             };
 
             fn send_announce(
+                pending: &mut ReplyBuffer<16, 512>,
                 net: &KernelClient,
                 nonce_ctr: &mut u64,
                 udp_id: u32,
@@ -486,6 +433,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                 // For deterministic local bring-up, we unicast a single announce to LOCAL_IP and then poll recv.
                 send[8..12].copy_from_slice(&LOCAL_IP);
                 let rsp = rpc_nonce(
+                    pending,
                     net,
                     &send[..hdr_len + bytes.len() + 8],
                     OP_UDP_SEND_TO | 0x80,
@@ -500,7 +448,8 @@ fn os_entry() -> core::result::Result<(), ()> {
 
             let ok_b = match encode_announce_v1(&ann_b).ok() {
                 Some(b) => {
-                    send_announce(&net, &mut nonce_ctr, udp_id, disc_port, &b).unwrap_or(false)
+                    send_announce(&mut pending_replies, &net, &mut nonce_ctr, udp_id, disc_port, &b)
+                        .unwrap_or(false)
                 }
                 None => false,
             };
@@ -527,7 +476,8 @@ fn os_entry() -> core::result::Result<(), ()> {
         r[4..8].copy_from_slice(&udp_id.to_le_bytes());
         r[8..10].copy_from_slice(&(256u16).to_le_bytes());
         r[10..18].copy_from_slice(&recv_nonce.to_le_bytes());
-        let rsp = rpc_nonce(&net, &r, OP_UDP_RECV_FROM | 0x80, recv_nonce).map_err(|_| ())?;
+        let rsp = rpc_nonce(&mut pending_replies, &net, &r, OP_UDP_RECV_FROM | 0x80, recv_nonce)
+            .map_err(|_| ())?;
         if rsp[0] == MAGIC0
             && rsp[1] == MAGIC1
             && rsp[2] == VERSION
@@ -590,7 +540,8 @@ fn os_entry() -> core::result::Result<(), ()> {
         for _ in 0..50_000 {
             let nonce = next_nonce(&mut nonce_ctr);
             req[6..14].copy_from_slice(&nonce.to_le_bytes());
-            let rsp = rpc_nonce(&net, &req, OP_LISTEN | 0x80, nonce).map_err(|_| ())?;
+            let rsp = rpc_nonce(&mut pending_replies, &net, &req, OP_LISTEN | 0x80, nonce)
+                .map_err(|_| ())?;
             if rsp[0] == MAGIC0
                 && rsp[1] == MAGIC1
                 && rsp[2] == VERSION
@@ -654,7 +605,8 @@ fn os_entry() -> core::result::Result<(), ()> {
     req_b[5] = (port_b >> 8) as u8;
     let nonce_b = next_nonce(&mut nonce_ctr);
     req_b[6..14].copy_from_slice(&nonce_b.to_le_bytes());
-    let rsp_b = rpc_nonce(&net, &req_b, OP_LISTEN | 0x80, nonce_b).map_err(|_| ())?;
+    let rsp_b = rpc_nonce(&mut pending_replies, &net, &req_b, OP_LISTEN | 0x80, nonce_b)
+        .map_err(|_| ())?;
     if rsp_b[0] != MAGIC0
         || rsp_b[1] != MAGIC1
         || rsp_b[2] != VERSION
@@ -670,6 +622,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // Helper to connect to a TCP port via netstackd (nonce-correlated).
     fn tcp_connect(
+        pending: &mut ReplyBuffer<16, 512>,
         net: &KernelClient,
         nonce_ctr: &mut u64,
         ip: [u8; 4],
@@ -692,7 +645,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             c[4..8].copy_from_slice(&ip);
             c[8..10].copy_from_slice(&port.to_le_bytes());
             c[10..18].copy_from_slice(&nonce.to_le_bytes());
-            let rsp = rpc_nonce(net, &c, OP_CONNECT | 0x80, nonce)?;
+            let rsp = rpc_nonce(pending, net, &c, OP_CONNECT | 0x80, nonce)?;
             if rsp[4] == STATUS_OK {
                 return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
             }
@@ -707,6 +660,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // Helper: accept on listener (nonce-correlated).
     fn tcp_accept(
+        pending: &mut ReplyBuffer<16, 512>,
         net: &KernelClient,
         nonce_ctr: &mut u64,
         lid: u32,
@@ -727,7 +681,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             a[3] = OP_ACCEPT;
             a[4..8].copy_from_slice(&lid.to_le_bytes());
             a[8..16].copy_from_slice(&nonce.to_le_bytes());
-            let rsp = rpc_nonce(net, &a, OP_ACCEPT | 0x80, nonce)?;
+            let rsp = rpc_nonce(pending, net, &a, OP_ACCEPT | 0x80, nonce)?;
             if rsp[4] == STATUS_OK {
                 return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
             }
@@ -782,29 +736,10 @@ fn os_entry() -> core::result::Result<(), ()> {
         let _ = nexus_abi::debug_println("dsoftbusd: connect ip loopback BAD");
     }
 
-    // Drain any stale replies (e.g. LISTEN responses) before starting the dual-node connect handshake.
-    {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut tmp = [0u8; 32];
-        for _ in 0..32 {
-            match nexus_abi::ipc_recv_v1(
-                DSOFT_REPLY_RECV_SLOT,
-                &mut rh,
-                &mut tmp,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_) => {}
-                Err(nexus_abi::IpcError::QueueEmpty) => break,
-                Err(_) => break,
-            }
-        }
-    }
-
-    let connect_result = tcp_connect(&net, &mut nonce_ctr, peer_ip, peer_b.port);
+    let connect_result = tcp_connect(&mut pending_replies, &net, &mut nonce_ctr, peer_ip, peer_b.port);
 
     // Accept the connection on B side
-    let accept_result = tcp_accept(&net, &mut nonce_ctr, lid_b);
+    let accept_result = tcp_accept(&mut pending_replies, &net, &mut nonce_ctr, lid_b);
 
     let (sid_a, sid_b) = match (connect_result, accept_result) {
         (Ok(a), Ok(b)) => (a, b),
@@ -850,6 +785,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // Helper to read from a stream
     fn dual_stream_read(
+        pending: &mut ReplyBuffer<16, 512>,
         net: &KernelClient,
         nonce_ctr: &mut u64,
         sid: u32,
@@ -873,7 +809,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             r[4..8].copy_from_slice(&sid.to_le_bytes());
             r[8..10].copy_from_slice(&(len as u16).to_le_bytes());
             r[10..18].copy_from_slice(&nonce.to_le_bytes());
-            let rsp = rpc_nonce(net, &r, OP_READ | 0x80, nonce)?;
+            let rsp = rpc_nonce(pending, net, &r, OP_READ | 0x80, nonce)?;
             if rsp[4] == STATUS_OK {
                 let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
                 if n == len && 7 + n <= rsp.len() {
@@ -893,6 +829,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // Helper to write to a stream
     fn dual_stream_write(
+        pending: &mut ReplyBuffer<16, 512>,
         net: &KernelClient,
         nonce_ctr: &mut u64,
         sid: u32,
@@ -917,7 +854,7 @@ fn os_entry() -> core::result::Result<(), ()> {
         w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
         w[10..10 + data.len()].copy_from_slice(data);
         w[10 + data.len()..10 + data.len() + 8].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
+        let rsp = rpc_nonce(pending, net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
         if rsp[4] == STATUS_OK {
             Ok(())
         } else {
@@ -929,7 +866,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Step 1: A writes msg1
     let mut msg1 = [0u8; MSG1_LEN];
     initiator.write_msg1(&mut msg1);
-    if dual_stream_write(&net, &mut nonce_ctr, sid_a, &msg1).is_err() {
+    if dual_stream_write(&mut pending_replies, &net, &mut nonce_ctr, sid_a, &msg1).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg1 write FAIL");
         loop {
             let _ = yield_();
@@ -938,7 +875,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // B reads msg1, writes msg2
     let mut msg1_recv = [0u8; MSG1_LEN];
-    if dual_stream_read(&net, &mut nonce_ctr, sid_b, &mut msg1_recv).is_err() {
+    if dual_stream_read(&mut pending_replies, &net, &mut nonce_ctr, sid_b, &mut msg1_recv).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg1 read FAIL");
         loop {
             let _ = yield_();
@@ -951,7 +888,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             let _ = yield_();
         }
     }
-    if dual_stream_write(&net, &mut nonce_ctr, sid_b, &msg2).is_err() {
+    if dual_stream_write(&mut pending_replies, &net, &mut nonce_ctr, sid_b, &msg2).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 write FAIL");
         loop {
             let _ = yield_();
@@ -960,7 +897,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // A reads msg2, writes msg3
     let mut msg2_recv = [0u8; MSG2_LEN];
-    if dual_stream_read(&net, &mut nonce_ctr, sid_a, &mut msg2_recv).is_err() {
+    if dual_stream_read(&mut pending_replies, &net, &mut nonce_ctr, sid_a, &mut msg2_recv).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 read FAIL");
         loop {
             let _ = yield_();
@@ -976,7 +913,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             }
         }
     };
-    if dual_stream_write(&net, &mut nonce_ctr, sid_a, &msg3).is_err() {
+    if dual_stream_write(&mut pending_replies, &net, &mut nonce_ctr, sid_a, &msg3).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg3 write FAIL");
         loop {
             let _ = yield_();
@@ -985,7 +922,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // B reads msg3, finishes handshake
     let mut msg3_recv = [0u8; MSG3_LEN];
-    if dual_stream_read(&net, &mut nonce_ctr, sid_b, &mut msg3_recv).is_err() {
+    if dual_stream_read(&mut pending_replies, &net, &mut nonce_ctr, sid_b, &mut msg3_recv).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg3 read FAIL");
         loop {
             let _ = yield_();
@@ -1047,13 +984,16 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Wait for a client connection, perform a minimal auth check, then do ping/pong over proxied stream IO.
     let mut sid: Option<u32> = None;
     for _ in 0..50_000 {
-        let mut a = [0u8; 8];
+        let nonce = next_nonce(&mut nonce_ctr);
+        let mut a = [0u8; 16];
         a[0] = MAGIC0;
         a[1] = MAGIC1;
         a[2] = VERSION;
         a[3] = OP_ACCEPT;
         a[4..8].copy_from_slice(&lid.to_le_bytes());
-        let rsp = rpc(&net, &a).map_err(|_| ())?;
+        a[8..16].copy_from_slice(&nonce.to_le_bytes());
+        let rsp = rpc_nonce(&mut pending_replies, &net, &a, OP_ACCEPT | 0x80, nonce)
+            .map_err(|_| ())?;
         if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80)
         {
             if rsp[4] == STATUS_OK {
@@ -1090,7 +1030,13 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut responder = XkResponder::new(server_static, client_static_expected, server_eph_seed);
 
     // Helper to read exactly N bytes from the session
-    fn stream_read(net: &KernelClient, sid: u32, buf: &mut [u8]) -> core::result::Result<(), ()> {
+    fn stream_read(
+        pending: &mut ReplyBuffer<16, 512>,
+        net: &KernelClient,
+        nonce_ctr: &mut u64,
+        sid: u32,
+        buf: &mut [u8],
+    ) -> core::result::Result<(), ()> {
         const MAGIC0: u8 = b'N';
         const MAGIC1: u8 = b'S';
         const VERSION: u8 = 1;
@@ -1100,62 +1046,41 @@ fn os_entry() -> core::result::Result<(), ()> {
 
         let len = buf.len();
         for _ in 0..100_000 {
-            let mut r = [0u8; 10];
+            let nonce = next_nonce(nonce_ctr);
+            let mut r = [0u8; 18];
             r[0] = MAGIC0;
             r[1] = MAGIC1;
             r[2] = VERSION;
             r[3] = OP_READ;
             r[4..8].copy_from_slice(&sid.to_le_bytes());
             r[8..10].copy_from_slice(&(len as u16).to_le_bytes());
-            let reply_send_clone = nexus_abi::cap_clone(DSOFT_REPLY_SEND_SLOT).map_err(|_| ())?;
-            if net.send_with_cap_move(&r, reply_send_clone).is_err() {
-                let _ = nexus_abi::cap_close(reply_send_clone);
+            r[10..18].copy_from_slice(&nonce.to_le_bytes());
+            let rsp = rpc_nonce(pending, net, &r, OP_READ | 0x80, nonce)?;
+            if rsp[4] == STATUS_OK {
+                let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                if n == len && 7 + n <= rsp.len() {
+                    buf.copy_from_slice(&rsp[7..7 + n]);
+                    return Ok(());
+                }
                 return Err(());
             }
-            let _ = nexus_abi::cap_close(reply_send_clone);
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut rsp = [0u8; 512];
-            for _ in 0..5_000 {
-                match nexus_abi::ipc_recv_v1(
-                    DSOFT_REPLY_RECV_SLOT,
-                    &mut hdr,
-                    &mut rsp,
-                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                    0,
-                ) {
-                    Ok(_) => {
-                        if rsp[0] == MAGIC0
-                            && rsp[1] == MAGIC1
-                            && rsp[2] == VERSION
-                            && rsp[3] == (OP_READ | 0x80)
-                        {
-                            if rsp[4] == STATUS_OK {
-                                let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                                if n == len && 7 + n <= rsp.len() {
-                                    buf.copy_from_slice(&rsp[7..7 + n]);
-                                    return Ok(());
-                                }
-                            } else if rsp[4] == STATUS_WOULD_BLOCK {
-                                break; // retry outer loop
-                            } else {
-                                return Err(());
-                            }
-                        }
-                        break;
-                    }
-                    Err(nexus_abi::IpcError::QueueEmpty) => {
-                        let _ = nexus_abi::yield_();
-                    }
-                    Err(_) => return Err(()),
-                }
+            if rsp[4] == STATUS_WOULD_BLOCK {
+                let _ = nexus_abi::yield_();
+                continue;
             }
-            let _ = nexus_abi::yield_();
+            return Err(());
         }
         Err(())
     }
 
-    // Helper to write exactly N bytes to the session
-    fn stream_write(net: &KernelClient, sid: u32, data: &[u8]) -> core::result::Result<(), ()> {
+    // Helper to write exactly N bytes to the session (nonce-correlated, shared reply inbox safe)
+    fn stream_write(
+        pending: &mut ReplyBuffer<16, 512>,
+        net: &KernelClient,
+        nonce_ctr: &mut u64,
+        sid: u32,
+        data: &[u8],
+    ) -> core::result::Result<(), ()> {
         const MAGIC0: u8 = b'N';
         const MAGIC1: u8 = b'S';
         const VERSION: u8 = 1;
@@ -1163,9 +1088,10 @@ fn os_entry() -> core::result::Result<(), ()> {
         const STATUS_OK: u8 = 0;
 
         let mut w = [0u8; 256];
-        if data.len() + 10 > w.len() {
+        if data.len() + 18 > w.len() {
             return Err(());
         }
+        let nonce = next_nonce(nonce_ctr);
         w[0] = MAGIC0;
         w[1] = MAGIC1;
         w[2] = VERSION;
@@ -1173,70 +1099,15 @@ fn os_entry() -> core::result::Result<(), ()> {
         w[4..8].copy_from_slice(&sid.to_le_bytes());
         w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
         w[10..10 + data.len()].copy_from_slice(data);
+        w[10 + data.len()..10 + data.len() + 8].copy_from_slice(&nonce.to_le_bytes());
 
-        let reply_send_clone = nexus_abi::cap_clone(DSOFT_REPLY_SEND_SLOT).map_err(|_| ())?;
-        let wait = Wait::Timeout(core::time::Duration::from_millis(100));
-        let mut sent = false;
-        for _ in 0..64 {
-            match net.send_with_cap_move_wait(&w[..10 + data.len()], reply_send_clone, wait) {
-                Ok(()) => {
-                    sent = true;
-                    break;
-                }
-                Err(IpcErrorLite::WouldBlock)
-                | Err(IpcErrorLite::Timeout)
-                | Err(IpcErrorLite::NoSpace) => {
-                    let _ = nexus_abi::yield_();
-                }
-                Err(_) => {
-                    let _ = nexus_abi::cap_close(reply_send_clone);
-                    return Err(());
-                }
-            }
-        }
-        if !sent {
-            let _ = nexus_abi::cap_close(reply_send_clone);
-            return Err(());
-        }
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut rsp = [0u8; 64];
-        for _ in 0..5_000 {
-            match nexus_abi::ipc_recv_v1(
-                DSOFT_REPLY_RECV_SLOT,
-                &mut hdr,
-                &mut rsp,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_) => {
-                    if rsp[0] == MAGIC0
-                        && rsp[1] == MAGIC1
-                        && rsp[2] == VERSION
-                        && rsp[3] == (OP_WRITE | 0x80)
-                    {
-                        if rsp[4] == STATUS_OK {
-                            return Ok(());
-                        }
-                        let _ = nexus_abi::yield_();
-                        continue;
-                    }
-                    // Ignore unrelated replies on the shared netstackd reply inbox.
-                    let _ = nexus_abi::yield_();
-                    continue;
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = nexus_abi::yield_();
-                }
-                Err(_) => return Err(()),
-            }
-        }
-        Err(())
+        let rsp = rpc_nonce(pending, net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
+        if rsp[4] == STATUS_OK { Ok(()) } else { Err(()) }
     }
 
     // Step 1: Read msg1 (initiator ephemeral public key, 32 bytes)
     let mut msg1 = [0u8; MSG1_LEN];
-    if stream_read(&net, sid, &mut msg1).is_err() {
+    if stream_read(&mut pending_replies, &net, &mut nonce_ctr, sid, &mut msg1).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: noise msg1 read FAIL");
         loop {
             let _ = yield_();
@@ -1251,7 +1122,7 @@ fn os_entry() -> core::result::Result<(), ()> {
             let _ = yield_();
         }
     }
-    if stream_write(&net, sid, &msg2).is_err() {
+    if stream_write(&mut pending_replies, &net, &mut nonce_ctr, sid, &msg2).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: noise msg2 write FAIL");
         loop {
             let _ = yield_();
@@ -1260,7 +1131,7 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // Step 3: Read msg3 (encrypted initiator static + tag, 64 bytes)
     let mut msg3 = [0u8; MSG3_LEN];
-    if stream_read(&net, sid, &mut msg3).is_err() {
+    if stream_read(&mut pending_replies, &net, &mut nonce_ctr, sid, &mut msg3).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: noise msg3 read FAIL");
         loop {
             let _ = yield_();
@@ -1292,14 +1163,17 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut got_ping = false;
     for _ in 0..50_000 {
         // READ sid max=4
-        let mut r = [0u8; 10];
+        let nonce = next_nonce(&mut nonce_ctr);
+        let mut r = [0u8; 18];
         r[0] = MAGIC0;
         r[1] = MAGIC1;
         r[2] = VERSION;
         r[3] = OP_READ;
         r[4..8].copy_from_slice(&sid.to_le_bytes());
         r[8..10].copy_from_slice(&(4u16).to_le_bytes());
-        let rsp = rpc(&net, &r).map_err(|_| ())?;
+        r[10..18].copy_from_slice(&nonce.to_le_bytes());
+        let rsp = rpc_nonce(&mut pending_replies, &net, &r, OP_READ | 0x80, nonce)
+            .map_err(|_| ())?;
         if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
             if rsp[4] == STATUS_OK {
                 let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
@@ -1318,7 +1192,8 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 
     // WRITE sid "PONG"
-    let mut w = [0u8; 14];
+    let nonce = next_nonce(&mut nonce_ctr);
+    let mut w = [0u8; 22];
     w[0] = MAGIC0;
     w[1] = MAGIC1;
     w[2] = VERSION;
@@ -1326,7 +1201,8 @@ fn os_entry() -> core::result::Result<(), ()> {
     w[4..8].copy_from_slice(&sid.to_le_bytes());
     w[8..10].copy_from_slice(&(4u16).to_le_bytes());
     w[10..14].copy_from_slice(b"PONG");
-    let _ = rpc(&net, &w);
+    w[14..22].copy_from_slice(&nonce.to_le_bytes());
+    let _ = rpc_nonce(&mut pending_replies, &net, &w, OP_WRITE | 0x80, nonce);
     let _ = nexus_abi::debug_println("dsoftbusd: os session ok");
 
     // Stay alive cooperatively.
@@ -2189,9 +2065,10 @@ fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
 
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
-    const VERSION: u8 = 1;
+    const VERSION: u8 = 2;
     const OP_APPEND: u8 = 1;
     const LEVEL_INFO: u8 = 2;
+    static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
     if scope.is_empty() || scope.len() > 64 || msg.is_empty() || msg.len() > 256 {
         return false;
@@ -2209,8 +2086,10 @@ fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
         Ok(slot) => slot,
         Err(_) => return false,
     };
-    let mut frame = alloc::vec::Vec::with_capacity(4 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let mut frame = alloc::vec::Vec::with_capacity(12 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
     frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    frame.extend_from_slice(&nonce.to_le_bytes());
     frame.push(LEVEL_INFO);
     frame.push(scope.len() as u8);
     frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
@@ -2218,31 +2097,58 @@ fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
     frame.extend_from_slice(scope);
     frame.extend_from_slice(msg);
 
-    // Drain a few stale replies to keep the inbox bounded.
-    {
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        for _ in 0..4 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_) => {}
-                Err(nexus_abi::IpcError::QueueEmpty) => break,
-                Err(_) => break,
-            }
-        }
+    // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
+    if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
+        let _ = nexus_abi::cap_close(moved);
+        return false;
     }
 
-    // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
-    let ok = logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_ok();
-    if !ok {
-        let _ = nexus_abi::cap_close(moved);
+    // Deterministic: wait (bounded) for the APPEND ack so the shared inbox cannot fill.
+    const STATUS_OK: u8 = 0;
+    let start = nexus_abi::nsec().ok().unwrap_or(0);
+    let deadline = start.saturating_add(250_000_000); // 250ms
+    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 64];
+    let mut spins: usize = 0;
+    loop {
+        if (spins & 0x7f) == 0 {
+            let now = nexus_abi::nsec().ok().unwrap_or(0);
+            if now >= deadline {
+                return false;
+            }
+        }
+        match nexus_abi::ipc_recv_v1(
+            reply_recv_slot,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n >= 13
+                    && buf[0] == MAGIC0
+                    && buf[1] == MAGIC1
+                    && buf[2] == VERSION
+                    && buf[3] == (OP_APPEND | 0x80)
+                {
+                    if let Ok((status, got_nonce)) =
+                        nexus_ipc::logd_wire::parse_append_response_v2_prefix(&buf[..n])
+                    {
+                        if got_nonce == nonce {
+                            return status == STATUS_OK;
+                        }
+                    }
+                }
+                let _ = nexus_abi::yield_();
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = nexus_abi::yield_();
+            }
+            Err(_) => return false,
+        }
+        spins = spins.wrapping_add(1);
     }
-    ok
 }
 
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]

@@ -14,7 +14,7 @@
 //!   - StatefsError: Error types
 //!
 //! DEPENDENCIES:
-//!   - crc32fast: CRC32-C checksums for journal integrity
+//!   - crc32c: CRC32-C checksums for journal integrity
 //!   - storage: Block device abstractions
 //!
 //! ADR: docs/adr/0023-statefs-persistence-architecture.md
@@ -92,6 +92,7 @@ pub mod protocol {
     pub const MAGIC0: u8 = b'S';
     pub const MAGIC1: u8 = b'F';
     pub const VERSION: u8 = 1;
+    pub const VERSION_V2: u8 = 2;
 
     pub const OP_PUT: u8 = 1;
     pub const OP_GET: u8 = 2;
@@ -122,25 +123,26 @@ pub mod protocol {
         Reopen,
     }
 
-    pub fn decode_request(frame: &[u8]) -> Result<Request<'_>, u8> {
+    fn decode_request_no_nonce(frame: &[u8]) -> Result<Request<'_>, u8> {
         if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
             return Err(STATUS_MALFORMED);
         }
         let op = frame[3];
+        let payload = &frame[4..];
         match op {
-            OP_PUT => decode_put(frame),
-            OP_GET => decode_key_only(frame).map(|key| Request::Get { key }),
-            OP_DEL => decode_key_only(frame).map(|key| Request::Delete { key }),
-            OP_LIST => decode_list(frame),
+            OP_PUT => decode_put_payload(payload),
+            OP_GET => decode_key_only_payload(payload).map(|key| Request::Get { key }),
+            OP_DEL => decode_key_only_payload(payload).map(|key| Request::Delete { key }),
+            OP_LIST => decode_list_payload(payload),
             OP_SYNC => {
-                if frame.len() != 4 {
+                if !payload.is_empty() {
                     Err(STATUS_MALFORMED)
                 } else {
                     Ok(Request::Sync)
                 }
             }
             OP_REOPEN => {
-                if frame.len() != 4 {
+                if !payload.is_empty() {
                     Err(STATUS_MALFORMED)
                 } else {
                     Ok(Request::Reopen)
@@ -150,8 +152,73 @@ pub mod protocol {
         }
     }
 
+    /// Decode a request and (optionally) a trailing u64 nonce (little-endian).
+    ///
+    /// Backward compatible:
+    /// - If the frame matches the v1 shape exactly, nonce is `None`.
+    pub fn decode_request_with_nonce(frame: &[u8]) -> Result<(Request<'_>, Option<u64>), u8> {
+        if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
+            return Err(STATUS_MALFORMED);
+        }
+        match frame[2] {
+            VERSION => decode_request_no_nonce(frame).map(|r| (r, None)),
+            VERSION_V2 => {
+                if frame.len() < 12 {
+                    return Err(STATUS_MALFORMED);
+                }
+                let op = frame[3];
+                let mut nb = [0u8; 8];
+                nb.copy_from_slice(&frame[4..12]);
+                let nonce = u64::from_le_bytes(nb);
+                let payload = &frame[12..];
+                let req = match op {
+                    OP_PUT => decode_put_payload(payload),
+                    OP_GET => decode_key_only_payload(payload).map(|key| Request::Get { key }),
+                    OP_DEL => decode_key_only_payload(payload).map(|key| Request::Delete { key }),
+                    OP_LIST => decode_list_payload(payload),
+                    OP_SYNC => {
+                        if !payload.is_empty() {
+                            Err(STATUS_MALFORMED)
+                        } else {
+                            Ok(Request::Sync)
+                        }
+                    }
+                    OP_REOPEN => {
+                        if !payload.is_empty() {
+                            Err(STATUS_MALFORMED)
+                        } else {
+                            Ok(Request::Reopen)
+                        }
+                    }
+                    _ => Err(STATUS_UNSUPPORTED),
+                }?;
+                Ok((req, Some(nonce)))
+            }
+            _ => Err(STATUS_MALFORMED),
+        }
+    }
+
+    pub fn decode_request(frame: &[u8]) -> Result<Request<'_>, u8> {
+        decode_request_with_nonce(frame).map(|(r, _)| r)
+    }
+
     pub fn encode_status_response(op: u8, status: u8) -> Vec<u8> {
         vec![MAGIC0, MAGIC1, VERSION, op | 0x80, status]
+    }
+
+    pub fn encode_status_response_with_nonce(op: u8, status: u8, nonce: Option<u64>) -> Vec<u8> {
+        if let Some(n) = nonce {
+            let mut out = Vec::with_capacity(13);
+            out.push(MAGIC0);
+            out.push(MAGIC1);
+            out.push(VERSION_V2);
+            out.push(op | 0x80);
+            out.push(status);
+            out.extend_from_slice(&n.to_le_bytes());
+            out
+        } else {
+            encode_status_response(op, status)
+        }
     }
 
     pub fn encode_get_response(status: u8, value: &[u8]) -> Vec<u8> {
@@ -164,6 +231,23 @@ pub mod protocol {
         out.extend_from_slice(&(value.len() as u32).to_le_bytes());
         out.extend_from_slice(value);
         out
+    }
+
+    pub fn encode_get_response_with_nonce(status: u8, value: &[u8], nonce: Option<u64>) -> Vec<u8> {
+        if let Some(n) = nonce {
+            let mut out = Vec::with_capacity(17 + value.len());
+            out.push(MAGIC0);
+            out.push(MAGIC1);
+            out.push(VERSION_V2);
+            out.push(OP_GET | 0x80);
+            out.push(status);
+            out.extend_from_slice(&n.to_le_bytes());
+            out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+            out.extend_from_slice(value);
+            out
+        } else {
+            encode_get_response(status, value)
+        }
     }
 
     pub fn encode_list_response(status: u8, keys: &[String], max_bytes: usize) -> Vec<u8> {
@@ -204,47 +288,142 @@ pub mod protocol {
         out
     }
 
+    pub fn encode_list_response_with_nonce(
+        status: u8,
+        keys: &[String],
+        max_bytes: usize,
+        nonce: Option<u64>,
+    ) -> Vec<u8> {
+        if let Some(n) = nonce {
+            // v2 layout:
+            // [MAGIC0, MAGIC1, VERSION_V2, OP_LIST|0x80, status, nonce:u64, count:u16, entries...]
+            let mut out = Vec::with_capacity(15);
+            out.push(MAGIC0);
+            out.push(MAGIC1);
+            out.push(VERSION_V2);
+            out.push(OP_LIST | 0x80);
+            out.push(status);
+            out.extend_from_slice(&n.to_le_bytes());
+
+            // Placeholder for count.
+            out.extend_from_slice(&0u16.to_le_bytes());
+            let count_pos = 13;
+            let mut count: u16 = 0;
+
+            for key in keys {
+                let key_bytes = key.as_bytes();
+                if key_bytes.len() > MAX_KEY_LEN {
+                    continue;
+                }
+                let entry_len = 2usize.saturating_add(key_bytes.len());
+                if out.len().saturating_add(entry_len) > max_bytes {
+                    break;
+                }
+                out.extend_from_slice(&(key_bytes.len() as u16).to_le_bytes());
+                out.extend_from_slice(key_bytes);
+                count = count.saturating_add(1);
+                if count == u16::MAX {
+                    break;
+                }
+            }
+
+            let count_bytes = count.to_le_bytes();
+            if out.len() >= count_pos + 2 {
+                out[count_pos] = count_bytes[0];
+                out[count_pos + 1] = count_bytes[1];
+            }
+            out
+        } else {
+            encode_list_response(status, keys, max_bytes)
+        }
+    }
+
     pub fn decode_status_response(expected_op: u8, frame: &[u8]) -> Result<u8, StatefsError> {
-        if frame.len() < 5 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+        if frame.len() < 5 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
             return Err(StatefsError::Corrupted);
         }
         if frame[3] != (expected_op | 0x80) {
             return Err(StatefsError::Corrupted);
         }
-        Ok(frame[4])
+        match frame[2] {
+            VERSION => Ok(frame[4]),
+            VERSION_V2 => {
+                if frame.len() < 13 {
+                    return Err(StatefsError::Corrupted);
+                }
+                Ok(frame[4])
+            }
+            _ => Err(StatefsError::Corrupted),
+        }
     }
 
     pub fn decode_get_response(frame: &[u8]) -> Result<Vec<u8>, StatefsError> {
-        if frame.len() < 9 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+        if frame.len() < 9 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
             return Err(StatefsError::Corrupted);
         }
         if frame[3] != (OP_GET | 0x80) {
             return Err(StatefsError::Corrupted);
         }
-        let status = frame[4];
-        if status != STATUS_OK {
-            return Err(error_from_status(status));
+        match frame[2] {
+            VERSION => {
+                if frame.len() < 9 {
+                    return Err(StatefsError::Corrupted);
+                }
+                let status = frame[4];
+                if status != STATUS_OK {
+                    return Err(error_from_status(status));
+                }
+                let val_len = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]) as usize;
+                if val_len > MAX_VALUE_SIZE || frame.len() != 9 + val_len {
+                    return Err(StatefsError::Corrupted);
+                }
+                Ok(frame[9..9 + val_len].to_vec())
+            }
+            VERSION_V2 => {
+                if frame.len() < 17 {
+                    return Err(StatefsError::Corrupted);
+                }
+                let status = frame[4];
+                if status != STATUS_OK {
+                    return Err(error_from_status(status));
+                }
+                let val_len =
+                    u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]) as usize;
+                if val_len > MAX_VALUE_SIZE || frame.len() != 17 + val_len {
+                    return Err(StatefsError::Corrupted);
+                }
+                Ok(frame[17..17 + val_len].to_vec())
+            }
+            _ => Err(StatefsError::Corrupted),
         }
-        let val_len = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]) as usize;
-        if val_len > MAX_VALUE_SIZE || frame.len() != 9 + val_len {
-            return Err(StatefsError::Corrupted);
-        }
-        Ok(frame[9..9 + val_len].to_vec())
     }
 
     pub fn decode_list_response(frame: &[u8]) -> Result<Vec<String>, StatefsError> {
-        if frame.len() < 7 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+        if frame.len() < 7 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
             return Err(StatefsError::Corrupted);
         }
         if frame[3] != (OP_LIST | 0x80) {
             return Err(StatefsError::Corrupted);
         }
+        let (count, mut pos) = match frame[2] {
+            VERSION => {
+                if frame.len() < 7 {
+                    return Err(StatefsError::Corrupted);
+                }
+                (u16::from_le_bytes([frame[5], frame[6]]) as usize, 7usize)
+            }
+            VERSION_V2 => {
+                if frame.len() < 15 {
+                    return Err(StatefsError::Corrupted);
+                }
+                (u16::from_le_bytes([frame[13], frame[14]]) as usize, 15usize)
+            }
+            _ => return Err(StatefsError::Corrupted),
+        };
         let status = frame[4];
         if status != STATUS_OK {
             return Err(error_from_status(status));
         }
-        let count = u16::from_le_bytes([frame[5], frame[6]]) as usize;
-        let mut pos = 7;
         let mut keys = Vec::with_capacity(count);
         for _ in 0..count {
             if pos + 2 > frame.len() {
@@ -347,12 +526,13 @@ pub mod protocol {
         }
     }
 
-    fn decode_put(frame: &[u8]) -> Result<Request<'_>, u8> {
-        if frame.len() < 10 {
+    fn decode_put_payload(payload: &[u8]) -> Result<Request<'_>, u8> {
+        // payload: key_len:u16, val_len:u32, key, value
+        if payload.len() < 6 {
             return Err(STATUS_MALFORMED);
         }
-        let key_len = u16::from_le_bytes([frame[4], frame[5]]) as usize;
-        let val_len = u32::from_le_bytes([frame[6], frame[7], frame[8], frame[9]]) as usize;
+        let key_len = u16::from_le_bytes([payload[0], payload[1]]) as usize;
+        let val_len = u32::from_le_bytes([payload[2], payload[3], payload[4], payload[5]]) as usize;
         if key_len == 0 {
             return Err(STATUS_MALFORMED);
         }
@@ -362,51 +542,53 @@ pub mod protocol {
         if val_len > MAX_VALUE_SIZE {
             return Err(STATUS_VALUE_TOO_LARGE);
         }
-        let expected = 10usize.saturating_add(key_len).saturating_add(val_len);
-        if frame.len() != expected {
+        let expected = 6usize.saturating_add(key_len).saturating_add(val_len);
+        if payload.len() != expected {
             return Err(STATUS_MALFORMED);
         }
-        let key_start = 10;
+        let key_start = 6;
         let key_end = key_start + key_len;
-        let key = str::from_utf8(&frame[key_start..key_end]).map_err(|_| STATUS_MALFORMED)?;
-        let value = &frame[key_end..expected];
+        let key = str::from_utf8(&payload[key_start..key_end]).map_err(|_| STATUS_MALFORMED)?;
+        let value = &payload[key_end..expected];
         Ok(Request::Put { key, value })
     }
 
-    fn decode_key_only(frame: &[u8]) -> Result<&str, u8> {
-        if frame.len() < 6 {
+    fn decode_key_only_payload(payload: &[u8]) -> Result<&str, u8> {
+        // payload: key_len:u16, key
+        if payload.len() < 2 {
             return Err(STATUS_MALFORMED);
         }
-        let key_len = u16::from_le_bytes([frame[4], frame[5]]) as usize;
+        let key_len = u16::from_le_bytes([payload[0], payload[1]]) as usize;
         if key_len == 0 {
             return Err(STATUS_MALFORMED);
         }
         if key_len > MAX_KEY_LEN {
             return Err(STATUS_KEY_TOO_LONG);
         }
-        let expected = 6usize.saturating_add(key_len);
-        if frame.len() != expected {
+        let expected = 2usize.saturating_add(key_len);
+        if payload.len() != expected {
             return Err(STATUS_MALFORMED);
         }
-        let key_start = 6;
+        let key_start = 2;
         let key_end = key_start + key_len;
-        str::from_utf8(&frame[key_start..key_end]).map_err(|_| STATUS_MALFORMED)
+        str::from_utf8(&payload[key_start..key_end]).map_err(|_| STATUS_MALFORMED)
     }
 
-    fn decode_list(frame: &[u8]) -> Result<Request<'_>, u8> {
-        if frame.len() < 8 {
+    fn decode_list_payload(payload: &[u8]) -> Result<Request<'_>, u8> {
+        // payload: prefix_len:u16, limit:u16, prefix
+        if payload.len() < 4 {
             return Err(STATUS_MALFORMED);
         }
-        let prefix_len = u16::from_le_bytes([frame[4], frame[5]]) as usize;
-        let limit = u16::from_le_bytes([frame[6], frame[7]]);
+        let prefix_len = u16::from_le_bytes([payload[0], payload[1]]) as usize;
+        let limit = u16::from_le_bytes([payload[2], payload[3]]);
         if prefix_len > MAX_KEY_LEN {
             return Err(STATUS_KEY_TOO_LONG);
         }
-        let expected = 8usize.saturating_add(prefix_len);
-        if frame.len() != expected {
+        let expected = 4usize.saturating_add(prefix_len);
+        if payload.len() != expected {
             return Err(STATUS_MALFORMED);
         }
-        let prefix = str::from_utf8(&frame[8..expected]).map_err(|_| STATUS_MALFORMED)?;
+        let prefix = str::from_utf8(&payload[4..expected]).map_err(|_| STATUS_MALFORMED)?;
         let limit = if limit == 0 { 1 } else { limit.min(MAX_LIST_LIMIT) };
         Ok(Request::List { prefix, limit })
     }
@@ -451,7 +633,7 @@ pub mod client {
         /// Get a value from statefs.
         pub fn get(&self, key: &str) -> Result<Vec<u8>, StatefsError> {
             let frame = protocol::encode_key_only_request(protocol::OP_GET, key)?;
-            let rsp = self.send_and_recv_raw(frame)?;
+            let rsp = self.send_and_recv_raw(frame, protocol::OP_GET)?;
             protocol::decode_get_response(&rsp)
         }
 
@@ -465,7 +647,7 @@ pub mod client {
         /// List keys by prefix.
         pub fn list(&self, prefix: &str, limit: u16) -> Result<Vec<String>, StatefsError> {
             let frame = protocol::encode_list_request(prefix, limit)?;
-            let rsp = self.send_and_recv_raw(frame)?;
+            let rsp = self.send_and_recv_raw(frame, protocol::OP_LIST)?;
             protocol::decode_list_response(&rsp)
         }
 
@@ -477,7 +659,7 @@ pub mod client {
         }
 
         fn send_and_recv(&self, frame: Vec<u8>, op: u8) -> Result<(), StatefsError> {
-            let rsp = self.send_and_recv_raw(frame)?;
+            let rsp = self.send_and_recv_raw(frame, op)?;
             let status = protocol::decode_status_response(op, &rsp)?;
             if status == protocol::STATUS_OK {
                 Ok(())
@@ -486,7 +668,118 @@ pub mod client {
             }
         }
 
-        fn send_and_recv_raw(&self, frame: Vec<u8>) -> Result<Vec<u8>, StatefsError> {
+        #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+        fn send_and_recv_raw(&self, frame: Vec<u8>, expected_op: u8) -> Result<Vec<u8>, StatefsError> {
+            // OS-lite bring-up: avoid indefinite blocking waits.
+            // Use explicit NONBLOCK + bounded retry with `nsec()` deadlines.
+            let (send_slot, recv_slot) = if let Some(reply) = &self.reply {
+                // Replies land on the shared reply inbox when using CAP_MOVE.
+                let (_reply_send, reply_recv) = reply.slots();
+                (self.client.slots().0, reply_recv)
+            } else {
+                self.client.slots()
+            };
+
+            let moved = if let Some(reply) = &self.reply {
+                let (reply_send_slot, _reply_recv_slot) = reply.slots();
+                nexus_abi::cap_clone(reply_send_slot).map_err(|_| StatefsError::IoError)?
+            } else {
+                0
+            };
+            let flags = if moved != 0 { nexus_abi::ipc_hdr::CAP_MOVE } else { 0 };
+            // Nonce correlation for shared reply inboxes (RFC-0019):
+            // upgrade requests to SF v2 (explicit nonce field) and require it in the reply.
+            static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+            let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            let mut frame = frame;
+            // Upgrade v1 request frame to v2 by inserting nonce after the 4-byte header.
+            if frame.len() < 4
+                || frame[0] != protocol::MAGIC0
+                || frame[1] != protocol::MAGIC1
+                || frame[2] != protocol::VERSION
+            {
+                return Err(StatefsError::IoError);
+            }
+            let mut v2 = Vec::with_capacity(frame.len() + 8);
+            v2.extend_from_slice(&frame[..4]);
+            v2[2] = protocol::VERSION_V2;
+            v2.extend_from_slice(&nonce.to_le_bytes());
+            v2.extend_from_slice(&frame[4..]);
+            frame = v2;
+            let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, flags, frame.len() as u32);
+
+            let start = nexus_abi::nsec().map_err(|_| StatefsError::IoError)?;
+            let deadline = start.saturating_add(2_000_000_000); // 2s per op (bounded)
+
+            // Send bounded.
+            let mut i: usize = 0;
+            loop {
+                match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0)
+                {
+                    Ok(_) => break,
+                    Err(nexus_abi::IpcError::QueueFull) => {
+                        if (i & 0x7f) == 0 {
+                            let now = nexus_abi::nsec().map_err(|_| StatefsError::IoError)?;
+                            if now >= deadline {
+                                return Err(StatefsError::IoError);
+                            }
+                        }
+                        let _ = nexus_abi::yield_();
+                    }
+                    Err(_) => return Err(StatefsError::IoError),
+                }
+                i = i.wrapping_add(1);
+            }
+
+            // Recv bounded.
+            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 4096];
+            let mut j: usize = 0;
+            loop {
+                if (j & 0x7f) == 0 {
+                    let now = nexus_abi::nsec().map_err(|_| StatefsError::IoError)?;
+                    if now >= deadline {
+                        return Err(StatefsError::IoError);
+                    }
+                }
+                match nexus_abi::ipc_recv_v1(
+                    recv_slot,
+                    &mut rh,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                    0,
+                ) {
+                    Ok(n) => {
+                        let n = core::cmp::min(n as usize, buf.len());
+                        // Shared reply inbox: ignore unrelated replies deterministically.
+                        if n < 13
+                            || buf[0] != protocol::MAGIC0
+                            || buf[1] != protocol::MAGIC1
+                            || buf[2] != protocol::VERSION_V2
+                            || buf[3] != (expected_op | 0x80)
+                        {
+                            continue;
+                        }
+                        // Nonce must match.
+                        let nn = &buf[5..13];
+                        let mut want = [0u8; 8];
+                        want.copy_from_slice(&nonce.to_le_bytes());
+                        if nn != want {
+                            continue;
+                        }
+                        return Ok(buf[..n].to_vec());
+                    }
+                    Err(nexus_abi::IpcError::QueueEmpty) => {
+                        let _ = nexus_abi::yield_();
+                    }
+                    Err(_) => return Err(StatefsError::IoError),
+                }
+                j = j.wrapping_add(1);
+            }
+        }
+
+        #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+        fn send_and_recv_raw(&self, frame: Vec<u8>, _expected_op: u8) -> Result<Vec<u8>, StatefsError> {
             if let Some(reply) = &self.reply {
                 let (reply_send_slot, _reply_recv_slot) = reply.slots();
                 let reply_send_clone =
@@ -536,6 +829,19 @@ struct JournalRecord {
     value: Vec<u8>,
 }
 
+/// Compute CRC32-C (Castagnoli) over data.
+fn crc32c(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &byte in data {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0x82F63B78 & mask);
+        }
+    }
+    !crc
+}
+
 /// Serialize a journal record to bytes (including CRC32).
 fn serialize_record(op: JournalOpCode, key: &str, value: &[u8]) -> Vec<u8> {
     let key_bytes = key.as_bytes();
@@ -569,7 +875,7 @@ fn serialize_record(op: JournalOpCode, key: &str, value: &[u8]) -> Vec<u8> {
     buf[value_start..value_end].copy_from_slice(value);
 
     // CRC32 over [magic..value] (everything except the CRC itself)
-    let crc = crc32fast::hash(&buf[..value_end]);
+    let crc = crc32c(&buf[..value_end]);
     buf[value_end..value_end + 4].copy_from_slice(&crc.to_le_bytes());
 
     buf
@@ -631,7 +937,7 @@ fn parse_record(data: &[u8]) -> Result<Option<(JournalRecord, usize)>, StatefsEr
         data[crc_start + 2],
         data[crc_start + 3],
     ]);
-    let computed_crc = crc32fast::hash(&data[..value_end]);
+    let computed_crc = crc32c(&data[..value_end]);
     if stored_crc != computed_crc {
         return Err(StatefsError::Corrupted);
     }
@@ -708,6 +1014,16 @@ impl<B: BlockDevice> JournalEngine<B> {
                 if remaining < RECORD_HEADER_SIZE {
                     break;
                 }
+                // If we have magic but not enough bytes for a full record yet, wait for more data.
+                if buf[pos..pos + 4] == JOURNAL_MAGIC.to_le_bytes() {
+                    let key_len = u16::from_le_bytes([buf[pos + 5], buf[pos + 6]]) as usize;
+                    let value_len =
+                        u32::from_le_bytes([buf[pos + 7], buf[pos + 8], buf[pos + 9], buf[pos + 10]]) as usize;
+                    let total_len = RECORD_HEADER_SIZE + key_len + value_len;
+                    if remaining < total_len {
+                        break;
+                    }
+                }
                 match parse_record(&buf[pos..buf_len]) {
                     Ok(Some((record, consumed))) => {
                         match record.op {
@@ -724,7 +1040,7 @@ impl<B: BlockDevice> JournalEngine<B> {
                         self.record_count += 1;
                     }
                     Ok(None) => {
-                        // End of valid journal (magic mismatch).
+                        // End of valid journal (magic mismatch or truncated tail).
                         done = true;
                         break;
                     }
@@ -914,6 +1230,25 @@ mod tests {
     fn create_engine(block_size: usize, block_count: u64) -> JournalEngine<MemBlockDevice> {
         let device = MemBlockDevice::new(block_size, block_count);
         JournalEngine::open(device).expect("failed to open engine")
+    }
+
+    fn write_bytes_to_device(device: &mut MemBlockDevice, bytes: &[u8]) {
+        let block_size = device.block_size();
+        let blocks = device.raw_storage_mut();
+        let capacity = block_size * blocks.len();
+        assert!(
+            bytes.len() <= capacity,
+            "fixture bytes exceed device capacity"
+        );
+        for (idx, block) in blocks.iter_mut().enumerate() {
+            block.fill(0);
+            let start = idx * block_size;
+            if start >= bytes.len() {
+                continue;
+            }
+            let end = core::cmp::min(start + block_size, bytes.len());
+            block[..end - start].copy_from_slice(&bytes[start..end]);
+        }
     }
 
     #[test]
@@ -1209,6 +1544,46 @@ mod tests {
         let got = engine2.get("/state/test/large").unwrap();
         assert_eq!(got.len(), 400, "cross-block record should persist");
         assert!(got.iter().all(|&b| b == 0x55));
+    }
+
+    #[test]
+    fn test_truncated_tail_stops_replay() {
+        let mut device = MemBlockDevice::new(64, 4);
+        let record_a = serialize_record(JournalOpCode::Put, "/state/test/a", b"one");
+        let record_b = serialize_record(JournalOpCode::Put, "/state/test/b", b"two");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&record_a);
+        bytes.extend_from_slice(&record_b);
+
+        // Append a truncated record header that claims more data than remains.
+        bytes.extend_from_slice(&JOURNAL_MAGIC.to_le_bytes());
+        bytes.push(JournalOpCode::Put as u8);
+        bytes.extend_from_slice(&5u16.to_le_bytes());
+        bytes.extend_from_slice(&1000u32.to_le_bytes());
+        // Partial key bytes (not enough to complete record).
+        bytes.extend_from_slice(b"/stat");
+
+        write_bytes_to_device(&mut device, &bytes);
+        let engine = JournalEngine::open(device).unwrap();
+        assert_eq!(engine.get("/state/test/a").unwrap(), b"one");
+        assert_eq!(engine.get("/state/test/b").unwrap(), b"two");
+    }
+
+    #[test]
+    fn test_partial_record_boundary_replay() {
+        let mut device = MemBlockDevice::new(512, 6);
+        let large_value = vec![0x11u8; 1300];
+        let record_large =
+            serialize_record(JournalOpCode::Put, "/state/test/large", &large_value);
+        let record_tail = serialize_record(JournalOpCode::Put, "/state/test/tail", b"ok");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&record_large);
+        bytes.extend_from_slice(&record_tail);
+
+        write_bytes_to_device(&mut device, &bytes);
+        let engine = JournalEngine::open(device).unwrap();
+        assert_eq!(engine.get("/state/test/large").unwrap(), large_value);
+        assert_eq!(engine.get("/state/test/tail").unwrap(), b"ok");
     }
 
     #[test]

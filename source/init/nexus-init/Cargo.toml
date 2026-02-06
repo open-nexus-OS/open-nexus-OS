@@ -57,7 +57,10 @@ os-lite = [
     "nexus-ipc",
     "nexus-ipc/os-lite",
 ]
-os-payload = []
+os-payload = [
+    "nexus-ipc",
+    "nexus-ipc/os-lite",
+]
 
 [dependencies]
 # Services: use default-features = false so we can select std vs os-lite

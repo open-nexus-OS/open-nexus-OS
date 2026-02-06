@@ -58,7 +58,7 @@ fn net_status() {
     assert_eq!(info.device_id, VIRTIO_DEVICE_ID_NET);
 
     dev.reset();
-    dev.negotiate_features(0).expect("negotiate features should succeed");
+    let _accepted = dev.negotiate_features(0).expect("negotiate features should succeed");
     dev.setup_queue(
         0,
         &QueueSetup { size: 8, desc_paddr: 0x1000, avail_paddr: 0x2000, used_paddr: 0x3000 },

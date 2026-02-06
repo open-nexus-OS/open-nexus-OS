@@ -22,6 +22,12 @@ extern crate alloc;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
+// Storage bounds (kept smaller than the wire protocol maxima to control heap footprint in
+// os-lite builds). These must be large enough to satisfy selftests (crash report + probes).
+pub const STORE_MAX_SCOPE_LEN: usize = 32;
+pub const STORE_MAX_MSG_LEN: usize = 128;
+pub const STORE_MAX_FIELDS_LEN: usize = 128;
+
 /// Monotonic record id (per-journal).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -42,6 +48,37 @@ pub enum LogLevel {
     Trace,
 }
 
+/// Fixed-size byte storage to avoid per-record heap allocations (bump allocator friendly).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InlineBytes<const N: usize> {
+    len: u16,
+    buf: [u8; N],
+}
+
+impl<const N: usize> InlineBytes<N> {
+    pub fn new(src: &[u8]) -> Self {
+        let mut buf = [0u8; N];
+        let n = core::cmp::min(src.len(), N);
+        buf[..n].copy_from_slice(&src[..n]);
+        Self { len: n as u16, buf }
+    }
+
+    #[inline]
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf[..(self.len as usize)]
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
 /// Stored log record (owned bytes, bounded by upstream validation).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogRecord {
@@ -49,9 +86,9 @@ pub struct LogRecord {
     pub timestamp_nsec: TimestampNsec,
     pub level: LogLevel,
     pub service_id: u64,
-    pub scope: Vec<u8>,
-    pub message: Vec<u8>,
-    pub fields: Vec<u8>,
+    pub scope: InlineBytes<STORE_MAX_SCOPE_LEN>,
+    pub message: InlineBytes<STORE_MAX_MSG_LEN>,
+    pub fields: InlineBytes<STORE_MAX_FIELDS_LEN>,
     pub(crate) size_bytes: u32,
 }
 
@@ -86,6 +123,8 @@ pub struct Journal {
     cap_records: u32,
     cap_bytes: u32,
     alloc_cap_bytes: u32,
+    // Lifetime allocated bytes budget (for bump allocators). NOTE: dropping records does not
+    // reclaim heap in bump allocators, so this is intentionally monotonic.
     total_allocated_bytes: u32,
     next_id: u64,
     total_records: u64,
@@ -102,8 +141,9 @@ impl Journal {
 
     /// Creates a journal with an explicit allocation cap (for bump allocators).
     pub fn new_with_alloc_cap(cap_records: u32, cap_bytes: u32, alloc_cap_bytes: u32) -> Self {
+        let cap_records = cap_records.max(1);
         Self {
-            cap_records: cap_records.max(1),
+            cap_records,
             cap_bytes: cap_bytes.max(1),
             alloc_cap_bytes: alloc_cap_bytes.max(1),
             total_allocated_bytes: 0,
@@ -111,7 +151,8 @@ impl Journal {
             total_records: 0,
             dropped_records: 0,
             used_bytes: 0,
-            records: VecDeque::new(),
+            // Pre-allocate to avoid growth patterns that leak heap under bump allocators.
+            records: VecDeque::with_capacity(cap_records as usize),
         }
     }
 
@@ -127,10 +168,15 @@ impl Journal {
         message: &[u8],
         fields: &[u8],
     ) -> Result<AppendOutcome, JournalError> {
-        let size = record_size(scope.len(), message.len(), fields.len())?;
+        let scope_len = core::cmp::min(scope.len(), STORE_MAX_SCOPE_LEN);
+        let msg_len = core::cmp::min(message.len(), STORE_MAX_MSG_LEN);
+        let fields_len = core::cmp::min(fields.len(), STORE_MAX_FIELDS_LEN);
+        let size = record_size(scope_len, msg_len, fields_len)?;
         if size > self.cap_bytes {
             return Err(JournalError::TooLarge);
         }
+        // Allocation cap is a lifetime budget (bump allocator friendly): if this is exceeded,
+        // the journal rejects new records rather than exhausting the process heap.
         if self.total_allocated_bytes.saturating_add(size) > self.alloc_cap_bytes {
             return Err(JournalError::TooLarge);
         }
@@ -153,6 +199,12 @@ impl Journal {
         {
             return Err(JournalError::TooLarge);
         }
+        // Allocation cap is a secondary guardrail (primarily for constrained allocators).
+        // Enforce it on *current* usage, not lifetime allocated bytes, so drop-oldest rotation
+        // doesn't permanently disable logging under steady-state workloads.
+        if self.used_bytes.saturating_add(size) > self.alloc_cap_bytes {
+            return Err(JournalError::TooLarge);
+        }
 
         let record_id = RecordId(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
@@ -163,9 +215,9 @@ impl Journal {
             timestamp_nsec,
             level,
             service_id,
-            scope: scope.to_vec(),
-            message: message.to_vec(),
-            fields: fields.to_vec(),
+            scope: InlineBytes::new(&scope[..scope_len]),
+            message: InlineBytes::new(&message[..msg_len]),
+            fields: InlineBytes::new(&fields[..fields_len]),
             size_bytes: size,
         };
         self.records.push_back(rec);
@@ -194,6 +246,13 @@ impl Journal {
             }
         }
         out
+    }
+
+    /// Iterates records with timestamp >= `since_nsec`, in insertion order.
+    ///
+    /// This is allocation-free and is preferred for OS-lite query encoding under bump allocators.
+    pub fn iter_since(&self, since_nsec: TimestampNsec) -> impl Iterator<Item = &LogRecord> {
+        self.records.iter().filter(move |rec| rec.timestamp_nsec.0 >= since_nsec.0)
     }
 
     /// Returns current journal stats.

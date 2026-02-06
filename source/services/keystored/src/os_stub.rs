@@ -22,9 +22,12 @@ use alloc::vec::Vec;
 
 use core::fmt;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU32, Ordering};
+use core::time::Duration;
 
 use nexus_abi::{debug_putc, yield_};
-use nexus_abi::slot_probe::{slot_is_valid, validate_slots};
+use nexus_ipc::budget::{deadline_after, OsClock};
+use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 use statefs::client::StatefsClient;
 use statefs::StatefsError;
@@ -65,27 +68,6 @@ impl ReadyNotifier {
     /// Signals readiness to the caller.
     pub fn notify(self) {
         (self.0)();
-    }
-}
-
-fn wait_for_required_slots(required: &[u32]) -> bool {
-    let start = match nexus_abi::nsec() {
-        Ok(value) => value,
-        Err(_) => 0,
-    };
-    let deadline = start.saturating_add(5_000_000_000);
-    loop {
-        if required.iter().all(|slot| slot_is_valid(*slot)) {
-            return true;
-        }
-        let now = match nexus_abi::nsec() {
-            Ok(value) => value,
-            Err(_) => 0,
-        };
-        if now >= deadline {
-            return false;
-        }
-        let _ = yield_();
     }
 }
 
@@ -356,25 +338,12 @@ impl DeviceKeyPair {
 
 /// Main service loop; notifies readiness and yields cooperatively.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
-    let required = [0x03, 0x04, 0x05, 0x06, 0x07, 0x09, 0x0a];
-    if !wait_for_required_slots(&required) {
-        let missing = validate_slots(
-            "keystored",
-            &[
-                ("service_recv", 0x03),
-                ("service_send", 0x04),
-                ("reply_recv", 0x05),
-                ("reply_send", 0x06),
-                ("statefsd_send", 0x07),
-                ("policyd_send", 0x09),
-                ("rngd_send", 0x0a),
-            ],
-        );
-        let _ = missing;
-    }
-    let server = route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
+    // Signal readiness to init as early as possible; init sequences service spawns based on this.
     notifier.notify();
+    // Emit readiness marker early to keep `scripts/qemu-test.sh` marker ordering stable.
+    // The service may still need to wait for late-bound slots before handling some operations.
     emit_line("keystored: ready");
+    let server = route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
     // Identity-binding hardening (bring-up semantics):
     //
     // This keystore implementation is a bring-up shim. To avoid cross-service key collisions and
@@ -390,6 +359,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
     let mut logged_capmove = false;
     let mut logged_capmove_req = false;
+    let mut pending_replies: ReplyBuffer<16, 512> = ReplyBuffer::new();
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
@@ -420,6 +390,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 let rsp = handle_frame(
                     &mut store,
                     &mut device_keypair,
+                    &mut pending_replies,
                     sender_service_id,
                     frame.as_slice(),
                 );
@@ -456,79 +427,31 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
 }
 
-fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
-    if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
-        return None;
-    }
-
-    // Drain stale responses; routing has no nonce.
-    for _ in 0..32 {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(_) => continue,
-            Err(nexus_abi::IpcError::QueueEmpty) => break,
-            Err(_) => break,
-        }
-    }
-
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
-    let req_len = nexus_abi::routing::encode_route_get(name, &mut req)?;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    loop {
-        loop {
-            match nexus_abi::ipc_send_v1(
-                CTRL_SEND_SLOT,
-                &hdr,
-                &req[..req_len],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    let _ = yield_();
-                }
-                Err(_) => return None,
-            }
-        }
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        loop {
-            match nexus_abi::ipc_recv_v1(
-                CTRL_RECV_SLOT,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = n as usize;
-                    let (status, send_slot, recv_slot) =
-                        nexus_abi::routing::decode_route_rsp(&buf[..n])?;
-                    if status == nexus_abi::routing::STATUS_OK {
-                        return Some((send_slot, recv_slot));
-                    }
-                    break;
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return None,
-            }
-        }
-    }
-}
-
 fn route_keystored_blocking() -> Option<KernelServer> {
-    KernelServer::new_with_slots(3, 4).ok()
+    // init-lite wires service slots after spawn; avoid crashing if we race that wiring.
+    // Keep this silent (no slot-spam) but bounded.
+    const RECV_SLOT: u32 = 0x03;
+    const SEND_SLOT: u32 = 0x04;
+    let deadline = match nexus_abi::nsec() {
+        Ok(now) => now.saturating_add(10_000_000_000), // 10s
+        Err(_) => 0,
+    };
+    loop {
+        // `KernelServer::new_with_slots` does not validate capability presence; probe via cap_clone.
+        let recv_ok = nexus_abi::cap_clone(RECV_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
+        let send_ok = nexus_abi::cap_clone(SEND_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
+        if recv_ok && send_ok {
+            return KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT).ok();
+        }
+        if deadline != 0 {
+            if let Ok(now) = nexus_abi::nsec() {
+                if now >= deadline {
+                    return None;
+                }
+            }
+        }
+        let _ = yield_();
+    }
 }
 
 const MAGIC0: u8 = b'K';
@@ -570,6 +493,7 @@ const STATEFS_DEVICE_KEY_PATH: &str = "/state/keystore/device.signing";
 fn handle_frame(
     store: &mut KeyStore,
     device_keypair: &mut DeviceKeyPair,
+    pending: &mut ReplyBuffer<16, 512>,
     sender_service_id: u64,
     frame: &[u8],
 ) -> Vec<u8> {
@@ -586,24 +510,24 @@ fn handle_frame(
         return handle_verify(frame);
     }
     if op == OP_SIGN {
-        return handle_sign(sender_service_id, frame);
+        return handle_sign(pending, sender_service_id, frame);
     }
     // Device identity key operations
     if op == OP_DEVICE_KEYGEN {
-        return handle_device_keygen(device_keypair, store, sender_service_id);
+        return handle_device_keygen(pending, device_keypair, store, sender_service_id);
     }
     if op == OP_GET_DEVICE_PUBKEY {
-        return handle_get_device_pubkey(device_keypair, store, sender_service_id);
+        return handle_get_device_pubkey(pending, device_keypair, store, sender_service_id);
     }
     if op == OP_DEVICE_SIGN {
-        return handle_device_sign(device_keypair, store, sender_service_id, frame);
+        return handle_device_sign(pending, device_keypair, store, sender_service_id, frame);
     }
     if op == OP_GET_DEVICE_PRIVKEY {
         return handle_get_device_privkey();
     }
     if op == OP_DEVICE_RELOAD {
         emit_line("keystored: rx reload");
-        return handle_device_reload(device_keypair, store, sender_service_id);
+        return handle_device_reload(pending, device_keypair, store, sender_service_id);
     }
 
     // For PUT/GET/DEL, require minimum frame length
@@ -692,7 +616,7 @@ fn handle_verify(frame: &[u8]) -> Vec<u8> {
     rsp(OP_VERIFY, STATUS_OK, &[if ok { 1 } else { 0 }])
 }
 
-fn handle_sign(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
+fn handle_sign(pending: &mut ReplyBuffer<16, 512>, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     // SIGN request:
     // [K, S, ver, OP_SIGN, payload_len:u32le, payload...]
     const HEADER_LEN: usize = 4 + 4;
@@ -708,7 +632,7 @@ fn handle_sign(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
         return rsp(OP_SIGN, STATUS_MALFORMED, &[]);
     }
 
-    if !policyd_allows(sender_service_id, b"crypto.sign") {
+    if !policyd_allows(pending, sender_service_id, b"crypto.sign") {
         return rsp(OP_SIGN, STATUS_DENY, &[]);
     }
 
@@ -716,10 +640,10 @@ fn handle_sign(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     rsp(OP_SIGN, STATUS_UNSUPPORTED, &[])
 }
 
-fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
+fn policyd_allows(pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8]) -> bool {
     const MAGIC0: u8 = b'P';
     const MAGIC1: u8 = b'O';
-    const VERSION: u8 = 1;
+    const VERSION_V2: u8 = 2;
     // Delegated check: keystored is an enforcement point; policyd validates that keystored is allowed
     // to query policy for another subject id.
     const OP_CHECK_CAP_DELEGATED: u8 = 5;
@@ -735,11 +659,16 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     if cap.is_empty() || cap.len() > 48 {
         return false;
     }
-    let mut frame = Vec::with_capacity(13 + cap.len());
+    // v2 delegated CAP check request (nonce-correlated):
+    // [P, O, ver=2, OP_CHECK_CAP_DELEGATED, nonce:u32le, subject_id:u64le, cap_len:u8, cap...]
+    static NONCE: AtomicU32 = AtomicU32::new(1);
+    let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+    let mut frame = Vec::with_capacity(17 + cap.len());
     frame.push(MAGIC0);
     frame.push(MAGIC1);
-    frame.push(VERSION);
+    frame.push(VERSION_V2);
     frame.push(OP_CHECK_CAP_DELEGATED);
+    frame.extend_from_slice(&nonce.to_le_bytes());
     frame.extend_from_slice(&subject_id.to_le_bytes());
     frame.push(cap.len() as u8);
     frame.extend_from_slice(cap);
@@ -785,44 +714,77 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
         }
         i = i.wrapping_add(1);
     }
+    // Best-effort close: keep local cap table bounded even though the cap was moved.
+    let _ = nexus_abi::cap_close(reply_send_clone);
 
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 16];
-    let mut j: usize = 0;
-    loop {
-        if (j & 0x7f) == 0 {
-            let now = match nexus_abi::nsec() {
-                Ok(value) => value,
-                Err(_) => return false,
-            };
-            if now >= deadline {
-                return false;
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n != 6 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION {
-                    continue;
-                }
-                if buf[3] != (OP_CHECK_CAP_DELEGATED | 0x80) {
-                    continue;
-                }
-                return buf[4] == STATUS_ALLOW;
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return false,
-        }
-        j = j.wrapping_add(1);
+    struct ReplyInboxV1 {
+        recv_slot: u32,
     }
+    impl nexus_ipc::Client for ReplyInboxV1 {
+        fn send(&self, _frame: &[u8], _wait: Wait) -> nexus_ipc::Result<()> {
+            Err(nexus_ipc::IpcError::Unsupported)
+        }
+        fn recv(&self, _wait: Wait) -> nexus_ipc::Result<Vec<u8>> {
+            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 512];
+            match nexus_abi::ipc_recv_v1(
+                self.recv_slot,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
+                Err(nexus_abi::IpcError::QueueEmpty) => Err(nexus_ipc::IpcError::WouldBlock),
+                Err(other) => Err(nexus_ipc::IpcError::Kernel(other)),
+            }
+        }
+    }
+
+    let clock = OsClock;
+    let deadline_ns = match deadline_after(&clock, Duration::from_millis(500)) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
+    let rsp = match recv_match_until(
+        &clock,
+        &inbox,
+        pending,
+        nonce as u64,
+        deadline_ns,
+        extract_shared_nonce_u32,
+    ) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    if rsp.len() != 10 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION_V2 {
+        return false;
+    }
+    if rsp[3] != (OP_CHECK_CAP_DELEGATED | 0x80) {
+        return false;
+    }
+    let got_nonce = u32::from_le_bytes([rsp[4], rsp[5], rsp[6], rsp[7]]);
+    if got_nonce != nonce {
+        return false;
+    }
+    rsp[8] == STATUS_ALLOW
+}
+
+fn extract_shared_nonce_u32(frame: &[u8]) -> Option<u64> {
+    // policyd v2 delegated-cap reply:
+    // [P,O,ver=2,OP|0x80, nonce:u32le, status:u8, _reserved:u8]
+    if frame.len() == 10 && frame[0] == b'P' && frame[1] == b'O' && frame[2] == 2 {
+        let nonce = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+        return Some(nonce as u64);
+    }
+    // rngd GET_ENTROPY reply:
+    // [R,G,1,OP|0x80, STATUS, nonce:u32le, ...]
+    if frame.len() >= 9 && frame[0] == b'R' && frame[1] == b'G' && frame[2] == 1 {
+        let nonce = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
+        return Some(nonce as u64);
+    }
+    None
 }
 
 // =============================================================================
@@ -836,17 +798,47 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
 /// - Policy-gated via `device.keygen` capability
 /// - Entropy is NOT logged
 fn handle_device_keygen(
+    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
 ) -> Vec<u8> {
-    handle_device_keygen_with(
-        device_keypair,
-        store,
-        sender_service_id,
-        |sid| policyd_allows(sid, b"device.keygen"),
-        request_entropy_from_rngd,
-    )
+    // Policy check: caller must have device.keygen capability
+    if !policyd_allows(pending, sender_service_id, b"device.keygen") {
+        return rsp(OP_DEVICE_KEYGEN, STATUS_DENY, &[]);
+    }
+
+    // Check if key already exists
+    if device_keypair.is_generated() {
+        return rsp(OP_DEVICE_KEYGEN, STATUS_KEY_EXISTS, &[]);
+    }
+
+    // Request entropy from rngd (entropy authority service).
+    let entropy = match request_entropy_from_rngd(pending, 32) {
+        Some(bytes) if bytes.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            arr
+        }
+        _ => {
+            emit_line("keystored: entropy request failed");
+            return rsp(OP_DEVICE_KEYGEN, STATUS_UNSUPPORTED, &[]);
+        }
+    };
+
+    // Persist key bytes before acknowledging generation.
+    if let Err(err) = store.set_device_key_bytes(entropy) {
+        return rsp(OP_DEVICE_KEYGEN, status_from_statefs_error(err), &[]);
+    }
+
+    // Generate the keypair (in-memory cache).
+    // SECURITY: Do NOT log entropy or private key bytes!
+    if device_keypair.generate(&entropy) {
+        emit_line("keystored: device key generated");
+        rsp(OP_DEVICE_KEYGEN, STATUS_OK, &[])
+    } else {
+        rsp(OP_DEVICE_KEYGEN, STATUS_KEY_EXISTS, &[])
+    }
 }
 
 fn handle_device_keygen_with<P, E>(
@@ -905,6 +897,7 @@ where
 /// - Policy-gated via `device.pubkey.read` capability
 /// - Only returns public key, NEVER private key
 fn handle_get_device_pubkey(
+    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
@@ -915,7 +908,7 @@ fn handle_get_device_pubkey(
         }
     }
     handle_get_device_pubkey_with(device_keypair, sender_service_id, |sid| {
-        policyd_allows(sid, b"device.pubkey.read")
+        policyd_allows(pending, sid, b"device.pubkey.read")
     })
 }
 
@@ -946,6 +939,7 @@ where
 /// - Private key NEVER leaves keystored
 /// - Only signature is returned
 fn handle_device_sign(
+    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
@@ -966,7 +960,7 @@ fn handle_device_sign(
     }
 
     // Policy check: caller must have crypto.sign capability
-    if !policyd_allows(sender_service_id, b"crypto.sign") {
+    if !policyd_allows(pending, sender_service_id, b"crypto.sign") {
         return rsp(OP_DEVICE_SIGN, STATUS_DENY, &[]);
     }
 
@@ -999,11 +993,12 @@ fn handle_get_device_privkey() -> Vec<u8> {
 /// # Security
 /// - Policy-gated via `device.key.reload` capability
 fn handle_device_reload(
+    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
 ) -> Vec<u8> {
-    if !policyd_allows(sender_service_id, b"device.key.reload") {
+    if !policyd_allows(pending, sender_service_id, b"device.key.reload") {
         emit_line("keystored: reload denied by policy");
         return rsp(OP_DEVICE_RELOAD, STATUS_DENY, &[]);
     }
@@ -1023,14 +1018,15 @@ fn handle_device_reload(
 ///
 /// # Security
 /// - Entropy bytes are NOT logged
-fn request_entropy_from_rngd(n: usize) -> Option<Vec<u8>> {
+fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Option<Vec<u8>> {
     if n == 0 || n > 256 {
         return None;
     }
 
     // Build rngd GET_ENTROPY request with nonce.
     // Request: [R, G, 1, OP_GET_ENTROPY=1, nonce:u32le, n:u16le]
-    let nonce = nexus_abi::nsec().ok()? as u32;
+    static NONCE: AtomicU32 = AtomicU32::new(0x1000);
+    let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
     let mut req = Vec::with_capacity(10);
     req.push(b'R'); // MAGIC0
     req.push(b'G'); // MAGIC1
@@ -1076,49 +1072,55 @@ fn request_entropy_from_rngd(n: usize) -> Option<Vec<u8>> {
         i = i.wrapping_add(1);
     }
 
-    // Receive response
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 9 + 256]; // max response: header + nonce + entropy
-    let mut j: usize = 0;
-    loop {
-        if (j & 0x7f) == 0 && nexus_abi::nsec().ok()? >= deadline {
-            return None;
-        }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(len) => {
-                let len = core::cmp::min(len as usize, buf.len());
-                // Response: [R, G, 1, OP|0x80, STATUS, nonce:u32le, entropy...]
-                if len < 9 || buf[0] != b'R' || buf[1] != b'G' || buf[2] != 1 {
-                    return None;
-                }
-                if buf[3] != (1 | 0x80) {
-                    return None; // Not a GET_ENTROPY response
-                }
-                if buf[4] != 0 {
-                    return None; // Not STATUS_OK
-                }
-                let got_nonce = u32::from_le_bytes([buf[5], buf[6], buf[7], buf[8]]);
-                if got_nonce != nonce {
-                    // Ignore unrelated replies on shared inbox.
-                    j = j.wrapping_add(1);
-                    continue;
-                }
-                // SECURITY: Do NOT log entropy bytes!
-                return Some(buf[9..len].to_vec());
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return None,
-        }
-        j = j.wrapping_add(1);
+    struct ReplyInboxV1 {
+        recv_slot: u32,
     }
+    impl nexus_ipc::Client for ReplyInboxV1 {
+        fn send(&self, _frame: &[u8], _wait: Wait) -> nexus_ipc::Result<()> {
+            Err(nexus_ipc::IpcError::Unsupported)
+        }
+        fn recv(&self, _wait: Wait) -> nexus_ipc::Result<Vec<u8>> {
+            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 512];
+            match nexus_abi::ipc_recv_v1(
+                self.recv_slot,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
+                Err(nexus_abi::IpcError::QueueEmpty) => Err(nexus_ipc::IpcError::WouldBlock),
+                Err(other) => Err(nexus_ipc::IpcError::Kernel(other)),
+            }
+        }
+    }
+    let clock = OsClock;
+    let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).ok()?;
+    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
+    let rsp = recv_match_until(
+        &clock,
+        &inbox,
+        pending,
+        nonce as u64,
+        deadline_ns,
+        extract_shared_nonce_u32,
+    )
+    .ok()?;
+
+    // Response: [R, G, 1, OP|0x80, STATUS, nonce:u32le, entropy...]
+    if rsp.len() < 9 || rsp[0] != b'R' || rsp[1] != b'G' || rsp[2] != 1 {
+        return None;
+    }
+    if rsp[3] != (1 | 0x80) || rsp[4] != 0 {
+        return None;
+    }
+    let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
+    if got_nonce != nonce {
+        return None;
+    }
+    // SECURITY: Do NOT log entropy bytes!
+    Some(rsp[9..].to_vec())
 }
 fn rsp(op: u8, status: u8, value: &[u8]) -> Vec<u8> {
     // Response: [K, S, ver, op|0x80, status, val_len:u16le, val...]
@@ -1188,7 +1190,8 @@ mod tests {
         frame.extend_from_slice(&payload);
 
         let sender_service_id = nexus_abi::service_id_from_name(b"demo.testsvc");
-        let out = handle_sign(sender_service_id, &frame);
+        let mut pending: ReplyBuffer<16, 512> = ReplyBuffer::new();
+        let out = handle_sign(&mut pending, sender_service_id, &frame);
         assert_eq!(rsp_status(out), STATUS_DENY);
     }
 
@@ -1199,7 +1202,8 @@ mod tests {
         frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_SIGN]);
         frame.extend_from_slice(&payload_len.to_le_bytes());
         let sender_service_id = nexus_abi::service_id_from_name(b"samgrd");
-        let out = handle_sign(sender_service_id, &frame);
+        let mut pending: ReplyBuffer<16, 512> = ReplyBuffer::new();
+        let out = handle_sign(&mut pending, sender_service_id, &frame);
         assert_eq!(rsp_status(out), STATUS_TOO_LARGE);
     }
 

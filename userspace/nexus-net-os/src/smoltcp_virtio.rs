@@ -37,6 +37,12 @@ use smoltcp::wire::{
 
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
+// virtio-net optional feature bits (device-specific).
+const VIRTIO_NET_F_MAC: u64 = 1 << 5;
+const VIRTIO_NET_F_MRG_RXBUF: u64 = 1 << 15;
+// virtio 1.0 transport feature.
+const VIRTIO_F_VERSION_1: u64 = 1u64 << 32;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct VqDesc {
@@ -51,6 +57,10 @@ struct VqAvail<const N: usize> {
     flags: u16,
     idx: u16,
     ring: [u16; N],
+    // Present in the virtqueue layout when VIRTIO_F_EVENT_IDX is negotiated.
+    // Keeping it in the struct unconditionally matches the layout used by our virtio-blk bring-up
+    // driver and avoids transport/backend quirks during QEMU bring-up.
+    used_event: u16,
 }
 
 #[repr(C)]
@@ -65,6 +75,8 @@ struct VqUsed<const N: usize> {
     flags: u16,
     idx: u16,
     ring: [VqUsedElem; N],
+    // Present in the virtqueue layout when VIRTIO_F_EVENT_IDX is negotiated.
+    avail_event: u16,
 }
 
 struct MmioBus {
@@ -112,6 +124,8 @@ const ACTIVE_BUFS: usize = 4;
 struct Inner {
     // Virtio device (MMIO)
     dev: VirtioNetMmio<MmioBus>,
+    // Negotiated virtio-net RX/TX header length (10 vs 12).
+    vnet_hdr_len: usize,
 
     // MAC address (read from virtio config space).
     mac: [u8; 6],
@@ -173,11 +187,17 @@ impl SmoltcpVirtioNetStack {
         let dev = VirtioNetMmio::new(MmioBus { base: dev_va });
         dev.probe().map_err(|_| NetError::Internal("virtio probe failed"))?;
 
-        // Negotiate a minimal feature set: accept MAC in config space.
-        const VIRTIO_NET_F_MAC: u64 = 1 << 5;
+        // Negotiate features:
+        // - MAC in config space (virtio-net)
+        // - MRG_RXBUF (12-byte virtio_net_hdr_mrg_rxbuf) for RX correctness under QEMU usernet
+        // - VIRTIO_F_VERSION_1 when present (required for virtio 1.0 "modern" devices)
         dev.reset();
-        dev.negotiate_features(VIRTIO_NET_F_MAC)
+        let accepted =
+            dev.negotiate_features(VIRTIO_NET_F_MAC | VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_VERSION_1)
             .map_err(|_| NetError::Internal("virtio features"))?;
+
+        // Header length follows MRG_RXBUF.
+        let vnet_hdr_len = if (accepted & VIRTIO_NET_F_MRG_RXBUF) != 0 { 12 } else { 10 };
 
         // Queue memory (2 pages): 1 page per queue, small bring-up queues.
         const Q_MEM_VA: usize = 0x2002_0000;
@@ -212,14 +232,28 @@ impl SmoltcpVirtioNetStack {
         let tx_avail_va = q1_va + desc_bytes;
         let tx_used_va = q1_va + used_off;
 
-        // For legacy, setup_queue uses desc_paddr PFN; other paddr fields are ignored.
+        // Queue physical addresses.
+        //
+        // NOTE: For modern virtio-mmio (REG_VERSION==2), the device requires explicit physical
+        // addresses for the descriptor table, avail ring, and used ring.
+        //
+        // For legacy virtio-mmio (REG_VERSION==1), `setup_queue` uses `desc_paddr` as the base of
+        // the combined queue layout (converted to PFN). The other fields are ignored.
+        let rx_desc_pa = q_base_pa + (rx_desc_va - Q_MEM_VA) as u64;
+        let rx_avail_pa = q_base_pa + (rx_avail_va - Q_MEM_VA) as u64;
+        let rx_used_pa = q_base_pa + (rx_used_va - Q_MEM_VA) as u64;
+
+        let tx_desc_pa = q_base_pa + (tx_desc_va - Q_MEM_VA) as u64;
+        let tx_avail_pa = q_base_pa + (tx_avail_va - Q_MEM_VA) as u64;
+        let tx_used_pa = q_base_pa + (tx_used_va - Q_MEM_VA) as u64;
+
         dev.setup_queue(
             0,
             &QueueSetup {
                 size: q_len as u16,
-                desc_paddr: q_base_pa + 0,
-                avail_paddr: 0,
-                used_paddr: 0,
+                desc_paddr: rx_desc_pa,
+                avail_paddr: rx_avail_pa,
+                used_paddr: rx_used_pa,
             },
         )
         .map_err(|_| NetError::Internal("setup q0"))?;
@@ -227,9 +261,9 @@ impl SmoltcpVirtioNetStack {
             1,
             &QueueSetup {
                 size: q_len as u16,
-                desc_paddr: q_base_pa + 4096,
-                avail_paddr: 0,
-                used_paddr: 0,
+                desc_paddr: tx_desc_pa,
+                avail_paddr: tx_avail_pa,
+                used_paddr: tx_used_pa,
             },
         )
         .map_err(|_| NetError::Internal("setup q1"))?;
@@ -289,6 +323,8 @@ impl SmoltcpVirtioNetStack {
         // Temporary device wrapper for iface init.
         let mut devwrap: SmolDevice<ACTIVE_BUFS> = SmolDevice {
             dev: &dev as *const _,
+            mmio_va: dev_va,
+            vnet_hdr_len,
             rx_desc: rx_desc_va as *mut VqDesc,
             rx_avail: rx_avail_va as *mut VqAvail<Q_LEN>,
             rx_used: rx_used_va as *mut VqUsed<Q_LEN>,
@@ -303,17 +339,25 @@ impl SmoltcpVirtioNetStack {
             tx_buf_pa,
             tx_free,
         };
+        // Post RX buffers before DRIVER_OK, then "kick" RX once DRIVER_OK is set.
+        //
+        // Hypothesis (Slice B): some backends ignore RX queue notifications until DRIVER_OK.
         devwrap.rx_post(ACTIVE_BUFS);
         dev.set_driver_ok();
+        dev.notify_queue(0);
 
         // Initialize interface WITHOUT static IP — DHCP will configure it.
-        let iface = Interface::new(cfg, &mut devwrap, Instant::from_millis(0));
+        //
+        // IMPORTANT: allow receiving DHCP replies before we have an IP address.
+        let mut iface = Interface::new(cfg, &mut devwrap, Instant::from_millis(0));
+        iface.set_any_ip(true);
         // NOTE: No static IP or route added here; DHCP will provide them.
 
         Ok(Self {
             inner: Rc::new(RefCell::new(Inner {
                 dev,
                 mac,
+                vnet_hdr_len,
                 rx_desc: devwrap.rx_desc,
                 rx_avail: devwrap.rx_avail,
                 rx_used: devwrap.rx_used,
@@ -440,6 +484,14 @@ impl SmoltcpVirtioNetStack {
 
         match event {
             Some(DhcpEvent::Configured(config)) => {
+                // #region agent log (dhcp events; rate-limited)
+                static DHCP_CONFIG_LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !DHCP_CONFIG_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    // Avoid formatting allocations; print a coarse marker only.
+                    let _ = nexus_abi::debug_println("net: dhcp event configured");
+                }
+                // #endregion agent log
                 let address = config.address;
                 let router = config.router;
 
@@ -479,6 +531,13 @@ impl SmoltcpVirtioNetStack {
                 }
             }
             Some(DhcpEvent::Deconfigured) => {
+                // #region agent log (dhcp events; rate-limited)
+                static DHCP_DECONFIG_LOGGED: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(false);
+                if !DHCP_DECONFIG_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    let _ = nexus_abi::debug_println("net: dhcp event deconfigured");
+                }
+                // #endregion agent log
                 // Lease expired or lost
                 inner.iface.update_ip_addrs(|addrs| {
                     addrs.clear();
@@ -582,6 +641,8 @@ pub struct DhcpConfig {
 // smoltcp Device wrapper around our virtqueue implementation.
 struct SmolDevice<const ACTIVE: usize = 16> {
     dev: *const VirtioNetMmio<MmioBus>,
+    mmio_va: usize,
+    vnet_hdr_len: usize,
     rx_desc: *mut VqDesc,
     rx_avail: *mut VqAvail<Q_LEN>,
     rx_used: *mut VqUsed<Q_LEN>,
@@ -598,33 +659,54 @@ struct SmolDevice<const ACTIVE: usize = 16> {
 }
 
 impl<const ACTIVE: usize> SmolDevice<ACTIVE> {
+    #[inline(always)]
+    fn mmio_ack_irq(&self) {
+        // Virtio MMIO: ISR @ 0x060, InterruptACK @ 0x064.
+        // Acking is harmless even when we poll; some backends may rely on it for forward progress.
+        const REG_ISR: usize = 0x060;
+        const REG_ACK: usize = 0x064;
+        unsafe {
+            let isr = core::ptr::read_volatile((self.mmio_va + REG_ISR) as *const u32);
+            if isr != 0 {
+                core::ptr::write_volatile((self.mmio_va + REG_ACK) as *mut u32, isr);
+            }
+        }
+    }
+
     fn rx_post(&mut self, count: usize) {
         let count = core::cmp::min(count, ACTIVE);
         unsafe {
             let avail = &mut *self.rx_avail;
-            avail.flags = 0;
+            core::ptr::write_volatile(&mut avail.flags, 0);
+            core::ptr::write_volatile(&mut avail.used_event, 0);
             for i in 0..count {
-                let d = &mut *self.rx_desc.add(i);
-                d.addr = self.rx_buf_pa[i];
-                d.len = 4096;
-                d.flags = VIRTQ_DESC_F_WRITE;
-                d.next = 0;
-                avail.ring[i] = i as u16;
+                core::ptr::write_volatile(
+                    self.rx_desc.add(i),
+                    VqDesc {
+                        addr: self.rx_buf_pa[i],
+                        len: 4096,
+                        flags: VIRTQ_DESC_F_WRITE,
+                        next: 0,
+                    },
+                );
+                core::ptr::write_volatile(&mut avail.ring[i], i as u16);
             }
-            avail.idx = count as u16;
+            core::ptr::write_volatile(&mut avail.idx, count as u16);
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         }
+        self.mmio_ack_irq();
         unsafe { &*self.dev }.notify_queue(0);
     }
 
     fn rx_poll(&mut self) -> Option<(usize, usize)> {
         unsafe {
+            self.mmio_ack_irq();
             let used = &*self.rx_used;
             let used_idx = core::ptr::read_volatile(&used.idx);
             if used_idx == self.rx_last_used {
                 return None;
             }
-            let elem = used.ring[(self.rx_last_used as usize) % Q_LEN];
+            let elem = core::ptr::read_volatile(&used.ring[(self.rx_last_used as usize) % Q_LEN]);
             self.rx_last_used = self.rx_last_used.wrapping_add(1);
             Some((elem.id as usize, elem.len as usize))
         }
@@ -633,20 +715,31 @@ impl<const ACTIVE: usize> SmolDevice<ACTIVE> {
     fn rx_requeue(&mut self, id: usize) {
         unsafe {
             let avail = &mut *self.rx_avail;
-            let idx = avail.idx as usize;
-            avail.ring[idx % Q_LEN] = id as u16;
-            avail.idx = avail.idx.wrapping_add(1);
+            let idx = core::ptr::read_volatile(&avail.idx) as usize;
+            core::ptr::write_volatile(&mut avail.ring[idx % Q_LEN], id as u16);
+            core::ptr::write_volatile(&mut avail.idx, (idx as u16).wrapping_add(1));
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         }
+        self.mmio_ack_irq();
         unsafe { &*self.dev }.notify_queue(0);
     }
 
     fn tx_poll_reclaim(&mut self) {
         unsafe {
+            self.mmio_ack_irq();
             let used = &*self.tx_used;
             let used_idx = core::ptr::read_volatile(&used.idx);
+            // Bounded bring-up diag: prove we see at least one TX completion.
+            static TX_RECLAIM_LOGGED: core::sync::atomic::AtomicBool =
+                core::sync::atomic::AtomicBool::new(false);
+            if used_idx != self.tx_last_used
+                && !TX_RECLAIM_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed)
+            {
+                let _ = nexus_abi::debug_println("net: virtio tx reclaim");
+            }
             while self.tx_last_used != used_idx {
-                let elem = used.ring[(self.tx_last_used as usize) % Q_LEN];
+                let elem =
+                    core::ptr::read_volatile(&used.ring[(self.tx_last_used as usize) % Q_LEN]);
                 self.tx_last_used = self.tx_last_used.wrapping_add(1);
                 let id = elem.id as usize;
                 if id < ACTIVE {
@@ -658,6 +751,7 @@ impl<const ACTIVE: usize> SmolDevice<ACTIVE> {
 
     fn tx_send(&mut self, frame: &[u8]) -> bool {
         self.tx_poll_reclaim();
+
         let mut slot: Option<usize> = None;
         for i in 0..ACTIVE {
             if self.tx_free[i] {
@@ -667,35 +761,50 @@ impl<const ACTIVE: usize> SmolDevice<ACTIVE> {
             }
         }
         let Some(i) = slot else {
+            // Bounded bring-up diag: if TX never reclaims, we'll eventually exhaust buffers.
+            static TX_STUCK_LOGGED: core::sync::atomic::AtomicBool =
+                core::sync::atomic::AtomicBool::new(false);
+            if !TX_STUCK_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                let _ = nexus_abi::debug_println("net: virtio tx stuck");
+            }
             return false;
         };
 
-        const HDR_LEN: usize = 10;
-        if frame.len() + HDR_LEN > 4096 {
+        if frame.len() + self.vnet_hdr_len > 4096 {
             self.tx_free[i] = true;
             return false;
         }
         unsafe {
-            for b in 0..HDR_LEN {
+            for b in 0..self.vnet_hdr_len {
                 core::ptr::write_volatile((self.tx_buf_va[i] + b) as *mut u8, 0);
+            }
+            if self.vnet_hdr_len == 12 {
+                // virtio_net_hdr_mrg_rxbuf.num_buffers = 1 (little-endian)
+                core::ptr::write_volatile((self.tx_buf_va[i] + 10) as *mut u8, 1);
+                core::ptr::write_volatile((self.tx_buf_va[i] + 11) as *mut u8, 0);
             }
             core::ptr::copy_nonoverlapping(
                 frame.as_ptr(),
-                (self.tx_buf_va[i] + HDR_LEN) as *mut u8,
+                (self.tx_buf_va[i] + self.vnet_hdr_len) as *mut u8,
                 frame.len(),
             );
-            let d = &mut *self.tx_desc.add(i);
-            d.addr = self.tx_buf_pa[i];
-            d.len = (HDR_LEN + frame.len()) as u32;
-            d.flags = 0;
-            d.next = 0;
+            core::ptr::write_volatile(
+                self.tx_desc.add(i),
+                VqDesc {
+                    addr: self.tx_buf_pa[i],
+                    len: (self.vnet_hdr_len + frame.len()) as u32,
+                    flags: 0,
+                    next: 0,
+                },
+            );
 
             let avail = &mut *self.tx_avail;
-            let idx = avail.idx as usize;
-            avail.ring[idx % Q_LEN] = i as u16;
-            avail.idx = avail.idx.wrapping_add(1);
+            let idx = core::ptr::read_volatile(&avail.idx) as usize;
+            core::ptr::write_volatile(&mut avail.ring[idx % Q_LEN], i as u16);
+            core::ptr::write_volatile(&mut avail.idx, (idx as u16).wrapping_add(1));
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         }
+        self.mmio_ack_irq();
         unsafe { &*self.dev }.notify_queue(1);
         true
     }
@@ -713,12 +822,12 @@ impl<'a, const ACTIVE: usize> RxToken for SmolRx<'a, ACTIVE> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        const HDR_LEN: usize = 10;
         let d = unsafe { &mut *self.dev };
-        let payload_len = self.len.saturating_sub(HDR_LEN).min(4096 - HDR_LEN);
+        let hdr_len = d.vnet_hdr_len;
+        let payload_len = self.len.saturating_sub(hdr_len).min(4096 - hdr_len);
         let payload = unsafe {
             core::slice::from_raw_parts_mut(
-                (d.rx_buf_va[self.id] + HDR_LEN) as *mut u8,
+                (d.rx_buf_va[self.id] + hdr_len) as *mut u8,
                 payload_len,
             )
         };
@@ -923,6 +1032,8 @@ impl NetStack for SmoltcpVirtioNetStack {
         // Rebuild device wrapper for this poll step.
         let mut devwrap = SmolDevice::<ACTIVE_BUFS> {
             dev: &inner.dev as *const _,
+            mmio_va: 0x2000_e000,
+            vnet_hdr_len: inner.vnet_hdr_len,
             rx_desc: inner.rx_desc,
             rx_avail: inner.rx_avail,
             rx_used: inner.rx_used,
@@ -945,6 +1056,7 @@ impl NetStack for SmoltcpVirtioNetStack {
         inner.rx_last_used = devwrap.rx_last_used;
         inner.tx_last_used = devwrap.tx_last_used;
         inner.tx_free = devwrap.tx_free;
+
     }
 
     fn next_wake(&self) -> Option<NetInstant> {

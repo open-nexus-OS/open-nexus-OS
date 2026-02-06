@@ -19,6 +19,11 @@
 //! - The actual OS backend implementation is only available under the os-lite + riscv64 + none
 //!   configuration below. Host code should depend on the `nexus-net` contract crate instead.
 
+// Host-first deterministic tests live in this crate (unit tests only). They do NOT expose any
+// runtime API on the host; they only validate integration logic that must remain deterministic.
+#[cfg(test)]
+mod host_tests;
+
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 extern crate alloc;
 

@@ -132,6 +132,18 @@ pub trait Server {
     fn send(&self, frame: &[u8], wait: Wait) -> Result<()>;
 }
 
+/// Deterministic, budgeted retry loops for non-blocking IPC.
+pub mod budget;
+
+/// logd OS-lite v1 wire helpers (host-testable parsers).
+pub mod logd_wire;
+
+/// policyd v2/v3 wire helpers (host-testable parsers).
+pub mod policyd_wire;
+
+/// Request/reply correlation helpers (nonce + bounded reply buffer).
+pub mod reqrep;
+
 #[cfg(nexus_env = "host")]
 mod host;
 #[cfg(nexus_env = "host")]

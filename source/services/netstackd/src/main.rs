@@ -158,12 +158,16 @@ fn os_entry() -> core::result::Result<(), ()> {
     let _ = nexus_abi::debug_println("SELFTEST: net iface ok");
 
     // DHCP lease acquisition loop (bounded, TASK-0004 Step 1).
-    // IMPORTANT: drive smoltcp with a **real monotonic** clock (kernel nsec), not a synthetic
-    // counter that can fast-forward and invalidate timeouts.
+    //
+    // Bring-up policy: drive smoltcp with a deterministic synthetic millisecond counter so we
+    // never hang if `nsec()` stalls under `-icount`. This must remain bounded.
     let mut dhcp_bound = false;
-    for i in 0..8000u64 {
-        let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-        net.poll(now_ms);
+    let mut dhcp_ms: u64 = 0;
+    // Under icount + cooperative scheduling, slirp DHCP can take longer than a tight loop.
+    // Keep this bounded but large enough for STRICT runs.
+    let dhcp_deadline_ms: u64 = if cfg!(feature = "qemu-smoke") { 30_000 } else { 4_000 };
+    loop {
+        net.poll(dhcp_ms);
 
         if let Some(config) = net.dhcp_poll() {
             // Emit DHCP bound marker: net: dhcp bound <ip>/<mask> gw=<gw>
@@ -172,20 +176,36 @@ fn os_entry() -> core::result::Result<(), ()> {
             break;
         }
 
-        if (i & 0x3f) == 0 {
-            let _ = yield_();
+        if dhcp_ms >= dhcp_deadline_ms {
+            break;
         }
+        dhcp_ms = dhcp_ms.saturating_add(1);
+
+        // Cooperative yield so other services can progress while DHCP is pending.
+        let _ = yield_();
     }
     if !dhcp_bound {
+        // #region agent log (dhcp timeout)
+        let _ = nexus_abi::debug_println("net: dhcp timeout (fallback static)");
+        // #endregion agent log
         // Deterministic fallback for harnesses where no DHCP server exists (e.g. 2-VM socket/mcast backend).
         // Derive a stable address from the NIC MAC so two VMs get distinct IPs without runtime env injection.
-        let mac = net.mac();
-        // Use the virtio MAC LSB directly so the harness can pick stable, distinct IPs by setting MACs.
-        // 0 is reserved; map it to 1 to stay routable.
-        let host = if mac[5] == 0 { 1 } else { mac[5] };
-        let ip = [10, 42, 0, host];
-        let prefix_len = 24u8;
-        net.set_static_ipv4(ip, prefix_len, None);
+        // Single-VM QEMU smoke wants slirp/usernet semantics even when DHCP is flaky/unavailable.
+        // In that environment, downstream bring-up (DSoftBus loopback shortcuts) expects 10.0.2.15.
+        //
+        // The 2-VM harness uses the MAC-derived 10.42.0.x addresses and must not rely on usernet.
+        let (ip, prefix_len, gw) = if cfg!(feature = "qemu-smoke") {
+            // QEMU slirp/usernet convention: 10.0.2.2 is the gateway/host.
+            // When DHCP is flaky/unavailable we still need a default route so ICMP/TCP proofs work.
+            ([10, 0, 2, 15], 24u8, Some([10, 0, 2, 2]))
+        } else {
+            let mac = net.mac();
+            // Use the virtio MAC LSB directly so the harness can pick stable, distinct IPs by setting MACs.
+            // 0 is reserved; map it to 1 to stay routable.
+            let host = if mac[5] == 0 { 1 } else { mac[5] };
+            ([10, 42, 0, host], 24u8, None)
+        };
+        net.set_static_ipv4(ip, prefix_len, gw);
 
         // Honest marker: DHCP was unavailable.
         let mut buf = [0u8; 64];

@@ -267,7 +267,7 @@ mod mmio_backend {
     use super::{
         QueueSetup, VirtioBlk, VirtioError, VIRTIO_DEVICE_ID_BLK, VIRTIO_MMIO_MAGIC,
         VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN, REG_STATUS,
-        REG_QUEUE_SEL, REG_QUEUE_NUM_MAX,
+        REG_QUEUE_SEL, REG_QUEUE_NUM_MAX, REG_QUEUE_PFN,
     };
     use nexus_abi::{cap_query, debug_putc, mmio_map, nsec, vmo_create, vmo_map_page_sys, AbiError, CapQuery};
     use nexus_hal::Bus;
@@ -275,8 +275,12 @@ mod mmio_backend {
     const VIRTQ_DESC_F_NEXT: u16 = 1;
     const VIRTQ_DESC_F_WRITE: u16 = 2;
 
-    const VIRTIO_BLK_T_IN: u32 = 0;
-    const VIRTIO_BLK_T_OUT: u32 = 1;
+const VIRTIO_BLK_T_IN: u32 = 0;
+const VIRTIO_BLK_T_OUT: u32 = 1;
+const VIRTIO_BLK_T_FLUSH: u32 = 4;
+const VIRTIO_BLK_S_OK: u8 = 0;
+const VIRTIO_F_VERSION_1: u64 = 32;
+const VIRTIO_BLK_F_FLUSH: u64 = 9;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -392,7 +396,8 @@ mod mmio_backend {
     }
 
     const QUEUE_LEN: usize = 8;
-    const MMIO_VA: usize = 0x2000_e000;
+    // Use different VA from virtio-net (0x2000_e000) to avoid any potential conflicts
+    const MMIO_VA: usize = 0x2001_0000;
     const Q_MEM_VA: usize = 0x2008_0000;
     const Q_PAGES: usize = 1;
     const BUF_VA: usize = 0x2009_0000;
@@ -422,7 +427,19 @@ mod mmio_backend {
             let dev = VirtioBlk::new(MmioBus { base: MMIO_VA });
             dev.probe()?;
             dev.reset();
-            dev.negotiate_features(0)?;
+
+            // For legacy devices, set GUEST_PAGE_SIZE early (before feature negotiation)
+            // Some QEMU versions expect this to be set before any queue operations.
+            use super::REG_GUEST_PAGE_SIZE;
+            dev.bus.write(REG_GUEST_PAGE_SIZE, 4096);
+
+            let driver_features = if version == VIRTIO_MMIO_VERSION_MODERN {
+                (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH)
+            } else {
+                0
+            };
+
+            dev.negotiate_features(driver_features)?;
 
             // Queue memory.
             let q_vmo = vmo_create(Q_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
@@ -478,6 +495,22 @@ mod mmio_backend {
             let status_before = dev.bus.read(REG_STATUS);
             emit_bytes(b"virtio-blk: status=");
             emit_hex_u32(status_before);
+            emit_byte(b'\n');
+
+            // Verify QUEUE_PFN was written correctly by reading it back
+            dev.bus.write(REG_QUEUE_SEL, 0);
+            let pfn_readback = dev.bus.read(REG_QUEUE_PFN);
+            emit_bytes(b"virtio-blk: pfn_rb=");
+            emit_hex_u32(pfn_readback);
+            emit_byte(b'\n');
+
+            // Debug: show queue memory layout
+            emit_bytes(b"virtio-blk: q_layout desc=");
+            emit_hex_u32(desc_va as u32);
+            emit_bytes(b" avail=");
+            emit_hex_u32(avail_va as u32);
+            emit_bytes(b" used=");
+            emit_hex_u32(used_va as u32);
             emit_byte(b'\n');
 
             dev.driver_ok();
@@ -575,11 +608,13 @@ mod mmio_backend {
         }
 
         pub fn sync(&mut self) -> Result<(), VirtioError> {
-            Ok(())
+            let mut dummy = [];
+            self.submit(VIRTIO_BLK_T_FLUSH, 0, &mut dummy)
         }
 
         fn submit(&self, req_type: u32, sector: u64, data: &mut [u8]) -> Result<(), VirtioError> {
-            if data.len() < self.sector_size as usize {
+            let is_flush = req_type == VIRTIO_BLK_T_FLUSH;
+            if !is_flush && data.len() < self.sector_size as usize {
                 emit_line("virtio-blk: short buf");
                 return Err(VirtioError::Unsupported);
             }
@@ -606,28 +641,43 @@ mod mmio_backend {
 
             unsafe {
                 // Use volatile writes for descriptors since device reads them
-                core::ptr::write_volatile(self.desc.add(0), VqDesc {
-                    addr: self.req_pa,
-                    len: size_of::<BlkReq>() as u32,
-                    flags: VIRTQ_DESC_F_NEXT,
-                    next: 1,
-                });
-                core::ptr::write_volatile(self.desc.add(1), VqDesc {
-                    addr: self.data_pa,
-                    len: self.sector_size,
-                    flags: if req_type == VIRTIO_BLK_T_IN {
-                        VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE
-                    } else {
-                        VIRTQ_DESC_F_NEXT
-                    },
-                    next: 2,
-                });
-                core::ptr::write_volatile(self.desc.add(2), VqDesc {
-                    addr: self.status_pa,
-                    len: 1,
-                    flags: VIRTQ_DESC_F_WRITE,
-                    next: 0,
-                });
+                if is_flush {
+                    core::ptr::write_volatile(self.desc.add(0), VqDesc {
+                        addr: self.req_pa,
+                        len: size_of::<BlkReq>() as u32,
+                        flags: VIRTQ_DESC_F_NEXT,
+                        next: 1,
+                    });
+                    core::ptr::write_volatile(self.desc.add(1), VqDesc {
+                        addr: self.status_pa,
+                        len: 1,
+                        flags: VIRTQ_DESC_F_WRITE,
+                        next: 0,
+                    });
+                } else {
+                    core::ptr::write_volatile(self.desc.add(0), VqDesc {
+                        addr: self.req_pa,
+                        len: size_of::<BlkReq>() as u32,
+                        flags: VIRTQ_DESC_F_NEXT,
+                        next: 1,
+                    });
+                    core::ptr::write_volatile(self.desc.add(1), VqDesc {
+                        addr: self.data_pa,
+                        len: self.sector_size,
+                        flags: if req_type == VIRTIO_BLK_T_IN {
+                            VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE
+                        } else {
+                            VIRTQ_DESC_F_NEXT
+                        },
+                        next: 2,
+                    });
+                    core::ptr::write_volatile(self.desc.add(2), VqDesc {
+                        addr: self.status_pa,
+                        len: 1,
+                        flags: VIRTQ_DESC_F_WRITE,
+                        next: 0,
+                    });
+                }
 
                 let avail = &mut *self.avail;
                 let idx = core::ptr::read_volatile(&avail.idx);
@@ -641,13 +691,73 @@ mod mmio_backend {
 
             fence(Ordering::SeqCst);
 
-            // Debug: show avail.idx before notify
-            let avail_idx_now = unsafe { core::ptr::read_volatile(&(*self.avail).idx) };
-            emit_bytes(b"virtio-blk: notify avail_idx=");
-            emit_hex_u32(avail_idx_now as u32);
-            emit_byte(b'\n');
+            // Debug trace (very verbose): keep off in QEMU smoke for determinism and speed.
+            const TRACE_IO: bool = false;
+            if TRACE_IO {
+                // Debug: show descriptor chain details
+                unsafe {
+                    let d0 = core::ptr::read_volatile(self.desc.add(0));
+                    let d1 = core::ptr::read_volatile(self.desc.add(1));
+                    let d2 = core::ptr::read_volatile(self.desc.add(2));
+                    emit_bytes(b"virtio-blk: d0 addr=");
+                    emit_hex_u32((d0.addr >> 32) as u32);
+                    emit_hex_u32(d0.addr as u32);
+                    emit_bytes(b" len=");
+                    emit_hex_u32(d0.len);
+                    emit_bytes(b" fl=");
+                    emit_hex_u32(d0.flags as u32);
+                    emit_byte(b'\n');
+
+                    emit_bytes(b"virtio-blk: d1 addr=");
+                    emit_hex_u32((d1.addr >> 32) as u32);
+                    emit_hex_u32(d1.addr as u32);
+                    emit_bytes(b" len=");
+                    emit_hex_u32(d1.len);
+                    emit_bytes(b" fl=");
+                    emit_hex_u32(d1.flags as u32);
+                    emit_byte(b'\n');
+
+                    emit_bytes(b"virtio-blk: d2 addr=");
+                    emit_hex_u32((d2.addr >> 32) as u32);
+                    emit_hex_u32(d2.addr as u32);
+                    emit_bytes(b" len=");
+                    emit_hex_u32(d2.len);
+                    emit_bytes(b" fl=");
+                    emit_hex_u32(d2.flags as u32);
+                    emit_byte(b'\n');
+                }
+
+                // Debug: show avail ring contents
+                unsafe {
+                    let avail = &*self.avail;
+                    let flags = core::ptr::read_volatile(&avail.flags);
+                    let idx = core::ptr::read_volatile(&avail.idx);
+                    let ring0 = core::ptr::read_volatile(&avail.ring[0]);
+                    emit_bytes(b"virtio-blk: avail flags=");
+                    emit_hex_u32(flags as u32);
+                    emit_bytes(b" idx=");
+                    emit_hex_u32(idx as u32);
+                    emit_bytes(b" ring[0]=");
+                    emit_hex_u32(ring0 as u32);
+                    emit_byte(b'\n');
+
+                    let used = &*self.used;
+                    let used_flags = core::ptr::read_volatile(&used.flags);
+                    let used_idx = core::ptr::read_volatile(&used.idx);
+                    emit_bytes(b"virtio-blk: used flags=");
+                    emit_hex_u32(used_flags as u32);
+                    emit_bytes(b" idx=");
+                    emit_hex_u32(used_idx as u32);
+                    emit_byte(b'\n');
+                }
+            }
 
             let last_before = self.last_used.get();
+
+            // Additional memory barrier before notify to ensure all writes are visible
+            fence(Ordering::SeqCst);
+            core::sync::atomic::compiler_fence(Ordering::SeqCst);
+
             self.dev.notify_queue(0);
 
             let start = nsec().unwrap_or(0);
@@ -685,8 +795,10 @@ mod mmio_backend {
             }
 
             let status = unsafe { core::ptr::read_volatile(self.status_va as *const u8) };
-            if status != 0 {
-                emit_line("virtio-blk: status err");
+            if status != VIRTIO_BLK_S_OK {
+                emit_bytes(b"virtio-blk: status err=");
+                emit_hex_u32(status as u32);
+                emit_byte(b'\n');
                 return Err(VirtioError::Unsupported);
             }
             Ok(())
