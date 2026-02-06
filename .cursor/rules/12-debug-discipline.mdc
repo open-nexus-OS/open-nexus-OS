@@ -1,0 +1,29 @@
+---
+description: Debug discipline — deterministic proofs, no kernel noise, bounded instrumentation
+alwaysApply: true
+---
+
+# Debug Discipline (determinism-first)
+
+## Hard rules (forbidden)
+- **No Cursor/agent debug logs in kernel**: never add prints/markers/logging in `source/kernel/**`.
+- **No fake success**: never emit `*: ready` or `SELFTEST:* ok` until the behavior is actually proven.
+- **No unbounded “drain/yield”**: never add “drain inbox until empty” or “yield until it works” loops without hard bounds.
+- **No nondeterministic markers**: don’t include random IDs, timestamps, or counts that vary run-to-run in gating markers.
+
+## Where to instrument (preferred)
+- **Userspace services**: `source/services/**` (emit stable markers + structured error labels).
+- **Selftests / proof apps**: `source/apps/selftest-client/**` (assertions + deterministic probes).
+- **Host tests**: prefer adding/strengthening unit tests before QEMU iteration.
+- **Harness/docs**: explain how to reproduce (phase, timeout, expected marker ladder).
+
+## Determinism checklist (mandatory when debugging QEMU smoke)
+- **1 failing marker/error, verbatim**: capture the exact missing marker / error label.
+- **Budget everything**: use explicit deadlines/iteration caps for IPC retries and polling.
+- **Correlation correctness**: for shared inbox request/reply flows, use nonce correlation (see `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`) instead of drains/yields.
+- **Device mode stability**: QEMU proofs must run modern virtio-mmio by default (legacy only for bisect).
+
+## Logging/marker guidance
+- Prefer short, stable “state” markers: `svc: event` (no variable data).
+- For errors, print a stable label + 1–2 hex codes (bounded): `svc: op fail kernel=NoSuchEndpoint`.
+- If a debug marker is only for bring-up, prefix it with `dbg:` and do not add it to gating ladders.

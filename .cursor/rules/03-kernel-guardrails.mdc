@@ -1,0 +1,24 @@
+---
+description: Kernel guardrails — read-only by default, no debug markers/logging
+globs:
+  - source/kernel/**
+alwaysApply: false
+---
+
+# Kernel Guardrails (strict)
+
+## Default stance
+- **Treat `source/kernel/**` as read-only** in this chat/session unless the user explicitly asks for kernel changes.
+- If kernel changes are requested, keep them **minimal, justified, and security-reviewed**.
+
+## Forbidden (hard fail)
+- **No debug prints/markers/logging in kernel** (including “temporary” bring-up markers).
+- **No Cursor/agent “debug mode” logs in kernel**.
+- **No test gating markers** emitted by the kernel (those belong in userspace services/selftest/harness).
+
+## What to do instead
+- Instrument **userspace services** (`source/services/**`) and **selftests** (`source/apps/selftest-client/**`).
+- Add **host tests** to narrow the issue before running QEMU.
+- If kernel insight is required, prefer:
+  - exposing a **bounded, structured counter/state** via an existing interface, or
+  - adding **userspace-visible error codes** (not verbose logs).
