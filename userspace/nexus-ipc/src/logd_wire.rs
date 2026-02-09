@@ -329,9 +329,7 @@ impl<'a> Iterator for QueryRecordIter<'a> {
 ///
 /// Frame shape:
 /// `[L,O,ver,OP|0x80, status, total:u64le, dropped:u64le, count:u16le, ...records]`
-pub fn parse_query_response<'a>(
-    buf: &'a [u8],
-) -> Result<(QueryHeader, QueryRecordIter<'a>), WireError> {
+pub fn parse_query_response(buf: &[u8]) -> Result<(QueryHeader, QueryRecordIter<'_>), WireError> {
     if buf.len() < 4 + 1 + 8 + 8 + 2 {
         return Err(WireError::Truncated);
     }
@@ -360,9 +358,9 @@ pub fn parse_query_response<'a>(
 ///
 /// Frame shape:
 /// `[L,O,2,OP_QUERY|0x80, status, nonce:u64le, total:u64le, dropped:u64le, count:u16le, ...records]`
-pub fn parse_query_response_v2<'a>(
-    buf: &'a [u8],
-) -> Result<(u64, QueryHeader, QueryRecordIter<'a>), WireError> {
+pub fn parse_query_response_v2(
+    buf: &[u8],
+) -> Result<(u64, QueryHeader, QueryRecordIter<'_>), WireError> {
     if buf.len() < 4 + 1 + 8 + 8 + 8 + 2 {
         return Err(WireError::Truncated);
     }
@@ -472,26 +470,27 @@ mod tests {
     use super::*;
     use std::vec::Vec;
 
-    fn push_record(
-        out: &mut Vec<u8>,
+    struct RecordParts<'a> {
         record_id: u64,
         ts: u64,
         level: u8,
         service_id: u64,
-        scope: &[u8],
-        msg: &[u8],
-        fields: &[u8],
-    ) {
-        out.extend_from_slice(&record_id.to_le_bytes());
-        out.extend_from_slice(&ts.to_le_bytes());
-        out.push(level);
-        out.extend_from_slice(&service_id.to_le_bytes());
-        out.push(scope.len() as u8);
-        out.extend_from_slice(&(msg.len() as u16).to_le_bytes());
-        out.extend_from_slice(&(fields.len() as u16).to_le_bytes());
-        out.extend_from_slice(scope);
-        out.extend_from_slice(msg);
-        out.extend_from_slice(fields);
+        scope: &'a [u8],
+        msg: &'a [u8],
+        fields: &'a [u8],
+    }
+
+    fn push_record(out: &mut Vec<u8>, rec: RecordParts<'_>) {
+        out.extend_from_slice(&rec.record_id.to_le_bytes());
+        out.extend_from_slice(&rec.ts.to_le_bytes());
+        out.push(rec.level);
+        out.extend_from_slice(&rec.service_id.to_le_bytes());
+        out.push(rec.scope.len() as u8);
+        out.extend_from_slice(&(rec.msg.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(rec.fields.len() as u16).to_le_bytes());
+        out.extend_from_slice(rec.scope);
+        out.extend_from_slice(rec.msg);
+        out.extend_from_slice(rec.fields);
     }
 
     #[test]
@@ -534,8 +533,30 @@ mod tests {
         buf.extend_from_slice(&10u64.to_le_bytes()); // total
         buf.extend_from_slice(&0u64.to_le_bytes()); // dropped
         buf.extend_from_slice(&2u16.to_le_bytes()); // count
-        push_record(&mut buf, 1, 100, 2, 0xAA, b"selftest", b"hello world", b"");
-        push_record(&mut buf, 2, 150, 2, 0xBB, b"other", b"msg", b"fields contain needle");
+        push_record(
+            &mut buf,
+            RecordParts {
+                record_id: 1,
+                ts: 100,
+                level: 2,
+                service_id: 0xAA,
+                scope: b"selftest",
+                msg: b"hello world",
+                fields: b"",
+            },
+        );
+        push_record(
+            &mut buf,
+            RecordParts {
+                record_id: 2,
+                ts: 150,
+                level: 2,
+                service_id: 0xBB,
+                scope: b"other",
+                msg: b"msg",
+                fields: b"fields contain needle",
+            },
+        );
 
         let scan = scan_query_page(&buf, b"needle").unwrap();
         assert_eq!(scan.count, 2);

@@ -311,7 +311,7 @@ mod tests {
         let clock = TestClock { advance_per_yield_ns: 0, ..Default::default() };
         let deadline = 123;
         let mut attempts = 0usize;
-        let _ = retry_ipc_until(&clock, deadline, || {
+        retry_ipc_until(&clock, deadline, || {
             attempts += 1;
             if attempts < 300 {
                 Err(IpcError::WouldBlock)
