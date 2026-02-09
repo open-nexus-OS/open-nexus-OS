@@ -25,6 +25,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **Testing contracts (v1)**: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Phase 0 complete)
 - **Execution truth / workflow**: `tasks/README.md`
 - **RFC process / contracts vs tasks**: `docs/rfcs/README.md`
+- **Vendored third-party code (pinned forks / patches)**: `vendor/` (keep small; document upstream base + local deltas)
 
 ## Kernel
 

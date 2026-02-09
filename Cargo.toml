@@ -26,6 +26,8 @@ exclude = [
     # Exclude the umbrella directory that contains sub-crates to avoid Cargo
     # treating it as a workspace member without its own Cargo.toml.
     "userspace/apps",
+    # Vendored patch crate; not a first-class workspace member.
+    "vendor/smoltcp",
     # QEMU source and patch artifacts (not a Rust crate).
     "tools/qemu",
     "tools/qemu-src",
@@ -34,6 +36,12 @@ exclude = [
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
+
+[patch.crates-io]
+# Enforced to avoid cargo-deny duplicate `bitflags` majors (smoltcp upstream still uses bitflags 1.x).
+# This vendored copy is kept identical to smoltcp 0.10.0 except for the `bitflags = "2"` dependency
+# bump (and any minimal compatibility fixes).
+smoltcp = { path = "vendor/smoltcp" }
 
 [profile.dev]
 panic = "abort"

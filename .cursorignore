@@ -43,9 +43,6 @@ podman/cache/
 docs/api/generated/
 docs/rustdoc/
 
-# Vendored dependencies (if populated)
-vendor/
-
 # Test artifacts
 **/tests/fixtures/large-*
 **/tests/tmp/

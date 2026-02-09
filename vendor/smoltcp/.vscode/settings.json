@@ -1,0 +1,15 @@
+{
+    "editor.formatOnSave": true,
+    "rust-analyzer.imports.granularity.group": "module",
+    //"rust-analyzer.checkOnSave.command": "clippy",
+    "rust-analyzer.linkedProjects": [
+        "Cargo.toml",
+        //"code-size-test/Cargo.toml",
+    ],
+    //"rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+    "python.formatting.blackArgs": [
+        "--line-length",
+        "256"
+    ],
+    "python.formatting.provider": "black",
+}
