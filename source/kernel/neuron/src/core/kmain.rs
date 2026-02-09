@@ -3,6 +3,9 @@
 
 //! CONTEXT: Kernel main bring-up and idle loop
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU selftests/marker ladder (see scripts/qemu-test.sh)
 //! PUBLIC API: kmain()
 //! DEPENDS_ON: hal::VirtMachine, mm::AddressSpaceManager, sched::Scheduler, ipc::Router
 //! INVARIANTS: Activate kernel AS before complex init; cooperative scheduling via SYSCALL_YIELD

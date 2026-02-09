@@ -3,6 +3,9 @@
 
 //! CONTEXT: Deterministic boot knobs shared across the kernel
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Unit tests (this file) + QEMU smoke consumption
 //! PUBLIC API: seed(), set_seed(), fixed_tick_ns(), set_fixed_tick_ns()
 //! DEPENDS_ON: core::sync::atomic
 //! INVARIANTS: Relaxed atomics sufficient; default values stable across boots

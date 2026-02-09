@@ -242,44 +242,54 @@ fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
 
 #[cfg(target_os = "none")]
 #[macro_use]
+#[path = "diag/log.rs"]
 mod log;
 #[cfg(target_os = "none")]
 mod arch;
 #[cfg(target_os = "none")]
+#[path = "core/boot.rs"]
 mod boot;
 #[cfg(target_os = "none")]
+#[path = "task/bootstrap.rs"]
 mod bootstrap;
 #[cfg(target_os = "none")]
 mod cap;
 #[cfg(target_os = "none")]
+#[path = "diag/determinism.rs"]
 mod determinism;
 #[cfg(target_os = "none")]
 mod hal;
 #[cfg(target_os = "none")]
 mod ipc;
 #[cfg(target_os = "none")]
+#[path = "core/kmain.rs"]
 mod kmain;
 #[cfg(target_os = "none")]
+#[path = "diag/liveness.rs"]
 mod liveness;
 #[cfg(target_os = "none")]
 mod mm;
 #[cfg(target_os = "none")]
+#[path = "mm/satp.rs"]
 mod satp;
 #[cfg(target_os = "none")]
 mod sched;
 #[cfg(target_os = "none")]
 mod selftest;
 #[cfg(all(target_os = "none", debug_assertions))]
+#[path = "diag/sync/mod.rs"]
 pub mod sync;
 #[cfg(target_os = "none")]
 mod syscall;
 #[cfg(target_os = "none")]
 mod task;
 #[cfg(target_os = "none")]
+#[path = "core/trap.rs"]
 mod trap;
 #[cfg(target_os = "none")]
 mod types;
 #[cfg(target_os = "none")]
+#[path = "diag/uart.rs"]
 mod uart;
 
 #[cfg(target_os = "none")]
@@ -290,6 +300,7 @@ pub use log::Level as LogLevel;
 pub use task::{Pid, TaskTable, TransferError};
 // compile the kernel panic handler automatically for no_std targets (OS = "none")
 #[cfg(all(not(test), target_os = "none"))]
+#[path = "core/panic.rs"]
 mod panic;
 
 // Constants

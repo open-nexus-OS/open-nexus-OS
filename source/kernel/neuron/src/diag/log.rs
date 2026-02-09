@@ -3,6 +3,9 @@
 
 //! CONTEXT: Minimal structured logging with severity levels
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (exercised by QEMU smoke + kernel selftests)
 //! PUBLIC API: log_* macros, emit(level,target,args)
 //! DEPENDS_ON: uart::KernelUart
 //! INVARIANTS: Debug/Trace only in debug builds; single-line emission

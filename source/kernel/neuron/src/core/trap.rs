@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! CONTEXT: Trap handling: external ASM prologue/epilogue + safe Rust core, HPM CSR emulation, SBI timer handling
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU selftests + boot markers (trap/panic paths exercised in smoke runs)
 //! PUBLIC API: install_runtime(), register_trap_domain(), TrapDomainId
 //! DEPENDS_ON: sched::Scheduler, task::TaskTable, ipc::Router, mm::AddressSpaceManager, SyscallTable
 //! INVARIANTS: Trap ABI/prologue stable; ECALL dispatch IDs stable; minimal UART in trap context
@@ -32,7 +35,7 @@ use sbi_rt as sbi;
 // ——— include low-level vector from assembly (OS target only) ———
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 core::arch::global_asm!(
-    include_str!("arch/riscv/trap.S"),
+    include_str!("../arch/riscv/trap.S"),
     TF_SIZE    = const core::mem::size_of::<TrapFrame>(),
     OFF_SEPC   = const 32*8,
     OFF_SSTATUS= const 33*8,

@@ -3,6 +3,9 @@
 
 //! CONTEXT: Lightweight progress watchdog for bring-up and debugging
 //! OWNERS: @kernel-team
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (diagnostic helper; exercised manually when enabled)
 //! PUBLIC API: bump(), last_bump_ticks(), check(deadline_ticks)
 //! DEPENDS_ON: riscv time CSR (OS), log
 //! INVARIANTS: Only emits panic on prolonged stalls; cheap in steady state

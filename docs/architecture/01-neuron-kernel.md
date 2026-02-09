@@ -15,6 +15,43 @@ The system security roadmap is intentionally hybrid:
   without rewriting kernel interfaces.
 - Measured boot/attestation later for distributed trust (`softbusd`) without inflating kernel TCB.
 
+## Debug / Diagnostics Index (kernel)
+
+This section is a navigation index for deterministic bring-up and kernel debugging.
+It is **documentation-only** and must stay compatible with the QEMU marker contract
+implemented by `scripts/qemu-test.sh` (marker strings are a gating surface).
+
+### Feature flags (selected)
+
+- **`debug_uart`**: Enables additional UART prints in selected paths. Must remain bounded.
+- **`trap_symbols`**: Adds opt-in trap symbolization (`name+offset`) for `sepc` in traps.
+- **`trap_ring`**: Retains a bounded ring of recent trap frames for post-mortem.
+- **`timer_irq`**: Arms periodic timer IRQ ticks (bring-up typically keeps this off by default).
+- **`selftest_priv_stack`**: Runs kernel selftests on a private guarded stack.
+- **`selftest_time` / `selftest_ipc` / `selftest_caps` / `selftest_sched`**: Incremental selftest coverage gates.
+
+### Marker families (where they originate)
+
+- **Boot/bring-up**: emitted by boot + kmain bring-up logic (e.g. banner / mapping markers).
+- **Kernel selftests**: emitted by `selftest` (`KSELFTEST: ...`).
+- **Userspace/selftest client**: emitted by the OS smoke harness and userspace services (`SELFTEST: ...`).
+- **Panic/trap diagnostics**: `PANIC:` / `EXC:` style lines are for negative-path debugging and should remain deterministic.
+
+### Where to look (current paths)
+
+- **Boot init**: `source/kernel/neuron/src/core/boot.rs`
+- **Kernel bring-up / state**: `source/kernel/neuron/src/core/kmain.rs`
+- **Trap handling / trap diagnostics**: `source/kernel/neuron/src/core/trap.rs`
+- **SATP switch island marker**: `source/kernel/neuron/src/mm/satp.rs`
+- **Task lifecycle (spawn/exit/wait)**: `source/kernel/neuron/src/task/mod.rs`
+- **Bootstrap protocol layout**: `source/kernel/neuron/src/task/bootstrap.rs`
+- **Structured logging**: `source/kernel/neuron/src/diag/log.rs`
+- **UART writer / raw UART**: `source/kernel/neuron/src/diag/uart.rs`
+- **Determinism knobs**: `source/kernel/neuron/src/diag/determinism.rs`
+- **Bring-up watchdog**: `source/kernel/neuron/src/diag/liveness.rs`
+- **Debug-only sync**: `source/kernel/neuron/src/diag/sync/dbg_mutex.rs`
+- **In-kernel selftests**: `source/kernel/neuron/src/selftest/mod.rs`
+
 ## Boot Flow
 
 1. `_start` is provided by `boot.rs`. It clears `.bss`, installs the

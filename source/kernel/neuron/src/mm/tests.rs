@@ -5,6 +5,21 @@
 //! CONTEXT: Unit tests for Sv39 page table invariants
 //! OWNERS: @kernel-mm-team
 //! NOTE: Tests only; verify alignment, flags, W^X, overlap, range, lookup
+//!
+//! TEST_SCOPE:
+//!   - Sv39 page table mapping invariants (alignment, flags validity)
+//!   - W^X enforcement at the page-table layer
+//!   - Overlap detection and canonical range rejection
+//!   - Basic lookup behavior (present vs absent mappings)
+//!
+//! TEST_SCENARIOS:
+//!   - rejects_unaligned_addresses(): rejects non-page-aligned VA/PA
+//!   - rejects_invalid_flags(): rejects invalid/empty flag combinations
+//!   - enforces_w_xor_x(): rejects WRITE|EXECUTE mappings
+//!   - detects_overlap(): rejects mapping collisions
+//!   - out_of_range_rejected(): rejects non-canonical Sv39 VA ranges
+//!   - lookup_observes_mapping(): lookup observes installed mappings only
+//!   - root_ppn_reports_base_page(): root PPN is non-zero after init
 
 use super::{MapError, PageFlags, PAGE_SIZE};
 use crate::mm::page_table::PageTable;

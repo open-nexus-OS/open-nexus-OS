@@ -3,6 +3,9 @@
 
 //! CONTEXT: Debug-only mutex wrapper with simple lockdep-style checks
 //! OWNERS: @kernel-sync-team
+//! STATUS: Experimental (debug-only)
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (debug-only; exercised via kernel debug builds)
 //! PUBLIC API: DbgMutex::new(), DbgMutex::lock()
 //! DEPENDS_ON: spin::Mutex, riscv time CSR (OS)
 //! INVARIANTS: Detect double-lock; warn on long holds; debug-only

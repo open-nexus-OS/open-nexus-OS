@@ -3,6 +3,9 @@
 
 //! CONTEXT: Early boot routines for the NEURON microkernel
 //! OWNERS: @kernel-boot-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (boot path proven via QEMU marker contract)
 //! PUBLIC API: early_boot_init()
 //! DEPENDS_ON: arch::riscv::clear_bss, trap::install_trap_vector, init_heap
 //! INVARIANTS: Single-invocation; interrupts masked; minimal diagnostics on OS path

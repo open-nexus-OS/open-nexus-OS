@@ -3,6 +3,9 @@
 
 //! CONTEXT: Minimal UART support for boot diagnostics
 //! OWNERS: @kernel-hal-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (exercised by QEMU smoke + panic/trap paths)
 //! PUBLIC API: KernelUart::lock(), raw_writer(), write_raw_mmio()
 //! DEPENDS_ON: spin/dbg_mutex (build), MMIO registers
 //! INVARIANTS: Lock-free raw writer for trap/panic; best-effort emission only

@@ -3,10 +3,22 @@
 
 //! CONTEXT: In-kernel selftest harness executed during deterministic boot
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker contract (see scripts/qemu-test.sh)
 //! PUBLIC API: selftest modules (assert, stack_run)
 //! DEPENDS_ON: hal::virt, ipc::Router, mm::AddressSpaceManager, sched::Scheduler, syscall::api
 //! INVARIANTS: Minimal side effects; UART markers only; feature-gated private stack
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//!
+//! TEST_SCOPE:
+//!   - Deterministic boot-time kernel selftests (AS create/map/activate, spawn/exit, IPC/caps as enabled)
+//!   - Marker emission used by CI to prove invariants (see scripts/qemu-test.sh)
+//!
+//! TEST_SCENARIOS:
+//!   - Address space bring-up: AS create/map/activate and post-SATP marker
+//!   - Spawn lifecycle: child runs, yields, exits; parent observes
+//!   - W^X: mappings reject WRITE|EXECUTE combinations at enforcement boundary
 
 extern crate alloc;
 

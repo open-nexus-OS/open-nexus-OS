@@ -1,6 +1,6 @@
 ---
 title: TASK-0011 Kernel simplification (RFC-0001): Phase A (text-only) + Phase B (physical reorg)
-status: Draft
+status: In Review
 owner: @kernel-team
 created: 2025-12-22
 links:

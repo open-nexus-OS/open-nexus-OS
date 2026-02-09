@@ -3,6 +3,9 @@
 
 //! CONTEXT: Task table and lifecycle helpers for the NEURON kernel
 //! OWNERS: @kernel-sched-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU smoke + kernel selftests (spawn/exit/wait)
 //! PUBLIC API: TaskTable (spawn/exit/wait), Pid, TaskState
 //! DEPENDS_ON: ipc::Router, mm::AddressSpaceManager, sched::Scheduler, types::{SlotIndex,VirtAddr}
 //! INVARIANTS: Kernel text entry validation; guard-paged user stacks; capability rights respected

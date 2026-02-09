@@ -1,6 +1,6 @@
 # RFC-0001: Kernel Simplification (Logic-Preserving)
 
-- Status: Draft
+- Status: Complete
 - Owners: @kernel-team, @runtime
 - Created: 2025-10-24
 - Last Updated: 2026-02-09
@@ -10,8 +10,8 @@
 
 ## Status at a Glance
 
-- Phase A (text-only headers + docs): ⬜
-- Phase B (physical reorg: moves + wiring only): ⬜
+- Phase A (text-only headers + docs): ✅
+- Phase B (physical reorg: moves + wiring only): ✅
 
 Definition:
 
@@ -138,6 +138,6 @@ cd /home/jenning/open-nexus-OS && cargo test --workspace
 
 ## Implementation Checklist
 
-- [ ] Phase A complete via `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase A) — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] Phase B complete via `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase B) — proof: `cargo test --workspace` and QEMU marker contract
-- [ ] Tasks are linked with stop conditions and proof commands.
+- [x] Phase A complete via `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase A) — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] Phase B complete via `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase B) — proof: `cargo test --workspace` and QEMU marker contract
+- [x] Tasks are linked with stop conditions and proof commands.

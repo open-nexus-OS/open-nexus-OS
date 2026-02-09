@@ -3,6 +3,9 @@
 
 //! CONTEXT: Bootstrap protocol data structures shared between kernel and initial tasks
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable (layout frozen for MVP; additive-only flags)
+//! TEST_COVERAGE: Golden vector/layout unit tests (this file)
 //! PUBLIC API: BootstrapMsg
 //! DEPENDS_ON: core
 //! INVARIANTS: repr(C) layout frozen (golden vectors), LE byte order for tests

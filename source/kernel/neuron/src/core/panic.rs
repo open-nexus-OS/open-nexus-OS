@@ -3,6 +3,9 @@
 
 //! CONTEXT: Unified panic handler emitting deterministic diagnostics over UART
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU smoke (panic markers are negative-path diagnostics)
 //! PUBLIC API: panic handler (no_std)
 //! DEPENDS_ON: trap::last_trap(), uart::raw_writer()
 //! INVARIANTS: Minimal formatting; no allocations; stable output fields

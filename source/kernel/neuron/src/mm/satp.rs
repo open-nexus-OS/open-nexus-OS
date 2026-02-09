@@ -3,6 +3,9 @@
 
 //! CONTEXT: SATP trampoline call island for safe page table activation
 //! OWNERS: @kernel-mm-team
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU smoke (requires `AS: post-satp OK` marker)
 //! PUBLIC API: satp_switch_island(satp_val), __post_satp_marker()
 //! DEPENDS_ON: arch trampoline `__satp_trampoline`
 //! INVARIANTS: Minimal side-effects; emits post-switch marker; no allocation/locks

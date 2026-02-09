@@ -5,6 +5,16 @@
 //! CONTEXT: Property-based tests for capability table
 //! OWNERS: @kernel-cap-team
 //! NOTE: Tests only; no kernel logic. Ensures Rights derivation and slot ops are sound.
+//!
+//! TEST_SCOPE:
+//!   - Capability slot set/get roundtrip behavior
+//!   - Rights derivation: subset-only (no escalation)
+//!   - Derivation rejects superset rights requests deterministically
+//!
+//! TEST_SCENARIOS:
+//!   - set_and_get_roundtrip(): set then get returns the same capability
+//!   - derive_preserves_kind_and_masks(): derived cap preserves kind and intersects rights
+//!   - derive_rejects_superset(): requesting rights outside parent returns PermissionDenied
 
 use super::{CapError, CapTable, Capability, CapabilityKind, Rights};
 use proptest::prelude::*;
