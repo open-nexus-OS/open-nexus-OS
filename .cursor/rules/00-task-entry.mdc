@@ -16,6 +16,15 @@ You must follow this flow whenever a task file is in focus.
 - Read: the task file and any linked RFC/ADR contracts.
 - Do **NOT** scan `@codebase`. Only read within the task's **Touched paths** allowlist.
 
+### Special case: RFC delegates execution SSOT to the task
+
+If a linked RFC explicitly says “execution checklist / proofs live in `tasks/TASK-XXXX...`”:
+
+- Treat the **task as the execution single source of truth** (scope, touched paths, stop conditions, proof commands).
+- Treat the **RFC as the contract + rationale** (measures, invariants, definitions, anti-drift boundaries).
+- If the task and RFC disagree on **contracts**, update the task (RFC is authoritative for contracts).
+- If they disagree on **progress/proof signals**, update the RFC to match reality (task is authoritative for proofs).
+
 ## 1) RFC seed (if new contract)
 **Before Plan Mode**, check if this task defines a new contract:
 - Does it introduce a new syscall, service API, storage format, or protocol?

@@ -28,6 +28,13 @@ Rules:
   - Kernel remains minimal (device enumeration, policy logic in userspace)
   - CRC32-C (Castagnoli) is the StateFS v1 integrity contract
 
+## Current focus (execution)
+
+- **active_task**: `tasks/TASK-0011-kernel-simplification-phase-a.md`
+  - Phase A: text-only headers/docs
+  - Phase B: physical reorg (moves + wiring only)
+  - Proof gate: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (markers unchanged)
+
 ## Active invariants (must hold)
 - **security**
   - Secrets never logged (device keys, credentials, tokens)

@@ -1,65 +1,41 @@
-# Current Handoff: IPC Correlation v1 + QEMU modern virtio-mmio (RFC-0019)
+# Current Handoff: TASK-0011 Kernel Simplification (RFC-0001) — Phase A (text-only) + Phase B (physical reorg)
 
-**Date**: 2026-02-06  
-**Goal**: Make QEMU smoke gates deterministic end-to-end by fixing the root cause: **request/reply correlation** under shared inboxes, while keeping virtio-mmio policy drift-free.
+**Date**: 2026-02-09  
+**Goal**: Land TASK-0011 as a **logic-preserving** simplification pass with **zero behavior / marker changes**:
+
+- Phase A: text-only (headers + docs)
+- Phase B: physical reorg (moves + wiring only)
 
 ---
 
-## What changed (contract-level)
+## Execution truth (anti-drift)
 
-- **New RFC**: `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
-  - Defines nonce-based request/reply correlation + a bounded dispatcher for shared inboxes.
-  - Also owns the normative **QEMU harness policy** for modern virtio-mmio default (legacy opt-in only).
-- **RFC-0018 note**: `docs/rfcs/RFC-0018-statefs-journal-format-v1.md` now links to RFC-0019 for correlation, to keep StateFS v1 scope drift-free.
-- **Host determinism tests**:
-  - `userspace/nexus-ipc` now contains deterministic host tests for:
-    - budgeted non-blocking IPC loops (`nexus_ipc::budget`)
-    - logd v1+v2 wire parsing (`nexus_ipc::logd_wire`, including LO v2 nonce frames)
-    - policyd v2/v3 response decoding (`nexus_ipc::policyd_wire`)
-  - Proof: `cargo test -p nexus-ipc`
+- **Task is the execution SSOT**: `tasks/TASK-0011-kernel-simplification-phase-a.md`
+- **RFC is the contract seed / rationale**: `docs/rfcs/RFC-0001-kernel-simplification.md`
+- **Touched paths allowlist** (task-owned):
+  - `source/kernel/neuron/src/**`
+  - `docs/**`
 
-## Current reality (QEMU smoke)
+## Proof gates (must stay green; no marker list changes)
 
-- **Modern virtio-mmio**:
-  - Canonical harness (`scripts/run-qemu-rv64.sh`) defaults to `-global virtio-mmio.force-legacy=off`.
-  - Legacy mode remains opt-in via `QEMU_FORCE_LEGACY=1` (debug/bisect).
-- **What is green now**:
-  - Default `RUN_TIMEOUT=90s just test-os` reaches `SELFTEST: end` (after fixing init-lite wiring races, shared reply inbox filtering in statefs client, and updated bootctrl persist corruption).
-  - `RUN_TIMEOUT=90s REQUIRE_QEMU_DHCP=1 just test-os` is green (non-strict policy accepts honest static fallback when DHCP does not bind).
-  - `RUN_TIMEOUT=90s REQUIRE_QEMU_DHCP=1 REQUIRE_QEMU_DHCP_STRICT=1 just test-os` is green and proves **DHCP bound** (RX works again) + dependent proofs (`SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: icmp ping ok`).
+- **Canonical QEMU marker contract** (must remain identical):
 
-## Additional progress since last handoff update
+```bash
+cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
+```
 
-- **StateFS shared-inbox correlation**:
-  - `userspace/statefs` now supports `SF v2` frames with an explicit `nonce:u64` after the header.
-  - `statefsd` echoes the nonce in replies and the OS-lite client uses it to deterministically match replies on the shared `@reply` inbox (removes “drain stale replies” from the StateFS proof path).
-- **Routing ctrl-plane determinism**:
-  - init-lite routing responder now supports a backwards-compatible **routing v1+nonce extension**.
-  - Key clients (`bundlemgrd` route-status, `rngd`, `statefsd`, `logd` bootstrap routing, `selftest-client` probes) use it to avoid stale-drain patterns on ctrl slot 2.
-- **Shared `@reply` hygiene**:
-  - `samgrd` and `bundlemgrd` “core service log probe” paths now deterministically wait for the logd APPEND ACK (bounded), preventing reply inbox buildup.
-  - `rngd` uses policyd **v2 delegated-cap** replies (nonce-correlated) with strict matching on the shared inbox.
-- **logd LO v2 (nonce frames)**:
-  - logd now supports LO v2 nonce-correlated frames for APPEND/QUERY/STATS, enabling safe multiplexing over a shared reply inbox.
-  - QEMU proof paths (`RUN_PHASE=logd`) use strict nonce matching (no stale-drain patterns).
+## Scope guardrails
 
-## Why this is the root cause
+- **Phase A allowed**: module headers, doc cross-links, diagnostic index documentation, TEST_SCOPE/TEST_SCENARIOS documentation.
+- **Phase A forbidden**: any runtime behavior changes, ABI/marker changes, code refactors that could alter execution.
 
-- Without a nonce echoed in replies, any multi-step or concurrent IPC over a shared inbox can desync.
-- “Drain/yield/budget” loops reduce flakiness but do not make matching **correct-by-construction**.
-- RFC-0019 standardizes the correct pattern so future OS work does not repeat the same class of bugs.
+- **Phase B allowed**: file moves/renames and module wiring updates to match the target tree in TASK-0011, plus docs path updates.
+- **Phase B forbidden**: any semantic changes (including refactors), ABI/marker changes, dependency changes.
 
-## Next steps (implementation slice; task-owned)
+## Notes
 
-1. **DHCP determinism decision (harness policy)**:
-   - Keep `REQUIRE_QEMU_DHCP=1` permissive (accept deterministic static fallback) as the default CI proof.
-   - Gate `REQUIRE_QEMU_DHCP_STRICT=1` only on backends/environments where inbound RX is proven deterministic (or after a QEMU/backend change that restores RX).
-2. **RFC-0019 adoption audit (keep it honest)**:
-   - Inventory which clients still rely on uncorrelated replies on shared inboxes.
-   - Convert remaining multi-step flows to nonce-correlated request/reply (or explicit “no-reply” fire-and-forget).
+- Keep PRs small and mechanical. If a change risks runtime behavior, it is out of scope for TASK-0011.
 
-## Drift guards (do not regress)
+## Archive pointer
 
-- QEMU runs used for proofs MUST continue to default to modern virtio-mmio (`virtio-mmio.force-legacy=off`).
-- Any new OS service protocol that expects a reply on a shared inbox MUST adopt RFC-0019 nonce correlation (or a successor RFC).
-- Do not run multiple QEMU smoke runs concurrently (they contend on `build/blk.img` and can trip QEMU “write lock” errors).
+- Previous handoff snapshot (TASK-0009 / RFC-0018/0019): `.cursor/handoff/archive/TASK-0009-persistence-v1-virtio-blk-statefs.md`

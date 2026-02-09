@@ -1,94 +1,143 @@
 # RFC-0001: Kernel Simplification (Logic-Preserving)
 
 - Status: Draft
-- Owners: Kernel + Runtime Team
+- Owners: @kernel-team, @runtime
 - Created: 2025-10-24
+- Last Updated: 2026-02-09
+- Links:
+  - Tasks: `tasks/TASK-0011-kernel-simplification-phase-a.md` (execution + proof)
+  - Kernel overview: `docs/architecture/01-neuron-kernel.md`
+
+## Status at a Glance
+
+- Phase A (text-only headers + docs): ⬜
+- Phase B (physical reorg: moves + wiring only): ⬜
+
+Definition:
+
+- "Complete" means the contract is defined and the proof gates are green. It does not mean "never changes again".
+
+## Scope boundaries (anti-drift)
+
+This RFC is a design seed / contract. Implementation planning and proofs live in tasks.
+
+- This RFC owns:
+  - The responsibility taxonomy and naming guidance for kernel subsystems.
+  - The required kernel module header fields and what they mean.
+  - The decision that physical reorganization (if done) must be logic-preserving and proof-gated.
+- This RFC does NOT own:
+  - The execution checklist, file-by-file move plan, touched paths allowlist, or proof commands.
+  - Ownership/type-system refactors (separate tasks).
+  - SMP implementation work (separate tasks).
+  - Any syscall ABI changes.
+
+### Relationship to tasks (single execution truth)
+
+- Tasks define stop conditions and proof commands.
+- This RFC links to the task(s) that implement and prove each phase.
 
 ## Context
-The NEURON kernel is functionally progressing but navigation and comprehension costs are high. This RFC proposes 10 logic-preserving measures to reduce complexity, improve agent/developer orientation, and surface test scope—without changing runtime behavior.
+
+The NEURON kernel is functionally progressing, but navigation and comprehension costs increase over time:
+
+- It becomes harder to find the right subsystem when debugging.
+- Invariants are present in code but not consistently documented at module boundaries.
+- Tests exist but often lack a clear statement of scope and scenarios.
+- A delayed directory reorganization becomes progressively more painful (merge churn, stale links).
+
+The goal is to improve clarity without changing runtime behavior.
 
 ## Goals
-- Faster orientation (clear responsibilities, fewer tokens to grok intent)
-- Explicit invariants, dependencies, and test scope per module
-- Logic-preserving refactors only; zero behavior changes
+
+- Faster orientation (clear responsibilities, fewer tokens to grok intent).
+- Explicit invariants, dependencies, and test scope per module.
+- Logic-preserving work only (no behavior changes).
+- If a physical reorganization is performed, it results in a stable, responsibility-aligned directory tree.
 
 ## Non-Goals
-- Performance tuning, algorithmic changes, or broad API redesigns
-- Immediate subcrate split; can be a later follow-up
 
-## Relationship to upcoming kernel work (why now)
+- Performance tuning, algorithmic changes, or broad API redesigns.
+- SMP bring-up (separate task).
+- Immediate subcrate split (can be a later follow-up).
 
-SMP bring-up and scheduling changes (see performance/power tasks) are high-debug-cost. This RFC is
-intentionally **logic-preserving** and is meant to be executed as a preparatory “debugging window”
-before behavioral kernel work lands. The execution checklist lives in a task file (below).
+## Constraints / invariants (hard requirements)
 
-## Tracking (single source of truth)
+- Determinism: marker/proof strings required by `scripts/qemu-test.sh` must not change.
+- No fake success: do not change readiness/ok markers semantics to "paper over" issues.
+- ABI stability: syscall numbers, error semantics, and stable layouts must remain unchanged.
+- Logic-preserving: no semantic code changes in Phase A and Phase B.
 
-- **Implementation checklist / execution**: `tasks/TASK-0011-kernel-simplification-phase-a.md`
-- **Follow-up behavioral kernel work** (separate tasks, not part of this RFC):
-  - SMP bring-up: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
-  - QoS + timer coalescing: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
+## Proposed design
 
-This RFC provides the rationale and the logic-preserving measures. The task is the authoritative
-checklist, scope, and proof definition.
+### Contract / interface (normative)
 
-## Measures (1–10)
-1) Module layering and naming
-   - Adopt a clear responsibility taxonomy: arch, memory, process, comm, sched, core, utils, test.
-   - Keep current file locations for now; only rename modules if strictly beneficial and trivial.
-   - Enforce `pub(crate)` by default; open surface areas deliberately.
+This RFC defines a kernel organization contract:
 
-2) Standardized module headers (kernel-specific)
-   - CONTEXT, OWNERS, STATUS, API_STABILITY, TEST_COVERAGE
-   - KERNEL_INVARIANTS (W^X, user/kernel boundary, capability rights), PUBLIC API, DEPENDENCIES, ADR
+1. A responsibility taxonomy for kernel code:
+   - `arch`, `hal`, `core`, `mm` (memory), `cap` (capabilities), `ipc` (comm), `sched`, `task` (process), `syscall`, `diag` (cross-cutting debug/determinism), `selftest`.
+2. Standard kernel module headers:
+   - CONTEXT, OWNERS, PUBLIC API, DEPENDS_ON, INVARIANTS, ADR
+   - If required by repo standards: STATUS, API_STABILITY, TEST_COVERAGE
+3. A physical reorganization policy:
+   - If performed, it must be mechanical (moves + module wiring only), logic-preserving, and proof-gated.
 
-3) Test documentation uplift
-   - In all kernel tests: add TEST_SCOPE, TEST_SCENARIOS, KERNEL_TEST_DEPENDENCIES
-   - Ensure counts in TEST_COVERAGE reflect reality or say "No tests"
+The exact file move map and proof commands are defined in tasks.
 
-4) Feature-flag grouping (naming only)
-   - Group features by purpose (development/testing/boot)
-   - No semantic changes to feature wiring; just nomenclature and docs
+### Phases / milestones (contract-level)
 
-5) Error category unification (type aliases only)
-   - Introduce umbrella error naming in docs (Memory, Process, Syscall, Hardware, IPC)
-   - Do not change existing error enums yet; mapping documented for future alignment
+- Phase A (text-only): normalize headers, docs cross-links, and test documentation.
+  - Execution: `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase A)
+- Phase B (physical reorg): reorganize directories to match the taxonomy; moves + wiring only.
+  - Execution: `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase B)
 
-6) Constants centralization (docs-first)
-   - Document canonical constants (PAGE_SIZE, MAX_SYSCALL, USER_STACK_TOP, etc.)
-   - Keep code as-is; centralization can be a later mechanical change
+## Security considerations
 
-7) Architecture notes per subsystem
-   - Short rationale per module: design, constraints, expected complexity
-   - Links to ADRs where relevant
+- Threat model:
+  - Documentation drift causes incorrect assumptions about invariants and enforcement points.
+  - Large refactors can accidentally weaken critical enforcement if not proof-gated.
+- Mitigations:
+  - Keep all phases logic-preserving and proof-gated with existing QEMU marker contracts.
+  - Document invariants at module boundaries so reviews focus on the right properties.
+- Open risks:
+  - Physical reorganization creates merge churn; mitigate with small, mechanical PRs.
 
-8) Performance characteristics (qualitative)
-   - Document expected complexity (e.g., O(1) syscall dispatch), not microbenchmarks
+## Failure model (normative)
 
-9) Security invariants visibility
-   - Explicitly list invariants enforced by each subsystem (W^X, rights checks, isolation)
+- If a phase causes behavior changes, marker changes, or ABI drift, it is a failure and must be reverted or split into a separate task with an explicit contract change.
+- No silent fallback: do not "fix" failing proofs by changing marker text or loosening gates.
 
-10) Debug/diagnostics index
-   - Enumerate debug features and their flags (debug_uart, stack guards, PT verify, trap symbols)
-   - No default changes
+## Proof / validation strategy (required)
 
-## Migration plan
+Canonical proofs are owned by tasks, but must remain stable for this RFC:
 
-- Phase A (Text-only): **see TASK-0011** (authoritative checklist)
-- Phase B (Optional, mechanical): visibility tightening, constant aliases, minor renames
-- Phase C (Optional, higher cost): physical reorg or subcrates
+### Proof (OS/QEMU)
 
-## Risks
-- Build churn: None in Phase A (text-only)
-- Mislabeling status/coverage: mitigated via review checklist
+```bash
+cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
+```
 
-## Validation
-- All modules carry standardized headers
-- Tests list scope/scenarios; coverage counts are accurate
-- ADR references exist and resolve
+### Proof (Host)
+
+```bash
+cd /home/jenning/open-nexus-OS && cargo test --workspace
+```
+
+## Alternatives considered
+
+- Doc-only forever (no physical reorg):
+  - Rejected because navigation costs remain higher than necessary and path drift accumulates.
+- Large, one-shot refactor including ownership/type changes:
+  - Rejected because it increases risk; phases keep diffs reviewable and proof-gated.
 
 ## Open questions
-- Do we want a prelude module for common kernel types?
-- When to introduce subcrates for parallel build speed?
 
-<!-- Userspace VFS Proof status moved to docs/status; RFC stays scope-limited. -->
+- Should `types.rs` remain at the crate root as a ubiquitous dependency, or move under `core/`?
+- Do we want a small "prelude" module for common kernel types, or keep explicit imports?
+
+---
+
+## Implementation Checklist
+
+- [ ] Phase A complete via `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase A) — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [ ] Phase B complete via `tasks/TASK-0011-kernel-simplification-phase-a.md` (Phase B) — proof: `cargo test --workspace` and QEMU marker contract
+- [ ] Tasks are linked with stop conditions and proof commands.

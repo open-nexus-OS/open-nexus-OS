@@ -10,57 +10,40 @@ It should be updated during the previous task's wrap-up, before handing off.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+- **task**: `tasks/TASK-0011-kernel-simplification-phase-a.md`
 - **handoff_target**: `.cursor/handoff/current.md` (always updated as the live entry-point)
-- **handoff_archive**: `.cursor/handoff/archive/TASK-0010-device-mmio-access-v1.md` (snapshot after completion)
+- **handoff_archive**: `.cursor/handoff/archive/TASK-0009-persistence-v1-virtio-blk-statefs.md` (snapshot after completion)
 - **linked_contracts**:
-  - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (Done - MMIO capability model)
-  - **NEW RFC to create**: statefs journal format (RFC-00XX, use RFC-TEMPLATE.md + update README.md)
-  - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability distribution)
-  - `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy enforcement)
-- **first_action**: Create RFC seed before implementation (Status: Draft)
+  - `docs/rfcs/RFC-0001-kernel-simplification.md` (kernel simplification measures; logic-preserving)
+  - `docs/architecture/01-neuron-kernel.md` (kernel overview + invariants)
+  - `scripts/qemu-test.sh` (canonical marker contract; must not change)
+- **first_action**: Plan-first + touched-path allowlist enforcement (kernel protected zone)
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
-  - TASK-0010 unblocked virtio-blk MMIO access (proven: `virtioblkd: mmio window mapped ok`)
-  - Policy-gated distribution proven (`SELFTEST: mmio policy deny ok`)
-  - All prerequisites (TASK-0008B entropy, TASK-0006 audit) are Done
+  - RFC-0001 explicitly delegates execution/proofs to TASK-0011
+  - Task allowlist is present and scoped to kernel headers + docs
 - **best_system_solution**: YES
-  - Userspace block device + journaled KV store (statefs) = kernel minimal
-  - `/state` as dedicated authority (not VFS mount) = correct v1 scope
-  - Host-first testing (BlockDevice trait + mem backend) = fast feedback
+  - Lowest-risk kernel clarity uplift: improve navigation/debuggability without changing behavior
 - **scope_clear**: YES
-  - Stop conditions explicit: host tests + QEMU markers defined
-  - Non-goals explicit: no POSIX semantics, no real reboot/VM reset in v1
-  - Security considerations complete (CRC integrity, policy-gated access, negative tests required)
+  - Stop conditions explicit: QEMU markers unchanged; text-only change discipline
+  - Non-goals explicit: no behavior/ABI/marker changes; no dependency changes
 - **touched_paths_allowlist_present**: YES
-  - Task declares allowlist (drivers/storage/virtio-blk, services/statefsd, userspace/statefs, etc.)
+  - Task declares allowlist (`source/kernel/neuron/src/**`, `docs/**`)
 
 ## Header / follow-up hygiene
 - **follow_ups_in_task_header**: YES
-  - Follow-up tasks listed: TASK-0034 (delta updates), TASK-0130 (packages), TASK-0018 (crashdumps), etc.
+  - Follow-up tasks are referenced in the task/RFC; do not start them until TASK-0011 is complete.
 - **security_considerations_complete**: YES
-  - Threat model: credential theft, tampering, journal corruption, unauthorized access
-  - Required negative tests: `test_reject_corrupted_journal`, `test_reject_unauthorized_keystore_access`, etc.
-  - Hardening markers defined: `statefsd: access denied`, `statefsd: crc mismatch`
+  - Phase A is text-only; security invariants are documented, not modified
 
 ## Dependencies & blockers
 - **blocked_by**: NONE
-  - TASK-0010 (MMIO access) is Done ✅
-  - virtio-blk MMIO capability distribution proven in QEMU
-  - `virtioblkd` service scaffold exists and proven
 - **prereqs_ready**: YES
-  - ✅ virtio-blk driver scaffold: `source/drivers/storage/virtio-blk/`
-  - ✅ MMIO capability model: RFC-0017 Done
-  - ✅ Policy + audit infrastructure: policyd + logd ready
-  - ✅ Entropy authority: TASK-0008B Done (rngd → keystored)
-  - ✅ QEMU marker harness: `scripts/qemu-test.sh` supports phased testing
+  - ✅ Kernel boots and marker contract is stable
+  - ✅ Task defines strict “no behavior change” constraints
 
 ## Decision
 - **status**: GO
 - **notes**:
-  - virtio-blk MMIO access proven (`virtioblkd: mmio window mapped ok` marker green)
-  - Policy deny-by-default proven (`SELFTEST: mmio policy deny ok` marker green)
-  - All TASK-0010 tests green (just test-all, make test, make build, make run)
-  - Ready to implement statefs journal engine (host-first) and integrate with block backend
-  - "Soft reboot" proof defined: restart statefsd + replay journal, then verify persistence
+  - Keep PRs small, mechanical, and phase-scoped; markers must remain identical.

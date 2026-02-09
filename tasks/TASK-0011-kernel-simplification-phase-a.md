@@ -1,5 +1,5 @@
 ---
-title: TASK-0011 Kernel refactor (RFC-0001) Phase A: text-only simplification for SMP debugging window
+title: TASK-0011 Kernel simplification (RFC-0001): Phase A (text-only) + Phase B (physical reorg)
 status: Draft
 owner: @kernel-team
 created: 2025-12-22
@@ -13,22 +13,40 @@ links:
 
 ## Context
 
-SMP bring-up is a high-debug-cost kernel change. RFC-0001 proposes logic-preserving changes that make
-the kernel easier to navigate and debug (headers, invariant visibility, diagnostics index).
+Kernel work is high-debug-cost. RFC-0001 proposes logic-preserving changes that make the kernel
+easier to navigate and debug (headers, invariant visibility, diagnostics index).
 
-To reduce “kernel touch count” we treat this as the **first phase of the SMP debugging window**:
-land the text-only simplification work immediately before SMP changes, with strict proofs that no
-runtime behavior changed.
+We also want the kernel to have a stable physical layout. The longer we postpone a directory
+reorganization, the more painful it becomes (merge churn, higher rename surface, more stale links).
+This task therefore includes an explicitly scoped physical reorganization phase with strict proof
+gates that no runtime behavior changed.
 
 ## Goal
 
-Complete RFC-0001 Phase A (text-only) with **zero behavior change**, verified by the existing QEMU
-marker contract.
+Complete RFC-0001 simplification work in two phases with **zero behavior change**, verified by the
+existing QEMU marker contract.
 
-## Scope focus (prep for TASK-0012/0013)
+## Phases (explicit; no ambiguity)
 
-To minimize kernel touch count and maximize debugging ROI, this task focuses on the modules most
-likely to be edited during SMP/QoS work:
+### Phase A: Text-only simplification (documentation + headers)
+
+- Add/normalize kernel module headers.
+- Add a single debug/diagnostics index (docs-first).
+- Add TEST_SCOPE / TEST_SCENARIOS documentation where missing.
+- Add/verify cross-links (ADR/RFC/architecture docs).
+- No file moves in this phase.
+
+### Phase B: Physical directory reorganization (logic-preserving)
+
+- Physically reorganize `source/kernel/neuron/src/` into a stable directory structure that matches
+  the responsibility taxonomy.
+- Only do mechanical moves/renames and module wiring updates. No semantic refactors.
+- Update `docs/**` to match the new paths.
+
+## Scope focus (what this task touches)
+
+To minimize kernel touch count and maximize debugging ROI, this task focuses on the modules that
+are commonly used as navigation anchors during kernel debugging:
 
 - Boot + entry: `boot.rs`, `kmain.rs`
 - Arch: `arch/riscv/*`
@@ -42,7 +60,10 @@ Anything outside these areas is out of scope unless it is a purely mechanical he
 ## Non-Goals
 
 - Any scheduler/boot/trap behavioral change.
-- Physical reorg or subcrates.
+- Any change to the syscall ABI (numbers, error semantics, struct layouts).
+- Any marker string changes required by `scripts/qemu-test.sh`.
+- Subcrate split.
+- Any default/semantic changes to feature wiring.
 
 ## Constraints / invariants (hard requirements)
 
@@ -57,7 +78,7 @@ Anything outside these areas is out of scope unless it is a purely mechanical he
 - **YELLOW**:
   - Touching many files can create merge churn. Keep commits small and mechanical.
 - **GREEN**:
-  - RFC-0001 explicitly scopes Phase A as text-only; ideal to land before SMP work.
+  - The work is bounded, mechanical, and proven via the existing QEMU marker contract.
 
 ## Security considerations
 
@@ -114,9 +135,17 @@ When adding headers to security-critical modules, explicitly document:
 
 ## Stop conditions (Definition of Done)
 
+### Phase A stop conditions
+
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` passes with **no marker list changes**.
-- Docs stay in sync:
-  - If any kernel-visible contracts are clarified (syscall names/IDs, scheduler invariants, acceptance marker semantics), update `docs/architecture/01-neuron-kernel.md` and the index `docs/architecture/README.md`.
+- Docs stay in sync (paths unchanged in Phase A; content may be clarified).
+
+### Phase B stop conditions
+
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` passes with **no marker list changes**.
+- `cargo test --workspace` passes.
+- No semantic code changes were introduced (moves/renames/wiring only).
+- Docs updated so kernel path references resolve.
 
 ## Touched paths (allowlist)
 
@@ -125,15 +154,17 @@ When adding headers to security-critical modules, explicitly document:
 
 ## Plan (small PRs)
 
-This task is the **execution checklist** for RFC-0001 Phase A. Keep changes mechanical and reviewable.
+This task is the **execution checklist** for RFC-0001. Keep changes mechanical and reviewable.
+
+### Phase A plan (text-only)
 
 1. **Headers (kernel-specific)**
    - Ensure the standard kernel header fields are present and accurate for the scoped modules:
      - CONTEXT, OWNERS, PUBLIC API, DEPENDS_ON, INVARIANTS, ADR
      - If present in the repo standard: STATUS/API_STABILITY/TEST_COVERAGE
-   - Make invariants explicit where it helps SMP/QoS debugging:
+   - Make invariants explicit where it helps debugging:
      - W^X boundary expectations
-     - “no allocation in IRQ paths”
+     - "no allocation in IRQ paths"
      - determinism marker contracts
 
 2. **Debug/diagnostics index (docs-first)**
@@ -151,6 +182,71 @@ This task is the **execution checklist** for RFC-0001 Phase A. Keep changes mech
 
 4. **Cross-links**
    - Ensure scoped modules link to the relevant ADR/RFC for their invariants (keep links stable).
+
+### Phase B plan (physical reorg; wiring-only)
+
+#### Target directory tree (normative)
+
+This phase reorganizes the kernel into a stable tree. The goal is to keep `arch/` and `hal/`
+separate, keep `core/` intentionally small, and avoid a "utils junk drawer" by using `diag/` for
+cross-cutting debug/determinism helpers.
+
+Target tree:
+
+```text
+source/kernel/neuron/src/
+  arch/
+    riscv/
+  cap/
+  core/
+  diag/
+    sync/
+  hal/
+  ipc/
+  mm/
+  sched/
+  selftest/
+  syscall/
+  task/
+  lib.rs
+  types.rs
+```
+
+#### Move map (explicit)
+
+Move the following files/directories to the new locations:
+
+- `boot.rs` -> `core/boot.rs`
+- `kmain.rs` -> `core/kmain.rs`
+- `trap.rs` -> `core/trap.rs`
+- `panic.rs` -> `core/panic.rs`
+- `satp.rs` -> `mm/satp.rs`
+- `task.rs` -> `task/mod.rs`
+- `bootstrap.rs` -> `task/bootstrap.rs`
+- `log.rs` -> `diag/log.rs`
+- `uart.rs` -> `diag/uart.rs`
+- `determinism.rs` -> `diag/determinism.rs`
+- `liveness.rs` -> `diag/liveness.rs`
+- `sync/mod.rs` -> `diag/sync/mod.rs`
+- `sync/dbg_mutex.rs` -> `diag/sync/dbg_mutex.rs`
+
+Keep these directories as-is (they already match the taxonomy):
+
+- `arch/`
+- `cap/`
+- `hal/`
+- `ipc/`
+- `mm/` (except `satp.rs`, which moves into it)
+- `sched/`
+- `selftest/`
+- `syscall/`
+
+#### Phase B prohibitions
+
+- Do not change logic, formatting-only refactors, or any runtime behavior.
+- Do not change marker strings.
+- Do not introduce new public surface area or change visibility policies.
+- Do not add/remove dependencies.
 
 ## Acceptance criteria (behavioral)
 

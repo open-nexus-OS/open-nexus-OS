@@ -1,6 +1,6 @@
 ---
 title: TASK-0009 Persistence v1 (OS): userspace block device + statefs journal for /state (device keys + bootctl)
-status: In review
+status: Done
 owner: @runtime
 created: 2025-12-22
 updated: 2026-02-06
