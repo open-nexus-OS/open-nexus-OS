@@ -65,7 +65,7 @@ fn dhcp_discover_uses_standard_ports_and_broadcast() {
         dev: &'a mut CaptureDevice,
     }
 
-    impl<'a> TxToken for CaptTx<'a> {
+    impl TxToken for CaptTx<'_> {
         fn consume<R, F>(self, len: usize, f: F) -> R
         where
             F: FnOnce(&mut [u8]) -> R,
