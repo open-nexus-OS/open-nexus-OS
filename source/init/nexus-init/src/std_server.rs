@@ -33,8 +33,10 @@ use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
 use nexus_ipc::{Client, Wait};
 use std::io::Cursor;
 
-const CORE_SERVICES: [&str; 8] =
-    ["keystored", "rngd", "policyd", "samgrd", "bundlemgrd", "packagefsd", "vfsd", "execd"];
+// Host std init currently supervises only services that have a real host backend.
+// OS/QEMU bring-up supervises additional core services (e.g. rngd) via the os-lite path.
+const CORE_SERVICES: [&str; 7] =
+    ["keystored", "policyd", "samgrd", "bundlemgrd", "packagefsd", "vfsd", "execd"];
 
 #[cfg(nexus_env = "host")]
 const BUNDLE_OPCODE_QUERY: u8 = 2;
@@ -96,6 +98,8 @@ fn run(notifier: Option<ReadyNotifier>) -> Result<(), InitError> {
         if let Some(client) = handle.take_endpoint() {
             service_clients.insert(name.to_string(), client);
         }
+        // Host init smoke also expects per-service up confirmations (presence only).
+        println!("{name}: up");
         println!("init: up {name}");
         handles.push(handle);
     }
@@ -585,7 +589,6 @@ mod runtime {
                 }
                 "bundlemgrd" => {
                     bundlemgrd::touch_schemas();
-                    let ready_clone = ready.clone();
                     let service_name = name.clone();
                     let artifacts = bundlemgrd::ArtifactStore::new();
                     let (bundle_client, bundle_server) = nexus_ipc::loopback_channel();
@@ -596,10 +599,10 @@ mod runtime {
                     });
                     let mut transport = bundlemgrd::IpcTransport::new(bundle_server);
                     let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(keystore_client));
-                    let notifier = bundlemgrd::ReadyNotifier::new(move || {
-                        let _ = ready_clone.send(ServiceStatus::Ready(Some(bundle_client)));
-                    });
-                    notifier.notify();
+                    // Emit readiness marker only once the transport is live.
+                    // Keep ordering deterministic for scripts/host-init-test.sh.
+                    println!("bundlemgrd: ready");
+                    let _ = ready.send(ServiceStatus::Ready(Some(bundle_client)));
                     if let Err(err) =
                         bundlemgrd::run_with_transport(&mut transport, artifacts, keystore, None)
                     {

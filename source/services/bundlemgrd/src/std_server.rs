@@ -873,8 +873,8 @@ pub fn service_main_loop(
         });
 
         let mut transport = IpcTransport::new(server_bundle);
-        notifier.notify();
         println!("bundlemgrd: ready");
+        notifier.notify();
         let keystore = Some(KeystoreHandle::from_loopback(client_keystore));
         run_with_transport(&mut transport, artifacts, keystore, None)
     }
@@ -885,8 +885,8 @@ pub fn service_main_loop(
         let server = nexus_ipc::KernelServer::new()
             .map_err(|err| ServerError::Transport(TransportError::from(err)))?;
         let mut transport = IpcTransport::new(server);
-        notifier.notify();
         println!("bundlemgrd: ready");
+        notifier.notify();
         // TODO: Wire kernel keystore client once IPC is available
         #[cfg(feature = "idl-capnp")]
         let packagefs = match PackageFsHandle::from_kernel() {

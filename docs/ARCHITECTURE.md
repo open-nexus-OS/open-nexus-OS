@@ -42,7 +42,9 @@ out-of-band via VMOs and `map()`.
 - SATP: kernel address space activated early; RISC-V trampoline via `satp_switch_island`.
 - Idle loop: drives cooperative scheduling via `SYSCALL_YIELD`.
 - Syscalls (os-lite): `yield`, `nsec`, `send/recv`, `map`, `vmo_create/write`, `spawn`, `cap_transfer`, `as_create/map`, `exit`, `wait`, `debug_putc`.
-- Entry points: `kmain.rs`, `syscall/api.rs`, `mm/address_space.rs`, `trap.rs`, `satp.rs`.
+- Entry points: `source/kernel/neuron/src/core/kmain.rs`, `source/kernel/neuron/src/syscall/api.rs`,
+  `source/kernel/neuron/src/mm/address_space.rs`, `source/kernel/neuron/src/core/trap.rs`,
+  `source/kernel/neuron/src/mm/satp.rs`.
 - Don't touch without RFC/ADR: syscall IDs/ABI, trap prologue/epilogue, kernel memory map/SATP assumptions.
 
 ## Observability (userspace)

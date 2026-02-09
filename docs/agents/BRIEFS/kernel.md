@@ -2,7 +2,9 @@
 
 Purpose: give minimal context to solve scoped tasks without repo-wide scanning.
 
-- Entry files: `kmain.rs`, `syscall/api.rs`, `mm/address_space.rs`, `trap.rs`, `satp.rs`.
+- Entry files: `source/kernel/neuron/src/core/kmain.rs`, `source/kernel/neuron/src/syscall/api.rs`,
+  `source/kernel/neuron/src/mm/address_space.rs`, `source/kernel/neuron/src/core/trap.rs`,
+  `source/kernel/neuron/src/mm/satp.rs`.
 - Invariants: syscall IDs stable; trap ABI fixed; SATP activation semantics; W^X for user mappings.
 - Scope guard: do not change ABI or trap assembly without RFC/ADR.
 - Typical tasks: document handler invariants, add headers, fix comments, wire tests/log markers.

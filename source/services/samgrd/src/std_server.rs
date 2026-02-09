@@ -356,8 +356,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
         let (client, server) = nexus_ipc::loopback_channel();
         let _client_guard = client;
         let mut transport = IpcTransport::new(server);
-        notifier.notify();
         println!("samgrd: ready");
+        notifier.notify();
         serve_with_registry(&mut transport, Registry::new())
     }
 
@@ -366,8 +366,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
         let server = nexus_ipc::KernelServer::new()
             .map_err(|err| ServerError::Transport(TransportError::from(err)))?;
         let mut transport = IpcTransport::new(server);
-        notifier.notify();
         println!("samgrd: ready");
+        notifier.notify();
         serve_with_registry(&mut transport, Registry::new())
     }
 }
