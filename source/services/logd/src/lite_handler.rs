@@ -25,9 +25,10 @@ use alloc::vec::Vec;
 
 use crate::journal::{AppendOutcome, Journal, JournalError, RecordId, TimestampNsec};
 use crate::protocol::{
-    decode_request, encode_append_response, encode_append_response_v2, encode_query_response_bounded_iter,
-    encode_query_response_bounded_iter_v2, encode_stats_response, encode_stats_response_v2, DecodeError,
-    STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED,
+    decode_request, encode_append_response, encode_append_response_v2,
+    encode_query_response_bounded_iter, encode_query_response_bounded_iter_v2,
+    encode_stats_response, encode_stats_response_v2, DecodeError, STATUS_MALFORMED, STATUS_OK,
+    STATUS_TOO_LARGE, STATUS_UNSUPPORTED,
 };
 
 /// Handles one OS-lite request frame and returns the encoded response bytes.
@@ -51,29 +52,26 @@ pub fn handle_frame(
                 Ok(AppendOutcome { record_id, dropped_records }) => {
                     encode_append_response(STATUS_OK, record_id, dropped_records)
                 }
-                Err(JournalError::TooLarge) => {
-                    encode_append_response(STATUS_TOO_LARGE, RecordId(0), journal.stats().dropped_records)
-                }
+                Err(JournalError::TooLarge) => encode_append_response(
+                    STATUS_TOO_LARGE,
+                    RecordId(0),
+                    journal.stats().dropped_records,
+                ),
             }
         }
-        crate::protocol::Request::AppendV2(a) => match journal.append(
-            sender_service_id,
-            now,
-            a.level,
-            &a.scope,
-            &a.message,
-            &a.fields,
-        ) {
-            Ok(AppendOutcome { record_id, dropped_records }) => {
-                encode_append_response_v2(STATUS_OK, a.nonce, record_id, dropped_records)
+        crate::protocol::Request::AppendV2(a) => {
+            match journal.append(sender_service_id, now, a.level, &a.scope, &a.message, &a.fields) {
+                Ok(AppendOutcome { record_id, dropped_records }) => {
+                    encode_append_response_v2(STATUS_OK, a.nonce, record_id, dropped_records)
+                }
+                Err(JournalError::TooLarge) => encode_append_response_v2(
+                    STATUS_TOO_LARGE,
+                    a.nonce,
+                    RecordId(0),
+                    journal.stats().dropped_records,
+                ),
             }
-            Err(JournalError::TooLarge) => encode_append_response_v2(
-                STATUS_TOO_LARGE,
-                a.nonce,
-                RecordId(0),
-                journal.stats().dropped_records,
-            ),
-        },
+        }
         crate::protocol::Request::Query(q) => {
             let bounded = encode_query_response_bounded_iter(
                 STATUS_OK,
@@ -96,6 +94,8 @@ pub fn handle_frame(
             bounded.as_slice().to_vec()
         }
         crate::protocol::Request::Stats(_) => encode_stats_response(STATUS_OK, journal.stats()),
-        crate::protocol::Request::StatsV2(s) => encode_stats_response_v2(STATUS_OK, s.nonce, journal.stats()),
+        crate::protocol::Request::StatsV2(s) => {
+            encode_stats_response_v2(STATUS_OK, s.nonce, journal.stats())
+        }
     }
 }

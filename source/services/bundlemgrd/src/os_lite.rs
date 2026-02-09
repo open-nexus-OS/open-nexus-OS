@@ -242,7 +242,7 @@ fn route_status(target: &str) -> Option<u8> {
             Err(_) => return None,
         }
         j = j.wrapping_add(1);
-    };
+    }
 }
 
 fn handle_frame(frame: &[u8]) -> [u8; 8] {

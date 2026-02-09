@@ -120,6 +120,8 @@ pub fn assert_slot(actual: u32, expected: u32, service: &str, role: &str) {
             emit(b"\n");
         }
     }
+    // In host builds the parameters may not be used (UART printing is cfg'd out).
+    let _ = (service, role);
 }
 
 /// Emit the slot map for a service at startup (for QEMU log verification).

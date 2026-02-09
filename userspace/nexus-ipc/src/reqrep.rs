@@ -21,8 +21,8 @@ use alloc::vec::Vec;
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
 use std::vec::Vec;
 
-use crate::{Client, IpcError, Wait};
 use crate::budget;
+use crate::{Client, IpcError, Wait};
 
 /// Monotonic nonce generator (no randomness; deterministic).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,16 +31,24 @@ pub struct NonceGen {
 }
 
 impl NonceGen {
-    /// Create a generator starting at `start` (the first `next()` returns `start`).
+    /// Create a generator starting at `start` (the first `next_nonce()` returns `start`).
     pub const fn new(start: u64) -> Self {
         Self { next: start }
     }
 
     /// Returns the next nonce value and increments the generator.
-    pub fn next(&mut self) -> u64 {
+    pub fn next_nonce(&mut self) -> u64 {
         let out = self.next;
         self.next = self.next.wrapping_add(1);
         out
+    }
+}
+
+impl Iterator for NonceGen {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.next_nonce())
     }
 }
 
@@ -349,9 +357,9 @@ mod tests {
     #[test]
     fn test_nonce_gen_monotonic() {
         let mut g = NonceGen::new(1);
-        assert_eq!(g.next(), 1);
-        assert_eq!(g.next(), 2);
-        assert_eq!(g.next(), 3);
+        assert_eq!(g.next_nonce(), 1);
+        assert_eq!(g.next_nonce(), 2);
+        assert_eq!(g.next_nonce(), 3);
     }
 
     #[test]
@@ -461,11 +469,13 @@ mod tests {
         }
 
         // First match rngd; this should buffer the policyd reply.
-        let got_rngd = recv_match_bounded(&client, &mut pending, rngd_nonce as u64, 32, extract).unwrap();
+        let got_rngd =
+            recv_match_bounded(&client, &mut pending, rngd_nonce as u64, 32, extract).unwrap();
         assert!(got_rngd.starts_with(&[b'R', b'G', 1]));
 
         // Then match policyd without receiving more; it must come from the buffer.
-        let got_pol = recv_match_bounded(&client, &mut pending, policyd_nonce as u64, 1, extract).unwrap();
+        let got_pol =
+            recv_match_bounded(&client, &mut pending, policyd_nonce as u64, 1, extract).unwrap();
         assert_eq!(got_pol.len(), 10);
         assert_eq!(&got_pol[..3], &[b'P', b'O', 2]);
     }
@@ -484,9 +494,7 @@ mod tests {
         stash.push(b"AAAA").unwrap();
         stash.push(b"BBBB").unwrap();
         let mut out = [0u8; 8];
-        let n = stash
-            .take_into_where(&mut out, |f| f == b"BBBB")
-            .expect("should find BBBB");
+        let n = stash.take_into_where(&mut out, |f| f == b"BBBB").expect("should find BBBB");
         assert_eq!(&out[..n], b"BBBB");
         assert_eq!(stash.drops(), 0);
     }

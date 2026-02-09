@@ -4,7 +4,6 @@
 //! Host-deterministic integration tests for policyd OS-lite wire handler.
 
 #![forbid(unsafe_code)]
-
 // These tests exercise the OS-lite wire handler; compile them only when the OS-lite
 // implementation is enabled.
 #![cfg(feature = "os-lite")]
@@ -43,4 +42,3 @@ fn inprocess_route_v3_spoof_rejected() {
     assert_eq!(out.len, 10);
     assert_eq!(out.buf[8], 1 /* DENY */);
 }
-

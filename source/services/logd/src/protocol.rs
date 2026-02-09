@@ -289,7 +289,12 @@ pub fn encode_append_response(status: u8, record_id: RecordId, dropped: u64) -> 
     out
 }
 
-pub fn encode_append_response_v2(status: u8, nonce: u64, record_id: RecordId, dropped: u64) -> Vec<u8> {
+pub fn encode_append_response_v2(
+    status: u8,
+    nonce: u64,
+    record_id: RecordId,
+    dropped: u64,
+) -> Vec<u8> {
     // [L,O,ver=2,OP|0x80, status:u8, nonce:u64le, record_id:u64le, dropped:u64le]
     let mut out = Vec::with_capacity(29);
     out.extend_from_slice(&[MAGIC0, MAGIC1, VERSION_V2, OP_APPEND | 0x80, status]);

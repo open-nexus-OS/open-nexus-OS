@@ -15,12 +15,7 @@ use crate::{cap_query, debug_putc, CapQuery};
 /// Probe a slot and return whether it holds a valid capability.
 /// This is a fast, non-blocking check.
 pub fn slot_is_valid(slot: u32) -> bool {
-    let mut info = CapQuery {
-        kind_tag: 0,
-        reserved: 0,
-        base: 0,
-        len: 0,
-    };
+    let mut info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     match cap_query(slot, &mut info) {
         Ok(()) => info.kind_tag != 0, // 0 = empty/invalid
         Err(_) => false,
@@ -32,12 +27,7 @@ const KIND_IPC_ENDPOINT: u32 = 3;
 
 /// Probe a slot and verify it holds an IPC endpoint.
 pub fn slot_is_ipc_endpoint(slot: u32) -> bool {
-    let mut info = CapQuery {
-        kind_tag: 0,
-        reserved: 0,
-        base: 0,
-        len: 0,
-    };
+    let mut info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     match cap_query(slot, &mut info) {
         Ok(()) => info.kind_tag == KIND_IPC_ENDPOINT,
         Err(_) => false,

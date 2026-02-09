@@ -175,7 +175,9 @@ impl KeyStore {
     fn delete(&mut self, sender_service_id: u64, key: &[u8]) -> Result<bool, StatefsError> {
         match &mut self.backend {
             KeyStoreBackend::Statefs(store) => store.delete(sender_service_id, key),
-            KeyStoreBackend::Memory(map) => Ok(map.remove(&(sender_service_id, key.to_vec())).is_some()),
+            KeyStoreBackend::Memory(map) => {
+                Ok(map.remove(&(sender_service_id, key.to_vec())).is_some())
+            }
         }
     }
 
@@ -186,23 +188,21 @@ impl KeyStore {
     /// Reload device key from statefsd (for persistence proof after reboot).
     fn reload_device_key(&mut self) -> Result<Option<[u8; 32]>, StatefsError> {
         match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => {
-                match store.load_device_key() {
-                    Ok(Some(bytes)) => {
-                        emit_line("keystored: reload from statefs ok");
-                        self.device_key_bytes = Some(bytes);
-                        Ok(Some(bytes))
-                    }
-                    Ok(None) => {
-                        emit_line("keystored: reload from statefs (not found)");
-                        Ok(None)
-                    }
-                    Err(err) => {
-                        emit_line("keystored: reload from statefs err");
-                        Err(err)
-                    }
+            KeyStoreBackend::Statefs(store) => match store.load_device_key() {
+                Ok(Some(bytes)) => {
+                    emit_line("keystored: reload from statefs ok");
+                    self.device_key_bytes = Some(bytes);
+                    Ok(Some(bytes))
                 }
-            }
+                Ok(None) => {
+                    emit_line("keystored: reload from statefs (not found)");
+                    Ok(None)
+                }
+                Err(err) => {
+                    emit_line("keystored: reload from statefs err");
+                    Err(err)
+                }
+            },
             KeyStoreBackend::Memory(_) => {
                 emit_line("keystored: reload from memory backend");
                 Ok(self.device_key_bytes)
@@ -556,24 +556,20 @@ fn handle_frame(
     let key = &frame[key_start..key_end];
     let val = &frame[val_start..val_end];
     match op {
-        OP_PUT => {
-            match store.put(sender_service_id, key, val) {
-                Ok(()) => rsp(OP_PUT, STATUS_OK, &[]),
-                Err(err) => rsp(OP_PUT, status_from_statefs_error(err), &[]),
-            }
-        }
+        OP_PUT => match store.put(sender_service_id, key, val) {
+            Ok(()) => rsp(OP_PUT, STATUS_OK, &[]),
+            Err(err) => rsp(OP_PUT, status_from_statefs_error(err), &[]),
+        },
         OP_GET => match store.get(sender_service_id, key) {
             Ok(Some(v)) => rsp(OP_GET, STATUS_OK, &v),
             Ok(None) => rsp(OP_GET, STATUS_NOT_FOUND, &[]),
             Err(err) => rsp(OP_GET, status_from_statefs_error(err), &[]),
         },
-        OP_DEL => {
-            match store.delete(sender_service_id, key) {
-                Ok(true) => rsp(OP_DEL, STATUS_OK, &[]),
-                Ok(false) => rsp(OP_DEL, STATUS_NOT_FOUND, &[]),
-                Err(err) => rsp(OP_DEL, status_from_statefs_error(err), &[]),
-            }
-        }
+        OP_DEL => match store.delete(sender_service_id, key) {
+            Ok(true) => rsp(OP_DEL, STATUS_OK, &[]),
+            Ok(false) => rsp(OP_DEL, STATUS_NOT_FOUND, &[]),
+            Err(err) => rsp(OP_DEL, status_from_statefs_error(err), &[]),
+        },
         _ => rsp(op, STATUS_UNSUPPORTED, &[]),
     }
 }
@@ -616,7 +612,11 @@ fn handle_verify(frame: &[u8]) -> Vec<u8> {
     rsp(OP_VERIFY, STATUS_OK, &[if ok { 1 } else { 0 }])
 }
 
-fn handle_sign(pending: &mut ReplyBuffer<16, 512>, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
+fn handle_sign(
+    pending: &mut ReplyBuffer<16, 512>,
+    sender_service_id: u64,
+    frame: &[u8],
+) -> Vec<u8> {
     // SIGN request:
     // [K, S, ver, OP_SIGN, payload_len:u32le, payload...]
     const HEADER_LEN: usize = 4 + 4;
@@ -841,6 +841,7 @@ fn handle_device_keygen(
     }
 }
 
+#[cfg(test)]
 fn handle_device_keygen_with<P, E>(
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,

@@ -82,11 +82,8 @@ pub fn handle_frame(
             if !privileged_proxy && requester_id != sender_service_id {
                 return rsp_v1(op, STATUS_DENY);
             }
-            let status = if policy.allows(requester_id, CAP_CHECK) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_CHECK) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (VERSION, OP_CHECK_CAP) => {
@@ -102,16 +99,8 @@ pub fn handle_frame(
                 return rsp_v1(op, STATUS_MALFORMED);
             }
             let cap = core::str::from_utf8(&frame[13..]).unwrap_or("");
-            let subject_id = if privileged_proxy {
-                requester_id
-            } else {
-                sender_service_id
-            };
-            let status = if policy.allows(subject_id, cap) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let subject_id = if privileged_proxy { requester_id } else { sender_service_id };
+            let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (VERSION, OP_CHECK_CAP_DELEGATED) => {
@@ -129,15 +118,12 @@ pub fn handle_frame(
             let cap = core::str::from_utf8(&frame[13..]).unwrap_or("");
             // Delegated checks are only allowed for authorized enforcement points.
             // Allow init-lite proxy unconditionally (bring-up topology).
-            let delegate_ok = privileged_proxy || policy.allows(sender_service_id, "policy.delegate");
+            let delegate_ok =
+                privileged_proxy || policy.allows(sender_service_id, "policy.delegate");
             if !delegate_ok {
                 return rsp_v1(op, STATUS_DENY);
             }
-            let status = if policy.allows(subject_id, cap) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (nexus_abi::policyd::VERSION_V2, OP_CHECK_CAP_DELEGATED) => {
@@ -155,15 +141,12 @@ pub fn handle_frame(
                 return rsp_v2(op, nonce, STATUS_MALFORMED);
             }
             let cap = core::str::from_utf8(&frame[17..]).unwrap_or("");
-            let delegate_ok = privileged_proxy || policy.allows(sender_service_id, "policy.delegate");
+            let delegate_ok =
+                privileged_proxy || policy.allows(sender_service_id, "policy.delegate");
             if !delegate_ok {
                 return rsp_v2(op, nonce, STATUS_DENY);
             }
-            let status = if policy.allows(subject_id, cap) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v2(op, nonce, status)
         }
         (VERSION, OP_ROUTE) => {
@@ -217,11 +200,8 @@ pub fn handle_frame(
             if !privileged_proxy && requester_id != sender_service_id {
                 return rsp_v1(op, STATUS_DENY);
             }
-            let status = if policy.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (nexus_abi::policyd::VERSION_V2, nexus_abi::policyd::OP_ROUTE) => {
@@ -247,15 +227,24 @@ pub fn handle_frame(
             rsp_v2(nexus_abi::policyd::OP_ROUTE, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V3, nexus_abi::policyd::OP_ROUTE) => {
-            let (nonce, requester_id, target_id) = match nexus_abi::policyd::decode_route_v3_id(frame) {
-                Some(v) => v,
-                None => {
-                    let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, 0, STATUS_MALFORMED);
-                    return FrameOut { buf, len: 10 };
-                }
-            };
+            let (nonce, requester_id, target_id) =
+                match nexus_abi::policyd::decode_route_v3_id(frame) {
+                    Some(v) => v,
+                    None => {
+                        let buf = nexus_abi::policyd::encode_rsp_v3(
+                            nexus_abi::policyd::OP_ROUTE,
+                            0,
+                            STATUS_MALFORMED,
+                        );
+                        return FrameOut { buf, len: 10 };
+                    }
+                };
             if !privileged_proxy && requester_id != sender_service_id {
-                let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, STATUS_DENY);
+                let buf = nexus_abi::policyd::encode_rsp_v3(
+                    nexus_abi::policyd::OP_ROUTE,
+                    nonce,
+                    STATUS_DENY,
+                );
                 return FrameOut { buf, len: 10 };
             }
             let bundle_id = nexus_abi::service_id_from_name(b"bundlemgrd");
@@ -271,7 +260,8 @@ pub fn handle_frame(
             } else {
                 STATUS_DENY
             };
-            let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, status);
+            let buf =
+                nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, status);
             FrameOut { buf, len: 10 }
         }
         (nexus_abi::policyd::VERSION_V2, nexus_abi::policyd::OP_EXEC) => {
@@ -283,30 +273,33 @@ pub fn handle_frame(
             if !privileged_proxy && requester_id != sender_service_id {
                 return rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
-            let status = if policy.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V3, nexus_abi::policyd::OP_EXEC) => {
-            let (nonce, requester_id, _image_id) = match nexus_abi::policyd::decode_exec_v3_id(frame) {
-                Some(v) => v,
-                None => {
-                    let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_EXEC, 0, STATUS_MALFORMED);
-                    return FrameOut { buf, len: 10 };
-                }
-            };
+            let (nonce, requester_id, _image_id) =
+                match nexus_abi::policyd::decode_exec_v3_id(frame) {
+                    Some(v) => v,
+                    None => {
+                        let buf = nexus_abi::policyd::encode_rsp_v3(
+                            nexus_abi::policyd::OP_EXEC,
+                            0,
+                            STATUS_MALFORMED,
+                        );
+                        return FrameOut { buf, len: 10 };
+                    }
+                };
             if !privileged_proxy && requester_id != sender_service_id {
-                let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
+                let buf = nexus_abi::policyd::encode_rsp_v3(
+                    nexus_abi::policyd::OP_EXEC,
+                    nonce,
+                    STATUS_DENY,
+                );
                 return FrameOut { buf, len: 10 };
             }
-            let status = if policy.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, status);
             FrameOut { buf, len: 10 }
         }
@@ -345,8 +338,14 @@ mod tests {
     #[test]
     fn test_reject_requester_spoof_v1_route() {
         let entries = [
-            PolicyEntry { service_id: nexus_abi::service_id_from_name(b"samgrd"), capabilities: &["ipc.core"] },
-            PolicyEntry { service_id: nexus_abi::service_id_from_name(b"bundlemgrd"), capabilities: &[] },
+            PolicyEntry {
+                service_id: nexus_abi::service_id_from_name(b"samgrd"),
+                capabilities: &["ipc.core"],
+            },
+            PolicyEntry {
+                service_id: nexus_abi::service_id_from_name(b"bundlemgrd"),
+                capabilities: &[],
+            },
         ];
         let policy = Policy::new(&entries);
 
@@ -366,7 +365,10 @@ mod tests {
 
     #[test]
     fn test_allow_privileged_proxy_v1_route_mismatch() {
-        let entries = [PolicyEntry { service_id: nexus_abi::service_id_from_name(b"samgrd"), capabilities: &["ipc.core"] }];
+        let entries = [PolicyEntry {
+            service_id: nexus_abi::service_id_from_name(b"samgrd"),
+            capabilities: &["ipc.core"],
+        }];
         let policy = Policy::new(&entries);
 
         let mut frame = Vec::new();
@@ -414,7 +416,12 @@ mod tests {
         let nonce: u32 = 0xA1B2_C3D4;
         let cap = b"statefs.read";
         let mut frame = Vec::new();
-        frame.extend_from_slice(&[MAGIC0, MAGIC1, nexus_abi::policyd::VERSION_V2, OP_CHECK_CAP_DELEGATED]);
+        frame.extend_from_slice(&[
+            MAGIC0,
+            MAGIC1,
+            nexus_abi::policyd::VERSION_V2,
+            OP_CHECK_CAP_DELEGATED,
+        ]);
         frame.extend_from_slice(&nonce.to_le_bytes());
         frame.extend_from_slice(&subject.to_le_bytes());
         frame.push(cap.len() as u8);
@@ -435,7 +442,8 @@ mod tests {
         let policy = Policy::new(&entries);
 
         let mut buf = [0u8; 64];
-        let n = nexus_abi::policyd::encode_route_v3_id(0xA1B2C3D4, samgrd, execd, &mut buf).unwrap();
+        let n =
+            nexus_abi::policyd::encode_route_v3_id(0xA1B2C3D4, samgrd, execd, &mut buf).unwrap();
         let out = handle_frame(&policy, &buf[..n], bundle, false);
         assert_eq!(out.len, 10);
         assert_eq!(out.buf[0], MAGIC0);

@@ -77,18 +77,17 @@ mod os_lite {
     use exec_payloads::HELLO_ELF;
     use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
     use nexus_abi::{ipc_recv_v1, ipc_recv_v1_nb, ipc_send_v1_nb, yield_, MsgHeader, Pid};
-    use nexus_ipc::Client as _;
     use nexus_ipc::budget::{deadline_after, OsClock};
     use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
     use nexus_ipc::{Client, IpcError, KernelClient, Wait as IpcWait};
-    use statefs::StatefsError;
-    use statefs::protocol as statefs_proto;
     #[cfg(feature = "smoltcp-probe")]
     use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
     #[cfg(feature = "smoltcp-probe")]
     use smoltcp::time::Instant;
     #[cfg(feature = "smoltcp-probe")]
     use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address};
+    use statefs::protocol as statefs_proto;
+    use statefs::StatefsError;
 
     use crate::markers;
     use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_i64, emit_u64};
@@ -123,8 +122,8 @@ mod os_lite {
         // GET: [R,T,1,OP_ROUTE_GET, name_len, name..., nonce:u32le]
         // RSP: [R,T,1,OP_ROUTE_RSP, status, send_slot:u32le, recv_slot:u32le, nonce:u32le]
         let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
-        let base_len = nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()])
-            .ok_or(())?;
+        let base_len =
+            nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()]).ok_or(())?;
         req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
         let req_len = base_len + 4;
         let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
@@ -184,7 +183,8 @@ mod os_lite {
                     if got_nonce != nonce {
                         continue;
                     }
-                    if let Some((status, send, recv)) = nexus_abi::routing::decode_route_rsp(&buf[..13])
+                    if let Some((status, send, recv)) =
+                        nexus_abi::routing::decode_route_rsp(&buf[..13])
                     {
                         return Ok((status, send, recv));
                     }
@@ -196,7 +196,6 @@ mod os_lite {
             }
             j = j.wrapping_add(1);
         }
-        Err(())
     }
 
     // NOTE: legacy samgrd v1 helpers removed; the selftest uses the CAP_MOVE variants below.
@@ -1214,13 +1213,11 @@ mod os_lite {
             core::time::Duration::from_secs(2),
         )
         .map_err(|_| ())?;
-        let rsp = nexus_ipc::budget::recv_budgeted(
-            &clock,
-            policyd,
-            core::time::Duration::from_secs(2),
-        )
-        .map_err(|_| ())?;
-        let (_ver, _op, rsp_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&rsp).ok_or(())?;
+        let rsp =
+            nexus_ipc::budget::recv_budgeted(&clock, policyd, core::time::Duration::from_secs(2))
+                .map_err(|_| ())?;
+        let (_ver, _op, rsp_nonce, status) =
+            nexus_abi::policyd::decode_rsp_v2_or_v3(&rsp).ok_or(())?;
         if rsp_nonce != nonce {
             return Err(());
         }
@@ -1351,19 +1348,11 @@ mod os_lite {
         frame[3] = nexus_ipc::logd_wire::OP_STATS;
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
         let clock = nexus_ipc::budget::OsClock;
-        nexus_ipc::budget::send_budgeted(
-            &clock,
-            logd,
-            &frame,
-            core::time::Duration::from_secs(2),
-        )
-        .map_err(|_| ())?;
-        let rsp = nexus_ipc::budget::recv_budgeted(
-            &clock,
-            logd,
-            core::time::Duration::from_secs(2),
-        )
-        .map_err(|_| ())?;
+        nexus_ipc::budget::send_budgeted(&clock, logd, &frame, core::time::Duration::from_secs(2))
+            .map_err(|_| ())?;
+        let rsp =
+            nexus_ipc::budget::recv_budgeted(&clock, logd, core::time::Duration::from_secs(2))
+                .map_err(|_| ())?;
         let (got_nonce, p) =
             nexus_ipc::logd_wire::parse_stats_response_prefix_v2(&rsp).map_err(|_| ())?;
         if got_nonce != nonce {
@@ -1385,19 +1374,11 @@ mod os_lite {
         frame[3] = nexus_ipc::logd_wire::OP_STATS;
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
         let clock = nexus_ipc::budget::OsClock;
-        nexus_ipc::budget::send_budgeted(
-            &clock,
-            logd,
-            &frame,
-            core::time::Duration::from_secs(2),
-        )
-        .map_err(|_| ())?;
-        let rsp = nexus_ipc::budget::recv_budgeted(
-            &clock,
-            logd,
-            core::time::Duration::from_secs(2),
-        )
-        .map_err(|_| ())?;
+        nexus_ipc::budget::send_budgeted(&clock, logd, &frame, core::time::Duration::from_secs(2))
+            .map_err(|_| ())?;
+        let rsp =
+            nexus_ipc::budget::recv_budgeted(&clock, logd, core::time::Duration::from_secs(2))
+                .map_err(|_| ())?;
         let (got_nonce, p) =
             nexus_ipc::logd_wire::parse_stats_response_prefix_v2(&rsp).map_err(|_| ())?;
         if got_nonce != nonce {
@@ -1488,18 +1469,18 @@ mod os_lite {
             let Some(n) = rsp_len else {
                 if !emitted {
                     emit_line("SELFTEST: logd query recv fail");
-                    emitted = true;
                 }
                 return Err(());
             };
             let rsp = &rsp_buf[..n];
-            let scan = nexus_ipc::logd_wire::scan_query_page_v2(rsp, nonce, needle).map_err(|_| {
-                if !emitted {
-                    emit_line("SELFTEST: logd query rsp parse fail");
-                    emitted = true;
-                }
-                ()
-            })?;
+            let scan =
+                nexus_ipc::logd_wire::scan_query_page_v2(rsp, nonce, needle).map_err(|_| {
+                    if !emitted {
+                        emit_line("SELFTEST: logd query rsp parse fail");
+                        emitted = true;
+                    }
+                    ()
+                })?;
             if scan.count == 0 {
                 // Empty pages are expected early in bring-up; avoid log spam that can blow UART caps.
                 return Ok(false);
@@ -1525,8 +1506,9 @@ mod os_lite {
         let clock = nexus_ipc::budget::OsClock;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let deadline_ns = nexus_ipc::budget::deadline_after(&clock, budget).map_err(|_| ())?;
-        let n = nexus_ipc::budget::raw::recv_budgeted(&clock, recv_slot, &mut hdr, out, deadline_ns)
-            .map_err(|_| ())?;
+        let n =
+            nexus_ipc::budget::raw::recv_budgeted(&clock, recv_slot, &mut hdr, out, deadline_ns)
+                .map_err(|_| ())?;
         Ok(core::cmp::min(n, out.len()))
     }
 
@@ -1539,10 +1521,16 @@ mod os_lite {
     ) -> core::result::Result<(), ()> {
         let frame = [magic0, magic1, version, op];
         let clock = nexus_ipc::budget::OsClock;
-        nexus_ipc::budget::send_budgeted(&clock, svc, &frame, core::time::Duration::from_millis(200))
-            .map_err(|_| ())?;
-        let rsp = nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
-            .map_err(|_| ())?;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            svc,
+            &frame,
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
+        let rsp =
+            nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
+                .map_err(|_| ())?;
         if rsp.len() < 5 || rsp[0] != magic0 || rsp[1] != magic1 || rsp[2] != version {
             return Err(());
         }
@@ -1556,10 +1544,16 @@ mod os_lite {
         // policyd expects frames to be at least 6 bytes (v1 response shape).
         let frame = [b'P', b'O', 1, 0x7f, 0, 0];
         let clock = nexus_ipc::budget::OsClock;
-        nexus_ipc::budget::send_budgeted(&clock, svc, &frame, core::time::Duration::from_millis(200))
-            .map_err(|_| ())?;
-        let rsp = nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
-            .map_err(|_| ())?;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            svc,
+            &frame,
+            core::time::Duration::from_millis(200),
+        )
+        .map_err(|_| ())?;
+        let rsp =
+            nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
+                .map_err(|_| ())?;
         if rsp.len() < 6 || rsp[0] != b'P' || rsp[1] != b'O' || rsp[2] != 1 {
             return Err(());
         }
@@ -1640,12 +1634,15 @@ mod os_lite {
         v2.extend_from_slice(&nonce.to_le_bytes());
         v2.extend_from_slice(&frame[4..]);
 
-        if let Err(err) = client.send(&v2, IpcWait::Timeout(core::time::Duration::from_millis(2000)))
+        if let Err(err) =
+            client.send(&v2, IpcWait::Timeout(core::time::Duration::from_millis(2000)))
         {
             match err {
                 nexus_ipc::IpcError::WouldBlock => emit_line("SELFTEST: statefs send would-block"),
                 nexus_ipc::IpcError::Timeout => emit_line("SELFTEST: statefs send timeout"),
-                nexus_ipc::IpcError::Disconnected => emit_line("SELFTEST: statefs send disconnected"),
+                nexus_ipc::IpcError::Disconnected => {
+                    emit_line("SELFTEST: statefs send disconnected")
+                }
                 nexus_ipc::IpcError::NoSpace => emit_line("SELFTEST: statefs send no-space"),
                 nexus_ipc::IpcError::Kernel(_) => emit_line("SELFTEST: statefs send kernel-error"),
                 nexus_ipc::IpcError::Unsupported => emit_line("SELFTEST: statefs send unsupported"),
@@ -1692,14 +1689,14 @@ mod os_lite {
         let value = b"ok";
         let put = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &put)?;
-        let status = statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp)
-            .map_err(|_| ())?;
+        let status =
+            statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).map_err(|_| ())?;
         if status != statefs_proto::STATUS_OK {
             return Err(());
         }
 
-        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key)
-            .map_err(|_| ())?;
+        let get =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key).map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &get)?;
         let got = match statefs_proto::decode_get_response(&rsp) {
             Ok(bytes) => bytes,
@@ -1730,16 +1727,15 @@ mod os_lite {
     }
 
     fn statefs_unauthorized_access(client: &KernelClient) -> core::result::Result<(), ()> {
-        let get = statefs_proto::encode_key_only_request(
-            statefs_proto::OP_GET,
-            "/state/keystore/deny",
-        )
-        .map_err(|_| ())?;
+        let get =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, "/state/keystore/deny")
+                .map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &get)?;
         match statefs_proto::decode_get_response(&rsp) {
             Err(StatefsError::AccessDenied) => Ok(()),
             _ => {
-                if let Ok(status) = statefs_proto::decode_status_response(statefs_proto::OP_GET, &rsp)
+                if let Ok(status) =
+                    statefs_proto::decode_status_response(statefs_proto::OP_GET, &rsp)
                 {
                     if status == statefs_proto::STATUS_ACCESS_DENIED {
                         return Ok(());
@@ -1830,8 +1826,8 @@ mod os_lite {
         }
         emit_line("SELFTEST: statefs persist reopen ok");
 
-        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key)
-            .map_err(|_| ())?;
+        let get =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key).map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &get)?;
         let got = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
         if got.as_slice() != value {
@@ -1850,8 +1846,8 @@ mod os_lite {
         // Deterministic: use SF v2 (nonce) and only accept the matching reply.
         static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
         let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        let get_v1 =
-            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, BOOTCTL_KEY).map_err(|_| ())?;
+        let get_v1 = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, BOOTCTL_KEY)
+            .map_err(|_| ())?;
         // Upgrade v1 request frame to v2 by inserting nonce after the 4-byte header.
         let mut get = Vec::with_capacity(get_v1.len().saturating_add(8));
         get.extend_from_slice(&get_v1[..4]);
@@ -1916,9 +1912,8 @@ mod os_lite {
         if buf[2] != statefs_proto::VERSION_V2 {
             return Err(());
         }
-        let got_nonce = u64::from_le_bytes([
-            buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-        ]);
+        let got_nonce =
+            u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
         if got_nonce != nonce {
             return Err(());
         }
@@ -2071,7 +2066,9 @@ mod os_lite {
         emit_line("SELFTEST: ipc routing samgrd ok");
         // Reply inbox for CAP_MOVE samgrd RPC.
         let (route_send, route_recv) = match routing_v1_get("vfsd") {
-            Ok((st, send, recv)) if st == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 => {
+            Ok((st, send, recv))
+                if st == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 =>
+            {
                 emit_bytes(b"SELFTEST: routing vfsd st=0x");
                 emit_hex_u64(st as u64);
                 emit_bytes(b" send=0x");
@@ -2216,8 +2213,13 @@ mod os_lite {
                 // Flip B -> A (bounded) so the following tests always stage/switch to B.
                 // Use the same tries_left as the real flow to avoid corner-cases in BootCtrl.
                 for _ in 0..2 {
-                    if updated_stage(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
-                        .is_err()
+                    if updated_stage(
+                        &updated,
+                        reply_send_slot,
+                        reply_recv_slot,
+                        &mut updated_pending,
+                    )
+                    .is_err()
                     {
                         break;
                     }
@@ -4614,23 +4616,16 @@ mod os_lite {
         let _ = nexus_abi::cap_close(reply_send_clone);
 
         // 3) Receive on the reply inbox endpoint (nonce-correlated, bounded, yield-friendly).
-        let rsp = recv_match_until(
-            &clock,
-            &inbox,
-            &mut pending,
-            nonce,
-            deadline_ns,
-            |frame| {
-                if frame.len() == 12 && frame[0..4] == *b"PONG" {
-                    Some(u64::from_le_bytes([
-                        frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10],
-                        frame[11],
-                    ]))
-                } else {
-                    None
-                }
-            },
-        )
+        let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
+            if frame.len() == 12 && frame[0..4] == *b"PONG" {
+                Some(u64::from_le_bytes([
+                    frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10],
+                    frame[11],
+                ]))
+            } else {
+                None
+            }
+        })
         .map_err(|_| ())?;
         if rsp.len() == 12 && rsp[0..4] == *b"PONG" {
             Ok(())
@@ -4684,29 +4679,22 @@ mod os_lite {
             }
         }
         let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
-        let rsp = recv_match_until(
-            &clock,
-            &inbox,
-            &mut pending,
-            nonce,
-            deadline_ns,
-            |frame| {
-                if frame.len() == 17
-                    && frame[0] == b'S'
-                    && frame[1] == b'M'
-                    && frame[2] == 1
-                    && frame[3] == (4 | 0x80)
-                    && frame[4] == 0
-                {
-                    Some(u64::from_le_bytes([
-                        frame[9], frame[10], frame[11], frame[12], frame[13], frame[14],
-                        frame[15], frame[16],
-                    ]))
-                } else {
-                    None
-                }
-            },
-        )
+        let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
+            if frame.len() == 17
+                && frame[0] == b'S'
+                && frame[1] == b'M'
+                && frame[2] == 1
+                && frame[3] == (4 | 0x80)
+                && frame[4] == 0
+            {
+                Some(u64::from_le_bytes([
+                    frame[9], frame[10], frame[11], frame[12], frame[13], frame[14], frame[15],
+                    frame[16],
+                ]))
+            } else {
+                None
+            }
+        })
         .map_err(|_| ())?;
         if rsp.len() != 17 || rsp[0] != b'S' || rsp[1] != b'M' || rsp[2] != 1 {
             return Err(());
@@ -4715,7 +4703,11 @@ mod os_lite {
             return Err(());
         }
         let got = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
-        if got == me { Ok(()) } else { Err(()) }
+        if got == me {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     fn sender_service_id_probe() -> core::result::Result<(), ()> {
@@ -4768,29 +4760,22 @@ mod os_lite {
             }
         }
         let inbox = ReplyInboxV2 { recv_slot: reply_recv_slot, last_sid: Cell::new(0) };
-        let rsp = recv_match_until(
-            &clock,
-            &inbox,
-            &mut pending,
-            nonce,
-            deadline_ns,
-            |frame| {
-                if frame.len() == 21
-                    && frame[0] == b'S'
-                    && frame[1] == b'M'
-                    && frame[2] == 1
-                    && frame[3] == (5 | 0x80)
-                    && frame[4] == 0
-                {
-                    Some(u64::from_le_bytes([
-                        frame[13], frame[14], frame[15], frame[16], frame[17], frame[18],
-                        frame[19], frame[20],
-                    ]))
-                } else {
-                    None
-                }
-            },
-        )
+        let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
+            if frame.len() == 21
+                && frame[0] == b'S'
+                && frame[1] == b'M'
+                && frame[2] == 1
+                && frame[3] == (5 | 0x80)
+                && frame[4] == 0
+            {
+                Some(u64::from_le_bytes([
+                    frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19],
+                    frame[20],
+                ]))
+            } else {
+                None
+            }
+        })
         .map_err(|_| ())?;
 
         if rsp.len() != 21 || rsp[0] != b'S' || rsp[1] != b'M' || rsp[2] != 1 {
@@ -4799,13 +4784,18 @@ mod os_lite {
         if rsp[3] != (5 | 0x80) || rsp[4] != 0 {
             return Err(());
         }
-        let got = u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
+        let got =
+            u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
         let sender_sid = inbox.last_sid.get();
         let samgrd_id = nexus_abi::service_id_from_name(b"samgrd");
         if sender_sid != samgrd_id {
             return Err(());
         }
-        if got == expected { Ok(()) } else { Err(()) }
+        if got == expected {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     /// Deterministic “soak” probe for IPC production-grade behaviour.
@@ -4889,23 +4879,16 @@ mod os_lite {
                 }
             }
             let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
-            let rsp = recv_match_until(
-                &clock,
-                &inbox,
-                &mut pending,
-                nonce,
-                deadline_ns,
-                |frame| {
-                    if frame.len() == 12 && frame[0..4] == *b"PONG" {
-                        Some(u64::from_le_bytes([
-                            frame[4], frame[5], frame[6], frame[7], frame[8], frame[9],
-                            frame[10], frame[11],
-                        ]))
-                    } else {
-                        None
-                    }
-                },
-            )
+            let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
+                if frame.len() == 12 && frame[0..4] == *b"PONG" {
+                    Some(u64::from_le_bytes([
+                        frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10],
+                        frame[11],
+                    ]))
+                } else {
+                    None
+                }
+            })
             .map_err(|_| ())?;
             if rsp.len() != 12 || rsp[0..4] != *b"PONG" {
                 return Err(());

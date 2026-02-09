@@ -87,7 +87,7 @@ pub mod protocol {
     use alloc::vec::Vec;
     use core::str;
 
-    use super::{MAX_KEY_LEN, MAX_VALUE_SIZE, StatefsError};
+    use super::{StatefsError, MAX_KEY_LEN, MAX_VALUE_SIZE};
 
     pub const MAGIC0: u8 = b'S';
     pub const MAGIC1: u8 = b'F';
@@ -602,7 +602,9 @@ pub mod client {
     use super::protocol;
     use super::StatefsError;
     use nexus_abi;
-    use nexus_ipc::{Client as _, KernelClient, Wait};
+    use nexus_ipc::KernelClient;
+    #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
+    use nexus_ipc::Wait;
 
     /// Client for statefsd IPC operations.
     pub struct StatefsClient {
@@ -669,7 +671,11 @@ pub mod client {
         }
 
         #[cfg(all(nexus_env = "os", feature = "os-lite"))]
-        fn send_and_recv_raw(&self, frame: Vec<u8>, expected_op: u8) -> Result<Vec<u8>, StatefsError> {
+        fn send_and_recv_raw(
+            &self,
+            frame: Vec<u8>,
+            expected_op: u8,
+        ) -> Result<Vec<u8>, StatefsError> {
             // OS-lite bring-up: avoid indefinite blocking waits.
             // Use explicit NONBLOCK + bounded retry with `nsec()` deadlines.
             let (send_slot, recv_slot) = if let Some(reply) = &self.reply {
@@ -714,8 +720,13 @@ pub mod client {
             // Send bounded.
             let mut i: usize = 0;
             loop {
-                match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0)
-                {
+                match nexus_abi::ipc_send_v1(
+                    send_slot,
+                    &hdr,
+                    &frame,
+                    nexus_abi::IPC_SYS_NONBLOCK,
+                    0,
+                ) {
                     Ok(_) => break,
                     Err(nexus_abi::IpcError::QueueFull) => {
                         if (i & 0x7f) == 0 {
@@ -779,7 +790,11 @@ pub mod client {
         }
 
         #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
-        fn send_and_recv_raw(&self, frame: Vec<u8>, _expected_op: u8) -> Result<Vec<u8>, StatefsError> {
+        fn send_and_recv_raw(
+            &self,
+            frame: Vec<u8>,
+            _expected_op: u8,
+        ) -> Result<Vec<u8>, StatefsError> {
             if let Some(reply) = &self.reply {
                 let (reply_send_slot, _reply_recv_slot) = reply.slots();
                 let reply_send_clone =
@@ -787,12 +802,12 @@ pub mod client {
                 self.client
                     .send_with_cap_move_wait(&frame, reply_send_clone, Wait::Blocking)
                     .map_err(|_| StatefsError::IoError)?;
-                reply.recv(Wait::Blocking).map_err(|_| StatefsError::IoError)
+                nexus_ipc::Client::recv(reply, Wait::Blocking).map_err(|_| StatefsError::IoError)
             } else {
-                self.client
-                    .send(&frame, Wait::Blocking)
+                nexus_ipc::Client::send(&self.client, &frame, Wait::Blocking)
                     .map_err(|_| StatefsError::IoError)?;
-                self.client.recv(Wait::Blocking).map_err(|_| StatefsError::IoError)
+                nexus_ipc::Client::recv(&self.client, Wait::Blocking)
+                    .map_err(|_| StatefsError::IoError)
             }
         }
     }
@@ -943,18 +958,9 @@ fn parse_record(data: &[u8]) -> Result<Option<(JournalRecord, usize)>, StatefsEr
     }
 
     // Parse key as UTF-8
-    let key = core::str::from_utf8(key_bytes)
-        .map_err(|_| StatefsError::Corrupted)?
-        .into();
+    let key = core::str::from_utf8(key_bytes).map_err(|_| StatefsError::Corrupted)?.into();
 
-    Ok(Some((
-        JournalRecord {
-            op,
-            key,
-            value: value.to_vec(),
-        },
-        total_len,
-    )))
+    Ok(Some((JournalRecord { op, key, value: value.to_vec() }, total_len)))
 }
 
 // ============================================================================
@@ -975,12 +981,7 @@ pub struct JournalEngine<B: BlockDevice> {
 impl<B: BlockDevice> JournalEngine<B> {
     /// Create a new journal engine and replay existing journal from device.
     pub fn open(device: B) -> Result<Self, StatefsError> {
-        let mut engine = Self {
-            device,
-            kv: BTreeMap::new(),
-            write_pos: 0,
-            record_count: 0,
-        };
+        let mut engine = Self { device, kv: BTreeMap::new(), write_pos: 0, record_count: 0 };
         engine.replay()?;
         Ok(engine)
     }
@@ -998,9 +999,7 @@ impl<B: BlockDevice> JournalEngine<B> {
         let mut done = false;
 
         for block_idx in 0..block_count {
-            self.device
-                .read_block(block_idx, &mut block_buf)
-                .map_err(|_| StatefsError::IoError)?;
+            self.device.read_block(block_idx, &mut block_buf).map_err(|_| StatefsError::IoError)?;
 
             if buf_len + block_size > buf.len() {
                 buf.resize(buf_len + block_size, 0);
@@ -1017,8 +1016,12 @@ impl<B: BlockDevice> JournalEngine<B> {
                 // If we have magic but not enough bytes for a full record yet, wait for more data.
                 if buf[pos..pos + 4] == JOURNAL_MAGIC.to_le_bytes() {
                     let key_len = u16::from_le_bytes([buf[pos + 5], buf[pos + 6]]) as usize;
-                    let value_len =
-                        u32::from_le_bytes([buf[pos + 7], buf[pos + 8], buf[pos + 9], buf[pos + 10]]) as usize;
+                    let value_len = u32::from_le_bytes([
+                        buf[pos + 7],
+                        buf[pos + 8],
+                        buf[pos + 9],
+                        buf[pos + 10],
+                    ]) as usize;
                     let total_len = RECORD_HEADER_SIZE + key_len + value_len;
                     if remaining < total_len {
                         break;
@@ -1079,21 +1082,30 @@ impl<B: BlockDevice> JournalEngine<B> {
             return Err(StatefsError::InvalidKey);
         }
         // Check for path traversal
-        if key.contains("/../") || key.contains("/./") || key.ends_with("/..") || key.ends_with("/.") {
+        if key.contains("/../")
+            || key.contains("/./")
+            || key.ends_with("/..")
+            || key.ends_with("/.")
+        {
             return Err(StatefsError::InvalidKey);
         }
         Ok(())
     }
 
     /// Write a record to the journal and update in-memory state.
-    fn append_record(&mut self, op: JournalOpCode, key: &str, value: &[u8]) -> Result<(), StatefsError> {
+    fn append_record(
+        &mut self,
+        op: JournalOpCode,
+        key: &str,
+        value: &[u8],
+    ) -> Result<(), StatefsError> {
         let record_bytes = serialize_record(op, key, value);
         let block_size = self.device.block_size();
 
         // Calculate which blocks to write
         let start_block = self.write_pos / block_size;
         let end_byte = self.write_pos + record_bytes.len();
-        let end_block = (end_byte + block_size - 1) / block_size;
+        let end_block = end_byte.div_ceil(block_size);
 
         // Check if we have space
         if end_block as u64 > self.device.block_count() {
@@ -1114,16 +1126,9 @@ impl<B: BlockDevice> JournalEngine<B> {
             let block_start_byte = block_idx * block_size;
             let block_end_byte = block_start_byte + block_size;
 
-            let write_start = if self.write_pos > block_start_byte {
-                self.write_pos - block_start_byte
-            } else {
-                0
-            };
-            let write_end = if end_byte < block_end_byte {
-                end_byte - block_start_byte
-            } else {
-                block_size
-            };
+            let write_start = self.write_pos.saturating_sub(block_start_byte);
+            let write_end =
+                if end_byte < block_end_byte { end_byte - block_start_byte } else { block_size };
 
             let record_chunk_len = write_end - write_start;
             buf[write_start..write_end]
@@ -1131,9 +1136,7 @@ impl<B: BlockDevice> JournalEngine<B> {
             record_offset += record_chunk_len;
 
             // Write block back
-            self.device
-                .write_block(block_idx as u64, &buf)
-                .map_err(|_| StatefsError::IoError)?;
+            self.device.write_block(block_idx as u64, &buf).map_err(|_| StatefsError::IoError)?;
         }
 
         self.write_pos = end_byte;
@@ -1183,13 +1186,8 @@ impl<B: BlockDevice> JournalEngine<B> {
             return Err(StatefsError::InvalidKey);
         }
 
-        let keys: Vec<String> = self
-            .kv
-            .keys()
-            .filter(|k| k.starts_with(prefix))
-            .take(limit)
-            .cloned()
-            .collect();
+        let keys: Vec<String> =
+            self.kv.keys().filter(|k| k.starts_with(prefix)).take(limit).cloned().collect();
 
         Ok(keys)
     }
@@ -1236,10 +1234,7 @@ mod tests {
         let block_size = device.block_size();
         let blocks = device.raw_storage_mut();
         let capacity = block_size * blocks.len();
-        assert!(
-            bytes.len() <= capacity,
-            "fixture bytes exceed device capacity"
-        );
+        assert!(bytes.len() <= capacity, "fixture bytes exceed device capacity");
         for (idx, block) in blocks.iter_mut().enumerate() {
             block.fill(0);
             let start = idx * block_size;
@@ -1320,20 +1315,14 @@ mod tests {
     fn test_reject_value_oversized() {
         let mut engine = create_engine(512, 100);
         let big_value = vec![0u8; MAX_VALUE_SIZE + 1];
-        assert_eq!(
-            engine.put("/state/test/big", &big_value),
-            Err(StatefsError::ValueTooLarge)
-        );
+        assert_eq!(engine.put("/state/test/big", &big_value), Err(StatefsError::ValueTooLarge));
     }
 
     #[test]
     fn test_reject_key_too_long() {
         let mut engine = create_engine(512, 100);
         let long_key = format!("/state/{}", "x".repeat(MAX_KEY_LEN));
-        assert_eq!(
-            engine.put(&long_key, b"value"),
-            Err(StatefsError::KeyTooLong)
-        );
+        assert_eq!(engine.put(&long_key, b"value"), Err(StatefsError::KeyTooLong));
     }
 
     #[test]
@@ -1377,10 +1366,7 @@ mod tests {
     #[test]
     fn test_delete_nonexistent() {
         let mut engine = create_engine(512, 100);
-        assert_eq!(
-            engine.delete("/state/nonexistent"),
-            Err(StatefsError::NotFound)
-        );
+        assert_eq!(engine.delete("/state/nonexistent"), Err(StatefsError::NotFound));
     }
 
     #[test]
@@ -1420,11 +1406,11 @@ mod tests {
 
         // Simulate BootCtrl v1 binary format: [version, active_slot, pending, tries, health]
         let bootctrl_state: [u8; 5] = [
-            1,    // version
-            0,    // active_slot = A
-            1,    // pending_slot = Some(B) encoded as 1
-            3,    // tries_left
-            0,    // health_ok = false
+            1, // version
+            0, // active_slot = A
+            1, // pending_slot = Some(B) encoded as 1
+            3, // tries_left
+            0, // health_ok = false
         ];
 
         let device = MemBlockDevice::new(512, 100);
@@ -1573,8 +1559,7 @@ mod tests {
     fn test_partial_record_boundary_replay() {
         let mut device = MemBlockDevice::new(512, 6);
         let large_value = vec![0x11u8; 1300];
-        let record_large =
-            serialize_record(JournalOpCode::Put, "/state/test/large", &large_value);
+        let record_large = serialize_record(JournalOpCode::Put, "/state/test/large", &large_value);
         let record_tail = serialize_record(JournalOpCode::Put, "/state/test/tail", b"ok");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&record_large);

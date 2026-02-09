@@ -23,7 +23,6 @@
 
 use nexus_hal::{Bus, DmaBuffer};
 
-
 /// VirtIO MMIO magic ("virt" LE).
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976;
 /// VirtIO MMIO legacy version.
@@ -61,7 +60,7 @@ const REG_QUEUE_DEVICE_LOW: usize = 0x0a0;
 const REG_QUEUE_DEVICE_HIGH: usize = 0x0a4;
 
 const REG_CONFIG_BASE: usize = 0x100;
-const REG_CONFIG_CAPACITY_LOW: usize = REG_CONFIG_BASE + 0x00;
+const REG_CONFIG_CAPACITY_LOW: usize = REG_CONFIG_BASE;
 const REG_CONFIG_CAPACITY_HIGH: usize = REG_CONFIG_BASE + 0x04;
 
 // Status bits (VirtIO 1.0).
@@ -265,22 +264,24 @@ mod mmio_backend {
     use core::sync::atomic::{fence, Ordering};
 
     use super::{
-        QueueSetup, VirtioBlk, VirtioError, VIRTIO_DEVICE_ID_BLK, VIRTIO_MMIO_MAGIC,
-        VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN, REG_STATUS,
-        REG_QUEUE_SEL, REG_QUEUE_NUM_MAX, REG_QUEUE_PFN,
+        QueueSetup, VirtioBlk, VirtioError, REG_QUEUE_NUM_MAX, REG_QUEUE_PFN, REG_QUEUE_SEL,
+        REG_STATUS, VIRTIO_DEVICE_ID_BLK, VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY,
+        VIRTIO_MMIO_VERSION_MODERN,
     };
-    use nexus_abi::{cap_query, debug_putc, mmio_map, nsec, vmo_create, vmo_map_page_sys, AbiError, CapQuery};
+    use nexus_abi::{
+        cap_query, debug_putc, mmio_map, nsec, vmo_create, vmo_map_page_sys, AbiError, CapQuery,
+    };
     use nexus_hal::Bus;
 
     const VIRTQ_DESC_F_NEXT: u16 = 1;
     const VIRTQ_DESC_F_WRITE: u16 = 2;
 
-const VIRTIO_BLK_T_IN: u32 = 0;
-const VIRTIO_BLK_T_OUT: u32 = 1;
-const VIRTIO_BLK_T_FLUSH: u32 = 4;
-const VIRTIO_BLK_S_OK: u8 = 0;
-const VIRTIO_F_VERSION_1: u64 = 32;
-const VIRTIO_BLK_F_FLUSH: u64 = 9;
+    const VIRTIO_BLK_T_IN: u32 = 0;
+    const VIRTIO_BLK_T_OUT: u32 = 1;
+    const VIRTIO_BLK_T_FLUSH: u32 = 4;
+    const VIRTIO_BLK_S_OK: u8 = 0;
+    const VIRTIO_F_VERSION_1: u64 = 32;
+    const VIRTIO_BLK_F_FLUSH: u64 = 9;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -642,50 +643,52 @@ const VIRTIO_BLK_F_FLUSH: u64 = 9;
             unsafe {
                 // Use volatile writes for descriptors since device reads them
                 if is_flush {
-                    core::ptr::write_volatile(self.desc.add(0), VqDesc {
-                        addr: self.req_pa,
-                        len: size_of::<BlkReq>() as u32,
-                        flags: VIRTQ_DESC_F_NEXT,
-                        next: 1,
-                    });
-                    core::ptr::write_volatile(self.desc.add(1), VqDesc {
-                        addr: self.status_pa,
-                        len: 1,
-                        flags: VIRTQ_DESC_F_WRITE,
-                        next: 0,
-                    });
-                } else {
-                    core::ptr::write_volatile(self.desc.add(0), VqDesc {
-                        addr: self.req_pa,
-                        len: size_of::<BlkReq>() as u32,
-                        flags: VIRTQ_DESC_F_NEXT,
-                        next: 1,
-                    });
-                    core::ptr::write_volatile(self.desc.add(1), VqDesc {
-                        addr: self.data_pa,
-                        len: self.sector_size,
-                        flags: if req_type == VIRTIO_BLK_T_IN {
-                            VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE
-                        } else {
-                            VIRTQ_DESC_F_NEXT
+                    core::ptr::write_volatile(
+                        self.desc.add(0),
+                        VqDesc {
+                            addr: self.req_pa,
+                            len: size_of::<BlkReq>() as u32,
+                            flags: VIRTQ_DESC_F_NEXT,
+                            next: 1,
                         },
-                        next: 2,
-                    });
-                    core::ptr::write_volatile(self.desc.add(2), VqDesc {
-                        addr: self.status_pa,
-                        len: 1,
-                        flags: VIRTQ_DESC_F_WRITE,
-                        next: 0,
-                    });
+                    );
+                    core::ptr::write_volatile(
+                        self.desc.add(1),
+                        VqDesc { addr: self.status_pa, len: 1, flags: VIRTQ_DESC_F_WRITE, next: 0 },
+                    );
+                } else {
+                    core::ptr::write_volatile(
+                        self.desc.add(0),
+                        VqDesc {
+                            addr: self.req_pa,
+                            len: size_of::<BlkReq>() as u32,
+                            flags: VIRTQ_DESC_F_NEXT,
+                            next: 1,
+                        },
+                    );
+                    core::ptr::write_volatile(
+                        self.desc.add(1),
+                        VqDesc {
+                            addr: self.data_pa,
+                            len: self.sector_size,
+                            flags: if req_type == VIRTIO_BLK_T_IN {
+                                VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE
+                            } else {
+                                VIRTQ_DESC_F_NEXT
+                            },
+                            next: 2,
+                        },
+                    );
+                    core::ptr::write_volatile(
+                        self.desc.add(2),
+                        VqDesc { addr: self.status_pa, len: 1, flags: VIRTQ_DESC_F_WRITE, next: 0 },
+                    );
                 }
 
                 let avail = &mut *self.avail;
                 let idx = core::ptr::read_volatile(&avail.idx);
                 // Use volatile write for the ring entry since device reads it
-                core::ptr::write_volatile(
-                    &mut avail.ring[(idx as usize) % self.queue_len],
-                    0,
-                );
+                core::ptr::write_volatile(&mut avail.ring[(idx as usize) % self.queue_len], 0);
                 core::ptr::write_volatile(&mut avail.idx, idx.wrapping_add(1));
             }
 
@@ -765,9 +768,9 @@ const VIRTIO_BLK_F_FLUSH: u64 = 9;
             let mut poll_count = 0u32;
             loop {
                 unsafe {
-                let used_idx = core::ptr::read_volatile(&(*self.used).idx);
-                if used_idx != self.last_used.get() {
-                    self.last_used.set(used_idx);
+                    let used_idx = core::ptr::read_volatile(&(*self.used).idx);
+                    if used_idx != self.last_used.get() {
+                        self.last_used.set(used_idx);
                         break;
                     }
                 }
@@ -804,7 +807,6 @@ const VIRTIO_BLK_F_FLUSH: u64 = 9;
             Ok(())
         }
     }
-
 }
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

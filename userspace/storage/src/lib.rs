@@ -52,9 +52,7 @@ pub struct MemBlockDevice {
 impl MemBlockDevice {
     /// Create a new memory block device with given block size and count.
     pub fn new(block_size: usize, block_count: u64) -> Self {
-        let blocks = (0..block_count)
-            .map(|_| vec![0u8; block_size])
-            .collect();
+        let blocks = (0..block_count).map(|_| vec![0u8; block_size]).collect();
         Self { block_size, blocks }
     }
 

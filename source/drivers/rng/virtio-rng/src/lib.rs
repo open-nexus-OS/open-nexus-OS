@@ -91,11 +91,15 @@ mod mmio {
     pub const REG_DEVICE_FEATURES_SEL: usize = 0x014;
     pub const REG_DRIVER_FEATURES: usize = 0x020;
     pub const REG_DRIVER_FEATURES_SEL: usize = 0x024;
+    // Legacy-only registers (present in the virtio-mmio map, unused in modern mode).
+    #[allow(dead_code)]
     pub const REG_GUEST_PAGE_SIZE: usize = 0x028; // legacy only
     pub const REG_QUEUE_SEL: usize = 0x030;
     pub const REG_QUEUE_NUM_MAX: usize = 0x034;
     pub const REG_QUEUE_NUM: usize = 0x038;
+    #[allow(dead_code)]
     pub const REG_QUEUE_ALIGN: usize = 0x03c; // legacy only
+    #[allow(dead_code)]
     pub const REG_QUEUE_PFN: usize = 0x040; // legacy only
     pub const REG_QUEUE_NOTIFY: usize = 0x050;
     pub const REG_STATUS: usize = 0x070;
@@ -376,7 +380,9 @@ pub fn read_entropy_via_virtio_mmio(
             break;
         }
     }
-    let Some(slot) = found else { return Err(RngError::NotFound) };
+    let Some(slot) = found else {
+        return Err(RngError::NotFound);
+    };
     let dev_va = mmio_base_va + slot * SLOT_STRIDE;
 
     let version = unsafe { core::ptr::read_volatile((dev_va + mmio::REG_VERSION) as *const u32) };
@@ -468,12 +474,18 @@ pub fn read_entropy_via_virtio_mmio(
             (dev_va + mmio::REG_QUEUE_DESC_HIGH) as *mut u32,
             (desc_pa >> 32) as u32,
         );
-        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_DRIVER_LOW) as *mut u32, avail_pa as u32);
+        core::ptr::write_volatile(
+            (dev_va + mmio::REG_QUEUE_DRIVER_LOW) as *mut u32,
+            avail_pa as u32,
+        );
         core::ptr::write_volatile(
             (dev_va + mmio::REG_QUEUE_DRIVER_HIGH) as *mut u32,
             (avail_pa >> 32) as u32,
         );
-        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_DEVICE_LOW) as *mut u32, used_pa as u32);
+        core::ptr::write_volatile(
+            (dev_va + mmio::REG_QUEUE_DEVICE_LOW) as *mut u32,
+            used_pa as u32,
+        );
         core::ptr::write_volatile(
             (dev_va + mmio::REG_QUEUE_DEVICE_HIGH) as *mut u32,
             (used_pa >> 32) as u32,

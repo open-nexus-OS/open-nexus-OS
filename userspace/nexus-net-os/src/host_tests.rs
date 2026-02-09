@@ -52,7 +52,7 @@ fn dhcp_discover_uses_standard_ports_and_broadcast() {
     use smoltcp::socket::dhcpv4;
     use smoltcp::time::Instant;
     use smoltcp::wire::{
-        EthernetAddress, EthernetFrame, HardwareAddress, Ipv4Address, Ipv4Packet, IpProtocol,
+        EthernetAddress, EthernetFrame, HardwareAddress, IpProtocol, Ipv4Address, Ipv4Packet,
         UdpPacket,
     };
 
@@ -88,14 +88,23 @@ fn dhcp_discover_uses_standard_ports_and_broadcast() {
     }
 
     impl Device for CaptureDevice {
-        type RxToken<'a> = NoRx where Self: 'a;
-        type TxToken<'a> = CaptTx<'a> where Self: 'a;
+        type RxToken<'a>
+            = NoRx
+        where
+            Self: 'a;
+        type TxToken<'a>
+            = CaptTx<'a>
+        where
+            Self: 'a;
 
         fn capabilities(&self) -> DeviceCapabilities {
             self.caps.clone()
         }
 
-        fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        fn receive(
+            &mut self,
+            _timestamp: Instant,
+        ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
             None
         }
 
@@ -138,15 +147,21 @@ fn dhcp_discover_uses_standard_ports_and_broadcast() {
     // Assert at least one outbound UDP frame uses DHCP client/server ports.
     let mut saw = false;
     for frame in &dev.tx {
-        let Ok(eth) = EthernetFrame::new_checked(frame) else { continue };
+        let Ok(eth) = EthernetFrame::new_checked(frame) else {
+            continue;
+        };
         if eth.ethertype() != smoltcp::wire::EthernetProtocol::Ipv4 {
             continue;
         }
-        let Ok(ip) = Ipv4Packet::new_checked(eth.payload()) else { continue };
+        let Ok(ip) = Ipv4Packet::new_checked(eth.payload()) else {
+            continue;
+        };
         if ip.next_header() != IpProtocol::Udp {
             continue;
         }
-        let Ok(udp) = UdpPacket::new_checked(ip.payload()) else { continue };
+        let Ok(udp) = UdpPacket::new_checked(ip.payload()) else {
+            continue;
+        };
         let src = udp.src_port();
         let dst = udp.dst_port();
         if src == 68 && dst == 67 {
@@ -166,17 +181,14 @@ impl DhcpState {
     fn handle_event(&mut self, ev: Event) -> Option<DhcpUpdate> {
         match ev {
             Event::Configured { ip, prefix_len, gateway } => {
-                let is_new = self.bound_ip != Some((ip, prefix_len)) || self.bound_gateway != gateway;
+                let is_new =
+                    self.bound_ip != Some((ip, prefix_len)) || self.bound_gateway != gateway;
                 if !is_new {
                     return None;
                 }
                 self.bound_ip = Some((ip, prefix_len));
                 self.bound_gateway = gateway;
-                Some(DhcpUpdate::Configured(DhcpConfig {
-                    ip,
-                    prefix_len,
-                    gateway,
-                }))
+                Some(DhcpUpdate::Configured(DhcpConfig { ip, prefix_len, gateway }))
             }
             Event::Deconfigured => {
                 self.bound_ip = None;

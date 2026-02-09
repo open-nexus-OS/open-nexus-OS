@@ -76,7 +76,9 @@ set_env_var() {
 build_os_once() {
   export RUSTFLAGS="$RUSTFLAGS_OS"
 
-  local services="keystored,rngd,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
+  # Keep this aligned with init-lite expectations (os_payload): include updated + logd + statefsd
+  # so policy-gated MMIO grants and persistence bring-up don't fatal during cross-VM runs.
+  local services="logd,updated,keystored,rngd,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,statefsd,netstackd,dsoftbusd,selftest-client"
   export INIT_LITE_SERVICE_LIST="$services"
 
   IFS=',' read -r -a svcs <<<"$services"
@@ -120,6 +122,12 @@ launch_qemu() {
   local hostlog=$4
 
   local KERNEL_BIN="$ROOT/target/$TARGET/release/neuron-boot.bin"
+  local blk_img="$LOG_DIR/blk-${name}.img"
+  # Always recreate to avoid stale lock contention between runs.
+  rm -f "$blk_img"
+  # 64MiB is enough for StateFS + bring-up markers.
+  qemu-img create -f raw "$blk_img" 64M >/dev/null
+
   local netdev
   if [[ "$name" == "A" ]]; then
     netdev="$NETDEV_A"
@@ -134,8 +142,12 @@ launch_qemu() {
     -nographic
     -serial mon:stdio
     -icount 1,sleep=on
+    -global virtio-mmio.force-legacy=off
     -bios default
     -kernel "$KERNEL_BIN"
+    -drive "file=${blk_img},if=none,format=raw,id=drv0"
+    -device "virtio-blk-device,drive=drv0"
+    -device virtio-rng-device
     ${netdev}
     -device "virtio-net-device,netdev=n0,mac=$mac"
   )
@@ -165,6 +177,10 @@ launch_qemu() {
 
 echo "[info] Building OS artifacts once..."
 build_os_once
+
+# Best-effort cleanup: avoid stale socket backend contention between runs.
+# (If a previous run crashed, QEMU may still hold the listen port.)
+pkill -f "qemu-system-riscv64.*37021" 2>/dev/null || true
 
 echo "[info] Launching Node A..."
 PID_A=$(launch_qemu A "$A_MAC" "$UART_A" "$HOST_A")

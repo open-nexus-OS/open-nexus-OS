@@ -233,8 +233,7 @@ fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
     // for the crash record contents (not by receiving the APPEND response).
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
     let clock = nexus_ipc::budget::OsClock;
-    let deadline_ns =
-        nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
+    let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
         .map_err(|_| ())?;
 
     nexus_ipc::budget::raw::send_budgeted(&clock, LOGD_SEND_SLOT, &hdr, &frame, deadline_ns)
@@ -245,12 +244,8 @@ fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
                     emit_line_no_nl("execd: crash logd send kernel=");
                     emit_line(ipc_error_label(inner));
                     if inner == nexus_abi::IpcError::NoSuchEndpoint {
-                        let mut info = nexus_abi::CapQuery {
-                            kind_tag: 0,
-                            reserved: 0,
-                            base: 0,
-                            len: 0,
-                        };
+                        let mut info =
+                            nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
                         match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
                             Ok(()) => {
                                 emit_line_no_nl("execd: crash logd slot kind=");

@@ -192,8 +192,8 @@ impl SmoltcpVirtioNetStack {
         // - MRG_RXBUF (12-byte virtio_net_hdr_mrg_rxbuf) for RX correctness under QEMU usernet
         // - VIRTIO_F_VERSION_1 when present (required for virtio 1.0 "modern" devices)
         dev.reset();
-        let accepted =
-            dev.negotiate_features(VIRTIO_NET_F_MAC | VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_VERSION_1)
+        let accepted = dev
+            .negotiate_features(VIRTIO_NET_F_MAC | VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_VERSION_1)
             .map_err(|_| NetError::Internal("virtio features"))?;
 
         // Header length follows MRG_RXBUF.
@@ -1056,7 +1056,6 @@ impl NetStack for SmoltcpVirtioNetStack {
         inner.rx_last_used = devwrap.rx_last_used;
         inner.tx_last_used = devwrap.tx_last_used;
         inner.tx_free = devwrap.tx_free;
-
     }
 
     fn next_wake(&self) -> Option<NetInstant> {

@@ -61,7 +61,14 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                     next_service_id += 1;
                     let timestamp_nsec = TimestampNsec(next_timestamp);
                     next_timestamp += 1000;
-                    match journal.append(service_id, timestamp_nsec, level, &scope, &message, &fields) {
+                    match journal.append(
+                        service_id,
+                        timestamp_nsec,
+                        level,
+                        &scope,
+                        &message,
+                        &fields,
+                    ) {
                         Ok(outcome) => encode_append_response_v2(
                             STATUS_OK,
                             nonce,

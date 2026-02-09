@@ -22,20 +22,8 @@ use crate::journal::{Journal, RecordId, TimestampNsec};
 use crate::protocol::{
     encode_query_response_bounded_iter as encode_query_response_bounded_iter_proto,
     encode_query_response_bounded_iter_v2 as encode_query_response_bounded_iter_proto_v2,
-    BoundedFrame,
-    MAGIC0,
-    MAGIC1,
-    MAX_FIELDS_LEN,
-    MAX_MSG_LEN,
-    MAX_SCOPE_LEN,
-    OP_APPEND,
-    OP_QUERY,
-    OP_STATS,
-    STATUS_MALFORMED,
-    STATUS_OK,
-    STATUS_TOO_LARGE,
-    STATUS_UNSUPPORTED,
-    VERSION,
+    BoundedFrame, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY,
+    OP_STATS, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED, VERSION,
     VERSION_V2,
 };
 
@@ -362,11 +350,7 @@ fn handle_frame(
             OP_QUERY => match decode_query_v1(frame) {
                 Ok((since, max_count)) => {
                     let bounded = encode_query_response_bounded_iter_proto(
-                        STATUS_OK,
-                        stats,
-                        journal,
-                        since,
-                        max_count,
+                        STATUS_OK, stats, journal, since, max_count,
                     );
                     ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
                 }
@@ -388,7 +372,8 @@ fn handle_frame(
             match frame[3] {
                 OP_APPEND => match decode_append_v2(frame) {
                     Ok((level, scope, message, fields)) => {
-                        match journal.append(sender_service_id, now, level, scope, message, fields) {
+                        match journal.append(sender_service_id, now, level, scope, message, fields)
+                        {
                             Ok(outcome) => encode_append_response_small_v2(
                                 STATUS_OK,
                                 nonce,
@@ -403,17 +388,17 @@ fn handle_frame(
                             ),
                         }
                     }
-                    Err(err) => encode_append_response_small_v2(err, nonce, RecordId(0), stats.dropped_records),
+                    Err(err) => encode_append_response_small_v2(
+                        err,
+                        nonce,
+                        RecordId(0),
+                        stats.dropped_records,
+                    ),
                 },
                 OP_QUERY => match decode_query_v2(frame) {
                     Ok((since, max_count)) => {
                         let bounded = encode_query_response_bounded_iter_proto_v2(
-                            STATUS_OK,
-                            nonce,
-                            stats,
-                            journal,
-                            since,
-                            max_count,
+                            STATUS_OK, nonce, stats, journal, since, max_count,
                         );
                         ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
                     }
@@ -516,16 +501,6 @@ fn decode_query_v2(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
     Ok((TimestampNsec(since), max_count))
 }
 
-fn encode_level(level: crate::journal::LogLevel) -> u8 {
-    match level {
-        crate::journal::LogLevel::Error => 0,
-        crate::journal::LogLevel::Warn => 1,
-        crate::journal::LogLevel::Info => 2,
-        crate::journal::LogLevel::Debug => 3,
-        crate::journal::LogLevel::Trace => 4,
-    }
-}
-
 fn encode_append_response_small(status: u8, record_id: RecordId, dropped: u64) -> ResponseFrame {
     let mut buf = [0u8; 64];
     buf[0] = MAGIC0;
@@ -572,7 +547,11 @@ fn encode_stats_response_small(status: u8, stats: crate::journal::JournalStats) 
     ResponseFrame::Small { buf, len: 37 }
 }
 
-fn encode_stats_response_small_v2(status: u8, nonce: u64, stats: crate::journal::JournalStats) -> ResponseFrame {
+fn encode_stats_response_small_v2(
+    status: u8,
+    nonce: u64,
+    stats: crate::journal::JournalStats,
+) -> ResponseFrame {
     let mut buf = [0u8; 64];
     buf[0] = MAGIC0;
     buf[1] = MAGIC1;
@@ -589,9 +568,10 @@ fn encode_stats_response_small_v2(status: u8, nonce: u64, stats: crate::journal:
     ResponseFrame::Small { buf, len: 45 }
 }
 
-fn encode_query_response_bounded_proto_v1(status: u8, stats: crate::journal::JournalStats) -> BoundedFrame {
-    let mut j = Journal::new(0, 0);
-    let _ = j;
+fn encode_query_response_bounded_proto_v1(
+    status: u8,
+    stats: crate::journal::JournalStats,
+) -> BoundedFrame {
     // This os-lite backend only uses the iterator-based encoder for determinism. For malformed
     // query requests we return a bounded, empty-record response via a temporary journal view.
     //
@@ -660,20 +640,27 @@ fn emit_line_no_nl(message: &str) {
 
 fn emit_hex_u8(value: u8) {
     fn hex(n: u8) -> u8 {
-        if n < 10 { b'0' + n } else { b'a' + (n - 10) }
+        if n < 10 {
+            b'0' + n
+        } else {
+            b'a' + (n - 10)
+        }
     }
     let _ = debug_putc(hex((value >> 4) & 0x0f));
     let _ = debug_putc(hex(value & 0x0f));
 }
 
-fn emit_hex_u64(mut value: u64) {
+fn emit_hex_u64(value: u64) {
     fn hex(n: u8) -> u8 {
-        if n < 10 { b'0' + n } else { b'a' + (n - 10) }
+        if n < 10 {
+            b'0' + n
+        } else {
+            b'a' + (n - 10)
+        }
     }
     // Print fixed-width 16 hex digits for stable parsing.
     for shift in (0..16).rev() {
         let nib = ((value >> (shift * 4)) & 0x0f) as u8;
         let _ = debug_putc(hex(nib));
     }
-    let _ = value;
 }

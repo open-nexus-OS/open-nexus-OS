@@ -15,12 +15,13 @@
 //!   - Fuzzing (MAY): proptest for protocol decoder
 
 use logd::journal::{Journal, JournalError, LogLevel, LogRecord, RecordId, TimestampNsec};
-use logd::protocol::{
-    decode_request, encode_append_response, encode_query_response, encode_stats_response,
-    encode_query_response_bounded_iter, DecodeError, Request, MAGIC0, MAGIC1, MAX_FIELDS_LEN,
-    MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY, OP_STATS, STATUS_OK, VERSION,
-};
 use logd::lite_handler;
+use logd::protocol::{
+    decode_request, encode_append_response, encode_query_response,
+    encode_query_response_bounded_iter, encode_stats_response, DecodeError, Request, MAGIC0,
+    MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY, OP_STATS, STATUS_OK,
+    VERSION,
+};
 use proptest::prelude::*;
 
 // ============================================================================
@@ -116,8 +117,7 @@ fn bounded_query_skips_oversized_records_and_returns_later_hits() {
         &huge_fields,
     )
     .unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"svc", b"needle-here", b"")
-        .unwrap();
+    j.append(1, TimestampNsec(2), LogLevel::Info, b"svc", b"needle-here", b"").unwrap();
 
     let stats = j.stats();
     let out = encode_query_response_bounded_iter(STATUS_OK, stats, &j, TimestampNsec(0), 10);
@@ -175,7 +175,8 @@ fn host_inprocess_append_then_paged_query_finds_needle() {
         if scan.found {
             return;
         }
-        let Some(next) = nexus_ipc::logd_wire::next_since_nsec(since, scan.max_timestamp_nsec) else {
+        let Some(next) = nexus_ipc::logd_wire::next_since_nsec(since, scan.max_timestamp_nsec)
+        else {
             break;
         };
         since = next;

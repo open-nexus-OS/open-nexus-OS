@@ -13,8 +13,8 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use nexus_abi::{debug_putc, yield_};
-use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_ipc::{budget, reqrep};
+use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::protocol::*;
 use crate::MAX_ENTROPY_BYTES;
@@ -398,7 +398,10 @@ fn policyd_allows(pending: &mut reqrep::ReplyBuffer<16, 512>, subject_id: u64, c
         nonce as u64,
         deadline_ns,
         |frame| {
-            if frame.len() == 10 && frame[0] == MAGIC0 && frame[1] == MAGIC1 && frame[2] == VERSION_V2
+            if frame.len() == 10
+                && frame[0] == MAGIC0
+                && frame[1] == MAGIC1
+                && frame[2] == VERSION_V2
             {
                 Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as u64)
             } else {

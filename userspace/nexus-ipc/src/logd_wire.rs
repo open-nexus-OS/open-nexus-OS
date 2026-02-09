@@ -112,9 +112,8 @@ pub fn parse_append_response_v2_prefix(buf: &[u8]) -> Result<(u8, u64), WireErro
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let nonce = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let nonce =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     Ok((status, nonce))
 }
 
@@ -127,9 +126,7 @@ pub fn extract_nonce_v2(buf: &[u8]) -> Option<u64> {
         return None;
     }
     // Any v2 response has nonce immediately after status.
-    Some(u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]))
+    Some(u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]))
 }
 
 /// Parsed prefix of a STATS response.
@@ -160,9 +157,8 @@ pub fn parse_stats_response_prefix(buf: &[u8]) -> Result<StatsPrefix, WireError>
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let total_records = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let total_records =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let dropped_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
@@ -186,9 +182,8 @@ pub fn parse_stats_response_prefix_v2(buf: &[u8]) -> Result<(u64, StatsPrefix), 
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let nonce = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let nonce =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let total_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
@@ -318,7 +313,15 @@ impl<'a> Iterator for QueryRecordIter<'a> {
 
         self.idx = idx;
         self.remaining -= 1;
-        Some(Ok(QueryRecord { record_id, timestamp_nsec, level, service_id, scope, message, fields }))
+        Some(Ok(QueryRecord {
+            record_id,
+            timestamp_nsec,
+            level,
+            service_id,
+            scope,
+            message,
+            fields,
+        }))
     }
 }
 
@@ -342,9 +345,8 @@ pub fn parse_query_response<'a>(
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let total_records = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let total_records =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let dropped_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
@@ -374,9 +376,8 @@ pub fn parse_query_response_v2<'a>(
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let nonce = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let nonce =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let total_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
@@ -404,13 +405,13 @@ pub struct QueryPageScan {
 ///
 /// This is a convenience wrapper used by paging logic (update `since_nsec = max_ts + 1`).
 pub fn scan_query_page(buf: &[u8], needle: &[u8]) -> Result<QueryPageScan, WireError> {
-    let (hdr, mut it) = parse_query_response(buf)?;
+    let (hdr, it) = parse_query_response(buf)?;
     if hdr.status != STATUS_OK {
         return Err(WireError::BadStatus(hdr.status));
     }
     let mut found = false;
     let mut max_ts: u64 = 0;
-    while let Some(rec) = it.next() {
+    for rec in it {
         let rec = rec?;
         max_ts = cmp::max(max_ts, rec.timestamp_nsec);
         if !needle.is_empty() && !found {
@@ -432,7 +433,7 @@ pub fn scan_query_page_v2(
     expected_nonce: u64,
     needle: &[u8],
 ) -> Result<QueryPageScan, WireError> {
-    let (nonce, hdr, mut it) = parse_query_response_v2(buf)?;
+    let (nonce, hdr, it) = parse_query_response_v2(buf)?;
     if nonce != expected_nonce {
         return Err(WireError::BadNonce { expected: expected_nonce, got: nonce });
     }
@@ -441,7 +442,7 @@ pub fn scan_query_page_v2(
     }
     let mut found = false;
     let mut max_ts: u64 = 0;
-    while let Some(rec) = it.next() {
+    for rec in it {
         let rec = rec?;
         max_ts = cmp::max(max_ts, rec.timestamp_nsec);
         if !needle.is_empty() && !found {
@@ -511,10 +512,7 @@ mod tests {
         assert_eq!(parse_append_response_status(&ok).unwrap(), STATUS_OK);
 
         let bad = [MAGIC0, MAGIC1, VERSION, OP_QUERY | 0x80, STATUS_OK];
-        assert_eq!(
-            parse_append_response_status(&bad).unwrap_err(),
-            WireError::BadOpcode
-        );
+        assert_eq!(parse_append_response_status(&bad).unwrap_err(), WireError::BadOpcode);
     }
 
     #[test]
@@ -536,26 +534,8 @@ mod tests {
         buf.extend_from_slice(&10u64.to_le_bytes()); // total
         buf.extend_from_slice(&0u64.to_le_bytes()); // dropped
         buf.extend_from_slice(&2u16.to_le_bytes()); // count
-        push_record(
-            &mut buf,
-            1,
-            100,
-            2,
-            0xAA,
-            b"selftest",
-            b"hello world",
-            b"",
-        );
-        push_record(
-            &mut buf,
-            2,
-            150,
-            2,
-            0xBB,
-            b"other",
-            b"msg",
-            b"fields contain needle",
-        );
+        push_record(&mut buf, 1, 100, 2, 0xAA, b"selftest", b"hello world", b"");
+        push_record(&mut buf, 2, 150, 2, 0xBB, b"other", b"msg", b"fields contain needle");
 
         let scan = scan_query_page(&buf, b"needle").unwrap();
         assert_eq!(scan.count, 2);

@@ -111,7 +111,9 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // Bring up networking owner stack.
     let mut net = {
-        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(1_000_000_000);
+        // Bring-up robustness: init-lite may grant the MMIO capability slightly after netstackd starts,
+        // especially under `-icount` (2-VM harness). Keep this bounded but generous.
+        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(20_000_000_000);
         loop {
             match SmoltcpVirtioNetStack::new_default() {
                 Ok(n) => break n,

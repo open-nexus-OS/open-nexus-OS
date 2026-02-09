@@ -93,11 +93,17 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
         .map_err(|e| map_send_err(e, wait))?;
     } else {
         let clock = crate::budget::OsClock;
-        crate::budget::raw::send_budgeted(&clock, CTRL_SEND_SLOT, &hdr, &req[..req_len], deadline_ns)
-            .map_err(|e| match e {
-                IpcError::Timeout => IpcError::Timeout,
-                other => other,
-            })?;
+        crate::budget::raw::send_budgeted(
+            &clock,
+            CTRL_SEND_SLOT,
+            &hdr,
+            &req[..req_len],
+            deadline_ns,
+        )
+        .map_err(|e| match e {
+            IpcError::Timeout => IpcError::Timeout,
+            other => other,
+        })?;
     }
 
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -394,15 +400,9 @@ impl KernelServer {
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
-        let n = nexus_abi::ipc_recv_v2(
-            self.recv_slot,
-            &mut hdr,
-            out,
-            &mut sid,
-            sys_flags,
-            deadline_ns,
-        )
-        .map_err(|e| map_recv_err(e, wait))? as usize;
+        let n =
+            nexus_abi::ipc_recv_v2(self.recv_slot, &mut hdr, out, &mut sid, sys_flags, deadline_ns)
+                .map_err(|e| map_recv_err(e, wait))? as usize;
         let n = core::cmp::min(n, out.len());
         let reply = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
             Some(ReplyCap { slot: hdr.src })

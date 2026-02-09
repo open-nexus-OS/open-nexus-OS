@@ -20,8 +20,8 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use statefs::protocol::{self as proto, Request};
 use statefs::{JournalEngine, StatefsError};
-use storage::BlockDevice;
 use storage::virtio_blk::VirtioBlkDevice;
+use storage::BlockDevice;
 use storage::MemBlockDevice;
 
 /// Result alias surfaced by the lite statefsd backend.
@@ -151,14 +151,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 
     // Start with an in-memory backend so we can become ready deterministically even if
     // virtio-blk MMIO caps are granted later in bring-up.
-    let mut engine = match JournalEngine::open(Backend::Mem(MemBlockDevice::new(BLOCK_SIZE, BLOCK_COUNT))) {
-        Ok(engine) => engine,
-        Err(err) => {
-            emit_line("statefsd: journal open failed (mem)");
-            emit_statefs_error(err);
-            return Err(ServerError::Unsupported);
-        }
-    };
+    let mut engine =
+        match JournalEngine::open(Backend::Mem(MemBlockDevice::new(BLOCK_SIZE, BLOCK_COUNT))) {
+            Ok(engine) => engine,
+            Err(err) => {
+                emit_line("statefsd: journal open failed (mem)");
+                emit_statefs_error(err);
+                return Err(ServerError::Unsupported);
+            }
+        };
     // Track whether we've processed any mutating operations yet. We'll only "upgrade"
     // to the virtio-blk backend while still pristine, to avoid losing in-memory state.
     let mut pristine = true;
@@ -203,7 +204,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 let rsp = handle_frame(&mut engine, sender_service_id, frame.as_slice());
                 // Once we accept a mutating op, we no longer allow backend upgrade.
                 if let Some(op) = frame.get(3).copied() {
-                    if matches!(op, proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN) {
+                    if matches!(
+                        op,
+                        proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN
+                    ) {
                         pristine = false;
                     }
                 }
@@ -255,7 +259,9 @@ fn handle_frame(
                 );
             }
             match engine.put(key, value) {
-                Ok(()) => proto::encode_status_response_with_nonce(proto::OP_PUT, proto::STATUS_OK, nonce),
+                Ok(()) => {
+                    proto::encode_status_response_with_nonce(proto::OP_PUT, proto::STATUS_OK, nonce)
+                }
                 Err(err) => proto::encode_status_response_with_nonce(
                     proto::OP_PUT,
                     proto::status_from_error(err),
@@ -274,11 +280,9 @@ fn handle_frame(
             }
             match engine.get(key) {
                 Ok(value) => proto::encode_get_response_with_nonce(proto::STATUS_OK, &value, nonce),
-                Err(err) => proto::encode_get_response_with_nonce(
-                    proto::status_from_error(err),
-                    &[],
-                    nonce,
-                ),
+                Err(err) => {
+                    proto::encode_get_response_with_nonce(proto::status_from_error(err), &[], nonce)
+                }
             }
         }
         Request::Delete { key } => {
@@ -291,7 +295,9 @@ fn handle_frame(
                 );
             }
             match engine.delete(key) {
-                Ok(()) => proto::encode_status_response_with_nonce(proto::OP_DEL, proto::STATUS_OK, nonce),
+                Ok(()) => {
+                    proto::encode_status_response_with_nonce(proto::OP_DEL, proto::STATUS_OK, nonce)
+                }
                 Err(err) => proto::encode_status_response_with_nonce(
                     proto::OP_DEL,
                     proto::status_from_error(err),
@@ -316,14 +322,12 @@ fn handle_frame(
                     MAX_LIST_RESPONSE_BYTES,
                     nonce,
                 ),
-                Err(err) => {
-                    proto::encode_list_response_with_nonce(
-                        proto::status_from_error(err),
-                        &[],
-                        MAX_LIST_RESPONSE_BYTES,
-                        nonce,
-                    )
-                }
+                Err(err) => proto::encode_list_response_with_nonce(
+                    proto::status_from_error(err),
+                    &[],
+                    MAX_LIST_RESPONSE_BYTES,
+                    nonce,
+                ),
             }
         }
         Request::Sync => {
@@ -341,7 +345,11 @@ fn handle_frame(
                 );
             }
             match engine.sync() {
-                Ok(()) => proto::encode_status_response_with_nonce(proto::OP_SYNC, proto::STATUS_OK, nonce),
+                Ok(()) => proto::encode_status_response_with_nonce(
+                    proto::OP_SYNC,
+                    proto::STATUS_OK,
+                    nonce,
+                ),
                 Err(err) => proto::encode_status_response_with_nonce(
                     proto::OP_SYNC,
                     proto::status_from_error(err),
@@ -507,86 +515,6 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     }
 }
 
-fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
-    const ROUTE_TIMEOUT_NS: u64 = 200_000_000;
-    if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
-        return None;
-    }
-    let start = nexus_abi::nsec().ok()?;
-    let deadline = start.saturating_add(ROUTE_TIMEOUT_NS);
-    static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
-    let nonce = ROUTE_NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-
-    // Routing v1+nonce extension:
-    // GET: [R,T,1,OP_ROUTE_GET, name_len, name..., nonce:u32le]
-    // RSP: [R,T,1,OP_ROUTE_RSP, status, send_slot:u32le, recv_slot:u32le, nonce:u32le]
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
-    let base_len = nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()])?;
-    req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
-    let req_len = base_len + 4;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    loop {
-        let now = nexus_abi::nsec().ok()?;
-        if now >= deadline {
-            return None;
-        }
-        loop {
-            match nexus_abi::ipc_send_v1(
-                CTRL_SEND_SLOT,
-                &hdr,
-                &req[..req_len],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    let _ = yield_();
-                }
-                Err(_) => return None,
-            }
-        }
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        loop {
-            let now = nexus_abi::nsec().ok()?;
-            if now >= deadline {
-                return None;
-            }
-            match nexus_abi::ipc_recv_v1(
-                CTRL_RECV_SLOT,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = n as usize;
-                    if n == 17 {
-                        let (status, send_slot, recv_slot) =
-                            nexus_abi::routing::decode_route_rsp(&buf[..13])?;
-                        let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
-                        if got_nonce != nonce {
-                            continue;
-                        }
-                        if status == nexus_abi::routing::STATUS_OK {
-                            return Some((send_slot, recv_slot));
-                        }
-                        break;
-                    }
-                    let _ = yield_();
-                    continue;
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return None,
-            }
-        }
-    }
-}
-
 fn emit_access_denied(path: &str, sender_service_id: u64) {
     let mut buf = [0u8; 160];
     let mut len = 0usize;
@@ -738,19 +666,8 @@ fn append_logd_audit(msg: &[u8]) {
     frame[len..len + msg.len()].copy_from_slice(msg);
     len += msg.len();
 
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
-    let _ = nexus_abi::ipc_send_v1(
-        send_slot,
-        &hdr,
-        &frame[..len],
-        nexus_abi::IPC_SYS_NONBLOCK,
-        0,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
+    let _ = nexus_abi::ipc_send_v1(send_slot, &hdr, &frame[..len], nexus_abi::IPC_SYS_NONBLOCK, 0);
     let _ = _reply_recv_slot;
 }

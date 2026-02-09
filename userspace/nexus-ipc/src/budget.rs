@@ -188,13 +188,7 @@ pub mod raw {
         deadline_ns: u64,
     ) -> Result<()> {
         retry_ipc_until(clock, deadline_ns, || {
-            match nexus_abi::ipc_send_v1(
-                send_slot,
-                hdr,
-                bytes,
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
+            match nexus_abi::ipc_send_v1(send_slot, hdr, bytes, nexus_abi::IPC_SYS_NONBLOCK, 0) {
                 Ok(_) => Ok(()),
                 Err(nexus_abi::IpcError::QueueFull) => Err(IpcError::WouldBlock),
                 Err(e) => Err(IpcError::Kernel(e)),

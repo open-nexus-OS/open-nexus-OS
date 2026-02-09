@@ -873,8 +873,8 @@ where
     let updated_pid = find_pid(&ctrl_channels, "updated").ok_or(InitError::MissingElf)?;
     let samgrd_pid = find_pid(&ctrl_channels, "samgrd").ok_or(InitError::MissingElf)?;
     let execd_pid = find_pid(&ctrl_channels, "execd").ok_or(InitError::MissingElf)?;
-    let keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
-    let statefsd_pid = find_pid(&ctrl_channels, "statefsd").ok_or(InitError::MissingElf)?;
+    let _keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
+    let _statefsd_pid = find_pid(&ctrl_channels, "statefsd").ok_or(InitError::MissingElf)?;
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
 
@@ -956,8 +956,8 @@ where
         .map_err(InitError::Abi)?;
     // NOTE: keep this endpoint init-owned so statefsd's cap table stays clear at slot 0x30
     // until the policy-gated MMIO grant is transferred there (statefsd probes MMIO at slot 48).
-    let state_req = nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8)
-        .map_err(InitError::Abi)?;
+    let state_req =
+        nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let state_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
 
@@ -1193,8 +1193,9 @@ where
                 // Place into fixed slots to match userspace bring-up constants (avoid relying on allocation order).
                 let send_slot = nexus_abi::cap_transfer_to_slot(pid, net_req, Rights::SEND, 0x03)
                     .map_err(InitError::Abi)?;
-                let recv_slot = nexus_abi::cap_transfer_to_slot(pid, net_dsoft_rsp, Rights::RECV, 0x04)
-                    .map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer_to_slot(pid, net_dsoft_rsp, Rights::RECV, 0x04)
+                        .map_err(InitError::Abi)?;
                 chan.net_send_slot = Some(send_slot);
                 chan.net_recv_slot = Some(recv_slot);
                 debug_write_bytes(b"init: dsoftbusd netstackd slots send=0x");
@@ -1561,17 +1562,18 @@ where
                 // #region agent log (keystored reply-inbox create)
                 debug_write_bytes(b"init: wire keystored create reply_ep\n");
                 // #endregion agent log
-                let reply_ep = match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) {
-                    Ok(slot) => slot,
-                    Err(e) => {
-                        // #region agent log (keystored wire-up error)
-                        debug_write_bytes(b"init: wire keystored create reply_ep err=abi:");
-                        debug_write_str(abi_error_label(e.clone()));
-                        debug_write_byte(b'\n');
-                        // #endregion agent log
-                        return Err(InitError::Abi(e));
-                    }
-                };
+                let reply_ep =
+                    match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) {
+                        Ok(slot) => slot,
+                        Err(e) => {
+                            // #region agent log (keystored wire-up error)
+                            debug_write_bytes(b"init: wire keystored create reply_ep err=abi:");
+                            debug_write_str(abi_error_label(e.clone()));
+                            debug_write_byte(b'\n');
+                            // #endregion agent log
+                            return Err(InitError::Abi(e));
+                        }
+                    };
 
                 // #region agent log (keystored reply-inbox transfer)
                 debug_write_bytes(b"init: wire keystored xfer reply_ep RECV cap=0x");
@@ -1677,10 +1679,10 @@ where
                 chan.rng_recv_slot = Some(reply_recv_slot);
             }
             "statefsd" => {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, state_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, state_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, state_req, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, state_rsp, Rights::SEND)
+                    .map_err(InitError::Abi)?;
                 chan.state_send_slot = Some(send_slot);
                 chan.state_recv_slot = Some(recv_slot);
                 debug_write_bytes(b"init: statefsd slots recv=0x");
@@ -1839,10 +1841,10 @@ where
                 debug_write_hex(recv_slot as usize);
                 debug_write_byte(b'\n');
 
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, state_req, Rights::SEND).map_err(InitError::Abi)?;
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, state_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, state_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, state_rsp, Rights::RECV)
+                    .map_err(InitError::Abi)?;
                 chan.state_send_slot = Some(send_slot);
                 chan.state_recv_slot = Some(recv_slot);
                 debug_write_bytes(b"init: selftest statefsd slots send=0x");
@@ -1914,7 +1916,8 @@ where
     // Yield after cap distribution so services observe a consistent slot layout.
     let _ = nexus_abi::yield_();
 
-    let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> = nexus_ipc::reqrep::FrameStash::new();
+    let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
+        nexus_ipc::reqrep::FrameStash::new();
     match updated_boot_attempt(&mut upd_pending, upd_req, init_reply_send, pol_ctl_route_rsp) {
         Ok(Some(slot)) => {
             let ok = bundlemgrd_set_active_slot(
@@ -1968,7 +1971,10 @@ fn decode_route_get_with_optional_nonce(frame: &[u8]) -> Option<(&[u8], Option<u
     }
     // v1 extension (nonce-correlated, backwards compatible):
     // [R,T,1,OP_ROUTE_GET, name_len, name..., nonce:u32le]
-    if frame.len() < 9 || frame[0] != b'R' || frame[1] != b'T' || frame[2] != nexus_abi::routing::VERSION
+    if frame.len() < 9
+        || frame[0] != b'R'
+        || frame[1] != b'T'
+        || frame[2] != nexus_abi::routing::VERSION
     {
         return None;
     }
@@ -2029,8 +2035,12 @@ where
             // Health gate: allow selftest-client to notify init.
             if chan.svc_name == "selftest-client" && decode_init_health_ok_req(&buf[..n]) {
                 let nonce = decode_init_health_ok_req_with_optional_nonce(&buf[..n]).flatten();
-                let status =
-                    match updated_health_ok(&mut upd_pending, upd_req, upd_reply_send, upd_reply_recv) {
+                let status = match updated_health_ok(
+                    &mut upd_pending,
+                    upd_req,
+                    upd_reply_send,
+                    upd_reply_recv,
+                ) {
                     Ok(slot) => {
                         debug_write_str("init: health ok (slot ");
                         debug_write_byte(slot);
@@ -2703,7 +2713,8 @@ fn updated_boot_attempt(
             if let Some(n) = pending.take_into_where(&mut buf, |f| {
                 nexus_abi::updated::decode_boot_attempt_rsp(f).is_some()
             }) {
-                if let Some((status, slot)) = nexus_abi::updated::decode_boot_attempt_rsp(&buf[..n]) {
+                if let Some((status, slot)) = nexus_abi::updated::decode_boot_attempt_rsp(&buf[..n])
+                {
                     if status != nexus_abi::updated::STATUS_OK {
                         return Err(InitError::Map("updated boot attempt failed"));
                     }

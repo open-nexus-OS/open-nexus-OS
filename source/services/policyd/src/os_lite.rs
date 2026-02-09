@@ -53,10 +53,6 @@ mod policy_table {
     include!(concat!(env!("OUT_DIR"), "/policy_table.rs"));
 }
 
-const CAP_CHECK: &str = "ipc.core";
-const CAP_ROUTE: &str = "ipc.core";
-const CAP_EXEC: &str = "proc.spawn";
-
 const POLICY: Policy = Policy::new(policy_table::POLICY_ENTRIES);
 
 const MAGIC0: u8 = b'P';
@@ -84,7 +80,6 @@ static AUDIT_EMIT_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[derive(Clone, Copy, Debug)]
 enum AuditReason {
     Policy,
-    IdentityMismatch,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -221,17 +216,25 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         return rsp_v1(op, if ok { STATUS_ALLOW } else { STATUS_UNSUPPORTED });
     }
     // Delegate the policy decision to the side-effect-free, host-testable handler.
-    let out = crate::lite_protocol::handle_frame(&POLICY, frame, sender_service_id, privileged_proxy);
+    let out =
+        crate::lite_protocol::handle_frame(&POLICY, frame, sender_service_id, privileged_proxy);
     // Best-effort audit emission (never blocks). Only for allow/deny statuses.
     if out.len >= 5 {
         match out.buf[4] {
-            STATUS_ALLOW => emit_audit(op, AuditDecision::Allow, sender_service_id, None, AuditReason::Policy),
-            STATUS_DENY => emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::Policy),
+            STATUS_ALLOW => {
+                emit_audit(op, AuditDecision::Allow, sender_service_id, None, AuditReason::Policy)
+            }
+            STATUS_DENY => {
+                emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::Policy)
+            }
             _ => {}
         }
     }
-    return FrameOut { buf: out.buf, len: out.len };
-    match (ver, op) {
+    FrameOut { buf: out.buf, len: out.len }
+}
+
+/*
+match (ver, op) {
         (VERSION, OP_CHECK) => {
             // Debug: log CHECK request receipt.
             emit_line("policyd: CHECK rx");
@@ -359,7 +362,8 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
 
             // Security: only allow delegated checks from authorized enforcement points.
             // Allow init-lite proxy unconditionally (bring-up topology).
-            let delegate_ok = privileged_proxy || POLICY.allows(sender_service_id, "policy.delegate");
+            let delegate_ok =
+                privileged_proxy || POLICY.allows(sender_service_id, "policy.delegate");
             if !delegate_ok {
                 emit_audit(
                     op,
@@ -615,16 +619,12 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         _ => rsp_v1(op, STATUS_UNSUPPORTED),
     }
 }
+*/
 
 fn rsp_v1(op: u8, status: u8) -> FrameOut {
     let mut buf = [0u8; 10];
     buf[..6].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, op | 0x80, status, 0]);
     FrameOut { buf, len: 6 }
-}
-
-fn rsp_v2(op: u8, nonce: nexus_abi::policyd::Nonce, status: u8) -> FrameOut {
-    let buf = nexus_abi::policyd::encode_rsp_v2(op, nonce, status);
-    FrameOut { buf, len: 10 }
 }
 
 #[cfg(all(test, nexus_env = "os", feature = "os-lite"))]
@@ -813,7 +813,6 @@ fn audit_decision_name(decision: AuditDecision) -> &'static [u8] {
 fn audit_reason_name(reason: AuditReason) -> &'static [u8] {
     match reason {
         AuditReason::Policy => b"policy",
-        AuditReason::IdentityMismatch => b"identity",
     }
 }
 
