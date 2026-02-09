@@ -140,7 +140,7 @@ fn host_inprocess_append_then_paged_query_finds_needle() {
     let sid = 0x1234_u64;
 
     // Append a few records, including one that is too large to fit in a bounded QUERY response.
-    let huge_scope = vec![b's'; MAX_SCOPE_LEN];
+    let huge_scope = [b's'; MAX_SCOPE_LEN];
     let huge_msg = vec![b'm'; MAX_MSG_LEN];
     let huge_fields = vec![b'f'; MAX_FIELDS_LEN];
     let mut t = 1u64;
