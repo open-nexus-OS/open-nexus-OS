@@ -7,7 +7,9 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Parent: tasks/TASK-0011-kernel-simplification-phase-a.md
-  - RFC: docs/rfcs/RFC-0001-kernel-simplification.md
+  # NOTE: RFC-0001 is the seed contract for TASK-0011 (layout + headers). TASK-0011B requires its own seed RFC.
+  - Seed RFC: docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
+  - Background (parent contract): docs/rfcs/RFC-0001-kernel-simplification.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - SMP follow-up: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
 ---
@@ -94,7 +96,8 @@ All existing security invariants from TASK-0011 remain unchanged, plus:
 
 ## Contract sources (single source of truth)
 
-- `docs/rfcs/RFC-0001-kernel-simplification.md` (Phase B scope)
+- Seed RFC: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`
+- Background: `docs/rfcs/RFC-0001-kernel-simplification.md` (layout/taxonomy from TASK-0011)
 - `docs/architecture/01-neuron-kernel.md`
 - `scripts/qemu-test.sh` marker contract (must not change)
 
@@ -104,13 +107,14 @@ All existing security invariants from TASK-0011 remain unchanged, plus:
 - `cargo test --workspace` passes (all unit tests green)
 - `just diag-os` passes (kernel compiles for RISC-V)
 - No new `unsafe` blocks without safety comments
-- All public kernel APIs have `#[must_use]` on error types
+- `#[must_use]` is applied per RFC-0020 Phase 3 contract (kernel-internal error envelope + hard-to-ignore errors; no syscall ABI/errno semantic changes)
+- Seed RFC exists and is linked from this task (contract/decision seed; execution/proofs remain in this task)
 
 ## Touched paths (allowlist)
 
 - `source/kernel/neuron/src/**` (implementation changes allowed)
 - `docs/architecture/01-neuron-kernel.md` (document ownership model)
-- `docs/rfcs/RFC-0001-kernel-simplification.md` (update Phase B status)
+- `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (seed contract for this task)
 
 ## Plan (small PRs)
 
@@ -571,9 +575,11 @@ pub fn cap_transfer(
 
 - All QEMU markers unchanged (deterministic boot)
 - No new `unsafe` without safety comments
-- All public APIs have `#[must_use]` on error types
 - Ownership model documented in architecture doc
 - `Send`/`Sync` boundaries explicit (via `PhantomData` or negative impls)
+- Kernel error envelope + `#[must_use]` applied (RFC-0020 Phase 3), with syscall ABI/errno semantics unchanged
+- Capability type-safety wrappers applied minimally (RFC-0020 Phase 4), with runtime checks and ABI unchanged
+- IPC/cap transfer semantics refactored as internal prep only (RFC-0020 Phase 5), with syscall behavior unchanged
 
 ## Evidence (to paste into PR)
 
@@ -584,26 +590,17 @@ pub fn cap_transfer(
 
 ## RFC seeds (for later)
 
-After this task completes, consider:
-
-- **RFC-0010**: Kernel Ownership Model (formalize the patterns established here)
-- **RFC-0011**: Capability Revocation (if move semantics are adopted)
-- **RFC-0012**: SMP Memory Model (building on Send/Sync boundaries)
+After this task completes, consider follow-up RFCs as needed (not required for TASK-0011B).
 
 ---
 
 ## Priority ranking (if time-constrained)
 
-**Must-have** (before SMP):
+**Execution order** (still one task; all sections 1–6 are in scope):
 
-1. ✅ Ownership documentation (Section 1)
-2. ✅ Newtype wrappers (Section 2) — Prevents handle confusion in SMP
-3. ✅ Send/Sync markers (Section 3) — Critical for SMP safety
-
-**Nice-to-have** (can defer):
-
-1. ⚠️ Error type unification (Section 4) — Improves code quality, not SMP-critical
-2. ⚠️ Capability type safety (Section 5) — Optimization, not required
-3. ⚠️ Move semantics for IPC (Section 6) — Future feature, not urgent
-
-**Recommendation**: Implement 1-3 as **TASK-0011B**, defer 4-6 to **TASK-0011C** (post-SMP cleanup).
+1. Ownership documentation (Section 1)
+2. Newtype wrappers (Section 2) — Prevents handle confusion in SMP
+3. Send/Sync markers (Section 3) — Forces explicit scheduler/thread-boundary decisions pre-SMP
+4. Error envelope + `#[must_use]` (Section 4) — Makes failure paths hard to ignore without ABI change
+5. Capability type-safety (Section 5) — Reduces “wrong cap kind” bugs before concurrency
+6. IPC/cap transfer semantics (Section 6) — **internal prep only**; no syscall ABI/behavior changes in this task

@@ -9,6 +9,8 @@ links:
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - Kernel SMP/parallelism policy (normative): tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
   - Depends-on (orientation): tasks/TASK-0011-kernel-simplification-phase-a.md
+  - Pre-SMP ownership/types contract (seed): docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
+  - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
   - Testing contract: scripts/qemu-test.sh
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (per-CPU driver scheduling, multi-queue devices)
 ---
@@ -48,6 +50,10 @@ Boot with SMP enabled (e.g. QEMU `-smp 2`) and prove:
 - Deterministic markers for boot + selftests.
 - Avoid unbounded logging and debug-only flood.
 - SMP implementation must follow the kernel parallelism policy `TASK-0277` (ownership model, lock rules, deterministic invariant proofs).
+- SMP implementation MUST concretely build on the ownership/type-safety contracts established in RFC-0020 (TASK-0011B):
+  - Prefer per-CPU ownership over shared mutable scheduler state.
+  - Reuse the “kernel handle newtypes” pattern for SMP identifiers (e.g. CPU/Hart ID) rather than raw integers.
+  - Treat pre-SMP `!Send/!Sync` markers as intentional forcing functions: SMP work must either keep types thread-bound (per-CPU) or introduce synchronization and justify any change in auto-trait behavior.
 
 ## Red flags / decision points
 
@@ -121,6 +127,7 @@ When implementing SMP features, ensure:
 ## Contract sources (single source of truth)
 
 - `docs/architecture/01-neuron-kernel.md` (scheduler overview + determinism)
+- `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (ownership model + newtypes + explicit Send/Sync boundaries)
 - KSELFTEST marker contract (must be added/updated in kernel selftests)
 - QEMU acceptance harness + marker ordering contract: `scripts/qemu-test.sh` (and `docs/testing/index.md`)
 
@@ -132,6 +139,9 @@ When implementing SMP features, ensure:
   - `KSELFTEST: ipi resched ok`
   - `KSELFTEST: work stealing ok`
 - Single-hart run (SMP=1) remains green with existing markers.
+- Host + compile gates remain green:
+  - `cargo test --workspace` passes
+  - `just diag-os` passes
 - Docs stay in sync:
   - Update `docs/architecture/01-neuron-kernel.md` and `docs/architecture/README.md` to reflect any new SMP invariants/markers and any scheduler model changes.
 
@@ -145,6 +155,7 @@ When implementing SMP features, ensure:
 
 1. **CPU discovery + online mask**
    - Provide `cpu_current_id()` and `cpu_online_mask()`; log `KINIT: cpuN online` once per hart.
+   - Use a dedicated CPU/Hart ID newtype (RFC-0020 newtype pattern) rather than raw integers.
 
 2. **Secondary hart boot**
    - Bring up harts 1..N-1 deterministically.
@@ -154,9 +165,12 @@ When implementing SMP features, ensure:
 
 4. **Per-CPU runqueues**
    - Replace the single runqueue with per-CPU queues.
+   - Prefer strict per-CPU ownership of runqueues (minimize shared mutable state).
+   - If any structure must become cross-CPU shared, add explicit synchronization and document the ownership change in `docs/architecture/01-neuron-kernel.md` (tie back to RFC-0020 ownership model).
 
 5. **Work stealing**
    - Simple round-robin steal when local queue empty; prove via selftest marker.
+   - Steal implementation must remain bounded and should not require “reach into” another CPU’s runqueue without an explicit, audited synchronization boundary.
 
 ## Acceptance criteria (behavioral)
 

@@ -7,6 +7,8 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Depends-on (SMP baseline): tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - Pre-SMP ownership/types contract (seed): docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
+  - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -41,6 +43,10 @@ Prove in QEMU:
 
 - Deterministic markers; bounded timeouts; no busy loops.
 - `timed` must not require kernel changes beyond the QoS syscall surface.
+- Any kernel changes required for QoS MUST follow the RFC-0020 contracts (TASK-0011B):
+  - use explicit newtypes / enums internally (avoid “raw int” plumbing),
+  - keep syscall ABI stable and explicit (errno mapping unchanged unless this task defines a new surface),
+  - keep scheduler/QoS ownership and thread-boundary assumptions explicit (so QoS continues to compose with per-CPU runqueues from TASK-0012).
 
 ## Red flags / decision points
 
@@ -116,6 +122,7 @@ Prove in QEMU:
 ## Contract sources (single source of truth)
 
 - `source/kernel/neuron/src/sched/mod.rs` QoS buckets (`QosClass`) as the initial mapping target.
+- `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (newtype + ownership + error envelope discipline)
 - `scripts/qemu-test.sh` marker contract.
 
 ## Stop conditions (Definition of Done)
@@ -124,6 +131,9 @@ Prove in QEMU:
   - `timed: ready`
   - `SELFTEST: qos ok`
   - `SELFTEST: timed coalesce ok`
+- Host + compile gates remain green:
+  - `cargo test --workspace` passes
+  - `just diag-os` passes (if kernel syscall surface changes are introduced)
 
 ## Touched paths (allowlist)
 
@@ -138,7 +148,9 @@ Prove in QEMU:
 ## Plan (small PRs)
 
 1. Define kernel syscall(s) for QoS set/get (minimal, stable error mapping).
+   - Kernel-internal implementation should use explicit types (newtypes/enums) per RFC-0020 (avoid raw ints).
 2. Add `nexus-abi` wrappers and host-side tests for ABI mapping.
+   - Prefer strongly-typed enums for QoS classes; avoid exposing raw integers to userspace APIs where possible.
 3. Implement `timed` service with coalescing windows based on QoS hints.
 4. Wire a minimal call site (selftest + one service) to use `timed`.
 5. Add selftest markers for QoS + coalescing.

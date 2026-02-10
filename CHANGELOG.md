@@ -5,7 +5,7 @@ All notable changes to Open Nexus OS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## Unreleased
 
 ### Added - 2026-01-14
 
@@ -56,8 +56,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No remote export (deferred to TASK-0040)
 - No metrics/tracing integration (deferred to TASK-0014)
 
+### Added - 2026-01-25
+
+#### Policy authority + audit baseline v1 (TASK-0008: Done; RFC-0015: Complete)
+
+- `policyd` established as the **single policy authority** with deny-by-default semantics.
+- Audit trail for allow/deny decisions (via `logd`), binding authorization to kernel `sender_service_id`.
+- Policy-gated sensitive operations (baseline): signing/exec/install paths enforced without duplicating authority logic.
+- Contract: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
+
+### Added - 2026-01-27
+
+#### Device identity keys v1 (TASK-0008B: Done; RFC-0016: Done)
+
+- OS/QEMU device identity key generation path proved without `getrandom`:
+  - virtio-rng MMIO → `rngd` (entropy authority) → `keystored` (device keygen + pubkey-only export).
+- Bounded entropy requests and negative proofs (oversized/denied/private-export reject); no secrets logged.
+- Contract: `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
+
+### Added - 2026-02-02
+
+#### Device MMIO access model v1 (TASK-0010: Done; RFC-0017: Done)
+
+- Kernel/userspace contract for capability-gated device MMIO mapping (`DeviceMmio` + mapping syscall).
+- Enforced security floor: USER|RW mappings only, never executable; bounded per-device windows; init/policyd control distribution.
+- Contract: `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
+
+### Added - 2026-02-06
+
+#### Persistence v1 (TASK-0009: Done; RFC-0018: Complete; RFC-0019: Complete)
+
+- StateFS journal format v1 + `/state` authority service (`statefsd`) with deterministic host + QEMU proofs.
+- IPC request/reply correlation v1 (nonces + bounded reply buffering) to keep shared-inbox flows deterministic under QEMU.
+- Modern virtio-mmio default for virtio-blk in the canonical QEMU harness (legacy remains opt-in).
+- Contracts:
+  - `docs/rfcs/RFC-0018-statefs-journal-format-v1.md`
+  - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
+
+### Changed - 2026-02-09
+
+#### Kernel simplification (TASK-0011: Complete; RFC-0001: Complete)
+
+- Kernel tree reorganized into stable responsibility-aligned directories (mechanical moves + wiring only).
+- Kernel module headers normalized; invariants and test scope made explicit to lower debug/navigation cost.
+- Contract: `docs/rfcs/RFC-0001-kernel-simplification.md`
+
 ---
 
-## [Previous Releases]
+## Previous Releases
 
 See Git history for releases prior to 2026-01-14.
