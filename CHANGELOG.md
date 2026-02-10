@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-02-10
+
+#### Kernel SMP v1 closure sync (TASK-0012 In Review; RFC-0021 Complete)
+
+- Hardened SMP v1 proof semantics from marker-presence to causal anti-fake evidence:
+  - `request accepted -> send_ipi success -> S_SOFT trap observed -> ack`
+- Added deterministic SMP counterfactual proof marker:
+  - `KSELFTEST: ipi counterfactual ok`
+- Added/validated required SMP negative proof markers:
+  - `KSELFTEST: test_reject_invalid_ipi_target_cpu ok`
+  - `KSELFTEST: test_reject_offline_cpu_resched ok`
+  - `KSELFTEST: test_reject_steal_above_bound ok`
+  - `KSELFTEST: test_reject_steal_higher_qos ok`
+- Canonical SMP harness gate now explicitly uses `REQUIRE_SMP=1` for SMP marker ladder runs.
+- Documentation synchronized across task/rfc/testing/architecture/handoff to preserve drift-free follow-up prerequisites for TASK-0013/0042/0247/0283.
+
 ### Added - 2026-01-14
 
 #### Observability v1 (TASK-0006: Complete)

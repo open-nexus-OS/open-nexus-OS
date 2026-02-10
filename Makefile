@@ -3,11 +3,12 @@ MODE ?= container
 CONTAINER_TAG ?= open-nexus-os:dev
 NIGHTLY ?= nightly-2025-01-15
 CARGO_BIN ?= cargo
+HOST_RUSTFLAGS := --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
 UID := $(shell id -u)
 GID := $(shell id -g)
 SELINUX_LABEL := $(shell command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && echo ":Z" || true)
 
-.PHONY: initial-setup build test run pull clean
+.PHONY: initial-setup build test verify run pull clean
 .PHONY: run-init-host test-init-host
 .PHONY: dep-gate
 
@@ -91,20 +92,34 @@ ifeq ($(MODE),container)
  		sh -lc '\
  		  echo "[tests] host-first only (exclude neuron)"; \
 		  if $(CARGO_BIN) nextest --version >/dev/null 2>&1; then \
-		    $(CARGO_BIN) nextest run --workspace --exclude neuron; \
+		    RUSTFLAGS='$(HOST_RUSTFLAGS)' $(CARGO_BIN) nextest run --workspace --exclude neuron --exclude neuron-boot; \
 		  else \
 		    echo "[warn] cargo-nextest not found; falling back to cargo test"; \
-		    $(CARGO_BIN) test --workspace --exclude neuron --exclude neuron-boot; \
+		    RUSTFLAGS='$(HOST_RUSTFLAGS)' $(CARGO_BIN) test --workspace --exclude neuron --exclude neuron-boot; \
 		  fi'
 else
 	@echo "==> Running host-first tests"
 	@if cargo nextest --version >/dev/null 2>&1; then \
-	  cargo nextest run --workspace --exclude neuron; \
+	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo nextest run --workspace --exclude neuron --exclude neuron-boot; \
 	else \
 	  echo "[warn] cargo-nextest not found; falling back to cargo test"; \
-	  cargo test --workspace --exclude neuron --exclude neuron-boot; \
+	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo test --workspace --exclude neuron --exclude neuron-boot; \
 	fi
 endif
+
+verify:
+	@echo "==> Running full verification (delegates to just workflow)"
+	@command -v just >/dev/null 2>&1 || (echo "[error] just is required for 'make verify'" && exit 1)
+	@just diag-host
+	@just test-host
+	@just test-e2e
+	@just dep-gate
+	@just diag-os
+	@RUN_UNTIL_MARKER=1 just test-os
+	@if [ "$${REQUIRE_SMP_VERIFY:-0}" = "1" ]; then \
+	  SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} ./scripts/qemu-test.sh && \
+	  SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} ./scripts/qemu-test.sh; \
+	fi
 
 run:
 	@echo "==> Launching NEURON kernel under QEMU"

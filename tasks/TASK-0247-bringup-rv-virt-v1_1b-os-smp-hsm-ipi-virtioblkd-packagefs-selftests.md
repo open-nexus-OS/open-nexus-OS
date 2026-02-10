@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Bring-up core (host-first): tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
   - Bring-up v1.0: tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
   - Testing contract: scripts/qemu-test.sh
 ---
@@ -21,7 +22,7 @@ We need OS/QEMU integration for RISC-V Bring-up v1.1:
 - userspace virtioblkd service,
 - packagefs mount from disk image.
 
-The prompt proposes SMP with SBI HSM/IPI and per-hart timers. `TASK-0012` already plans SMP bring-up with per-CPU runqueues and IPIs, but uses a generic approach. This task extends it with **RISC-V-specific SBI HSM/IPI** and per-hart timer programming, then adds userspace virtioblkd and packagefs mounting.
+The prompt proposes SMP with SBI HSM/IPI and per-hart timers. `TASK-0012` + `TASK-0012B` provide the generic SMP baseline and hardening bridge. This task extends that baseline with **RISC-V-specific SBI HSM/IPI** and per-hart timer programming, then adds userspace virtioblkd and packagefs mounting.
 
 ## Goal
 
@@ -55,13 +56,13 @@ On OS/QEMU:
 
 ## Non-Goals
 
-- Full SMP scheduler (extends `TASK-0012` with RISC-V-specific features only).
+- Full SMP scheduler redesign (extends `TASK-0012` + `TASK-0012B` with RISC-V-specific features only).
 - Write support for virtio-blk (read-only for packagefs only).
 - Real hardware (QEMU `virt` only).
 
 ## Constraints / invariants (hard requirements)
 
-- **No duplicate SMP authority**: This task extends `TASK-0012` with RISC-V-specific SBI HSM/IPI. Do not create a parallel SMP implementation.
+- **No duplicate SMP authority**: This task extends `TASK-0012` + `TASK-0012B` with RISC-V-specific SBI HSM/IPI. Do not create a parallel SMP implementation.
 - **No duplicate virtio-blk authority**: exactly one blk authority may own the virtio-blk device in a given boot profile.
   `virtioblkd` (this task) uses the library from `TASK-0246`. The persistence path from `TASK-0009` already consumes
   virtio-blk for statefs (read-write) in the current OS profile; if `virtioblkd` is introduced, document which profile
@@ -73,7 +74,7 @@ On OS/QEMU:
 ## Red flags / decision points
 
 - **RED (SMP authority drift)**:
-  - Do not create a parallel SMP implementation. Extend `TASK-0012` with RISC-V-specific SBI HSM/IPI and per-hart timer programming.
+  - Do not create a parallel SMP implementation. Extend `TASK-0012` + `TASK-0012B` with RISC-V-specific SBI HSM/IPI and per-hart timer programming.
 - **YELLOW (SBI HSM availability)**:
   - SBI HSM (Hart State Management) must be available in OpenSBI. If not, this task must document fallback or gate on OpenSBI version.
 
@@ -155,7 +156,7 @@ When implementing RISC-V SMP features, ensure:
 
 - QEMU marker contract: `scripts/qemu-test.sh`
 - Bring-up core: `TASK-0246`
-- SMP baseline: `TASK-0012` (per-CPU runqueues, IPIs)
+- SMP baseline: `TASK-0012` + `TASK-0012B` (per-CPU runqueues, IPI/trap hardening contract)
 - Bring-up v1.0: `TASK-0245` (DTB, PLIC, timer)
 
 ## Stop conditions (Definition of Done)

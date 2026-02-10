@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Rust SMP model: docs/architecture/16-rust-concurrency-model.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
   - SMP parallelism policy: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
 ---
 
@@ -14,7 +15,7 @@ links:
 
 SMP correctness depends on preventing accidental cross-CPU mutable access. Rust can encode “CPU-local ownership” using a wrapper type that is not transferable (`!Send`) and can be made only accessible via an explicit “current CPU” accessor.
 
-This directly supports the project goal: lower complexity and fewer concurrency bugs than C/C++ SMP implementations.
+This directly supports the project goal: lower complexity and fewer concurrency bugs than C/C++ SMP implementations, and builds on the TASK-0012B hardening bridge.
 
 ## Goal
 
@@ -26,7 +27,7 @@ Introduce a kernel-internal `PerCpu<T>` abstraction that:
 
 ## Non-Goals
 
-- Implementing SMP itself (covered by TASK-0012).
+- Implementing SMP itself (covered by TASK-0012 + TASK-0012B).
 - Implementing lock-free structures (optional follow-up).
 
 ## Constraints / invariants (hard requirements)
@@ -54,6 +55,7 @@ Introduce a kernel-internal `PerCpu<T>` abstraction that:
   - IPI mailbox state
 - Host tests validate invariants for the wrapper (where applicable).
 - Documentation updated where the wrapper becomes normative.
+- Adoption does not regress TASK-0012B bounded/deterministic scheduler + IPI proof behavior.
 
 ## Touched paths (allowlist)
 

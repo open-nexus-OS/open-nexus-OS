@@ -18,6 +18,7 @@ links:
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (per-CPU driver scheduling, multi-queue devices)
   - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (multi-queue NIC scheduling baseline)
 enables:
+  - TASK-0012B: SMP v1b hardening bridge (scheduler/SMP internals, bounded queue behavior, trap/IPI contract hardening)
   - TASK-0013: Perf/Power v1 (QoS ABI + timed coalescing)
   - TASK-0042: SMP v2 (affinity hints + QoS budgets)
   - TASK-0247: RISC-V bring-up v1.1b extension (SBI HSM/IPI hardening + per-hart timers + storage integration)
@@ -25,6 +26,7 @@ enables:
   - TRACK-DRIVERS-ACCELERATORS: per-CPU driver scheduling baseline for device-class services
   - TRACK-NETWORKING-DRIVERS: per-CPU scheduler baseline for future NIC/offload work
 follow-up-tasks:
+  - TASK-0012B: harden scheduler/SMP internals (bounded queue behavior + trap/IPI contract + CPU-ID fast path) while preserving TASK-0012 markers/proofs
   - TASK-0013: add userspace QoS/timer behavior on top of SMP v1 without introducing a second scheduler authority
   - TASK-0042: extend SMP with affinity/shares while preserving TASK-0012 ownership and determinism invariants
   - TASK-0247: extend RISC-V specifics (SBI HSM/IPI hardening + per-hart timers) on top of TASK-0012 baseline only
@@ -185,10 +187,11 @@ When implementing SMP features, ensure:
 
 ## Follow-up alignment (anti-drift)
 
-- `TASK-0013` consumes the SMP scheduler baseline but does not redefine SMP authority.
-- `TASK-0042` extends scheduling policy (affinity/shares) and must preserve TASK-0012 per-CPU ownership boundaries.
-- `TASK-0247` extends RISC-V specifics (HSM/IPI hardening and per-hart timers) on top of TASK-0012; no duplicate SMP stack is allowed.
-- `TASK-0283` is an optional hardening layer (`PerCpu<T>`) that should refine, not replace, TASK-0012 behavior proofs.
+- `TASK-0012B` is the explicit hardening bridge between baseline TASK-0012 behavior and policy/extensions; it must not redefine marker authority.
+- `TASK-0013` consumes the TASK-0012 + TASK-0012B scheduler baseline but does not redefine SMP authority.
+- `TASK-0042` extends scheduling policy (affinity/shares) and must preserve TASK-0012 + TASK-0012B ownership and determinism boundaries.
+- `TASK-0247` extends RISC-V specifics (HSM/IPI hardening and per-hart timers) on top of TASK-0012 + TASK-0012B; no duplicate SMP stack is allowed.
+- `TASK-0283` is an optional hardening layer (`PerCpu<T>`) that should refine, not replace, TASK-0012 + TASK-0012B behavior proofs.
 - `TRACK-DRIVERS-ACCELERATORS` and `TRACK-NETWORKING-DRIVERS` both depend on this SMP baseline remaining deterministic and auditable.
 
 ## Plan (small PRs)

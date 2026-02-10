@@ -21,10 +21,11 @@ At the same time, the project needs deterministic smoke gates for:
 
 2) Make QEMU smoke validate **interface configuration** (via `net: smoltcp iface up ...`) as the default networking proof, instead of requiring slirp DHCP by default.
 
-3) Add two environment-controlled proof gates:
+3) Add environment-controlled proof gates:
 
 - `REQUIRE_QEMU_DHCP=1`: require DHCP lease + dependent L3/L4 proofs
 - `REQUIRE_DSOFTBUS=1`: require DSoftBus OS transport marker ladder
+- `REQUIRE_SMP=1`: require SMP-only marker ladder (`KINIT: cpu1 online`, `KSELFTEST: ...`) for SMP>=2 runs
 
 1) For deterministic single-VM smoke behavior when DHCP is unavailable/flaky, build `netstackd` in a **QEMU smoke compatibility mode** (`feature = "qemu-smoke"`) that uses a slirp/usernet-compatible static fallback IP:
 
@@ -49,6 +50,7 @@ The 2-VM harness remains the canonical proof for cross-VM networking and must no
 - Developers/CI can turn on stricter proofs when debugging or when the environment guarantees the backend:
   - `REQUIRE_QEMU_DHCP=1 ...`
   - `REQUIRE_DSOFTBUS=1 ...`
+  - `REQUIRE_SMP=1 SMP=2 ...`
 - `netstackd` gains a `qemu-smoke` feature used only by the QEMU smoke harness build.
 
 ## Invariants

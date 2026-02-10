@@ -43,6 +43,22 @@ Use the `justfile` for the primary developer workflow (host-first tests and diag
 
 `make` remains the orchestration entrypoint for setup/build/run (and is used by CI for build verification).
 
+Test entrypoints:
+
+- `make test`: quick host-first workspace tests (kernel crates excluded).
+- `make verify`: full verification gate (delegates to `just` diagnostics/tests + QEMU smoke; optional SMP dual-mode with `REQUIRE_SMP_VERIFY=1`).
+
+## Current kernel milestone
+
+- `TASK-0012` (SMP v1 baseline) is in review with deterministic anti-fake proofs wired.
+- `RFC-0021` (SMP v1 contract) is complete and aligned with harness gating.
+- Canonical SMP proof ladder:
+  - `cargo test --workspace`
+  - `just dep-gate`
+  - `just diag-os`
+  - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+
 ## How we work (authority model)
 
 - **Tasks (`tasks/TASK-*.md`) are the execution truth**: scope, stop conditions (DoD), and proof commands/markers.

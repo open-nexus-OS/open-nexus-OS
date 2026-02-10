@@ -2,7 +2,7 @@
 
 **Created**: 2026-01-09  
 **Owner**: @kernel-team  
-**Status**: Design guidance for TASK-0012 (SMP) and beyond
+**Status**: Active guidance; TASK-0012 SMP v1 baseline implemented, TASK-0013+ follow-ups pending
 
 ---
 
@@ -306,7 +306,7 @@ pub fn handle_ipi() {
 
 ---
 
-## SMP Architecture (TASK-0012 Design)
+## SMP Architecture (TASK-0012 Baseline)
 
 ### Per-CPU Ownership Model
 
@@ -512,10 +512,10 @@ qemu-system-riscv64 -smp 4 -kernel neuron.elf
 
 ### Phase 2: TASK-0012 (SMP Implementation)
 
-- 🔄 Split `Scheduler` into `PerCpuScheduler`
-- 🔄 Add IPI mailboxes
-- 🔄 Implement work stealing
-- 🔄 Per-CPU stack pools
+- ✅ Secondary hart bring-up + per-hart trap stack source
+- ✅ Deterministic IPI selftests with anti-fake causal chain and counterfactual proofs
+- ✅ Bounded work-stealing proof path + `test_reject_*` negatives
+- 🔄 Full runtime `PerCpuScheduler` ownership model (post-v1 follow-up hardening)
 
 ### Phase 3: TASK-0013 (QoS + Power)
 
@@ -529,7 +529,7 @@ qemu-system-riscv64 -smp 4 -kernel neuron.elf
 
 - `docs/agents/VISION.md` — Fearless concurrency as a core principle
 - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — Ownership prep work
-- `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — SMP implementation
+- `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — SMP v1 baseline (In Review)
 - [Servo Parallel Architecture](https://github.com/servo/servo/wiki/Design) — Inspiration
 - [Rust Atomics and Locks](https://marabos.nl/atomics/) — Concurrency patterns
 

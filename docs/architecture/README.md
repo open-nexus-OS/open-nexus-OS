@@ -30,13 +30,17 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 ## Kernel
 
 - `01-neuron-kernel.md` — NEURON kernel overview (syscalls, memory model, invariants)
-- `16-rust-concurrency-model.md` — Rust ownership & Servo-inspired parallelism (SMP design)
+- `16-rust-concurrency-model.md` — Rust ownership & Servo-inspired parallelism (SMP baseline + follow-ups)
 - `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` — SMP v1 contract (Complete; CPU online mask, secondary bring-up, IPI/selftest markers)
 - `smp-ipi-rate-limiting.md` — IPI rate limiting policy (DoS prevention, TASK-0012/0042)
 - `hardening-status.md` — kernel hardening objectives checklist (status snapshot)
 - `KERNEL-TASK-INVENTORY.md` — Complete inventory of all kernel-touch tasks (security consistency check)
 - `SECURITY-CONSISTENCY-CHECK.md` — Decision points and drift prevention across SMP/QoS/parallelism tasks
 - `RUST-ADVANTAGES.md` — Why Rust is optimal for a consumer-facing OS (comparison with C/C++)
+
+**Current Status (2026-02-10)**:
+- TASK-0012: implementation complete, status **In Review** (deterministic anti-fake SMP proofs green)
+- RFC-0021: **Complete** (contract + proof checklist aligned with `REQUIRE_SMP=1` SMP marker gating)
 
 ## Testing + CI
 

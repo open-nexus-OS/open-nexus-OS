@@ -13,7 +13,7 @@ This is the "everything green" guard against fake success.
 - [ ] OS diagnostics compile (when OS code touched): `just diag-os`
 - [ ] QEMU smoke tests / marker run (when behavior affects OS runtime): `just test-os` or `RUN_UNTIL_MARKER=1 just test-os`
 - [ ] SMP tasks: dual-mode QEMU proof is green:
-  - [ ] `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (SMP marker gate enabled)
+  - [ ] `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (SMP marker gate enabled)
   - [ ] `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (default smoke semantics preserved)
 - [ ] QEMU runs were executed sequentially (no parallel smoke/harness runs contending on shared artifacts)
 - [ ] Determinism floor respected: modern virtio-mmio default used for green proofs (legacy mode only for debug/bisect)

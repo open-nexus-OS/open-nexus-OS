@@ -2,7 +2,7 @@
 
 **Created**: 2026-01-09  
 **Owner**: @kernel-smp-team  
-**Status**: Design guidance for TASK-0012 and TASK-0042  
+**Status**: Active policy; TASK-0012 baseline invariants implemented, TASK-0042 budget layer pending  
 **Related**: TASK-0012 (SMP v1), TASK-0042 (SMP v2), SECURITY-CONSISTENCY-CHECK.md
 
 ---
@@ -188,15 +188,16 @@ SELFTEST: ipi_flood_reject ok
 
 ### Phase 1 (TASK-0012): Basic Rate Limiting
 
-- ✅ Global IPI counter (atomic)
-- ✅ Work stealing interval check
-- ✅ Log warning on global cap hit
+- ✅ Bounded resched mailbox semantics (no unbounded queues/loops)
+- ✅ Bounded work-steal attempts per scheduling tick
+- ✅ Deterministic anti-fake IPI proof chain + counterfactual marker (`ipi counterfactual ok`)
+- ⚠️ Full global IPI token-bucket style limiter remains follow-up work (TASK-0042)
 
 ### Phase 2 (TASK-0042): Per-Task Budgets
 
-- ✅ Per-task IPI state
-- ✅ Recipe-based budget configuration
-- ✅ Reject with `EBUSY` on budget exhaustion
+- 🔄 Per-task IPI state
+- 🔄 Recipe-based budget configuration
+- 🔄 Reject with `EBUSY` on budget exhaustion
 
 ---
 

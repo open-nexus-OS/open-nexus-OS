@@ -2,7 +2,7 @@
 
 **Purpose**: Systematic classification of all tasks with kernel-relevant scope to ensure security consistency, decision point alignment, and no architectural drift.
 
-**Last Updated**: 2026-01-09
+**Last Updated**: 2026-02-10
 
 ---
 
@@ -67,7 +67,7 @@ These tasks directly modify kernel code or define kernel architecture.
 
 ### ✅ TASK-0012: Kernel SMP v1 (Per-CPU Runqueues + IPIs)
 
-- **Status**: Has Security section
+- **Status**: In Review (implementation complete; deterministic proofs green)
 
 - **Decision Points**: Aligned (IPI classes, Per-CPU isolation)
 
@@ -77,7 +77,7 @@ These tasks directly modify kernel code or define kernel architecture.
 
 - **Threat Model**: Per-CPU data races, IPI spoofing, work stealing attacks
 
-- **Notes**: Core SMP implementation
+- **Notes**: Core SMP baseline implemented with strict anti-fake IPI evidence chain, counterfactual marker, and deterministic `test_reject_*` coverage.
 
 ### ✅ TASK-0013: Perf/Power v1 (QoS ABI + Timed Coalescing)
 

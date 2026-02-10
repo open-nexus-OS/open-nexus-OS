@@ -25,6 +25,7 @@ preserves the separation between host-tested logic and system wiring.
 - Selftests run on a private stack with canaries and masked timer IRQs; UART markers allow deterministic CI exit.
 - Optional trap symbolization (`trap_symbols`) prints nearest function for `sepc` without runtime cost when disabled.
 - Boot gates v1 (RFC-0013): readiness contract (`init: up` vs `<svc>: ready`), spawn failure reasons, and resource/leak sentinel markers are enforced by the QEMU harness.
+- SMP v1 baseline (TASK-0012 / RFC-0021): strict anti-fake IPI proof chain is enforced in selftests and marker gating (`REQUIRE_SMP=1`) for SMP runs.
 - Memory pressure can still surface as `ALLOC-FAIL` until `TASK-0228` (cooperative `oomd`) lands; use boot-gate markers to diagnose quickly.
 
 ## Control-plane IDL strategy
@@ -41,6 +42,7 @@ out-of-band via VMOs and `map()`.
 - Entry: `kmain()` brings up HAL, Sv39 `AddressSpaceManager`, installs syscall table, starts `Scheduler` and `ipc::Router`.
 - SATP: kernel address space activated early; RISC-V trampoline via `satp_switch_island`.
 - Idle loop: drives cooperative scheduling via `SYSCALL_YIELD`.
+- SMP proofs: dual-mode deterministic ladder with explicit SMP marker gate (`SMP=2 REQUIRE_SMP=1 ...` and `SMP=1 ...`).
 - Syscalls (os-lite): `yield`, `nsec`, `send/recv`, `map`, `vmo_create/write`, `spawn`, `cap_transfer`, `as_create/map`, `exit`, `wait`, `debug_putc`.
 - Entry points: `source/kernel/neuron/src/core/kmain.rs`, `source/kernel/neuron/src/syscall/api.rs`,
   `source/kernel/neuron/src/mm/address_space.rs`, `source/kernel/neuron/src/core/trap.rs`,

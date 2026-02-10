@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Depends-on (SMP baseline): tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - Depends-on (SMP hardening bridge): tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
   - Pre-SMP ownership/types contract (seed): docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
   - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
   - Testing contract: scripts/qemu-test.sh
@@ -20,7 +21,7 @@ want:
 - a small user-visible QoS hint API (set/get) to influence scheduling policy,
 - and a userspace timer coalescing service (`timed`) so frugal workloads batch wakeups.
 
-This task is intentionally minimal and sits on top of stable kernel primitives.
+This task is intentionally minimal and sits on top of stable kernel primitives (TASK-0012 + TASK-0012B baseline).
 
 Track alignment: QoS hints + timer coalescing are foundational for “device-class” services (GPU/NPU/Audio/Video)
 to achieve low jitter and power-efficient defaults (see `tasks/TRACK-DRIVERS-ACCELERATORS.md`).
@@ -47,6 +48,7 @@ Prove in QEMU:
   - use explicit newtypes / enums internally (avoid “raw int” plumbing),
   - keep syscall ABI stable and explicit (errno mapping unchanged unless this task defines a new surface),
   - keep scheduler/QoS ownership and thread-boundary assumptions explicit (so QoS continues to compose with per-CPU runqueues from TASK-0012).
+- Must preserve TASK-0012B hardening invariants (bounded scheduler/SMP hot paths, deterministic SMP marker semantics, and single SMP authority).
 
 ## Red flags / decision points
 
@@ -123,6 +125,7 @@ Prove in QEMU:
 
 - `source/kernel/neuron/src/sched/mod.rs` QoS buckets (`QosClass`) as the initial mapping target.
 - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (newtype + ownership + error envelope discipline)
+- `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (scheduler/SMP hardening baseline contract)
 - `scripts/qemu-test.sh` marker contract.
 
 ## Stop conditions (Definition of Done)

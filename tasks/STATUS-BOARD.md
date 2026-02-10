@@ -43,6 +43,7 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 | TASK-0011 | Kernel simplification phase A | Queued | — | Restructure for SMP |
 | TASK-0011B | Kernel Rust idioms pre-SMP | Queued | TASK-0011 | Ownership + newtypes |
 | TASK-0012 | Kernel SMP v1 | Queued | TASK-0011, TASK-0011B | Per-CPU runqueues + IPIs |
+| TASK-0012B | Kernel SMP v1b hardening bridge | Queued | TASK-0012 | Scheduler/SMP hardening without scope drift |
 
 ---
 
@@ -74,8 +75,8 @@ TRACKs define feature areas but don't execute directly. They spawn tasks when ga
 
 | Track | Purpose | Gates (blocked by) |
 |-------|---------|-------------------|
-| TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU | TASK-0010, TASK-0031, TASK-0012 |
-| TRACK-NETWORKING-DRIVERS | NIC drivers | TASK-0010, TASK-0012 |
+| TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU | TASK-0010, TASK-0031, TASK-0012B |
+| TRACK-NETWORKING-DRIVERS | NIC drivers | TASK-0010, TASK-0012B |
 | TRACK-NEXUSGFX-SDK | Graphics SDK | UI tasks |
 | TRACK-NEXUSMEDIA-SDK | Media SDK | UI + codec tasks |
 | TRACK-ZEROCOPY-APP-PLATFORM | App platform | TASK-0031, clipboard |

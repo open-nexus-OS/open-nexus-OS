@@ -59,7 +59,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0008B → TASK-0009 → ...
+## Current: TASK-0008B → TASK-0009 and onward
 
 Execute in numerical order. Current position: **TASK-0008B**.
 
@@ -71,7 +71,8 @@ Execute in numerical order. Current position: **TASK-0008B**.
 | TASK-0011 | Kernel simplification phase A | — | Queued |
 | TASK-0011B | Kernel Rust idioms pre-SMP | TASK-0011 | Queued |
 | TASK-0012 | Kernel SMP v1 (per-CPU runqueues + IPIs) | TASK-0011, TASK-0011B | Queued |
-| TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | — | Queued |
+| TASK-0012B | Kernel SMP v1b hardening bridge (scheduler + SMP internals) | TASK-0012 | Queued |
+| TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | TASK-0012B | Queued |
 | TASK-0014 | Observability v2: metrics + tracing | TASK-0006 | Queued |
 
 ---
@@ -94,8 +95,8 @@ Notable upcoming tasks:
 
 | Track | Purpose | Blocked by |
 |-------|---------|------------|
-| TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU device-class services | TASK-0010, TASK-0031, TASK-0012 |
-| TRACK-NETWORKING-DRIVERS | NIC drivers, offload, netdevd | TASK-0003, TASK-0010, TASK-0012 |
+| TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU device-class services | TASK-0010, TASK-0031, TASK-0012B |
+| TRACK-NETWORKING-DRIVERS | NIC drivers, offload, netdevd | TASK-0003, TASK-0010, TASK-0012B |
 | TRACK-NEXUSGFX-SDK | Graphics SDK for apps | UI tasks (0054+) |
 | TRACK-NEXUSMEDIA-SDK | Audio/video/image SDK | UI tasks, codec tasks |
 | TRACK-ZEROCOPY-APP-PLATFORM | RichContent + OpLog + connectors | TASK-0031, TASK-0087 |

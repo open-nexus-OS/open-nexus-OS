@@ -92,6 +92,9 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - DSoftBus 2-VM harness + PCAP: `just test-dsoftbus-2vm-pcap` (or `just os2vm-pcap`)
 - Full gate (recommended before “everything is green”): `just test-all`
   - Includes `fmt-check`, `lint`, `deny-check`, host tests, Miri tiers, `arch-check`, and QEMU selftests.
+- Make convenience wrapper: `make verify`
+  - Delegates to `just` gates (`diag-host`, `test-host`, `test-e2e`, `dep-gate`, `diag-os`, `test-os`).
+  - Optional SMP dual-mode extension: `REQUIRE_SMP_VERIFY=1 make verify`.
 
 ### Phase-gated QEMU smoke (triage helper)
 

@@ -20,7 +20,7 @@ open, this document records them as **Decision Points** to be resolved before im
 
 ## Task Dependency Graph
 
-```
+```text
 TASK-0011 (Kernel Simplification)
     ↓ (text-only prep)
 TASK-0011B (Rust Idioms)
@@ -116,7 +116,7 @@ TASK-0012 (SMP v1: Per-CPU + IPIs)
 
 ### Kernel (Privileged)
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │ Kernel (S-mode)                         │
 │ ├─ Per-CPU Scheduler (TASK-0012)       │
@@ -130,7 +130,7 @@ TASK-0012 (SMP v1: Per-CPU + IPIs)
 
 ### Userspace (Privileged Services)
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │ execd (spawner)                         │
 │ ├─ Applies QoS from recipe configs     │
@@ -155,7 +155,7 @@ TASK-0012 (SMP v1: Per-CPU + IPIs)
 
 ### Userspace (Unprivileged Apps)
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │ User Apps                               │
 │ ├─ Can set own QoS (within recipe)     │
@@ -276,22 +276,23 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 
 ## Action Items
 
-### Immediate (Before TASK-0012 Implementation)
+### Immediate (Post TASK-0012 Baseline)
 
 1. ✅ Add security sections to all SMP/QoS tasks (DONE)
-2. 🔄 Define `CAP_SCHED_SETAFFINITY` in kernel capability model
-3. 🔄 Document QoS enum ABI stability
-4. 🔄 Specify IPI rate limiting implementation
+2. ✅ Complete TASK-0012 deterministic SMP baseline (DONE; anti-fake IPI proof chain + `test_reject_*`)
+3. 🔄 Define `CAP_SCHED_SETAFFINITY` in kernel capability model
+4. 🔄 Finalize QoS enum ABI stability in TASK-0013 ABI surfaces
+5. 🔄 Specify full token-bucket/global IPI limiter implementation for TASK-0042
 
 ### Before TASK-0042 (SMP v2)
 
-5. 🔄 Implement IPI rate limiting in kernel
-6. 🔄 Add affinity capability checks to syscall handlers
+1. 🔄 Implement full IPI rate limiting in kernel
+2. 🔄 Add affinity capability checks to syscall handlers
 
 ### Before TASK-0247 (RISC-V SMP)
 
-7. 🔄 Specify virtio-blk signature verification format
-8. 🔄 Link to TASK-0008B for device-key entropy/keygen when signature material depends on real OS keys
+1. 🔄 Specify virtio-blk signature verification format
+2. 🔄 Link to TASK-0008B for device-key entropy/keygen when signature material depends on real OS keys
 
 ---
 
@@ -320,8 +321,8 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 
 **Next steps**:
 
-1. Address identified gaps (CAP_SCHED_SETAFFINITY, QoS ABI, IPI rate limiting)
-2. Implement TASK-0011 and TASK-0011B (prep work)
-3. Proceed with TASK-0012 (SMP baseline)
+1. Address identified gaps (CAP_SCHED_SETAFFINITY, QoS ABI finalization, full IPI rate limiting)
+2. Use TASK-0012 as fixed baseline for TASK-0013 and TASK-0042 follow-ups
+3. Keep SMP proofs deterministic (`REQUIRE_SMP=1` for SMP marker ladder) and preserve anti-fake semantics
 
-**Overall assessment**: ✅ **Ready to proceed** with SMP implementation.
+**Overall assessment**: ✅ **Ready to proceed** with post-SMP-baseline tasks.

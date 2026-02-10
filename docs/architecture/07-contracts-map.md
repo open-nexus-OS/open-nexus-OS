@@ -72,9 +72,17 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 ### Testing contracts (host-first + phased QEMU)
 
 - **Contract**: service contract tests, phased QEMU smoke gates, deterministic failure reporting
-- **Canonical spec**: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Accepted; Phase 0 complete)
+- **Canonical spec**: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Complete)
 - **Proof**: `just test-e2e`, `cargo test -p logd-e2e`, `cargo test -p e2e_policy`, `just test-os`
 - **Why it matters**: prevents multi-day QEMU debugging by shifting left to host-first contract tests
+
+### Kernel SMP v1 baseline
+
+- **Contract**: deterministic SMP bring-up + per-CPU ownership boundaries + anti-fake IPI evidence chain
+- **Canonical spec**: `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` (Complete)
+- **Task**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (In Review)
+- **Proof**: `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` and `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- **Why it matters**: keeps SMP proofs causal and deterministic, and prevents fake-positive marker greens.
 
 ### Device MMIO access model v1
 

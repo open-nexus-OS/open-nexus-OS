@@ -31,7 +31,7 @@ help:
     @echo "  just test-os             # run kernel selftests in QEMU"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just test-os-dhcp         # QEMU smoke with DHCP requested (bounded, deterministic fallback allowed)"
-    @echo "  just test-os-dhcp-strict  # QEMU smoke with strict DHCP gate (bound OR TX+fallback)"
+    @echo "  just test-os-dhcp-strict  # QEMU smoke with strict DHCP gate (requires net: dhcp bound)"
     @echo "  just test-dsoftbus-2vm    # TASK-0005: 2-VM DSoftBus harness"
     @echo "  just test-dsoftbus-2vm-pcap # 2-VM DSoftBus harness + PCAP capture"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
