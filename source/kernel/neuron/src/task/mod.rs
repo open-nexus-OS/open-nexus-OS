@@ -7,13 +7,14 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU smoke + kernel selftests (spawn/exit/wait)
 //! PUBLIC API: TaskTable (spawn/exit/wait), Pid, TaskState
-//! DEPENDS_ON: ipc::Router, mm::AddressSpaceManager, sched::Scheduler, types::{SlotIndex,VirtAddr}
+//! DEPENDS_ON: ipc::Router, mm::AddressSpaceManager, sched::Scheduler, types::{Pid,SlotIndex,VirtAddr}
 //! INVARIANTS: Kernel text entry validation; guard-paged user stacks; capability rights respected
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use crate::{
     cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
@@ -25,8 +26,7 @@ use crate::{
 };
 use spin::Mutex;
 
-/// Process identifier.
-pub type Pid = u32;
+pub use crate::types::Pid;
 
 /// Lifecycle state of a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +44,7 @@ pub enum BlockReason {
 }
 
 /// Errors returned when waiting for child processes.
+#[must_use = "wait errors must be handled explicitly"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaitError {
     /// Current task has no children to reap.
@@ -208,6 +209,7 @@ impl SpawnFailReason {
 }
 
 /// Error returned when spawning a new task.
+#[must_use = "spawn errors must be handled explicitly"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     /// Parent PID does not exist.
@@ -265,6 +267,7 @@ pub fn spawn_fail_reason(err: &SpawnError) -> SpawnFailReason {
 }
 
 /// Error returned when transferring capabilities between tasks.
+#[must_use = "transfer errors must be handled explicitly"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferError {
     /// Parent PID does not exist.
@@ -273,6 +276,13 @@ pub enum TransferError {
     InvalidChild,
     /// Capability operation failed.
     Capability(CapError),
+}
+
+/// Internal transfer intent used to centralize capability transfer semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransferMode {
+    CopyAllocate,
+    CopyToSlot(usize),
 }
 
 impl From<CapError> for TransferError {
@@ -338,7 +348,7 @@ impl Task {
             stval: 0,
         };
         let t = Self {
-            pid: 0,
+            pid: Pid::KERNEL,
             parent: None,
             state: TaskState::Running,
             exit_code: None,
@@ -471,6 +481,8 @@ impl Task {
 pub struct TaskTable {
     tasks: Vec<Task>,
     current: Pid,
+    // Pre-SMP contract: task table stays in the single kernel execution context.
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 impl TaskTable {
@@ -478,7 +490,7 @@ impl TaskTable {
     pub fn new() -> Self {
         let mut tasks_vec: Vec<Task> = Vec::new();
         tasks_vec.push(Task::bootstrap());
-        Self { tasks: tasks_vec, current: 0 }
+        Self { tasks: tasks_vec, current: Pid::KERNEL, _not_send_sync: PhantomData }
     }
 
     /// Returns the PID of the currently running task.
@@ -496,12 +508,12 @@ impl TaskTable {
     /// This is intentionally *not* a general spawn primitive; it exists so kernel selftests can
     /// exercise block/wake scheduling logic without perturbing memory pressure (e.g. exec PT_LOAD).
     pub fn selftest_create_dummy_task(&mut self, parent: Pid, scheduler: &mut Scheduler) -> Pid {
-        let parent_index = parent as usize;
+        let parent_index = parent.as_index();
         let parent_task =
             self.tasks.get(parent_index).expect("selftest_create_dummy_task: invalid parent");
         let parent_domain = parent_task.trap_domain();
 
-        let pid = self.tasks.len() as Pid;
+        let pid = Pid::from_raw(self.tasks.len() as u32);
         let task = Task {
             pid,
             parent: Some(parent),
@@ -550,17 +562,17 @@ impl TaskTable {
 
     /// Returns a shared reference to the current task.
     pub fn current_task(&self) -> &Task {
-        &self.tasks[self.current as usize]
+        &self.tasks[self.current.as_index()]
     }
 
     /// Returns a mutable reference to the current task.
     pub fn current_task_mut(&mut self) -> &mut Task {
-        &mut self.tasks[self.current as usize]
+        &mut self.tasks[self.current.as_index()]
     }
 
     /// Returns a shared reference to a task by PID.
     pub fn task(&self, pid: Pid) -> Option<&Task> {
-        self.tasks.get(pid as usize)
+        self.tasks.get(pid.as_index())
     }
 
     /// Returns the capability table of the current task.
@@ -570,17 +582,17 @@ impl TaskTable {
 
     /// Returns a shared reference to the capability table of `pid`.
     pub fn caps_of(&self, pid: Pid) -> Option<&CapTable> {
-        self.tasks.get(pid as usize).map(|task| &task.caps)
+        self.tasks.get(pid.as_index()).map(|task| &task.caps)
     }
 
     /// Returns a mutable reference to the capability table of `pid`.
     pub fn caps_of_mut(&mut self, pid: Pid) -> Option<&mut CapTable> {
-        self.tasks.get_mut(pid as usize).map(|task| task.caps_mut())
+        self.tasks.get_mut(pid.as_index()).map(|task| task.caps_mut())
     }
 
     /// Returns a mutable reference to a task by PID.
     pub fn task_mut(&mut self, pid: Pid) -> Option<&mut Task> {
-        self.tasks.get_mut(pid as usize)
+        self.tasks.get_mut(pid.as_index())
     }
 
     pub fn set_last_spawn_fail_reason(&mut self, pid: Pid, reason: SpawnFailReason) {
@@ -634,7 +646,7 @@ impl TaskTable {
         _router: &mut Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
-        let parent_index = parent as usize;
+        let parent_index = parent.as_index();
         let parent_task = self.tasks.get(parent_index).ok_or(SpawnError::InvalidParent)?;
 
         ensure_entry_in_kernel_text(entry_pc, address_space)?;
@@ -657,7 +669,7 @@ impl TaskTable {
         //
         // This avoids brittle PID/parent gating and avoids relying on external helpers to do
         // cap_transfer at exactly the right time during boot.
-        if parent == 0 && address_space.is_some() {
+        if parent == Pid::KERNEL && address_space.is_some() {
             const FACTORY_PARENT_SLOT: usize = 2;
             const FACTORY_CHILD_SLOT: usize = 1;
             if let Ok(factory_cap) = parent_task.caps.get(FACTORY_PARENT_SLOT) {
@@ -723,7 +735,7 @@ impl TaskTable {
             frame.sstatus |= SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM; // S-mode task
         }
 
-        let pid = self.tasks.len() as Pid;
+        let pid = Pid::from_raw(self.tasks.len() as u32);
         let task = Task {
             pid,
             parent: Some(parent),
@@ -765,10 +777,33 @@ impl TaskTable {
         parent_slot: usize,
         rights: Rights,
     ) -> Result<usize, TransferError> {
-        let parent_task = self.tasks.get(parent as usize).ok_or(TransferError::InvalidParent)?;
+        self.transfer_cap_with_mode(parent, child, parent_slot, rights, TransferMode::CopyAllocate)
+    }
+
+    fn transfer_cap_with_mode(
+        &mut self,
+        parent: Pid,
+        child: Pid,
+        parent_slot: usize,
+        rights: Rights,
+        mode: TransferMode,
+    ) -> Result<usize, TransferError> {
+        let parent_task =
+            self.tasks.get(parent.as_index()).ok_or(TransferError::InvalidParent)?;
         let derived = parent_task.caps.derive(parent_slot, rights)?;
-        let child_task = self.tasks.get_mut(child as usize).ok_or(TransferError::InvalidChild)?;
-        child_task.caps_mut().allocate(derived).map_err(TransferError::from)
+        let child_task = self.tasks.get_mut(child.as_index()).ok_or(TransferError::InvalidChild)?;
+        match mode {
+            TransferMode::CopyAllocate => {
+                child_task.caps_mut().allocate(derived).map_err(TransferError::from)
+            }
+            TransferMode::CopyToSlot(child_slot) => {
+                child_task
+                    .caps_mut()
+                    .set_if_empty(child_slot, derived)
+                    .map_err(TransferError::from)?;
+                Ok(child_slot)
+            }
+        }
     }
 
     /// Duplicates a capability from `parent` into `child` at an explicit slot.
@@ -780,15 +815,19 @@ impl TaskTable {
         rights: Rights,
         child_slot: usize,
     ) -> Result<(), TransferError> {
-        let parent_task = self.tasks.get(parent as usize).ok_or(TransferError::InvalidParent)?;
-        let derived = parent_task.caps.derive(parent_slot, rights)?;
-        let child_task = self.tasks.get_mut(child as usize).ok_or(TransferError::InvalidChild)?;
-        child_task.caps_mut().set_if_empty(child_slot, derived).map_err(TransferError::from)
+        let _ = self.transfer_cap_with_mode(
+            parent,
+            child,
+            parent_slot,
+            rights,
+            TransferMode::CopyToSlot(child_slot),
+        )?;
+        Ok(())
     }
 
     /// Marks the current task as exited and transitions it to the zombie state.
     pub fn exit_current(&mut self, status: i32) {
-        let pid = self.current_pid() as usize;
+        let pid = self.current_pid().as_index();
         if let Some(task) = self.tasks.get_mut(pid) {
             task.state = TaskState::Zombie;
             task.exit_code = Some(status);
@@ -853,7 +892,7 @@ impl TaskTable {
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<(Pid, i32), WaitError> {
         let parent_pid = self.current_pid();
-        let parent_index = parent_pid as usize;
+        let parent_index = parent_pid.as_index();
         if parent_index >= self.tasks.len() {
             return Err(WaitError::NoChildren);
         }
@@ -877,7 +916,7 @@ impl TaskTable {
         } else {
             let mut found = None;
             for child_pid in &children_snapshot {
-                if let Some(child_task) = self.tasks.get(*child_pid as usize) {
+                if let Some(child_task) = self.tasks.get(child_pid.as_index()) {
                     if child_task.state == TaskState::Zombie && child_task.exit_code.is_some() {
                         found = Some(*child_pid);
                         break;
@@ -890,7 +929,7 @@ impl TaskTable {
             }
         };
 
-        let child_index = selected_pid as usize;
+        let child_index = selected_pid.as_index();
         if child_index >= self.tasks.len() {
             return Err(WaitError::NoSuchPid);
         }
@@ -919,7 +958,12 @@ impl TaskTable {
             child_task.children.clear();
             if let Some(handle) = child_task.address_space.take() {
                 if let Err(err) = address_spaces.detach(handle, selected_pid) {
-                    log_error!(target: "task", "TASK: detach failed pid={} err={:?}", selected_pid, err);
+                    log_error!(
+                        target: "task",
+                        "TASK: detach failed pid={} err={:?}",
+                        selected_pid.as_raw(),
+                        err
+                    );
                 }
             }
         }
@@ -939,8 +983,8 @@ mod tests {
     #[test]
     fn bootstrap_task_present() {
         let table = TaskTable::new();
-        assert_eq!(table.current_pid(), 0);
-        assert_eq!(table.current_task().pid, 0);
+        assert_eq!(table.current_pid(), Pid::KERNEL);
+        assert_eq!(table.current_task().pid, Pid::KERNEL);
     }
 
     #[test]
@@ -961,20 +1005,30 @@ mod tests {
         let mut router = Router::new(1);
         let mut spaces = AddressSpaceManager::new();
         let bootstrap_as = spaces.create().unwrap();
-        spaces.attach(bootstrap_as, 0).unwrap();
+        spaces.attach(bootstrap_as, Pid::KERNEL).unwrap();
         table.bootstrap_mut().address_space = Some(bootstrap_as);
         let entry = VirtAddr::instr_aligned(0).unwrap();
         let child = table
-            .spawn(0, entry, None, None, 0, SlotIndex(0), &mut scheduler, &mut router, &mut spaces)
+            .spawn(
+                Pid::KERNEL,
+                entry,
+                None,
+                None,
+                0,
+                SlotIndex(0),
+                &mut scheduler,
+                &mut router,
+                &mut spaces,
+            )
             .unwrap();
 
-        let slot = table.transfer_cap(0, child, 0, Rights::RECV).unwrap();
+        let slot = table.transfer_cap(Pid::KERNEL, child, 0, Rights::RECV).unwrap();
         assert_ne!(slot, 0);
         let cap = table.caps_of(child).unwrap().get(slot).unwrap();
         assert_eq!(cap.kind, CapabilityKind::Endpoint(0));
         assert_eq!(cap.rights, Rights::RECV);
 
-        let err = table.transfer_cap(0, child, 0, Rights::MAP).unwrap_err();
+        let err = table.transfer_cap(Pid::KERNEL, child, 0, Rights::MAP).unwrap_err();
         assert_eq!(err, TransferError::Capability(CapError::PermissionDenied));
     }
 }

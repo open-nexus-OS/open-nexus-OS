@@ -430,7 +430,7 @@ impl CapTransferArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
         Ok(Self {
-            child: args.get(0) as task::Pid,
+            child: task::Pid::from_raw(args.get(0) as u32),
             parent_slot: SlotIndex::decode(args.get(1)),
             rights_bits: args.get(2) as u32,
         })
@@ -455,7 +455,7 @@ impl CapTransferToArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
         Ok(Self {
-            child: args.get(0) as task::Pid,
+            child: task::Pid::from_raw(args.get(0) as u32),
             parent_slot: SlotIndex::decode(args.get(1)),
             rights_bits: args.get(2) as u32,
             child_slot: SlotIndex::decode(args.get(3)),
@@ -511,7 +511,7 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let now = ctx.timer.now();
     let len = ctx.tasks.len();
     for pid_usize in 0..len {
-        let pid = pid_usize as task::Pid;
+        let pid = task::Pid::from_raw(pid_usize as u32);
         let Some(t) = ctx.tasks.task(pid) else {
             continue;
         };
@@ -522,13 +522,13 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
             Some(BlockReason::IpcRecv { endpoint, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
-                let _ = ctx.router.remove_recv_waiter(endpoint, pid);
+                let _ = ctx.router.remove_recv_waiter(endpoint, pid.as_raw());
                 let _ = ctx.tasks.wake(pid, ctx.scheduler);
             }
             Some(BlockReason::IpcSend { endpoint, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
-                let _ = ctx.router.remove_send_waiter(endpoint, pid);
+                let _ = ctx.router.remove_send_waiter(endpoint, pid.as_raw());
                 let _ = ctx.tasks.wake(pid, ctx.scheduler);
             }
             _ => {}
@@ -587,7 +587,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
 }
 
 fn sys_getpid(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
-    Ok(ctx.tasks.current_pid() as usize)
+    Ok(ctx.tasks.current_pid().as_index())
 }
 
 fn sys_spawn_last_error(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -616,7 +616,7 @@ fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    let id = ctx.router.create_endpoint(depth, Some(current))?;
+    let id = ctx.router.create_endpoint(depth, Some(current.as_raw()))?;
     let ep_cap = Capability {
         kind: CapabilityKind::Endpoint(id),
         rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
@@ -627,7 +627,7 @@ fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 
 fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let factory_slot = args.get(0);
-    let owner_pid = args.get(1) as task::Pid;
+    let owner_pid = task::Pid::from_raw(args.get(1) as u32);
     let depth = args.get(2);
     if depth == 0 || depth > 256 {
         return Err(AddressSpaceError::InvalidArgs.into());
@@ -658,14 +658,14 @@ fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) -> SysResult<
         }
     }
 
-    let id = ctx.router.create_endpoint(depth, Some(owner_pid))?;
+    let id = ctx.router.create_endpoint(depth, Some(owner_pid.as_raw()))?;
     #[cfg(feature = "ipc_trace_ring")]
     {
         crate::ipc::trace::record_ep_create(
-            ctx.tasks.current_pid() as u32,
+            ctx.tasks.current_pid().as_raw(),
             id,
             depth as u16,
-            owner_pid as u16,
+            owner_pid.as_raw() as u16,
         );
     }
     let ep_cap = Capability {
@@ -706,11 +706,11 @@ fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize
     }
     #[cfg(feature = "ipc_trace_ring")]
     {
-        crate::ipc::trace::record_ep_close(ctx.tasks.current_pid() as u32, id);
+        crate::ipc::trace::record_ep_close(ctx.tasks.current_pid().as_raw(), id);
     }
     let waiters = ctx.router.close_endpoint(id)?;
     for pid in waiters {
-        let _ = ctx.tasks.wake(pid as task::Pid, ctx.scheduler);
+        let _ = ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler);
     }
     Ok(0)
 }
@@ -719,8 +719,8 @@ fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     crate::liveness::bump();
     ctx.scheduler.yield_current();
     if let Some(next) = ctx.scheduler.schedule_next() {
-        ctx.tasks.set_current(next as task::Pid);
-        if let Some(task) = ctx.tasks.task(next as task::Pid) {
+        ctx.tasks.set_current(next);
+        if let Some(task) = ctx.tasks.task(next) {
             #[cfg(feature = "debug_uart")]
             {
                 use core::fmt::Write as _;
@@ -730,9 +730,9 @@ fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
             #[cfg(not(feature = "debug_uart"))]
             let _ = task; // silence unused when debug UART is disabled
         }
-        Ok(next as usize)
+        Ok(next.as_index())
     } else {
-        Ok(ctx.tasks.current_pid() as usize)
+        Ok(ctx.tasks.current_pid().as_index())
     }
 }
 
@@ -743,11 +743,8 @@ fn sys_nsec(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
 fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = SendArgsTyped::decode(args)?;
     typed.check()?;
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::SEND)?;
-    let endpoint = match cap.kind {
-        CapabilityKind::Endpoint(id) => id,
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::SEND)?.endpoint();
     let header =
         MessageHeader::new(typed.slot.0 as u32, endpoint, typed.ty, typed.flags, typed.len);
     let payload = Vec::new();
@@ -758,11 +755,8 @@ fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = RecvArgsTyped::decode(args)?;
     typed.check()?;
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::RECV)?;
-    let endpoint = match cap.kind {
-        CapabilityKind::Endpoint(id) => id,
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
     let message = ctx.router.recv(endpoint)?;
     let len = message.header.len as usize;
     ctx.last_message = Some(message);
@@ -778,11 +772,8 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
 
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::SEND)?;
-    let endpoint = match cap.kind {
-        CapabilityKind::Endpoint(id) => id,
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::SEND)?.endpoint();
 
     let mut hdr_bytes = [0u8; 16];
     unsafe {
@@ -824,7 +815,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // `src` is reserved for CAP_MOVE return value on receive.
     let header = MessageHeader::new(
         0,
-        ctx.tasks.current_pid() as u32,
+        ctx.tasks.current_pid().as_raw(),
         user_hdr.ty,
         user_hdr.flags,
         typed.payload_len as u32,
@@ -852,7 +843,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 #[cfg(feature = "ipc_trace_ring")]
                 {
                     crate::ipc::trace::record_capmove_send(
-                        ctx.tasks.current_pid() as u32,
+                        ctx.tasks.current_pid().as_raw(),
                         typed.slot.0 as u16,
                         slot as u16,
                         endpoint,
@@ -876,7 +867,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         #[cfg(feature = "ipc_trace_ring")]
         {
             crate::ipc::trace::record_send(
-                ctx.tasks.current_pid() as u32,
+                ctx.tasks.current_pid().as_raw(),
                 typed.slot.0 as u16,
                 endpoint,
                 msg.header.flags,
@@ -901,7 +892,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(()) => {
                 // Wake one receiver blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
-                    let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                    let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
                 }
                 // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" send.
                 // This helps diagnose OTA stage hangs without relying on NoSuchEndpoint spam.
@@ -923,18 +914,18 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 }
                 let cur = ctx.tasks.current_pid();
                 // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
-                ctx.router.register_send_waiter(endpoint, cur)?;
+                ctx.router.register_send_waiter(endpoint, cur.as_raw())?;
                 ctx.tasks.block_current(
                     BlockReason::IpcSend { endpoint, deadline_ns: typed.deadline_ns },
                     ctx.scheduler,
                 );
                 wake_expired_blocked(ctx);
                 if let Some(next) = ctx.scheduler.schedule_next() {
-                    ctx.tasks.set_current(next as task::Pid);
+                    ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
                 }
                 // Degenerate fallback: nothing runnable. Undo waiter registration and keep spinning.
-                let _ = ctx.router.remove_send_waiter(endpoint, cur);
+                let _ = ctx.router.remove_send_waiter(endpoint, cur.as_raw());
                 let _ = ctx.tasks.wake(cur, ctx.scheduler);
                 return Err(Error::Reschedule);
             }
@@ -948,7 +939,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 #[cfg(feature = "ipc_trace_ring")]
                 {
                     crate::ipc::trace::record_send(
-                        ctx.tasks.current_pid() as u32,
+                        ctx.tasks.current_pid().as_raw(),
                         typed.slot.0 as u16,
                         endpoint,
                         msg.header.flags,
@@ -985,11 +976,8 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
 
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::RECV)?;
-    let endpoint = match cap.kind {
-        CapabilityKind::Endpoint(id) => id,
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
 
     let truncate = (typed.sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
@@ -1001,7 +989,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(msg) => {
                 // Receiving frees queue capacity; wake one sender blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                    let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                    let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
                 }
                 break msg;
             }
@@ -1011,15 +999,15 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 }
                 let cur = ctx.tasks.current_pid();
                 // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
-                ctx.router.register_recv_waiter(endpoint, cur)?;
+                ctx.router.register_recv_waiter(endpoint, cur.as_raw())?;
                 // Avoid missed-wakeup: a sender can enqueue between our empty check and waiter
                 // registration. Re-check once after registering; if a message is present, consume
                 // it without blocking.
                 match ctx.router.recv(endpoint) {
                     Ok(msg) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                            let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                            let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
                         }
                         break msg;
                     }
@@ -1027,7 +1015,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                         // Proceed to block below.
                     }
                     Err(e) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         return Err(e.into());
                     }
                 }
@@ -1037,11 +1025,11 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 );
                 wake_expired_blocked(ctx);
                 if let Some(next) = ctx.scheduler.schedule_next() {
-                    ctx.tasks.set_current(next as task::Pid);
+                    ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
                 }
                 // Degenerate fallback: nothing runnable. Undo waiter registration and keep spinning.
-                let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                 let _ = ctx.tasks.wake(cur, ctx.scheduler);
                 return Err(Error::Reschedule);
             }
@@ -1051,7 +1039,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     #[cfg(feature = "ipc_trace_ring")]
     {
         crate::ipc::trace::record_recv(
-            ctx.tasks.current_pid() as u32,
+            ctx.tasks.current_pid().as_raw(),
             typed.slot.0 as u16,
             endpoint,
             msg.header.flags,
@@ -1102,7 +1090,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 #[cfg(feature = "ipc_trace_ring")]
                 {
                     crate::ipc::trace::record_capmove_alloc(
-                        ctx.tasks.current_pid() as u32,
+                        ctx.tasks.current_pid().as_raw(),
                         endpoint,
                         slot as u32,
                         moved_ep_for_trace,
@@ -1224,11 +1212,8 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
 
     // Derive endpoint.
-    let cap = ctx.tasks.current_caps_mut().derive(slot as usize, Rights::RECV)?;
-    let endpoint = match cap.kind {
-        CapabilityKind::Endpoint(id) => id,
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(slot as usize, Rights::RECV)?.endpoint();
 
     let truncate = (sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (sys_flags & IPC_SYS_NONBLOCK) != 0;
@@ -1240,7 +1225,7 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         match ctx.router.recv(endpoint) {
             Ok(msg) => {
                 if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                    let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                    let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
                 }
                 break msg;
             }
@@ -1249,19 +1234,19 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     return Err(Error::Ipc(ipc::IpcError::TimedOut));
                 }
                 let cur = ctx.tasks.current_pid();
-                ctx.router.register_recv_waiter(endpoint, cur)?;
+                ctx.router.register_recv_waiter(endpoint, cur.as_raw())?;
                 // Avoid missed-wakeup: re-check after registering.
                 match ctx.router.recv(endpoint) {
                     Ok(msg) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                            let _ = ctx.tasks.wake(waiter as task::Pid, ctx.scheduler);
+                            let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
                         }
                         break msg;
                     }
                     Err(ipc::IpcError::QueueEmpty) => {}
                     Err(e) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         return Err(e.into());
                     }
                 }
@@ -1269,10 +1254,10 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     .block_current(BlockReason::IpcRecv { endpoint, deadline_ns }, ctx.scheduler);
                 wake_expired_blocked(ctx);
                 if let Some(next) = ctx.scheduler.schedule_next() {
-                    ctx.tasks.set_current(next as task::Pid);
+                    ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
                 }
-                let _ = ctx.router.remove_recv_waiter(endpoint, cur);
+                let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                 let _ = ctx.tasks.wake(cur, ctx.scheduler);
                 return Err(Error::Reschedule);
             }
@@ -1547,17 +1532,17 @@ fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let status = args.get(0) as i32;
     let exiting = ctx.tasks.current_pid();
     // RFC-0005 lifecycle: close endpoints owned by this task and wake any blocked peers.
-    let waiters = ctx.router.close_endpoints_for_owner(exiting);
-    ctx.router.remove_waiter_from_all(exiting);
+    let waiters = ctx.router.close_endpoints_for_owner(exiting.as_raw());
+    ctx.router.remove_waiter_from_all(exiting.as_raw());
     ctx.tasks.exit_current(status);
     for pid in waiters {
-        let _ = ctx.tasks.wake(pid, ctx.scheduler);
+        let _ = ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler);
     }
     ctx.tasks.wake_parent_waiter(exiting, ctx.scheduler);
     ctx.scheduler.finish_current();
     if let Some(next) = ctx.scheduler.schedule_next() {
-        ctx.tasks.set_current(next as task::Pid);
-        if let Some(task) = ctx.tasks.task(next as task::Pid) {
+        ctx.tasks.set_current(next);
+        if let Some(task) = ctx.tasks.task(next) {
             #[cfg(not(feature = "selftest_no_satp"))]
             {
                 if let Some(handle) = task.address_space() {
@@ -1568,27 +1553,28 @@ fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             let _ = task;
         }
     } else {
-        ctx.tasks.set_current(0);
+        ctx.tasks.set_current(task::Pid::KERNEL);
     }
     Err(Error::TaskExit)
 }
 
 fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let raw_pid = args.get(0) as i32;
-    let target = if raw_pid <= 0 { None } else { Some(raw_pid as task::Pid) };
+    let target =
+        if raw_pid <= 0 { None } else { Some(task::Pid::from_raw(raw_pid as u32)) };
     loop {
         match ctx.tasks.reap_child(target, ctx.address_spaces) {
             Ok((pid, status)) => {
                 if let Some(task) = ctx.tasks.task_mut(ctx.tasks.current_pid()) {
                     task.frame_mut().x[11] = status as usize;
                 }
-                return Ok(pid as usize);
+                return Ok(pid.as_index());
             }
             Err(task::WaitError::WouldBlock) => {
                 let cur = ctx.tasks.current_pid();
                 ctx.tasks.block_current(BlockReason::WaitChild { target }, ctx.scheduler);
                 if let Some(next) = ctx.scheduler.schedule_next() {
-                    ctx.tasks.set_current(next as task::Pid);
+                    ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
                 }
                 let _ = ctx.tasks.wake(cur, ctx.scheduler);
@@ -1874,14 +1860,14 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     )?;
 
     // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
-    if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
+    if let Some(t) = ctx.tasks.task_mut(pid) {
         t.set_user_guard_info(task::UserGuardInfo {
             stack_guard_va: mapped_top,
             info_guard_va: None,
         });
     }
 
-    Ok(pid as usize)
+    Ok(pid.as_index())
 }
 
 /// Kernel-side exec loader v2: like [`sys_exec`] but also copies the provided service name bytes
@@ -2173,7 +2159,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     )?;
 
     // Bind identity to the spawned task (kernel-derived): used for IPC sender attribution.
-    if let Some(t) = ctx.tasks.task_mut(pid as task::Pid) {
+    if let Some(t) = ctx.tasks.task_mut(pid) {
         t.set_service_id(service_id);
         // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
         let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
@@ -2187,7 +2173,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // `flags::HAS_INFO_PAGE` and `argv_ptr=info_va`. For now, the info/meta pages are at stable
     // addresses and can be read directly by early services.
 
-    Ok(pid as usize)
+    Ok(pid.as_index())
 }
 
 /// Minimal debug UART write for userspace: writes one byte `a0` to UART.
@@ -2241,7 +2227,7 @@ fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
     };
 
-    Ok(pid as usize)
+    Ok(pid.as_index())
 }
 
 fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
@@ -2256,8 +2242,8 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
                 if let CapabilityKind::Endpoint(id) = base.kind {
                     crate::ipc::trace::record_cap_xfer(
-                        parent as u32,
-                        typed.child as u32,
+                        parent.as_raw(),
+                        typed.child.as_raw(),
                         id,
                         rights.bits() as u16,
                     );
@@ -2291,7 +2277,7 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         // (This block is structured as "check then act" to keep denial deterministic.)
         if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
             if base.kind == CapabilityKind::EndpointFactory {
-                if !(parent == 0 && typed.child == 1) {
+                if !(parent == task::Pid::KERNEL && typed.child == task::Pid::from_raw(1)) {
                     return Err(Error::Transfer(task::TransferError::Capability(
                         CapError::PermissionDenied,
                     )));
@@ -2333,7 +2319,7 @@ fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         // (This block is structured as "check then act" to keep denial deterministic.)
         if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
             if base.kind == CapabilityKind::EndpointFactory {
-                if !(parent == 0 && typed.child == 1) {
+                if !(parent == task::Pid::KERNEL && typed.child == task::Pid::from_raw(1)) {
                     return Err(Error::Transfer(task::TransferError::Capability(
                         CapError::PermissionDenied,
                     )));
@@ -2630,7 +2616,7 @@ mod tests {
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
         let timer = crate::hal::virt::VirtMachine::new();
         let mut ctx =
@@ -2895,7 +2881,7 @@ mod tests {
         let timer = MockTimer::default();
 
         // Selftest-only child creation avoids full address-space/spawn machinery in host tests.
-        let child = tasks.selftest_create_dummy_task(0, &mut scheduler);
+        let child = tasks.selftest_create_dummy_task(task::Pid::KERNEL, &mut scheduler);
 
         // Cap to transfer lives in parent slot 3.
         {
@@ -2919,7 +2905,7 @@ mod tests {
             Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         // Args: child pid, parent slot, rights mask
-        let args = Args::new([child as usize, 3, Rights::SEND.bits() as usize, 0, 0, 0]);
+        let args = Args::new([child.as_index(), 3, Rights::SEND.bits() as usize, 0, 0, 0]);
         match sys_cap_transfer(&mut ctx, &args) {
             Err(Error::Transfer(task::TransferError::Capability(CapError::NoSpace))) => {}
             other => panic!("expected TransferError::Capability(NoSpace), got {:?}", other),
@@ -3175,7 +3161,7 @@ mod tests {
         let mut router = ipc::Router::new(2);
         let mut as_manager = AddressSpaceManager::new();
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
         let timer = crate::hal::virt::VirtMachine::new();
         let mut ctx =
@@ -3183,10 +3169,11 @@ mod tests {
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
-        let child = table
-            .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as u32;
-        assert_eq!(child, 1);
+        let child = task::Pid::from_raw(
+            table.dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0])).unwrap()
+                as u32,
+        );
+        assert_eq!(child, task::Pid::from_raw(1));
         let msg = ctx.router.recv(0).unwrap();
         assert_eq!(msg.payload.len(), core::mem::size_of::<BootstrapMsg>());
 
@@ -3194,7 +3181,7 @@ mod tests {
             .dispatch(
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
-                &Args::new([child as usize, 0, Rights::SEND.bits() as usize, 0, 0, 0]),
+                &Args::new([child.as_index(), 0, Rights::SEND.bits() as usize, 0, 0, 0]),
             )
             .unwrap();
         assert_ne!(slot, 0);
@@ -3206,7 +3193,7 @@ mod tests {
             .dispatch(
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
-                &Args::new([child as usize, 0, Rights::RECV.bits() as usize, 0, 0, 0]),
+                &Args::new([child.as_index(), 0, Rights::RECV.bits() as usize, 0, 0, 0]),
             )
             .unwrap();
         let cap2 = ctx.tasks.caps_of(child).unwrap().get(slot2).unwrap();
@@ -3217,7 +3204,7 @@ mod tests {
             .dispatch(
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
-                &Args::new([child as usize, 0, Rights::MAP.bits() as usize, 0, 0, 0]),
+                &Args::new([child.as_index(), 0, Rights::MAP.bits() as usize, 0, 0, 0]),
             )
             .unwrap_err();
         assert_eq!(
@@ -3551,15 +3538,16 @@ mod tests {
         // Spawn pid 1 (init-lite stand-in).
         let pid1 = table
             .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as task::Pid;
-        assert_eq!(pid1, 1);
+            .map(|pid| task::Pid::from_raw(pid as u32))
+            .unwrap();
+        assert_eq!(pid1, task::Pid::from_raw(1));
 
         // PID 0 -> PID 1 transfer is allowed (bootstrap distribution).
         let factory_slot_pid1 = table
             .dispatch(
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
-                &Args::new([pid1 as usize, 2, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+                &Args::new([pid1.as_index(), 2, Rights::MANAGE.bits() as usize, 0, 0, 0]),
             )
             .unwrap();
         assert_eq!(factory_slot_pid1, 1);
@@ -3568,8 +3556,9 @@ mod tests {
         ctx.tasks.set_current(pid1);
         let pid2 = table
             .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as task::Pid;
-        assert_eq!(pid2, 2);
+            .map(|pid| task::Pid::from_raw(pid as u32))
+            .unwrap();
+        assert_eq!(pid2, task::Pid::from_raw(2));
 
         // PID 1 must NOT be able to distribute EndpointFactory further.
         let err = table
@@ -3577,7 +3566,7 @@ mod tests {
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
                 &Args::new([
-                    pid2 as usize,
+                    pid2.as_index(),
                     factory_slot_pid1,
                     Rights::MANAGE.bits() as usize,
                     0,
@@ -3626,8 +3615,9 @@ mod tests {
         // Spawn pid 1 (init-lite stand-in) and switch to it.
         let pid1 = table
             .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as task::Pid;
-        assert_eq!(pid1, 1);
+            .map(|pid| task::Pid::from_raw(pid as u32))
+            .unwrap();
+        assert_eq!(pid1, task::Pid::from_raw(1));
         ctx.tasks.set_current(pid1);
 
         // Transfer EndpointFactory into pid1 slot 1.
@@ -3635,7 +3625,7 @@ mod tests {
             .dispatch(
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
-                &Args::new([pid1 as usize, 2, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+                &Args::new([pid1.as_index(), 2, Rights::MANAGE.bits() as usize, 0, 0, 0]),
             )
             .unwrap();
         assert_eq!(factory_slot, 1);
@@ -3643,12 +3633,14 @@ mod tests {
         // Spawn pid 2 (child of pid1) and pid 3 (also child of pid1).
         let pid2 = table
             .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as task::Pid;
+            .map(|pid| task::Pid::from_raw(pid as u32))
+            .unwrap();
         let pid3 = table
             .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as task::Pid;
-        assert_eq!(pid2, 2);
-        assert_eq!(pid3, 3);
+            .map(|pid| task::Pid::from_raw(pid as u32))
+            .unwrap();
+        assert_eq!(pid2, task::Pid::from_raw(2));
+        assert_eq!(pid3, task::Pid::from_raw(3));
 
         // Switch to pid2 and attempt to create an endpoint owned by pid3.
         // Denied because pid2 is not the parent of pid3 (both are siblings under pid1).
@@ -3658,7 +3650,7 @@ mod tests {
             .dispatch(
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
-                &Args::new([pid2 as usize, factory_slot, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+                &Args::new([pid2.as_index(), factory_slot, Rights::MANAGE.bits() as usize, 0, 0, 0]),
             )
             .unwrap();
         assert_ne!(factory_slot_pid2, 0);
@@ -3667,7 +3659,7 @@ mod tests {
             .dispatch(
                 crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR,
                 &mut ctx,
-                &Args::new([factory_slot_pid2, pid3 as usize, 8, 0, 0, 0]),
+                &Args::new([factory_slot_pid2, pid3.as_index(), 8, 0, 0, 0]),
             )
             .unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
@@ -3700,8 +3692,9 @@ mod tests {
         // Spawn pid 1 (init-lite stand-in) and switch to it.
         let pid1 = table
             .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as task::Pid;
-        assert_eq!(pid1, 1);
+            .map(|pid| task::Pid::from_raw(pid as u32))
+            .unwrap();
+        assert_eq!(pid1, task::Pid::from_raw(1));
         ctx.tasks.set_current(pid1);
 
         // pid 1 may create endpoints.
@@ -3713,8 +3706,9 @@ mod tests {
         // Spawn pid 2 (regular service stand-in, child of init-lite) and switch to it.
         let pid2 = table
             .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-            .unwrap() as task::Pid;
-        assert_eq!(pid2, 2);
+            .map(|pid| task::Pid::from_raw(pid as u32))
+            .unwrap();
+        assert_eq!(pid2, task::Pid::from_raw(2));
         ctx.tasks.set_current(pid2);
 
         // pid 2 is userspace too, but must be denied by the endpoint-factory gate.
@@ -3743,7 +3737,7 @@ mod tests {
         // Slot 48 is empty (no capability).
         // The task has an address space but no MMIO capability.
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =
@@ -3790,7 +3784,7 @@ mod tests {
         }
 
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =
@@ -3839,7 +3833,7 @@ mod tests {
         }
 
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =
@@ -3900,7 +3894,7 @@ mod tests {
         }
 
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =
@@ -3950,7 +3944,7 @@ mod tests {
         }
 
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =
@@ -3997,7 +3991,7 @@ mod tests {
         }
 
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =
@@ -4036,7 +4030,7 @@ mod tests {
         }
 
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =
@@ -4077,7 +4071,7 @@ mod tests {
         }
 
         let kernel_as = as_manager.create().unwrap();
-        as_manager.attach(kernel_as, 0).unwrap();
+        as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut ctx =

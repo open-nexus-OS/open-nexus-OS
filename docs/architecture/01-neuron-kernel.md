@@ -228,42 +228,53 @@ queued in four buckets (`Idle`, `Normal`, `Interactive`, `PerfBurst`).
 When `yield` is invoked the current task is placed at the tail of its
 bucket and the highest priority non-empty bucket is dequeued.
 
-### Ownership Model (Rust-Specific)
+### Ownership Model (Rust-Specific, pre-SMP)
 
-**Who owns what?**
+This section is the ownership contract for TASK-0011B (docs-first) and the pre-SMP baseline
+used by TASK-0012.
 
-- **`Scheduler`**: Owns the task queues (`VecDeque<Task>`) and current task state
-  - **Ownership**: Exclusive mutable access (`&mut self` methods)
-  - **Lifetime**: Lives in `KERNEL_STATE` (static lifetime)
-  - **Thread safety**: Single-CPU (v1), per-CPU (SMP v2)
+**Global kernel state shape**:
 
-- **`TaskTable`**: Owns all `TaskEntry` structs (PID → task metadata)
-  - **Ownership**: Exclusive mutable access to task lifecycle
-  - **Lifetime**: Static (kernel global)
-  - **Invariant**: Only `TaskTable` can spawn/exit tasks
+- `KERNEL_STATE: MaybeUninit<KernelState>` is initialized once in `kmain` and then lives for
+  the full kernel lifetime.
+- `KernelState` owns the major subsystems directly: `hal`, `scheduler`, `tasks`, `ipc`,
+  `address_spaces`, `kernel_as`, `syscalls`.
+- Current bring-up runs effectively single-hart, so subsystem mutation is serialized through one
+  trap/syscall execution path.
 
-- **`AddressSpaceManager`**: Owns all page tables and ASID allocator
-  - **Ownership**: Exclusive mutable access to memory mappings
-  - **Lifetime**: Static (kernel global)
-  - **Invariant**: Only `AddressSpaceManager` can modify page tables
+**Subsystem ownership (current, single-hart)**:
 
-- **`IpcRouter`**: Owns all endpoint queues
-  - **Ownership**: Shared mutable access (interior mutability via locks)
-  - **Lifetime**: Static (kernel global)
-  - **Invariant**: Only `IpcRouter` can enqueue/dequeue messages
+- **`Scheduler`**:
+  - Owns scheduler-local runqueues (`VecDeque<Task>`) and current scheduling state.
+  - Mutated only through `&mut Scheduler`; no cross-thread/cross-hart mutation today.
+- **`TaskTable`**:
+  - Owns all task entries (task metadata, trapframes, per-task cap table ownership).
+  - PID lifecycle authority is centralized here.
+- **`AddressSpaceManager`**:
+  - Owns address-space slots, page-table ownership, and ASID allocation state.
+  - Address-space mutations are centralized here.
+- **`Router` (`ipc`)**:
+  - Owns endpoint queues and queue-budget accounting.
+  - Send/recv mutate router state through explicit `&mut Router` access in kernel paths.
 
-**Borrowing Rules**:
+**Borrowing and lifetime model**:
 
-- Syscall handlers borrow `&mut` references to kernel subsystems
-- No aliasing: only one subsystem can be borrowed mutably at a time
-- Trap handler coordinates borrows (owns all subsystems transitively)
+- Long-lived kernel state is `'static` via `KERNEL_STATE`.
+- Syscall/trap handling takes short-lived mutable borrows into owned subsystems.
+- No shared mutable state without explicit synchronization primitives.
 
-**SMP Implications (TASK-0012)**:
+**Scheduler ownership split for TASK-0012 (explicit pre-SMP boundary)**:
 
-- **Per-CPU Scheduler**: Each CPU owns its local runqueue (no sharing)
-- **Shared TaskTable**: Protected by spinlock (short critical sections)
-- **Shared AddressSpaceManager**: Protected by spinlock (page faults only)
-- **Shared IpcRouter**: Lock-free queues (atomic operations)
+- **Will become per-CPU**:
+  - runqueues,
+  - current-running scheduling state,
+  - local scheduling bookkeeping tied to one CPU execution context.
+- **Will remain globally coordinated**:
+  - PID namespace/allocation and global task metadata (`TaskTable`),
+  - address-space registry and ASID allocator (`AddressSpaceManager`),
+  - IPC endpoint namespace and queue-budget authority (`Router`).
+- Cross-CPU coordination in TASK-0012 must use explicit synchronization/coordination mechanisms
+  (e.g., lock/atomic/IPI boundaries), not shared mutable runqueue access.
 
 See `docs/architecture/16-rust-concurrency-model.md` for detailed SMP ownership design.
 

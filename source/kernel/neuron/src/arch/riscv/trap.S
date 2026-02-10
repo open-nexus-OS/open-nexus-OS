@@ -19,6 +19,9 @@
     .align 4
 
 __trap_vector:
+    /* TASK-0012 note: using global __stack_top is a single-hart assumption.
+     * SMP must switch to a per-hart kernel stack source before enabling multi-hart traps.
+     */
     /* If trap came from U-mode (SPP=0), swap to kernel stack via sscratch */
     csrr  t0, sstatus
     /* Test SSTATUS_SPP (bit 8) */
@@ -119,7 +122,9 @@ __satp_trampoline:
     sfence.vma x0, x0
     .option push
     .option norelax
-    /* TODO: If switching to a different kernel stack is required, drop the restore below */
+    /* TASK-0012: if/when per-hart kernel stacks are introduced, drop the restore-below path
+     * and keep the selected per-hart stack active across the trampoline return.
+     */
     la    t0, __stack_top
     .option pop
     addi  t0, t0, -64

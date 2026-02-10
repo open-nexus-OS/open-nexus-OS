@@ -13,6 +13,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::fmt;
+use core::marker::PhantomData;
 
 use crate::ipc::EndpointId;
 
@@ -69,6 +70,7 @@ impl fmt::Debug for Capability {
 }
 
 /// Errors produced when manipulating the capability table.
+#[must_use = "capability errors must be handled explicitly"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapError {
     /// Provided slot is invalid.
@@ -79,10 +81,35 @@ pub enum CapError {
     NoSpace,
 }
 
+/// Type tag for endpoint capabilities.
+pub enum EndpointCapTag {}
+
+/// Minimal typed wrapper proving a slot holds an endpoint capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EndpointCapRef {
+    slot: usize,
+    endpoint: EndpointId,
+    _tag: PhantomData<EndpointCapTag>,
+}
+
+impl EndpointCapRef {
+    #[inline]
+    pub const fn slot(self) -> usize {
+        self.slot
+    }
+
+    #[inline]
+    pub const fn endpoint(self) -> EndpointId {
+        self.endpoint
+    }
+}
+
 /// Per-task capability table.
 #[derive(Default, Clone)]
 pub struct CapTable {
     slots: Vec<Option<Capability>>,
+    // Pre-SMP contract: capability tables are task-local and never shared directly.
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 impl CapTable {
@@ -99,7 +126,7 @@ impl CapTable {
             let mut u = crate::uart::raw_writer();
             let _ = write!(u, "CAP: with_capacity slots={}\n", slots);
         }
-        Self { slots: table }
+        Self { slots: table, _not_send_sync: PhantomData }
     }
 
     /// Default slot count for task capability tables.
@@ -185,6 +212,19 @@ impl CapTable {
             return Err(CapError::PermissionDenied);
         }
         Ok(Capability { kind: base.kind, rights })
+    }
+
+    /// Derives an endpoint capability reference with compile-time kind tagging.
+    pub fn derive_endpoint_ref(
+        &self,
+        slot: usize,
+        rights: Rights,
+    ) -> Result<EndpointCapRef, CapError> {
+        let cap = self.derive(slot, rights)?;
+        let CapabilityKind::Endpoint(endpoint) = cap.kind else {
+            return Err(CapError::PermissionDenied);
+        };
+        Ok(EndpointCapRef { slot, endpoint, _tag: PhantomData })
     }
 }
 

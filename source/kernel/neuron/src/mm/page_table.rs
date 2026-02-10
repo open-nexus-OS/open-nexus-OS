@@ -11,6 +11,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, vec, vec::Vec};
+use core::marker::PhantomData;
 use core::ptr::NonNull;
 
 use bitflags::bitflags;
@@ -78,6 +79,8 @@ const PT_STATIC_POOL_CAP: usize = 64;
 pub struct PageTable {
     root: NonNull<PageTablePage>,
     owned: Vec<NonNull<PageTablePage>>,
+    // Pre-SMP contract: page-table mutation remains single-context until SMP VM ownership split.
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 impl PageTable {
@@ -89,12 +92,12 @@ impl PageTable {
             // early bring-up; higher-level code must ensure single use or add a manager.
             let ptr: *mut PageTablePage = core::ptr::addr_of_mut!(PT_STATIC_ROOT);
             let root = NonNull::new_unchecked(ptr);
-            return Self { root, owned: vec![] };
+            return Self { root, owned: vec![], _not_send_sync: PhantomData };
         }
         #[cfg(not(feature = "pt_static_root"))]
         {
             let root = Self::alloc_page();
-            Self { root, owned: vec![root] }
+            Self { root, owned: vec![root], _not_send_sync: PhantomData }
         }
     }
 

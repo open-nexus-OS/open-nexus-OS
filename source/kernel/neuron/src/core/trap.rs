@@ -37,10 +37,10 @@ use sbi_rt as sbi;
 core::arch::global_asm!(
     include_str!("../arch/riscv/trap.S"),
     TF_SIZE    = const core::mem::size_of::<TrapFrame>(),
-    OFF_SEPC   = const 32*8,
-    OFF_SSTATUS= const 33*8,
-    OFF_SCAUSE = const 34*8,
-    OFF_STVAL  = const 35*8,
+    OFF_SEPC   = const core::mem::offset_of!(TrapFrame, sepc),
+    OFF_SSTATUS= const core::mem::offset_of!(TrapFrame, sstatus),
+    OFF_SCAUSE = const core::mem::offset_of!(TrapFrame, scause),
+    OFF_STVAL  = const core::mem::offset_of!(TrapFrame, stval),
 );
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -1387,12 +1387,12 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         // Kill the faulting task and ensure it won't be scheduled again.
                         let doomed = tasks.current_pid();
                         // RFC-0005 lifecycle hardening: close endpoints owned by the task and wake any blocked peers.
-                        let waiters = router.close_endpoints_for_owner(doomed);
+                        let waiters = router.close_endpoints_for_owner(doomed.as_raw());
                         for pid in waiters {
-                            let _ = tasks.wake(pid as crate::task::Pid, scheduler);
+                            let _ = tasks.wake(crate::types::Pid::from_raw(pid), scheduler);
                         }
                         // Also remove this PID from any waiter queues it may be registered in.
-                        router.remove_waiter_from_all(doomed);
+                        router.remove_waiter_from_all(doomed.as_raw());
                         tasks.exit_current(-22);
                         scheduler.purge(doomed);
                         scheduler.finish_current();
@@ -1402,7 +1402,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                             let Some(next) = scheduler.schedule_next() else {
                                 break;
                             };
-                            let next_pid = next as u32;
+                            let next_pid = next;
                             tasks.set_current(next_pid);
 
                             #[cfg(not(feature = "selftest_no_satp"))]
@@ -1430,8 +1430,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         }
 
                         // Fallback: return to PID 0 if possible.
-                        tasks.set_current(0);
-                        if let Some(task) = tasks.task(0) {
+                        tasks.set_current(crate::types::Pid::KERNEL);
+                        if let Some(task) = tasks.task(crate::types::Pid::KERNEL) {
                             *frame = *task.frame();
                             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                             riscv::register::sscratch::write(frame.x[2]);
@@ -1538,12 +1538,12 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     // Best-effort task context: current PID and its saved sepc (helps catch corrupted frames).
                     if let Some(handles) = runtime_kernel_handles() {
                         let tasks = handles.tasks.as_ref();
-                        let pid = tasks.current_pid() as usize;
+                        let pid = tasks.current_pid();
                         for &b in b" pid=0x" {
                             write_byte(b);
                         }
-                        write_hex(pid, 4);
-                        if let Some(task) = tasks.task(pid as u32) {
+                        write_hex(pid.as_index(), 4);
+                        if let Some(task) = tasks.task(pid) {
                             for &b in b" t_sepc=0x" {
                                 write_byte(b);
                             }

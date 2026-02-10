@@ -54,6 +54,7 @@ Boot with SMP enabled (e.g. QEMU `-smp 2`) and prove:
   - Prefer per-CPU ownership over shared mutable scheduler state.
   - Reuse the “kernel handle newtypes” pattern for SMP identifiers (e.g. CPU/Hart ID) rather than raw integers.
   - Treat pre-SMP `!Send/!Sync` markers as intentional forcing functions: SMP work must either keep types thread-bound (per-CPU) or introduce synchronization and justify any change in auto-trait behavior.
+- Carry-over hardening note from TASK-0011B: `source/kernel/neuron/src/arch/riscv/trap.S` currently assumes global `__stack_top` on U-mode trap entry; TASK-0012 MUST switch trap entry to a per-hart kernel stack source before multi-hart traps are considered complete.
 
 ## Red flags / decision points
 
@@ -159,6 +160,8 @@ When implementing SMP features, ensure:
 
 2. **Secondary hart boot**
    - Bring up harts 1..N-1 deterministically.
+   - Wire per-hart kernel stack pointers for trap entry (`trap.S`) so U-mode trap path no longer relies on global `__stack_top`.
+   - Keep `sscratch` semantics deterministic per hart (save/restore user SP only for the current hart context).
 
 3. **IPI resched**
    - Implement a minimal S-mode IPI resched signal and handler; prove via selftest marker.

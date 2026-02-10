@@ -13,6 +13,7 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 #[cfg(feature = "failpoints")]
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -33,6 +34,7 @@ pub type EndpointId = u32;
 pub type WaiterId = u32;
 
 /// Error returned by router operations.
+#[must_use = "IPC errors must be handled explicitly"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IpcError {
     /// Target endpoint does not exist.
@@ -217,6 +219,8 @@ pub struct Router {
     max_queued_bytes_total: usize,
     owner_queued_bytes: BTreeMap<WaiterId, usize>,
     max_queued_bytes_per_owner: usize,
+    // Pre-SMP contract: router mutability is trap-context local until per-CPU routing lands.
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 // DoS hardening: keep endpoint creation bounded until we have explicit accounting/quotas.
@@ -246,6 +250,7 @@ impl Router {
             max_queued_bytes_total: DEFAULT_MAX_QUEUED_BYTES_TOTAL,
             owner_queued_bytes: BTreeMap::new(),
             max_queued_bytes_per_owner: DEFAULT_MAX_QUEUED_BYTES_PER_OWNER,
+            _not_send_sync: PhantomData,
         }
     }
 

@@ -3,10 +3,10 @@
 
 # RFC-0020: Kernel ownership + Rust idioms pre-SMP v1 (logic-preserving)
 
-- Status: Draft
+- Status: Complete
 - Owners: @kernel-team, @runtime
 - Created: 2026-02-09
-- Last Updated: 2026-02-09
+- Last Updated: 2026-02-10
 - Links:
   - Tasks: `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` (execution + proof)
   - Related RFCs:
@@ -18,12 +18,12 @@
 
 ## Status at a Glance
 
-- **Phase 0 (Ownership model documented)**: ⬜
-- **Phase 1 (Kernel handle newtypes)**: ⬜
-- **Phase 2 (Explicit Send/Sync boundaries)**: ⬜
-- **Phase 3 (Kernel error envelope + `#[must_use]`)**: ⬜
-- **Phase 4 (Capability type-safety wrappers)**: ⬜
-- **Phase 5 (IPC/cap transfer semantics — internal prep, no ABI change)**: ⬜
+- **Phase 0 (Ownership model documented)**: ✅
+- **Phase 1 (Kernel handle newtypes)**: ✅
+- **Phase 2 (Explicit Send/Sync boundaries)**: ✅
+- **Phase 3 (Kernel error envelope + `#[must_use]`)**: ✅
+- **Phase 4 (Capability type-safety wrappers)**: ✅
+- **Phase 5 (IPC/cap transfer semantics — internal prep, no ABI change)**: ✅
 
 Definition:
 
@@ -263,10 +263,10 @@ cd /home/jenning/open-nexus-OS && just diag-os
 
 ## Implementation Checklist
 
-- [ ] **Phase 0**: Ownership model documented — proof: docs diff + review
-- [ ] **Phase 1**: Kernel handle newtypes — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
-- [ ] **Phase 2**: Explicit Send/Sync boundaries — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
-- [ ] **Phase 3**: Kernel error envelope + `#[must_use]` — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
-- [ ] **Phase 4**: Capability type-safety wrappers — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
-- [ ] **Phase 5**: IPC/cap transfer semantics (internal prep, no ABI change) — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
-- [ ] Task linked with stop conditions + proof commands (`tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md`)
+- [x] **Phase 0**: Ownership model documented — proof: docs diff + review
+- [x] **Phase 1**: Kernel handle newtypes — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
+- [x] **Phase 2**: Explicit Send/Sync boundaries — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
+- [x] **Phase 3**: Kernel error envelope + `#[must_use]` — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
+- [x] **Phase 4**: Capability type-safety wrappers — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
+- [x] **Phase 5**: IPC/cap transfer semantics (internal prep, no ABI change) — proof: `cargo test --workspace` + `just diag-os` + QEMU marker contract
+- [x] Task linked with stop conditions + proof commands (`tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md`)

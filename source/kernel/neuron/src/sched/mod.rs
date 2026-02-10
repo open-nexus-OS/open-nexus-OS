@@ -11,11 +11,13 @@
 extern crate alloc;
 
 use alloc::collections::VecDeque;
+use core::marker::PhantomData;
 
 // use crate::determinism; // not needed after inlined guarded access
+use crate::types::Pid;
 
 /// Task identifier handed out by the scheduler.
-pub type TaskId = u32;
+pub type TaskId = Pid;
 
 /// Quality-of-service hints used for prioritisation.
 ///
@@ -63,6 +65,8 @@ pub struct Scheduler {
     queues: [VecDeque<Task>; 4],
     current: Option<Task>,
     timeslice_ns: u64,
+    // Pre-SMP contract: scheduler is CPU-local and must not cross thread boundaries.
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 impl Scheduler {
@@ -92,6 +96,7 @@ impl Scheduler {
             ],
             current: None,
             timeslice_ns: ts,
+            _not_send_sync: PhantomData,
         };
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
@@ -114,7 +119,7 @@ impl Scheduler {
             if count < LOG_LIMIT {
                 use core::fmt::Write as _;
                 let mut u = crate::uart::raw_writer();
-                let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id, qos);
+                let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id.as_raw(), qos);
             }
         }
 
@@ -155,7 +160,12 @@ impl Scheduler {
             if let Some(task) = self.queue_for(class).pop_front() {
                 if let Some(ref mut w) = u {
                     use core::fmt::Write as _;
-                    let _ = writeln!(w, "[DEBUG sched] picked: pid={} qos={:?}", task.id, task.qos);
+                    let _ = writeln!(
+                        w,
+                        "[DEBUG sched] picked: pid={} qos={:?}",
+                        task.id.as_raw(),
+                        task.qos
+                    );
                 }
                 self.current = Some(task.clone());
                 return Some(task.id);
@@ -219,12 +229,12 @@ mod tests {
     #[test]
     fn qos_ordering() {
         let mut sched = Scheduler::new();
-        sched.enqueue(1, QosClass::Normal);
-        sched.enqueue(2, QosClass::Interactive);
-        sched.enqueue(3, QosClass::PerfBurst);
-        assert_eq!(sched.schedule_next(), Some(3));
-        assert_eq!(sched.schedule_next(), Some(2));
-        assert_eq!(sched.schedule_next(), Some(1));
+        sched.enqueue(Pid::from_raw(1), QosClass::Normal);
+        sched.enqueue(Pid::from_raw(2), QosClass::Interactive);
+        sched.enqueue(Pid::from_raw(3), QosClass::PerfBurst);
+        assert_eq!(sched.schedule_next(), Some(Pid::from_raw(3)));
+        assert_eq!(sched.schedule_next(), Some(Pid::from_raw(2)));
+        assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
     }
 
     #[test]
@@ -236,9 +246,9 @@ mod tests {
     #[test]
     fn yield_requeues_current_task() {
         let mut sched = Scheduler::new();
-        sched.enqueue(1, QosClass::Normal);
-        assert_eq!(sched.schedule_next(), Some(1));
+        sched.enqueue(Pid::from_raw(1), QosClass::Normal);
+        assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
         sched.yield_current();
-        assert_eq!(sched.schedule_next(), Some(1));
+        assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
     }
 }

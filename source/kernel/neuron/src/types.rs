@@ -3,7 +3,7 @@
 
 //! CONTEXT: Minimal newtypes for safer syscall decoding (debug-friendly, low overhead)
 //! OWNERS: @kernel-team
-//! PUBLIC API: VirtAddr, PageLen, SlotIndex, Pid, AsHandle, CapSlot, Asid
+//! PUBLIC API: VirtAddr, PageLen, SlotIndex, Pid, CapSlot, Asid
 //! DEPENDS_ON: mm::page_table::is_canonical_sv39, PAGE_SIZE
 //! INVARIANTS: Enforce canonical Sv39 addresses; alignment helpers; prevent type confusion
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
@@ -16,6 +16,7 @@
 //! - Enable future SMP optimizations (e.g., `Pid` can embed CPU affinity)
 
 use crate::mm::{page_table::is_canonical_sv39, PAGE_SIZE};
+use core::fmt;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct VirtAddr(usize);
@@ -92,6 +93,7 @@ impl SlotIndex {
 /// **Ownership**: Only `TaskTable` can create/destroy PIDs.
 /// **Invariant**: PID 0 is reserved for the kernel (never exposed to userspace).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(transparent)]
 pub struct Pid(u32);
 
 impl Pid {
@@ -103,12 +105,30 @@ impl Pid {
 
     /// Returns the raw PID value.
     #[inline]
-    pub const fn raw(self) -> u32 {
+    pub const fn as_raw(self) -> u32 {
         self.0
+    }
+
+    /// Returns the PID as an index into task-owned vectors.
+    #[inline]
+    pub const fn as_index(self) -> usize {
+        self.0 as usize
+    }
+
+    /// Backward-compatible alias while call sites migrate to `as_raw`.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.as_raw()
     }
 
     /// Kernel PID (reserved, never exposed to userspace).
     pub const KERNEL: Self = Self(0);
+}
+
+impl fmt::Display for Pid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_raw())
+    }
 }
 
 /// Address space identifier (ASID).
@@ -116,6 +136,7 @@ impl Pid {
 /// **Ownership**: Only `AddressSpaceManager` can allocate/free ASIDs.
 /// **Invariant**: ASID 0 is reserved for the kernel identity map.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct Asid(u16);
 
 impl Asid {
@@ -133,8 +154,14 @@ impl Asid {
     #[allow(dead_code)]
     // NOTE: Bring-up: used once ASID allocation + SATP switching plumbing lands.
     // REMOVE_WHEN(TASK-0011B): Address space plumbing uses this for SATP writes.
-    pub const fn raw(self) -> u16 {
+    pub const fn as_raw(self) -> u16 {
         self.0
+    }
+
+    /// Backward-compatible alias while call sites migrate to `as_raw`.
+    #[inline]
+    pub const fn raw(self) -> u16 {
+        self.as_raw()
     }
 
     /// Kernel ASID (reserved for kernel identity map).
@@ -144,38 +171,12 @@ impl Asid {
     pub const KERNEL: Self = Self(0);
 }
 
-/// Address space handle (opaque userspace handle).
-///
-/// **Ownership**: Created by `sys_as_create()`, destroyed by `sys_as_destroy()`.
-/// **Invariant**: Handles are opaque to userspace (internal ASID not exposed).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AsHandle(u64);
-
-impl AsHandle {
-    /// Creates an address space handle from a raw value.
-    #[inline]
-    #[allow(dead_code)]
-    // NOTE: Bring-up: AS handle syscalls are staged; keep this constructor for the kernel API.
-    // REMOVE_WHEN(TASK-0011B): Address-space syscalls use this constructor.
-    pub const fn from_raw(raw: u64) -> Self {
-        Self(raw)
-    }
-
-    /// Returns the raw handle value.
-    #[inline]
-    #[allow(dead_code)]
-    // NOTE: Bring-up: used by syscall plumbing once AS handles are passed through tables.
-    // REMOVE_WHEN(TASK-0011B): Address-space syscalls and tables use this accessor.
-    pub const fn raw(self) -> u64 {
-        self.0
-    }
-}
-
 /// Capability slot index (per-task capability table).
 ///
 /// **Ownership**: Each task owns its capability table.
 /// **Invariant**: Slot indices are bounded by table size (validated at syscall boundary).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(transparent)]
 pub struct CapSlot(u32);
 
 impl CapSlot {
@@ -187,8 +188,29 @@ impl CapSlot {
 
     /// Returns the raw slot index.
     #[inline]
-    pub const fn raw(self) -> u32 {
+    pub const fn as_raw(self) -> u32 {
         self.0
+    }
+
+    /// Returns the slot index as `usize` for table access.
+    #[inline]
+    pub const fn as_index(self) -> usize {
+        self.0 as usize
+    }
+
+    /// Backward-compatible alias while call sites migrate to `as_raw`.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.as_raw()
+    }
+
+    /// Bootstrap endpoint slot (fixed contract).
+    pub const BOOTSTRAP: Self = Self(0);
+}
+
+impl fmt::Display for CapSlot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_raw())
     }
 }
 
@@ -208,6 +230,20 @@ impl From<Pid> for u32 {
     }
 }
 
+impl From<Pid> for usize {
+    #[inline]
+    fn from(pid: Pid) -> Self {
+        pid.as_index()
+    }
+}
+
+impl From<usize> for Pid {
+    #[inline]
+    fn from(raw: usize) -> Self {
+        Self(raw as u32)
+    }
+}
+
 impl From<u32> for CapSlot {
     #[inline]
     fn from(raw: u32) -> Self {
@@ -219,5 +255,19 @@ impl From<CapSlot> for u32 {
     #[inline]
     fn from(slot: CapSlot) -> Self {
         slot.0
+    }
+}
+
+impl From<CapSlot> for usize {
+    #[inline]
+    fn from(slot: CapSlot) -> Self {
+        slot.as_index()
+    }
+}
+
+impl From<usize> for CapSlot {
+    #[inline]
+    fn from(raw: usize) -> Self {
+        Self(raw as u32)
     }
 }

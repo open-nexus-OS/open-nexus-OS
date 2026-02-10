@@ -338,7 +338,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
 
     // Directly enter the child's address space and run the entry on its stack.
     {
-        let pid = child_pid as Pid;
+        let pid = Pid::from_raw(child_pid as u32);
         if let Some(task) = ctx.tasks.task(pid) {
             if let Some(handle) = task.address_space() {
                 log_info!(target: "selftest", "KSELFTEST: direct-run begin");
@@ -439,7 +439,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
     // child's guarded stack to validate mapping/AS activation in-kernel. This avoids
     // relying on an ECALL-based scheduler fastpath that may be intercepted by SBI.
     {
-        let pid = child_pid as Pid;
+        let pid = Pid::from_raw(child_pid as u32);
         if let Some(task) = ctx.tasks.task(pid) {
             if let Some(handle) = task.address_space() {
                 // Switch to child AS and allow S-mode to touch USER pages (SUM).
@@ -582,7 +582,7 @@ pub fn entry(ctx: &mut Context<'_>) {
     // Ensure subsequent lifecycle tests run as the bootstrap task (PID 0)
     // so parent/child linkage during spawn and wait behaves deterministically.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    ctx.tasks.set_current(0);
+    ctx.tasks.set_current(Pid::KERNEL);
     run_exit_wait_selftests(ctx);
 
     // Spawn embedded init process
@@ -719,13 +719,13 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
 
     // --- recv waiters FIFO ---
     let ep = ctx.router.create_endpoint(1, None).unwrap();
-    let r1 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
-    let r2 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
-    let r3 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let r1 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let r2 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let r3 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     for pid in [r1, r2, r3] {
         ctx.tasks.set_current(pid);
-        let _ = ctx.router.register_recv_waiter(ep, pid as u32);
+        let _ = ctx.router.register_recv_waiter(ep, pid.as_raw());
         ctx.tasks
             .block_current(BlockReason::IpcRecv { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
     }
@@ -735,7 +735,7 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
     let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
     let _ = ctx.router.send(ep, msg);
     let fifo_ok = match ctx.router.pop_recv_waiter(ep) {
-        Ok(Some(w)) if w == r1 as u32 => true,
+        Ok(Some(w)) if w == r1.as_raw() => true,
         _ => false,
     };
     if fifo_ok {
@@ -751,13 +751,13 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
     let fill = crate::ipc::Message::new(hdr_fill, Vec::new(), None);
     let _ = ctx.router.send(ep2, fill);
 
-    let s1 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
-    let s2 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
-    let s3 = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let s1 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let s2 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let s3 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     for pid in [s1, s2, s3] {
         ctx.tasks.set_current(pid);
-        let _ = ctx.router.register_send_waiter(ep2, pid as u32);
+        let _ = ctx.router.register_send_waiter(ep2, pid.as_raw());
         ctx.tasks
             .block_current(BlockReason::IpcSend { endpoint: ep2, deadline_ns: 0 }, ctx.scheduler);
     }
@@ -765,7 +765,7 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
     // Drain one message, then wake the next send waiter and check it is s1.
     let _ = ctx.router.recv(ep2);
     let fifo_ok = match ctx.router.pop_send_waiter(ep2) {
-        Ok(Some(w)) if w == s1 as u32 => true,
+        Ok(Some(w)) if w == s1.as_raw() => true,
         _ => false,
     };
     if fifo_ok {
@@ -781,8 +781,8 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     use alloc::vec::Vec;
 
     // Create two lightweight dummy tasks (no AS/stack allocation) that we can block/wake.
-    let sender_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
-    let recv_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let sender_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let recv_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     // Endpoint with depth=1 and one message already enqueued => "full".
     let ep = ctx.router.create_endpoint(1, None).unwrap();
@@ -792,7 +792,7 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
 
     // Simulate sender hitting QueueFull in blocking mode: register waiter + block task.
     ctx.tasks.set_current(sender_pid);
-    let _ = ctx.router.register_send_waiter(ep, sender_pid as u32);
+    let _ = ctx.router.register_send_waiter(ep, sender_pid.as_raw());
     ctx.tasks.block_current(BlockReason::IpcSend { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
     let blocked_ok = ctx.tasks.task(sender_pid).map(|t| t.is_blocked()).unwrap_or(false);
 
@@ -800,7 +800,7 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     ctx.tasks.set_current(recv_pid);
     let _ = ctx.router.recv(ep);
     if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(ep) {
-        let _ = ctx.tasks.wake(waiter as crate::task::Pid, ctx.scheduler);
+        let _ = ctx.tasks.wake(Pid::from_raw(waiter), ctx.scheduler);
     }
     let woke_ok = ctx.tasks.task(sender_pid).map(|t| !t.is_blocked()).unwrap_or(false);
 
@@ -855,8 +855,8 @@ fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
     use crate::task::BlockReason;
     // Create a real endpoint in the global router, register blocked send/recv waiters, then close it
     // and ensure both waiters are woken.
-    let recv_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
-    let send_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let recv_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let send_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     let ep = match ctx.router.create_endpoint(1, None) {
         Ok(id) => id,
@@ -867,11 +867,11 @@ fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
     };
 
     ctx.tasks.set_current(recv_pid);
-    let _ = ctx.router.register_recv_waiter(ep, recv_pid as u32);
+    let _ = ctx.router.register_recv_waiter(ep, recv_pid.as_raw());
     ctx.tasks.block_current(BlockReason::IpcRecv { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
 
     ctx.tasks.set_current(send_pid);
-    let _ = ctx.router.register_send_waiter(ep, send_pid as u32);
+    let _ = ctx.router.register_send_waiter(ep, send_pid.as_raw());
     ctx.tasks.block_current(BlockReason::IpcSend { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
 
     let waiters = match ctx.router.close_endpoint(ep) {
@@ -882,7 +882,7 @@ fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
         }
     };
     for pid in waiters {
-        let _ = ctx.tasks.wake(pid as crate::task::Pid, ctx.scheduler);
+        let _ = ctx.tasks.wake(Pid::from_raw(pid), ctx.scheduler);
     }
 
     let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
@@ -904,8 +904,8 @@ fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
     // Close-on-exit semantics are implemented by closing all endpoints owned by the exiting PID.
     // Verify that draining wakes registered send/recv waiters.
     let owner: u32 = 7;
-    let recv_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
-    let send_pid = ctx.tasks.selftest_create_dummy_task(0, ctx.scheduler);
+    let recv_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let send_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     let ep = match ctx.router.create_endpoint(1, Some(owner)) {
         Ok(id) => id,
@@ -916,16 +916,16 @@ fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
     };
 
     ctx.tasks.set_current(recv_pid);
-    let _ = ctx.router.register_recv_waiter(ep, recv_pid as u32);
+    let _ = ctx.router.register_recv_waiter(ep, recv_pid.as_raw());
     ctx.tasks.block_current(BlockReason::IpcRecv { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
 
     ctx.tasks.set_current(send_pid);
-    let _ = ctx.router.register_send_waiter(ep, send_pid as u32);
+    let _ = ctx.router.register_send_waiter(ep, send_pid.as_raw());
     ctx.tasks.block_current(BlockReason::IpcSend { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
 
     let waiters = ctx.router.close_endpoints_for_owner(owner);
     for pid in waiters {
-        let _ = ctx.tasks.wake(pid as crate::task::Pid, ctx.scheduler);
+        let _ = ctx.tasks.wake(Pid::from_raw(pid), ctx.scheduler);
     }
 
     let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
@@ -1066,7 +1066,7 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     // Ensure init-lite is a direct child of the bootstrap task (PID 0) so that early
     // capability/lifecycle gates (RFC-0005 hardening) can reliably treat init-lite as
     // the temporary authority during bring-up.
-    sys_ctx.tasks.set_current(0);
+    sys_ctx.tasks.set_current(Pid::KERNEL);
     let spawn_args =
         Args::new([entry_pc, stack_top, as_handle.to_raw() as usize, 0, global_pointer, 0]);
     let init_pid = match table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args) {
@@ -1093,13 +1093,13 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         }
         h
     };
-    if let Some(t) = sys_ctx.tasks.task_mut(init_pid as u32) {
+    if let Some(t) = sys_ctx.tasks.task_mut(Pid::from_raw(init_pid as u32)) {
         t.set_service_id(init_lite_id);
     }
 
     // Verify init task state
-    let init_pid_u32 = init_pid as u32;
-    if let Some(task) = sys_ctx.tasks.task(init_pid_u32) {
+    let init_pid_typed = Pid::from_raw(init_pid as u32);
+    if let Some(task) = sys_ctx.tasks.task(init_pid_typed) {
         use core::fmt::Write as _;
         let mut uart = crate::uart::raw_writer();
         let frame = task.frame();

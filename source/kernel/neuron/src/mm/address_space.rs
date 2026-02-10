@@ -11,7 +11,10 @@
 extern crate alloc;
 
 use alloc::{collections::BTreeSet, vec::Vec};
+use core::marker::PhantomData;
 use core::num::NonZeroU32;
+
+use crate::types::{Asid, Pid};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use super::page_table::PAGE_SIZE;
@@ -50,6 +53,7 @@ impl AsHandle {
 }
 
 /// Errors reported while managing address spaces.
+#[must_use = "address-space errors must be handled explicitly"]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddressSpaceError {
     /// Provided handle was not recognised.
@@ -75,19 +79,21 @@ impl From<MapError> for AddressSpaceError {
 /// Tracks the state of a single Sv39 address space.
 pub struct AddressSpace {
     page_table: PageTable,
-    asid: u16,
-    owners: BTreeSet<u32>,
+    asid: Asid,
+    owners: BTreeSet<Pid>,
+    // Pre-SMP contract: address-space objects are mutated from one kernel context only.
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 impl AddressSpace {
-    fn new(asid: u16) -> Result<Self, MapError> {
+    fn new(asid: Asid) -> Result<Self, MapError> {
         let mut page_table = PageTable::new();
         map_kernel_segments(&mut page_table)?;
-        Ok(Self { page_table, asid, owners: BTreeSet::new() })
+        Ok(Self { page_table, asid, owners: BTreeSet::new(), _not_send_sync: PhantomData })
     }
 
     /// Returns the hardware ASID backing this address space.
-    pub fn asid(&self) -> u16 {
+    pub fn asid(&self) -> Asid {
         self.asid
     }
 
@@ -100,7 +106,7 @@ impl AddressSpace {
     pub fn satp_value(&self) -> usize {
         const MODE_SV39: usize = 8;
         let mode = MODE_SV39 << 60;
-        let asid = (self.asid as usize) << 44;
+        let asid = (self.asid.as_raw() as usize) << 44;
         let ppn = self.page_table.root_ppn();
         mode | asid | ppn
     }
@@ -109,11 +115,11 @@ impl AddressSpace {
         &mut self.page_table
     }
 
-    fn attach(&mut self, pid: u32) {
+    fn attach(&mut self, pid: Pid) {
         self.owners.insert(pid);
     }
 
-    fn detach(&mut self, pid: u32) {
+    fn detach(&mut self, pid: Pid) {
         self.owners.remove(&pid);
     }
 
@@ -126,12 +132,18 @@ impl AddressSpace {
 pub struct AddressSpaceManager {
     spaces: Vec<Option<AddressSpace>>,
     asids: AsidAllocator,
+    // Pre-SMP contract: AS manager is owned by single kernel execution context.
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let mgr = Self { spaces: Vec::new(), asids: AsidAllocator::new() };
+        let mgr = Self {
+            spaces: Vec::new(),
+            asids: AsidAllocator::new(),
+            _not_send_sync: PhantomData,
+        };
         mgr
     }
 
@@ -225,7 +237,7 @@ impl AddressSpaceManager {
 
     /// Records that `pid` references the provided address space.
     #[must_use]
-    pub fn attach(&mut self, handle: AsHandle, pid: u32) -> Result<(), AddressSpaceError> {
+    pub fn attach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
         space.attach(pid);
         Ok(())
@@ -233,7 +245,7 @@ impl AddressSpaceManager {
 
     /// Drops the reference held by `pid` for `handle`.
     #[must_use]
-    pub fn detach(&mut self, handle: AsHandle, pid: u32) -> Result<(), AddressSpaceError> {
+    pub fn detach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
         space.detach(pid);
         Ok(())
@@ -301,7 +313,7 @@ impl AsidAllocator {
         Self { bitmap, next: 1 }
     }
 
-    fn allocate(&mut self) -> Option<u16> {
+    fn allocate(&mut self) -> Option<Asid> {
         for _ in 0..MAX_ASIDS {
             let index = self.next % MAX_ASIDS;
             let word = index / WORD_BITS;
@@ -309,15 +321,15 @@ impl AsidAllocator {
             if self.bitmap[word] & (1 << bit) == 0 {
                 self.bitmap[word] |= 1 << bit;
                 self.next = (index + 1) % MAX_ASIDS;
-                return Some(index as u16);
+                return Some(Asid::from_raw(index as u16));
             }
             self.next = (index + 1) % MAX_ASIDS;
         }
         None
     }
 
-    fn free(&mut self, asid: u16) {
-        let index = asid as usize;
+    fn free(&mut self, asid: Asid) {
+        let index = asid.as_raw() as usize;
         if index < MAX_ASIDS {
             let word = index / WORD_BITS;
             let bit = index % WORD_BITS;

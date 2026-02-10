@@ -25,7 +25,7 @@ use crate::{
     sched::{QosClass, Scheduler},
     selftest,
     syscall::{api, SyscallTable},
-    task::TaskTable,
+    task::{Pid, TaskTable},
 };
 
 // (no private selftest stack; kernel stack is provisioned by linker)
@@ -83,7 +83,7 @@ impl KernelState {
                 panic!("kernel address space create failed");
             }
         };
-        if let Err(err) = address_spaces.attach(kernel_as, 0) {
+        if let Err(err) = address_spaces.attach(kernel_as, Pid::KERNEL) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
             let _ = write!(w, "KS-E: as_attach {:?}\n", err);
@@ -148,7 +148,7 @@ impl KernelState {
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut scheduler = Scheduler::new();
-        scheduler.enqueue(0, QosClass::Normal);
+        scheduler.enqueue(Pid::KERNEL, QosClass::Normal);
 
         let mut syscalls = SyscallTable::new();
         api::install_handlers(&mut syscalls);
@@ -276,7 +276,7 @@ impl KernelState {
                 let now = self.hal.timer().now();
                 let len = self.tasks.len();
                 for pid_usize in 0..len {
-                    let pid = pid_usize as crate::task::Pid;
+                    let pid = Pid::from_raw(pid_usize as u32);
                     let Some(t) = self.tasks.task(pid) else {
                         continue;
                     };
@@ -287,13 +287,13 @@ impl KernelState {
                         Some(crate::task::BlockReason::IpcRecv { endpoint, deadline_ns })
                             if deadline_ns != 0 && now >= deadline_ns =>
                         {
-                            let _ = self.ipc.remove_recv_waiter(endpoint, pid);
+                            let _ = self.ipc.remove_recv_waiter(endpoint, pid.as_raw());
                             let _ = self.tasks.wake(pid, &mut self.scheduler);
                         }
                         Some(crate::task::BlockReason::IpcSend { endpoint, deadline_ns })
                             if deadline_ns != 0 && now >= deadline_ns =>
                         {
-                            let _ = self.ipc.remove_send_waiter(endpoint, pid);
+                            let _ = self.ipc.remove_send_waiter(endpoint, pid.as_raw());
                             let _ = self.tasks.wake(pid, &mut self.scheduler);
                         }
                         _ => {}

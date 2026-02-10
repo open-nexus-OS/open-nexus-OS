@@ -12,9 +12,10 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `docs/rfcs/RFC-0001-kernel-simplification.md` (Status: Complete, logic-preserving headers + stable kernel tree)
+- **last_decision**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (Status: Complete, TASK-0011B delivered)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
+  - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
   - Deterministic persistence substrate for `/state` with bounded replay and CRC32-C integrity
   - Deterministic request/reply correlation (nonces + bounded dispatcher) to avoid shared-inbox desync under QEMU/OS
   - QEMU harness defaults to modern virtio-mmio (legacy opt-in) for virtio-blk determinism
@@ -31,10 +32,18 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: NONE (TASK-0011 complete)
-- **last_completed**: `tasks/TASK-0011-kernel-simplification-phase-a.md`
-  - Proof gates: `cargo test --workspace` and `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - Commit: `130de05` (mechanical moves + headers/docs; marker contract unchanged)
+- **active_task**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (next)
+- **seed_contract**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (completed seed)
+- **phase_now**: TASK-0011B complete; handoff prepared for TASK-0012
+- **baseline_commit**: `555d5a0`
+- **next_task_slice**: TASK-0012 Phase 1 bootstrap (per-CPU runqueues/IPI scaffolding)
+- **proof_commands**:
+  - `cargo test --workspace`
+  - `just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- **last_completed**: `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md`
+  - Proof gates: `cargo test --workspace`, `just diag-os`, and `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - Outcome: all phases 0→5 complete; logic/ABI/marker contract preserved
 
 ## Active invariants (must hold)
 - **security**
@@ -65,9 +74,9 @@ Rules:
 - DMA capability model (future) — out of scope for MMIO v1
 - IRQ delivery to userspace (future) — separate RFC needed
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
-- **kernel next candidates (post TASK-0011)**:
-  - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — Rust idioms + ownership clarity (pre-SMP prep; logic-preserving)
-  - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — SMP bring-up (behavioral change; marker-gated)
+- **kernel execution order (current)**:
+  - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — complete (phases 0→5, proofs green)
+  - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — active next (behavioral SMP work)
 
 ## Known risks / hazards
 - **QEMU smoke gating**:

@@ -1,36 +1,43 @@
-# Current Handoff: TASK-0011 Kernel Simplification (RFC-0001) — COMPLETE
+# Current Handoff: TASK-0011B Kernel Rust idioms (pre-SMP) — COMPLETED
 
-**Date**: 2026-02-09  
-**Result**: TASK-0011 completed as a **logic-preserving** kernel simplification pass with **zero behavior / ABI / marker-string changes**.
-
-- Phase A: text-only headers/docs + debug/diagnostics index + TEST_SCOPE/SCENARIOS
-- Phase B: physical reorg (mechanical moves + wiring only) + docs path updates
-
-Commit:
-- `130de05` — `kernel/docs: complete TASK-0011 kernel simplification (moves + headers + docs)`
+**Date**: 2026-02-10  
+**Status**: Complete (Phases 0→5 done, proofs green)
 
 ---
 
-## Execution truth (anti-drift)
+## Session log
 
-- **Task (execution SSOT)**: `tasks/TASK-0011-kernel-simplification-phase-a.md`
-- **RFC (contract seed)**: `docs/rfcs/RFC-0001-kernel-simplification.md`
-- **Touched paths allowlist (task-owned)**:
-  - `source/kernel/neuron/src/**`
-  - `docs/**`
+### 01 — Start TASK-0011B
 
-## Proof gates (green; marker contract unchanged)
+- **Execution SSOT (task)**: `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md`
+- **Seed contract (RFC)**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`
+- **Prep commit baseline**: `555d5a0` (main ahead of origin/main by 1)
+- **Start slice**: Phase 0 docs-first ownership clarification in `docs/architecture/01-neuron-kernel.md`
+- **Hard constraints carried forward**:
+  - logic-preserving only (no runtime behavior change),
+  - ABI-stable (syscall numbers/layouts/errno semantics unchanged),
+  - marker-stable (QEMU marker strings/order unchanged),
+  - deterministic (no unbounded loops/waits, no fake success).
 
-```bash
-cd /home/jenning/open-nexus-OS && cargo test --workspace
-cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
-```
+### 02 — Complete TASK-0011B
 
-## Next suggested task (drift-free)
+- **Implemented**:
+  - Phase 1: canonical `Pid`/`CapSlot` newtype migration + ASID/PID typing cleanup across kernel call sites
+  - Phase 2: explicit pre-SMP `!Send/!Sync` boundaries via `PhantomData<*mut ()>` markers (`Scheduler`, `TaskTable`, `Router`, `AddressSpaceManager`, `CapTable`)
+  - Phase 3: internal syscall error envelope normalization (`SyscallResult`) + `#[must_use]` discipline on kernel error enums
+  - Phase 4: minimal typed endpoint capability wrapper (`EndpointCapRef`) integrated in IPC syscall hot paths
+  - Phase 5: internal transfer intent centralization in `TaskTable` (`TransferMode`)
+- **Proof gates**:
+  - `cargo test --workspace` ✅
+  - `just diag-os` ✅
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` ✅
+- **Contract status**:
+  - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` moved to `Status: Complete`
+  - Phase checklist in RFC-0020 marked complete
 
-- `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` (logic-preserving Rust idioms/ownership prep before SMP)
-- Then: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (SMP bring-up; marker-gated behavioral work)
+---
 
-## Archive pointer
+## Next task handoff
 
-- Previous handoff snapshot (TASK-0009 / RFC-0018/0019): `.cursor/handoff/archive/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+1. `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (ready)
+2. Use the explicit ownership + thread-boundary markers from TASK-0011B as the SMP split baseline

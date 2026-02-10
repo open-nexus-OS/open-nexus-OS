@@ -18,7 +18,8 @@ use crate::{cap, ipc, mm, task};
 const MAX_SYSCALL: usize = 32;
 
 /// Result type used by syscall handlers.
-pub type SysResult<T> = Result<T, Error>;
+pub type SyscallResult<T> = Result<T, Error>;
+pub type SysResult<T> = SyscallResult<T>;
 
 /// Syscall arguments passed in registers a0-a5.
 #[derive(Default, Clone, Copy)]
@@ -94,6 +95,7 @@ pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 pub const SYSCALL_SPAWN_LAST_ERROR: usize = 29;
 
 /// Error returned by the dispatcher and handler stack.
+#[must_use = "kernel syscall errors must be handled explicitly"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     /// Syscall number not present in the dispatch table.
