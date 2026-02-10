@@ -591,7 +591,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                             if !dbg_listen_loopback_logged {
                                 dbg_listen_loopback_logged = true;
                                 // #region agent log
-                                let _ = nexus_abi::debug_println("dbg:netstackd: listen mode loopback");
+                                let _ =
+                                    nexus_abi::debug_println("dbg:netstackd: listen mode loopback");
                                 // #endregion
                             }
                             listeners.push(Some(Listener::Loop { port, pending: None }));
@@ -718,8 +719,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                                             (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
                                         net.poll(tick);
                                         let _ = yield_();
-                                        accept_result =
-                                            l.accept(Some(tick + TCP_READY_STEP_MS));
+                                        accept_result = l.accept(Some(tick + TCP_READY_STEP_MS));
                                         if !matches!(
                                             accept_result,
                                             Err(nexus_net::NetError::WouldBlock)
@@ -922,8 +922,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     } else if !dbg_connect_kick_ok_logged {
                                         dbg_connect_kick_ok_logged = true;
                                         // #region agent log
-                                        let _ =
-                                            nexus_abi::debug_println("dbg:netstackd: connect kick ok");
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:netstackd: connect kick ok",
+                                        );
                                         // #endregion
                                     }
                                     streams.push(Some(Stream::Tcp(s)));
@@ -1933,13 +1934,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                             append_nonce(&mut rsp[5..13], nonce);
                             reply(&rsp);
                         } else {
-                            reply(&[
-                                MAGIC0,
-                                MAGIC1,
-                                VERSION,
-                                OP_WAIT_WRITABLE | 0x80,
-                                status,
-                            ]);
+                            reply(&[MAGIC0, MAGIC1, VERSION, OP_WAIT_WRITABLE | 0x80, status]);
                         }
                     }
                     OP_CLOSE => {
@@ -1975,14 +1970,17 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let _ = yield_();
                             continue;
                         };
-                        let status = if slot.take().is_some() {
-                            STATUS_OK
-                        } else {
-                            STATUS_NOT_FOUND
-                        };
+                        let status =
+                            if slot.take().is_some() { STATUS_OK } else { STATUS_NOT_FOUND };
                         if let Some(nonce) = nonce {
                             let mut rsp = [0u8; 13];
-                            rsp[..5].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_CLOSE | 0x80, status]);
+                            rsp[..5].copy_from_slice(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_CLOSE | 0x80,
+                                status,
+                            ]);
                             append_nonce(&mut rsp[5..13], nonce);
                             reply(&rsp);
                         } else {

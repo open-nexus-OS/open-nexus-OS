@@ -1018,8 +1018,9 @@ impl OsTcpStream {
             {
                 let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
                 match sock.state() {
-                    smoltcp::socket::tcp::State::Closed
-                    | smoltcp::socket::tcp::State::Listen => return false,
+                    smoltcp::socket::tcp::State::Closed | smoltcp::socket::tcp::State::Listen => {
+                        return false
+                    }
                     _ => {}
                 }
                 if sock.may_send() {
@@ -1116,16 +1117,14 @@ impl NetStack for SmoltcpVirtioNetStack {
         let mut inner = self.inner.borrow_mut();
         let now = inner.now;
         let Inner { iface, sockets, .. } = &mut *inner;
-        iface
-            .poll_at(Instant::from_millis(now as i64), sockets)
-            .map(|inst| {
-                let ms = inst.total_millis();
-                if ms <= 0 {
-                    0
-                } else {
-                    ms as u64
-                }
-            })
+        iface.poll_at(Instant::from_millis(now as i64), sockets).map(|inst| {
+            let ms = inst.total_millis();
+            if ms <= 0 {
+                0
+            } else {
+                ms as u64
+            }
+        })
     }
 
     fn udp_bind(&mut self, local: NetSocketAddrV4) -> Result<Self::Udp, NetError> {

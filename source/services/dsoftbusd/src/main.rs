@@ -1680,9 +1680,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         if rsp[4] != STATUS_OK {
             return Err(());
         }
-        Ok(UdpSocketId::from_raw(u32::from_le_bytes([
-            rsp[5], rsp[6], rsp[7], rsp[8],
-        ])))
+        Ok(UdpSocketId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])))
     }
 
     fn udp_send_to(
@@ -1747,9 +1745,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         if rsp[4] != STATUS_OK {
             return Err(());
         }
-        Ok(ListenerId::from_raw(u32::from_le_bytes([
-            rsp[5], rsp[6], rsp[7], rsp[8],
-        ])))
+        Ok(ListenerId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])))
     }
 
     fn tcp_connect(
@@ -1941,160 +1937,164 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
     // - retries Noise handshake if stream I/O stalls
     let mut transport = 'session_setup: loop {
         loop {
-        // Ensure we always send at least one announce before trying to establish sessions.
-        // Then rate-limit to once per 64 ticks for determinism.
-        let now = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-        if !announced_once || (now & 0x3f) == 0 {
-            let ann = AnnounceV1 {
-                device_id: String::from(device_id),
-                port: listen_port,
-                // SECURITY: bring-up test keys, NOT production custody
-                noise_static: nexus_noise_xk::StaticKeypair::from_secret(derive_test_secret(
-                    key_tag_self,
-                    listen_port,
-                ))
-                .public,
-                services: alloc::vec!["samgrd".into(), "bundlemgrd".into()],
-            };
-            if let Ok(bytes) = encode_announce_v1(&ann) {
-                let ok1 = udp_send_to(
-                    &mut pending_replies,
-                    &mut nonce_ctr,
-                    net,
-                    udp_id,
-                    MCAST_IP,
-                    DISC_PORT,
-                    &bytes,
-                )
-                .is_ok();
-                let ok2 = udp_send_to(
-                    &mut pending_replies,
-                    &mut nonce_ctr,
-                    net,
-                    udp_id,
-                    peer_ip,
-                    DISC_PORT,
-                    &bytes,
-                )
-                .is_ok();
-                if !(ok1 && ok2) && !announce_send_failed {
-                    announce_send_failed = true;
-                }
-                if !announced_once {
-                    let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
-                    announced_once = true;
+            // Ensure we always send at least one announce before trying to establish sessions.
+            // Then rate-limit to once per 64 ticks for determinism.
+            let now = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+            if !announced_once || (now & 0x3f) == 0 {
+                let ann = AnnounceV1 {
+                    device_id: String::from(device_id),
+                    port: listen_port,
+                    // SECURITY: bring-up test keys, NOT production custody
+                    noise_static: nexus_noise_xk::StaticKeypair::from_secret(derive_test_secret(
+                        key_tag_self,
+                        listen_port,
+                    ))
+                    .public,
+                    services: alloc::vec!["samgrd".into(), "bundlemgrd".into()],
+                };
+                if let Ok(bytes) = encode_announce_v1(&ann) {
+                    let ok1 = udp_send_to(
+                        &mut pending_replies,
+                        &mut nonce_ctr,
+                        net,
+                        udp_id,
+                        MCAST_IP,
+                        DISC_PORT,
+                        &bytes,
+                    )
+                    .is_ok();
+                    let ok2 = udp_send_to(
+                        &mut pending_replies,
+                        &mut nonce_ctr,
+                        net,
+                        udp_id,
+                        peer_ip,
+                        DISC_PORT,
+                        &bytes,
+                    )
+                    .is_ok();
+                    if !(ok1 && ok2) && !announce_send_failed {
+                        announce_send_failed = true;
+                    }
+                    if !announced_once {
+                        let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
+                        announced_once = true;
+                    }
                 }
             }
-        }
 
-        let peer_known =
-            peers.peek(peer_device_id).is_some() && get_peer_ip(&peer_ips, peer_device_id).is_some();
-        let should_poll_discovery = !peer_known || (now & 0x1f) == 0;
-        if should_poll_discovery {
-            // Try receive one announce, but keep discovery polling non-fatal so session setup can
-            // continue making progress even if discovery RX is transiently delayed.
-            let nonce = next_nonce(&mut nonce_ctr);
-            let mut r = [0u8; 18];
-            r[0] = MAGIC0;
-            r[1] = MAGIC1;
-            r[2] = VERSION;
-            r[3] = OP_UDP_RECV_FROM;
-            r[4..8].copy_from_slice(&udp_id.as_raw().to_le_bytes());
-            r[8..10].copy_from_slice(&(256u16).to_le_bytes());
-            r[10..18].copy_from_slice(&nonce.to_le_bytes());
-            if let Ok(rsp) = rpc_nonce(&mut pending_replies, net, &r, OP_UDP_RECV_FROM | 0x80, nonce)
-            {
-                if rsp[0] == MAGIC0
-                    && rsp[1] == MAGIC1
-                    && rsp[2] == VERSION
-                    && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+            let peer_known = peers.peek(peer_device_id).is_some()
+                && get_peer_ip(&peer_ips, peer_device_id).is_some();
+            let should_poll_discovery = !peer_known || (now & 0x1f) == 0;
+            if should_poll_discovery {
+                // Try receive one announce, but keep discovery polling non-fatal so session setup can
+                // continue making progress even if discovery RX is transiently delayed.
+                let nonce = next_nonce(&mut nonce_ctr);
+                let mut r = [0u8; 18];
+                r[0] = MAGIC0;
+                r[1] = MAGIC1;
+                r[2] = VERSION;
+                r[3] = OP_UDP_RECV_FROM;
+                r[4..8].copy_from_slice(&udp_id.as_raw().to_le_bytes());
+                r[8..10].copy_from_slice(&(256u16).to_le_bytes());
+                r[10..18].copy_from_slice(&nonce.to_le_bytes());
+                if let Ok(rsp) =
+                    rpc_nonce(&mut pending_replies, net, &r, OP_UDP_RECV_FROM | 0x80, nonce)
                 {
-                    if rsp[4] == STATUS_OK {
-                        let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                        let from_ip = [rsp[7], rsp[8], rsp[9], rsp[10]];
-                        let base = 13;
-                        if n <= 256 && base + n <= rsp.len() {
-                            let payload = &rsp[base..base + n];
-                            match decode_announce_v1(payload) {
-                                Ok(pkt) => {
-                                    let entry = PeerEntry::new(
-                                        pkt.device_id.clone(),
-                                        pkt.port,
-                                        pkt.noise_static,
-                                        pkt.services,
-                                    );
-                                    peers.insert(entry);
-                                    set_peer_ip(&mut peer_ips, &pkt.device_id, from_ip);
-                                    if peers.peek(peer_device_id).is_some()
-                                        && get_peer_ip(&peer_ips, peer_device_id).is_some()
-                                    {
+                    if rsp[0] == MAGIC0
+                        && rsp[1] == MAGIC1
+                        && rsp[2] == VERSION
+                        && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+                    {
+                        if rsp[4] == STATUS_OK {
+                            let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+                            let from_ip = [rsp[7], rsp[8], rsp[9], rsp[10]];
+                            let base = 13;
+                            if n <= 256 && base + n <= rsp.len() {
+                                let payload = &rsp[base..base + n];
+                                match decode_announce_v1(payload) {
+                                    Ok(pkt) => {
+                                        let entry = PeerEntry::new(
+                                            pkt.device_id.clone(),
+                                            pkt.port,
+                                            pkt.noise_static,
+                                            pkt.services,
+                                        );
+                                        peers.insert(entry);
+                                        set_peer_ip(&mut peer_ips, &pkt.device_id, from_ip);
+                                        if peers.peek(peer_device_id).is_some()
+                                            && get_peer_ip(&peer_ips, peer_device_id).is_some()
+                                        {
+                                            let _ = nexus_abi::debug_println(
+                                                "dsoftbusd: discovery peer learned",
+                                            );
+                                        }
+                                    }
+                                    Err(_) => {
                                         let _ = nexus_abi::debug_println(
-                                            "dsoftbusd: discovery peer learned",
+                                            "dsoftbusd: announce ignored (malformed)",
                                         );
                                     }
                                 }
-                                Err(_) => {
-                                    let _ = nexus_abi::debug_println(
-                                        "dsoftbusd: announce ignored (malformed)",
-                                    );
-                                }
                             }
+                        } else if rsp[4] == STATUS_IO && !udp_recv_failed {
+                            let _ = nexus_abi::debug_println("dsoftbusd: discovery recv FAIL");
+                            udp_recv_failed = true;
                         }
-                    } else if rsp[4] == STATUS_IO && !udp_recv_failed {
-                        let _ = nexus_abi::debug_println("dsoftbusd: discovery recv FAIL");
-                        udp_recv_failed = true;
                     }
                 }
             }
-        }
 
-        // Session establishment.
-        if fsm.sid().is_none() {
-            if is_initiator {
-                fsm.set_dialing();
-                let mut ip = peer_ip;
-                let mut port = peer_port;
-                let mut used_discovery_mapping = false;
-                if let Some(peer) = peers.peek(peer_device_id) {
-                    port = peer.port;
-                    if let Some(mapped_ip) = get_peer_ip(&peer_ips, peer_device_id) {
-                        ip = mapped_ip;
-                        used_discovery_mapping = true;
+            // Session establishment.
+            if fsm.sid().is_none() {
+                if is_initiator {
+                    fsm.set_dialing();
+                    let mut ip = peer_ip;
+                    let mut port = peer_port;
+                    let mut used_discovery_mapping = false;
+                    if let Some(peer) = peers.peek(peer_device_id) {
+                        port = peer.port;
+                        if let Some(mapped_ip) = get_peer_ip(&peer_ips, peer_device_id) {
+                            ip = mapped_ip;
+                            used_discovery_mapping = true;
+                        }
                     }
-                }
-                if !used_discovery_mapping && !dial_fallback_logged {
-                    dial_fallback_logged = true;
-                    // #region agent log
-                    let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial fallback no-discovery");
-                    // #endregion
-                }
-                if !dial_logged {
-                    let _ = nexus_abi::debug_println("dsoftbusd: cross-vm dial start");
-                    dial_logged = true;
-                }
-                dial_attempts = dial_attempts.wrapping_add(1);
-                let mut netio = CrossVmTransport::new(&mut pending_replies, &mut nonce_ctr, net);
-                match netio.connect(ip, port) {
-                    Ok(s) => {
+                    if !used_discovery_mapping && !dial_fallback_logged {
+                        dial_fallback_logged = true;
+                        // #region agent log
+                        let _ =
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial fallback no-discovery");
+                        // #endregion
+                    }
+                    if !dial_logged {
+                        let _ = nexus_abi::debug_println("dsoftbusd: cross-vm dial start");
+                        dial_logged = true;
+                    }
+                    dial_attempts = dial_attempts.wrapping_add(1);
+                    let mut netio =
+                        CrossVmTransport::new(&mut pending_replies, &mut nonce_ctr, net);
+                    match netio.connect(ip, port) {
+                        Ok(s) => {
+                            fsm.set_connected(s);
+                        }
+                        Err(status) => {
+                            let _ = status;
+                        }
+                    }
+                } else {
+                    fsm.set_accepting();
+                    if !accept_logged {
+                        let _ = nexus_abi::debug_println("dsoftbusd: cross-vm accept wait");
+                        accept_logged = true;
+                    }
+                    accept_attempts = accept_attempts.wrapping_add(1);
+                    let mut netio =
+                        CrossVmTransport::new(&mut pending_replies, &mut nonce_ctr, net);
+                    if let Ok(s) = netio.accept(lid) {
                         fsm.set_connected(s);
                     }
-                    Err(status) => {
-                        let _ = status;
-                    }
-                }
-            } else {
-                fsm.set_accepting();
-                if !accept_logged {
-                    let _ = nexus_abi::debug_println("dsoftbusd: cross-vm accept wait");
-                    accept_logged = true;
-                }
-                accept_attempts = accept_attempts.wrapping_add(1);
-                let mut netio = CrossVmTransport::new(&mut pending_replies, &mut nonce_ctr, net);
-                if let Ok(s) = netio.accept(lid) {
-                    fsm.set_connected(s);
                 }
             }
-        }
 
             // We can start Noise as soon as a TCP session exists.
             if fsm.sid().is_some() {
@@ -2192,7 +2192,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
             }
             Err(()) => {
                 if let Some(old_sid) = fsm.begin_reconnect() {
-                    let mut netio = CrossVmTransport::new(&mut pending_replies, &mut nonce_ctr, net);
+                    let mut netio =
+                        CrossVmTransport::new(&mut pending_replies, &mut nonce_ctr, net);
                     let _ = netio.close(old_sid);
                     // #region agent log
                     let _ = nexus_abi::debug_println("dbg:dsoftbusd: hs sid close");
@@ -2251,7 +2252,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         let mut proxy_io_retry_logged = false;
         loop {
             let mut ciph = [0u8; REQ_CIPH];
-            if stream_read_exact(&mut pending_replies, &mut nonce_ctr, net, sid, &mut ciph).is_err() {
+            if stream_read_exact(&mut pending_replies, &mut nonce_ctr, net, sid, &mut ciph).is_err()
+            {
                 if !proxy_io_retry_logged {
                     proxy_io_retry_logged = true;
                     // #region agent log
@@ -2402,7 +2404,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
             if n != RSP_CIPH {
                 continue;
             }
-            if stream_write_all(&mut pending_replies, &mut nonce_ctr, net, sid, &rsp_ciph).is_err() {
+            if stream_write_all(&mut pending_replies, &mut nonce_ctr, net, sid, &rsp_ciph).is_err()
+            {
                 continue;
             }
         }
@@ -2508,7 +2511,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
                                     &mut rsp_ciph,
                                 )?;
                                 let mut rsp_plain = [0u8; RSP_PLAIN];
-                                let n = transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
+                                let n =
+                                    transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
                                 if n != RSP_PLAIN {
                                     return Err(());
                                 }
@@ -2523,7 +2527,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
                                         && p[4] == 0;
                                 }
                                 Ok(())
-                            })();
+                            })(
+                            );
                             if remote_result.is_err() && !remote_rpc_fail_logged {
                                 remote_rpc_fail_logged = true;
                                 // #region agent log
