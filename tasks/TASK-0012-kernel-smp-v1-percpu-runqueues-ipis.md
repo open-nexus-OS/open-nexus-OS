@@ -7,12 +7,27 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
+  - QEMU platform determinism: docs/dev/platform/qemu-virtio-mmio-modern.md
+  - QEMU smoke proof policy: docs/adr/0025-qemu-smoke-proof-gating.md
   - Kernel SMP/parallelism policy (normative): tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
   - Depends-on (orientation): tasks/TASK-0011-kernel-simplification-phase-a.md
   - Pre-SMP ownership/types contract (seed): docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
   - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
   - Testing contract: scripts/qemu-test.sh
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (per-CPU driver scheduling, multi-queue devices)
+  - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (multi-queue NIC scheduling baseline)
+enables:
+  - TASK-0013: Perf/Power v1 (QoS ABI + timed coalescing)
+  - TASK-0042: SMP v2 (affinity hints + QoS budgets)
+  - TASK-0247: RISC-V bring-up v1.1b extension (SBI HSM/IPI hardening + per-hart timers + storage integration)
+  - TASK-0283: Per-CPU ownership wrapper adoption (`PerCpu<T>`) for additional compile-time hardening
+  - TRACK-DRIVERS-ACCELERATORS: per-CPU driver scheduling baseline for device-class services
+  - TRACK-NETWORKING-DRIVERS: per-CPU scheduler baseline for future NIC/offload work
+follow-up-tasks:
+  - TASK-0013: add userspace QoS/timer behavior on top of SMP v1 without introducing a second scheduler authority
+  - TASK-0042: extend SMP with affinity/shares while preserving TASK-0012 ownership and determinism invariants
+  - TASK-0247: extend RISC-V specifics (SBI HSM/IPI hardening + per-hart timers) on top of TASK-0012 baseline only
+  - TASK-0283: optionally introduce `PerCpu<T>` wrappers where they reduce cross-CPU mutation risk
 ---
 
 ## Context
@@ -42,13 +57,15 @@ Boot with SMP enabled (e.g. QEMU `-smp 2`) and prove:
 - QoS ABI and userland QoS policy (handled in TASK-0013).
 - Interrupt-driven virtio; polling is fine.
 - Advanced load balancing / fairness / starvation guarantees beyond simple stealing.
-- RISC-V-specific SBI HSM/IPI or per-hart timer programming (handled by `TASK-0247` as an extension).
+- RISC-V-specific SMP extension scope (per-hart timers, broader HSM/IPI hardening, and bring-up packaging) handled by `TASK-0247`.
 
 ## Constraints / invariants (hard requirements)
 
 - Preserve existing single-hart behavior when SMP=1.
 - Deterministic markers for boot + selftests.
 - Avoid unbounded logging and debug-only flood.
+- QEMU SMP proofs MUST run on modern virtio-mmio defaults (`virtio-mmio.force-legacy=off`); legacy mode (`QEMU_FORCE_LEGACY=1`) is debug-only and not part of green proof gates.
+- SMP marker checks in `scripts/qemu-test.sh` MUST be explicitly gated (for example `REQUIRE_SMP=1` or equivalent SMP-aware condition), so default single-hart smoke remains deterministic.
 - SMP implementation must follow the kernel parallelism policy `TASK-0277` (ownership model, lock rules, deterministic invariant proofs).
 - SMP implementation MUST concretely build on the ownership/type-safety contracts established in RFC-0020 (TASK-0011B):
   - Prefer per-CPU ownership over shared mutable scheduler state.
@@ -58,9 +75,10 @@ Boot with SMP enabled (e.g. QEMU `-smp 2`) and prove:
 
 ## Red flags / decision points
 
-- **RED**:
-  - Hart boot method: must choose a reliable mechanism on QEMU virt (SBI hart_start vs other). If
-    unavailable in current environment, SMP bring-up is blocked.
+- **RESOLVED (formerly RED)**:
+  - Hart boot method on QEMU `virt`: use SBI HSM `hart_start` as the TASK-0012 baseline for secondary hart bring-up.
+  - If HSM support is unavailable in the runtime environment, fail fast with explicit bring-up failure evidence and keep TASK-0012 blocked (no hidden fallback path).
+  - `TASK-0247` extends this baseline (RISC-V-specific hardening/timers) and MUST NOT create a parallel SMP authority.
 - **YELLOW**:
   - Scheduler correctness under concurrency: keep locks minimal and auditable; prefer simple data
     structures first (per-CPU VecDeque + locks) before lock-free experiments.
@@ -139,18 +157,33 @@ When implementing SMP features, ensure:
   - `KSELFTEST: smp online ok`
   - `KSELFTEST: ipi resched ok`
   - `KSELFTEST: work stealing ok`
-- Single-hart run (SMP=1) remains green with existing markers.
+- Single-hart run (SMP=1) remains green with existing markers and unchanged default smoke semantics.
 - Host + compile gates remain green:
   - `cargo test --workspace` passes
   - `just diag-os` passes
+- Required proof commands:
+  - `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (with SMP marker gate enabled)
+  - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - Docs stay in sync:
   - Update `docs/architecture/01-neuron-kernel.md` and `docs/architecture/README.md` to reflect any new SMP invariants/markers and any scheduler model changes.
+  - If SMP marker-gating behavior in the harness changes, update `docs/testing/index.md` in the same slice.
 
 ## Touched paths (allowlist)
 
 - `source/kernel/neuron/src/**`
 - `scripts/run-qemu-rv64.sh` (only if needed to parameterize `SMP`)
 - `scripts/qemu-test.sh` (marker expectations for SMP runs, gated/optional)
+- `docs/architecture/01-neuron-kernel.md`
+- `docs/architecture/README.md`
+- `docs/testing/index.md` (only if marker-gating behavior/commands change)
+
+## Follow-up alignment (anti-drift)
+
+- `TASK-0013` consumes the SMP scheduler baseline but does not redefine SMP authority.
+- `TASK-0042` extends scheduling policy (affinity/shares) and must preserve TASK-0012 per-CPU ownership boundaries.
+- `TASK-0247` extends RISC-V specifics (HSM/IPI hardening and per-hart timers) on top of TASK-0012; no duplicate SMP stack is allowed.
+- `TASK-0283` is an optional hardening layer (`PerCpu<T>`) that should refine, not replace, TASK-0012 behavior proofs.
+- `TRACK-DRIVERS-ACCELERATORS` and `TRACK-NETWORKING-DRIVERS` both depend on this SMP baseline remaining deterministic and auditable.
 
 ## Plan (small PRs)
 
@@ -160,6 +193,7 @@ When implementing SMP features, ensure:
 
 2. **Secondary hart boot**
    - Bring up harts 1..N-1 deterministically.
+   - Use SBI HSM `hart_start` as the baseline boot path on QEMU `virt`.
    - Wire per-hart kernel stack pointers for trap entry (`trap.S`) so U-mode trap path no longer relies on global `__stack_top`.
    - Keep `sscratch` semantics deterministic per hart (save/restore user SP only for the current hart context).
 
@@ -175,7 +209,15 @@ When implementing SMP features, ensure:
    - Simple round-robin steal when local queue empty; prove via selftest marker.
    - Steal implementation must remain bounded and should not require “reach into” another CPU’s runqueue without an explicit, audited synchronization boundary.
 
+6. **Proof wiring + docs sync**
+   - Keep default single-hart smoke deterministic; gate SMP-only markers behind explicit SMP proof mode.
+   - Update architecture/testing docs in the same slice when marker contracts or ownership rules change.
+
 ## Acceptance criteria (behavioral)
 
-- SMP=2 reliably boots and emits the required KSELFTEST markers.
-- No regressions for SMP=1.
+- SMP=2 reliably boots and emits all required SMP markers (`KINIT: cpu1 online`, `KSELFTEST: smp online ok`, `KSELFTEST: ipi resched ok`, `KSELFTEST: work stealing ok`).
+- SMP=1 remains green with unchanged default smoke marker semantics.
+- Secondary-hart trap entry no longer depends on global `__stack_top` for multi-hart correctness.
+- Host/compile proof gates remain green (`cargo test --workspace`, `just diag-os`).
+- SMP proof commands are explicit and reproducible (`SMP=2` and `SMP=1` marker-gated runs).
+- Follow-up task boundaries remain drift-free (TASK-0013/0042/0247/0283 and both TRACK dependencies).

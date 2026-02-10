@@ -20,6 +20,16 @@ Add entries to `.cursor/current_state.md` in the relevant sections.
   - Root cause: virtio expects mutable aliasing of ring buffers; Rust forbids without unsafe
   - Symptom: Weeks debugging "mysterious corruption" that was actually borrow-checker workaround gone wrong
   - Mitigation: Use explicit `unsafe` + documentation for shared virtio rings; don't try to "trick" the borrow checker
+
+- **SMP trap stack bring-up**: single-hart trap assumptions leaked into multi-hart planning
+  - Root cause: trap entry path relied on global `__stack_top` semantics
+  - Symptom: TASK looked "ready" but trap hardening remained an unresolved carry-over risk
+  - Mitigation: record trap-stack migration as an explicit stop condition before claiming SMP baseline complete
+
+- **QEMU smoke contention**: parallel runs produced false-negative failures
+  - Root cause: multiple smoke jobs contended on shared QEMU artifacts
+  - Symptom: timeout/lock errors looked like runtime regressions
+  - Mitigation: enforce sequential QEMU proofs and capture command lines in handoff/current_state
 ```
 
 ---
@@ -35,6 +45,8 @@ Add entries to `.cursor/current_state.md` in the relevant sections.
 - DON'T use Arc<Mutex<VirtQueue>> for device rings (leads to double-borrow panic at runtime)
 - DON'T skip `docs/testing/index.md → Troubleshooting` (wastes hours on known issues)
 - DON'T debug QEMU tests without RUN_UNTIL_MARKER=1 (you'll miss early failures)
+- DON'T run multiple QEMU smoke commands in parallel (lock contention hides real signals)
+- DON'T close RED decision points "later" in SMP tasks (resolve them in the task contract first)
 ```
 
 ---
@@ -49,6 +61,8 @@ Add entries to `.cursor/current_state.md` in the relevant sections.
 ```markdown
 - Better virtio error reporting (status codes instead of "failed") — needs RFC for error ABI
 - Automated marker regression check — deferred until CI pipeline exists
+- SMP marker-gating helper flag in harness — deferred until TASK-0012 phase implementing qemu-test wiring
+- Per-hart trap stack proof marker strategy — blocked on TASK-0012 trap.S implementation slice
 ```
 
 ---

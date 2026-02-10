@@ -12,6 +12,11 @@ This is the "everything green" guard against fake success.
 - [ ] OS dependency gate (when OS code touched): `just dep-gate`
 - [ ] OS diagnostics compile (when OS code touched): `just diag-os`
 - [ ] QEMU smoke tests / marker run (when behavior affects OS runtime): `just test-os` or `RUN_UNTIL_MARKER=1 just test-os`
+- [ ] SMP tasks: dual-mode QEMU proof is green:
+  - [ ] `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (SMP marker gate enabled)
+  - [ ] `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (default smoke semantics preserved)
+- [ ] QEMU runs were executed sequentially (no parallel smoke/harness runs contending on shared artifacts)
+- [ ] Determinism floor respected: modern virtio-mmio default used for green proofs (legacy mode only for debug/bisect)
 - [ ] No new lints in touched files (run lints per task or workspace policy)
 
 ## Manual (agent verifies, then documents proof)
@@ -31,3 +36,4 @@ This is the "everything green" guard against fake success.
 - [ ] Markers honest (no `ready/ok` for stub paths)
 - [ ] Headers updated (CONTEXT, TEST_COVERAGE, ADR)
 - [ ] Docs synced (architecture, testing, contracts)
+- [ ] If task changed marker expectations/gates, `.cursor/current_state.md`, `.cursor/handoff/current.md`, and `.cursor/next_task_prep.md` are updated in the same slice

@@ -12,10 +12,11 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (Status: Complete, TASK-0011B delivered)
+- **last_decision**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (contract sync complete; RED boot-method decision resolved)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
+  - Lock TASK-0012 authority boundaries early (no duplicate SMP stack in TASK-0247 extensions)
   - Deterministic persistence substrate for `/state` with bounded replay and CRC32-C integrity
   - Deterministic request/reply correlation (nonces + bounded dispatcher) to avoid shared-inbox desync under QEMU/OS
   - QEMU harness defaults to modern virtio-mmio (legacy opt-in) for virtio-blk determinism
@@ -32,15 +33,16 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (next)
+- **active_task**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (active)
 - **seed_contract**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (completed seed)
-- **phase_now**: TASK-0011B complete; handoff prepared for TASK-0012
-- **baseline_commit**: `555d5a0`
-- **next_task_slice**: TASK-0012 Phase 1 bootstrap (per-CPU runqueues/IPI scaffolding)
+- **phase_now**: TASK-0012 contract sync complete; implementation Phase 1 ready
+- **baseline_commit**: `978ebeb`
+- **next_task_slice**: TASK-0012 Phase 1 bootstrap (`cpu_current_id`/online mask + typed HartId/CpuId boundary)
 - **proof_commands**:
   - `cargo test --workspace`
   - `just diag-os`
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (with SMP marker gate enabled)
+  - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - **last_completed**: `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md`
   - Proof gates: `cargo test --workspace`, `just diag-os`, and `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - Outcome: all phases 0→5 complete; logic/ABI/marker contract preserved
@@ -76,9 +78,12 @@ Rules:
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
 - **kernel execution order (current)**:
   - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — complete (phases 0→5, proofs green)
-  - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — active next (behavioral SMP work)
+  - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — active now (contract synced, implementation slice 1 pending)
 
 ## Known risks / hazards
+- **TASK-0012 SMP proof wiring**:
+  - SMP marker checks are now contractually explicit in TASK-0012, but harness-side SMP gate wiring must be implemented without regressing default SMP=1 smoke determinism.
+  - Secondary-hart trap-stack migration (`trap.S` per-hart stack source) is still open implementation work and remains the key carry-over hardening risk from TASK-0011B.
 - **QEMU smoke gating**:
   - Default `just test-os` now reaches `SELFTEST: end` deterministically and early-exits within the 90s harness timeout (no missing-marker deadlocks).
   - `REQUIRE_QEMU_DHCP=1` is green because we accept the honest static fallback marker when DHCP does not bind.

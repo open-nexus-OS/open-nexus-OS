@@ -11,6 +11,10 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] All stated Security Invariants are enforced and have negative tests where appropriate (`test_reject_*`)
 - [ ] No regressions against `.cursor/current_state.md` constraints/invariants
 - [ ] Proof artifacts exist and are referenced in the task/handoff (tests, QEMU markers, logs)
+- [ ] For SMP/parallelism tasks:
+  - [ ] SMP>=2 proof is green (explicit marker-gated run)
+  - [ ] SMP=1 regression proof is green (default smoke behavior unchanged)
+  - [ ] No unresolved RED decision points remain in the task file
 - [ ] Header blocks updated to reflect:
   - [ ] API stability impact (if any)
   - [ ] Test coverage (what exists, where, and how to run)
@@ -24,3 +28,4 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] Tests were not run when they exist and are applicable
 - [ ] Markers say `ok/ready` but behavior is stubbed (must say `stub/placeholder`)
 - [ ] Scope expanded beyond touched-path allowlist without explicit note and plan update
+- [ ] QEMU proofs were run in parallel and produced lock/contention artifacts instead of deterministic evidence
