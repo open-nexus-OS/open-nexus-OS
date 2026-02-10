@@ -276,6 +276,9 @@ mod satp;
 mod sched;
 #[cfg(target_os = "none")]
 mod selftest;
+#[cfg(target_os = "none")]
+#[path = "core/smp.rs"]
+mod smp;
 #[cfg(all(target_os = "none", debug_assertions))]
 #[path = "diag/sync/mod.rs"]
 pub mod sync;

@@ -1,6 +1,6 @@
 ---
 title: TASK-0012 Performance & Power v1 (kernel): SMP bring-up + per-CPU runqueues + IPIs (QEMU riscv virt)
-status: Draft
+status: In Review
 owner: @kernel-team
 created: 2025-12-22
 links:
@@ -156,14 +156,19 @@ When implementing SMP features, ensure:
 - QEMU run with SMP>=2 produces:
   - `KINIT: cpu1 online` (and higher as configured)
   - `KSELFTEST: smp online ok`
+  - `KSELFTEST: ipi counterfactual ok`
   - `KSELFTEST: ipi resched ok`
+  - `KSELFTEST: test_reject_invalid_ipi_target_cpu ok`
+  - `KSELFTEST: test_reject_offline_cpu_resched ok`
   - `KSELFTEST: work stealing ok`
+  - `KSELFTEST: test_reject_steal_above_bound ok`
+  - `KSELFTEST: test_reject_steal_higher_qos ok`
 - Single-hart run (SMP=1) remains green with existing markers and unchanged default smoke semantics.
 - Host + compile gates remain green:
   - `cargo test --workspace` passes
   - `just diag-os` passes
 - Required proof commands:
-  - `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (with SMP marker gate enabled)
+  - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - Docs stay in sync:
   - Update `docs/architecture/01-neuron-kernel.md` and `docs/architecture/README.md` to reflect any new SMP invariants/markers and any scheduler model changes.
@@ -216,7 +221,7 @@ When implementing SMP features, ensure:
 
 ## Acceptance criteria (behavioral)
 
-- SMP=2 reliably boots and emits all required SMP markers (`KINIT: cpu1 online`, `KSELFTEST: smp online ok`, `KSELFTEST: ipi resched ok`, `KSELFTEST: work stealing ok`).
+- SMP=2 reliably boots and emits all required SMP markers (`KINIT: cpu1 online`, `KSELFTEST: smp online ok`, `KSELFTEST: ipi counterfactual ok`, `KSELFTEST: ipi resched ok`, `KSELFTEST: work stealing ok`, plus `test_reject_*` negative markers).
 - SMP=1 remains green with unchanged default smoke marker semantics.
 - Secondary-hart trap entry no longer depends on global `__stack_top` for multi-hart correctness.
 - Host/compile proof gates remain green (`cargo test --workspace`, `just diag-os`).

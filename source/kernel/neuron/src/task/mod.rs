@@ -484,6 +484,7 @@ pub struct TaskTable {
     // Pre-SMP contract: task table stays in the single kernel execution context.
     _not_send_sync: PhantomData<*mut ()>,
 }
+static_assertions::assert_not_impl_any!(TaskTable: Send, Sync);
 
 impl TaskTable {
     /// Creates a new table seeded with the bootstrap task (PID 0).
@@ -857,6 +858,12 @@ impl TaskTable {
             return false;
         }
         task.clear_blocked();
+        // Selftest dummy tasks intentionally carry a zero frame and no AS.
+        // Waking them should validate unblock bookkeeping, but must not
+        // make them runnable for the real scheduler path.
+        if task.address_space.is_none() && task.frame.sepc == 0 {
+            return true;
+        }
         // Avoid duplicates; then enqueue with the stored QoS.
         scheduler.purge(pid);
         scheduler.enqueue(pid, task.qos);

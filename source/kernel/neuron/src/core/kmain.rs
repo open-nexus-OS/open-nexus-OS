@@ -26,6 +26,7 @@ use crate::{
     selftest,
     syscall::{api, SyscallTable},
     task::{Pid, TaskTable},
+    types::{CpuId, HartId},
 };
 
 // (no private selftest stack; kernel stack is provisioned by linker)
@@ -448,6 +449,27 @@ unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
     }
 }
 
+pub(crate) fn kmain_secondary(hart: HartId, stack_top: usize) -> ! {
+    let cpu = CpuId::from_hart(hart);
+    crate::smp::register_trap_stack_top(cpu, stack_top);
+    // SAFETY: secondary hart installs its own trap vector once before entering the wait loop.
+    unsafe {
+        crate::trap::install_trap_vector_with_stack(stack_top);
+    }
+    crate::smp::mark_cpu_online(cpu);
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        // Secondary harts must accept supervisor software interrupts for IPI proofs.
+        riscv::register::sie::set_ssoft();
+        riscv::register::sstatus::set_sie();
+    }
+
+    loop {
+        // Keep the hart idle and let S_SOFT trap handling provide resched evidence.
+        core::hint::spin_loop();
+    }
+}
+
 /// Kernel main invoked after boot assembly completed.
 /// CRITICAL: Activate kernel address space before complex init; idle loop uses SYSCALL_YIELD.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -455,6 +477,7 @@ pub fn kmain() -> ! {
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
     let kernel = unsafe { init_kernel_state() };
+    crate::smp::init_boot_hart_state();
     // Provide the syscall/trap runtime with a stable timer reference. We store it as a raw pointer
     // to avoid borrowing `kernel.hal` for `'static` (we keep mutating `kernel` afterwards).
     let timer: &'static dyn crate::hal::Timer = unsafe {
@@ -470,6 +493,19 @@ pub fn kmain() -> ! {
         &kernel.syscalls,
     );
     kernel.tasks.bootstrap_mut().set_trap_domain(_default_trap_domain);
+
+    let expected_online_mask = crate::smp::start_secondary_harts();
+    if !crate::smp::wait_for_online_mask(expected_online_mask, 2_000_000) {
+        log_error!(
+            target: "smp",
+            "KINIT: secondary online timeout expected=0x{:x} got=0x{:x}",
+            expected_online_mask,
+            crate::smp::cpu_online_mask()
+        );
+        if expected_online_mask != (1usize << CpuId::BOOT.as_index()) {
+            panic!("SMP bring-up timeout");
+        }
+    }
     // Touch HAL traits to satisfy imports
     let uart_dev = kernel.hal.uart();
     let _: &dyn crate::hal::Uart = uart_dev;

@@ -117,5 +117,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md
 - RFC-0020: Kernel ownership + Rust idioms pre-SMP v1 (logic-preserving)
   - docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
-- RFC-0021: Kernel SMP v1 contract — per-CPU runqueues + IPI resched
+- RFC-0021: Kernel SMP v1 contract — per-CPU runqueues + IPI resched (Complete)
   - docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md

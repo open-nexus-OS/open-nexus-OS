@@ -82,6 +82,7 @@ pub struct PageTable {
     // Pre-SMP contract: page-table mutation remains single-context until SMP VM ownership split.
     _not_send_sync: PhantomData<*mut ()>,
 }
+static_assertions::assert_not_impl_any!(PageTable: Send, Sync);
 
 impl PageTable {
     /// Creates an empty Sv39 page table with a fresh root page.

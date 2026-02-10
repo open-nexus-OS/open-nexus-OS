@@ -222,6 +222,7 @@ pub struct Router {
     // Pre-SMP contract: router mutability is trap-context local until per-CPU routing lands.
     _not_send_sync: PhantomData<*mut ()>,
 }
+static_assertions::assert_not_impl_any!(Router: Send, Sync);
 
 // DoS hardening: keep endpoint creation bounded until we have explicit accounting/quotas.
 const MAX_ENDPOINTS: usize = 384;

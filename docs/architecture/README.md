@@ -22,7 +22,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 - **Kernel + layering quick reference (canonical entry page)**: `docs/ARCHITECTURE.md`
 - **Testing methodology (host-first, QEMU-last)**: `docs/testing/index.md`
-- **Testing contracts (v1)**: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Phase 0 complete)
+- **Testing contracts (v1)**: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Complete)
 - **Execution truth / workflow**: `tasks/README.md`
 - **RFC process / contracts vs tasks**: `docs/rfcs/README.md`
 - **Vendored third-party code (pinned forks / patches)**: `vendor/` (keep small; document upstream base + local deltas)
@@ -31,6 +31,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 - `01-neuron-kernel.md` — NEURON kernel overview (syscalls, memory model, invariants)
 - `16-rust-concurrency-model.md` — Rust ownership & Servo-inspired parallelism (SMP design)
+- `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` — SMP v1 contract (Complete; CPU online mask, secondary bring-up, IPI/selftest markers)
 - `smp-ipi-rate-limiting.md` — IPI rate limiting policy (DoS prevention, TASK-0012/0042)
 - `hardening-status.md` — kernel hardening objectives checklist (status snapshot)
 - `KERNEL-TASK-INVENTORY.md` — Complete inventory of all kernel-touch tasks (security consistency check)

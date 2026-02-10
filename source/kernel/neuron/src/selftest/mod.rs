@@ -39,13 +39,14 @@ use crate::{
     hal::virt::VirtMachine,
     ipc::Router,
     mm::{AddressSpaceError, AddressSpaceManager, MapError, PAGE_SIZE},
-    sched::Scheduler,
+    sched::{QosClass, Scheduler},
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
         SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
         SYSCALL_YIELD,
     },
     task::TaskTable,
+    types::CpuId,
 };
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 use crate::{
@@ -579,6 +580,7 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_ipc_owner_exit_wakes_waiters_selftest(ctx);
     run_spawn_reason_selftest();
     run_resource_sentinel_selftest(ctx);
+    run_smp_selftests(ctx);
     // Ensure subsequent lifecycle tests run as the bootstrap task (PID 0)
     // so parent/child linkage during spawn and wait behaves deterministically.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -1032,6 +1034,158 @@ fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
     }
 
     log_info!(target: "selftest", "KSELFTEST: resource sentinel ok");
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn run_smp_selftests(ctx: &mut Context<'_>) {
+    let online_mask = crate::smp::cpu_online_mask();
+    let cpu1_online = (online_mask & (1usize << 1)) != 0;
+    if !cpu1_online {
+        // SMP=1 default smoke: skip SMP-only markers.
+        return;
+    }
+
+    log_info!(target: "selftest", "KSELFTEST: smp online ok");
+
+    // Counterfactual anti-fake proof:
+    // force IPI send failure and require that no S_SOFT trap/ack chain appears.
+    crate::smp::reset_selftest_counters();
+    let target = CpuId::from_raw(1);
+    crate::smp::selftest_force_ipi_send_failure(true);
+    if crate::smp::request_resched(target) {
+        let mut unexpected_ack = false;
+        for _ in 0..200_000 {
+            if crate::smp::resched_evidence(target).ack_count > 0 {
+                unexpected_ack = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        let counterfactual = crate::smp::resched_evidence(target);
+        if !unexpected_ack
+            && counterfactual.request_accepted_count > 0
+            && counterfactual.ipi_send_ok_count == 0
+            && counterfactual.ssoft_trap_count == 0
+            && counterfactual.ack_count == 0
+        {
+            log_info!(target: "selftest", "KSELFTEST: ipi counterfactual ok");
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: ipi counterfactual FAIL req={} send={} trap={} ack={}",
+                counterfactual.request_accepted_count,
+                counterfactual.ipi_send_ok_count,
+                counterfactual.ssoft_trap_count,
+                counterfactual.ack_count
+            );
+        }
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: ipi counterfactual FAIL");
+    }
+    crate::smp::selftest_force_ipi_send_failure(false);
+    crate::smp::clear_resched_pending(target);
+
+    crate::smp::reset_selftest_counters();
+    let before = crate::smp::resched_evidence(target);
+    if crate::smp::request_resched(target) {
+        let mut acked = false;
+        for _ in 0..5_000_000 {
+            let now = crate::smp::resched_evidence(target);
+            if now.ack_count > before.ack_count {
+                acked = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        let after = crate::smp::resched_evidence(target);
+        let strict_chain = after.request_accepted_count > before.request_accepted_count
+            && after.ipi_send_ok_count > before.ipi_send_ok_count
+            && after.ssoft_trap_count > before.ssoft_trap_count
+            && after.ack_count > before.ack_count;
+        if acked && strict_chain {
+            log_info!(target: "selftest", "KSELFTEST: ipi resched ok");
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: ipi resched FAIL req={} send={} trap={} ack={}",
+                after.request_accepted_count,
+                after.ipi_send_ok_count,
+                after.ssoft_trap_count,
+                after.ack_count
+            );
+        }
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: ipi resched FAIL");
+    }
+
+    let invalid_target = CpuId::from_raw(crate::smp::MAX_CPUS as u16);
+    if !crate::smp::request_resched(invalid_target) {
+        log_info!(target: "selftest", "KSELFTEST: test_reject_invalid_ipi_target_cpu ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: test_reject_invalid_ipi_target_cpu FAIL");
+    }
+
+    let mut offline_target = CpuId::from_raw(2);
+    if crate::smp::cpu_is_online(offline_target) {
+        offline_target = CpuId::from_raw(3);
+    }
+    if !crate::smp::cpu_is_online(offline_target) && !crate::smp::request_resched(offline_target) {
+        log_info!(target: "selftest", "KSELFTEST: test_reject_offline_cpu_resched ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: test_reject_offline_cpu_resched FAIL");
+    }
+
+    // Deterministic work-stealing probe:
+    // - put one runnable task only on CPU1
+    // - run CPU0 pick path and require a steal event + expected PID
+    let boot = CpuId::BOOT;
+    let probe_pid = Pid::from_raw(0x7FFF_FF00);
+    ctx.scheduler.selftest_reset_cpu(boot);
+    ctx.scheduler.selftest_reset_cpu(target);
+    let _ = ctx.scheduler.selftest_enqueue_on_cpu(target, probe_pid, QosClass::Normal);
+    let picked = ctx.scheduler.selftest_schedule_on_cpu(boot);
+    let steal_count = crate::smp::work_steal_count();
+    if picked == Some(probe_pid) && steal_count > 0 {
+        log_info!(target: "selftest", "KSELFTEST: work stealing ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: work stealing FAIL picked={:?} steals={}",
+            picked,
+            steal_count
+        );
+    }
+
+    // Deterministic negative checks for steal policies:
+    // 1) reject stealing more than one task per scheduling tick.
+    ctx.scheduler.selftest_reset_cpu(boot);
+    ctx.scheduler.selftest_reset_cpu(target);
+    let _ = ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal);
+    let _ = ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal);
+    let _ = ctx.scheduler.selftest_schedule_on_cpu(boot);
+    if ctx.scheduler.selftest_queue_len(target, QosClass::Normal) == 1 {
+        log_info!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL");
+    }
+
+    // 2) reject stealing higher-QoS tasks when current class is lower.
+    ctx.scheduler.selftest_reset_cpu(boot);
+    ctx.scheduler.selftest_reset_cpu(target);
+    let _ = ctx.scheduler.selftest_enqueue_on_cpu(
+        target,
+        Pid::from_raw(0x7FFF_FF20),
+        QosClass::Interactive,
+    );
+    if ctx.scheduler.selftest_try_steal_for_class(boot, QosClass::Normal).is_none() {
+        log_info!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos FAIL");
+    }
+
+    ctx.scheduler.selftest_reset_cpu(boot);
+    ctx.scheduler.selftest_reset_cpu(target);
+    ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal);
 }
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]

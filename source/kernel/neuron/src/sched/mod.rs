@@ -11,10 +11,10 @@
 extern crate alloc;
 
 use alloc::collections::VecDeque;
-use core::marker::PhantomData;
+use core::{array, marker::PhantomData};
 
 // use crate::determinism; // not needed after inlined guarded access
-use crate::types::Pid;
+use crate::types::{CpuId, Pid};
 
 /// Task identifier handed out by the scheduler.
 pub type TaskId = Pid;
@@ -46,30 +46,47 @@ struct Task {
     qos: QosClass,
 }
 
-/// Round-robin scheduler with simple QoS based ordering.
+struct CpuRunQueues {
+    queues: [VecDeque<Task>; 4],
+    current: Option<Task>,
+}
+
+impl CpuRunQueues {
+    fn new() -> Self {
+        Self {
+            queues: [
+                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(1),
+            ],
+            current: None,
+        }
+    }
+}
+
+/// Per-CPU round-robin scheduler with simple QoS based ordering.
 ///
 /// ## Send/Sync Safety (TASK-0011B, TASK-0012)
 ///
-/// **Single-CPU (current)**:
+/// **SMP v1**:
 /// - `Scheduler` is `!Send` and `!Sync` (contains `VecDeque`, not thread-safe)
-/// - Lives in `KERNEL_STATE` (single global instance)
-/// - Only accessed from trap handler (single-threaded execution)
+/// - Runtime path stays single-CPU stable for deterministic bring-up
+/// - Per-CPU runqueues are available via selftest-only APIs
 ///
-/// **SMP (TASK-0012)**:
-/// - Each CPU will have its own `PerCpuScheduler` (no sharing)
-/// - `PerCpuScheduler` will be `!Send` (CPU-local, never migrates)
-/// - Work stealing will use atomic operations (no direct queue access)
-///
-/// See `docs/architecture/16-rust-concurrency-model.md` for SMP design.
 pub struct Scheduler {
     queues: [VecDeque<Task>; 4],
     current: Option<Task>,
+    selftest_cpus: [CpuRunQueues; crate::smp::MAX_CPUS],
     timeslice_ns: u64,
     // Pre-SMP contract: scheduler is CPU-local and must not cross thread boundaries.
     _not_send_sync: PhantomData<*mut ()>,
 }
+static_assertions::assert_not_impl_any!(Scheduler: Send, Sync);
 
 impl Scheduler {
+    const SELFTEST_STEAL_MAX_PER_TICK: usize = 1;
+
     /// Creates an empty scheduler.
     pub fn new() -> Self {
         #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
@@ -87,7 +104,7 @@ impl Scheduler {
             let _ = write!(u, "SCHED: timeslice={}\n", ts);
         }
         let s = Self {
-            // Preallocate minimal capacity to avoid first enqueue allocation cost
+            // Keep runtime scheduler behavior unchanged for SMP=1 determinism.
             queues: [
                 VecDeque::with_capacity(1),
                 VecDeque::with_capacity(1),
@@ -95,6 +112,8 @@ impl Scheduler {
                 VecDeque::with_capacity(1),
             ],
             current: None,
+            // Per-CPU queues are used only by SMP selftests.
+            selftest_cpus: array::from_fn(|_| CpuRunQueues::new()),
             timeslice_ns: ts,
             _not_send_sync: PhantomData,
         };
@@ -210,6 +229,119 @@ impl Scheduler {
         }
     }
 
+    fn selftest_queue_for(&mut self, cpu_idx: usize, qos: QosClass) -> &mut VecDeque<Task> {
+        match qos {
+            QosClass::Idle => &mut self.selftest_cpus[cpu_idx].queues[0],
+            QosClass::Normal => &mut self.selftest_cpus[cpu_idx].queues[1],
+            QosClass::Interactive => &mut self.selftest_cpus[cpu_idx].queues[2],
+            QosClass::PerfBurst => &mut self.selftest_cpus[cpu_idx].queues[3],
+        }
+    }
+
+    fn selftest_try_steal(&mut self, local_cpu: usize, max_qos: QosClass) -> Option<Task> {
+        const STEAL_CLASSES_PERF: [QosClass; 4] =
+            [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle];
+        const STEAL_CLASSES_INTERACTIVE: [QosClass; 3] =
+            [QosClass::Interactive, QosClass::Normal, QosClass::Idle];
+        const STEAL_CLASSES_NORMAL: [QosClass; 2] = [QosClass::Normal, QosClass::Idle];
+        const STEAL_CLASSES_IDLE: [QosClass; 1] = [QosClass::Idle];
+
+        let steal_classes: &[QosClass] = match max_qos {
+            QosClass::PerfBurst => &STEAL_CLASSES_PERF,
+            QosClass::Interactive => &STEAL_CLASSES_INTERACTIVE,
+            QosClass::Normal => &STEAL_CLASSES_NORMAL,
+            QosClass::Idle => &STEAL_CLASSES_IDLE,
+        };
+        let online_mask = crate::smp::cpu_online_mask();
+        for class in steal_classes {
+            for victim in 0..crate::smp::MAX_CPUS {
+                if victim == local_cpu {
+                    continue;
+                }
+                // Unit tests run without a real CPU-online mask contract.
+                if !cfg!(test) && online_mask != 0 && (online_mask & (1usize << victim)) == 0 {
+                    continue;
+                }
+                if let Some(task) = self.selftest_queue_for(victim, *class).pop_front() {
+                    crate::smp::record_work_steal();
+                    return Some(task);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn selftest_reset_cpu(&mut self, cpu: CpuId) {
+        let cpu_idx = cpu.as_index();
+        if cpu_idx >= crate::smp::MAX_CPUS {
+            return;
+        }
+        for queue in &mut self.selftest_cpus[cpu_idx].queues {
+            queue.clear();
+        }
+        self.selftest_cpus[cpu_idx].current = None;
+    }
+
+    pub fn selftest_enqueue_on_cpu(&mut self, cpu: CpuId, id: TaskId, qos: QosClass) -> bool {
+        let cpu_idx = cpu.as_index();
+        if cpu_idx >= crate::smp::MAX_CPUS {
+            return false;
+        }
+        let task = Task { id, qos };
+        self.selftest_queue_for(cpu_idx, qos).push_back(task);
+        true
+    }
+
+    pub fn selftest_schedule_on_cpu(&mut self, cpu: CpuId) -> Option<TaskId> {
+        let cpu_idx = cpu.as_index();
+        if cpu_idx >= crate::smp::MAX_CPUS {
+            return None;
+        }
+
+        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
+        {
+            if let Some(task) = self.selftest_queue_for(cpu_idx, class).pop_front() {
+                self.selftest_cpus[cpu_idx].current = Some(task.clone());
+                return Some(task.id);
+            }
+            for _ in 0..Self::SELFTEST_STEAL_MAX_PER_TICK {
+                if let Some(task) = self.selftest_try_steal(cpu_idx, class) {
+                    self.selftest_cpus[cpu_idx].current = Some(task.clone());
+                    return Some(task.id);
+                }
+            }
+        }
+
+        self.selftest_cpus[cpu_idx].current = None;
+        None
+    }
+
+    pub fn selftest_try_steal_for_class(
+        &mut self,
+        local_cpu: CpuId,
+        max_qos: QosClass,
+    ) -> Option<TaskId> {
+        let cpu_idx = local_cpu.as_index();
+        if cpu_idx >= crate::smp::MAX_CPUS {
+            return None;
+        }
+        self.selftest_try_steal(cpu_idx, max_qos).map(|task| task.id)
+    }
+
+    pub fn selftest_queue_len(&self, cpu: CpuId, qos: QosClass) -> usize {
+        let cpu_idx = cpu.as_index();
+        if cpu_idx >= crate::smp::MAX_CPUS {
+            return 0;
+        }
+        let queue_idx = match qos {
+            QosClass::Idle => 0,
+            QosClass::Normal => 1,
+            QosClass::Interactive => 2,
+            QosClass::PerfBurst => 3,
+        };
+        self.selftest_cpus[cpu_idx].queues[queue_idx].len()
+    }
+
     /// Returns the configured deterministic time slice for each task.
     pub fn timeslice_ns(&self) -> u64 {
         self.timeslice_ns
@@ -250,5 +382,44 @@ mod tests {
         assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
         sched.yield_current();
         assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
+    }
+
+    #[test]
+    fn bounded_single_task_work_steal() {
+        let mut sched = Scheduler::new();
+        let boot = CpuId::from_raw(0);
+        let secondary = CpuId::from_raw(1);
+        sched.selftest_reset_cpu(boot);
+        sched.selftest_reset_cpu(secondary);
+        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(42), QosClass::Normal);
+        assert_eq!(sched.selftest_schedule_on_cpu(boot), Some(Pid::from_raw(42)));
+        assert_eq!(sched.selftest_schedule_on_cpu(boot), None);
+    }
+
+    #[test]
+    fn test_reject_steal_above_bound() {
+        let mut sched = Scheduler::new();
+        let boot = CpuId::from_raw(0);
+        let secondary = CpuId::from_raw(1);
+        sched.selftest_reset_cpu(boot);
+        sched.selftest_reset_cpu(secondary);
+        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(100), QosClass::Normal);
+        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(101), QosClass::Normal);
+
+        assert!(sched.selftest_schedule_on_cpu(boot).is_some());
+        assert_eq!(sched.selftest_cpus[secondary.as_index()].queues[1].len(), 1);
+    }
+
+    #[test]
+    fn test_reject_steal_higher_qos() {
+        let mut sched = Scheduler::new();
+        let boot = CpuId::from_raw(0);
+        let secondary = CpuId::from_raw(1);
+        sched.selftest_reset_cpu(boot);
+        sched.selftest_reset_cpu(secondary);
+        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(200), QosClass::Interactive);
+
+        let rejected = sched.selftest_try_steal(boot.as_index(), QosClass::Normal);
+        assert!(rejected.is_none());
     }
 }

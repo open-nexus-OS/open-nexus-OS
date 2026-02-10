@@ -111,6 +111,7 @@ pub struct CapTable {
     // Pre-SMP contract: capability tables are task-local and never shared directly.
     _not_send_sync: PhantomData<*mut ()>,
 }
+static_assertions::assert_not_impl_any!(CapTable: Send, Sync);
 
 impl CapTable {
     /// Creates an empty table sized for `slots` entries.

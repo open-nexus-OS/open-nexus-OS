@@ -3,7 +3,7 @@
 
 //! CONTEXT: Minimal newtypes for safer syscall decoding (debug-friendly, low overhead)
 //! OWNERS: @kernel-team
-//! PUBLIC API: VirtAddr, PageLen, SlotIndex, Pid, CapSlot, Asid
+//! PUBLIC API: VirtAddr, PageLen, SlotIndex, Pid, CapSlot, Asid, HartId, CpuId
 //! DEPENDS_ON: mm::page_table::is_canonical_sv39, PAGE_SIZE
 //! INVARIANTS: Enforce canonical Sv39 addresses; alignment helpers; prevent type confusion
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
@@ -209,6 +209,80 @@ impl CapSlot {
 }
 
 impl fmt::Display for CapSlot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_raw())
+    }
+}
+
+/// Hardware hart identifier as reported by RISC-V (`mhartid`).
+///
+/// We keep this distinct from scheduler-facing CPU IDs so call-sites cannot
+/// accidentally mix hardware identity with logical scheduler routing.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct HartId(u16);
+
+impl HartId {
+    #[inline]
+    pub const fn from_raw(raw: u16) -> Self {
+        Self(raw)
+    }
+
+    #[inline]
+    pub const fn as_raw(self) -> u16 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn as_index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl fmt::Display for HartId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_raw())
+    }
+}
+
+/// Logical CPU identifier used by scheduler and per-CPU kernel state.
+///
+/// In TASK-0012 v1 this is a 1:1 mapping from `HartId`, but remains a dedicated
+/// type to keep future topology/affinity changes explicit.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct CpuId(u16);
+
+impl CpuId {
+    pub const BOOT: Self = Self(0);
+
+    #[inline]
+    pub const fn from_raw(raw: u16) -> Self {
+        Self(raw)
+    }
+
+    #[inline]
+    pub const fn from_hart(hart: HartId) -> Self {
+        Self(hart.as_raw())
+    }
+
+    #[inline]
+    pub const fn as_raw(self) -> u16 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn as_index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub const fn is_boot(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl fmt::Display for CpuId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_raw())
     }

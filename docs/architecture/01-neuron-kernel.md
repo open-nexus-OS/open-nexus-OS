@@ -57,7 +57,8 @@ implemented by `scripts/qemu-test.sh` (marker strings are a gating surface).
 1. `_start` is provided by `boot.rs`. It clears `.bss`, installs the
    trap vector and jumps into `kmain::kmain`.
 2. `kmain` instantiates the HAL (`VirtMachine`), scheduler, capability
-   table, IPC router, address space and syscall table.
+   table, IPC router, address space and syscall table, then initializes
+   SMP state (`cpu_online_mask`) and attempts secondary hart bring-up via SBI HSM.
 3. The UART banner `NEURON` is emitted via the boot UART, proving that
    early MMIO is working.
 
@@ -228,6 +229,13 @@ queued in four buckets (`Idle`, `Normal`, `Interactive`, `PerfBurst`).
 When `yield` is invoked the current task is placed at the tail of its
 bucket and the highest priority non-empty bucket is dequeued.
 
+SMP v1 status (`TASK-0012`):
+
+- Runtime scheduling remains intentionally single-CPU for deterministic bring-up parity (`SMP=1` unchanged).
+- Per-CPU runqueues and bounded work-steal are implemented behind selftest-only APIs and validated by SMP-gated markers.
+- Secondary harts run a bounded auxiliary loop while S_SOFT trap handling owns IPI acknowledgement/evidence (no polling-based fake-positive ack path).
+- IPI success markers require a strict causal chain (`request accepted -> send_ipi success -> S_SOFT trap observed -> ack`), plus counterfactual reject markers for forced-failure paths.
+
 ### Ownership Model (Rust-Specific, pre-SMP)
 
 This section is the ownership contract for TASK-0011B (docs-first) and the pre-SMP baseline
@@ -239,8 +247,8 @@ used by TASK-0012.
   the full kernel lifetime.
 - `KernelState` owns the major subsystems directly: `hal`, `scheduler`, `tasks`, `ipc`,
   `address_spaces`, `kernel_as`, `syscalls`.
-- Current bring-up runs effectively single-hart, so subsystem mutation is serialized through one
-  trap/syscall execution path.
+- Runtime subsystem mutation remains serialized through one scheduler owner (CPU0), while
+  secondary harts are online and participate in bounded SMP selftest proof paths.
 
 **Subsystem ownership (current, single-hart)**:
 
@@ -262,19 +270,21 @@ used by TASK-0012.
 - Long-lived kernel state is `'static` via `KERNEL_STATE`.
 - Syscall/trap handling takes short-lived mutable borrows into owned subsystems.
 - No shared mutable state without explicit synchronization primitives.
+- Kernel-owned mutable subsystems (`Scheduler`, `TaskTable`, `AddressSpaceManager`, `Router`,
+  `CapTable`, `PageTable`) are intentionally `!Send`/`!Sync` and guarded by compile-time tests
+  plus explicit ownership boundaries.
 
-**Scheduler ownership split for TASK-0012 (explicit pre-SMP boundary)**:
+**Scheduler ownership split for TASK-0012 (explicit SMP v1 boundary)**:
 
-- **Will become per-CPU**:
-  - runqueues,
-  - current-running scheduling state,
-  - local scheduling bookkeeping tied to one CPU execution context.
-- **Will remain globally coordinated**:
+- **Implemented in v1**:
+  - runtime runqueue ownership remains CPU0-local to preserve deterministic `SMP=1` behavior,
+  - per-CPU runqueue + bounded steal logic exists as selftest-only proof surface.
+- **Remains globally coordinated**:
   - PID namespace/allocation and global task metadata (`TaskTable`),
   - address-space registry and ASID allocator (`AddressSpaceManager`),
   - IPC endpoint namespace and queue-budget authority (`Router`).
-- Cross-CPU coordination in TASK-0012 must use explicit synchronization/coordination mechanisms
-  (e.g., lock/atomic/IPI boundaries), not shared mutable runqueue access.
+- Cross-CPU coordination uses explicit atomic/IPI boundaries (`cpu_online_mask`, resched mailbox/ack),
+  never unsynchronized shared mutable runqueue access.
 
 See `docs/architecture/16-rust-concurrency-model.md` for detailed SMP ownership design.
 
@@ -282,13 +292,13 @@ See `docs/architecture/16-rust-concurrency-model.md` for detailed SMP ownership 
 
 This section mixes **current structure** and **planned SMP structure**. To keep the docs honest:
 
-- **Implemented today (single-hart bring-up)**:
-  - single `Scheduler` instance,
-  - trap/syscall path is effectively single-threaded,
-  - invariants are proven via deterministic marker/selftests.
+- **Implemented today (SMP v1 baseline)**:
+  - single runtime `Scheduler` owner (CPU0) to preserve deterministic behavior,
+  - secondary hart bring-up via SBI HSM + per-hart trap stack/`sscratch` handling,
+  - SMP proof path via gated markers (`KINIT: cpu1 online`, `KSELFTEST: smp online ok`, `KSELFTEST: ipi counterfactual ok`, `KSELFTEST: ipi resched ok`, `KSELFTEST: work stealing ok`, and `test_reject_*` negative markers).
 
-- **Planned for SMP v1/v2 (tasks)**:
-  - per-CPU scheduler ownership (TASK-0012),
+- **Planned for SMP v2+ (tasks)**:
+  - full runtime per-CPU scheduler ownership beyond selftest proof surface,
   - explicit locking/atomic boundaries for shared state (TASK-0277 policy),
   - affinity/shares/QoS controls (TASK-0042, TASK-0013) gated by `policyd`.
 
@@ -304,6 +314,7 @@ and when the API makes incorrect construction hard:
 - **`Asid`**: allocated/freed by `AddressSpaceManager` only.
 - **`AsHandle`**: created by the `as_create` syscall path; opaque to callers; never reveals the ASID.
 - **`CapSlot`**: indexes a per-task cap table; validated at syscall boundaries.
+- **`HartId` / `CpuId`**: hardware-vs-logical CPU identity split; SMP paths avoid raw integer IDs in scheduler/boot code.
 
 See `source/kernel/neuron/src/types.rs` for the current newtypes and comments, and keep constructors scoped
 so invariants stay enforceable.

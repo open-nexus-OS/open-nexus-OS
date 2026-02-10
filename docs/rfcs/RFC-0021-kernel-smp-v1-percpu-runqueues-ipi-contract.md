@@ -3,7 +3,7 @@
 
 # RFC-0021: Kernel SMP v1 contract (per-CPU runqueues + IPI resched)
 
-- Status: Draft
+- Status: Complete
 - Owners: @kernel-team
 - Created: 2026-02-10
 - Last Updated: 2026-02-10
@@ -19,9 +19,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (SMP baseline contract + gate shape)**: [ ]
-- **Phase 1 (Secondary boot + trap-stack hardening)**: [ ]
-- **Phase 2 (Per-CPU runqueues + IPI resched + bounded steal proofs)**: [ ]
+- [x] **Phase 0 (SMP baseline contract + gate shape)**
+- [x] **Phase 1 (Secondary boot + trap-stack hardening)**
+- [x] **Phase 2 (Per-CPU runqueues + IPI resched + bounded steal proofs)**
 
 Definition:
 
@@ -163,7 +163,7 @@ cd /home/jenning/open-nexus-OS && just diag-os
 ### Proof (OS/QEMU)
 
 ```bash
-cd /home/jenning/open-nexus-OS && SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
+cd /home/jenning/open-nexus-OS && SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
 cd /home/jenning/open-nexus-OS && SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
 ```
 
@@ -171,8 +171,13 @@ cd /home/jenning/open-nexus-OS && SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scr
 
 - `KINIT: cpu1 online` (and higher as configured)
 - `KSELFTEST: smp online ok`
+- `KSELFTEST: ipi counterfactual ok`
 - `KSELFTEST: ipi resched ok`
+- `KSELFTEST: test_reject_invalid_ipi_target_cpu ok`
+- `KSELFTEST: test_reject_offline_cpu_resched ok`
 - `KSELFTEST: work stealing ok`
+- `KSELFTEST: test_reject_steal_above_bound ok`
+- `KSELFTEST: test_reject_steal_higher_qos ok`
 
 ## Alternatives considered
 
@@ -182,9 +187,7 @@ cd /home/jenning/open-nexus-OS && SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scr
 
 ## Open questions
 
-- Exact SMP marker gate variable/shape in harness (`REQUIRE_SMP` or equivalent) and naming.
-  - Owner: @kernel-team
-  - Decision target: before TASK-0012 Phase 1 merge.
+- None for v1 baseline. Follow-up contract changes must land in new RFC/task slices.
 
 ## RFC Quality Guidelines (for authors)
 
@@ -201,9 +204,9 @@ When updating this RFC, ensure:
 
 This section tracks implementation progress. Update as phases complete.
 
-- [ ] **Phase 0**: TASK-0012 links RFC-0021 and anti-drift boundaries remain aligned — proof: `rg "RFC-0021|TASK-0247" tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
-- [ ] **Phase 1**: Secondary-hart boot + per-hart trap-stack source implemented — proof: `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] **Phase 2**: Per-CPU runqueues + IPI resched + bounded steal proofs green — proof: `SMP=2 ...` and `SMP=1 ...` runs
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`) where applicable.
+- [x] **Phase 0**: TASK-0012 links RFC-0021 and anti-drift boundaries remain aligned — proof: `rg "RFC-0021|TASK-0247" tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
+- [x] **Phase 1**: Secondary-hart boot + per-hart trap-stack source implemented — proof: `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] **Phase 2**: Per-CPU runqueues + IPI resched + bounded steal proofs green — proof: `SMP=2 REQUIRE_SMP=1 ...` and `SMP=1 ...` runs
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`) where applicable.

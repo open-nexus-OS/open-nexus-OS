@@ -33,19 +33,20 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (active)
+- **active_task**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (next)
 - **seed_contract**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (completed seed)
-- **phase_now**: TASK-0012 contract sync complete; implementation Phase 1 ready
+- **phase_now**: TASK-0012 complete with anti-fake SMP proof wiring and deterministic `test_reject_*` markers
 - **baseline_commit**: `978ebeb`
-- **next_task_slice**: TASK-0012 Phase 1 bootstrap (`cpu_current_id`/online mask + typed HartId/CpuId boundary)
+- **next_task_slice**: TASK-0013 QoS ABI/timed coalescing slice on top of TASK-0012 SMP baseline
 - **proof_commands**:
   - `cargo test --workspace`
+  - `just dep-gate`
   - `just diag-os`
-  - `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (with SMP marker gate enabled)
+  - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- **last_completed**: `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md`
-  - Proof gates: `cargo test --workspace`, `just diag-os`, and `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - Outcome: all phases 0→5 complete; logic/ABI/marker contract preserved
+- **last_completed**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
+  - Proof gates: `cargo test --workspace`, `just dep-gate`, `just diag-os`, `SMP=2 REQUIRE_SMP=1 ...`, `SMP=1 ...`
+  - Outcome: strict IPI causal chain (`request -> send -> S_SOFT trap -> ack`), anti-fake counterfactual marker, and deterministic `test_reject_*` SMP negatives
 
 ## Active invariants (must hold)
 - **security**
@@ -78,12 +79,18 @@ Rules:
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
 - **kernel execution order (current)**:
   - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — complete (phases 0→5, proofs green)
-  - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — active now (contract synced, implementation slice 1 pending)
+  - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — complete (SMP baseline + anti-fake markers + negative tests)
+  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — next (consumes TASK-0012 baseline, no parallel scheduler authority)
+- **exported prerequisites**:
+  - `TASK-0013`: consumes stable `QosClass` ordering + deterministic SMP proof ladder/markers
+  - `TASK-0042`: extends affinity/shares without violating TASK-0012 ownership and bounded-steal invariants
+  - `TASK-0247`: may harden SBI/HSM/IPI/per-hart timers but must not introduce a second SMP authority
+  - `TASK-0283`: optional `PerCpu<T>` hardening layer refines existing TASK-0012 contracts only
 
 ## Known risks / hazards
-- **TASK-0012 SMP proof wiring**:
-  - SMP marker checks are now contractually explicit in TASK-0012, but harness-side SMP gate wiring must be implemented without regressing default SMP=1 smoke determinism.
-  - Secondary-hart trap-stack migration (`trap.S` per-hart stack source) is still open implementation work and remains the key carry-over hardening risk from TASK-0011B.
+- **Post-TASK-0012 carry-over**:
+  - Keep SMP proof ladder sequential; parallel QEMU runs can still produce lock/contention artifacts.
+  - TASK-0013/TASK-0042 must preserve `test_reject_*` determinism and the strict IPI evidence chain.
 - **QEMU smoke gating**:
   - Default `just test-os` now reaches `SELFTEST: end` deterministically and early-exits within the 90s harness timeout (no missing-marker deadlocks).
   - `REQUIRE_QEMU_DHCP=1` is green because we accept the honest static fallback marker when DHCP does not bind.

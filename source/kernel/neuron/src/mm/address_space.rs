@@ -84,6 +84,7 @@ pub struct AddressSpace {
     // Pre-SMP contract: address-space objects are mutated from one kernel context only.
     _not_send_sync: PhantomData<*mut ()>,
 }
+static_assertions::assert_not_impl_any!(AddressSpace: Send, Sync);
 
 impl AddressSpace {
     fn new(asid: Asid) -> Result<Self, MapError> {
@@ -135,6 +136,7 @@ pub struct AddressSpaceManager {
     // Pre-SMP contract: AS manager is owned by single kernel execution context.
     _not_send_sync: PhantomData<*mut ()>,
 }
+static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 
 impl AddressSpaceManager {
     /// Creates an empty manager.

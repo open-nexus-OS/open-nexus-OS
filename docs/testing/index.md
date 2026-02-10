@@ -4,7 +4,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 **Related RFCs:**
 - **RFC-0013**: Boot gates v1 — readiness contract + spawn failure reasons (Complete)
-- **RFC-0014**: Testing contracts v1 — host-first service contract tests + phased QEMU smoke (Phase 0 complete)
+- **RFC-0014**: Testing contracts v1 — host-first service contract tests + phased QEMU smoke (Complete)
 - **RFC-0015**: Policy Authority & Audit Baseline v1 — policy engine + audit trail (Complete)
 - **RFC-0017**: Device MMIO access model v1 — capability-gated MMIO mapping + init/policy distribution (Done)
 - **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
@@ -66,6 +66,9 @@ For a detailed feature-by-feature breakdown, see: **[E2E Coverage Matrix](e2e-co
 4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
 5. **Run OS build hygiene checks**: `just diag-os` and `just dep-gate` (catches forbidden dependencies).
 6. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
+7. For SMP changes, run dual-mode proof commands sequentially:
+   - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 
 ## Topic guides
 
@@ -160,6 +163,18 @@ Additional kernel selftest markers may appear before `init: start`:
 
 - `KSELFTEST: spawn reasons ok`
 - `KSELFTEST: resource sentinel ok`
+
+SMP-gated markers (enabled only with `REQUIRE_SMP=1` and `SMP>=2`):
+
+- `KINIT: cpu1 online`
+- `KSELFTEST: smp online ok`
+- `KSELFTEST: ipi counterfactual ok`
+- `KSELFTEST: ipi resched ok`
+- `KSELFTEST: test_reject_invalid_ipi_target_cpu ok`
+- `KSELFTEST: test_reject_offline_cpu_resched ok`
+- `KSELFTEST: work stealing ok`
+- `KSELFTEST: test_reject_steal_above_bound ok`
+- `KSELFTEST: test_reject_steal_higher_qos ok`
 
 Memory pressure note (until TASK-0228):
 

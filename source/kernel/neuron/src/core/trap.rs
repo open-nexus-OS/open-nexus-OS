@@ -210,6 +210,7 @@ struct KernelHandles {
 }
 unsafe impl Send for KernelHandles {}
 unsafe impl Sync for KernelHandles {}
+static_assertions::assert_impl_all!(KernelHandles: Send, Sync);
 
 struct TrapRuntime {
     kernel: KernelHandles,
@@ -217,6 +218,7 @@ struct TrapRuntime {
 }
 unsafe impl Send for TrapRuntime {}
 unsafe impl Sync for TrapRuntime {}
+static_assertions::assert_impl_all!(TrapRuntime: Send, Sync);
 
 // RFC-0003 (Phase 0): trap/syscall runtime must be deterministic and must not allocate.
 // Keep runtime state in a single global slot.
@@ -533,8 +535,6 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
                     return;
                 }
             }
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            riscv::register::sscratch::write(frame.x[2]);
         }
         uart_dbg_block!({
             let mut u = crate::uart::raw_writer();
@@ -755,9 +755,15 @@ pub fn timer_arm(_delta_cycles: u64) {}
 /// Install trap vector; call once during early boot (before enabling SIE).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub unsafe fn install_trap_vector() {
+    unsafe { install_trap_vector_with_stack(crate::smp::trap_stack_top_for_current()) };
+}
+
+/// Install trap vector with an explicit per-hart trap stack top.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub unsafe fn install_trap_vector_with_stack(stack_top: usize) {
     // SAFETY: must be called early and exactly once per hart; SSCRATCH becomes well-defined.
     unsafe {
-        riscv::register::sscratch::write(0);
+        riscv::register::sscratch::write(stack_top);
         riscv::register::stvec::write(
             __trap_vector as usize,
             riscv::register::mtvec::TrapMode::Direct,
@@ -767,6 +773,9 @@ pub unsafe fn install_trap_vector() {
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub unsafe fn install_trap_vector() {}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+pub unsafe fn install_trap_vector_with_stack(_stack_top: usize) {}
 
 /// Enable supervisor timer interrupts after arming the first timer.
 /// Gated behind `timer_irq` feature to avoid dead_code in default builds.
@@ -817,9 +826,22 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
     // Liveness heartbeat on every trap entry
     crate::liveness::bump();
     if is_interrupt(frame.scause) {
+        const S_SOFT_INT: usize = 1;
         // Supervisor timer: rearm via SBI and return.
         const S_TIMER_INT: usize = 5;
         let code = frame.scause & (usize::MAX >> 1);
+        if code == S_SOFT_INT {
+            let cpu = crate::smp::cpu_current_id();
+            crate::smp::record_ssoft_trap(cpu);
+            if crate::smp::take_resched(cpu) {
+                crate::smp::acknowledge_resched(cpu);
+            }
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            unsafe {
+                riscv::register::sip::clear_ssoft();
+            }
+            return;
+        }
         if code == S_TIMER_INT {
             #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
             {
@@ -1423,8 +1445,6 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
                             if let Some(task) = tasks.task(next_pid) {
                                 *frame = *task.frame();
-                                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                                riscv::register::sscratch::write(frame.x[2]);
                                 return;
                             }
                         }
@@ -1433,8 +1453,6 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         tasks.set_current(crate::types::Pid::KERNEL);
                         if let Some(task) = tasks.task(crate::types::Pid::KERNEL) {
                             *frame = *task.frame();
-                            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                            riscv::register::sscratch::write(frame.x[2]);
                             return;
                         }
                     }

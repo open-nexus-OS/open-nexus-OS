@@ -10,6 +10,7 @@ QEMU_LOG=${QEMU_LOG:-"$ROOT/qemu.log"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
+REQUIRE_SMP=${REQUIRE_SMP:-0}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 DEBUG_LOG=${DEBUG_LOG:-"$ROOT/.cursor/debug.log"}
@@ -273,6 +274,30 @@ expected_sequence=(
   "SELFTEST: end"
 )
 
+if [[ "$REQUIRE_SMP" == "1" ]]; then
+  if [[ "${SMP:-1}" -lt 2 ]]; then
+    echo "[error] REQUIRE_SMP=1 requires SMP>=2 (current SMP=${SMP:-1})" >&2
+    exit 2
+  fi
+  smp_markers=(
+    "KINIT: cpu1 online"
+    "KSELFTEST: smp online ok"
+    "KSELFTEST: ipi counterfactual ok"
+    "KSELFTEST: ipi resched ok"
+    "KSELFTEST: test_reject_invalid_ipi_target_cpu ok"
+    "KSELFTEST: test_reject_offline_cpu_resched ok"
+    "KSELFTEST: work stealing ok"
+    "KSELFTEST: test_reject_steal_above_bound ok"
+    "KSELFTEST: test_reject_steal_higher_qos ok"
+  )
+  # Kernel SMP selftests run before userspace init markers.
+  expected_sequence=(
+    "${expected_sequence[@]:0:3}"
+    "${smp_markers[@]}"
+    "${expected_sequence[@]:3}"
+  )
+fi
+
 # Optional: stop and validate only up to a given phase.
 if [[ -n "$RUN_PHASE" ]]; then
   if [[ -z "${PHASE_END_MARKER[$RUN_PHASE]:-}" ]]; then
@@ -300,7 +325,7 @@ fi
 # Execute QEMU (optionally stopping early at RUN_UNTIL_MARKER).
 set +e
 agent_debug_log "$AGENT_RUN_ID" "A" "scripts/qemu-test.sh:pre-run" "qemu smoke start" \
-  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_phase\":\"${RUN_PHASE:-}\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"require_dhcp\":\"${REQUIRE_QEMU_DHCP:-0}\",\"require_dhcp_strict\":\"${REQUIRE_QEMU_DHCP_STRICT:-0}\",\"require_dsoftbus\":\"${REQUIRE_DSOFTBUS:-0}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\"}"
+  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_phase\":\"${RUN_PHASE:-}\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"require_dhcp\":\"${REQUIRE_QEMU_DHCP:-0}\",\"require_dhcp_strict\":\"${REQUIRE_QEMU_DHCP_STRICT:-0}\",\"require_dsoftbus\":\"${REQUIRE_DSOFTBUS:-0}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\"}"
 RUN_TIMEOUT="$RUN_TIMEOUT" \
 RUN_UNTIL_MARKER="$RUN_UNTIL_MARKER" \
 QEMU_LOG="$QEMU_LOG" \

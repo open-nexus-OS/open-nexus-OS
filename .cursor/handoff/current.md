@@ -1,45 +1,44 @@
-# Current Handoff: TASK-0012 Kernel SMP v1 (per-CPU runqueues + IPIs) — ACTIVE
+# Current Handoff: TASK-0012 Kernel SMP v1 (per-CPU runqueues + IPIs) — COMPLETE
 
 **Date**: 2026-02-10  
-**Status**: Ready for implementation (contract sync completed)
+**Status**: Completed with deterministic anti-fake evidence and negative SMP tests
 
 ---
 
-## Session log
+## Completed in this slice
 
-### 01 — Archive and transition from TASK-0011B
+- **Execution SSOT**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` moved to `status: Complete`
+- **Contract sync**: `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` moved to `Status: Complete`
+- **Harness gate**: SMP proof path now explicitly requires `REQUIRE_SMP=1` for SMP marker ladder
+- **Anti-fake IPI chain**:
+  - strict success chain required: `request accepted -> send_ipi ok -> S_SOFT trap observed -> ack`
+  - deterministic counterfactual marker added: `KSELFTEST: ipi counterfactual ok`
+- **Required negative tests (`test_reject_*`) added and marker-gated**:
+  - `test_reject_invalid_ipi_target_cpu`
+  - `test_reject_offline_cpu_resched`
+  - `test_reject_steal_above_bound`
+  - `test_reject_steal_higher_qos`
 
-- Previous handoff moved to archive:
-  - `.cursor/handoff/archive/TASK-0011B-kernel-rust-idioms-pre-smp.md`
-- Completed baseline remains authoritative:
-  - Task: `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md`
-  - RFC seed: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`
-  - Key completion commit: `2109b14`
-
-### 02 — TASK-0012 contract sync (anti-drift)
-
-- **Execution SSOT (task)**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
-- **Normative policy**: `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`
-- **Updated in TASK-0012**:
-  - Added `enables` + `follow-up-tasks` to keep extension boundaries explicit (`TASK-0013`, `TASK-0042`, `TASK-0247`, `TASK-0283`, both driver/network tracks)
-  - Resolved RED decision: baseline secondary-hart boot on QEMU `virt` uses SBI HSM `hart_start`
-  - Clarified that `TASK-0247` extends this baseline and must not create parallel SMP authority
-  - Added modern-MMIO determinism requirement and explicit SMP marker-gating requirement in harness semantics
-  - Aligned stop conditions with allowlist and expanded acceptance criteria to match real proof expectations
-
----
-
-## Next implementation slice
-
-1. Start `TASK-0012` Phase 1:
-   - CPU discovery + online mask
-   - typed CPU/Hart ID usage (no raw integer plumbing)
-2. Keep single-hart behavior unchanged (`SMP=1` stays green)
-3. Preserve TASK-0011B ownership/Send-Sync contracts while introducing per-CPU scheduling boundaries
-
-## Proof commands for active slice
+## Proofs run (sequential, green)
 
 - `cargo test --workspace`
+- `just dep-gate`
 - `just diag-os`
-- `SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (SMP marker gate enabled)
+- `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+
+## Exported guarantees to follow-ups
+
+- **`TASK-0013`** (`tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`):
+  - may consume stable `QosClass` baseline and SMP marker ladder; must not bypass SMP ownership rules.
+- **`TASK-0042`**:
+  - may extend affinity/shares only on top of TASK-0012 bounded-steal and anti-fake IPI invariants.
+- **`TASK-0247`**:
+  - may harden RISC-V HSM/IPI/timer specifics; must not introduce a parallel SMP authority.
+- **`TASK-0283`**:
+  - `PerCpu<T>` adoption is a hardening refinement, not a semantic replacement of TASK-0012 behavior proofs.
+
+## Next task entry-point
+
+- Start `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
+- Keep `scripts/qemu-test.sh` SMP marker contract unchanged unless task explicitly updates docs/testing + task stop conditions in same slice.

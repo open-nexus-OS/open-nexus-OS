@@ -19,17 +19,12 @@
     .align 4
 
 __trap_vector:
-    /* TASK-0012 note: using global __stack_top is a single-hart assumption.
-     * SMP must switch to a per-hart kernel stack source before enabling multi-hart traps.
-     */
-    /* If trap came from U-mode (SPP=0), swap to kernel stack via sscratch */
+    /* If trap came from U-mode (SPP=0), swap user<->kernel stack via sscratch. */
     csrr  t0, sstatus
     /* Test SSTATUS_SPP (bit 8) */
     andi  t1, t0, 256
     bnez  t1, 1f
-    /* from U-mode: save user sp into sscratch and switch to fixed kernel stack */
-    csrw  sscratch, sp
-    la    sp, __stack_top
+    csrrw sp, sscratch, sp
 1:
     /* allocate TrapFrame */
     addi  sp, sp, -{TF_SIZE}
@@ -96,35 +91,42 @@ __trap_vector:
     ld    t3,  28*8(sp);  ld  t4,  29*8(sp);  ld  t5,  30*8(sp);  ld  t6,  31*8(sp)
 
     /* deallocate frame and return */
-    addi  sp, sp, {TF_SIZE}
-    /* If returning to U-mode (SPP=0), restore user sp from sscratch */
+    /* If returning to U-mode (SPP=0), restore user sp from TrapFrame.x2. */
     csrr  t0, sstatus
     andi  t0, t0, 256
-    bnez  t0, 2f
-    csrr  sp, sscratch
+    bnez  t0, 1f
+    ld    t2, 2*8(sp)
+    addi  sp, sp, {TF_SIZE}
+    csrw  sscratch, t2
+    csrrw sp, sscratch, sp
+    j     2f
+1:
+    addi  sp, sp, {TF_SIZE}
 2:  sret
 
     .size __trap_vector, .-__trap_vector
 
     /*
      * __satp_trampoline(satp_val: usize)
-     * Switches SATP to the provided value, flushes TLB, sets SP to a known-good
-     * kernel stack top, emits a few UART bytes to signal liveness, then returns.
+     * Switches SATP to the provided value, flushes TLB, briefly pivots SP to a
+     * known-good kernel stack top, then returns.
+     *
+     * SMP contract note (TASK-0012/RFC-0021):
+     * - This trampoline is a boot-hart address-space switch helper.
+     * - Multi-hart trap correctness does NOT rely on this path; trap entry uses
+     *   per-hart stack tops via sscratch + __hart_trap_stack_tops.
      */
     .section .text.__satp_trampoline, "ax", @progbits
     .globl __satp_trampoline
     .type  __satp_trampoline, @function
     .align 2
-/* CONTEXT: SATP trampoline; CRITICAL: do not add stack-using code before SP switch */
+/* CONTEXT: boot-hart SATP trampoline; CRITICAL: do not add stack-using code before SP switch */
 __satp_trampoline:
     mv    t1, sp
     csrw  satp, a0
     sfence.vma x0, x0
     .option push
     .option norelax
-    /* TASK-0012: if/when per-hart kernel stacks are introduced, drop the restore-below path
-     * and keep the selected per-hart stack active across the trampoline return.
-     */
     la    t0, __stack_top
     .option pop
     addi  t0, t0, -64
