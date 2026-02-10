@@ -139,11 +139,8 @@ pub struct AddressSpaceManager {
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let mgr = Self {
-            spaces: Vec::new(),
-            asids: AsidAllocator::new(),
-            _not_send_sync: PhantomData,
-        };
+        let mgr =
+            Self { spaces: Vec::new(), asids: AsidAllocator::new(), _not_send_sync: PhantomData };
         mgr
     }
 

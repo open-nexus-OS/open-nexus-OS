@@ -99,3 +99,12 @@ Prove in QEMU:
    - emit audit record for PUT/DEL.
 3. Implement client lib + host tests.
 4. Add OS selftest: `SELFTEST: remote statefs rw ok`.
+
+## Alignment note (2026-02, low-drift)
+
+- Remote StateFS should build on the current FSM/epoch-managed session lifecycle in `dsoftbusd` and keep reconnect
+  behavior idempotent at the RPC layer.
+- Keep ACL/audit enforcement independent from transport retries; transport may return bounded `WouldBlock`, but
+  authorization decisions must remain deterministic and side-effect-safe.
+- Avoid coupling remote-statefs progress to discovery polling frequency; session-facing loops should remain bounded
+  and transport-driven.

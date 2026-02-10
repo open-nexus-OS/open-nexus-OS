@@ -164,6 +164,36 @@ struct Inner {
     now: NetInstant,
 }
 
+fn poll_inner_once(inner: &mut Inner, now: NetInstant) {
+    inner.now = now;
+
+    // Keep polling on the negotiated modern virtio-mmio datapath.
+    let mut devwrap = SmolDevice::<ACTIVE_BUFS> {
+        dev: &inner.dev as *const _,
+        mmio_va: 0x2000_e000,
+        vnet_hdr_len: inner.vnet_hdr_len,
+        rx_desc: inner.rx_desc,
+        rx_avail: inner.rx_avail,
+        rx_used: inner.rx_used,
+        rx_last_used: inner.rx_last_used,
+        tx_desc: inner.tx_desc,
+        tx_avail: inner.tx_avail,
+        tx_used: inner.tx_used,
+        tx_last_used: inner.tx_last_used,
+        rx_buf_va: inner.rx_buf_va,
+        rx_buf_pa: inner.rx_buf_pa,
+        tx_buf_va: inner.tx_buf_va,
+        tx_buf_pa: inner.tx_buf_pa,
+        tx_free: inner.tx_free,
+    };
+    let Inner { iface, sockets, .. } = &mut *inner;
+    let _ = iface.poll(Instant::from_millis(now as i64), &mut devwrap, sockets);
+
+    inner.rx_last_used = devwrap.rx_last_used;
+    inner.tx_last_used = devwrap.tx_last_used;
+    inner.tx_free = devwrap.tx_free;
+}
+
 impl SmoltcpVirtioNetStack {
     /// Bring up virtio-net + smoltcp using the per-device MMIO window.
     pub fn new_default() -> Result<Self, NetError> {
@@ -954,11 +984,22 @@ impl TcpListener for OsTcpListener {
         let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
         // smoltcp has a single-socket listen+accept model: a socket in LISTEN becomes
         // SYN-RECEIVED/ESTABLISHED when a peer connects. Treat LISTEN/CLOSED as "no connection yet".
+        let mut would_block = false;
         match sock.state() {
             smoltcp::socket::tcp::State::Listen | smoltcp::socket::tcp::State::Closed => {
-                return Err(NetError::WouldBlock);
+                would_block = true;
             }
             _ => {}
+        }
+        if would_block {
+            poll_inner_once(&mut inner, now.saturating_add(1));
+            let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+            match sock.state() {
+                smoltcp::socket::tcp::State::Listen | smoltcp::socket::tcp::State::Closed => {
+                    return Err(NetError::WouldBlock);
+                }
+                _ => {}
+            }
         }
         Ok(OsTcpStream { inner: Rc::clone(&self.inner), handle: self.handle })
     }
@@ -967,6 +1008,28 @@ impl TcpListener for OsTcpListener {
 pub struct OsTcpStream {
     inner: Rc<RefCell<Inner>>,
     handle: SocketHandle,
+}
+
+impl OsTcpStream {
+    pub fn wait_writable_bounded(&mut self, max_polls: u32) -> bool {
+        for _ in 0..=max_polls {
+            let mut inner = self.inner.borrow_mut();
+            let now = inner.now;
+            {
+                let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+                match sock.state() {
+                    smoltcp::socket::tcp::State::Closed
+                    | smoltcp::socket::tcp::State::Listen => return false,
+                    _ => {}
+                }
+                if sock.may_send() {
+                    return true;
+                }
+            }
+            poll_inner_once(&mut inner, now.saturating_add(1));
+        }
+        false
+    }
 }
 
 impl TcpStream for OsTcpStream {
@@ -978,6 +1041,16 @@ impl TcpStream for OsTcpStream {
                 return Err(NetError::TimedOut);
             }
         }
+        let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+        match sock.state() {
+            smoltcp::socket::tcp::State::Closed => return Err(NetError::Disconnected),
+            smoltcp::socket::tcp::State::Listen => return Err(NetError::NotConnected),
+            _ => {}
+        }
+        if sock.can_recv() {
+            return sock.recv_slice(buf).map_err(|_| NetError::Internal("tcp recv"));
+        }
+        poll_inner_once(&mut inner, now.saturating_add(1));
         let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
         match sock.state() {
             smoltcp::socket::tcp::State::Closed => return Err(NetError::Disconnected),
@@ -1009,7 +1082,16 @@ impl TcpStream for OsTcpStream {
         // is what drives SYN emission. Treat "cannot send yet" as WouldBlock.
         match sock.send_slice(buf) {
             Ok(n) => Ok(n),
-            Err(_) => Err(NetError::WouldBlock),
+            Err(_) => {
+                poll_inner_once(&mut inner, now.saturating_add(1));
+                let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+                match sock.state() {
+                    smoltcp::socket::tcp::State::Closed => return Err(NetError::NotConnected),
+                    smoltcp::socket::tcp::State::Listen => return Err(NetError::NotConnected),
+                    _ => {}
+                }
+                sock.send_slice(buf).map_err(|_| NetError::WouldBlock)
+            }
         }
     }
 
@@ -1027,39 +1109,23 @@ impl NetStack for SmoltcpVirtioNetStack {
 
     fn poll(&mut self, now: NetInstant) {
         let mut inner = self.inner.borrow_mut();
-        inner.now = now;
-
-        // Rebuild device wrapper for this poll step.
-        let mut devwrap = SmolDevice::<ACTIVE_BUFS> {
-            dev: &inner.dev as *const _,
-            mmio_va: 0x2000_e000,
-            vnet_hdr_len: inner.vnet_hdr_len,
-            rx_desc: inner.rx_desc,
-            rx_avail: inner.rx_avail,
-            rx_used: inner.rx_used,
-            rx_last_used: inner.rx_last_used,
-            tx_desc: inner.tx_desc,
-            tx_avail: inner.tx_avail,
-            tx_used: inner.tx_used,
-            tx_last_used: inner.tx_last_used,
-            rx_buf_va: inner.rx_buf_va,
-            rx_buf_pa: inner.rx_buf_pa,
-            tx_buf_va: inner.tx_buf_va,
-            tx_buf_pa: inner.tx_buf_pa,
-            tx_free: inner.tx_free,
-        };
-        // Split borrows so we can pass iface + sockets mutably in one call.
-        let Inner { iface, sockets, .. } = &mut *inner;
-        let _ = iface.poll(Instant::from_millis(now as i64), &mut devwrap, sockets);
-
-        // Persist queue state mutated by tokens.
-        inner.rx_last_used = devwrap.rx_last_used;
-        inner.tx_last_used = devwrap.tx_last_used;
-        inner.tx_free = devwrap.tx_free;
+        poll_inner_once(&mut inner, now);
     }
 
     fn next_wake(&self) -> Option<NetInstant> {
-        None
+        let mut inner = self.inner.borrow_mut();
+        let now = inner.now;
+        let Inner { iface, sockets, .. } = &mut *inner;
+        iface
+            .poll_at(Instant::from_millis(now as i64), sockets)
+            .map(|inst| {
+                let ms = inst.total_millis();
+                if ms <= 0 {
+                    0
+                } else {
+                    ms as u64
+                }
+            })
     }
 
     fn udp_bind(&mut self, local: NetSocketAddrV4) -> Result<Self::Udp, NetError> {

@@ -142,3 +142,14 @@ Notes:
   - priority policy and starvation bound
   - keepalive behavior
   - limits (max streams, max frame size)
+
+## Alignment note (2026-02, low-drift)
+
+- Current OS-lite cross-VM path stabilizes connection lifecycle with an explicit session FSM + epoch ownership
+  in `dsoftbusd` (no kernel/protocol contract change).
+- Session setup now uses bounded, transport-level readiness checks before stream writes (`WouldBlock` remains the
+  backpressure signal).
+- Discovery receive polling in setup is rate-limited and non-fatal once peer mapping is known, so session progress
+  is not starved by discovery RPC timing.
+- Mux v2 should treat these as transport invariants and keep stream-level scheduling/credits orthogonal (no
+  incompatible buffering semantics).

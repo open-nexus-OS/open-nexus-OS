@@ -23,9 +23,10 @@ fi
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-180s}
-MARKER_TIMEOUT=${MARKER_TIMEOUT:-300}
 LOG_DIR=${LOG_DIR:-.}
 OS2VM_PCAP=${OS2VM_PCAP:-0}
+AGENT_DEBUG_LOG=${AGENT_DEBUG_LOG:-/home/jenning/open-nexus-OS/.cursor/debug.log}
+AGENT_RUN_ID=${AGENT_RUN_ID:-os2vm_$(date +%s)}
 
 A_MAC=${A_MAC:-52:54:00:12:34:0a}
 B_MAC=${B_MAC:-52:54:00:12:34:0b}
@@ -53,16 +54,95 @@ if [[ "$OS2VM_PCAP" == "1" ]]; then
   : >"$PCAP_B"
 fi
 
+#region agent log
+agent_debug_log() {
+  local hypothesis_id=$1
+  local location=$2
+  local message=$3
+  local data=$4
+  printf '{"id":"log_%s_%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+    "$(date +%s%N)" "$hypothesis_id" "$AGENT_RUN_ID" "$hypothesis_id" "$location" "$message" "$data" "$(date +%s%3N)" >>"$AGENT_DEBUG_LOG"
+}
+#endregion
+
+parse_timeout_seconds() {
+  local raw=$1
+  local value
+  local unit
+  if [[ "$raw" =~ ^([0-9]+)([smh]?)$ ]]; then
+    value=${BASH_REMATCH[1]}
+    unit=${BASH_REMATCH[2]}
+    case "$unit" in
+      m) echo $(( value * 60 )) ;;
+      h) echo $(( value * 3600 )) ;;
+      *) echo "$value" ;;
+    esac
+    return 0
+  fi
+  echo 180
+}
+
+RUN_TIMEOUT_SECS=$(parse_timeout_seconds "$RUN_TIMEOUT")
+MARKER_TIMEOUT=${MARKER_TIMEOUT:-$RUN_TIMEOUT_SECS}
+if ! [[ "$MARKER_TIMEOUT" =~ ^[0-9]+$ ]]; then
+  MARKER_TIMEOUT=$RUN_TIMEOUT_SECS
+fi
+if (( MARKER_TIMEOUT > RUN_TIMEOUT_SECS )); then
+  MARKER_TIMEOUT=$RUN_TIMEOUT_SECS
+fi
+
 wait_marker() {
   local file=$1
   local pattern=$2
+  local terminal_pattern=${3:-}
   local deadline=$(( $(date +%s) + MARKER_TIMEOUT ))
   while (( $(date +%s) < deadline )); do
     if [[ -s "$file" ]] && grep -q "$pattern" "$file" 2>/dev/null; then
       return 0
     fi
+    if [[ -n "$terminal_pattern" ]] && [[ -s "$file" ]] && grep -q "$terminal_pattern" "$file" 2>/dev/null; then
+      return 2
+    fi
     sleep 1
   done
+  return 1
+}
+
+wait_dual_markers() {
+  local file_a=$1
+  local pattern_a=$2
+  local file_b=$3
+  local pattern_b=$4
+  local terminal_pattern=${5:-}
+  local deadline=$(( $(date +%s) + MARKER_TIMEOUT ))
+
+  while (( $(date +%s) < deadline )); do
+    local a_ok=0
+    local b_ok=0
+
+    if [[ -s "$file_a" ]] && grep -q "$pattern_a" "$file_a" 2>/dev/null; then
+      a_ok=1
+    fi
+    if [[ -s "$file_b" ]] && grep -q "$pattern_b" "$file_b" 2>/dev/null; then
+      b_ok=1
+    fi
+
+    if (( a_ok == 1 && b_ok == 1 )); then
+      return 0
+    fi
+
+    if [[ -n "$terminal_pattern" ]]; then
+      if (( a_ok == 0 )) && [[ -s "$file_a" ]] && grep -q "$terminal_pattern" "$file_a" 2>/dev/null; then
+        return 2
+      fi
+      if (( b_ok == 0 )) && [[ -s "$file_b" ]] && grep -q "$terminal_pattern" "$file_b" 2>/dev/null; then
+        return 3
+      fi
+    fi
+
+    sleep 1
+  done
+
   return 1
 }
 
@@ -186,6 +266,9 @@ echo "[info] Launching Node A..."
 PID_A=$(launch_qemu A "$A_MAC" "$UART_A" "$HOST_A")
 echo "[info] Launching Node B..."
 PID_B=$(launch_qemu B "$B_MAC" "$UART_B" "$HOST_B")
+#region agent log
+agent_debug_log "H2" "tools/os2vm.sh:launch" "qemu nodes launched" "{\"runTimeout\":\"$RUN_TIMEOUT\",\"markerTimeout\":$MARKER_TIMEOUT,\"pidA\":$PID_A,\"pidB\":$PID_B}"
+#endregion
 
 cleanup() {
   kill "$PID_A" "$PID_B" 2>/dev/null || true
@@ -193,16 +276,121 @@ cleanup() {
 trap cleanup EXIT
 
 echo "[info] Waiting for cross-VM discovery markers..."
-wait_marker "$UART_A" "dsoftbusd: discovery cross-vm up" || { echo "[error] Node A missing discovery marker"; exit 1; }
-wait_marker "$UART_B" "dsoftbusd: discovery cross-vm up" || { echo "[error] Node B missing discovery marker"; exit 1; }
+rc=0
+wait_dual_markers "$UART_A" "dsoftbusd: discovery cross-vm up" "$UART_B" "dsoftbusd: discovery cross-vm up" "SELFTEST: end" || rc=$?
+if [[ $rc -ne 0 ]]; then
+  if [[ $rc -eq 2 ]]; then
+    #region agent log
+    agent_debug_log "H3" "tools/os2vm.sh:discovery_wait_A" "node A reached SELFTEST end before discovery marker" "{\"reason\":\"selftest_end_before_discovery\"}"
+    #endregion
+    echo "[error] Node A ended before discovery marker"
+  elif [[ $rc -eq 3 ]]; then
+    #region agent log
+    agent_debug_log "H3" "tools/os2vm.sh:discovery_wait_B" "node B reached SELFTEST end before discovery marker" "{\"reason\":\"selftest_end_before_discovery\"}"
+    #endregion
+    echo "[error] Node B ended before discovery marker"
+  else
+    echo "[error] Missing discovery marker (timeout)"
+  fi
+  exit 1
+fi
 
 echo "[info] Waiting for cross-VM session markers..."
-wait_marker "$UART_A" "dsoftbusd: cross-vm session ok" || { echo "[error] Node A missing session marker"; exit 1; }
-wait_marker "$UART_B" "dsoftbusd: cross-vm session ok" || { echo "[error] Node B missing session marker"; exit 1; }
+rc=0
+wait_dual_markers "$UART_A" "dsoftbusd: cross-vm session ok" "$UART_B" "dsoftbusd: cross-vm session ok" "SELFTEST: end" || rc=$?
+if [[ $rc -ne 0 ]]; then
+  a_cross=$(grep -c "cross-vm" "$UART_A" || true)
+  a_discovery=$(grep -c "discovery cross-vm up" "$UART_A" || true)
+  a_accept=$(grep -c "cross-vm accept wait" "$UART_A" || true)
+  a_session=$(grep -c "cross-vm session ok" "$UART_A" || true)
+  a_dbg_ip_mismatch=$(grep -c "dbg:dsoftbusd: dial peer ip mismatch" "$UART_A" || true)
+  a_dbg_ip_expected=$(grep -c "dbg:dsoftbusd: dial peer ip expected" "$UART_A" || true)
+  a_dbg_would_block=$(grep -c "dbg:dsoftbusd: dial status would-block" "$UART_A" || true)
+  a_dbg_io=$(grep -c "dbg:dsoftbusd: dial status io" "$UART_A" || true)
+  a_dbg_other=$(grep -c "dbg:dsoftbusd: dial status other" "$UART_A" || true)
+  a_dbg_dial_rpc_timeout=$(grep -c "dbg:dsoftbusd: dial rpc timeout" "$UART_A" || true)
+  a_dbg_connect_slow=$(grep -c "dbg:dsoftbusd: connect rpc slow" "$UART_A" || true)
+  a_dbg_connect_timeout=$(grep -c "dbg:dsoftbusd: connect rpc timeout" "$UART_A" || true)
+  a_dbg_write_rpc_slow=$(grep -c "dbg:dsoftbusd: write rpc slow" "$UART_A" || true)
+  a_dbg_write_rpc_timeout=$(grep -c "dbg:dsoftbusd: write rpc timeout" "$UART_A" || true)
+  a_dbg_read_rpc_slow=$(grep -c "dbg:dsoftbusd: read rpc slow" "$UART_A" || true)
+  a_dbg_read_rpc_timeout=$(grep -c "dbg:dsoftbusd: read rpc timeout" "$UART_A" || true)
+  a_dbg_dial_attempt1_call=$(grep -c "dbg:dsoftbusd: dial attempt1 call" "$UART_A" || true)
+  a_dbg_dial_attempt1_ret_ok=$(grep -c "dbg:dsoftbusd: dial attempt1 ret ok" "$UART_A" || true)
+  a_dbg_dial_attempt1_ret_err=$(grep -c "dbg:dsoftbusd: dial attempt1 ret err" "$UART_A" || true)
+  a_dbg_accept_attempt1_call=$(grep -c "dbg:dsoftbusd: accept attempt1 call" "$UART_A" || true)
+  a_dbg_accept_attempt1_ret_ok=$(grep -c "dbg:dsoftbusd: accept attempt1 ret ok" "$UART_A" || true)
+  a_dbg_accept_attempt1_ret_err=$(grep -c "dbg:dsoftbusd: accept attempt1 ret err" "$UART_A" || true)
+  a_dbg_dial_fallback=$(grep -c "dbg:dsoftbusd: dial fallback no-discovery" "$UART_A" || true)
+  a_dbg_identity_fallback=$(grep -c "dbg:dsoftbusd: identity fallback deterministic" "$UART_A" || true)
+  a_dbg_dial_pending=$(grep -c "dbg:dsoftbusd: dial still pending" "$UART_A" || true)
+  a_dbg_accept_pending=$(grep -c "dbg:dsoftbusd: accept still waiting" "$UART_A" || true)
+  a_dbg_hs_sid_close=$(grep -c "dbg:dsoftbusd: hs sid close" "$UART_A" || true)
+  a_dbg_local_ip_10=$(grep -c "dbg:dsoftbusd: local ip .10" "$UART_A" || true)
+  a_dbg_local_ip_11=$(grep -c "dbg:dsoftbusd: local ip .11" "$UART_A" || true)
+  a_dbg_local_ip_other=$(grep -c "dbg:dsoftbusd: local ip other" "$UART_A" || true)
+  a_dbg_listen_mode_loopback=$(grep -c "dbg:netstackd: listen mode loopback" "$UART_A" || true)
+  a_dbg_listen_mode_tcp=$(grep -c "dbg:netstackd: listen mode tcp" "$UART_A" || true)
+  b_cross=$(grep -c "cross-vm" "$UART_B" || true)
+  b_discovery=$(grep -c "discovery cross-vm up" "$UART_B" || true)
+  b_accept=$(grep -c "cross-vm accept wait" "$UART_B" || true)
+  b_session=$(grep -c "cross-vm session ok" "$UART_B" || true)
+  b_dbg_ip_mismatch=$(grep -c "dbg:dsoftbusd: dial peer ip mismatch" "$UART_B" || true)
+  b_dbg_ip_expected=$(grep -c "dbg:dsoftbusd: dial peer ip expected" "$UART_B" || true)
+  b_dbg_would_block=$(grep -c "dbg:dsoftbusd: dial status would-block" "$UART_B" || true)
+  b_dbg_io=$(grep -c "dbg:dsoftbusd: dial status io" "$UART_B" || true)
+  b_dbg_other=$(grep -c "dbg:dsoftbusd: dial status other" "$UART_B" || true)
+  b_dbg_dial_rpc_timeout=$(grep -c "dbg:dsoftbusd: dial rpc timeout" "$UART_B" || true)
+  b_dbg_connect_slow=$(grep -c "dbg:dsoftbusd: connect rpc slow" "$UART_B" || true)
+  b_dbg_connect_timeout=$(grep -c "dbg:dsoftbusd: connect rpc timeout" "$UART_B" || true)
+  b_dbg_write_rpc_slow=$(grep -c "dbg:dsoftbusd: write rpc slow" "$UART_B" || true)
+  b_dbg_write_rpc_timeout=$(grep -c "dbg:dsoftbusd: write rpc timeout" "$UART_B" || true)
+  b_dbg_read_rpc_slow=$(grep -c "dbg:dsoftbusd: read rpc slow" "$UART_B" || true)
+  b_dbg_read_rpc_timeout=$(grep -c "dbg:dsoftbusd: read rpc timeout" "$UART_B" || true)
+  b_dbg_dial_attempt1_call=$(grep -c "dbg:dsoftbusd: dial attempt1 call" "$UART_B" || true)
+  b_dbg_dial_attempt1_ret_ok=$(grep -c "dbg:dsoftbusd: dial attempt1 ret ok" "$UART_B" || true)
+  b_dbg_dial_attempt1_ret_err=$(grep -c "dbg:dsoftbusd: dial attempt1 ret err" "$UART_B" || true)
+  b_dbg_accept_attempt1_call=$(grep -c "dbg:dsoftbusd: accept attempt1 call" "$UART_B" || true)
+  b_dbg_accept_attempt1_ret_ok=$(grep -c "dbg:dsoftbusd: accept attempt1 ret ok" "$UART_B" || true)
+  b_dbg_accept_attempt1_ret_err=$(grep -c "dbg:dsoftbusd: accept attempt1 ret err" "$UART_B" || true)
+  b_dbg_dial_fallback=$(grep -c "dbg:dsoftbusd: dial fallback no-discovery" "$UART_B" || true)
+  b_dbg_identity_fallback=$(grep -c "dbg:dsoftbusd: identity fallback deterministic" "$UART_B" || true)
+  b_dbg_dial_pending=$(grep -c "dbg:dsoftbusd: dial still pending" "$UART_B" || true)
+  b_dbg_accept_pending=$(grep -c "dbg:dsoftbusd: accept still waiting" "$UART_B" || true)
+  b_dbg_hs_sid_close=$(grep -c "dbg:dsoftbusd: hs sid close" "$UART_B" || true)
+  b_dbg_local_ip_10=$(grep -c "dbg:dsoftbusd: local ip .10" "$UART_B" || true)
+  b_dbg_local_ip_11=$(grep -c "dbg:dsoftbusd: local ip .11" "$UART_B" || true)
+  b_dbg_local_ip_other=$(grep -c "dbg:dsoftbusd: local ip other" "$UART_B" || true)
+  b_dbg_listen_mode_loopback=$(grep -c "dbg:netstackd: listen mode loopback" "$UART_B" || true)
+  b_dbg_listen_mode_tcp=$(grep -c "dbg:netstackd: listen mode tcp" "$UART_B" || true)
+  #region agent log
+  if [[ $rc -eq 2 ]]; then
+    agent_debug_log "H3" "tools/os2vm.sh:session_wait_A" "node A reached SELFTEST end before cross-vm session marker" "{\"nodeA\":{\"crossCount\":$a_cross,\"discoveryCount\":$a_discovery,\"acceptWaitCount\":$a_accept,\"sessionCount\":$a_session,\"dbgLocalIp10\":$a_dbg_local_ip_10,\"dbgLocalIp11\":$a_dbg_local_ip_11,\"dbgLocalIpOther\":$a_dbg_local_ip_other,\"dbgListenModeLoopback\":$a_dbg_listen_mode_loopback,\"dbgListenModeTcp\":$a_dbg_listen_mode_tcp,\"dbgIpExpected\":$a_dbg_ip_expected,\"dbgIpMismatch\":$a_dbg_ip_mismatch,\"dbgDialWouldBlock\":$a_dbg_would_block,\"dbgDialIo\":$a_dbg_io,\"dbgDialOther\":$a_dbg_other,\"dbgDialRpcTimeout\":$a_dbg_dial_rpc_timeout,\"dbgConnectSlow\":$a_dbg_connect_slow,\"dbgConnectTimeout\":$a_dbg_connect_timeout,\"dbgWriteRpcSlow\":$a_dbg_write_rpc_slow,\"dbgWriteRpcTimeout\":$a_dbg_write_rpc_timeout,\"dbgReadRpcSlow\":$a_dbg_read_rpc_slow,\"dbgReadRpcTimeout\":$a_dbg_read_rpc_timeout,\"dbgDialAttempt1Call\":$a_dbg_dial_attempt1_call,\"dbgDialAttempt1RetOk\":$a_dbg_dial_attempt1_ret_ok,\"dbgDialAttempt1RetErr\":$a_dbg_dial_attempt1_ret_err,\"dbgAcceptAttempt1Call\":$a_dbg_accept_attempt1_call,\"dbgAcceptAttempt1RetOk\":$a_dbg_accept_attempt1_ret_ok,\"dbgAcceptAttempt1RetErr\":$a_dbg_accept_attempt1_ret_err,\"dbgDialFallback\":$a_dbg_dial_fallback,\"dbgIdentityFallback\":$a_dbg_identity_fallback,\"dbgDialPending\":$a_dbg_dial_pending,\"dbgAcceptPending\":$a_dbg_accept_pending,\"dbgHsSidClose\":$a_dbg_hs_sid_close},\"nodeB\":{\"crossCount\":$b_cross,\"discoveryCount\":$b_discovery,\"acceptWaitCount\":$b_accept,\"sessionCount\":$b_session,\"dbgLocalIp10\":$b_dbg_local_ip_10,\"dbgLocalIp11\":$b_dbg_local_ip_11,\"dbgLocalIpOther\":$b_dbg_local_ip_other,\"dbgListenModeLoopback\":$b_dbg_listen_mode_loopback,\"dbgListenModeTcp\":$b_dbg_listen_mode_tcp,\"dbgIpExpected\":$b_dbg_ip_expected,\"dbgIpMismatch\":$b_dbg_ip_mismatch,\"dbgDialWouldBlock\":$b_dbg_would_block,\"dbgDialIo\":$b_dbg_io,\"dbgDialOther\":$b_dbg_other,\"dbgDialRpcTimeout\":$b_dbg_dial_rpc_timeout,\"dbgConnectSlow\":$b_dbg_connect_slow,\"dbgConnectTimeout\":$b_dbg_connect_timeout,\"dbgWriteRpcSlow\":$b_dbg_write_rpc_slow,\"dbgWriteRpcTimeout\":$b_dbg_write_rpc_timeout,\"dbgReadRpcSlow\":$b_dbg_read_rpc_slow,\"dbgReadRpcTimeout\":$b_dbg_read_rpc_timeout,\"dbgDialAttempt1Call\":$b_dbg_dial_attempt1_call,\"dbgDialAttempt1RetOk\":$b_dbg_dial_attempt1_ret_ok,\"dbgDialAttempt1RetErr\":$b_dbg_dial_attempt1_ret_err,\"dbgAcceptAttempt1Call\":$b_dbg_accept_attempt1_call,\"dbgAcceptAttempt1RetOk\":$b_dbg_accept_attempt1_ret_ok,\"dbgAcceptAttempt1RetErr\":$b_dbg_accept_attempt1_ret_err,\"dbgDialFallback\":$b_dbg_dial_fallback,\"dbgIdentityFallback\":$b_dbg_identity_fallback,\"dbgDialPending\":$b_dbg_dial_pending,\"dbgAcceptPending\":$b_dbg_accept_pending,\"dbgHsSidClose\":$b_dbg_hs_sid_close},\"reason\":\"selftest_end_before_session\"}"
+  elif [[ $rc -eq 3 ]]; then
+    agent_debug_log "H3" "tools/os2vm.sh:session_wait_B" "node B reached SELFTEST end before cross-vm session marker" "{\"nodeA\":{\"crossCount\":$a_cross,\"discoveryCount\":$a_discovery,\"acceptWaitCount\":$a_accept,\"sessionCount\":$a_session,\"dbgLocalIp10\":$a_dbg_local_ip_10,\"dbgLocalIp11\":$a_dbg_local_ip_11,\"dbgLocalIpOther\":$a_dbg_local_ip_other,\"dbgListenModeLoopback\":$a_dbg_listen_mode_loopback,\"dbgListenModeTcp\":$a_dbg_listen_mode_tcp,\"dbgIpExpected\":$a_dbg_ip_expected,\"dbgIpMismatch\":$a_dbg_ip_mismatch,\"dbgDialWouldBlock\":$a_dbg_would_block,\"dbgDialIo\":$a_dbg_io,\"dbgDialOther\":$a_dbg_other,\"dbgDialRpcTimeout\":$a_dbg_dial_rpc_timeout,\"dbgConnectSlow\":$a_dbg_connect_slow,\"dbgConnectTimeout\":$a_dbg_connect_timeout,\"dbgWriteRpcSlow\":$a_dbg_write_rpc_slow,\"dbgWriteRpcTimeout\":$a_dbg_write_rpc_timeout,\"dbgReadRpcSlow\":$a_dbg_read_rpc_slow,\"dbgReadRpcTimeout\":$a_dbg_read_rpc_timeout,\"dbgDialAttempt1Call\":$a_dbg_dial_attempt1_call,\"dbgDialAttempt1RetOk\":$a_dbg_dial_attempt1_ret_ok,\"dbgDialAttempt1RetErr\":$a_dbg_dial_attempt1_ret_err,\"dbgAcceptAttempt1Call\":$a_dbg_accept_attempt1_call,\"dbgAcceptAttempt1RetOk\":$a_dbg_accept_attempt1_ret_ok,\"dbgAcceptAttempt1RetErr\":$a_dbg_accept_attempt1_ret_err,\"dbgDialFallback\":$a_dbg_dial_fallback,\"dbgIdentityFallback\":$a_dbg_identity_fallback,\"dbgDialPending\":$a_dbg_dial_pending,\"dbgAcceptPending\":$a_dbg_accept_pending,\"dbgHsSidClose\":$a_dbg_hs_sid_close},\"nodeB\":{\"crossCount\":$b_cross,\"discoveryCount\":$b_discovery,\"acceptWaitCount\":$b_accept,\"sessionCount\":$b_session,\"dbgLocalIp10\":$b_dbg_local_ip_10,\"dbgLocalIp11\":$b_dbg_local_ip_11,\"dbgLocalIpOther\":$b_dbg_local_ip_other,\"dbgListenModeLoopback\":$b_dbg_listen_mode_loopback,\"dbgListenModeTcp\":$b_dbg_listen_mode_tcp,\"dbgIpExpected\":$b_dbg_ip_expected,\"dbgIpMismatch\":$b_dbg_ip_mismatch,\"dbgDialWouldBlock\":$b_dbg_would_block,\"dbgDialIo\":$b_dbg_io,\"dbgDialOther\":$b_dbg_other,\"dbgDialRpcTimeout\":$b_dbg_dial_rpc_timeout,\"dbgConnectSlow\":$b_dbg_connect_slow,\"dbgConnectTimeout\":$b_dbg_connect_timeout,\"dbgWriteRpcSlow\":$b_dbg_write_rpc_slow,\"dbgWriteRpcTimeout\":$b_dbg_write_rpc_timeout,\"dbgReadRpcSlow\":$b_dbg_read_rpc_slow,\"dbgReadRpcTimeout\":$b_dbg_read_rpc_timeout,\"dbgDialAttempt1Call\":$b_dbg_dial_attempt1_call,\"dbgDialAttempt1RetOk\":$b_dbg_dial_attempt1_ret_ok,\"dbgDialAttempt1RetErr\":$b_dbg_dial_attempt1_ret_err,\"dbgAcceptAttempt1Call\":$b_dbg_accept_attempt1_call,\"dbgAcceptAttempt1RetOk\":$b_dbg_accept_attempt1_ret_ok,\"dbgAcceptAttempt1RetErr\":$b_dbg_accept_attempt1_ret_err,\"dbgDialFallback\":$b_dbg_dial_fallback,\"dbgIdentityFallback\":$b_dbg_identity_fallback,\"dbgDialPending\":$b_dbg_dial_pending,\"dbgAcceptPending\":$b_dbg_accept_pending,\"dbgHsSidClose\":$b_dbg_hs_sid_close},\"reason\":\"selftest_end_before_session\"}"
+  else
+    agent_debug_log "H1" "tools/os2vm.sh:session_wait_timeout" "cross-vm session marker wait timed out" "{\"nodeA\":{\"crossCount\":$a_cross,\"discoveryCount\":$a_discovery,\"acceptWaitCount\":$a_accept,\"sessionCount\":$a_session,\"dbgLocalIp10\":$a_dbg_local_ip_10,\"dbgLocalIp11\":$a_dbg_local_ip_11,\"dbgLocalIpOther\":$a_dbg_local_ip_other,\"dbgListenModeLoopback\":$a_dbg_listen_mode_loopback,\"dbgListenModeTcp\":$a_dbg_listen_mode_tcp,\"dbgIpExpected\":$a_dbg_ip_expected,\"dbgIpMismatch\":$a_dbg_ip_mismatch,\"dbgDialWouldBlock\":$a_dbg_would_block,\"dbgDialIo\":$a_dbg_io,\"dbgDialOther\":$a_dbg_other,\"dbgDialRpcTimeout\":$a_dbg_dial_rpc_timeout,\"dbgConnectSlow\":$a_dbg_connect_slow,\"dbgConnectTimeout\":$a_dbg_connect_timeout,\"dbgWriteRpcSlow\":$a_dbg_write_rpc_slow,\"dbgWriteRpcTimeout\":$a_dbg_write_rpc_timeout,\"dbgReadRpcSlow\":$a_dbg_read_rpc_slow,\"dbgReadRpcTimeout\":$a_dbg_read_rpc_timeout,\"dbgDialAttempt1Call\":$a_dbg_dial_attempt1_call,\"dbgDialAttempt1RetOk\":$a_dbg_dial_attempt1_ret_ok,\"dbgDialAttempt1RetErr\":$a_dbg_dial_attempt1_ret_err,\"dbgAcceptAttempt1Call\":$a_dbg_accept_attempt1_call,\"dbgAcceptAttempt1RetOk\":$a_dbg_accept_attempt1_ret_ok,\"dbgAcceptAttempt1RetErr\":$a_dbg_accept_attempt1_ret_err,\"dbgDialFallback\":$a_dbg_dial_fallback,\"dbgIdentityFallback\":$a_dbg_identity_fallback,\"dbgDialPending\":$a_dbg_dial_pending,\"dbgAcceptPending\":$a_dbg_accept_pending,\"dbgHsSidClose\":$a_dbg_hs_sid_close},\"nodeB\":{\"crossCount\":$b_cross,\"discoveryCount\":$b_discovery,\"acceptWaitCount\":$b_accept,\"sessionCount\":$b_session,\"dbgLocalIp10\":$b_dbg_local_ip_10,\"dbgLocalIp11\":$b_dbg_local_ip_11,\"dbgLocalIpOther\":$b_dbg_local_ip_other,\"dbgListenModeLoopback\":$b_dbg_listen_mode_loopback,\"dbgListenModeTcp\":$b_dbg_listen_mode_tcp,\"dbgIpExpected\":$b_dbg_ip_expected,\"dbgIpMismatch\":$b_dbg_ip_mismatch,\"dbgDialWouldBlock\":$b_dbg_would_block,\"dbgDialIo\":$b_dbg_io,\"dbgDialOther\":$b_dbg_other,\"dbgDialRpcTimeout\":$b_dbg_dial_rpc_timeout,\"dbgConnectSlow\":$b_dbg_connect_slow,\"dbgConnectTimeout\":$b_dbg_connect_timeout,\"dbgWriteRpcSlow\":$b_dbg_write_rpc_slow,\"dbgWriteRpcTimeout\":$b_dbg_write_rpc_timeout,\"dbgReadRpcSlow\":$b_dbg_read_rpc_slow,\"dbgReadRpcTimeout\":$b_dbg_read_rpc_timeout,\"dbgDialAttempt1Call\":$b_dbg_dial_attempt1_call,\"dbgDialAttempt1RetOk\":$b_dbg_dial_attempt1_ret_ok,\"dbgDialAttempt1RetErr\":$b_dbg_dial_attempt1_ret_err,\"dbgAcceptAttempt1Call\":$b_dbg_accept_attempt1_call,\"dbgAcceptAttempt1RetOk\":$b_dbg_accept_attempt1_ret_ok,\"dbgAcceptAttempt1RetErr\":$b_dbg_accept_attempt1_ret_err,\"dbgDialFallback\":$b_dbg_dial_fallback,\"dbgIdentityFallback\":$b_dbg_identity_fallback,\"dbgDialPending\":$b_dbg_dial_pending,\"dbgAcceptPending\":$b_dbg_accept_pending,\"dbgHsSidClose\":$b_dbg_hs_sid_close},\"reason\":\"timeout\"}"
+  fi
+  #endregion
+  if [[ $rc -eq 2 ]]; then
+    echo "[error] Node A ended before session marker"
+  elif [[ $rc -eq 3 ]]; then
+    echo "[error] Node B ended before session marker"
+  else
+    echo "[error] Missing session marker (timeout)"
+  fi
+  exit 1
+fi
+#region agent log
+agent_debug_log "H4" "tools/os2vm.sh:session_wait_done" "cross-vm session markers reached on both nodes" "{\"status\":\"ok\"}"
+#endregion
 
 echo "[info] Waiting for remote proxy markers on Node A..."
-wait_marker "$UART_A" "SELFTEST: remote resolve ok" || { echo "[error] Node A missing remote resolve marker"; exit 1; }
-wait_marker "$UART_A" "SELFTEST: remote query ok" || { echo "[error] Node A missing remote query marker"; exit 1; }
+wait_marker "$UART_A" "SELFTEST: remote resolve ok" "SELFTEST: end" || { echo "[error] Node A missing remote resolve marker"; exit 1; }
+wait_marker "$UART_A" "SELFTEST: remote query ok" "SELFTEST: end" || { echo "[error] Node A missing remote query marker"; exit 1; }
+#region agent log
+agent_debug_log "H4" "tools/os2vm.sh:remote_markers_done" "remote proxy markers reached on node A" "{\"status\":\"ok\"}"
+#endregion
 
 echo "[info] All required markers observed. Stopping VMs."
 cleanup

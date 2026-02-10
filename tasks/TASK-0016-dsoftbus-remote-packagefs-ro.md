@@ -100,3 +100,12 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
    - emit `dsoftbusd: remote packagefs served` on first successful request.
 3. Implement client lib and host tests.
 4. Add OS selftest marker: `SELFTEST: remote pkgfs read ok`.
+
+## Alignment note (2026-02, low-drift)
+
+- Remote PackageFS should assume the underlying cross-VM session lifecycle is FSM/epoch-managed in `dsoftbusd`
+  with reconnect-safe handle cleanup.
+- For request/response exchange over the authenticated stream, keep bounded `WouldBlock` handling and deterministic
+  retry budgets; do not add unbounded wait loops.
+- Discovery receive timing is treated as advisory after peer mapping is learned; remote-fs service loops should not
+  depend on discovery polling cadence for forward progress.

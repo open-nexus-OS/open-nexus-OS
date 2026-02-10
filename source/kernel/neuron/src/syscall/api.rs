@@ -1560,8 +1560,7 @@ fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
 fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let raw_pid = args.get(0) as i32;
-    let target =
-        if raw_pid <= 0 { None } else { Some(task::Pid::from_raw(raw_pid as u32)) };
+    let target = if raw_pid <= 0 { None } else { Some(task::Pid::from_raw(raw_pid as u32)) };
     loop {
         match ctx.tasks.reap_child(target, ctx.address_spaces) {
             Ok((pid, status)) => {
@@ -3650,7 +3649,14 @@ mod tests {
             .dispatch(
                 SYSCALL_CAP_TRANSFER,
                 &mut ctx,
-                &Args::new([pid2.as_index(), factory_slot, Rights::MANAGE.bits() as usize, 0, 0, 0]),
+                &Args::new([
+                    pid2.as_index(),
+                    factory_slot,
+                    Rights::MANAGE.bits() as usize,
+                    0,
+                    0,
+                    0,
+                ]),
             )
             .unwrap();
         assert_ne!(factory_slot_pid2, 0);

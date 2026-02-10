@@ -66,3 +66,12 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - Documentation clearly explains:
   - what is “core” vs “backend”
   - what is required for an OS backend (UDP, timers, entropy/identity).
+
+## Alignment note (2026-02, low-drift)
+
+- OS-lite runtime now uses an explicit session FSM + `EpochId` ownership boundary in `dsoftbusd` for
+  reconnect-safe lifecycle control.
+- Transport-facing behavior remains bounded and deterministic (`WouldBlock` + capped retries); no kernel API
+  expansion was introduced.
+- A narrow transport adapter boundary (`connect/accept/read/write/close/readiness`) now exists in the daemon and
+  should be the extraction seam for this task's no_std core/backend split.

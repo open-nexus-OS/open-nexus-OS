@@ -18,7 +18,7 @@ help:
     @echo "Open Nexus OS - common tasks:\n"
     @echo "[Developers: Host]"
     @echo "  just test-host           # run host test suite (exclude kernel)"
-    @echo "  just test-e2e            # run host E2E tests (nexus-e2e + remote_e2e)"
+    @echo "  just test-e2e            # run host E2E tests (nexus-e2e + remote_e2e + logd-e2e + vfs-e2e + e2e_policy)"
     @echo "  just fmt-check           # check formatting (stable + kernel on nightly)"
     @echo "  just lint                # clippy (host cfg, exclude kernel)"
     @echo "  just miri-strict         # miri (no FS/network) for samgr,bundlemgr"
@@ -135,7 +135,7 @@ test-host:
 
 test-e2e:
     @echo "==> Running host E2E tests"
-    @env RUSTFLAGS='{{host_rustflags}}' cargo test -p nexus-e2e -p remote_e2e
+    @env RUSTFLAGS='{{host_rustflags}}' cargo test -p nexus-e2e -p remote_e2e -p logd-e2e -p vfs-e2e -p e2e_policy
 
 # Back-compat alias
 test:

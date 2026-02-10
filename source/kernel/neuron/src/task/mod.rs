@@ -788,8 +788,7 @@ impl TaskTable {
         rights: Rights,
         mode: TransferMode,
     ) -> Result<usize, TransferError> {
-        let parent_task =
-            self.tasks.get(parent.as_index()).ok_or(TransferError::InvalidParent)?;
+        let parent_task = self.tasks.get(parent.as_index()).ok_or(TransferError::InvalidParent)?;
         let derived = parent_task.caps.derive(parent_slot, rights)?;
         let child_task = self.tasks.get_mut(child.as_index()).ok_or(TransferError::InvalidChild)?;
         match mode {

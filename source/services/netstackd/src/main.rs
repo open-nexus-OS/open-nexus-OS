@@ -415,6 +415,10 @@ fn os_entry() -> core::result::Result<(), ()> {
     const OP_UDP_RECV_FROM: u8 = 8;
     const OP_ICMP_PING: u8 = 9;
     const OP_LOCAL_ADDR: u8 = 10;
+    const OP_CLOSE: u8 = 11;
+    const OP_WAIT_WRITABLE: u8 = 12;
+    const TCP_READY_SPIN_BUDGET: u32 = 16;
+    const TCP_READY_STEP_MS: u64 = 2;
 
     const STATUS_OK: u8 = 0;
     const STATUS_NOT_FOUND: u8 = 1;
@@ -505,6 +509,10 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut dbg_connect_target_printed = false;
     let mut dbg_loopback_connect_logged = false;
     let mut dbg_udp_bind_logged = false;
+    let mut dbg_connect_kick_ok_logged = false;
+    let mut dbg_connect_kick_would_block_logged = false;
+    let mut dbg_listen_loopback_logged = false;
+    let mut dbg_listen_tcp_logged = false;
 
     loop {
         let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -561,17 +569,31 @@ fn os_entry() -> core::result::Result<(), ()> {
                 let op = req[3];
                 match op {
                     OP_LISTEN => {
-                        if req.len() != 6 && req.len() != 14 {
+                        if req.len() != 6 && req.len() != 10 && req.len() != 14 && req.len() != 18 {
                             reply(&[MAGIC0, MAGIC1, VERSION, OP_LISTEN | 0x80, STATUS_MALFORMED]);
                             let _ = yield_();
                             continue;
                         }
-                        let nonce = parse_nonce(req, 6);
+                        let (listen_ip, port, nonce) = if req.len() == 10 || req.len() == 18 {
+                            let nonce = parse_nonce(req, 10);
+                            let ip = [req[4], req[5], req[6], req[7]];
+                            let port = u16::from_le_bytes([req[8], req[9]]);
+                            (ip, port, nonce)
+                        } else {
+                            let nonce = parse_nonce(req, 6);
+                            let port = u16::from_le_bytes([req[4], req[5]]);
+                            (bind_ip, port, nonce)
+                        };
                         let _ = nexus_abi::debug_println("netstackd: rpc listen");
-                        let port = u16::from_le_bytes([req[4], req[5]]);
-                        if bind_ip == [10, 0, 2, 15]
+                        if listen_ip == [10, 0, 2, 15]
                             && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B)
                         {
+                            if !dbg_listen_loopback_logged {
+                                dbg_listen_loopback_logged = true;
+                                // #region agent log
+                                let _ = nexus_abi::debug_println("dbg:netstackd: listen mode loopback");
+                                // #endregion
+                            }
                             listeners.push(Some(Listener::Loop { port, pending: None }));
                             let id = listeners.len() as u32;
                             if let Some(nonce) = nonce {
@@ -596,7 +618,13 @@ fn os_entry() -> core::result::Result<(), ()> {
                             }
                             let _ = nexus_abi::debug_println("netstackd: rpc listen ok");
                         } else {
-                            let addr = NetSocketAddrV4::new(bind_ip, port);
+                            if !dbg_listen_tcp_logged {
+                                dbg_listen_tcp_logged = true;
+                                // #region agent log
+                                let _ = nexus_abi::debug_println("dbg:netstackd: listen mode tcp");
+                                // #endregion
+                            }
+                            let addr = NetSocketAddrV4::new(listen_ip, port);
                             match net.tcp_listen(addr, 1) {
                                 Ok(l) => {
                                     listeners.push(Some(Listener::Tcp(l)));
@@ -683,8 +711,24 @@ fn os_entry() -> core::result::Result<(), ()> {
                         };
                         match l {
                             Listener::Tcp(l) => {
-                                let deadline = now_ms + 1;
-                                match l.accept(Some(deadline)) {
+                                let mut accept_result = l.accept(Some(now_ms + TCP_READY_STEP_MS));
+                                if matches!(accept_result, Err(nexus_net::NetError::WouldBlock)) {
+                                    for _ in 0..TCP_READY_SPIN_BUDGET {
+                                        let tick =
+                                            (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                                        net.poll(tick);
+                                        let _ = yield_();
+                                        accept_result =
+                                            l.accept(Some(tick + TCP_READY_STEP_MS));
+                                        if !matches!(
+                                            accept_result,
+                                            Err(nexus_net::NetError::WouldBlock)
+                                        ) {
+                                            break;
+                                        }
+                                    }
+                                }
+                                match accept_result {
                                     Ok(s) => {
                                         streams.push(Some(Stream::Tcp(s)));
                                         let sid = streams.len() as u32;
@@ -861,14 +905,27 @@ fn os_entry() -> core::result::Result<(), ()> {
                             }
                         } else {
                             let remote = NetSocketAddrV4::new(ip, port);
-                            let deadline = now_ms + 1;
-                            match net.tcp_connect(remote, Some(deadline)) {
+                            match net.tcp_connect(remote, Some(now_ms + TCP_READY_STEP_MS)) {
                                 Ok(s) => {
-                                    // Kick the TCP state machine: attempt to enqueue a single byte.
-                                    // This is best-effort and bounded; it helps ensure SYN emission is exercised
-                                    // even if the client doesn't write immediately.
+                                    // Wait for writable state in a bounded way before exposing the stream ID.
+                                    // Marker-only check; actual write gating is exposed via OP_WAIT_WRITABLE.
                                     let mut s = s;
-                                    let _ = s.write(Some(now_ms + 50), b"X");
+                                    if !s.wait_writable_bounded(TCP_READY_SPIN_BUDGET) {
+                                        if !dbg_connect_kick_would_block_logged {
+                                            dbg_connect_kick_would_block_logged = true;
+                                            // #region agent log
+                                            let _ = nexus_abi::debug_println(
+                                                "dbg:netstackd: connect kick would-block",
+                                            );
+                                            // #endregion
+                                        }
+                                    } else if !dbg_connect_kick_ok_logged {
+                                        dbg_connect_kick_ok_logged = true;
+                                        // #region agent log
+                                        let _ =
+                                            nexus_abi::debug_println("dbg:netstackd: connect kick ok");
+                                        // #endregion
+                                    }
                                     streams.push(Some(Stream::Tcp(s)));
                                     let sid = streams.len() as u32;
                                     if let Some(nonce) = nonce {
@@ -1537,8 +1594,27 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     let _ = yield_();
                                     continue;
                                 };
-                                let deadline = now_ms + 1;
-                                match s.write(Some(deadline), &req[10..10 + len]) {
+                                let mut write_result =
+                                    s.write(Some(now_ms + TCP_READY_STEP_MS), &req[10..10 + len]);
+                                if matches!(write_result, Err(nexus_net::NetError::WouldBlock)) {
+                                    for _ in 0..TCP_READY_SPIN_BUDGET {
+                                        let tick =
+                                            (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                                        net.poll(tick);
+                                        let _ = yield_();
+                                        write_result = s.write(
+                                            Some(tick + TCP_READY_STEP_MS),
+                                            &req[10..10 + len],
+                                        );
+                                        if !matches!(
+                                            write_result,
+                                            Err(nexus_net::NetError::WouldBlock)
+                                        ) {
+                                            break;
+                                        }
+                                    }
+                                }
+                                match write_result {
                                     Ok(n) => {
                                         if let Some(nonce) = nonce {
                                             let mut rsp = [0u8; 15];
@@ -1692,9 +1768,26 @@ fn os_entry() -> core::result::Result<(), ()> {
                         };
                         match s {
                             Stream::Tcp(s) => {
-                                let deadline = now_ms + 1;
                                 let mut buf = [0u8; 480];
-                                match s.read(Some(deadline), &mut buf[..max]) {
+                                let mut read_result =
+                                    s.read(Some(now_ms + TCP_READY_STEP_MS), &mut buf[..max]);
+                                if matches!(read_result, Err(nexus_net::NetError::WouldBlock)) {
+                                    for _ in 0..TCP_READY_SPIN_BUDGET {
+                                        let tick =
+                                            (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                                        net.poll(tick);
+                                        let _ = yield_();
+                                        read_result =
+                                            s.read(Some(tick + TCP_READY_STEP_MS), &mut buf[..max]);
+                                        if !matches!(
+                                            read_result,
+                                            Err(nexus_net::NetError::WouldBlock)
+                                        ) {
+                                            break;
+                                        }
+                                    }
+                                }
+                                match read_result {
                                     Ok(n) => {
                                         let mut rsp = [0u8; 512];
                                         rsp[0] = MAGIC0;
@@ -1800,6 +1893,100 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     }
                                 }
                             }
+                        }
+                    }
+                    OP_WAIT_WRITABLE => {
+                        if req.len() != 8 && req.len() != 16 {
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_WAIT_WRITABLE | 0x80,
+                                STATUS_MALFORMED,
+                            ]);
+                            let _ = yield_();
+                            continue;
+                        }
+                        let nonce = parse_nonce(req, 8);
+                        let sid = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;
+                        let sid0 = sid.wrapping_sub(1);
+                        let status = match streams.get_mut(sid0) {
+                            Some(Some(Stream::Tcp(s))) => {
+                                if s.wait_writable_bounded(TCP_READY_SPIN_BUDGET) {
+                                    STATUS_OK
+                                } else {
+                                    STATUS_WOULD_BLOCK
+                                }
+                            }
+                            Some(Some(Stream::Loop { .. })) => STATUS_OK,
+                            _ => STATUS_NOT_FOUND,
+                        };
+                        if let Some(nonce) = nonce {
+                            let mut rsp = [0u8; 13];
+                            rsp[..5].copy_from_slice(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_WAIT_WRITABLE | 0x80,
+                                status,
+                            ]);
+                            append_nonce(&mut rsp[5..13], nonce);
+                            reply(&rsp);
+                        } else {
+                            reply(&[
+                                MAGIC0,
+                                MAGIC1,
+                                VERSION,
+                                OP_WAIT_WRITABLE | 0x80,
+                                status,
+                            ]);
+                        }
+                    }
+                    OP_CLOSE => {
+                        if req.len() != 8 && req.len() != 16 {
+                            reply(&[MAGIC0, MAGIC1, VERSION, OP_CLOSE | 0x80, STATUS_MALFORMED]);
+                            let _ = yield_();
+                            continue;
+                        }
+                        let nonce = parse_nonce(req, 8);
+                        let sid = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;
+                        let sid0 = sid.wrapping_sub(1);
+                        let Some(slot) = streams.get_mut(sid0) else {
+                            if let Some(nonce) = nonce {
+                                let mut rsp = [0u8; 13];
+                                rsp[..5].copy_from_slice(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_CLOSE | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                                append_nonce(&mut rsp[5..13], nonce);
+                                reply(&rsp);
+                            } else {
+                                reply(&[
+                                    MAGIC0,
+                                    MAGIC1,
+                                    VERSION,
+                                    OP_CLOSE | 0x80,
+                                    STATUS_NOT_FOUND,
+                                ]);
+                            }
+                            let _ = yield_();
+                            continue;
+                        };
+                        let status = if slot.take().is_some() {
+                            STATUS_OK
+                        } else {
+                            STATUS_NOT_FOUND
+                        };
+                        if let Some(nonce) = nonce {
+                            let mut rsp = [0u8; 13];
+                            rsp[..5].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_CLOSE | 0x80, status]);
+                            append_nonce(&mut rsp[5..13], nonce);
+                            reply(&rsp);
+                        } else {
+                            reply(&[MAGIC0, MAGIC1, VERSION, OP_CLOSE | 0x80, status]);
                         }
                     }
                     OP_ICMP_PING => {
