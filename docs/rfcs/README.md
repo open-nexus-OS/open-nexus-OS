@@ -113,3 +113,9 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
 - RFC-0018: StateFS Journal Format v1 — journaled KV store for /state persistence
   - docs/rfcs/RFC-0018-statefs-journal-format-v1.md
+- RFC-0019: IPC Request/Reply Correlation v1 — nonce correlation + shared inbox determinism
+  - docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md
+- RFC-0020: Kernel ownership + Rust idioms pre-SMP v1 (logic-preserving)
+  - docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
+- RFC-0021: Kernel SMP v1 contract — per-CPU runqueues + IPI resched
+  - docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md

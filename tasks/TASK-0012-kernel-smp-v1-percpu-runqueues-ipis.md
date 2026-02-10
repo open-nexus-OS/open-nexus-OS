@@ -6,6 +6,7 @@ created: 2025-12-22
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - RFC: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - QEMU platform determinism: docs/dev/platform/qemu-virtio-mmio-modern.md
   - QEMU smoke proof policy: docs/adr/0025-qemu-smoke-proof-gating.md
