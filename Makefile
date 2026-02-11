@@ -3,6 +3,7 @@ MODE ?= container
 CONTAINER_TAG ?= open-nexus-os:dev
 NIGHTLY ?= nightly-2025-01-15
 CARGO_BIN ?= cargo
+SMP ?= 2
 HOST_RUSTFLAGS := --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
 UID := $(shell id -u)
 GID := $(shell id -g)
@@ -92,10 +93,10 @@ ifeq ($(MODE),container)
  		sh -lc '\
  		  echo "[tests] host-first only (exclude neuron)"; \
 		  if $(CARGO_BIN) nextest --version >/dev/null 2>&1; then \
-		    RUSTFLAGS='$(HOST_RUSTFLAGS)' $(CARGO_BIN) nextest run --workspace --exclude neuron --exclude neuron-boot; \
+		    RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) nextest run --workspace --exclude neuron --exclude neuron-boot; \
 		  else \
 		    echo "[warn] cargo-nextest not found; falling back to cargo test"; \
-		    RUSTFLAGS='$(HOST_RUSTFLAGS)' $(CARGO_BIN) test --workspace --exclude neuron --exclude neuron-boot; \
+		    RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) test --workspace --exclude neuron --exclude neuron-boot; \
 		  fi'
 else
 	@echo "==> Running host-first tests"
@@ -106,6 +107,9 @@ else
 	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo test --workspace --exclude neuron --exclude neuron-boot; \
 	fi
 endif
+	@echo "==> Running deterministic SMP ladder (default, SMP=$(SMP))"
+	@SMP=$${SMP:-$(SMP)} REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh
+	@SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh
 
 verify:
 	@echo "==> Running full verification (delegates to just workflow)"
@@ -126,12 +130,13 @@ run:
 	@rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal
 	@rustup component add rust-src --toolchain "$(NIGHTLY)" >/dev/null 2>&1 || true
 	@$(CARGO_BIN) +$(NIGHTLY) build --target riscv64imac-unknown-none-elf -p neuron-boot --release
-	@if [ "$${RUN_UNTIL_MARKER:-0}" = "1" ]; then \
-	  echo "==> RUN_UNTIL_MARKER=1: using scripts/qemu-test.sh (marker-driven early exit)"; \
-	  RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER=1 ./scripts/qemu-test.sh; \
+	@run_until_marker=$${RUN_UNTIL_MARKER:-1}; \
+	if [ "$$run_until_marker" != "0" ]; then \
+	  echo "==> RUN_UNTIL_MARKER=$$run_until_marker: using scripts/qemu-test.sh (marker-driven early exit)"; \
+	  SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER=$$run_until_marker ./scripts/qemu-test.sh; \
 	else \
 	  UART_LOG=$${UART_LOG:-uart.log}; \
-	  RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh; \
+	  SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh; \
 	  status=$$?; \
 	  if [ "$$status" = "124" ] && [ -f "$$UART_LOG" ] && grep -aFq "SELFTEST: end" "$$UART_LOG"; then \
 	    echo "[warn] QEMU timed out, but UART log contains 'SELFTEST: end' (selftest completed)."; \

@@ -42,7 +42,7 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 | TASK-0010 | Device MMIO access model | Queued | — | Define MMIO cap distribution |
 | TASK-0011 | Kernel simplification phase A | Queued | — | Restructure for SMP |
 | TASK-0011B | Kernel Rust idioms pre-SMP | Queued | TASK-0011 | Ownership + newtypes |
-| TASK-0012 | Kernel SMP v1 | Queued | TASK-0011, TASK-0011B | Per-CPU runqueues + IPIs |
+| TASK-0012 | Kernel SMP v1 | Done | TASK-0011, TASK-0011B | Baseline complete; maintain proof stability |
 | TASK-0012B | Kernel SMP v1b hardening bridge | Queued | TASK-0012 | Scheduler/SMP hardening without scope drift |
 
 ---

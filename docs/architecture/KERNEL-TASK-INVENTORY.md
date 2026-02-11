@@ -67,7 +67,7 @@ These tasks directly modify kernel code or define kernel architecture.
 
 ### ✅ TASK-0012: Kernel SMP v1 (Per-CPU Runqueues + IPIs)
 
-- **Status**: In Review (implementation complete; deterministic proofs green)
+- **Status**: Done (implementation complete; deterministic proofs green)
 
 - **Decision Points**: Aligned (IPI classes, Per-CPU isolation)
 

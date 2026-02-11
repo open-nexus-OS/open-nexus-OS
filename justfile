@@ -29,6 +29,7 @@ help:
     @echo "  just build-nexus-log-os  # cross-compile nexus-log (userspace sink)"
     @echo "  just build-init-lite-os  # cross-compile init-lite userspace payload"
     @echo "  just test-os             # run kernel selftests in QEMU"
+    @echo "  just test-smp            # deterministic SMP dual-mode proof ladder (SMP=2 gate + SMP=1 parity)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just test-os-dhcp         # QEMU smoke with DHCP requested (bounded, deterministic fallback allowed)"
     @echo "  just test-os-dhcp-strict  # QEMU smoke with strict DHCP gate (requires net: dhcp bound)"
@@ -80,6 +81,13 @@ qemu *args:
 test-os:
     scripts/qemu-test.sh
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
+
+# Deterministic SMP ladder:
+# - SMP=2 with REQUIRE_SMP=1 (enforces SMP-only marker contract)
+# - SMP=1 parity run (preserve single-hart baseline behavior)
+test-smp:
+    SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
+    SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
 
 # QEMU smoke variants (networking / DSoftBus gates).
 #
@@ -170,7 +178,7 @@ test-all:
     just miri-fs
     just arch-check
     just build-kernel
-    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
+    just test-smp
 
 # -----------------------------------------------------------------------------
 # Diagnostics (reproduce editor/rust-analyzer output)

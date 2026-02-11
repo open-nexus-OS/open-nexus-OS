@@ -35,6 +35,8 @@ QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
 QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/blk.img}
 QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
+QEMU_BLK_LOCK_FILE=${QEMU_BLK_LOCK_FILE:-"$ROOT/build/.qemu-blk.lock"}
+QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}
 
 join_by() {
   local IFS="$1"
@@ -487,6 +489,18 @@ prepare_service_payloads
 
 # Ensure a deterministic virtio-blk backing image exists for QEMU.
 mkdir -p "$ROOT/build"
+# Serialize access to blk image across concurrent make/qemu runs.
+exec 9>"$QEMU_BLK_LOCK_FILE"
+if ! flock -w "$QEMU_BLK_LOCK_WAIT" 9; then
+  echo "[error] Timed out waiting for blk image lock: $QEMU_BLK_LOCK_FILE" >&2
+  echo "[error] Another QEMU run is still active. Wait or stop it, then retry." >&2
+  exit 1
+fi
+cleanup_blk_lock() {
+  flock -u 9 2>/dev/null || true
+  exec 9>&- 2>/dev/null || true
+}
+trap cleanup_blk_lock EXIT
 # Always recreate the image to avoid stale QEMU "write lock" issues after aborted runs.
 rm -f "$QEMU_BLK_IMG"
 truncate -s 64M "$QEMU_BLK_IMG"

@@ -1160,8 +1160,10 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     // 1) reject stealing more than one task per scheduling tick.
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
-    let _ = ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal);
-    let _ = ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal);
+    let _ =
+        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal);
+    let _ =
+        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal);
     let _ = ctx.scheduler.selftest_schedule_on_cpu(boot);
     if ctx.scheduler.selftest_queue_len(target, QosClass::Normal) == 1 {
         log_info!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound ok");
