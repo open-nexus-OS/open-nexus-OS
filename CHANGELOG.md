@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-02-10
 
-#### Kernel SMP v1 closure sync (TASK-0012 In Review; RFC-0021 Complete)
+#### Kernel SMP v1 closure sync (TASK-0012 Done; RFC-0021 Complete)
 
 - Hardened SMP v1 proof semantics from marker-presence to causal anti-fake evidence:
   - `request accepted -> send_ipi success -> S_SOFT trap observed -> ack`
@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `KSELFTEST: test_reject_steal_higher_qos ok`
 - Canonical SMP harness gate now explicitly uses `REQUIRE_SMP=1` for SMP marker ladder runs.
 - Documentation synchronized across task/rfc/testing/architecture/handoff to preserve drift-free follow-up prerequisites for TASK-0013/0042/0247/0283.
+
+#### Build/QEMU reliability sync (default marker-driven run + blk lock serialization)
+
+- `make run` now defaults to marker-driven mode (`RUN_UNTIL_MARKER=1`) so default runs complete green when the selftest ladder reaches `SELFTEST: end`.
+- Added serialized lock handling for shared QEMU block image access in `scripts/run-qemu-rv64.sh` to avoid concurrent `blk.img` write-lock failures.
 
 ### Added - 2026-01-14
 

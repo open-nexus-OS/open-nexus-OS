@@ -15,6 +15,9 @@ This prevents subjective completion and reduces drift across sessions.
   - [ ] SMP>=2 proof is green (explicit marker-gated run)
   - [ ] SMP=1 regression proof is green (default smoke behavior unchanged)
   - [ ] No unresolved RED decision points remain in the task file
+  - [ ] Queue capacity/backpressure semantics are explicit (reject/defer behavior documented and tested)
+  - [ ] CPU-ID fast-path/fallback contract is explicit and proven deterministic
+  - [ ] Trap/IPI hardening preserves existing marker meaning (no semantic drift)
 - [ ] Header blocks updated to reflect:
   - [ ] API stability impact (if any)
   - [ ] Test coverage (what exists, where, and how to run)

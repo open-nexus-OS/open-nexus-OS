@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - SMP v1 contract: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
+  - SMP v1b hardening contract (this task): docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
   - Rust SMP model: docs/architecture/16-rust-concurrency-model.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - SMP policy: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md

@@ -36,6 +36,25 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/architecture/README.md`
 - `docs/testing/index.md` (only if marker-gating behavior changes)
 
+### @task_0012b_context
+- `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
+- `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
+- `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md`
+- `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`
+- `docs/architecture/01-neuron-kernel.md`
+- `docs/architecture/16-rust-concurrency-model.md`
+- `scripts/qemu-test.sh`
+
+### @task_0012b_touched
+- `source/kernel/neuron/src/core/smp.rs`
+- `source/kernel/neuron/src/core/trap.rs`
+- `source/kernel/neuron/src/sched/mod.rs`
+- `source/kernel/neuron/src/types.rs` (only if CPU/Hart ID helpers need narrow updates)
+- `scripts/qemu-test.sh` (only if marker ordering/gating needs explicit sync)
+- `docs/architecture/01-neuron-kernel.md`
+- `docs/architecture/16-rust-concurrency-model.md`
+- `docs/testing/index.md` (only if proof/marker contract changes)
+
 ### @touched
 - Only the directories listed in the task's **Touched paths** allowlist.
 
@@ -48,3 +67,6 @@ Kontext strikt: @core_context @task_context @quality_gates @touched. Kein @codeb
 
 ## Standard instruction line (TASK-0012)
 Kontext strikt: @core_context @task_0012_context @quality_gates @task_0012_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0012B)
+Kontext strikt: @core_context @task_0012b_context @quality_gates @task_0012b_touched. Kein @codebase Scan.

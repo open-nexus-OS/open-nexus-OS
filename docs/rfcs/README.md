@@ -74,6 +74,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0009: no_std Dependency Hygiene v1 (build security)
 - RFC-0015: Policy Authority & Audit Baseline v1 (policy engine + audit trail)
 - RFC-0017: Device MMIO Access Model v1 (capability-gated device access)
+- RFC-0022: Kernel SMP v1b scheduler/SMP hardening contract (bounded queues + trap/IPI + CPU-ID path)
 
 ## Index
 
@@ -119,3 +120,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
 - RFC-0021: Kernel SMP v1 contract — per-CPU runqueues + IPI resched (Complete)
   - docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
+- RFC-0022: Kernel SMP v1b hardening contract — bounded scheduler queues + trap/IPI hardening + CPU-ID fast-path/fallback
+  - docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md

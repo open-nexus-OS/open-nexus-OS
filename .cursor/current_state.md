@@ -12,7 +12,7 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (contract sync complete; RED boot-method decision resolved)
+- **last_decision**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (closed as Done; SMP v1 baseline fixed)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
@@ -33,11 +33,11 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (next)
+- **active_task**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (next/active prep)
 - **seed_contract**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (completed seed)
-- **phase_now**: TASK-0012 complete with anti-fake SMP proof wiring and deterministic `test_reject_*` markers
+- **phase_now**: TASK-0012 complete; TASK-0012B hardening bridge is now active (bounded scheduler queues + trap/IPI contract + CPU-ID path)
 - **baseline_commit**: `978ebeb`
-- **next_task_slice**: TASK-0013 QoS ABI/timed coalescing slice on top of TASK-0012 SMP baseline
+- **next_task_slice**: TASK-0012B Phase 1 scheduler/SMP hardening slice on top of TASK-0012 baseline
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
@@ -80,17 +80,19 @@ Rules:
 - **kernel execution order (current)**:
   - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — complete (phases 0→5, proofs green)
   - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — complete (SMP baseline + anti-fake markers + negative tests)
-  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — next (consumes TASK-0012 baseline, no parallel scheduler authority)
+  - `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` — next (internal hardening bridge; contract semantics unchanged)
+  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — follows 0012B (QoS ABI/timed coalescing on hardened baseline)
 - **exported prerequisites**:
-  - `TASK-0013`: consumes stable `QosClass` ordering + deterministic SMP proof ladder/markers
-  - `TASK-0042`: extends affinity/shares without violating TASK-0012 ownership and bounded-steal invariants
-  - `TASK-0247`: may harden SBI/HSM/IPI/per-hart timers but must not introduce a second SMP authority
-  - `TASK-0283`: optional `PerCpu<T>` hardening layer refines existing TASK-0012 contracts only
+  - `TASK-0013`: consumes 0012+0012B scheduler baseline (no alternate scheduler authority)
+  - `TASK-0042`: extends affinity/shares without violating 0012+0012B ownership and bounded-steal invariants
+  - `TASK-0247`: may harden SBI/HSM/IPI/per-hart timers on top of 0012+0012B only
+  - `TASK-0283`: optional `PerCpu<T>` hardening layer refines 0012+0012B contracts only
 
 ## Known risks / hazards
 - **Post-TASK-0012 carry-over**:
   - Keep SMP proof ladder sequential; parallel QEMU runs can still produce lock/contention artifacts.
-  - TASK-0013/TASK-0042 must preserve `test_reject_*` determinism and the strict IPI evidence chain.
+  - TASK-0012B/TASK-0013/TASK-0042 must preserve `test_reject_*` determinism and the strict IPI evidence chain.
+  - TASK-0012B must make queue/backpressure and CPU-ID fast-path/fallback contracts explicit and tested.
 - **QEMU smoke gating**:
   - Default `just test-os` now reaches `SELFTEST: end` deterministically and early-exits within the 90s harness timeout (no missing-marker deadlocks).
   - `REQUIRE_QEMU_DHCP=1` is green because we accept the honest static fallback marker when DHCP does not bind.

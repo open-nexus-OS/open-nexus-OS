@@ -1,25 +1,37 @@
-# Current Handoff: TASK-0012 Kernel SMP v1 (per-CPU runqueues + IPIs) — COMPLETE
+# Current Handoff: TASK-0012B Kernel SMP v1b hardening — PREP/ACTIVE
 
 **Date**: 2026-02-10  
-**Status**: Completed with deterministic anti-fake evidence and negative SMP tests
+**Status**: TASK-0012 closed; TASK-0012B is the active hardening bridge
 
 ---
 
-## Completed in this slice
+## Baseline now fixed (from TASK-0012)
 
-- **Execution SSOT**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` moved to `status: Complete`
-- **Contract sync**: `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` moved to `Status: Complete`
-- **Harness gate**: SMP proof path now explicitly requires `REQUIRE_SMP=1` for SMP marker ladder
-- **Anti-fake IPI chain**:
-  - strict success chain required: `request accepted -> send_ipi ok -> S_SOFT trap observed -> ack`
-  - deterministic counterfactual marker added: `KSELFTEST: ipi counterfactual ok`
-- **Required negative tests (`test_reject_*`) added and marker-gated**:
-  - `test_reject_invalid_ipi_target_cpu`
-  - `test_reject_offline_cpu_resched`
-  - `test_reject_steal_above_bound`
-  - `test_reject_steal_higher_qos`
+- `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` is `status: Done`.
+- SMP proof ladder is canonical and must stay stable:
+  - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- Anti-fake/negative markers are baseline contracts:
+  - `KSELFTEST: ipi counterfactual ok`
+  - `KSELFTEST: ipi resched ok`
+  - `KSELFTEST: test_reject_invalid_ipi_target_cpu ok`
+  - `KSELFTEST: test_reject_offline_cpu_resched ok`
+  - `KSELFTEST: test_reject_steal_above_bound ok`
+  - `KSELFTEST: test_reject_steal_higher_qos ok`
 
-## Proofs run (sequential, green)
+## Active focus (TASK-0012B)
+
+- Entry task: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
+- Scope:
+  - bounded queue/backpressure contract in scheduler hot paths,
+  - trap/IPI resched contract hardening without changing marker semantics,
+  - CPU-ID fast-path + deterministic fallback contract.
+- Do not introduce:
+  - new userspace scheduler ABI (TASK-0013/0042 own this),
+  - a second SMP authority path,
+  - timing-based proof success logic.
+
+## Proof floor for TASK-0012B slices
 
 - `cargo test --workspace`
 - `just dep-gate`
@@ -27,18 +39,7 @@
 - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 
-## Exported guarantees to follow-ups
+## Immediate next entry-point
 
-- **`TASK-0013`** (`tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`):
-  - may consume stable `QosClass` baseline and SMP marker ladder; must not bypass SMP ownership rules.
-- **`TASK-0042`**:
-  - may extend affinity/shares only on top of TASK-0012 bounded-steal and anti-fake IPI invariants.
-- **`TASK-0247`**:
-  - may harden RISC-V HSM/IPI/timer specifics; must not introduce a parallel SMP authority.
-- **`TASK-0283`**:
-  - `PerCpu<T>` adoption is a hardening refinement, not a semantic replacement of TASK-0012 behavior proofs.
-
-## Next task entry-point
-
-- Start `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
-- Keep `scripts/qemu-test.sh` SMP marker contract unchanged unless task explicitly updates docs/testing + task stop conditions in same slice.
+- Start with `source/kernel/neuron/src/sched/mod.rs` and `source/kernel/neuron/src/core/smp.rs`.
+- Keep `scripts/qemu-test.sh` marker ordering/meaning unchanged unless docs + task contracts are synchronized in the same slice.

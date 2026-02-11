@@ -15,6 +15,7 @@ This is the "everything green" guard against fake success.
 - [ ] SMP tasks: dual-mode QEMU proof is green:
   - [ ] `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (SMP marker gate enabled)
   - [ ] `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (default smoke semantics preserved)
+  - [ ] (`just test-smp` is acceptable when it executes the same two commands)
 - [ ] QEMU runs were executed sequentially (no parallel smoke/harness runs contending on shared artifacts)
 - [ ] Determinism floor respected: modern virtio-mmio default used for green proofs (legacy mode only for debug/bisect)
 - [ ] No new lints in touched files (run lints per task or workspace policy)
@@ -23,6 +24,7 @@ This is the "everything green" guard against fake success.
 - [ ] Acceptance Criteria satisfied (from task + linked RFC)
 - [ ] Tests validate the **specified desired behavior** (Soll-Zustand), not current implementation quirks
 - [ ] No fake-success logs/markers introduced (ready/ok only after real behavior)
+- [ ] For TASK-0012B-class hardening: queue/backpressure and CPU-ID fast-path/fallback contracts are explicit and covered by tests/proofs
 
 ## Post-implementation (before claiming "Done")
 
