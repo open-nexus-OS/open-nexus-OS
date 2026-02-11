@@ -206,12 +206,7 @@ impl Scheduler {
         }
 
         let task = Task { id, qos };
-        Self::bounded_push(
-            self.queue_for(qos),
-            task,
-            qos,
-            Self::runtime_queue_capacity_for(qos),
-        )
+        Self::bounded_push(self.queue_for(qos), task, qos, Self::runtime_queue_capacity_for(qos))
     }
 
     /// Picks the next runnable task.
@@ -269,10 +264,7 @@ impl Scheduler {
     /// Re-enqueue the currently running task (call on timeslice/yield).
     pub fn yield_current(&mut self) {
         if let Some(task) = self.current.take() {
-            if matches!(
-                self.try_enqueue(task.id, task.qos),
-                EnqueueOutcome::Rejected(_)
-            ) {
+            if matches!(self.try_enqueue(task.id, task.qos), EnqueueOutcome::Rejected(_)) {
                 // Deterministic fail-closed behavior for queue saturation:
                 // keep the task as current so it is not silently dropped.
                 self.current = Some(task);
@@ -546,10 +538,7 @@ mod tests {
         let qos = QosClass::Normal;
         let capacity = Scheduler::runtime_queue_capacity_for(qos).raw();
         for pid in 1..=(capacity as u32) {
-            assert!(matches!(
-                sched.try_enqueue(Pid::from_raw(pid), qos),
-                EnqueueOutcome::Enqueued
-            ));
+            assert!(matches!(sched.try_enqueue(Pid::from_raw(pid), qos), EnqueueOutcome::Enqueued));
         }
 
         let rejected = sched.try_enqueue(Pid::from_raw((capacity as u32) + 1), qos);
@@ -575,7 +564,8 @@ mod tests {
             ));
         }
 
-        let rejected = sched.selftest_enqueue_on_cpu(cpu, Pid::from_raw((capacity as u32) + 1), qos);
+        let rejected =
+            sched.selftest_enqueue_on_cpu(cpu, Pid::from_raw((capacity as u32) + 1), qos);
         assert!(matches!(
             rejected,
             EnqueueOutcome::Rejected(EnqueueRejectReason::QueueFull { qos: QosClass::Normal, capacity: cap })

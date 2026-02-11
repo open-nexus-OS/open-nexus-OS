@@ -777,10 +777,7 @@ impl TaskTable {
             parent_task.children.push(pid);
         }
 
-        if matches!(
-            scheduler.enqueue(pid, QosClass::PerfBurst),
-            EnqueueOutcome::Rejected(_)
-        ) {
+        if matches!(scheduler.enqueue(pid, QosClass::PerfBurst), EnqueueOutcome::Rejected(_)) {
             if let Some(parent_task) = self.tasks.get_mut(parent_index) {
                 parent_task.children.retain(|child_pid| *child_pid != pid);
             }

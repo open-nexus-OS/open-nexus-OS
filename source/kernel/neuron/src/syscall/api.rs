@@ -903,7 +903,9 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(()) => {
                 // Wake one receiver blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
-                    observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+                    observe_wake_outcome(
+                        ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
+                    );
                 }
                 // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" send.
                 // This helps diagnose OTA stage hangs without relying on NoSuchEndpoint spam.
@@ -1000,7 +1002,9 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(msg) => {
                 // Receiving frees queue capacity; wake one sender blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                    observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+                    observe_wake_outcome(
+                        ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
+                    );
                 }
                 break msg;
             }
@@ -1018,7 +1022,9 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     Ok(msg) => {
                         let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                            observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+                            observe_wake_outcome(
+                                ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
+                            );
                         }
                         break msg;
                     }
@@ -1236,7 +1242,9 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         match ctx.router.recv(endpoint) {
             Ok(msg) => {
                 if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                    observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+                    observe_wake_outcome(
+                        ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
+                    );
                 }
                 break msg;
             }
@@ -1251,7 +1259,9 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     Ok(msg) => {
                         let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                            observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+                            observe_wake_outcome(
+                                ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
+                            );
                         }
                         break msg;
                     }

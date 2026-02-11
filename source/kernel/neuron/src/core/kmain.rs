@@ -149,10 +149,7 @@ impl KernelState {
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut scheduler = Scheduler::new();
-        if matches!(
-            scheduler.enqueue(Pid::KERNEL, QosClass::Normal),
-            EnqueueOutcome::Rejected(_)
-        ) {
+        if matches!(scheduler.enqueue(Pid::KERNEL, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
             panic!("scheduler bootstrap enqueue rejected");
         }
 

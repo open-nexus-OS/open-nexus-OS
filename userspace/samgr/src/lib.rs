@@ -290,6 +290,7 @@ impl HostRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(all(nexus_env = "host", not(miri)))]
     use proptest::prelude::*;
 
     #[cfg(nexus_env = "host")]

@@ -1,6 +1,6 @@
 ---
 title: TASK-0012B Kernel SMP v1b: scheduler + SMP hardening (bounded queues, trap/IPI contract, CPU-ID fast path)
-status: In Review
+status: Done
 owner: @kernel-team
 created: 2026-02-10
 links:

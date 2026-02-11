@@ -463,10 +463,7 @@ mod tests {
             Ordering::Release,
         );
 
-        assert_eq!(
-            handle_ssoft_resched(target),
-            ReschedTrapOutcome::NoPendingRequest
-        );
+        assert_eq!(handle_ssoft_resched(target), ReschedTrapOutcome::NoPendingRequest);
 
         let evidence = resched_evidence(target);
         assert_eq!(evidence.request_accepted_count, 0);

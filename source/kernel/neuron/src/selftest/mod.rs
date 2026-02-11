@@ -1227,10 +1227,7 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
 
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
-    if matches!(
-        ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal),
-        EnqueueOutcome::Rejected(_)
-    ) {
+    if matches!(ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
         panic!("scheduler selftest bootstrap enqueue rejected");
     }
 }
