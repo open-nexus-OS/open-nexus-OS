@@ -1,9 +1,9 @@
 # RFC-0022: Kernel SMP v1b scheduler/SMP hardening contract
 
-- Status: Draft
+- Status: Done
 - Owners: @kernel-team
 - Created: 2026-02-10
-- Last Updated: 2026-02-10
+- Last Updated: 2026-02-11
 - Links:
   - Tasks: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (execution + proof)
   - ADRs: `docs/adr/0025-qemu-smoke-proof-gating.md` (QEMU proof policy)
@@ -13,9 +13,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (bounded scheduler contract)**: ⬜
-- **Phase 1 (trap/IPI hardening)**: ⬜
-- **Phase 2 (CPU-ID fast path + proof sync)**: ⬜
+- [x] **Phase 0 (bounded scheduler contract)**
+- [x] **Phase 1 (trap/IPI hardening)**
+- [x] **Phase 2 (CPU-ID fast path + proof sync)**
 
 Definition:
 
@@ -65,6 +65,8 @@ TASK-0012 closed SMP v1 baseline behavior with deterministic anti-fake IPI proof
   - cross-CPU state mutations use explicit synchronization semantics,
   - resched evidence remains causal (`request -> send -> S_SOFT trap -> ack`),
   - no task loss/duplication under bounded steal rules.
+- **Trap runtime ownership floor**:
+  - mutable trap-runtime kernel handles are boot-hart-only in v1b; secondary-hart trap paths must fail closed until a per-hart authority is introduced.
 - **Stubs policy**: no stub path may emit authoritative success markers.
 
 ## Proposed design
@@ -72,15 +74,19 @@ TASK-0012 closed SMP v1 baseline behavior with deterministic anti-fake IPI proof
 ### Contract / interface (normative)
 
 - Scheduler queue operations in SMP hot paths must use explicit bounded behavior:
-  - either reject new enqueue with stable failure behavior, or defer with bounded retry semantics.
+  - v1b decision: reject new enqueue with stable, deterministic failure behavior (no unbounded retry loops).
+  - callsites must consume bounded-enqueue outcomes explicitly (`#[must_use]`), not silently discard them.
 - Trap/IPI resched path is contractually fixed as:
   - request acceptance,
   - IPI send success,
   - S-mode software interrupt trap observation,
   - resched ack.
+  - wake/resched outcomes are matched explicitly at callsites (`#[must_use]` propagation), not silently ignored.
+  - mutable trap-runtime kernel-handle access is only valid on boot hart in v1b.
 - CPU-ID selection must have:
-  - an explicit fast path with proven invariant assumptions,
+  - an explicit fast path with proven invariant assumptions (`tp` hint),
   - a deterministic bounded fallback when assumptions do not hold.
+  - v1b decision: use `tp` as advisory hint, validate against bounded invariants, then fall back to stack-range, then BOOT fallback.
 - Existing marker contract from RFC-0021 remains the authoritative external behavior.
 
 ### Phases / milestones (contract-level)
@@ -99,8 +105,10 @@ TASK-0012 closed SMP v1 baseline behavior with deterministic anti-fake IPI proof
   - explicit synchronization contracts for cross-CPU state,
   - deterministic marker-gated proofs requiring causal chain presence,
   - bounded queue/steal semantics with negative tests (`test_reject_*`).
+  - boot-hart-only guard for mutable trap-runtime kernel-handle access.
 - **Open risks**:
   - fast-path CPU-ID assumptions must be proven or downgraded to fallback.
+  - full per-hart trap runtime authority, kernel stack-overflow detection, NMI safety policy, and FPU context policy are deferred to `TASK-0247`.
 
 ## Failure model (normative)
 
@@ -147,12 +155,9 @@ cd /home/jenning/open-nexus-OS && SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scr
 
 ## Open questions
 
-- Should queue backpressure default to "reject" or "bounded defer" for each QoS class?
-  - Owner: @kernel-team
-  - Target: resolve during TASK-0012B Phase 0.
-- Which CPU-ID fast-path invariant is authoritative (`tp` ownership vs table-based path)?
-  - Owner: @kernel-team
-  - Target: resolve during TASK-0012B Phase 2.
+- Resolved (TASK-0012B):
+  - Queue backpressure default is immediate deterministic reject on saturation.
+  - CPU-ID fast path is hybrid: `tp` hint first, stack-range fallback second, BOOT fallback last.
 
 ## RFC Quality Guidelines (for authors)
 
@@ -171,9 +176,11 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: bounded scheduler queue/backpressure contract is explicit + tested — proof: `cargo test --workspace`
-- [ ] **Phase 1**: trap/IPI hardening preserves anti-fake causal chain semantics — proof: `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] **Phase 2**: CPU-ID fast-path/fallback contract is deterministic in SMP and parity modes — proof: `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: bounded scheduler queue/backpressure contract is explicit + tested — proof: `cargo test --workspace`
+- [x] **Phase 1**: trap/IPI hardening preserves anti-fake causal chain semantics — proof: `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] **Phase 2**: CPU-ID fast-path/fallback contract is deterministic in SMP and parity modes — proof: `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).
+- [x] `#[must_use]` outcome contracts (enqueue/wake/resched) are consumed explicitly at callsites.
+- [x] Mutable trap-runtime kernel-handle access is boot-hart-only in v1b (secondary-hart trap paths fail closed).

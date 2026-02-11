@@ -2,7 +2,7 @@
 
 **Created**: 2026-01-09  
 **Owner**: @kernel-team  
-**Status**: Active guidance; TASK-0012 SMP v1 baseline implemented, TASK-0013+ follow-ups pending
+**Status**: Active guidance; TASK-0012 SMP v1 baseline and TASK-0012B hardening implemented, TASK-0013+ follow-ups pending
 
 ---
 
@@ -408,6 +408,9 @@ pub struct IpiMailbox {
 
 **Fix**: Use bounded queues (`ArrayQueue<T, N>`).
 
+Current kernel scheduler hardening follows the same rule: QoS runqueues are explicitly bounded and
+enqueue saturation is handled via deterministic reject semantics instead of growth or unbounded retry.
+
 ---
 
 ### ❌ 4. Blocking in Interrupt Context
@@ -515,7 +518,8 @@ qemu-system-riscv64 -smp 4 -kernel neuron.elf
 - ✅ Secondary hart bring-up + per-hart trap stack source
 - ✅ Deterministic IPI selftests with anti-fake causal chain and counterfactual proofs
 - ✅ Bounded work-stealing proof path + `test_reject_*` negatives
-- 🔄 Full runtime `PerCpuScheduler` ownership model (post-v1 follow-up hardening)
+- ✅ TASK-0012B hardening bridge: bounded scheduler enqueue contract + explicit S_SOFT resched contract + guarded `tp->stack->BOOT` CPU-ID path
+- 🔄 Full runtime `PerCpuScheduler` ownership model (post-v1/v1b follow-up hardening)
 
 ### Phase 3: TASK-0013 (QoS + Power)
 

@@ -3,9 +3,9 @@
 
 //! CONTEXT: Minimal scheduler used during NEURON bring-up
 //! OWNERS: @kernel-sched-team
-//! PUBLIC API: Scheduler (new/enqueue/next), QosClass, TaskId
+//! PUBLIC API: Scheduler (new/enqueue/try_enqueue/schedule_next), QosClass, TaskId, EnqueueOutcome
 //! DEPENDS_ON: uart (boot logs), determinism (timeslice)
-//! INVARIANTS: No heap growth in hot paths; timeslice deterministic; RR per QoS
+//! INVARIANTS: Bounded queue capacity + deterministic reject on saturation; timeslice deterministic; RR per QoS
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
@@ -46,6 +46,36 @@ struct Task {
     qos: QosClass,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+struct QueueCapacity(usize);
+
+impl QueueCapacity {
+    const fn new(raw: usize) -> Self {
+        Self(raw)
+    }
+
+    const fn raw(self) -> usize {
+        self.0
+    }
+}
+
+const RUNTIME_QOS_QUEUE_CAPACITY: QueueCapacity = QueueCapacity::new(64);
+const SELFTEST_QOS_QUEUE_CAPACITY: QueueCapacity = QueueCapacity::new(64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnqueueRejectReason {
+    QueueFull { qos: QosClass, capacity: usize },
+    InvalidCpu { cpu: CpuId },
+}
+
+#[must_use = "enqueue outcomes must be handled"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnqueueOutcome {
+    Enqueued,
+    Rejected(EnqueueRejectReason),
+}
+
 struct CpuRunQueues {
     queues: [VecDeque<Task>; 4],
     current: Option<Task>,
@@ -55,10 +85,10 @@ impl CpuRunQueues {
     fn new() -> Self {
         Self {
             queues: [
-                VecDeque::with_capacity(1),
-                VecDeque::with_capacity(1),
-                VecDeque::with_capacity(1),
-                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
+                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
+                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
+                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
             ],
             current: None,
         }
@@ -87,6 +117,34 @@ static_assertions::assert_not_impl_any!(Scheduler: Send, Sync);
 impl Scheduler {
     const SELFTEST_STEAL_MAX_PER_TICK: usize = 1;
 
+    #[inline]
+    const fn runtime_queue_capacity_for(_qos: QosClass) -> QueueCapacity {
+        // v1b hardening contract: explicit bounded queue behavior in hot path.
+        RUNTIME_QOS_QUEUE_CAPACITY
+    }
+
+    #[inline]
+    const fn selftest_queue_capacity_for(_qos: QosClass) -> QueueCapacity {
+        SELFTEST_QOS_QUEUE_CAPACITY
+    }
+
+    #[inline]
+    fn bounded_push(
+        queue: &mut VecDeque<Task>,
+        task: Task,
+        qos: QosClass,
+        capacity: QueueCapacity,
+    ) -> EnqueueOutcome {
+        if queue.len() >= capacity.raw() {
+            return EnqueueOutcome::Rejected(EnqueueRejectReason::QueueFull {
+                qos,
+                capacity: capacity.raw(),
+            });
+        }
+        queue.push_back(task);
+        EnqueueOutcome::Enqueued
+    }
+
     /// Creates an empty scheduler.
     pub fn new() -> Self {
         #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
@@ -106,10 +164,10 @@ impl Scheduler {
         let s = Self {
             // Keep runtime scheduler behavior unchanged for SMP=1 determinism.
             queues: [
-                VecDeque::with_capacity(1),
-                VecDeque::with_capacity(1),
-                VecDeque::with_capacity(1),
-                VecDeque::with_capacity(1),
+                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
+                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
+                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
+                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
             ],
             current: None,
             // Per-CPU queues are used only by SMP selftests.
@@ -127,7 +185,12 @@ impl Scheduler {
     }
 
     /// Enqueues a task with the provided QoS class.
-    pub fn enqueue(&mut self, id: TaskId, qos: QosClass) {
+    pub fn enqueue(&mut self, id: TaskId, qos: QosClass) -> EnqueueOutcome {
+        self.try_enqueue(id, qos)
+    }
+
+    /// Attempts to enqueue a task and returns explicit bounded-backpressure status.
+    pub fn try_enqueue(&mut self, id: TaskId, qos: QosClass) -> EnqueueOutcome {
         // Debug: log only the first few enqueues to avoid UART flood
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
@@ -143,7 +206,12 @@ impl Scheduler {
         }
 
         let task = Task { id, qos };
-        self.queue_for(qos).push_back(task);
+        Self::bounded_push(
+            self.queue_for(qos),
+            task,
+            qos,
+            Self::runtime_queue_capacity_for(qos),
+        )
     }
 
     /// Picks the next runnable task.
@@ -201,7 +269,14 @@ impl Scheduler {
     /// Re-enqueue the currently running task (call on timeslice/yield).
     pub fn yield_current(&mut self) {
         if let Some(task) = self.current.take() {
-            self.enqueue(task.id, task.qos);
+            if matches!(
+                self.try_enqueue(task.id, task.qos),
+                EnqueueOutcome::Rejected(_)
+            ) {
+                // Deterministic fail-closed behavior for queue saturation:
+                // keep the task as current so it is not silently dropped.
+                self.current = Some(task);
+            }
         }
     }
 
@@ -282,14 +357,32 @@ impl Scheduler {
         self.selftest_cpus[cpu_idx].current = None;
     }
 
-    pub fn selftest_enqueue_on_cpu(&mut self, cpu: CpuId, id: TaskId, qos: QosClass) -> bool {
+    pub fn selftest_enqueue_on_cpu(
+        &mut self,
+        cpu: CpuId,
+        id: TaskId,
+        qos: QosClass,
+    ) -> EnqueueOutcome {
+        self.selftest_try_enqueue_on_cpu(cpu, id, qos)
+    }
+
+    fn selftest_try_enqueue_on_cpu(
+        &mut self,
+        cpu: CpuId,
+        id: TaskId,
+        qos: QosClass,
+    ) -> EnqueueOutcome {
         let cpu_idx = cpu.as_index();
         if cpu_idx >= crate::smp::MAX_CPUS {
-            return false;
+            return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
         }
         let task = Task { id, qos };
-        self.selftest_queue_for(cpu_idx, qos).push_back(task);
-        true
+        Self::bounded_push(
+            self.selftest_queue_for(cpu_idx, qos),
+            task,
+            qos,
+            Self::selftest_queue_capacity_for(qos),
+        )
     }
 
     pub fn selftest_schedule_on_cpu(&mut self, cpu: CpuId) -> Option<TaskId> {
@@ -361,9 +454,18 @@ mod tests {
     #[test]
     fn qos_ordering() {
         let mut sched = Scheduler::new();
-        sched.enqueue(Pid::from_raw(1), QosClass::Normal);
-        sched.enqueue(Pid::from_raw(2), QosClass::Interactive);
-        sched.enqueue(Pid::from_raw(3), QosClass::PerfBurst);
+        assert!(matches!(
+            sched.enqueue(Pid::from_raw(1), QosClass::Normal),
+            EnqueueOutcome::Enqueued
+        ));
+        assert!(matches!(
+            sched.enqueue(Pid::from_raw(2), QosClass::Interactive),
+            EnqueueOutcome::Enqueued
+        ));
+        assert!(matches!(
+            sched.enqueue(Pid::from_raw(3), QosClass::PerfBurst),
+            EnqueueOutcome::Enqueued
+        ));
         assert_eq!(sched.schedule_next(), Some(Pid::from_raw(3)));
         assert_eq!(sched.schedule_next(), Some(Pid::from_raw(2)));
         assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
@@ -378,7 +480,10 @@ mod tests {
     #[test]
     fn yield_requeues_current_task() {
         let mut sched = Scheduler::new();
-        sched.enqueue(Pid::from_raw(1), QosClass::Normal);
+        assert!(matches!(
+            sched.enqueue(Pid::from_raw(1), QosClass::Normal),
+            EnqueueOutcome::Enqueued
+        ));
         assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
         sched.yield_current();
         assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
@@ -391,7 +496,10 @@ mod tests {
         let secondary = CpuId::from_raw(1);
         sched.selftest_reset_cpu(boot);
         sched.selftest_reset_cpu(secondary);
-        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(42), QosClass::Normal);
+        assert!(matches!(
+            sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(42), QosClass::Normal),
+            EnqueueOutcome::Enqueued
+        ));
         assert_eq!(sched.selftest_schedule_on_cpu(boot), Some(Pid::from_raw(42)));
         assert_eq!(sched.selftest_schedule_on_cpu(boot), None);
     }
@@ -403,8 +511,14 @@ mod tests {
         let secondary = CpuId::from_raw(1);
         sched.selftest_reset_cpu(boot);
         sched.selftest_reset_cpu(secondary);
-        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(100), QosClass::Normal);
-        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(101), QosClass::Normal);
+        assert!(matches!(
+            sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(100), QosClass::Normal),
+            EnqueueOutcome::Enqueued
+        ));
+        assert!(matches!(
+            sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(101), QosClass::Normal),
+            EnqueueOutcome::Enqueued
+        ));
 
         assert!(sched.selftest_schedule_on_cpu(boot).is_some());
         assert_eq!(sched.selftest_cpus[secondary.as_index()].queues[1].len(), 1);
@@ -417,9 +531,55 @@ mod tests {
         let secondary = CpuId::from_raw(1);
         sched.selftest_reset_cpu(boot);
         sched.selftest_reset_cpu(secondary);
-        sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(200), QosClass::Interactive);
+        assert!(matches!(
+            sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(200), QosClass::Interactive),
+            EnqueueOutcome::Enqueued
+        ));
 
         let rejected = sched.selftest_try_steal(boot.as_index(), QosClass::Normal);
         assert!(rejected.is_none());
+    }
+
+    #[test]
+    fn test_reject_enqueue_above_runtime_bound() {
+        let mut sched = Scheduler::new();
+        let qos = QosClass::Normal;
+        let capacity = Scheduler::runtime_queue_capacity_for(qos).raw();
+        for pid in 1..=(capacity as u32) {
+            assert!(matches!(
+                sched.try_enqueue(Pid::from_raw(pid), qos),
+                EnqueueOutcome::Enqueued
+            ));
+        }
+
+        let rejected = sched.try_enqueue(Pid::from_raw((capacity as u32) + 1), qos);
+        assert!(matches!(
+            rejected,
+            EnqueueOutcome::Rejected(EnqueueRejectReason::QueueFull { qos: QosClass::Normal, capacity: cap })
+                if cap == capacity
+        ));
+    }
+
+    #[test]
+    fn test_reject_enqueue_above_selftest_bound() {
+        let mut sched = Scheduler::new();
+        let cpu = CpuId::from_raw(1);
+        sched.selftest_reset_cpu(cpu);
+
+        let qos = QosClass::Normal;
+        let capacity = Scheduler::selftest_queue_capacity_for(qos).raw();
+        for pid in 1..=(capacity as u32) {
+            assert!(matches!(
+                sched.selftest_enqueue_on_cpu(cpu, Pid::from_raw(pid), qos),
+                EnqueueOutcome::Enqueued
+            ));
+        }
+
+        let rejected = sched.selftest_enqueue_on_cpu(cpu, Pid::from_raw((capacity as u32) + 1), qos);
+        assert!(matches!(
+            rejected,
+            EnqueueOutcome::Rejected(EnqueueRejectReason::QueueFull { qos: QosClass::Normal, capacity: cap })
+                if cap == capacity
+        ));
     }
 }

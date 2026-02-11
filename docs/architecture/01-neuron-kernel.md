@@ -236,6 +236,12 @@ SMP v1 status (`TASK-0012`):
 - Secondary harts run a bounded auxiliary loop while S_SOFT trap handling owns IPI acknowledgement/evidence (no polling-based fake-positive ack path).
 - IPI success markers require a strict causal chain (`request accepted -> send_ipi success -> S_SOFT trap observed -> ack`), plus counterfactual reject markers for forced-failure paths.
 
+SMP v1b hardening status (`TASK-0012B`):
+
+- Scheduler QoS queues now enforce explicit bounded capacity with deterministic reject semantics on saturation (no unbounded growth in hot paths).
+- S_SOFT resched handling is encapsulated as one explicit contract path (`record trap -> consume pending -> ack when pending`), preserving TASK-0012 marker meaning.
+- `cpu_current_id()` uses a guarded hybrid identity path (`tp` hint -> stack-range verification/fallback -> BOOT fallback), keeping CPU/Hart newtypes authoritative and avoiding raw-ID routing.
+
 ### Ownership Model (Rust-Specific, pre-SMP)
 
 This section is the ownership contract for TASK-0011B (docs-first) and the pre-SMP baseline
@@ -279,6 +285,9 @@ used by TASK-0012.
 - **Implemented in v1**:
   - runtime runqueue ownership remains CPU0-local to preserve deterministic `SMP=1` behavior,
   - per-CPU runqueue + bounded steal logic exists as selftest-only proof surface.
+- **Implemented in v1b hardening**:
+  - runtime enqueue paths are explicitly bounded with deterministic reject/backpressure semantics,
+  - CPU identity derivation is explicit and auditable (`tp` advisory fast path + deterministic fallback contract).
 - **Remains globally coordinated**:
   - PID namespace/allocation and global task metadata (`TaskTable`),
   - address-space registry and ASID allocator (`AddressSpaceManager`),

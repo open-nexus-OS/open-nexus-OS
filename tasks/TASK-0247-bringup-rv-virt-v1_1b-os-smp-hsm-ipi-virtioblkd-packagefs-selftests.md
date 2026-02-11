@@ -63,6 +63,7 @@ On OS/QEMU:
 ## Constraints / invariants (hard requirements)
 
 - **No duplicate SMP authority**: This task extends `TASK-0012` + `TASK-0012B` with RISC-V-specific SBI HSM/IPI. Do not create a parallel SMP implementation.
+- **Trap-runtime ownership handoff**: `TASK-0012B` keeps mutable trap-runtime kernel handles boot-hart-only. Before enabling secondary-hart user trap/syscall execution here, replace that with explicit per-hart ownership (or equivalent synchronized authority) and keep failure behavior deterministic.
 - **No duplicate virtio-blk authority**: exactly one blk authority may own the virtio-blk device in a given boot profile.
   `virtioblkd` (this task) uses the library from `TASK-0246`. The persistence path from `TASK-0009` already consumes
   virtio-blk for statefs (read-write) in the current OS profile; if `virtioblkd` is introduced, document which profile
@@ -77,6 +78,8 @@ On OS/QEMU:
   - Do not create a parallel SMP implementation. Extend `TASK-0012` + `TASK-0012B` with RISC-V-specific SBI HSM/IPI and per-hart timer programming.
 - **YELLOW (SBI HSM availability)**:
   - SBI HSM (Hart State Management) must be available in OpenSBI. If not, this task must document fallback or gate on OpenSBI version.
+- **YELLOW (hart-runtime hardening completion)**:
+  - Complete the deferred hardening from `TASK-0012B`: per-hart trap runtime ownership, kernel stack-overflow detection strategy, NMI-safety policy, and FPU context policy for secondary-hart execution.
 
 ## Security considerations
 
@@ -209,6 +212,8 @@ UART markers:
    - secondary bring-up
    - per-hart timer programming
    - IRQ/IPI dispatch
+   - complete trap-runtime ownership handoff (boot-hart-only guard -> per-hart/synchronized authority)
+   - implement/document stack-overflow detection, NMI-safety policy, and FPU context policy for SMP execution
    - markers
 
 3. **Userspace virtioblkd + packagefs mount**

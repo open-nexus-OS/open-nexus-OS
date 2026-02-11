@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Depends-on (SMP baseline): tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - Depends-on (SMP hardening bridge): tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
+  - Follow-up (RISC-V SMP runtime hardening): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
   - Pre-SMP ownership/types contract (seed): docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
   - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
   - Testing contract: scripts/qemu-test.sh
@@ -49,6 +50,7 @@ Prove in QEMU:
   - keep syscall ABI stable and explicit (errno mapping unchanged unless this task defines a new surface),
   - keep scheduler/QoS ownership and thread-boundary assumptions explicit (so QoS continues to compose with per-CPU runqueues from TASK-0012).
 - Must preserve TASK-0012B hardening invariants (bounded scheduler/SMP hot paths, deterministic SMP marker semantics, and single SMP authority).
+- Must not weaken TASK-0012B trap-runtime ownership boundary: mutable trap-runtime kernel-handle access remains boot-hart-only until `TASK-0247` completes per-hart ownership handoff.
 
 ## Red flags / decision points
 

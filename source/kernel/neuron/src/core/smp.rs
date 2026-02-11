@@ -6,9 +6,9 @@
 //! STATUS: In Progress
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU SMP marker path + kernel selftests
-//! PUBLIC API: cpu_current_id(), cpu_online_mask(), start_secondary_harts(), request_resched()
-//! DEPENDS_ON: arch::riscv::read_mhartid, sbi-rt (HSM/SPI), trap stack table consumed by trap.S
-//! INVARIANTS: bounded CPU set, atomic online-mask updates, deterministic markers
+//! PUBLIC API: cpu_current_id(), cpu_online_mask(), start_secondary_harts(), request_resched(), handle_ssoft_resched()
+//! DEPENDS_ON: sbi-rt (HSM/SPI), per-hart trap stack-top table consumed by trap install path
+//! INVARIANTS: bounded CPU set, atomic online-mask updates, guarded tp->stack CPU-ID resolution, deterministic markers
 //! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -37,9 +37,10 @@ const EMPTY_HART_STACK: HartStack = HartStack([0; SECONDARY_STACK_SIZE]);
 #[link_section = ".bss"]
 static mut SECONDARY_HART_STACKS: [HartStack; MAX_CPUS - 1] = [EMPTY_HART_STACK; MAX_CPUS - 1];
 
-/// Trap stack table consumed from `arch/riscv/trap.S` on U-mode trap entry.
+/// Per-hart trap stack table used by trap-vector installation paths.
 #[no_mangle]
-pub static mut __hart_trap_stack_tops: [usize; MAX_CPUS] = [0; MAX_CPUS];
+pub static __hart_trap_stack_tops: [AtomicUsize; MAX_CPUS] =
+    [const { AtomicUsize::new(0) }; MAX_CPUS];
 
 static CPU_ONLINE_MASK: AtomicUsize = AtomicUsize::new(0);
 static RESCHED_PENDING: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
@@ -87,6 +88,37 @@ pub struct ReschedEvidence {
     pub ack_count: usize,
 }
 
+#[must_use = "resched trap outcomes must be handled"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReschedTrapOutcome {
+    Acked,
+    NoPendingRequest,
+}
+
+#[inline]
+fn cpu_from_tp_hint_raw(raw_tp: usize, online_mask: usize) -> Option<CpuId> {
+    if raw_tp >= MAX_CPUS {
+        return None;
+    }
+    let cpu = CpuId::from_raw(raw_tp as u16);
+    let bit = 1usize << cpu.as_index();
+    if online_mask == 0 || (online_mask & bit) != 0 {
+        Some(cpu)
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn resolve_cpu_id(tp_hint: Option<CpuId>, stack_cpu: Option<CpuId>) -> CpuId {
+    match (tp_hint, stack_cpu) {
+        (Some(tp), Some(stack_cpu)) if tp == stack_cpu => tp,
+        (_, Some(stack_cpu)) => stack_cpu,
+        (Some(tp), None) if tp.is_boot() => tp,
+        _ => CpuId::BOOT,
+    }
+}
+
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn cpu_from_stack_pointer(sp: usize) -> Option<CpuId> {
     for idx in 1..MAX_CPUS {
@@ -102,18 +134,37 @@ fn cpu_from_stack_pointer(sp: usize) -> Option<CpuId> {
     None
 }
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+#[inline]
+fn cpu_from_tp_hint() -> Option<CpuId> {
+    let raw_tp: usize;
+    // SAFETY: reading `tp` register is side-effect free and does not violate memory safety.
+    unsafe {
+        core::arch::asm!(
+            "mv {o}, tp",
+            o = out(reg) raw_tp,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    cpu_from_tp_hint_raw(raw_tp, cpu_online_mask())
+}
+
 #[inline]
 pub fn cpu_current_id() -> CpuId {
     // S-mode must not rely on mhartid CSR reads (illegal on typical firmware).
-    // We derive secondary-hart identity from the active stack range.
+    // We use a guarded hybrid path:
+    //   tp-hint -> stack-range verification/fallback -> BOOT fallback.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
+        let tp_hint = cpu_from_tp_hint();
         let sp = crate::arch::riscv::read_sp();
-        if let Some(cpu) = cpu_from_stack_pointer(sp) {
-            return cpu;
-        }
+        let stack_cpu = cpu_from_stack_pointer(sp);
+        resolve_cpu_id(tp_hint, stack_cpu)
     }
-    CpuId::BOOT
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        CpuId::BOOT
+    }
 }
 
 #[inline]
@@ -145,17 +196,13 @@ pub fn register_trap_stack_top(cpu: CpuId, stack_top: usize) {
     if idx >= MAX_CPUS {
         return;
     }
-    // SAFETY: bounded by MAX_CPUS; called during deterministic bring-up paths.
-    unsafe {
-        __hart_trap_stack_tops[idx] = stack_top;
-    }
+    __hart_trap_stack_tops[idx].store(stack_top, Ordering::Release);
 }
 
 pub fn trap_stack_top_for_current() -> usize {
     let idx = cpu_current_id().as_index();
     if idx < MAX_CPUS {
-        // SAFETY: bounded index, table is initialized during hart bring-up.
-        let top = unsafe { __hart_trap_stack_tops[idx] };
+        let top = __hart_trap_stack_tops[idx].load(Ordering::Acquire);
         if top != 0 {
             return top;
         }
@@ -282,6 +329,17 @@ pub fn acknowledge_resched(cpu: CpuId) {
 }
 
 #[inline]
+pub fn handle_ssoft_resched(cpu: CpuId) -> ReschedTrapOutcome {
+    record_ssoft_trap(cpu);
+    if take_resched(cpu) {
+        acknowledge_resched(cpu);
+        ReschedTrapOutcome::Acked
+    } else {
+        ReschedTrapOutcome::NoPendingRequest
+    }
+}
+
+#[inline]
 pub fn record_ssoft_trap(cpu: CpuId) {
     let idx = cpu.as_index();
     if idx >= MAX_CPUS {
@@ -374,5 +432,66 @@ mod tests {
         let offline = CpuId::from_raw(1);
         assert!(!request_resched(offline));
         assert_eq!(resched_evidence(offline).request_accepted_count, 0);
+    }
+
+    #[test]
+    fn test_ssoft_contract_acknowledges_pending_request() {
+        let _guard = TEST_LOCK.lock();
+        reset_selftest_counters();
+        let target = CpuId::from_raw(1);
+        CPU_ONLINE_MASK.store(
+            (1usize << CpuId::BOOT.as_index()) | (1usize << target.as_index()),
+            Ordering::Release,
+        );
+
+        assert!(request_resched(target));
+        assert_eq!(handle_ssoft_resched(target), ReschedTrapOutcome::Acked);
+
+        let evidence = resched_evidence(target);
+        assert_eq!(evidence.request_accepted_count, 1);
+        assert_eq!(evidence.ssoft_trap_count, 1);
+        assert_eq!(evidence.ack_count, 1);
+    }
+
+    #[test]
+    fn test_ssoft_contract_records_counterfactual_without_ack() {
+        let _guard = TEST_LOCK.lock();
+        reset_selftest_counters();
+        let target = CpuId::from_raw(1);
+        CPU_ONLINE_MASK.store(
+            (1usize << CpuId::BOOT.as_index()) | (1usize << target.as_index()),
+            Ordering::Release,
+        );
+
+        assert_eq!(
+            handle_ssoft_resched(target),
+            ReschedTrapOutcome::NoPendingRequest
+        );
+
+        let evidence = resched_evidence(target);
+        assert_eq!(evidence.request_accepted_count, 0);
+        assert_eq!(evidence.ssoft_trap_count, 1);
+        assert_eq!(evidence.ack_count, 0);
+    }
+
+    #[test]
+    fn test_reject_tp_hint_for_offline_cpu() {
+        let _guard = TEST_LOCK.lock();
+        let online_mask = 1usize << CpuId::BOOT.as_index();
+        assert_eq!(cpu_from_tp_hint_raw(1, online_mask), None);
+    }
+
+    #[test]
+    fn test_cpu_id_resolution_prefers_stack_on_tp_mismatch() {
+        let tp_hint = Some(CpuId::BOOT);
+        let stack_cpu = Some(CpuId::from_raw(1));
+        assert_eq!(resolve_cpu_id(tp_hint, stack_cpu), CpuId::from_raw(1));
+    }
+
+    #[test]
+    fn test_cpu_id_resolution_uses_boot_when_only_tp_non_boot_exists() {
+        let tp_hint = Some(CpuId::from_raw(1));
+        let stack_cpu = None;
+        assert_eq!(resolve_cpu_id(tp_hint, stack_cpu), CpuId::BOOT);
     }
 }

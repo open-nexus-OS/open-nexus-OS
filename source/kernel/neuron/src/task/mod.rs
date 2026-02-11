@@ -20,7 +20,7 @@ use crate::{
     cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
     ipc::{self, Router},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
-    sched::{QosClass, Scheduler},
+    sched::{EnqueueOutcome, QosClass, Scheduler},
     trap::{TrapDomainId, TrapFrame},
     types::{SlotIndex, VirtAddr},
 };
@@ -41,6 +41,16 @@ pub enum BlockReason {
     IpcRecv { endpoint: ipc::EndpointId, deadline_ns: u64 },
     IpcSend { endpoint: ipc::EndpointId, deadline_ns: u64 },
     WaitChild { target: Option<Pid> },
+}
+
+#[must_use = "wake outcomes must be handled explicitly"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakeOutcome {
+    TaskNotFound,
+    TaskNotBlocked,
+    Woken,
+    WokenNoopSelftest,
+    EnqueueRejected,
 }
 
 /// Errors returned when waiting for child processes.
@@ -228,6 +238,8 @@ pub enum SpawnError {
     AddressSpace(AddressSpaceError),
     /// Stack allocator ran out of physical pages.
     StackExhausted,
+    /// Scheduler runqueue rejected enqueue due to bounded capacity.
+    RunQueueFull,
 }
 
 impl From<CapError> for SpawnError {
@@ -262,7 +274,7 @@ pub fn spawn_fail_reason(err: &SpawnError) -> SpawnFailReason {
         AddressSpace(AddressSpaceError::AsidExhausted) => SpawnFailReason::MapFailed,
         AddressSpace(AddressSpaceError::Mapping(_)) => SpawnFailReason::MapFailed,
         AddressSpace(_) => SpawnFailReason::InvalidPayload,
-        StackExhausted => SpawnFailReason::OutOfMemory,
+        StackExhausted | RunQueueFull => SpawnFailReason::OutOfMemory,
     }
 }
 
@@ -765,7 +777,17 @@ impl TaskTable {
             parent_task.children.push(pid);
         }
 
-        scheduler.enqueue(pid, QosClass::PerfBurst);
+        if matches!(
+            scheduler.enqueue(pid, QosClass::PerfBurst),
+            EnqueueOutcome::Rejected(_)
+        ) {
+            if let Some(parent_task) = self.tasks.get_mut(parent_index) {
+                parent_task.children.retain(|child_pid| *child_pid != pid);
+            }
+            let _ = address_spaces.detach(child_as, pid);
+            self.tasks.pop();
+            return Err(SpawnError::RunQueueFull);
+        }
 
         Ok(pid)
     }
@@ -849,25 +871,34 @@ impl TaskTable {
         scheduler.finish_current();
     }
 
-    /// Wakes a blocked task and enqueues it for execution. Returns true if a task was woken.
-    pub fn wake(&mut self, pid: Pid, scheduler: &mut Scheduler) -> bool {
-        let Some(task) = self.task_mut(pid) else {
-            return false;
+    /// Wakes a blocked task and enqueues it for execution.
+    pub fn wake(&mut self, pid: Pid, scheduler: &mut Scheduler) -> WakeOutcome {
+        let Some(task) = self.task(pid) else {
+            return WakeOutcome::TaskNotFound;
         };
         if !task.blocked {
-            return false;
+            return WakeOutcome::TaskNotBlocked;
         }
-        task.clear_blocked();
         // Selftest dummy tasks intentionally carry a zero frame and no AS.
         // Waking them should validate unblock bookkeeping, but must not
         // make them runnable for the real scheduler path.
         if task.address_space.is_none() && task.frame.sepc == 0 {
-            return true;
+            if let Some(task) = self.task_mut(pid) {
+                task.clear_blocked();
+            }
+            return WakeOutcome::WokenNoopSelftest;
         }
+        let qos = task.qos;
         // Avoid duplicates; then enqueue with the stored QoS.
         scheduler.purge(pid);
-        scheduler.enqueue(pid, task.qos);
-        true
+        if matches!(scheduler.enqueue(pid, qos), EnqueueOutcome::Rejected(_)) {
+            return WakeOutcome::EnqueueRejected;
+        }
+        if let Some(task) = self.task_mut(pid) {
+            task.clear_blocked();
+            return WakeOutcome::Woken;
+        }
+        WakeOutcome::TaskNotFound
     }
 
     /// Wakes the current task's parent if it is blocked in `wait` for this child.
@@ -886,7 +917,13 @@ impl TaskTable {
         }
         if let Some(BlockReason::WaitChild { target }) = parent_task.block_reason() {
             if target.is_none() || target == Some(child) {
-                let _ = self.wake(parent, scheduler);
+                match self.wake(parent, scheduler) {
+                    WakeOutcome::Woken
+                    | WakeOutcome::WokenNoopSelftest
+                    | WakeOutcome::TaskNotBlocked
+                    | WakeOutcome::TaskNotFound
+                    | WakeOutcome::EnqueueRejected => {}
+                }
             }
         }
     }

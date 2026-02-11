@@ -12,7 +12,7 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (closed as Done; SMP v1 baseline fixed)
+- **last_decision**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (hardening bridge complete; TASK-0012 marker semantics preserved)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
@@ -33,20 +33,20 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (next/active prep)
+- **active_task**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (next)
 - **seed_contract**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (completed seed)
-- **phase_now**: TASK-0012 complete; TASK-0012B hardening bridge is now active (bounded scheduler queues + trap/IPI contract + CPU-ID path)
+- **phase_now**: TASK-0012B complete; bounded scheduler enqueue contract + trap/IPI contract hardening + guarded CPU-ID hybrid path landed
 - **baseline_commit**: `978ebeb`
-- **next_task_slice**: TASK-0012B Phase 1 scheduler/SMP hardening slice on top of TASK-0012 baseline
+- **next_task_slice**: TASK-0013 QoS ABI/timed coalescing on TASK-0012+0012B baseline
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
   - `just diag-os`
   - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- **last_completed**: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
+- **last_completed**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
   - Proof gates: `cargo test --workspace`, `just dep-gate`, `just diag-os`, `SMP=2 REQUIRE_SMP=1 ...`, `SMP=1 ...`
-  - Outcome: strict IPI causal chain (`request -> send -> S_SOFT trap -> ack`), anti-fake counterfactual marker, and deterministic `test_reject_*` SMP negatives
+  - Outcome: explicit bounded enqueue reject semantics, explicit S_SOFT contract path, and deterministic guarded `tp -> stack -> BOOT` CPU-ID resolution
 
 ## Active invariants (must hold)
 - **security**
@@ -80,8 +80,8 @@ Rules:
 - **kernel execution order (current)**:
   - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — complete (phases 0→5, proofs green)
   - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — complete (SMP baseline + anti-fake markers + negative tests)
-  - `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` — next (internal hardening bridge; contract semantics unchanged)
-  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — follows 0012B (QoS ABI/timed coalescing on hardened baseline)
+  - `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` — complete (bounded enqueue, trap/IPI contract hardening, CPU-ID guarded hybrid path)
+  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — next (QoS ABI/timed coalescing on hardened baseline)
 - **exported prerequisites**:
   - `TASK-0013`: consumes 0012+0012B scheduler baseline (no alternate scheduler authority)
   - `TASK-0042`: extends affinity/shares without violating 0012+0012B ownership and bounded-steal invariants

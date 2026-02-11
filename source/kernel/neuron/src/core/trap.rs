@@ -224,6 +224,17 @@ static_assertions::assert_impl_all!(TrapRuntime: Send, Sync);
 // Keep runtime state in a single global slot.
 static TRAP_RUNTIME: Mutex<Option<TrapRuntime>> = Mutex::new(None);
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum RuntimeKernelAccessFailure {
+    NotInstalled,
+    SecondaryHart,
+}
+
+#[inline]
+fn trap_runtime_access_allowed_for_cpu(cpu: crate::types::CpuId) -> bool {
+    cpu.is_boot()
+}
+
 /// Installs the runtime trap context using kernel subsystems and default syscall table.
 pub fn install_runtime(
     scheduler: &mut Scheduler,
@@ -233,6 +244,10 @@ pub fn install_runtime(
     timer: &'static dyn Timer,
     syscalls: &SyscallTable,
 ) -> TrapDomainId {
+    let install_cpu = crate::smp::cpu_current_id();
+    if !trap_runtime_access_allowed_for_cpu(install_cpu) {
+        panic!("trap runtime install must run on boot hart");
+    }
     let syscalls_ptr = NonNull::new((syscalls as *const SyscallTable) as *mut SyscallTable)
         .expect("syscall table ptr");
     let runtime = TrapRuntime {
@@ -261,8 +276,15 @@ pub(crate) fn runtime_installed() -> bool {
     TRAP_RUNTIME.lock().is_some()
 }
 
-fn runtime_kernel_handles() -> Option<KernelHandles> {
-    TRAP_RUNTIME.lock().as_ref().map(|runtime| runtime.kernel)
+fn runtime_kernel_handles() -> Result<KernelHandles, RuntimeKernelAccessFailure> {
+    if !trap_runtime_access_allowed_for_cpu(crate::smp::cpu_current_id()) {
+        return Err(RuntimeKernelAccessFailure::SecondaryHart);
+    }
+    TRAP_RUNTIME
+        .lock()
+        .as_ref()
+        .map(|runtime| runtime.kernel)
+        .ok_or(RuntimeKernelAccessFailure::NotInstalled)
 }
 
 fn runtime_domain(id: TrapDomainId) -> Option<NonNull<SyscallTable>> {
@@ -601,6 +623,7 @@ fn spawn_errno(err: &task::SpawnError) -> usize {
         Ipc(_) => errno(EINVAL),
         AddressSpace(as_err) => address_space_errno(as_err),
         StackExhausted => errno(ENOMEM),
+        RunQueueFull => errno(EAGAIN),
     }
 }
 
@@ -832,10 +855,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let code = frame.scause & (usize::MAX >> 1);
         if code == S_SOFT_INT {
             let cpu = crate::smp::cpu_current_id();
-            crate::smp::record_ssoft_trap(cpu);
-            if crate::smp::take_resched(cpu) {
-                crate::smp::acknowledge_resched(cpu);
-            }
+            let _ = crate::smp::handle_ssoft_resched(cpu);
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             unsafe {
                 riscv::register::sip::clear_ssoft();
@@ -913,8 +933,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
         // Debug: Log syscall number with safe UART
         let kernel_handles = match runtime_kernel_handles() {
-            Some(handles) => handles,
-            None => {
+            Ok(handles) => handles,
+            Err(reason) => {
                 // RFC-0003: keep logs unified and deterministic; avoid ad-hoc debug spam.
                 // Use raw UART to avoid mutex recursion in trap context, but keep the same
                 // `[LEVEL target]` prefix as the centralized logger.
@@ -922,7 +942,15 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     core::sync::atomic::AtomicUsize::new(0);
                 if WARN_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 4 {
                     let mut u = crate::uart::raw_writer();
-                    let _ = u.write_str("[WARN trap] trap runtime not installed\n");
+                    let msg = match reason {
+                        RuntimeKernelAccessFailure::NotInstalled => {
+                            "[WARN trap] trap runtime not installed\n"
+                        }
+                        RuntimeKernelAccessFailure::SecondaryHart => {
+                            "[WARN trap] trap runtime unavailable on secondary hart\n"
+                        }
+                    };
+                    let _ = u.write_str(msg);
                 }
                 frame.x[10] = errno(ENOSYS);
                 frame.sepc = frame.sepc.wrapping_add(4);
@@ -962,7 +990,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 let _ = u.write_str("\n");
                             });
                             frame.x[10] = errno(EINVAL);
-                            if let Some(mut handles) = runtime_kernel_handles() {
+                            if let Ok(mut handles) = runtime_kernel_handles() {
                                 unsafe {
                                     let tasks = handles.tasks.as_mut();
                                     tasks.exit_current(-22);
@@ -1218,7 +1246,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     write_byte(b'\n');
 
                     // RFC-0004 Phase 1 diagnostics: if this fault hits a known guard page, emit a tag.
-                    if let Some(handles) = runtime_kernel_handles() {
+                    if let Ok(handles) = runtime_kernel_handles() {
                         let tasks = handles.tasks.as_ref();
                         let current_pid = tasks.current_pid();
                         if let Some(task) = tasks.task(current_pid) {
@@ -1354,7 +1382,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 }
 
                 // Snapshot current task's saved frame for additional diagnostics
-                if let Some(handles) = runtime_kernel_handles() {
+                if let Ok(handles) = runtime_kernel_handles() {
                     unsafe {
                         let tasks = handles.tasks.as_ref();
                         let spaces = handles.spaces.as_ref();
@@ -1399,7 +1427,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
                 // Fail-fast: kill the offending user task and hand control back to the scheduler.
                 // Leaving the task alive produces an infinite fault storm and blocks boot markers.
-                if let Some(mut handles) = runtime_kernel_handles() {
+                if let Ok(mut handles) = runtime_kernel_handles() {
                     unsafe {
                         let scheduler = handles.scheduler.as_mut();
                         let tasks = handles.tasks.as_mut();
@@ -1411,7 +1439,13 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         // RFC-0005 lifecycle hardening: close endpoints owned by the task and wake any blocked peers.
                         let waiters = router.close_endpoints_for_owner(doomed.as_raw());
                         for pid in waiters {
-                            let _ = tasks.wake(crate::types::Pid::from_raw(pid), scheduler);
+                            match tasks.wake(crate::types::Pid::from_raw(pid), scheduler) {
+                                crate::task::WakeOutcome::Woken
+                                | crate::task::WakeOutcome::WokenNoopSelftest
+                                | crate::task::WakeOutcome::TaskNotBlocked
+                                | crate::task::WakeOutcome::TaskNotFound
+                                | crate::task::WakeOutcome::EnqueueRejected => {}
+                            }
                         }
                         // Also remove this PID from any waiter queues it may be registered in.
                         router.remove_waiter_from_all(doomed.as_raw());
@@ -1554,7 +1588,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
                     write_hex(0, 16);
                     // Best-effort task context: current PID and its saved sepc (helps catch corrupted frames).
-                    if let Some(handles) = runtime_kernel_handles() {
+                    if let Ok(handles) = runtime_kernel_handles() {
                         let tasks = handles.tasks.as_ref();
                         let pid = tasks.current_pid();
                         for &b in b" pid=0x" {
@@ -1640,6 +1674,12 @@ mod tests {
         assert!(out.contains("sepc"));
         assert!(out.contains("scause"));
         assert!(out.contains("a0..a7"));
+    }
+
+    #[test]
+    fn trap_runtime_access_is_boot_hart_only() {
+        assert!(trap_runtime_access_allowed_for_cpu(crate::types::CpuId::BOOT));
+        assert!(!trap_runtime_access_allowed_for_cpu(crate::types::CpuId::from_raw(1)));
     }
 }
 

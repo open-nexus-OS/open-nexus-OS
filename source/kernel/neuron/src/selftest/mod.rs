@@ -39,7 +39,7 @@ use crate::{
     hal::virt::VirtMachine,
     ipc::Router,
     mm::{AddressSpaceError, AddressSpaceManager, MapError, PAGE_SIZE},
-    sched::{QosClass, Scheduler},
+    sched::{EnqueueOutcome, QosClass, Scheduler},
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
         SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
@@ -802,7 +802,13 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     ctx.tasks.set_current(recv_pid);
     let _ = ctx.router.recv(ep);
     if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(ep) {
-        let _ = ctx.tasks.wake(Pid::from_raw(waiter), ctx.scheduler);
+        match ctx.tasks.wake(Pid::from_raw(waiter), ctx.scheduler) {
+            crate::task::WakeOutcome::Woken
+            | crate::task::WakeOutcome::WokenNoopSelftest
+            | crate::task::WakeOutcome::TaskNotBlocked
+            | crate::task::WakeOutcome::TaskNotFound
+            | crate::task::WakeOutcome::EnqueueRejected => {}
+        }
     }
     let woke_ok = ctx.tasks.task(sender_pid).map(|t| !t.is_blocked()).unwrap_or(false);
 
@@ -884,7 +890,13 @@ fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
         }
     };
     for pid in waiters {
-        let _ = ctx.tasks.wake(Pid::from_raw(pid), ctx.scheduler);
+        match ctx.tasks.wake(Pid::from_raw(pid), ctx.scheduler) {
+            crate::task::WakeOutcome::Woken
+            | crate::task::WakeOutcome::WokenNoopSelftest
+            | crate::task::WakeOutcome::TaskNotBlocked
+            | crate::task::WakeOutcome::TaskNotFound
+            | crate::task::WakeOutcome::EnqueueRejected => {}
+        }
     }
 
     let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
@@ -927,7 +939,13 @@ fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
 
     let waiters = ctx.router.close_endpoints_for_owner(owner);
     for pid in waiters {
-        let _ = ctx.tasks.wake(Pid::from_raw(pid), ctx.scheduler);
+        match ctx.tasks.wake(Pid::from_raw(pid), ctx.scheduler) {
+            crate::task::WakeOutcome::Woken
+            | crate::task::WakeOutcome::WokenNoopSelftest
+            | crate::task::WakeOutcome::TaskNotBlocked
+            | crate::task::WakeOutcome::TaskNotFound
+            | crate::task::WakeOutcome::EnqueueRejected => {}
+        }
     }
 
     let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
@@ -1142,7 +1160,13 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     let probe_pid = Pid::from_raw(0x7FFF_FF00);
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
-    let _ = ctx.scheduler.selftest_enqueue_on_cpu(target, probe_pid, QosClass::Normal);
+    if !matches!(
+        ctx.scheduler.selftest_enqueue_on_cpu(target, probe_pid, QosClass::Normal),
+        EnqueueOutcome::Enqueued
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: work stealing FAIL enqueue");
+        return;
+    }
     let picked = ctx.scheduler.selftest_schedule_on_cpu(boot);
     let steal_count = crate::smp::work_steal_count();
     if picked == Some(probe_pid) && steal_count > 0 {
@@ -1160,10 +1184,20 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     // 1) reject stealing more than one task per scheduling tick.
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
-    let _ =
-        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal);
-    let _ =
-        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal);
+    if !matches!(
+        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal),
+        EnqueueOutcome::Enqueued
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL enqueue-0");
+        return;
+    }
+    if !matches!(
+        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal),
+        EnqueueOutcome::Enqueued
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL enqueue-1");
+        return;
+    }
     let _ = ctx.scheduler.selftest_schedule_on_cpu(boot);
     if ctx.scheduler.selftest_queue_len(target, QosClass::Normal) == 1 {
         log_info!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound ok");
@@ -1174,11 +1208,17 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     // 2) reject stealing higher-QoS tasks when current class is lower.
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
-    let _ = ctx.scheduler.selftest_enqueue_on_cpu(
-        target,
-        Pid::from_raw(0x7FFF_FF20),
-        QosClass::Interactive,
-    );
+    if !matches!(
+        ctx.scheduler.selftest_enqueue_on_cpu(
+            target,
+            Pid::from_raw(0x7FFF_FF20),
+            QosClass::Interactive,
+        ),
+        EnqueueOutcome::Enqueued
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos FAIL enqueue");
+        return;
+    }
     if ctx.scheduler.selftest_try_steal_for_class(boot, QosClass::Normal).is_none() {
         log_info!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos ok");
     } else {
@@ -1187,7 +1227,12 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
 
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
-    ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal);
+    if matches!(
+        ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal),
+        EnqueueOutcome::Rejected(_)
+    ) {
+        panic!("scheduler selftest bootstrap enqueue rejected");
+    }
 }
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]

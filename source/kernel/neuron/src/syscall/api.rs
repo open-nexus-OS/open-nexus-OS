@@ -507,6 +507,17 @@ impl<'a> Context<'a> {
     }
 }
 
+#[inline]
+fn observe_wake_outcome(outcome: task::WakeOutcome) {
+    match outcome {
+        task::WakeOutcome::Woken
+        | task::WakeOutcome::WokenNoopSelftest
+        | task::WakeOutcome::TaskNotBlocked
+        | task::WakeOutcome::TaskNotFound
+        | task::WakeOutcome::EnqueueRejected => {}
+    }
+}
+
 fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let now = ctx.timer.now();
     let len = ctx.tasks.len();
@@ -523,13 +534,13 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
                 let _ = ctx.router.remove_recv_waiter(endpoint, pid.as_raw());
-                let _ = ctx.tasks.wake(pid, ctx.scheduler);
+                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
             }
             Some(BlockReason::IpcSend { endpoint, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
                 let _ = ctx.router.remove_send_waiter(endpoint, pid.as_raw());
-                let _ = ctx.tasks.wake(pid, ctx.scheduler);
+                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
             }
             _ => {}
         }
@@ -710,7 +721,7 @@ fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize
     }
     let waiters = ctx.router.close_endpoint(id)?;
     for pid in waiters {
-        let _ = ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler);
+        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
     }
     Ok(0)
 }
@@ -892,7 +903,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(()) => {
                 // Wake one receiver blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
-                    let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
+                    observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
                 }
                 // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" send.
                 // This helps diagnose OTA stage hangs without relying on NoSuchEndpoint spam.
@@ -926,7 +937,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 }
                 // Degenerate fallback: nothing runnable. Undo waiter registration and keep spinning.
                 let _ = ctx.router.remove_send_waiter(endpoint, cur.as_raw());
-                let _ = ctx.tasks.wake(cur, ctx.scheduler);
+                observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
                 return Err(Error::Reschedule);
             }
             Err((e, msg)) => {
@@ -989,7 +1000,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(msg) => {
                 // Receiving frees queue capacity; wake one sender blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                    let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
+                    observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
                 }
                 break msg;
             }
@@ -1007,7 +1018,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     Ok(msg) => {
                         let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                            let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
+                            observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
                         }
                         break msg;
                     }
@@ -1030,7 +1041,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 }
                 // Degenerate fallback: nothing runnable. Undo waiter registration and keep spinning.
                 let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                let _ = ctx.tasks.wake(cur, ctx.scheduler);
+                observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
                 return Err(Error::Reschedule);
             }
             Err(e) => return Err(e.into()),
@@ -1225,7 +1236,7 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         match ctx.router.recv(endpoint) {
             Ok(msg) => {
                 if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                    let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
+                    observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
                 }
                 break msg;
             }
@@ -1240,7 +1251,7 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     Ok(msg) => {
                         let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                         if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                            let _ = ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler);
+                            observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
                         }
                         break msg;
                     }
@@ -1258,7 +1269,7 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     return Err(Error::Reschedule);
                 }
                 let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                let _ = ctx.tasks.wake(cur, ctx.scheduler);
+                observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
                 return Err(Error::Reschedule);
             }
             Err(e) => return Err(e.into()),
@@ -1536,7 +1547,7 @@ fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     ctx.router.remove_waiter_from_all(exiting.as_raw());
     ctx.tasks.exit_current(status);
     for pid in waiters {
-        let _ = ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler);
+        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
     }
     ctx.tasks.wake_parent_waiter(exiting, ctx.scheduler);
     ctx.scheduler.finish_current();
@@ -1576,7 +1587,7 @@ fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
                 }
-                let _ = ctx.tasks.wake(cur, ctx.scheduler);
+                observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
                 return Err(Error::Reschedule);
             }
             Err(err) => return Err(Error::from(err)),

@@ -8,6 +8,7 @@ links:
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
   - QoS baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - Follow-up (RISC-V SMP runtime hardening): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
   - Drivers track (alignment): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Testing contract: scripts/qemu-test.sh
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (QoS-aware driver scheduling, CPU affinity for latency-sensitive devices)
@@ -43,6 +44,7 @@ With SMP enabled (TASK-0012 + TASK-0012B), provide:
 - Determinism: proofs must not rely on "exact timings"; prefer structural/ratio assertions.
 - No `unwrap/expect`; no blanket `allow(dead_code)` in new userspace code.
 - Preserve TASK-0012B hardening contract (bounded scheduler/SMP hot paths, deterministic resched evidence chain, no alternate SMP authority).
+- Preserve TASK-0012B trap-runtime ownership boundary: mutable trap-runtime kernel-handle access remains boot-hart-only until `TASK-0247` introduces per-hart runtime authority.
 
 ## Security considerations
 

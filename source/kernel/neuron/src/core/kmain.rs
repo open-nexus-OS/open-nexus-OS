@@ -22,7 +22,7 @@ use crate::{
     hal::Timer,
     hal::{IrqCtl, Tlb},
     mm::{AddressSpaceManager, AsHandle},
-    sched::{QosClass, Scheduler},
+    sched::{EnqueueOutcome, QosClass, Scheduler},
     selftest,
     syscall::{api, SyscallTable},
     task::{Pid, TaskTable},
@@ -149,7 +149,12 @@ impl KernelState {
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut scheduler = Scheduler::new();
-        scheduler.enqueue(Pid::KERNEL, QosClass::Normal);
+        if matches!(
+            scheduler.enqueue(Pid::KERNEL, QosClass::Normal),
+            EnqueueOutcome::Rejected(_)
+        ) {
+            panic!("scheduler bootstrap enqueue rejected");
+        }
 
         let mut syscalls = SyscallTable::new();
         api::install_handlers(&mut syscalls);
@@ -289,13 +294,25 @@ impl KernelState {
                             if deadline_ns != 0 && now >= deadline_ns =>
                         {
                             let _ = self.ipc.remove_recv_waiter(endpoint, pid.as_raw());
-                            let _ = self.tasks.wake(pid, &mut self.scheduler);
+                            match self.tasks.wake(pid, &mut self.scheduler) {
+                                crate::task::WakeOutcome::Woken
+                                | crate::task::WakeOutcome::WokenNoopSelftest
+                                | crate::task::WakeOutcome::TaskNotBlocked
+                                | crate::task::WakeOutcome::TaskNotFound
+                                | crate::task::WakeOutcome::EnqueueRejected => {}
+                            }
                         }
                         Some(crate::task::BlockReason::IpcSend { endpoint, deadline_ns })
                             if deadline_ns != 0 && now >= deadline_ns =>
                         {
                             let _ = self.ipc.remove_send_waiter(endpoint, pid.as_raw());
-                            let _ = self.tasks.wake(pid, &mut self.scheduler);
+                            match self.tasks.wake(pid, &mut self.scheduler) {
+                                crate::task::WakeOutcome::Woken
+                                | crate::task::WakeOutcome::WokenNoopSelftest
+                                | crate::task::WakeOutcome::TaskNotBlocked
+                                | crate::task::WakeOutcome::TaskNotFound
+                                | crate::task::WakeOutcome::EnqueueRejected => {}
+                            }
                         }
                         _ => {}
                     }

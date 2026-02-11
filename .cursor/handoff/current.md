@@ -1,7 +1,7 @@
-# Current Handoff: TASK-0012B Kernel SMP v1b hardening — PREP/ACTIVE
+# Current Handoff: TASK-0012B Kernel SMP v1b hardening — COMPLETE
 
 **Date**: 2026-02-10  
-**Status**: TASK-0012 closed; TASK-0012B is the active hardening bridge
+**Status**: TASK-0012 and TASK-0012B closed; handoff moves to TASK-0013
 
 ---
 
@@ -19,19 +19,18 @@
   - `KSELFTEST: test_reject_steal_above_bound ok`
   - `KSELFTEST: test_reject_steal_higher_qos ok`
 
-## Active focus (TASK-0012B)
+## Completed focus (TASK-0012B)
 
-- Entry task: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
-- Scope:
-  - bounded queue/backpressure contract in scheduler hot paths,
-  - trap/IPI resched contract hardening without changing marker semantics,
-  - CPU-ID fast-path + deterministic fallback contract.
-- Do not introduce:
-  - new userspace scheduler ABI (TASK-0013/0042 own this),
-  - a second SMP authority path,
-  - timing-based proof success logic.
+- Completed task: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
+- Landed:
+  - explicit bounded scheduler enqueue contract with deterministic reject semantics,
+  - explicit S_SOFT resched contract path while preserving TASK-0012 marker semantics,
+  - guarded CPU-ID hybrid path (`tp` hint -> stack-range fallback -> BOOT fallback).
+- Kept unchanged:
+  - TASK-0012 marker semantics and anti-fake causal chain.
+  - SMP proof command shape (`SMP=2` gated + `SMP=1` regression).
 
-## Proof floor for TASK-0012B slices
+## Proof floor executed (TASK-0012B)
 
 - `cargo test --workspace`
 - `just dep-gate`
@@ -41,5 +40,5 @@
 
 ## Immediate next entry-point
 
-- Start with `source/kernel/neuron/src/sched/mod.rs` and `source/kernel/neuron/src/core/smp.rs`.
-- Keep `scripts/qemu-test.sh` marker ordering/meaning unchanged unless docs + task contracts are synchronized in the same slice.
+- Next task: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`.
+- Preserve TASK-0012/TASK-0012B authority: no alternate SMP authority path and no marker-semantics drift.

@@ -1,6 +1,6 @@
 ---
 title: TASK-0012B Kernel SMP v1b: scheduler + SMP hardening (bounded queues, trap/IPI contract, CPU-ID fast path)
-status: Draft
+status: In Review
 owner: @kernel-team
 created: 2026-02-10
 links:
@@ -38,6 +38,8 @@ Harden scheduler + SMP internals while preserving TASK-0012 externally proven be
 - keep SMP marker proofs and deterministic semantics unchanged,
 - tighten bounded/no-surprise behavior on scheduler and IPI/trap paths,
 - document and enforce ownership/synchronization contracts used by follow-up tasks.
+- harden Rust error-propagation discipline (`#[must_use]` outcomes are matched explicitly in wake/enqueue paths).
+- fail closed for mutable trap-runtime access on non-boot harts until a per-hart trap runtime authority exists.
 
 ## Non-Goals
 
@@ -63,13 +65,14 @@ Harden scheduler + SMP internals while preserving TASK-0012 externally proven be
 
 ## Red flags / decision points
 
-- **RED (must decide in-task)**:
-  - Queue capacity/backpressure contract in scheduler paths (reject vs defer semantics) must be explicit and tested.
-- **YELLOW**:
-  - Trap stack-top table synchronization style (`usize` table vs atomic table) must be chosen with trap/assembly compatibility in mind.
-  - CPU-ID fast path must not assume `tp` ownership unless that invariant is proven and enforced.
+- **RESOLVED (RED)**:
+  - Queue capacity/backpressure contract is explicit and tested; v1b uses deterministic immediate reject on saturation.
+- **RESOLVED (YELLOW)**:
+  - Trap stack-top synchronization uses atomic per-hart table semantics with release/store + acquire/load boundaries.
+  - CPU-ID fast path uses guarded hybrid semantics (`tp` advisory hint -> stack-range fallback -> BOOT fallback), so `tp` is not treated as sole authority.
+  - Trap runtime mutable-kernel handle access is boot-hart-only; secondary-hart trap paths fail closed instead of sharing mutable runtime pointers.
 - **GREEN**:
-  - Existing IPI trap handling already provides a deterministic causal chain and can be hardened without changing marker semantics.
+  - Existing IPI trap handling kept deterministic causal chain semantics while being encapsulated as one explicit contract path.
 
 ## Security considerations
 
@@ -79,6 +82,7 @@ Harden scheduler + SMP internals while preserving TASK-0012 externally proven be
 - Resched/IPI bookkeeping drift causing false-positive progress signals.
 - Scheduler resource exhaustion through unbounded queue growth.
 - CPU-ID misidentification causing cross-CPU accounting/ack errors.
+- Shared mutable trap-runtime handles being consumed from multiple harts without explicit per-hart ownership.
 
 ### Security invariants (MUST hold)
 
@@ -103,6 +107,7 @@ Harden scheduler + SMP internals while preserving TASK-0012 externally proven be
 - Reuse existing deterministic marker contract and negative tests.
 - Add focused host/kernel tests for bounded queue and synchronization decisions.
 - Keep changes narrow to scheduler/SMP internals and validate with dual-mode QEMU proof ladder.
+- Guard mutable trap-runtime kernel-handle access to boot hart only; track per-hart trap-runtime ownership, stack-overflow guarding, NMI safety, and FPU context policy in `TASK-0247`.
 
 ## Contract sources (single source of truth)
 
@@ -149,11 +154,20 @@ Required markers remain green and unchanged in meaning:
 - `source/kernel/neuron/src/core/smp.rs`
 - `source/kernel/neuron/src/core/trap.rs`
 - `source/kernel/neuron/src/sched/mod.rs`
+- `source/kernel/neuron/src/task/mod.rs` (explicit enqueue-reject propagation at spawn/wake boundaries)
+- `source/kernel/neuron/src/core/kmain.rs` (bootstrap enqueue reject handling)
+- `source/kernel/neuron/src/selftest/mod.rs` (selftest bootstrap enqueue reject handling)
+- `source/kernel/neuron/src/syscall/api.rs` (explicit wake-outcome matching in syscall-side waiter wakeups)
 - `source/kernel/neuron/src/types.rs` (only if CPU/Hart ID helper contracts require narrow updates)
 - `scripts/qemu-test.sh` (only if marker ordering/gating contract needs explicit sync)
 - `docs/architecture/01-neuron-kernel.md`
 - `docs/architecture/16-rust-concurrency-model.md`
 - `docs/testing/index.md` (only if proof commands/marker expectations change)
+- `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md` (phase/checklist/status sync)
+- `docs/rfcs/README.md` (RFC status index sync)
+- `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` (anti-drift follow-up notes for trap runtime/stack overflow/NMI/FPU)
+- `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (anti-drift note: preserve trap-runtime ownership boundary)
+- `tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md` (anti-drift note: preserve trap-runtime ownership boundary)
 
 ## Plan (small PRs)
 
@@ -169,9 +183,17 @@ Required markers remain green and unchanged in meaning:
 4. Proof sync:
    - keep marker contract stable,
    - refresh docs if any contract-level behavior changed.
+5. Rust error-propagation hardening:
+   - ensure `#[must_use]` outcomes are consumed explicitly at scheduler/wake callsites,
+   - avoid silent `let _ = ...` swallowing for wake/enqueue outcome contracts.
+6. Trap-runtime ownership hardening:
+   - keep mutable trap-runtime kernel-handle access boot-hart-only in v1b,
+   - defer per-hart trap-runtime ownership + full secondary-hart user-trap readiness to `TASK-0247`.
 
 ## Acceptance criteria (behavioral)
 
 - SMP behavior is unchanged at contract level, but internal scheduler/SMP paths are more bounded and auditable.
 - Dual-mode SMP proof ladder remains green with unchanged marker semantics.
 - Follow-up tasks can rely on TASK-0012B as the hardening baseline without introducing a second SMP authority.
+- Rust `#[must_use]` outcome contracts for enqueue/wake/resched paths are explicitly consumed at callsites (no silent ignore pattern on these paths).
+- Mutable trap-runtime kernel handles are never consumed on secondary harts in v1b; secondary-hart paths fail closed until `TASK-0247` delivers per-hart ownership and extended hardening.
