@@ -3931,15 +3931,13 @@ mod tests {
         tasks
             .bootstrap_mut()
             .caps_mut()
-            .set(
-                1,
-                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
-            )
+            .set(1, Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE })
             .unwrap();
         let mut ctx =
             Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
-        let args = Args::new([TASK_QOS_OP_SET, target.as_index(), QosClass::Idle as usize, 0, 0, 0]);
+        let args =
+            Args::new([TASK_QOS_OP_SET, target.as_index(), QosClass::Idle as usize, 0, 0, 0]);
         let err = sys_task_qos(&mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }

@@ -172,6 +172,7 @@ Prove in QEMU:
   - `test_reject_qos_set_unauthorized*`
   - `test_reject_invalid_qos_class*`
   - `test_reject_timer_registration_over_limit*`
+  - selftest-client E2E probe asserts QoS self-escalation deny and timed invalid-QoS reject.
 
 ## Touched paths (allowlist)
 

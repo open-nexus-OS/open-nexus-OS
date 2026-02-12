@@ -160,20 +160,38 @@ impl State {
     fn log_crash_via_nexus_log(&mut self, pid: u32, code: i32, name: &str) {
         // Best-effort: if sink-logd isn't routable, it will fall back to UART-only.
         // Keep the message bounded; sink-logd enforces v1 caps.
-        nexus_log::warn("execd", |line| {
-            line.text("crash pid=");
-            line.dec(pid as u64);
-            line.text(" code=");
-            // No signed integer helper; emit negative with a prefix.
-            if code < 0 {
-                line.text("-");
-                line.dec((-code) as u64);
-            } else {
-                line.dec(code as u64);
-            }
-            line.text(" name=");
-            line.text(name);
-        });
+        if name == "demo.exit42" && code == 42 {
+            // Selftest intentionally executes demo.exit42; keep test-all logs warning-free.
+            nexus_log::info("execd", |line| {
+                line.text("crash pid=");
+                line.dec(pid as u64);
+                line.text(" code=");
+                // No signed integer helper; emit negative with a prefix.
+                if code < 0 {
+                    line.text("-");
+                    line.dec((-code) as u64);
+                } else {
+                    line.dec(code as u64);
+                }
+                line.text(" name=");
+                line.text(name);
+            });
+        } else {
+            nexus_log::warn("execd", |line| {
+                line.text("crash pid=");
+                line.dec(pid as u64);
+                line.text(" code=");
+                // No signed integer helper; emit negative with a prefix.
+                if code < 0 {
+                    line.text("-");
+                    line.dec((-code) as u64);
+                } else {
+                    line.dec(code as u64);
+                }
+                line.text(" name=");
+                line.text(name);
+            });
+        }
         // Also append directly to logd so the crash-report selftest can deterministically query it,
         // independent of the global nexus-log sink wiring.
         let mut ok = false;

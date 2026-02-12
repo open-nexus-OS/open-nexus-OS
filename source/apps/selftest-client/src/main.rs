@@ -3321,14 +3321,34 @@ mod os_lite {
 
     fn qos_probe() -> core::result::Result<(), ()> {
         let current = task_qos_get().map_err(|_| ())?;
+        if current != QosClass::Normal {
+            return Err(());
+        }
         // Exercise the set path without perturbing scheduler behavior for later probes.
         task_qos_set_self(current).map_err(|_| ())?;
         let got = task_qos_get().map_err(|_| ())?;
-        if got == current {
-            Ok(())
-        } else {
-            Err(())
+        if got != current {
+            return Err(());
         }
+
+        let higher = match current {
+            QosClass::Idle => Some(QosClass::Normal),
+            QosClass::Normal => Some(QosClass::Interactive),
+            QosClass::Interactive => Some(QosClass::PerfBurst),
+            QosClass::PerfBurst => None,
+        };
+        if let Some(next) = higher {
+            match task_qos_set_self(next) {
+                Err(nexus_abi::AbiError::CapabilityDenied) => {}
+                _ => return Err(()),
+            }
+            let after = task_qos_get().map_err(|_| ())?;
+            if after != current {
+                return Err(());
+            }
+        }
+
+        Ok(())
     }
 
     fn timed_align_up(deadline_ns: u64, window_ns: u64) -> Option<u64> {
@@ -3369,7 +3389,11 @@ mod os_lite {
                 return Err(());
             }
         };
-        if rsp.len() != 21 || rsp[0] != b'T' || rsp[1] != b'M' || rsp[2] != 1 || rsp[3] != (1 | 0x80)
+        if rsp.len() != 21
+            || rsp[0] != b'T'
+            || rsp[1] != b'M'
+            || rsp[2] != 1
+            || rsp[3] != (1 | 0x80)
         {
             emit_bytes(b"dbg: timed register bad rsp len=0x");
             emit_hex_u64(rsp.len() as u64);
@@ -3387,12 +3411,17 @@ mod os_lite {
         }
         let status = rsp[4];
         let timer_id = u32::from_le_bytes([rsp[9], rsp[10], rsp[11], rsp[12]]);
-        let coalesced =
-            u64::from_le_bytes([rsp[13], rsp[14], rsp[15], rsp[16], rsp[17], rsp[18], rsp[19], rsp[20]]);
+        let coalesced = u64::from_le_bytes([
+            rsp[13], rsp[14], rsp[15], rsp[16], rsp[17], rsp[18], rsp[19], rsp[20],
+        ]);
         Ok((status, timer_id, coalesced))
     }
 
-    fn timed_cancel(client: &KernelClient, nonce: u32, timer_id: u32) -> core::result::Result<u8, ()> {
+    fn timed_cancel(
+        client: &KernelClient,
+        nonce: u32,
+        timer_id: u32,
+    ) -> core::result::Result<u8, ()> {
         let mut req = [0u8; 12];
         req[0] = b'T';
         req[1] = b'M';
@@ -3411,7 +3440,8 @@ mod os_lite {
                 return Err(());
             }
         };
-        if rsp.len() != 9 || rsp[0] != b'T' || rsp[1] != b'M' || rsp[2] != 1 || rsp[3] != (2 | 0x80) {
+        if rsp.len() != 9 || rsp[0] != b'T' || rsp[1] != b'M' || rsp[2] != 1 || rsp[3] != (2 | 0x80)
+        {
             return Err(());
         }
         let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
@@ -3447,7 +3477,11 @@ mod os_lite {
                 return Err(());
             }
         };
-        if rsp.len() != 17 || rsp[0] != b'T' || rsp[1] != b'M' || rsp[2] != 1 || rsp[3] != (3 | 0x80)
+        if rsp.len() != 17
+            || rsp[0] != b'T'
+            || rsp[1] != b'M'
+            || rsp[2] != 1
+            || rsp[3] != (3 | 0x80)
         {
             return Err(());
         }
@@ -3456,8 +3490,9 @@ mod os_lite {
             return Err(());
         }
         let status = rsp[4];
-        let wake_ns =
-            u64::from_le_bytes([rsp[9], rsp[10], rsp[11], rsp[12], rsp[13], rsp[14], rsp[15], rsp[16]]);
+        let wake_ns = u64::from_le_bytes([
+            rsp[9], rsp[10], rsp[11], rsp[12], rsp[13], rsp[14], rsp[15], rsp[16],
+        ]);
         Ok((status, wake_ns))
     }
 
@@ -3470,6 +3505,7 @@ mod os_lite {
 
     fn timed_coalesce_probe() -> core::result::Result<(), ()> {
         const STATUS_OK: u8 = 0;
+        const STATUS_INVALID_ARGS: u8 = 1;
         const STATUS_OVER_LIMIT: u8 = 2;
         let timed = match route_with_retry("timed") {
             Ok(v) => v,
@@ -3508,12 +3544,15 @@ mod os_lite {
         }
 
         let sleep_deadline = now.saturating_add(2_100_000);
-        let (sleep_st, woke_ns) =
-            match timed_sleep_until(&timed, 0x5449_0003, QosClass::Interactive as u8, sleep_deadline)
-            {
-                Ok(v) => v,
-                Err(_) => return timed_fail(0x31),
-            };
+        let (sleep_st, woke_ns) = match timed_sleep_until(
+            &timed,
+            0x5449_0003,
+            QosClass::Interactive as u8,
+            sleep_deadline,
+        ) {
+            Ok(v) => v,
+            Err(_) => return timed_fail(0x31),
+        };
         let sleep_expect = match timed_align_up(sleep_deadline, 1_000_000) {
             Some(v) => v,
             None => return timed_fail(0x32),
@@ -3552,18 +3591,37 @@ mod os_lite {
             }
             ids.push(id);
         }
-        let (st_over, _id_over, _coal_over) =
-            match timed_register(&timed, 0x5449_10FF, QosClass::Idle as u8, base.saturating_add(65)) {
-                Ok(v) => v,
-                Err(_) => return timed_fail(0xA1),
-            };
+        let (st_over, _id_over, _coal_over) = match timed_register(
+            &timed,
+            0x5449_10FF,
+            QosClass::Idle as u8,
+            base.saturating_add(65),
+        ) {
+            Ok(v) => v,
+            Err(_) => return timed_fail(0xA1),
+        };
         if st_over != STATUS_OVER_LIMIT {
             return timed_fail(0xA2);
         }
 
+        let (st_bad_qos, id_bad_qos, coal_bad_qos) =
+            match timed_register(&timed, 0x5449_2000, 0xFF, base.saturating_add(66)) {
+                Ok(v) => v,
+                Err(_) => return timed_fail(0xA3),
+            };
+        if st_bad_qos != STATUS_INVALID_ARGS || id_bad_qos != 0 || coal_bad_qos != 0 {
+            return timed_fail(0xA4);
+        }
+
         for (idx, id) in ids.into_iter().enumerate() {
             let nonce = 0x5449_3000u32.wrapping_add(idx as u32);
-            let _ = timed_cancel(&timed, nonce, id);
+            let st_cancel = match timed_cancel(&timed, nonce, id) {
+                Ok(v) => v,
+                Err(_) => return timed_fail(0xB0 + idx as u64),
+            };
+            if st_cancel != STATUS_OK {
+                return timed_fail(0xC0 + idx as u64);
+            }
         }
 
         Ok(())

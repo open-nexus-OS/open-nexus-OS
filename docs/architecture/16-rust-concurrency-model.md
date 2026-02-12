@@ -2,7 +2,7 @@
 
 **Created**: 2026-01-09  
 **Owner**: @kernel-team  
-**Status**: Active guidance; TASK-0012 SMP v1 baseline and TASK-0012B hardening implemented, TASK-0013+ follow-ups pending
+**Status**: Active guidance; TASK-0012 SMP v1 baseline, TASK-0012B hardening, and TASK-0013 QoS/timed v1 implemented (SMP v2+ follow-ups pending)
 
 ---
 
@@ -523,9 +523,10 @@ qemu-system-riscv64 -smp 4 -kernel neuron.elf
 
 ### Phase 3: TASK-0013 (QoS + Power)
 
-- 🔄 Per-CPU QoS queues
-- 🔄 Timer coalescing (lock-free)
-- 🔄 CPU idle states (per-CPU)
+- ✅ QoS ABI contract + authority-gated scheduling hints (v1)
+- ✅ Deterministic timer coalescing service contract (v1)
+- 🔄 Per-CPU QoS queues (SMP v2 follow-up)
+- 🔄 CPU idle states (per-CPU follow-up)
 
 ---
 

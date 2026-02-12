@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-The Open Nexus OS services (`samgrd`, `bundlemgrd`, `keystored`, `identityd`, `clipboardd`, `notifd`, `searchd`, `settingsd`, `time-syncd`, `resmgrd`, `policyd`, `vfsd`, `packagefsd`, `execd`, etc.) provide system-level functionality through IPC communication. These services need a consistent architecture for discovery, communication, and lifecycle management.
+The Open Nexus OS services (`samgrd`, `bundlemgrd`, `keystored`, `identityd`, `clipboardd`, `notifd`, `searchd`, `settingsd`, `time-syncd`, `timed`, `resmgrd`, `policyd`, `vfsd`, `packagefsd`, `execd`, etc.) provide system-level functionality through IPC communication. These services need a consistent architecture for discovery, communication, and lifecycle management.
 
 ## Decision
 Establish a unified service architecture with the following components:
@@ -12,7 +12,7 @@ Establish a unified service architecture with the following components:
 ### Service Categories
 - **Core Services**: samgrd (service manager), bundlemgrd (bundle manager), keystored (key management)
 - **System Services**: identityd (device identity), clipboardd (clipboard), notifd (notifications)
-- **Data Services**: searchd (search), settingsd (settings), time-syncd (time sync)
+- **Data Services**: searchd (search), settingsd (settings), time-syncd (time sync), timed (timer coalescing authority)
 - **Resource Services**: resmgrd (resource manager), policyd (policy enforcement)
 - **Storage Services**: vfsd (virtual file system), packagefsd (package file system)
 - **Execution Services**: execd (execution manager)

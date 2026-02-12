@@ -141,8 +141,10 @@ impl TimerRegistry {
 
     /// Cancels a timer owned by `owner_service_id`.
     pub fn cancel(&mut self, owner_service_id: u64, id: u32) -> bool {
-        if let Some(pos) =
-            self.entries.iter().position(|entry| entry.owner_service_id == owner_service_id && entry.id == id)
+        if let Some(pos) = self
+            .entries
+            .iter()
+            .position(|entry| entry.owner_service_id == owner_service_id && entry.id == id)
         {
             self.entries.swap_remove(pos);
             true
@@ -153,10 +155,7 @@ impl TimerRegistry {
 
     /// Returns number of live timers for the given owner.
     pub fn count_for_owner(&self, owner_service_id: u64) -> usize {
-        self.entries
-            .iter()
-            .filter(|entry| entry.owner_service_id == owner_service_id)
-            .count()
+        self.entries.iter().filter(|entry| entry.owner_service_id == owner_service_id).count()
     }
 }
 
@@ -196,6 +195,23 @@ mod tests {
         }
         let reject = reg.register(owner, 123).unwrap_err();
         assert_eq!(reject, RegisterReject::OverLimit);
+    }
+
+    #[test]
+    fn test_reject_timer_registration_over_global_limit() {
+        let mut reg = TimerRegistry::new();
+        for i in 0..MAX_TIMERS_TOTAL {
+            let owner = (i as u64) + 1;
+            let id = reg.register(owner, i as u64).expect("within global cap");
+            assert_ne!(id, 0);
+        }
+        let reject = reg.register(0xDEAD_BEEF, 1).unwrap_err();
+        assert_eq!(reject, RegisterReject::NoSpace);
+    }
+
+    #[test]
+    fn coalesced_deadline_rejects_invalid_qos_wire_value() {
+        assert_eq!(coalesced_deadline(1_000_000, 255), None);
     }
 
     #[test]

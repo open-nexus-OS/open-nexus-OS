@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-02-11
+
+#### Perf/Power v1 closure (TASK-0013; RFC-0023 implemented)
+
+- Kernel QoS syscall decode now deterministically rejects malformed/overflowed wire args with `-EINVAL` (no silent clamp).
+- QoS authority model enforced and audited: self-set allows equal/lower only, escalation requires privileged `policyd/execd` path.
+- New `timed` service path operational in OS bring-up with deterministic coalescing windows and bounded registration limits.
+- Proof ladder extended and validated with deterministic markers, including negative over-limit and reject-path checks.
+- Address-space/page-table lifecycle hardening landed during closure debugging to remove `KPGF`/allocation leak regressions in QEMU runs.
+
 ### Changed - 2026-02-10
 
 #### Kernel SMP v1 closure sync (TASK-0012 Done; RFC-0021 Complete)

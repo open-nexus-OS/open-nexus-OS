@@ -442,8 +442,10 @@ impl Drop for PageTable {
         }
         #[cfg(feature = "bringup_identity")]
         {
-            let static_base = core::ptr::addr_of_mut!(PT_STATIC_POOL) as *mut PageTablePage as usize;
-            let static_end = static_base + PT_STATIC_POOL_CAP * core::mem::size_of::<PageTablePage>();
+            let static_base =
+                core::ptr::addr_of_mut!(PT_STATIC_POOL) as *mut PageTablePage as usize;
+            let static_end =
+                static_base + PT_STATIC_POOL_CAP * core::mem::size_of::<PageTablePage>();
             for page in self.owned.drain(..) {
                 let ptr = page.as_ptr() as usize;
                 if ptr >= static_base && ptr < static_end {

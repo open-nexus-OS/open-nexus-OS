@@ -161,6 +161,9 @@ TASK-0012 and TASK-0012B stabilized scheduler/SMP internals and marker semantics
 - `test_reject_timer_registration_over_limit` (Phase 1/timed):
   - expected: reject with bounded-resource error (`-ENOSPC`),
   - state assertion: existing timer set remains intact; no partial enqueue.
+- Selftest-client E2E negative assertions (marker-gated under `SELFTEST: qos ok` / `SELFTEST: timed coalesce ok`):
+  - expected: unprivileged QoS self-escalation attempt rejects with permission error and leaves QoS unchanged,
+  - expected: timed register with invalid QoS wire value rejects with `STATUS_INVALID_ARGS` and no timer allocation.
 
 ## Ownership / newtype / Send-Sync audit checklist
 

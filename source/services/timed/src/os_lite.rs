@@ -1,7 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! OS-lite backend for timed daemon.
+//! CONTEXT: os-lite runtime backend for timed daemon request handling
+//! OWNERS: @runtime
+//! PUBLIC API: service_main_loop(), TimedResult, TimedError, ReadyNotifier
+//! DEPENDS_ON: nexus-abi IPC syscalls, nexus-ipc server transport, timed::TimerRegistry
+//! INVARIANTS:
+//! - ready marker emits once only after route/server are available
+//! - timer registration rejects are deterministic and bounded
+//! - shared-inbox routing replies are nonce-correlated and bounded
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -53,7 +60,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> TimedResult<()> {
 fn handle_frame(registry: &mut TimerRegistry, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     let op = frame.get(3).copied().unwrap_or(0);
     let nonce = read_u32(frame, 4).unwrap_or(0);
-    if frame.len() < MIN_FRAME_LEN || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+    if frame.len() < MIN_FRAME_LEN
+        || frame[0] != MAGIC0
+        || frame[1] != MAGIC1
+        || frame[2] != VERSION
+    {
         return rsp_status(op, STATUS_MALFORMED, nonce);
     }
 

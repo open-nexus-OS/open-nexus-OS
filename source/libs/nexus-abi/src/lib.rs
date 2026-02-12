@@ -1701,15 +1701,15 @@ pub fn pid() -> SysResult<u32> {
 
 /// Returns the current task's scheduler QoS hint.
 #[cfg(nexus_env = "os")]
+#[must_use = "qos get result must be handled"]
 pub fn task_qos_get() -> SysResult<QosClass> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_TASK_QOS: usize = 15;
         const TASK_QOS_OP_GET_SELF: usize = 0;
         let raw = unsafe { ecall3(SYSCALL_TASK_QOS, TASK_QOS_OP_GET_SELF, 0, 0) };
-        decode_syscall(raw).and_then(|value| {
-            QosClass::from_u8(value as u8).ok_or(AbiError::InvalidArgument)
-        })
+        decode_syscall(raw)
+            .and_then(|value| QosClass::from_u8(value as u8).ok_or(AbiError::InvalidArgument))
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
@@ -1723,6 +1723,7 @@ pub fn task_qos_get() -> SysResult<QosClass> {
 /// - equal/lower transitions are allowed for self;
 /// - upward transitions require the privileged set-for-target path.
 #[cfg(nexus_env = "os")]
+#[must_use = "qos set-self result must be handled"]
 pub fn task_qos_set_self(qos: QosClass) -> SysResult<()> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
@@ -1741,14 +1742,14 @@ pub fn task_qos_set_self(qos: QosClass) -> SysResult<()> {
 
 /// Sets another task's scheduler QoS hint (privileged path).
 #[cfg(nexus_env = "os")]
+#[must_use = "qos set-for-target result must be handled"]
 pub fn task_qos_set_for(target: Pid, qos: QosClass) -> SysResult<()> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_TASK_QOS: usize = 15;
         const TASK_QOS_OP_SET: usize = 1;
-        let raw = unsafe {
-            ecall3(SYSCALL_TASK_QOS, TASK_QOS_OP_SET, target as usize, qos as usize)
-        };
+        let raw =
+            unsafe { ecall3(SYSCALL_TASK_QOS, TASK_QOS_OP_SET, target as usize, qos as usize) };
         decode_syscall(raw).map(|_| ())
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

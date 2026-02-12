@@ -158,7 +158,7 @@ build_os_once() {
 
   # Keep this aligned with init-lite expectations (os_payload): include updated + logd + statefsd
   # so policy-gated MMIO grants and persistence bring-up don't fatal during cross-VM runs.
-  local services="logd,updated,keystored,rngd,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,statefsd,netstackd,dsoftbusd,selftest-client"
+  local services="logd,updated,timed,keystored,rngd,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,statefsd,netstackd,dsoftbusd,selftest-client"
   export INIT_LITE_SERVICE_LIST="$services"
 
   IFS=',' read -r -a svcs <<<"$services"

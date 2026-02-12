@@ -234,15 +234,13 @@ Rate limiting must not break correctness:
 
 Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 
-**Issue**: TASK-0013 references `QosClass` enum but doesn't specify ABI stability guarantees.
+**Status update**: Closed for v1.
 
-**Recommendation**:
+- `QosClass` is now documented with stable wire values under `#[repr(u8)]` in `source/libs/nexus-abi/src/lib.rs`.
+- Invalid wire values are deterministically rejected (no clamp), aligned with TASK-0013/RFC-0023 contract language.
+- Remaining follow-up: add dedicated ABI layout regression tests in the ABI crate test surface.
 
-- Document QoS class enum values as stable ABI
-- Add to `source/libs/nexus-abi/src/sched.rs`
-- Add golden layout tests for QoS enum
-
-**Priority**: High (ABI stability critical)
+**Priority**: Follow-up hardening (non-blocking for TASK-0013 v1 closure)
 
 ---
 
@@ -281,7 +279,7 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 1. ✅ Add security sections to all SMP/QoS tasks (DONE)
 2. ✅ Complete TASK-0012 deterministic SMP baseline (DONE; anti-fake IPI proof chain + `test_reject_*`)
 3. 🔄 Define `CAP_SCHED_SETAFFINITY` in kernel capability model
-4. 🔄 Finalize QoS enum ABI stability in TASK-0013 ABI surfaces
+4. ✅ Finalize QoS enum ABI stability in TASK-0013 ABI surfaces
 5. 🔄 Specify full token-bucket/global IPI limiter implementation for TASK-0042
 
 ### Before TASK-0042 (SMP v2)
