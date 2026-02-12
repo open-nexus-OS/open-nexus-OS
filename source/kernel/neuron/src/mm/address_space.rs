@@ -250,15 +250,18 @@ impl AddressSpaceManager {
         Ok(())
     }
 
-    /// Stub implementation of address-space destruction.
+    /// Destroys an address space once no task references remain.
     #[must_use]
     pub fn destroy(&mut self, handle: AsHandle) -> Result<(), AddressSpaceError> {
         let slot = self.spaces.get_mut(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
-        match slot.as_ref() {
-            None => Err(AddressSpaceError::InvalidHandle),
-            Some(space) if space.refcount() != 0 => Err(AddressSpaceError::InUse),
-            Some(_) => Err(AddressSpaceError::Unsupported),
-        }
+        let asid = match slot.as_ref() {
+            None => return Err(AddressSpaceError::InvalidHandle),
+            Some(space) if space.refcount() != 0 => return Err(AddressSpaceError::InUse),
+            Some(space) => space.asid(),
+        };
+        *slot = None;
+        self.asids.free(asid);
+        Ok(())
     }
 
     /// Maps a single page within the address space referenced by `handle`.
@@ -530,9 +533,8 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         return Err(e);
     }
 
-    // Identity-map the per-service VMO arena after the kernel pools/stacks so
-    // userspace VMOs never alias kernel text/data.
-    let vmo_base = core::cmp::max(align_up(stack_end), align_up(pool_end));
+    // Identity-map the per-service VMO arena at the fixed base used by VMO_POOL.
+    let vmo_base = align_up(super::USER_VMO_ARENA_BASE);
     let vmo_end = vmo_base.checked_add(super::USER_VMO_ARENA_LEN).ok_or(MapError::OutOfRange)?;
     if let Err(e) = map_identity_range(
         table,

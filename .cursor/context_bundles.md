@@ -55,6 +55,29 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/architecture/16-rust-concurrency-model.md`
 - `docs/testing/index.md` (only if proof/marker contract changes)
 
+### @task_0013_context
+- `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
+- `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`
+- `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
+- `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`
+- `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md`
+- `tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md`
+- `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md`
+- `scripts/qemu-test.sh`
+
+### @task_0013_touched
+- `source/kernel/neuron/src/syscall/{mod.rs,api.rs}` (QoS syscall surface when required)
+- `source/kernel/neuron/src/task/mod.rs` (task QoS metadata wiring if required)
+- `source/kernel/neuron/src/sched/mod.rs` (scheduler QoS hint integration only if required)
+- `source/libs/nexus-abi/`
+- `source/services/timed/`
+- `userspace/` (client lib only if required)
+- `source/services/execd/` and/or `source/init/nexus-init/`
+- `source/apps/selftest-client/`
+- `scripts/qemu-test.sh`
+- `docs/kernel/`
+- `docs/services/`
+
 ### @touched
 - Only the directories listed in the task's **Touched paths** allowlist.
 
@@ -70,3 +93,6 @@ Kontext strikt: @core_context @task_0012_context @quality_gates @task_0012_touch
 
 ## Standard instruction line (TASK-0012B)
 Kontext strikt: @core_context @task_0012b_context @quality_gates @task_0012b_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0013)
+Kontext strikt: @core_context @task_0013_context @quality_gates @task_0013_touched. Kein @codebase Scan.

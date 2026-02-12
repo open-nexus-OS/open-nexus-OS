@@ -21,9 +21,9 @@ use crate::{
     ipc::{self, header::MessageHeader},
     mm::{
         AddressSpaceError, AddressSpaceManager, AsHandle, MapError, PageFlags, PAGE_SIZE,
-        USER_VMO_ARENA_LEN,
+        USER_VMO_ARENA_BASE, USER_VMO_ARENA_LEN,
     },
-    sched::Scheduler,
+    sched::{QosClass, Scheduler, SetQosOutcome},
     task,
 };
 use core::slice;
@@ -221,6 +221,35 @@ impl RecvArgsTyped {
     #[inline]
     fn check(&self) -> Result<(), Error> {
         Ok(())
+    }
+}
+
+const TASK_QOS_OP_GET_SELF: usize = 0;
+const TASK_QOS_OP_SET: usize = 1;
+
+#[derive(Copy, Clone)]
+struct TaskQosArgsTyped {
+    op: usize,
+    target: task::Pid,
+    qos_raw: u8,
+}
+
+impl TaskQosArgsTyped {
+    #[inline]
+    fn decode(args: &Args) -> Result<Self, Error> {
+        let raw_target = args.get(1);
+        if raw_target > u32::MAX as usize {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        let raw_qos = args.get(2);
+        if raw_qos > u8::MAX as usize {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        Ok(Self {
+            op: args.get(0),
+            target: task::Pid::from_raw(raw_target as u32),
+            qos_raw: raw_qos as u8,
+        })
     }
 }
 
@@ -474,8 +503,8 @@ use super::{
     SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEVICE_CAP_CREATE,
     SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
     SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
-    SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
-    SYSCALL_YIELD,
+    SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_VMO_CREATE,
+    SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -577,6 +606,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_V2, sys_ipc_endpoint_create_v2);
     table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR, sys_ipc_endpoint_create_for);
     table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
+    table.register(SYSCALL_TASK_QOS, sys_task_qos);
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
     table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
@@ -599,6 +629,106 @@ pub fn install_handlers(table: &mut SyscallTable) {
 
 fn sys_getpid(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(ctx.tasks.current_pid().as_index())
+}
+
+fn service_id_from_name(name: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325u64;
+    for &b in name {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3u64);
+    }
+    h
+}
+
+fn caller_has_qos_admin(ctx: &Context<'_>) -> bool {
+    let sid = ctx.tasks.current_service_id();
+    sid == service_id_from_name(b"execd") || sid == service_id_from_name(b"policyd")
+}
+
+fn qos_label(qos: QosClass) -> &'static str {
+    match qos {
+        QosClass::Idle => "idle",
+        QosClass::Normal => "normal",
+        QosClass::Interactive => "interactive",
+        QosClass::PerfBurst => "perfburst",
+    }
+}
+
+fn qos_audit(
+    ctx: &Context<'_>,
+    target: task::Pid,
+    from: QosClass,
+    to: QosClass,
+    decision: &'static str,
+    reason: &'static str,
+) {
+    log_info!(
+        target: "qos",
+        "QOS-AUDIT decision={} reason={} caller_sid=0x{:016x} caller_pid={} target_pid={} from={} to={}",
+        decision,
+        reason,
+        ctx.tasks.current_service_id(),
+        ctx.tasks.current_pid().as_raw(),
+        target.as_raw(),
+        qos_label(from),
+        qos_label(to)
+    );
+}
+
+fn qos_audit_reject_simple(ctx: &Context<'_>, target: task::Pid, reason: &'static str) {
+    log_info!(
+        target: "qos",
+        "QOS-AUDIT decision=deny reason={} caller_sid=0x{:016x} caller_pid={} target_pid={}",
+        reason,
+        ctx.tasks.current_service_id(),
+        ctx.tasks.current_pid().as_raw(),
+        target.as_raw()
+    );
+}
+
+fn sys_task_qos(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let typed = TaskQosArgsTyped::decode(args)?;
+    match typed.op {
+        TASK_QOS_OP_GET_SELF => Ok(ctx.tasks.current_task().qos() as usize),
+        TASK_QOS_OP_SET => {
+            let qos = match QosClass::from_u8(typed.qos_raw) {
+                Some(v) => v,
+                None => {
+                    qos_audit_reject_simple(ctx, typed.target, "invalid_qos_class");
+                    return Err(AddressSpaceError::InvalidArgs.into());
+                }
+            };
+            let target = typed.target;
+            let current = ctx.tasks.current_pid();
+            let target_qos = match ctx.tasks.task(target) {
+                Some(task) => task.qos(),
+                None => {
+                    qos_audit_reject_simple(ctx, target, "invalid_target_pid");
+                    return Err(AddressSpaceError::InvalidArgs.into());
+                }
+            };
+            let privileged = caller_has_qos_admin(ctx);
+
+            if target != current && !privileged {
+                qos_audit(ctx, target, target_qos, qos, "deny", "unauthorized_other_pid");
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
+            if (qos as u8) > (target_qos as u8) && !privileged {
+                qos_audit(ctx, target, target_qos, qos, "deny", "unauthorized_escalation");
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
+
+            if matches!(ctx.scheduler.set_task_qos(target, qos), SetQosOutcome::QueueFull) {
+                qos_audit(ctx, target, target_qos, qos, "deny", "scheduler_queue_full");
+                return Err(Error::Ipc(ipc::IpcError::QueueFull));
+            }
+            let task = ctx.tasks.task_mut(target).ok_or(AddressSpaceError::InvalidArgs)?;
+            task.set_qos(qos);
+            qos_audit(ctx, target, target_qos, qos, "allow", "applied");
+            Ok(0)
+        }
+        _ => Err(AddressSpaceError::InvalidArgs.into()),
+    }
 }
 
 fn sys_spawn_last_error(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
@@ -2363,11 +2493,6 @@ const PROT_EXEC: u32 = 1 << 2;
 
 const MAP_FLAG_USER: u32 = 1 << 0;
 const USER_VADDR_LIMIT: usize = 0x8000_0000;
-// Keep the kernel-managed user VMO arena away from the kernel stacks/data.
-// The previous implicit choice (__bss_end aligned) overlapped the kernel stack
-// pages (0x8048a000..), causing memcpy into the stack guard. Place it at a
-// fixed high region in DRAM; virt QEMU gives us ample headroom.
-const USER_VMO_ARENA_BASE: usize = 0x8100_0000;
 
 static VMO_POOL: Mutex<VmoPool> = Mutex::new(VmoPool::new());
 
@@ -3743,6 +3868,180 @@ mod tests {
             .dispatch(SYSCALL_IPC_ENDPOINT_CREATE, &mut ctx, &Args::new([8, 0, 0, 0, 0, 0]))
             .unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    #[test]
+    fn qos_self_set_downward_and_get_ok() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+
+        let self_pid = ctx.tasks.current_pid();
+        let set_args =
+            Args::new([TASK_QOS_OP_SET, self_pid.as_index(), QosClass::Normal as usize, 0, 0, 0]);
+        assert_eq!(sys_task_qos(&mut ctx, &set_args).unwrap(), 0);
+        assert_eq!(ctx.tasks.current_task().qos(), QosClass::Normal);
+
+        let get_args = Args::new([TASK_QOS_OP_GET_SELF, 0, 0, 0, 0, 0]);
+        let got = sys_task_qos(&mut ctx, &get_args).unwrap();
+        assert_eq!(got, QosClass::Normal as usize);
+    }
+
+    #[test]
+    fn test_reject_qos_set_unauthorized_self_escalation() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+
+        let self_pid = ctx.tasks.current_pid();
+        let down =
+            Args::new([TASK_QOS_OP_SET, self_pid.as_index(), QosClass::Normal as usize, 0, 0, 0]);
+        assert_eq!(sys_task_qos(&mut ctx, &down).unwrap(), 0);
+        assert_eq!(ctx.tasks.current_task().qos(), QosClass::Normal);
+
+        let up = Args::new([
+            TASK_QOS_OP_SET,
+            self_pid.as_index(),
+            QosClass::Interactive as usize,
+            0,
+            0,
+            0,
+        ]);
+        let err = sys_task_qos(&mut ctx, &up).unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+        assert_eq!(ctx.tasks.current_task().qos(), QosClass::Normal);
+    }
+
+    #[test]
+    fn test_reject_qos_set_unauthorized_other_pid_even_with_factory_cap() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let target = tasks.selftest_create_dummy_task(task::Pid::KERNEL, &mut scheduler);
+        tasks
+            .bootstrap_mut()
+            .caps_mut()
+            .set(
+                1,
+                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
+            )
+            .unwrap();
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+
+        let args = Args::new([TASK_QOS_OP_SET, target.as_index(), QosClass::Idle as usize, 0, 0, 0]);
+        let err = sys_task_qos(&mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    }
+
+    #[test]
+    fn test_reject_invalid_qos_class() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+
+        let self_pid = ctx.tasks.current_pid();
+        let args = Args::new([TASK_QOS_OP_SET, self_pid.as_index(), 0xFF, 0, 0, 0]);
+        let err = sys_task_qos(&mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
+    }
+
+    #[test]
+    fn test_reject_qos_target_pid_overflow() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+
+        let args = Args::new([TASK_QOS_OP_SET, usize::MAX, QosClass::Normal as usize, 0, 0, 0]);
+        let err = sys_task_qos(&mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
+    }
+
+    #[test]
+    fn test_reject_qos_class_wire_overflow() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+
+        let self_pid = ctx.tasks.current_pid();
+        let args = Args::new([TASK_QOS_OP_SET, self_pid.as_index(), usize::MAX, 0, 0, 0]);
+        let err = sys_task_qos(&mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
+    }
+
+    #[test]
+    fn qos_set_other_pid_via_privileged_path_ok() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let target = tasks.selftest_create_dummy_task(task::Pid::KERNEL, &mut scheduler);
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        ctx.tasks.current_task_mut().set_service_id(service_id_from_name(b"execd"));
+
+        let args = Args::new([
+            TASK_QOS_OP_SET,
+            target.as_index(),
+            QosClass::Interactive as usize,
+            0,
+            0,
+            0,
+        ]);
+        assert_eq!(sys_task_qos(&mut ctx, &args).unwrap(), 0);
+        assert_eq!(ctx.tasks.task(target).unwrap().qos(), QosClass::Interactive);
+    }
+
+    #[test]
+    fn qos_self_escalation_via_policyd_path_ok() {
+        let mut scheduler = Scheduler::new();
+        let mut tasks = TaskTable::new();
+        let mut router = ipc::Router::new(0);
+        let mut as_manager = AddressSpaceManager::new();
+        let timer = MockTimer::default();
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        ctx.tasks.current_task_mut().set_service_id(service_id_from_name(b"policyd"));
+
+        let self_pid = ctx.tasks.current_pid();
+        let down =
+            Args::new([TASK_QOS_OP_SET, self_pid.as_index(), QosClass::Normal as usize, 0, 0, 0]);
+        assert_eq!(sys_task_qos(&mut ctx, &down).unwrap(), 0);
+        assert_eq!(ctx.tasks.current_task().qos(), QosClass::Normal);
+
+        let up = Args::new([
+            TASK_QOS_OP_SET,
+            self_pid.as_index(),
+            QosClass::Interactive as usize,
+            0,
+            0,
+            0,
+        ]);
+        assert_eq!(sys_task_qos(&mut ctx, &up).unwrap(), 0);
+        assert_eq!(ctx.tasks.current_task().qos(), QosClass::Interactive);
     }
 
     // ==========================================================================

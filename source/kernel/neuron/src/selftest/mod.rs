@@ -977,9 +977,9 @@ fn run_spawn_reason_selftest() {
         (SpawnError::AddressSpace(AddressSpaceError::AsidExhausted), SpawnFailReason::MapFailed),
     ];
 
-    for (err, expected) in cases {
-        let got = spawn_fail_reason(&err);
-        if got == expected {
+    for (_idx, (err, expected)) in cases.iter().enumerate() {
+        let got = spawn_fail_reason(err);
+        if got == *expected {
             log_info!(
                 target: "selftest",
                 "KSELFTEST: spawn reason {} ok",

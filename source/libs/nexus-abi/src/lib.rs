@@ -1583,6 +1583,35 @@ pub enum SpawnFailReason {
     DeniedByPolicy = 6,
 }
 
+/// Scheduler quality-of-service hint classes (stable wire values).
+#[cfg(nexus_env = "os")]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum QosClass {
+    /// Lowest-priority background work.
+    Idle = 0,
+    /// Default service-level scheduling class.
+    Normal = 1,
+    /// Latency-sensitive interactive class.
+    Interactive = 2,
+    /// Highest-performance burst class.
+    PerfBurst = 3,
+}
+
+#[cfg(nexus_env = "os")]
+impl QosClass {
+    /// Decodes a kernel wire value into a typed QoS class.
+    pub const fn from_u8(raw: u8) -> Option<Self> {
+        match raw {
+            0 => Some(Self::Idle),
+            1 => Some(Self::Normal),
+            2 => Some(Self::Interactive),
+            3 => Some(Self::PerfBurst),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(nexus_env = "os")]
 impl SpawnFailReason {
     /// Decodes a reason token into the enum, defaulting to Unknown.
@@ -1666,6 +1695,65 @@ pub fn pid() -> SysResult<u32> {
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Returns the current task's scheduler QoS hint.
+#[cfg(nexus_env = "os")]
+pub fn task_qos_get() -> SysResult<QosClass> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TASK_QOS: usize = 15;
+        const TASK_QOS_OP_GET_SELF: usize = 0;
+        let raw = unsafe { ecall3(SYSCALL_TASK_QOS, TASK_QOS_OP_GET_SELF, 0, 0) };
+        decode_syscall(raw).and_then(|value| {
+            QosClass::from_u8(value as u8).ok_or(AbiError::InvalidArgument)
+        })
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Sets the current task's scheduler QoS hint.
+///
+/// Policy:
+/// - equal/lower transitions are allowed for self;
+/// - upward transitions require the privileged set-for-target path.
+#[cfg(nexus_env = "os")]
+pub fn task_qos_set_self(qos: QosClass) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TASK_QOS: usize = 15;
+        const TASK_QOS_OP_SET: usize = 1;
+        let target = pid()? as usize;
+        let raw = unsafe { ecall3(SYSCALL_TASK_QOS, TASK_QOS_OP_SET, target, qos as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = qos;
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Sets another task's scheduler QoS hint (privileged path).
+#[cfg(nexus_env = "os")]
+pub fn task_qos_set_for(target: Pid, qos: QosClass) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TASK_QOS: usize = 15;
+        const TASK_QOS_OP_SET: usize = 1;
+        let raw = unsafe {
+            ecall3(SYSCALL_TASK_QOS, TASK_QOS_OP_SET, target as usize, qos as usize)
+        };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (target, qos);
         Err(AbiError::Unsupported)
     }
 }
@@ -2258,12 +2346,15 @@ pub fn device_mmio_cap_create(_base: usize, _len: usize, _slot_raw: usize) -> Sy
 pub fn vmo_destroy(handle: Handle) -> SysResult<()> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        const SYSCALL_VMO_DESTROY: usize = 15;
+        // Keep this on an unimplemented number so callers get deterministic ENOSYS until
+        // kernel support is added.
+        const SYSCALL_VMO_DESTROY: usize = 32;
         let raw = unsafe { ecall1(SYSCALL_VMO_DESTROY, handle as usize) };
         decode_syscall(raw).map(|_| ())
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
+        let _ = handle;
         Err(AbiError::Unsupported)
     }
 }

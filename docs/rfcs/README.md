@@ -75,6 +75,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0015: Policy Authority & Audit Baseline v1 (policy engine + audit trail)
 - RFC-0017: Device MMIO Access Model v1 (capability-gated device access)
 - RFC-0022: Kernel SMP v1b scheduler/SMP hardening contract (bounded queues + trap/IPI + CPU-ID path)
+- RFC-0023: QoS ABI + timed coalescing contract v1 (authorization + bounded timer policy)
 
 ## Index
 
@@ -122,3 +123,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 - RFC-0022: Kernel SMP v1b hardening contract — bounded scheduler queues + trap/IPI hardening + CPU-ID fast-path/fallback (Done)
   - docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
+- RFC-0023: QoS ABI + timed coalescing contract v1 (In Progress, Phase 0 execution active)
+  - docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md

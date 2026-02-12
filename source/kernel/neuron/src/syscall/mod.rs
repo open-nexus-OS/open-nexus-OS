@@ -56,6 +56,8 @@ pub const SYSCALL_WAIT: usize = 12;
 pub const SYSCALL_EXEC: usize = 13;
 /// IPC v1 (payload copy-in): see RFC-0005.
 pub const SYSCALL_IPC_SEND_V1: usize = 14;
+/// Task QoS ABI (get/set self + privileged set-for-target).
+pub const SYSCALL_TASK_QOS: usize = 15;
 /// Exec loader v2: adds explicit service metadata (name ptr/len) for RFC-0004 provenance.
 pub const SYSCALL_EXEC_V2: usize = 17;
 /// Debug UART putc for userspace (best-effort, no permissions required).

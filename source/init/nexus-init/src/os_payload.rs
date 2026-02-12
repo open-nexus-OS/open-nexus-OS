@@ -364,6 +364,8 @@ struct CtrlChannel {
     /// - recv_slot: where this PID should receive direct replies (if used)
     rng_send_slot: Option<u32>,
     rng_recv_slot: Option<u32>,
+    timed_send_slot: Option<u32>,
+    timed_recv_slot: Option<u32>,
     net_send_slot: Option<u32>,
     net_recv_slot: Option<u32>,
     log_send_slot: Option<u32>,
@@ -798,6 +800,8 @@ where
                     state_recv_slot: None,
                     rng_send_slot: None,
                     rng_recv_slot: None,
+                    timed_send_slot: None,
+                    timed_recv_slot: None,
                     net_send_slot: None,
                     net_recv_slot: None,
                     log_send_slot: None,
@@ -876,6 +880,7 @@ where
     let _keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
     let _statefsd_pid = find_pid(&ctrl_channels, "statefsd").ok_or(InitError::MissingElf)?;
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
+    let timed_pid = find_pid(&ctrl_channels, "timed").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
 
     // selftest-client <-> service endpoint pairs
@@ -967,6 +972,10 @@ where
     let rng_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, rngd_pid, 8)
         .map_err(InitError::Abi)?;
     let rng_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+        .map_err(InitError::Abi)?;
+    let timed_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, timed_pid, 8)
+        .map_err(InitError::Abi)?;
+    let timed_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
 
     // logd (optional) service endpoints (request/response).
@@ -1741,6 +1750,14 @@ where
                 chan.pol_send_slot = Some(send_slot);
                 chan.pol_recv_slot = Some(reply_recv_slot);
             }
+            "timed" => {
+                let recv_slot = nexus_abi::cap_transfer(pid, timed_req, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, timed_rsp, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.timed_send_slot = Some(send_slot);
+                chan.timed_recv_slot = Some(recv_slot);
+            }
             "logd" => {
                 if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
                     let recv_slot =
@@ -1908,6 +1925,14 @@ where
                 debug_write_bytes(b" recv=0x");
                 debug_write_hex(recv_slot as usize);
                 debug_write_byte(b'\n');
+
+                // Allow selftest-client to send requests to timed and receive direct replies.
+                let send_slot = nexus_abi::cap_transfer(pid, timed_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, timed_rsp, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                chan.timed_send_slot = Some(send_slot);
+                chan.timed_recv_slot = Some(recv_slot);
             }
             _ => {}
         }
@@ -2192,7 +2217,10 @@ where
             //
             // Default is fail-open during early bring-up (policyd may not be started yet).
             // For privileged routes we can require a policyd answer (fail-closed) case-by-case.
-            let allowed = if chan.svc_name == "policyd" {
+            let allowed = if name == chan.svc_name.as_bytes() {
+                // Self-routing (service resolving its own endpoint slots) is always allowed.
+                true
+            } else if chan.svc_name == "policyd" {
                 true
             } else if chan.svc_name == "bundlemgrd" && name == b"execd" {
                 // Deterministic proof route: require policyd to answer; otherwise deny.
@@ -2333,6 +2361,11 @@ where
                 }
             } else if name == b"rngd" {
                 match (chan.rng_send_slot, chan.rng_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"timed" {
+                match (chan.timed_send_slot, chan.timed_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }

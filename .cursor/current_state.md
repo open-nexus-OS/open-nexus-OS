@@ -12,7 +12,7 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (hardening bridge complete; TASK-0012 marker semantics preserved)
+- **last_decision**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (hardening bridge completed and archived; TASK-0012 marker semantics preserved)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
@@ -33,15 +33,19 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (next)
-- **seed_contract**: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (completed seed)
-- **phase_now**: TASK-0012B complete; bounded scheduler enqueue contract + trap/IPI contract hardening + guarded CPU-ID hybrid path landed
-- **baseline_commit**: `978ebeb`
-- **next_task_slice**: TASK-0013 QoS ABI/timed coalescing on TASK-0012+0012B baseline
+- **active_task**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (closed)
+- **seed_contract**: `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md` (current contract seed for TASK-0013)
+- **contract_dependencies**:
+  - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (ownership/newtype/Send-Sync floor)
+  - `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md` (SMP hardening baseline floor)
+- **phase_now**: TASK-0013 closed (authority/audit deltas closed; proof ladder reruns green)
+- **baseline_commit**: `f44a4f7`
+- **next_task_slice**: select next task after TASK-0013 closure handoff
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
   - `just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
   - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - **last_completed**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
@@ -74,6 +78,17 @@ Rules:
 - `userspace/nexus-ipc::reqrep` exists (bounded reply buffer + unit tests) and core services use strict nonce matching on shared inboxes.
 - Deterministic host tests now exist for IPC budget + **logd/policyd wire parsing**: `cargo test -p nexus-ipc` (no QEMU required for these proof slices)
 - `tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md` — draft; no longer blocked on persistence (TASK-0009 done); remaining gates are the update/apply/verify/commit implementation + proofs
+- `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — **CLOSED**:
+  - implemented: `timed` service + deterministic coalescing windows + per-owner timer cap + `timed: ready` + `SELFTEST: timed coalesce ok`
+  - implemented: QoS decode overflow hard reject (`-EINVAL`) and timer over-limit reject tests
+  - implemented: init-lite timed routing/wiring including deterministic self-route allow for service bootstrap
+  - implemented: exec-path stability unblock:
+    - fixed VMO arena identity-map/base mismatch (removed deterministic `KPGF` at `0x81800000` boundary),
+    - fixed post-unblock deterministic `ALLOC-FAIL` via AS/page-table reclamation on child reap (`destroy` + `PageTable::drop` heap-page free under `bringup_identity`),
+    - latest `RUN_PHASE=mmio` smoke is green (`exit_code=0`, no KPGF/ALLOC-FAIL).
+  - implemented: privileged QoS authority bound to kernel service identity (`execd`/`policyd`) instead of capability-slot shortcut.
+  - implemented: explicit audit trail for QoS/timer decisions (`QOS-AUDIT` + `timed: audit register ...`).
+  - proof reruns green: host gates + `just test-os` + SMP=2 + SMP=1 after final patch.
 - DMA capability model (future) — out of scope for MMIO v1
 - IRQ delivery to userspace (future) — separate RFC needed
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
@@ -87,6 +102,7 @@ Rules:
   - `TASK-0042`: extends affinity/shares without violating 0012+0012B ownership and bounded-steal invariants
   - `TASK-0247`: may harden SBI/HSM/IPI/per-hart timers on top of 0012+0012B only
   - `TASK-0283`: optional `PerCpu<T>` hardening layer refines 0012+0012B contracts only
+  - `TASK-0013` must keep mutable trap-runtime boundary unchanged (boot-hart-only until `TASK-0247`)
 
 ## Known risks / hazards
 - **Post-TASK-0012 carry-over**:
@@ -109,6 +125,8 @@ Rules:
 - **MMIO slot discovery**: dynamic probing of virtio-mmio devices at fixed addresses
   - Current: hardcoded QEMU virt addresses (0x10001000 + 0x1000 * slot)
   - Future: proper device tree parsing if targeting real hardware
+- **TASK-0013 completion risk**:
+  - closed in this slice; no remaining exec/QoS/timed blocker observed in proof ladder.
 
 ## DON'T DO (session-local)
 - DON'T add kernel MMIO grants via name-checks (init-controlled distribution only)

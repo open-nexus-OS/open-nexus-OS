@@ -204,7 +204,7 @@ diag-os:
     @echo "==> userspace payload (init-lite)"
     @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @echo "==> OS services (os-lite feature set)"
-    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p policyd -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p policyd -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd -p timed --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
 
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
@@ -236,7 +236,7 @@ dep-gate:
     echo "    Target: riscv64imac-unknown-none-elf (OS/QEMU slice)"
     echo ""
     # OS services to check (must match justfile diag-os and Makefile)
-    services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd"
+    services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed"
     found_forbidden=0
     for svc in $services; do
         echo "--- Checking $svc ---"

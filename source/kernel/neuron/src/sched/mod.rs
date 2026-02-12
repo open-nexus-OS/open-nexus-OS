@@ -39,6 +39,19 @@ pub enum QosClass {
     PerfBurst = 3,
 }
 
+impl QosClass {
+    /// Decodes a stable QoS wire value into a typed class.
+    pub const fn from_u8(raw: u8) -> Option<Self> {
+        match raw {
+            0 => Some(Self::Idle),
+            1 => Some(Self::Normal),
+            2 => Some(Self::Interactive),
+            3 => Some(Self::PerfBurst),
+            _ => None,
+        }
+    }
+}
+
 /// Metadata maintained per task.
 #[derive(Debug, Clone)]
 struct Task {
@@ -74,6 +87,14 @@ pub enum EnqueueRejectReason {
 pub enum EnqueueOutcome {
     Enqueued,
     Rejected(EnqueueRejectReason),
+}
+
+#[must_use = "set-qos outcomes must be handled"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetQosOutcome {
+    Updated,
+    NotFound,
+    QueueFull,
 }
 
 struct CpuRunQueues {
@@ -187,6 +208,64 @@ impl Scheduler {
     /// Enqueues a task with the provided QoS class.
     pub fn enqueue(&mut self, id: TaskId, qos: QosClass) -> EnqueueOutcome {
         self.try_enqueue(id, qos)
+    }
+
+    /// Returns the currently running task id, if any.
+    pub fn current_task_id(&self) -> Option<TaskId> {
+        self.current.as_ref().map(|task| task.id)
+    }
+
+    /// Updates the currently running task QoS in-place.
+    pub fn set_current_qos(&mut self, qos: QosClass) -> bool {
+        if let Some(task) = self.current.as_mut() {
+            task.qos = qos;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Updates the scheduler-visible QoS for `id` in current/queued state.
+    ///
+    /// If the task is currently running, this updates the in-place current entry.
+    /// If the task is queued, it moves the queue entry to the target QoS bucket.
+    pub fn set_task_qos(&mut self, id: TaskId, qos: QosClass) -> SetQosOutcome {
+        if let Some(current) = self.current.as_mut() {
+            if current.id == id {
+                current.qos = qos;
+                return SetQosOutcome::Updated;
+            }
+        }
+
+        let mut found: Option<(usize, usize, Task)> = None;
+        for (queue_idx, queue) in self.queues.iter_mut().enumerate() {
+            if let Some(pos) = queue.iter().position(|task| task.id == id) {
+                if let Some(task) = queue.remove(pos) {
+                    found = Some((queue_idx, pos, task));
+                }
+                break;
+            }
+        }
+
+        let Some((source_idx, source_pos, mut task)) = found else {
+            return SetQosOutcome::NotFound;
+        };
+        let old_qos = task.qos;
+        task.qos = qos;
+        let target_idx = match qos {
+            QosClass::Idle => 0,
+            QosClass::Normal => 1,
+            QosClass::Interactive => 2,
+            QosClass::PerfBurst => 3,
+        };
+        let target_cap = Self::runtime_queue_capacity_for(qos).raw();
+        if self.queues[target_idx].len() >= target_cap {
+            task.qos = old_qos;
+            self.queues[source_idx].insert(source_pos, task);
+            return SetQosOutcome::QueueFull;
+        }
+        self.queues[target_idx].push_back(task);
+        SetQosOutcome::Updated
     }
 
     /// Attempts to enqueue a task and returns explicit bounded-backpressure status.

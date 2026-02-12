@@ -14,7 +14,7 @@ REQUIRE_SMP=${REQUIRE_SMP:-0}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 DEBUG_LOG=${DEBUG_LOG:-"$ROOT/.cursor/debug.log"}
-DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-"debug-session"}
+DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-""}
 AGENT_RUN_ID=${AGENT_RUN_ID:-"qemu-$(date +%s)-$$"}
 
 # #region agent log (ndjson debug log helper; Slice B)
@@ -27,8 +27,13 @@ agent_debug_log() {
   local ts
   ts=$(date +%s%3N 2>/dev/null || date +%s000)
   # Keep JSON stable and small. data_json must be a valid JSON object string.
-  printf '{"sessionId":"%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-    "$DEBUG_SESSION_ID" "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
+  if [[ -n "$DEBUG_SESSION_ID" ]]; then
+    printf '{"sessionId":"%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+      "$DEBUG_SESSION_ID" "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
+  else
+    printf '{"runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+      "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
+  fi
 }
 # #endregion agent log
 
@@ -199,6 +204,7 @@ expected_sequence=(
   "packagefsd: ready"
   "vfsd: ready"
   "execd: ready"
+  "timed: ready"
   "netstackd: ready"
   "net: virtio-net up"
   "SELFTEST: net iface ok"
@@ -208,6 +214,8 @@ expected_sequence=(
   "bundlemgrd: slot a active"
   "SELFTEST: ipc routing keystored ok"
   "SELFTEST: keystored v1 ok"
+  "SELFTEST: qos ok"
+  "SELFTEST: timed coalesce ok"
   "rngd: mmio window mapped ok"
   "SELFTEST: rng entropy ok"
   "SELFTEST: rng entropy oversized ok"
@@ -336,11 +344,120 @@ UART_LOG_MAX="$UART_LOG_MAX" \
 qemu_status=$?
 set -e
 
+# #region agent log (hypothesis J/K/L: run-qemu result + artifact presence)
+uart_exists=false
+qemu_exists=false
+uart_size=0
+qemu_size=0
+if [[ -f "$UART_LOG" ]]; then
+  uart_exists=true
+  uart_size=$(wc -c <"$UART_LOG" 2>/dev/null || echo 0)
+fi
+if [[ -f "$QEMU_LOG" ]]; then
+  qemu_exists=true
+  qemu_size=$(wc -c <"$QEMU_LOG" 2>/dev/null || echo 0)
+fi
+agent_debug_log "$AGENT_RUN_ID" "J" "scripts/qemu-test.sh:diag-runqemu-result" "run-qemu completion and log artifacts" \
+  "{\"qemu_status\":$qemu_status,\"uart_exists\":$uart_exists,\"uart_size\":$uart_size,\"qemu_exists\":$qemu_exists,\"qemu_size\":$qemu_size}"
+# #endregion agent log
+
 # SATP hang diagnostic: saw trampoline enter but no post-satp OK
 if grep -aFq "AS: trampoline enter" "$UART_LOG" && ! grep -aFq "AS: post-satp OK" "$UART_LOG"; then
   echo "[error] SATP switch hang: trampoline entered but no post-satp marker" >&2
   exit 1
 fi
+
+# #region agent log (exec KPGF diagnostics hypotheses B-F)
+kpgf_raw=$(grep -aF "KPGF sepc=" "$UART_LOG" | head -n1 || true)
+kpgf_seen=false
+kpgf_sepc=""
+kpgf_stval=""
+kpgf_a7=""
+kpgf_a0=""
+kpgf_a2=""
+kpgf_pid=""
+if [[ -n "$kpgf_raw" ]]; then
+  kpgf_seen=true
+  kpgf_sepc=$(printf "%s" "$kpgf_raw" | sed -n 's/.*sepc=\(0x[0-9a-fA-F]\+\).*/\1/p')
+  kpgf_stval=$(printf "%s" "$kpgf_raw" | sed -n 's/.*stval=\(0x[0-9a-fA-F]\+\).*/\1/p')
+  kpgf_a7=$(printf "%s" "$kpgf_raw" | sed -n 's/.* a7=\(0x[0-9a-fA-F]\+\).*/\1/p')
+  kpgf_a0=$(printf "%s" "$kpgf_raw" | sed -n 's/.* a0=\(0x[0-9a-fA-F]\+\).*/\1/p')
+  kpgf_a2=$(printf "%s" "$kpgf_raw" | sed -n 's/.* a2=\(0x[0-9a-fA-F]\+\).*/\1/p')
+  kpgf_pid=$(printf "%s" "$kpgf_raw" | sed -n 's/.* pid=\(0x[0-9a-fA-F]\+\).*/\1/p')
+fi
+line_kpgf=$(grep -aFn "KPGF sepc=" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_timed_ready=$(grep -aFn "timed: ready" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_timed_ok=$(grep -aFn "SELFTEST: timed coalesce ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_execd_ready=$(grep -aFn "execd: ready" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_child_hello=$(grep -aFn "child: hello-elf" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_exec_routing=$(grep -aFn "SELFTEST: ipc routing execd ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+
+h_b_as_map_path=false
+if [[ "$kpgf_seen" == "true" && "$kpgf_a7" == "0x000000000000000a" ]]; then
+  h_b_as_map_path=true
+fi
+# #region agent log (hypothesis B)
+agent_debug_log "$AGENT_RUN_ID" "B" "scripts/qemu-test.sh:diag-kpgf-signature" "exec kpgf syscall signature" \
+  "{\"kpgf_seen\":$kpgf_seen,\"pid\":\"${kpgf_pid}\",\"a7\":\"${kpgf_a7}\",\"a0\":\"${kpgf_a0}\",\"a2\":\"${kpgf_a2}\",\"is_as_map_signature\":$h_b_as_map_path}"
+# #endregion agent log
+
+h_c_timed_correlated=false
+if [[ "$line_kpgf" -gt 0 && "$line_timed_ready" -gt 0 && "$line_timed_ok" -gt 0 && "$line_timed_ok" -lt "$line_kpgf" ]]; then
+  h_c_timed_correlated=true
+fi
+# #region agent log (hypothesis C)
+agent_debug_log "$AGENT_RUN_ID" "C" "scripts/qemu-test.sh:diag-timed-order" "timed markers before crash" \
+  "{\"line_timed_ready\":$line_timed_ready,\"line_timed_ok\":$line_timed_ok,\"line_kpgf\":$line_kpgf,\"timed_before_kpgf\":$h_c_timed_correlated}"
+# #endregion agent log
+
+h_d_exec_progress=false
+if [[ "$line_execd_ready" -gt 0 && "$line_kpgf" -gt 0 && ( "$line_child_hello" -eq 0 || "$line_kpgf" -lt "$line_child_hello" ) ]]; then
+  h_d_exec_progress=true
+fi
+# #region agent log (hypothesis D)
+agent_debug_log "$AGENT_RUN_ID" "D" "scripts/qemu-test.sh:diag-exec-progress" "exec phase progression around crash" \
+  "{\"line_execd_ready\":$line_execd_ready,\"line_child_hello\":$line_child_hello,\"line_kpgf\":$line_kpgf,\"crash_before_child_hello\":$h_d_exec_progress}"
+# #endregion agent log
+
+h_e_range_overlap=false
+if [[ "$kpgf_seen" == "true" && -n "$kpgf_a0" && -n "$kpgf_a2" && -n "$kpgf_stval" ]]; then
+  a0_dec=$((16#${kpgf_a0#0x}))
+  a2_dec=$((16#${kpgf_a2#0x}))
+  stval_dec=$((16#${kpgf_stval#0x}))
+  end_dec=$((a0_dec + a2_dec))
+  if [[ "$stval_dec" -ge "$a0_dec" && "$stval_dec" -lt "$end_dec" ]]; then
+    h_e_range_overlap=true
+  fi
+fi
+# #region agent log (hypothesis E)
+agent_debug_log "$AGENT_RUN_ID" "E" "scripts/qemu-test.sh:diag-address-range" "fault address relative to syscall range" \
+  "{\"stval\":\"${kpgf_stval}\",\"a0\":\"${kpgf_a0}\",\"a2\":\"${kpgf_a2}\",\"fault_inside_a0_a0_plus_a2\":$h_e_range_overlap}"
+# #endregion agent log
+
+h_f_exec_route_ready=false
+if [[ "$line_exec_routing" -gt 0 && "$line_kpgf" -gt 0 && "$line_exec_routing" -lt "$line_kpgf" ]]; then
+  h_f_exec_route_ready=true
+fi
+# #region agent log (hypothesis F)
+agent_debug_log "$AGENT_RUN_ID" "F" "scripts/qemu-test.sh:diag-exec-routing" "exec routing readiness before crash" \
+  "{\"line_exec_routing_ok\":$line_exec_routing,\"line_kpgf\":$line_kpgf,\"routing_ready_before_crash\":$h_f_exec_route_ready}"
+# #endregion agent log
+
+qemu_lock_conflict=false
+qemu_launch_fail=false
+if [[ "$qemu_exists" == "true" ]]; then
+  if rg -q "Could not acquire|write lock|Failed to initialize KVM|No such file or directory|Permission denied" "$QEMU_LOG"; then
+    qemu_launch_fail=true
+  fi
+  if rg -q "write lock" "$QEMU_LOG"; then
+    qemu_lock_conflict=true
+  fi
+fi
+# #region agent log (hypothesis K/L)
+agent_debug_log "$AGENT_RUN_ID" "K" "scripts/qemu-test.sh:diag-qemu-launch-errors" "qemu launch error signatures" \
+  "{\"qemu_exists\":$qemu_exists,\"qemu_launch_fail\":$qemu_launch_fail,\"qemu_lock_conflict\":$qemu_lock_conflict}"
+# #endregion agent log
+# #endregion agent log
 
 # Require os-lite userspace init markers; kernel fallback no longer accepted
 if ! grep -aFq "init: start" "$UART_LOG"; then

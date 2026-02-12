@@ -25,11 +25,14 @@ This is the "everything green" guard against fake success.
 - [ ] Tests validate the **specified desired behavior** (Soll-Zustand), not current implementation quirks
 - [ ] No fake-success logs/markers introduced (ready/ok only after real behavior)
 - [ ] For TASK-0012B-class hardening: queue/backpressure and CPU-ID fast-path/fallback contracts are explicit and covered by tests/proofs
+- [ ] For TASK-0013-class policy work: QoS authorization semantics are explicit (self vs privileged other-pid) and covered by reject tests
+- [ ] For TASK-0013-class policy work: syscall arg decoding rejects non-representable wire values (no silent integer truncation)
+- [ ] For TASK-0013-class policy work: timer registration/coalescing bounds are explicit and covered by reject tests
 
 ## Post-implementation (before claiming "Done")
 
-- [ ] **RFC**: Status updated to `Complete` if all proofs green; Implementation Checklist filled
-- [ ] **RFC README**: Entry updated with correct status in `docs/rfcs/README.md`
+- [ ] **RFC**: Status updated to repository convention (`Done`/`Complete`) if all proofs green; Implementation Checklist filled
+- [ ] **RFC README**: Entry updated with matching status in `docs/rfcs/README.md`
 - [ ] Tests green (`just test-host`, `just test-e2e`, and relevant QEMU markers)
 - [ ] OS build hygiene passed (if OS code touched): `just dep-gate`, `just diag-os`
 - [ ] Lint + format passed: `just lint`, `just fmt-check`
@@ -39,3 +42,4 @@ This is the "everything green" guard against fake success.
 - [ ] Headers updated (CONTEXT, TEST_COVERAGE, ADR)
 - [ ] Docs synced (architecture, testing, contracts)
 - [ ] If task changed marker expectations/gates, `.cursor/current_state.md`, `.cursor/handoff/current.md`, and `.cursor/next_task_prep.md` are updated in the same slice
+- [ ] If task changes ownership/newtype/Send-Sync boundaries, task header and linked RFC contract are updated in the same slice

@@ -460,6 +460,11 @@ impl Task {
         self.qos
     }
 
+    /// Sets the scheduler QoS class for this task.
+    pub fn set_qos(&mut self, qos: QosClass) {
+        self.qos = qos;
+    }
+
     pub fn set_last_spawn_fail_reason(&mut self, reason: SpawnFailReason) {
         self.last_spawn_fail_reason = Some(reason);
     }
@@ -757,7 +762,7 @@ impl TaskTable {
             frame,
             caps: child_caps,
             trap_domain: parent_domain,
-            qos: QosClass::PerfBurst,
+            qos: QosClass::Normal,
             blocked: false,
             block_reason: None,
             address_space: Some(child_as),
@@ -777,11 +782,12 @@ impl TaskTable {
             parent_task.children.push(pid);
         }
 
-        if matches!(scheduler.enqueue(pid, QosClass::PerfBurst), EnqueueOutcome::Rejected(_)) {
+        if matches!(scheduler.enqueue(pid, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
             if let Some(parent_task) = self.tasks.get_mut(parent_index) {
                 parent_task.children.retain(|child_pid| *child_pid != pid);
             }
             let _ = address_spaces.detach(child_as, pid);
+            let _ = address_spaces.destroy(child_as);
             self.tasks.pop();
             return Err(SpawnError::RunQueueFull);
         }
@@ -1001,6 +1007,14 @@ impl TaskTable {
                     log_error!(
                         target: "task",
                         "TASK: detach failed pid={} err={:?}",
+                        selected_pid.as_raw(),
+                        err
+                    );
+                }
+                if let Err(err) = address_spaces.destroy(handle) {
+                    log_error!(
+                        target: "task",
+                        "TASK: destroy as failed pid={} err={:?}",
                         selected_pid.as_raw(),
                         err
                     );

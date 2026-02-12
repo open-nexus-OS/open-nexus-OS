@@ -2297,6 +2297,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "timed"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+]
+
+[[package]]
 name = "tinytemplate"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

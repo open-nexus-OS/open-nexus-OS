@@ -16,6 +16,8 @@ pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 
 /// Size reserved for user VMO allocations directly managed by the kernel.
 pub const USER_VMO_ARENA_LEN: usize = 16 * 1024 * 1024;
+/// Base address of the kernel-managed user VMO arena.
+pub const USER_VMO_ARENA_BASE: usize = 0x8100_0000;
 
 #[cfg(test)]
 mod tests;
