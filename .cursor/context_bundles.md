@@ -78,6 +78,29 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/kernel/`
 - `docs/services/`
 
+### @task_0014_context
+- `tasks/TASK-0014-observability-v2-metrics-tracing.md`
+- `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md`
+- `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
+- `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+- `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
+- `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+
+### @task_0014_touched
+- `source/services/metricsd/`
+- `userspace/nexus-metrics/`
+- `source/apps/selftest-client/`
+- `source/services/execd/`
+- `source/services/bundlemgrd/`
+- `source/services/dsoftbusd/`
+- `source/services/timed/`
+- `recipes/observability/metrics.toml`
+- `tools/nexus-idl/schemas/` (optional docs schema)
+- `scripts/qemu-test.sh`
+- `docs/observability/`
+
 ### @touched
 - Only the directories listed in the task's **Touched paths** allowlist.
 
@@ -96,3 +119,6 @@ Kontext strikt: @core_context @task_0012b_context @quality_gates @task_0012b_tou
 
 ## Standard instruction line (TASK-0013)
 Kontext strikt: @core_context @task_0013_context @quality_gates @task_0013_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0014)
+Kontext strikt: @core_context @task_0014_context @quality_gates @task_0014_touched. Kein @codebase Scan.

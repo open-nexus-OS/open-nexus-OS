@@ -12,7 +12,7 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (hardening bridge completed and archived; TASK-0012 marker semantics preserved)
+- **last_decision**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (closed with deterministic QoS/timed proofs; foundation set for observability v2)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
@@ -33,14 +33,16 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (closed)
-- **seed_contract**: `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md` (current contract seed for TASK-0013)
+- **active_task**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (prep complete; implementation next)
+- **seed_contract**: `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md` (design seed / active contract for TASK-0014)
 - **contract_dependencies**:
-  - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (ownership/newtype/Send-Sync floor)
-  - `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md` (SMP hardening baseline floor)
-- **phase_now**: TASK-0013 closed (authority/audit deltas closed; proof ladder reruns green)
+  - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (bounded log sink baseline)
+  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (`/state` substrate baseline for retention slices)
+  - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (shared-inbox correlation floor)
+  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (timed producer baseline)
+- **phase_now**: TASK-0014 planning/prep finalized; execution slice can start drift-free
 - **baseline_commit**: `f44a4f7`
-- **next_task_slice**: select next task after TASK-0013 closure handoff
+- **next_task_slice**: implement metricsd + nexus-metrics bounded v2 export path (local only)
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
@@ -48,9 +50,9 @@ Rules:
   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
   - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- **last_completed**: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
-  - Proof gates: `cargo test --workspace`, `just dep-gate`, `just diag-os`, `SMP=2 REQUIRE_SMP=1 ...`, `SMP=1 ...`
-  - Outcome: explicit bounded enqueue reject semantics, explicit S_SOFT contract path, and deterministic guarded `tp -> stack -> BOOT` CPU-ID resolution
+- **last_completed**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
+  - Proof gates: `cargo test --workspace`, `just dep-gate`, `just diag-os`, `just test-os`, `SMP=2 REQUIRE_SMP=1 ...`, `SMP=1 ...`, `make build`, `make test`, `make run`
+  - Outcome: QoS ABI hard rejects + timed coalescing service + deterministic audit/marker proofs
 
 ## Active invariants (must hold)
 - **security**
@@ -89,6 +91,10 @@ Rules:
   - implemented: privileged QoS authority bound to kernel service identity (`execd`/`policyd`) instead of capability-slot shortcut.
   - implemented: explicit audit trail for QoS/timer decisions (`QOS-AUDIT` + `timed: audit register ...`).
   - proof reruns green: host gates + `just test-os` + SMP=2 + SMP=1 after final patch.
+- `tasks/TASK-0014-observability-v2-metrics-tracing.md` — **PREP COMPLETE, IMPLEMENTATION NEXT**:
+  - header now includes `enables` and `follow-up-tasks` for `TASK-0038/0040/0041/0143/0046`,
+  - security section + security proof requirements are present,
+  - scope boundary fixed: local metrics/spans + logd export only; remote/cross-node deferred to follow-ups.
 - DMA capability model (future) — out of scope for MMIO v1
 - IRQ delivery to userspace (future) — separate RFC needed
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
@@ -96,9 +102,11 @@ Rules:
   - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — complete (phases 0→5, proofs green)
   - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — complete (SMP baseline + anti-fake markers + negative tests)
   - `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` — complete (bounded enqueue, trap/IPI contract hardening, CPU-ID guarded hybrid path)
-  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — next (QoS ABI/timed coalescing on hardened baseline)
+  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — complete (QoS ABI + timed coalescing closure)
+  - `tasks/TASK-0014-observability-v2-metrics-tracing.md` — next (metricsd + tracing export via logd)
 - **exported prerequisites**:
   - `TASK-0013`: consumes 0012+0012B scheduler baseline (no alternate scheduler authority)
+  - `TASK-0014`: consumes `TASK-0006` + `TASK-0009` + `RFC-0019` + `TASK-0013`; exports baseline for `TASK-0038/0040/0041/0143/0046`
   - `TASK-0042`: extends affinity/shares without violating 0012+0012B ownership and bounded-steal invariants
   - `TASK-0247`: may harden SBI/HSM/IPI/per-hart timers on top of 0012+0012B only
   - `TASK-0283`: optional `PerCpu<T>` hardening layer refines 0012+0012B contracts only
@@ -127,6 +135,10 @@ Rules:
   - Future: proper device tree parsing if targeting real hardware
 - **TASK-0013 completion risk**:
   - closed in this slice; no remaining exec/QoS/timed blocker observed in proof ladder.
+- **TASK-0014 execution risks (active)**:
+  - cardinality/rate limits must be enforced deterministically to avoid observability-induced DoS.
+  - local-v2 scope must remain strict (no remote/cross-node creep from `TASK-0038`/`TASK-0040`).
+  - proof must validate logd export path, not only local in-memory counters.
 
 ## DON'T DO (session-local)
 - DON'T add kernel MMIO grants via name-checks (init-controlled distribution only)

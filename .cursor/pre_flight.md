@@ -28,6 +28,10 @@ This is the "everything green" guard against fake success.
 - [ ] For TASK-0013-class policy work: QoS authorization semantics are explicit (self vs privileged other-pid) and covered by reject tests
 - [ ] For TASK-0013-class policy work: syscall arg decoding rejects non-representable wire values (no silent integer truncation)
 - [ ] For TASK-0013-class policy work: timer registration/coalescing bounds are explicit and covered by reject tests
+- [ ] For TASK-0014-class observability work: series/span/field bounds are explicit and enforced with deterministic rejects
+- [ ] For TASK-0014-class observability work: producer identity/policy uses kernel-authenticated `sender_service_id`, never payload claims
+- [ ] For TASK-0014-class observability work: logd export path is proven end-to-end (not only local in-memory counters)
+- [ ] For TASK-0014-class observability work: sensitive telemetry fields are denied/redacted and covered by negative tests
 
 ## Post-implementation (before claiming "Done")
 
@@ -41,5 +45,6 @@ This is the "everything green" guard against fake success.
 - [ ] Markers honest (no `ready/ok` for stub paths)
 - [ ] Headers updated (CONTEXT, TEST_COVERAGE, ADR)
 - [ ] Docs synced (architecture, testing, contracts)
+- [ ] Follow-up boundaries are documented (no implicit scope creep into later tasks)
 - [ ] If task changed marker expectations/gates, `.cursor/current_state.md`, `.cursor/handoff/current.md`, and `.cursor/next_task_prep.md` are updated in the same slice
 - [ ] If task changes ownership/newtype/Send-Sync boundaries, task header and linked RFC contract are updated in the same slice

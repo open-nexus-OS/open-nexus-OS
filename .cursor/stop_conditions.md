@@ -17,6 +17,12 @@ This prevents subjective completion and reduces drift across sessions.
   - [ ] Syscall argument decoding does not silently truncate/clamp wire values before validation (overflow rejects deterministically)
   - [ ] Timer registration/coalescing bounds are explicit and have reject tests
   - [ ] SMP marker semantics remain unchanged (no drift from TASK-0012/TASK-0012B)
+- [ ] For observability tasks (metrics/tracing/log export):
+  - [ ] Series cardinality, live spans, and payload sizes are bounded and enforced
+  - [ ] Invalid/malformed/oversized inputs have deterministic reject paths and negative tests
+  - [ ] Identity/policy checks are bound to authenticated `sender_service_id` (no payload-identity trust)
+  - [ ] Export proof validates sink path (`logd`) end-to-end with deterministic markers
+  - [ ] Scope remains local unless a follow-up task explicitly owns remote/cross-node behavior
 - [ ] For SMP/parallelism tasks:
   - [ ] SMP>=2 proof is green (explicit marker-gated run)
   - [ ] SMP=1 regression proof is green (default smoke behavior unchanged)

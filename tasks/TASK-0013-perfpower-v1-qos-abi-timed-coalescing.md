@@ -1,6 +1,6 @@
 ---
 title: TASK-0013 Performance & Power v1 (userspace): QoS ABI hints + timed service (timer coalescing)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 links:

@@ -76,6 +76,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0017: Device MMIO Access Model v1 (capability-gated device access)
 - RFC-0022: Kernel SMP v1b scheduler/SMP hardening contract (bounded queues + trap/IPI + CPU-ID path)
 - RFC-0023: QoS ABI + timed coalescing contract v1 (authorization + bounded timer policy)
+- RFC-0024: Observability v2 local contract (bounded metrics/tracing export via logd)
 
 ## Index
 
@@ -125,3 +126,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
 - RFC-0023: QoS ABI + timed coalescing contract v1 (In Progress, Phase 0 execution active)
   - docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md
+- RFC-0024: Observability v2 local contract - metricsd + tracing export via logd (Draft)
+  - docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md
