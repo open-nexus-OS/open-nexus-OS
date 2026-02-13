@@ -1494,6 +1494,7 @@ mod os_lite {
         metricsd: &MetricsClient,
         logd: &KernelClient,
     ) -> core::result::Result<(bool, bool, bool, bool, bool), ()> {
+        let query_since = nexus_abi::nsec().map_err(|_| ())?;
         let total_before = logd_stats_total(logd).unwrap_or(0);
         let c0 = metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 3).map_err(|_| ())?;
         let c1 = metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 4).map_err(|_| ())?;
@@ -1501,7 +1502,7 @@ mod os_lite {
             let _ = yield_();
         }
         let counters_query =
-            logd_query_contains_since_paged(logd, 0, b"metrics snapshot counter name=selftest.counter")
+            logd_query_contains_since_paged(logd, query_since, b"metrics snapshot counter name=selftest.counter")
                 .unwrap_or(false);
         let counters_ok = c0 == METRICS_STATUS_OK
             && c1 == METRICS_STATUS_OK
@@ -1513,7 +1514,7 @@ mod os_lite {
             let _ = yield_();
         }
         let gauges_query =
-            logd_query_contains_since_paged(logd, 0, b"metrics snapshot gauge name=selftest.gauge")
+            logd_query_contains_since_paged(logd, query_since, b"metrics snapshot gauge name=selftest.gauge")
                 .unwrap_or(false);
         let gauges_ok = g0 == METRICS_STATUS_OK
             && g1 == METRICS_STATUS_OK
@@ -1525,7 +1526,7 @@ mod os_lite {
             let _ = yield_();
         }
         let hist_query =
-            logd_query_contains_since_paged(logd, 0, b"metrics snapshot histogram name=selftest.hist")
+            logd_query_contains_since_paged(logd, query_since, b"metrics snapshot histogram name=selftest.hist")
                 .unwrap_or(false);
         let hist_ok = h0 == METRICS_STATUS_OK
             && h1 == METRICS_STATUS_OK
@@ -1545,10 +1546,10 @@ mod os_lite {
         }
         let spans_ok = s0 == METRICS_STATUS_OK
             && s1 == METRICS_STATUS_OK
-            && logd_query_contains_since_paged(logd, 0, b"tracing span end name=selftest.span")
+            && logd_query_contains_since_paged(logd, query_since, b"tracing span end name=selftest.span")
                 .unwrap_or(false);
         let retention_ok =
-            logd_query_contains_since_paged(logd, 0, b"retention wal active").unwrap_or(false);
+            logd_query_contains_since_paged(logd, 0, b"retention wal verified").unwrap_or(false);
 
         let total_after = logd_stats_total(logd).unwrap_or(0);
         let _ = total_after <= total_before;

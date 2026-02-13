@@ -45,12 +45,15 @@ fn normalize_subject_id(subject_id: u64) -> u64 {
     const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
     const SID_KEYSTORED_ALT: u64 = 0xe34f_d9be_f149_d9de;
     const SID_UPDATED_ALT: u64 = 0x338f_beeb_af28_aff9;
+    const SID_METRICSD_ALT: u64 = 0xed20_5ae1_e47c_393d;
     if subject_id == SID_SELFTEST_CLIENT_ALT {
         nexus_abi::service_id_from_name(b"selftest-client")
     } else if subject_id == SID_KEYSTORED_ALT {
         nexus_abi::service_id_from_name(b"keystored")
     } else if subject_id == SID_UPDATED_ALT {
         nexus_abi::service_id_from_name(b"updated")
+    } else if subject_id == SID_METRICSD_ALT {
+        nexus_abi::service_id_from_name(b"metricsd")
     } else {
         subject_id
     }
@@ -480,6 +483,37 @@ mod tests {
         ]);
         frame.extend_from_slice(&nonce.to_le_bytes());
         frame.extend_from_slice(&SID_UPDATED_ALT.to_le_bytes());
+        frame.push(cap.len() as u8);
+        frame.extend_from_slice(cap);
+
+        let out = handle_frame(&policy, &frame, enforcer, false);
+        let (got_nonce, status) = status_v2(out);
+        assert_eq!(got_nonce, nonce);
+        assert_eq!(status, STATUS_ALLOW);
+    }
+
+    #[test]
+    fn test_delegated_statefs_write_allows_metricsd_alt_subject_v2() {
+        const SID_METRICSD_ALT: u64 = 0xed20_5ae1_e47c_393d;
+        let enforcer = nexus_abi::service_id_from_name(b"statefsd");
+        let metricsd = nexus_abi::service_id_from_name(b"metricsd");
+        let entries = [
+            PolicyEntry { service_id: enforcer, capabilities: &["policy.delegate"] },
+            PolicyEntry { service_id: metricsd, capabilities: &["statefs.write"] },
+        ];
+        let policy = Policy::new(&entries);
+
+        let nonce: u32 = 0xBEEF_F00D;
+        let cap = b"statefs.write";
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[
+            MAGIC0,
+            MAGIC1,
+            nexus_abi::policyd::VERSION_V2,
+            OP_CHECK_CAP_DELEGATED,
+        ]);
+        frame.extend_from_slice(&nonce.to_le_bytes());
+        frame.extend_from_slice(&SID_METRICSD_ALT.to_le_bytes());
         frame.push(cap.len() as u8);
         frame.extend_from_slice(cap);
 

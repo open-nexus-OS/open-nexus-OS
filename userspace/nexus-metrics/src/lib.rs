@@ -855,6 +855,12 @@ mod tests {
     #[test]
     fn test_send_sync_boundaries() {
         assert_send_sync::<DeterministicIdSource>();
+        assert_send_sync::<SeriesId>();
+        assert_send_sync::<SpanId>();
+        assert_send_sync::<TraceId>();
+        assert_send_sync::<EncodeError>();
+        assert_send_sync::<DecodeError>();
+        assert_send_sync::<ClientError>();
     }
 
     #[test]

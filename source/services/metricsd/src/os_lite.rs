@@ -30,6 +30,7 @@ use nexus_metrics::{
 
 use crate::{RateLimiter, Registry, RejectReason, RetentionEngine, RetentionEventKind, RuntimeLimits};
 
+use statefs::client::StatefsClient;
 use statefs::protocol as statefs_proto;
 
 /// Result type for metricsd service loop.
@@ -54,7 +55,9 @@ struct RetentionSink {
     limits: RuntimeLimits,
     engine: RetentionEngine,
     client: Option<KernelClient>,
+    proof_client: Option<StatefsClient>,
     wal_proof_emitted: bool,
+    wal_verified_emitted: bool,
     rollup_10s_proof_emitted: bool,
     rollup_60s_proof_emitted: bool,
 }
@@ -66,6 +69,24 @@ impl RetentionSink {
         } else {
             None
         };
+        let proof_client = if limits.retention_enabled {
+            let client = KernelClient::new_with_slots(
+                METRICSD_STATEFSD_SEND_SLOT,
+                METRICSD_REPLY_RECV_SLOT,
+            )
+            .ok();
+            let reply = KernelClient::new_with_slots(
+                METRICSD_REPLY_SEND_SLOT,
+                METRICSD_REPLY_RECV_SLOT,
+            )
+            .ok();
+            match (client, reply) {
+                (Some(c), Some(r)) => Some(StatefsClient::from_clients(c, Some(r))),
+                _ => None,
+            }
+        } else {
+            None
+        };
         if limits.retention_enabled && client.is_none() {
             emit_line("metricsd: retention statefs unavailable");
         }
@@ -73,7 +94,9 @@ impl RetentionSink {
             limits,
             engine: RetentionEngine::new(limits),
             client,
+            proof_client,
             wal_proof_emitted: false,
+            wal_verified_emitted: false,
             rollup_10s_proof_emitted: false,
             rollup_60s_proof_emitted: false,
         }
@@ -108,6 +131,16 @@ impl RetentionSink {
             nexus_log::info("metricsd", |line| {
                 line.text("retention wal active");
             });
+        }
+        if !self.wal_verified_emitted {
+            if let Some(proof) = self.proof_client.as_ref() {
+                if proof.put(key.as_str(), &update.wal_bytes).is_ok() {
+                    self.wal_verified_emitted = true;
+                    nexus_log::info("metricsd", |line| {
+                        line.text("retention wal verified");
+                    });
+                }
+            }
         }
         if let Some(rollup_10s) = update.rollup_10s.as_ref() {
             let key = format!("/state/observability/metricsd/rollup/10s/w_{}", rollup_10s.window_id);

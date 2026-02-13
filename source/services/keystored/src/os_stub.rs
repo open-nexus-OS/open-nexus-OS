@@ -791,17 +791,7 @@ fn policyd_allows(pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8
         Ok(v) => v,
         Err(_) => return false,
     };
-    if rsp.len() != 10 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION_V2 {
-        return false;
-    }
-    if rsp[3] != (OP_CHECK_CAP_DELEGATED | 0x80) {
-        return false;
-    }
-    let got_nonce = u32::from_le_bytes([rsp[4], rsp[5], rsp[6], rsp[7]]);
-    if got_nonce != nonce {
-        return false;
-    }
-    rsp[8] == STATUS_ALLOW
+    crate::decode_delegated_cap_decision(&rsp, nonce) == Some(STATUS_ALLOW)
 }
 
 fn extract_shared_nonce_u32(frame: &[u8]) -> Option<u64> {

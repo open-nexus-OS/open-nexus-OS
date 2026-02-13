@@ -506,8 +506,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         Ok(v) => v,
         Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
     };
-    let (_rsp_nonce, decision) = nexus_abi::policy::decode_exec_check_rsp(&rb)
-        .unwrap_or((nonce, nexus_abi::policy::STATUS_ALLOW));
+    let decision = match crate::decode_exec_policy_decision(&rb, nonce) {
+        Some(v) => v,
+        None => {
+            metrics_counter_inc_best_effort("execd.spawn.deny");
+            emit_line("execd: spawn denied (policy malformed)");
+            return rsp(op, STATUS_DENIED, 0).to_vec();
+        }
+    };
     if decision != nexus_abi::policy::STATUS_ALLOW {
         metrics_counter_inc_best_effort("execd.spawn.deny");
         emit_line("execd: spawn denied (policy)");
