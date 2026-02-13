@@ -52,6 +52,7 @@ IPC Robustness (TASK-0008):
 
 - **Nonce-based reply correlation**: RPCs between services (e.g., `dsoftbusd` ↔ `netstackd`) include a trailing `u64` nonce.
   Responses echo the nonce; receivers validate it to prevent reply misassociation.
+- **Fail-closed delegated policy decode**: delegated-cap v2 responders use nonce-correlated decoders and treat malformed/nonce-mismatched responses as deny/fail in enforcement points (`execd`, `rngd`, `keystored`, `statefsd`).
 - **Deterministic slot assignment**: Core services use fixed slots assigned by `init-lite` for stability during early bring-up.
 - **Capability closure**: All `CAP_MOVE` operations explicitly close the reply capability on all exit paths to prevent leaks.
 

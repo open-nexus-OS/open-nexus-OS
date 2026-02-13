@@ -73,7 +73,7 @@ Execute in numerical order. Current position: **TASK-0008B**.
 | TASK-0012 | Kernel SMP v1 (per-CPU runqueues + IPIs) | TASK-0011, TASK-0011B | Queued |
 | TASK-0012B | Kernel SMP v1b hardening bridge (scheduler + SMP internals) | TASK-0012 | Queued |
 | TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | TASK-0012B | Queued |
-| TASK-0014 | Observability v2: metrics + tracing | TASK-0006 | Queued |
+| TASK-0014 | Observability v2: metrics + tracing | TASK-0006 | In Review |
 
 ---
 

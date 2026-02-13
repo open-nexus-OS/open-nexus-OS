@@ -1,7 +1,7 @@
 # Current Handoff: TASK-0014 Observability v2 (metrics/tracing) — FULL SLICES BUILT, PROOFS GREEN
 
 **Date**: 2026-02-13  
-**Status**: `TASK-0014` remains active by policy (no explicit closure command yet). `phase-0a`, `phase-0`, `phase-1`, and `phase-2` are green, full planned closure slices are implemented, and final proof chain passed (`just dep-gate && just diag-os && cargo test --workspace && RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
+**Status**: `TASK-0014` is in `In Review` by explicit user command. `phase-0a`, `phase-0`, `phase-1`, and `phase-2` are green, full planned closure slices are implemented, and final proof chain passed (`just dep-gate && just diag-os && cargo test --workspace && RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
 **Delta report**: `.cursor/handoff/task-0014-delta-closure-report.md`
 
 ---
@@ -20,7 +20,8 @@
 
 - `rngd` delegated policy now allows entropy path deterministically (`rngd: policy allow`, `rngd: mmio window mapped ok`).
 - Metrics/tracing semantics now pass in mmio (`SELFTEST: metrics security rejects ok`, `SELFTEST: metrics counters ok`, `SELFTEST: metrics gauges ok`, `SELFTEST: metrics histograms ok`, `SELFTEST: tracing spans ok`).
-- Retention proof is now active in mmio (`[INFO metricsd] retention wal active`, `SELFTEST: metrics retention ok`).
+- Retention proof is now active in mmio (`[INFO metricsd] retention wal verified`, `SELFTEST: metrics retention ok`).
+- Delegated-cap policy decode hardening is fail-closed and nonce-correlated in enforcement paths (`execd`, `rngd`, `keystored`, `statefsd`) with unit tests.
 - Device-key and statefs selftest proofs now pass (`SELFTEST: device key pubkey ok`, `SELFTEST: device key persist ok`, `SELFTEST: statefs put ok`, `SELFTEST: statefs persist ok`).
 - `ipc sender service_id` selftest is green in the current ladder.
 - OTA/update path now passes in mmio (`SELFTEST: ota stage ok`, `SELFTEST: ota switch ok`, `SELFTEST: ota health ok`, `SELFTEST: ota rollback ok`, `SELFTEST: bootctl persist ok`).
@@ -43,11 +44,11 @@
 - Keep TASK/RFC/state artifacts in lockstep with implementation reality and proof outputs.
 - Keep reject-matrix and retention claims strictly evidence-bound (host tests + marker ladder).
 - Keep sender-alias normalization constrained to observed/verified identities only; avoid speculative broadening.
-- Prepare explicit closure handoff package for `TASK-0014` (without changing status unless requested).
+- Keep `TASK-0014` review package concise and evidence-linked (`In Review` remains unchanged unless explicitly requested).
 
-## Why still in progress
+## Why still open
 
-- Full-scope slices are implemented and proven, but user requested to keep `TASK-0014` in `In Progress` until explicit closure command.
+- Full-scope slices are implemented and proven; task is intentionally left in `In Review` pending final review/closure command.
 
 ## Guardrails
 

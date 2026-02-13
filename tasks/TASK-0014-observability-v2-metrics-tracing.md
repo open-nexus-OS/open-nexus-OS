@@ -1,6 +1,6 @@
 ---
 title: TASK-0014 Observability v2 (OS): metricsd (counters/gauges/histograms) + spans exported via logd
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 links:
@@ -243,7 +243,7 @@ Notes:
 - `source/libs/nexus-log/` (sink-logd deterministic slot configuration contract)
 - `source/apps/selftest-client/` (markers + deterministic workload)
 - `source/services/execd/`, `source/services/bundlemgrd/`, `source/services/dsoftbusd/`, `source/services/timed/` (minimal instrumentation)
-- `source/services/statefsd/`, `source/services/policyd/` (retention access policy + delegated checks)
+- `source/services/statefsd/`, `source/services/policyd/`, `source/services/rngd/`, `source/services/keystored/` (retention access policy + delegated checks + nonce-correlated decode hardening)
 - `source/init/nexus-init/` (deterministic capability wiring for metricsd retention path)
 - `recipes/observability/metrics.toml` (limits, downsampling, retention defaults)
 - `recipes/policy/base.toml` (explicit `metricsd` capability grant for `/state` writes)
@@ -332,6 +332,7 @@ Notes:
 - [x] Phase 2 complete: marker ladder closure + anti-drift docs/task sync completed (handoff/current_state/TASK/RFC aligned to latest green mmio proof).
 - [x] Slot-wiring hardening: explicit deterministic sink-slot configuration API implemented and adopted in `metricsd` and selftest sink probe.
 - [x] Runtime stabilization (mmio): `selftest-client` logd STATS path moved to CAP_MOVE + nonce correlation; `policyd` sender/subject alias normalization extended for observed bring-up IDs (`selftest-client` sender-bound checks + delegated `updated` subject).
+- [x] Policy reply hardening: fail-closed nonce-correlated delegated-cap decode helpers adopted in `execd`, `rngd`, `keystored`, and `statefsd` with dedicated unit tests.
 - [x] Full-scope closure implementation slices completed:
   - [x] `metricsd` retention slice on `/state`: bounded WAL + segment rotation + raw->10s->60s rollups + TTL/GC.
   - [x] Runtime binding of limits/budgets from `recipes/observability/metrics.toml`.
@@ -340,7 +341,7 @@ Notes:
   - [x] Planned instrumentation completion (`execd`/`bundlemgrd`/`dsoftbusd`/`timed`) and `nexus-metrics` macro ergonomics (including span guard end-on-drop).
   - [x] Retention proof marker integrated: `SELFTEST: metrics retention ok`.
 
-Task status intentionally remains `In Progress` until explicit user closure command.
+Task status intentionally remains `In Review` until explicit user closure command.
 
 ## RFC seeds (for later, once green)
 

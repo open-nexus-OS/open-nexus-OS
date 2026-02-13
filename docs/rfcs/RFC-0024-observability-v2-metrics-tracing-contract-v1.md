@@ -1,6 +1,6 @@
 # RFC-0024: Observability v2 local contract - metricsd + tracing export via logd
 
-- Status: Draft
+- Status: Done
 - Owners: @runtime
 - Created: 2026-02-11
 - Last Updated: 2026-02-13
@@ -19,8 +19,8 @@
 - **Phase 0 (local v2 contract + service/lib shape)**: ✅
 - **Phase 1 (bounded security and failure semantics)**: ✅
 - **Phase 2 (proof gates + anti-drift sync)**: ✅
-- **Task closure state (`TASK-0014`)**: 🟨 in progress (full-scope implementation slices are complete; task remains open until explicit closure command)
-- **Runtime stabilization note (2026-02-13)**: mmio green re-verified after (a) CAP_MOVE+nonce correlation for selftest logd STATS on shared inbox and (b) policyd alias normalization for sender-bound identity checks and delegated `updated` subject checks.
+- **Task closure state (`TASK-0014`)**: 🟨 in review (full-scope implementation slices are complete; task remains open until explicit closure command)
+- **Runtime stabilization note (2026-02-13)**: mmio green re-verified after (a) CAP_MOVE+nonce correlation for selftest logd STATS on shared inbox, (b) policyd alias normalization for sender-bound identity checks and delegated subjects, and (c) fail-closed nonce-correlated delegated-cap decoders in enforcement paths (`execd`, `rngd`, `keystored`, `statefsd`).
 
 Definition:
 
@@ -37,6 +37,11 @@ Definition:
 - **Identity normalization in bring-up paths (transitional)**:
   - Observed sender-id aliases in mmio bring-up were normalized in policy paths to preserve deterministic proofs.
   - This is a compatibility layer and must stay evidence-driven (no speculative broadening).
+- **Retention proof floor raised**:
+  - QEMU proof gating now relies on `retention wal verified` (write-ack evidence), not only `retention wal active`.
+- **Policy reply hardening (fail-closed)**:
+  - Decode failures or nonce mismatches in delegated policy checks are treated as deny/fail in enforcement paths.
+  - Shared delegated-cap response decoding is now centralized and unit-tested to reduce drift across services.
 
 ## Scope boundaries (anti-drift)
 
