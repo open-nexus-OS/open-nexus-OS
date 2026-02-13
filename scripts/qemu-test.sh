@@ -76,6 +76,15 @@ if [[ -z "${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}" ]]; then
   export INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS="--no-default-features --features os-lite,qemu-smoke"
 fi
 
+# TASK-0014: include metricsd in default os-lite service payload set for QEMU proof runs.
+if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
+  export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
+fi
+if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
+  # Keep added observability service footprint bounded in bring-up proofs.
+  export INIT_LITE_SERVICE_METRICSD_STACK_PAGES=1
+fi
+
 QEMU_EXTRA_ARGS=()
 if [[ "${DEBUG_QEMU:-0}" == "1" ]]; then
   QEMU_EXTRA_ARGS+=(-S -gdb tcp:localhost:1234)
@@ -176,6 +185,8 @@ expected_sequence=(
   "init: up policyd"
   "init: start logd"
   "init: up logd"
+  "init: start metricsd"
+  "init: up metricsd"
   "init: start samgrd"
   "init: up samgrd"
   "init: start bundlemgrd"
@@ -211,6 +222,7 @@ expected_sequence=(
   "net: smoltcp iface up"
   "blk: virtio-blk up"
   "logd: ready"
+  "metricsd: ready"
   "bundlemgrd: slot a active"
   "SELFTEST: ipc routing keystored ok"
   "SELFTEST: keystored v1 ok"
@@ -262,6 +274,19 @@ expected_sequence=(
   "SELFTEST: crash report ok"
   "SELFTEST: exec denied ok"
   "SELFTEST: execd malformed ok"
+  "logd: reject invalid_args"
+  "logd: reject over_limit"
+  "logd: reject rate_limited"
+  "SELFTEST: logd hardening rejects ok"
+  "metricsd: reject invalid_args"
+  "metricsd: reject over_limit"
+  "metricsd: reject rate_limited"
+  "SELFTEST: metrics security rejects ok"
+  "SELFTEST: metrics counters ok"
+  "SELFTEST: metrics gauges ok"
+  "SELFTEST: metrics histograms ok"
+  "SELFTEST: tracing spans ok"
+  "SELFTEST: metrics retention ok"
   "SELFTEST: log query ok"
   "SELFTEST: nexus-log sink-logd ok"
   "SELFTEST: core services log ok"
@@ -457,6 +482,141 @@ fi
 agent_debug_log "$AGENT_RUN_ID" "K" "scripts/qemu-test.sh:diag-qemu-launch-errors" "qemu launch error signatures" \
   "{\"qemu_exists\":$qemu_exists,\"qemu_launch_fail\":$qemu_launch_fail,\"qemu_lock_conflict\":$qemu_lock_conflict}"
 # #endregion agent log
+# #endregion agent log
+
+# #region agent log (hypotheses H6-H10: metricsd -> logd visibility path)
+line_metrics_rejects_ok=$(grep -aFn "SELFTEST: metrics security rejects ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_metrics_counter_fail=$(grep -aFn "SELFTEST: metrics counters FAIL" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_metrics_hist_fail=$(grep -aFn "SELFTEST: metrics histograms FAIL" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_metrics_span_fail=$(grep -aFn "SELFTEST: tracing spans FAIL" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_metrics_logd_no_increase=$(grep -aFn "dbg: metrics logd total did-not-increase" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_metrics_counter_miss=$(grep -aFn "dbg: metrics counter query miss" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_metrics_hist_miss=$(grep -aFn "dbg: metrics hist query miss" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_metrics_span_miss=$(grep -aFn "dbg: metrics span query miss" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+
+count_metricsd_semantic_counter=$( (grep -aF "[INFO metricsd] metrics snapshot counter name=selftest.counter" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_metricsd_semantic_hist=$( (grep -aF "[INFO metricsd] metrics snapshot histogram name=selftest.hist" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_metricsd_semantic_span=$( (grep -aF "[INFO metricsd] tracing span end name=selftest.span" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_logd_metrics_append_rx=$( (grep -aF "dbg: logd metrics append rx" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_logd_metrics_append_ok=$( (grep -aF "dbg: logd metrics append status ok" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_logd_metrics_append_rate=$( (grep -aF "dbg: logd metrics append status rate_limited" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_metrics_slots_none=$( (grep -aF "dbg: sink-logd metrics ensure_slots none" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_metrics_cap_clone_fail=$( (grep -aF "dbg: sink-logd metrics cap_clone fail" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_metrics_send_err=$( (grep -aF "dbg: sink-logd metrics send err" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_metrics_send_ok=$( (grep -aF "dbg: sink-logd metrics send ok" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_logd_scope_metricsd=$( (grep -aF "dbg: logd scope metricsd sid=0x" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_selftest_slots_none=$( (grep -aF "dbg: sink-logd selftest ensure_slots none" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_selftest_direct_slots=$( (grep -aF "dbg: sink-logd selftest direct slots" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_selftest_routed_slots=$( (grep -aF "dbg: sink-logd selftest routed slots" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_selftest_send_err=$( (grep -aF "dbg: sink-logd selftest send err" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_sink_selftest_send_ok=$( (grep -aF "dbg: sink-logd selftest send ok" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+line_selftest_sink_fail=$(grep -aFn "SELFTEST: nexus-log sink-logd FAIL" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_selftest_sink_ok=$(grep -aFn "SELFTEST: nexus-log sink-logd ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+
+agent_debug_log "$AGENT_RUN_ID" "H6" "scripts/qemu-test.sh:diag-metrics-selftest-order" "metrics selftest marker order and misses" \
+  "{\"line_metrics_rejects_ok\":$line_metrics_rejects_ok,\"line_metrics_counter_fail\":$line_metrics_counter_fail,\"line_metrics_hist_fail\":$line_metrics_hist_fail,\"line_metrics_span_fail\":$line_metrics_span_fail,\"line_metrics_logd_no_increase\":$line_metrics_logd_no_increase,\"line_metrics_counter_miss\":$line_metrics_counter_miss,\"line_metrics_hist_miss\":$line_metrics_hist_miss,\"line_metrics_span_miss\":$line_metrics_span_miss}"
+
+agent_debug_log "$AGENT_RUN_ID" "H7" "scripts/qemu-test.sh:diag-metrics-emission-counts" "metricsd semantic emission counts in uart" \
+  "{\"count_semantic_counter\":$count_metricsd_semantic_counter,\"count_semantic_hist\":$count_metricsd_semantic_hist,\"count_semantic_span\":$count_metricsd_semantic_span}"
+
+agent_debug_log "$AGENT_RUN_ID" "H8" "scripts/qemu-test.sh:diag-logd-metrics-append" "logd observed metricsd append statuses" \
+  "{\"count_metrics_append_rx\":$count_logd_metrics_append_rx,\"count_metrics_append_ok\":$count_logd_metrics_append_ok,\"count_metrics_append_rate_limited\":$count_logd_metrics_append_rate}"
+
+agent_debug_log "$AGENT_RUN_ID" "H9" "scripts/qemu-test.sh:diag-sink-logd-send-path" "nexus-log sink-logd metrics send path markers" \
+  "{\"count_sink_slots_none\":$count_sink_metrics_slots_none,\"count_sink_cap_clone_fail\":$count_sink_metrics_cap_clone_fail,\"count_sink_send_err\":$count_sink_metrics_send_err,\"count_sink_send_ok\":$count_sink_metrics_send_ok}"
+
+agent_debug_log "$AGENT_RUN_ID" "H10" "scripts/qemu-test.sh:diag-logd-scope-metricsd" "logd observed append frames with metricsd scope" \
+  "{\"count_logd_scope_metricsd\":$count_logd_scope_metricsd}"
+
+agent_debug_log "$AGENT_RUN_ID" "H11" "scripts/qemu-test.sh:diag-sink-selftest-slot-mode" "selftest sink-logd slot resolution mode" \
+  "{\"count_selftest_slots_none\":$count_sink_selftest_slots_none,\"count_selftest_direct_slots\":$count_sink_selftest_direct_slots,\"count_selftest_routed_slots\":$count_sink_selftest_routed_slots}"
+
+agent_debug_log "$AGENT_RUN_ID" "H12" "scripts/qemu-test.sh:diag-sink-selftest-send" "selftest sink-logd send outcome" \
+  "{\"count_selftest_send_ok\":$count_sink_selftest_send_ok,\"count_selftest_send_err\":$count_sink_selftest_send_err}"
+
+agent_debug_log "$AGENT_RUN_ID" "H13" "scripts/qemu-test.sh:diag-sink-selftest-probe-marker" "selftest sink-logd probe marker result" \
+  "{\"line_sink_probe_ok\":$line_selftest_sink_ok,\"line_sink_probe_fail\":$line_selftest_sink_fail}"
+# #endregion agent log
+
+# #region agent log (hypotheses N1-N4: selftest failure locus and net/mmio side effects)
+line_selftest_service_error=$(grep -aFn "service error svc=selftest-client type=()" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_net_mmio_cap_missing=$(grep -aFn "netstackd: mmio cap48 missing" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_net_mmio_map_fail=$(grep -aFn "netstackd: net FAIL mmio-map" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_sink_slots_configured=$(grep -aFn "dbg: selftest sink slots configured" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_sink_slots_config_fail=$(grep -aFn "dbg: selftest sink slots configure-fail" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+count_statefs_denied_keystore=$( (grep -aF "statefsd: access denied path=/state/keystore/" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+count_statefs_reply_send_fail=$( (grep -aF "statefsd: reply send fail" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+
+last_selftest_line=$(grep -aFn "SELFTEST:" "$UART_LOG" | tail -n1 | cut -d: -f1 || echo 0)
+last_selftest_marker=$(grep -aF "SELFTEST:" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
+if [[ -z "$last_selftest_marker" ]]; then
+  last_selftest_marker="<none>"
+fi
+
+agent_debug_log "$AGENT_RUN_ID" "N1" "scripts/qemu-test.sh:diag-selftest-failure-locus" "selftest failure and last marker locus" \
+  "{\"line_selftest_service_error\":$line_selftest_service_error,\"last_selftest_line\":$last_selftest_line,\"last_selftest_marker\":\"$last_selftest_marker\"}"
+
+agent_debug_log "$AGENT_RUN_ID" "N2" "scripts/qemu-test.sh:diag-selftest-sink-config-result" "selftest sink slot config result marker" \
+  "{\"line_sink_slots_configured\":$line_sink_slots_configured,\"line_sink_slots_config_fail\":$line_sink_slots_config_fail}"
+
+agent_debug_log "$AGENT_RUN_ID" "N3" "scripts/qemu-test.sh:diag-statefs-deny-pressure" "statefs deny/reply-fail pressure counts" \
+  "{\"count_statefs_denied_keystore\":$count_statefs_denied_keystore,\"count_statefs_reply_send_fail\":$count_statefs_reply_send_fail}"
+
+agent_debug_log "$AGENT_RUN_ID" "N4" "scripts/qemu-test.sh:diag-netstackd-mmio-failure" "netstackd mmio failure marker locus" \
+  "{\"line_net_mmio_cap_missing\":$line_net_mmio_cap_missing,\"line_net_mmio_map_fail\":$line_net_mmio_map_fail}"
+
+line_cp0=$(grep -aFn "dbg: selftest cp0 run-start" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_cp1=$(grep -aFn "dbg: selftest cp1 keystored-resolved" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_cp2=$(grep -aFn "dbg: selftest cp2 post-statefs-keystore" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_cp3=$(grep -aFn "dbg: selftest cp3 post-reply-capmove" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_cp4=$(grep -aFn "dbg: selftest cp4 updated-routed" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_fail_resolve_keystored=$(grep -aFn "dbg: selftest fail resolve-keystored" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_fail_route_samgrd=$(grep -aFn "dbg: selftest fail route-samgrd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_fail_route_policyd=$(grep -aFn "dbg: selftest fail route-policyd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_fail_route_bundlemgrd=$(grep -aFn "dbg: selftest fail route-bundlemgrd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_fail_route_updated=$(grep -aFn "dbg: selftest fail route-updated" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_execd_spawn_denied_id_mismatch=$(grep -aFn "execd: spawn denied (id mismatch)" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_execd_spawn_denied_policy=$(grep -aFn "execd: spawn denied (policy)" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+count_execd_spawn_id_mismatch_detail=$( (grep -aF "execd: spawn id mismatch sender=" "$UART_LOG" || true) | wc -l | tr -d ' ' )
+first_execd_spawn_id_mismatch_detail=$(grep -aF "execd: spawn id mismatch sender=" "$UART_LOG" | head -n1 | sed 's/"/\\"/g' || true)
+if [[ -z "$first_execd_spawn_id_mismatch_detail" ]]; then
+  first_execd_spawn_id_mismatch_detail="<none>"
+fi
+line_policyd_mmio_net=$(grep -aFn "policyd: mmio net " "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_policyd_mmio_rng=$(grep -aFn "policyd: mmio rng " "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_policyd_mmio_blk=$(grep -aFn "policyd: mmio blk " "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+first_policyd_mmio_net=$(grep -aF "policyd: mmio net " "$UART_LOG" | head -n1 | sed 's/"/\\"/g' || true)
+first_policyd_mmio_rng=$(grep -aF "policyd: mmio rng " "$UART_LOG" | head -n1 | sed 's/"/\\"/g' || true)
+first_policyd_mmio_blk=$(grep -aF "policyd: mmio blk " "$UART_LOG" | head -n1 | sed 's/"/\\"/g' || true)
+line_rng_sender_sid_canonical=$(grep -aFn "rngd: sender sid selftest canonical" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_rng_sender_sid_alt=$(grep -aFn "rngd: sender sid selftest alt" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_rng_sender_sid_other=$(grep -aFn "rngd: sender sid other" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_rng_policy_allow=$(grep -aFn "rngd: policy allow" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_rng_policy_deny=$(grep -aFn "rngd: policy deny" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_policyd_delegated_rng_sender_canonical=$(grep -aFn "policyd: delegated rng sender canonical" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_policyd_delegated_rng_sender_other=$(grep -aFn "policyd: delegated rng sender other" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+first_policyd_delegated_rng_sender_sid=$(grep -aF "policyd: delegated rng sender sid=0x" "$UART_LOG" | head -n1 | sed 's/"/\\"/g' || true)
+line_policyd_delegated_rng_allow=$(grep -aFn "policyd: delegated rng allow" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_policyd_delegated_rng_deny=$(grep -aFn "policyd: delegated rng deny" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+if [[ -z "$first_policyd_delegated_rng_sender_sid" ]]; then first_policyd_delegated_rng_sender_sid="<none>"; fi
+if [[ -z "$first_policyd_mmio_net" ]]; then first_policyd_mmio_net="<none>"; fi
+if [[ -z "$first_policyd_mmio_rng" ]]; then first_policyd_mmio_rng="<none>"; fi
+if [[ -z "$first_policyd_mmio_blk" ]]; then first_policyd_mmio_blk="<none>"; fi
+
+agent_debug_log "$AGENT_RUN_ID" "N5" "scripts/qemu-test.sh:diag-selftest-checkpoints" "selftest checkpoint progression and explicit fail labels" \
+  "{\"line_cp0\":$line_cp0,\"line_cp1\":$line_cp1,\"line_cp2\":$line_cp2,\"line_cp3\":$line_cp3,\"line_cp4\":$line_cp4,\"line_fail_resolve_keystored\":$line_fail_resolve_keystored,\"line_fail_route_samgrd\":$line_fail_route_samgrd,\"line_fail_route_policyd\":$line_fail_route_policyd,\"line_fail_route_bundlemgrd\":$line_fail_route_bundlemgrd,\"line_fail_route_updated\":$line_fail_route_updated}"
+
+agent_debug_log "$AGENT_RUN_ID" "N6" "scripts/qemu-test.sh:diag-execd-deny-class" "execd deny class and mismatch detail" \
+  "{\"line_execd_spawn_denied_id_mismatch\":$line_execd_spawn_denied_id_mismatch,\"line_execd_spawn_denied_policy\":$line_execd_spawn_denied_policy,\"count_execd_spawn_id_mismatch_detail\":$count_execd_spawn_id_mismatch_detail,\"first_execd_spawn_id_mismatch_detail\":\"$first_execd_spawn_id_mismatch_detail\"}"
+
+agent_debug_log "$AGENT_RUN_ID" "N7" "scripts/qemu-test.sh:diag-policyd-mmio-cap-check" "policyd mmio check-cap decisions for grant subjects" \
+  "{\"line_policyd_mmio_net\":$line_policyd_mmio_net,\"line_policyd_mmio_rng\":$line_policyd_mmio_rng,\"line_policyd_mmio_blk\":$line_policyd_mmio_blk,\"first_policyd_mmio_net\":\"$first_policyd_mmio_net\",\"first_policyd_mmio_rng\":\"$first_policyd_mmio_rng\",\"first_policyd_mmio_blk\":\"$first_policyd_mmio_blk\"}"
+
+agent_debug_log "$AGENT_RUN_ID" "N8" "scripts/qemu-test.sh:diag-rngd-policy-subject" "rngd caller SID class and delegated policy result" \
+  "{\"line_rng_sender_sid_canonical\":$line_rng_sender_sid_canonical,\"line_rng_sender_sid_alt\":$line_rng_sender_sid_alt,\"line_rng_sender_sid_other\":$line_rng_sender_sid_other,\"line_rng_policy_allow\":$line_rng_policy_allow,\"line_rng_policy_deny\":$line_rng_policy_deny}"
+
+agent_debug_log "$AGENT_RUN_ID" "N9" "scripts/qemu-test.sh:diag-policyd-rng-delegated" "policyd delegated rng sender class and decision" \
+  "{\"line_policyd_delegated_rng_sender_canonical\":$line_policyd_delegated_rng_sender_canonical,\"line_policyd_delegated_rng_sender_other\":$line_policyd_delegated_rng_sender_other,\"first_policyd_delegated_rng_sender_sid\":\"$first_policyd_delegated_rng_sender_sid\",\"line_policyd_delegated_rng_allow\":$line_policyd_delegated_rng_allow,\"line_policyd_delegated_rng_deny\":$line_policyd_delegated_rng_deny}"
 # #endregion agent log
 
 # Require os-lite userspace init markers; kernel fallback no longer accepted

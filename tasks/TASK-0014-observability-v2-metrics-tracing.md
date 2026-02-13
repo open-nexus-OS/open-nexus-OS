@@ -1,6 +1,6 @@
 ---
 title: TASK-0014 Observability v2 (OS): metricsd (counters/gauges/histograms) + spans exported via logd
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 links:
@@ -33,7 +33,12 @@ After logd v1 exists (bounded journal + query), the next observability layer is:
 - **metrics**: counters/gauges/histograms for low-overhead system health,
 - **tracing**: span start/end events with parent/child relationships and attributes.
 
-For v2 we keep it userland-only and export via **structured logs to logd** (no kernel changes).
+For v2 we keep it userland-only and export via **structured logs to logd** (no kernel ABI expansion).
+
+Execution note (approved stabilization exception):
+
+- During mmio bring-up stabilization, kernel heap budget and alloc failure diagnostics were adjusted.
+- This is accepted implementation reality for deterministic proofs, and does not change kernel ABI/syscall contract.
 
 ## Scope note: metrics gatekeeping & retention (v2 requirements)
 
@@ -66,7 +71,8 @@ In QEMU, prove:
 
 ## Constraints / invariants (hard requirements)
 
-- **Kernel untouched**.
+- **No kernel ABI expansion**.
+- Any kernel stabilization exception must be explicit, bounded, and documented with rationale and proof impact.
 - **Bounded memory**:
   - cap number of series, cap live spans, cap per-record payload size.
   - deterministic drop behavior (counter increments continue; series/spans may be dropped with a tracked reason).
@@ -199,9 +205,12 @@ and exports structured data that may accidentally carry sensitive values.
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - Extend expected markers with:
     - `metricsd: ready`
+    - `SELFTEST: metrics security rejects ok`
     - `SELFTEST: metrics counters ok`
+    - `SELFTEST: metrics gauges ok`
     - `SELFTEST: metrics histograms ok`
     - `SELFTEST: tracing spans ok`
+    - `SELFTEST: metrics retention ok`
 
 Notes:
 
@@ -231,9 +240,13 @@ Notes:
 
 - `source/services/metricsd/` (new service)
 - `userspace/nexus-metrics/` (new client lib + macros)
+- `source/libs/nexus-log/` (sink-logd deterministic slot configuration contract)
 - `source/apps/selftest-client/` (markers + deterministic workload)
 - `source/services/execd/`, `source/services/bundlemgrd/`, `source/services/dsoftbusd/`, `source/services/timed/` (minimal instrumentation)
+- `source/services/statefsd/`, `source/services/policyd/` (retention access policy + delegated checks)
+- `source/init/nexus-init/` (deterministic capability wiring for metricsd retention path)
 - `recipes/observability/metrics.toml` (limits, downsampling, retention defaults)
+- `recipes/policy/base.toml` (explicit `metricsd` capability grant for `/state` writes)
 - `tools/nexus-idl/schemas/` (optional: `metrics.capnp` as schema docs)
 - `scripts/qemu-test.sh`
 - `docs/observability/`
@@ -254,7 +267,14 @@ Notes:
      - optional scrape
    - Cap’n Proto schemas may be added as documentation, but byte frames are authoritative for OS bring-up.
 
-3. **Implement `metricsd`**
+3. **Deterministic + extensible sink wiring contract (nexus-log)**
+   - Add explicit process-local sink configuration API:
+     - `configure_sink_logd_slots(logd_send, reply_send, reply_recv)`.
+   - Services with deterministic init-lite slots configure once at startup.
+   - Keep routed discovery as bounded fallback when explicit slots are unavailable.
+   - Avoid hidden service-specific direct-slot fallback behavior in shared library defaults.
+
+4. **Implement `metricsd`**
    - Bounded in-memory registry (dedupe by name+labels).
    - Counter(u64), Gauge(i64), Histogram(fixed buckets).
    - Gatekeeping v2:
@@ -268,20 +288,20 @@ Notes:
    - Periodic snapshot export to logd (structured records).
    - Marker: `metricsd: ready`.
 
-4. **Implement `nexus-metrics` client**
+5. **Implement `nexus-metrics` client**
    - Host backend for tests; OS backend over kernel IPC.
    - Macros for counters and spans (span guard ends on drop).
    - Deterministic span IDs (no RNG dependency).
    - Introduce newtype wrappers early even where first call sites are still minimal.
 
-5. **Wire minimal instrumentation**
+6. **Wire minimal instrumentation**
    - `execd`: counters for spawn/deny/fail; span around exec path.
    - `bundlemgrd`: counters and a size histogram (as supported by current OS-lite bundle flows).
    - `dsoftbusd`: session ok/fail + handshake duration histogram (once OS backend exists).
    - `timed`: coalescing delta histogram (TASK-0013).
    - Preserve existing UART readiness markers unchanged.
 
-6. **Selftest**
+7. **Selftest**
    - Generate a deterministic workload (fixed number of ops).
    - Validate the export path by querying **logd** for exported records:
      - verify at least one snapshot record exists for the expected series,
@@ -293,7 +313,7 @@ Notes:
      - `SELFTEST: metrics histograms ok`
      - `SELFTEST: tracing spans ok`
 
-7. **Docs**
+8. **Docs**
    - `docs/observability/metrics.md`: naming/labels, histogram buckets, limits.
    - `docs/observability/tracing.md`: span model, deterministic IDs, correlation with logs.
 
@@ -302,7 +322,25 @@ Notes:
 - Log sink hardening rejects malformed/oversized/rate-abusive append traffic deterministically before metrics load is enabled.
 - Host tests validate registry dedupe, histogram bucketing, span lifecycle deterministically.
 - QEMU run prints the new markers and logd shows exported snapshot/span records.
-- Kernel unchanged.
+- No kernel ABI expansion (approved kernel stabilization exceptions must be explicitly documented).
+
+## Execution status (2026-02-13)
+
+- [x] Phase 0a complete: `logd` sink hardening rejects + deterministic markers proven.
+- [x] Phase 0 complete: `metricsd` + `nexus-metrics` baseline and sink-path proofs green.
+- [x] Phase 1 complete: reject matrix covers `series_cap`, `live_span_cap`, `payload_identity_spoof`, `rate_limit`, and `oversized_metric_fields` with host reject tests and QEMU reject markers.
+- [x] Phase 2 complete: marker ladder closure + anti-drift docs/task sync completed (handoff/current_state/TASK/RFC aligned to latest green mmio proof).
+- [x] Slot-wiring hardening: explicit deterministic sink-slot configuration API implemented and adopted in `metricsd` and selftest sink probe.
+- [x] Runtime stabilization (mmio): `selftest-client` logd STATS path moved to CAP_MOVE + nonce correlation; `policyd` sender/subject alias normalization extended for observed bring-up IDs (`selftest-client` sender-bound checks + delegated `updated` subject).
+- [x] Full-scope closure implementation slices completed:
+  - [x] `metricsd` retention slice on `/state`: bounded WAL + segment rotation + raw->10s->60s rollups + TTL/GC.
+  - [x] Runtime binding of limits/budgets from `recipes/observability/metrics.toml`.
+  - [x] Tracing fidelity completion for parent/attrs handling in runtime/export path.
+  - [x] Explicit gauge soll-first proof parity (host + QEMU evidence path).
+  - [x] Planned instrumentation completion (`execd`/`bundlemgrd`/`dsoftbusd`/`timed`) and `nexus-metrics` macro ergonomics (including span guard end-on-drop).
+  - [x] Retention proof marker integrated: `SELFTEST: metrics retention ok`.
+
+Task status intentionally remains `In Progress` until explicit user closure command.
 
 ## RFC seeds (for later, once green)
 

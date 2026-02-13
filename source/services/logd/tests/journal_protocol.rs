@@ -19,9 +19,10 @@ use logd::lite_handler;
 use logd::protocol::{
     decode_request, encode_append_response, encode_query_response,
     encode_query_response_bounded_iter, encode_stats_response, DecodeError, Request, MAGIC0,
-    MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY, OP_STATS, STATUS_OK,
-    VERSION,
+    MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY, OP_STATS,
+    STATUS_INVALID_ARGS, STATUS_OK, STATUS_OVER_LIMIT, STATUS_RATE_LIMITED, VERSION, VERSION_V2,
 };
+use logd::security::{has_payload_identity_claim, SenderRateLimiter, RATE_MAX_APPENDS_PER_WINDOW};
 use proptest::prelude::*;
 
 // ============================================================================
@@ -235,6 +236,91 @@ fn test_reject_oversized_fields() {
 
     let result = decode_request(&frame);
     assert_eq!(result, Err(DecodeError::TooLarge));
+}
+
+#[test]
+fn test_reject_log_append_oversized_fields() {
+    let oversized_fields = vec![b'x'; MAX_FIELDS_LEN + 1];
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION_V2, OP_APPEND]);
+    frame.extend_from_slice(&0x0102_0304_0506_0708u64.to_le_bytes());
+    frame.push(2); // level INFO
+    frame.push(3); // scope_len
+    frame.extend_from_slice(&(5u16).to_le_bytes());
+    frame.extend_from_slice(&(oversized_fields.len() as u16).to_le_bytes());
+    frame.extend_from_slice(b"svc");
+    frame.extend_from_slice(b"hello");
+    frame.extend_from_slice(&oversized_fields);
+
+    let mut journal = Journal::new(16, 16 * 1024);
+    let mut limiter = SenderRateLimiter::new();
+    let rsp = lite_handler::handle_frame_with_limiter(
+        &mut journal,
+        0x1234,
+        TimestampNsec(1),
+        &frame,
+        &mut limiter,
+    );
+    let (status, _nonce) = nexus_ipc::logd_wire::parse_append_response_v2_prefix(&rsp).unwrap();
+    assert_eq!(status, STATUS_OVER_LIMIT);
+}
+
+#[test]
+fn test_reject_log_payload_identity_spoof() {
+    let spoof_fields = b"sender_service_id=4242\nk=v\n";
+    assert!(has_payload_identity_claim(spoof_fields));
+
+    let mut journal = Journal::new(16, 16 * 1024);
+    let mut limiter = SenderRateLimiter::new();
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION_V2, OP_APPEND]);
+    frame.extend_from_slice(&0x0100_0000_0000_0001u64.to_le_bytes());
+    frame.push(2);
+    frame.push(6);
+    frame.extend_from_slice(&(5u16).to_le_bytes());
+    frame.extend_from_slice(&(spoof_fields.len() as u16).to_le_bytes());
+    frame.extend_from_slice(b"metric");
+    frame.extend_from_slice(b"value");
+    frame.extend_from_slice(spoof_fields);
+
+    let rsp = lite_handler::handle_frame_with_limiter(
+        &mut journal,
+        0x777,
+        TimestampNsec(1),
+        &frame,
+        &mut limiter,
+    );
+    let (status, _nonce) = nexus_ipc::logd_wire::parse_append_response_v2_prefix(&rsp).unwrap();
+    assert_eq!(status, STATUS_INVALID_ARGS);
+}
+
+#[test]
+fn test_reject_log_append_rate_limited_sender() {
+    let mut journal = Journal::new(64, 64 * 1024);
+    let mut limiter = SenderRateLimiter::new();
+    let sender = 0xBEEF_u64;
+    let mut last_status = STATUS_OK;
+    for i in 0..(RATE_MAX_APPENDS_PER_WINDOW + 2) {
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION_V2, OP_APPEND]);
+        frame.extend_from_slice(&(1000u64 + i as u64).to_le_bytes());
+        frame.push(2); // INFO
+        frame.push(4); // scope_len
+        frame.extend_from_slice(&(4u16).to_le_bytes()); // msg_len
+        frame.extend_from_slice(&(0u16).to_le_bytes()); // fields_len
+        frame.extend_from_slice(b"rate");
+        frame.extend_from_slice(b"test");
+        let rsp = lite_handler::handle_frame_with_limiter(
+            &mut journal,
+            sender,
+            TimestampNsec(1), // same window for deterministic rate-limit trigger
+            &frame,
+            &mut limiter,
+        );
+        let (status, _nonce) = nexus_ipc::logd_wire::parse_append_response_v2_prefix(&rsp).unwrap();
+        last_status = status;
+    }
+    assert_eq!(last_status, STATUS_RATE_LIMITED);
 }
 
 #[test]

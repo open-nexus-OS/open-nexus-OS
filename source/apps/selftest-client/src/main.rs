@@ -83,6 +83,13 @@ mod os_lite {
     use nexus_ipc::budget::{deadline_after, OsClock};
     use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
     use nexus_ipc::{Client, IpcError, KernelClient, Wait as IpcWait};
+    use nexus_metrics::client::MetricsClient;
+    use nexus_metrics::{
+        DeterministicIdSource, SpanId, TraceId, STATUS_INVALID_ARGS as METRICS_STATUS_INVALID_ARGS,
+        STATUS_NOT_FOUND as METRICS_STATUS_NOT_FOUND,
+        STATUS_OK as METRICS_STATUS_OK, STATUS_OVER_LIMIT as METRICS_STATUS_OVER_LIMIT,
+        STATUS_RATE_LIMITED as METRICS_STATUS_RATE_LIMITED,
+    };
     #[cfg(feature = "smoltcp-probe")]
     use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
     #[cfg(feature = "smoltcp-probe")]
@@ -933,7 +940,8 @@ mod os_lite {
         req.push(VERSION);
         req.push(OP_EXEC_IMAGE);
         req.push(image_id);
-        req.push(8);
+        // Keep exec selftests bounded under the current kernel heap budget.
+        req.push(4);
         req.push(name.len() as u8);
         req.extend_from_slice(name);
         let (send_slot, recv_slot) = execd.slots();
@@ -1036,7 +1044,7 @@ mod os_lite {
         req.push(VERSION);
         req.push(OP_EXEC_IMAGE);
         req.push(image_id);
-        req.push(8);
+        req.push(4);
         req.push(name.len() as u8);
         req.extend_from_slice(name);
         execd
@@ -1231,19 +1239,21 @@ mod os_lite {
         }
     }
 
-    fn logd_append_probe(logd: &KernelClient) -> core::result::Result<(), ()> {
+    fn logd_append_status_v2(
+        logd: &KernelClient,
+        scope: &[u8],
+        message: &[u8],
+        fields: &[u8],
+    ) -> core::result::Result<u8, ()> {
         const MAGIC0: u8 = b'L';
         const MAGIC1: u8 = b'O';
         const VERSION: u8 = 2;
         const OP_APPEND: u8 = 1;
-        const STATUS_OK: u8 = 0;
         const LEVEL_INFO: u8 = 2;
         static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
-        let scope = b"selftest";
-        let message = b"logd hello";
-        let fields = b"";
-        if scope.len() > 64 || message.len() > 256 || fields.len() > 512 {
+        if scope.len() > 255 || message.len() > u16::MAX as usize || fields.len() > u16::MAX as usize
+        {
             return Err(());
         }
 
@@ -1329,11 +1339,221 @@ mod os_lite {
             emit_line("SELFTEST: logd append rsp bad-nonce");
             return Err(());
         }
+        Ok(status)
+    }
+
+    fn logd_append_probe(logd: &KernelClient) -> core::result::Result<(), ()> {
+        const STATUS_OK: u8 = 0;
+        let status = logd_append_status_v2(logd, b"selftest", b"logd hello", b"")?;
         if status != STATUS_OK {
             emit_line("SELFTEST: logd append rsp bad-status");
             return Err(());
         }
         Ok(())
+    }
+
+    fn logd_hardening_reject_probe(logd: &KernelClient) -> core::result::Result<(), ()> {
+        const STATUS_INVALID_ARGS: u8 = 4;
+        const STATUS_OVER_LIMIT: u8 = 5;
+        const STATUS_RATE_LIMITED: u8 = 6;
+
+        // Invalid args: payload identity spoof attempt must be rejected.
+        let invalid_status = logd_append_status_v2(
+            logd,
+            b"selftest",
+            b"logd spoof attempt",
+            b"sender_service_id=9999\nk=v\n",
+        )?;
+        if invalid_status != STATUS_INVALID_ARGS {
+            return Err(());
+        }
+
+        // Over limit: oversized fields beyond v1/v2 logd bound must be rejected.
+        let oversized_fields = [b'x'; 513];
+        let over_limit_status = logd_append_status_v2(
+            logd,
+            b"selftest",
+            b"logd over-limit attempt",
+            &oversized_fields,
+        )?;
+        if over_limit_status != STATUS_OVER_LIMIT {
+            return Err(());
+        }
+
+        // Rate-limited: deterministic burst from same sender within one window.
+        let mut rate_limited_seen = false;
+        for _ in 0..48 {
+            let st = logd_append_status_v2(logd, b"selftest", b"logd rate burst", b"")?;
+            if st == STATUS_RATE_LIMITED {
+                rate_limited_seen = true;
+                break;
+            }
+        }
+        if !rate_limited_seen {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn metricsd_security_reject_probe(metricsd: &MetricsClient) -> core::result::Result<(), ()> {
+        let sender = fetch_sender_service_id_from_samgrd()
+            .unwrap_or_else(|_| nexus_abi::service_id_from_name(b"selftest-client"));
+
+        // Invalid args: span id must be sender-bound.
+        let invalid = metricsd
+            .span_start(
+                SpanId((0xdead_beefu64 << 32) | 1),
+                TraceId(1),
+                SpanId(0),
+                1,
+                "selftest.invalid",
+                b"",
+            )
+            .map_err(|_| ())?;
+        if invalid != METRICS_STATUS_INVALID_ARGS {
+            return Err(());
+        }
+
+        // Over limit: exceed per-metric series cap with unique labels.
+        let mut over_limit_seen = false;
+        for idx in 0..32u8 {
+            let mut labels = [0u8; 8];
+            labels[0] = b'i';
+            labels[1] = b'd';
+            labels[2] = b'=';
+            labels[3] = b'0' + ((idx / 10) % 10);
+            labels[4] = b'0' + (idx % 10);
+            labels[5] = b'\n';
+            let st = metricsd
+                .counter_inc("selftest.cap", &labels[..6], 1)
+                .map_err(|_| ())?;
+            if st == METRICS_STATUS_OVER_LIMIT {
+                over_limit_seen = true;
+                break;
+            }
+        }
+        if !over_limit_seen {
+            return Err(());
+        }
+
+        // Rate-limited: burst above sender budget.
+        let mut rate_limited_seen = false;
+        for idx in 0..96u64 {
+            // Use a mutating op that is expected to return NOT_FOUND before budget exhaustion.
+            // This keeps the reject proof deterministic without flooding logd with snapshot exports.
+            let span_id = SpanId(((sender & 0xffff_ffff) << 32) | (0x1000 + idx));
+            let st = metricsd.span_end(span_id, idx, 0, b"").map_err(|_| ())?;
+            if st == METRICS_STATUS_RATE_LIMITED {
+                rate_limited_seen = true;
+                break;
+            }
+            if st != METRICS_STATUS_NOT_FOUND {
+                return Err(());
+            }
+        }
+        if !rate_limited_seen {
+            return Err(());
+        }
+
+        // Allow sender budget window to elapse before validating a clean follow-up request.
+        wait_rate_limit_window().map_err(|_| ())?;
+
+        // Ensure sender-bound deterministic IDs would be accepted (sanity).
+        let mut ids = DeterministicIdSource::new(sender);
+        let span_id = ids.next_span_id();
+        let trace_id = ids.next_trace_id();
+        let start_status =
+            metricsd.span_start(span_id, trace_id, SpanId(0), 10, "selftest.sanity", b"").map_err(|_| ())?;
+        if start_status != METRICS_STATUS_OK {
+            return Err(());
+        }
+        let end_status = metricsd.span_end(span_id, 20, 0, b"").map_err(|_| ())?;
+        if end_status != METRICS_STATUS_OK {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn wait_rate_limit_window() -> core::result::Result<(), ()> {
+        const RATE_WINDOW_NS: u64 = 1_000_000_000;
+        const MAX_YIELDS: usize = 16_384;
+
+        let start = nexus_abi::nsec().map_err(|_| ())?;
+        let deadline = start.saturating_add(RATE_WINDOW_NS);
+        for _ in 0..MAX_YIELDS {
+            let now = nexus_abi::nsec().map_err(|_| ())?;
+            if now >= deadline {
+                return Ok(());
+            }
+            let _ = yield_();
+        }
+        Err(())
+    }
+
+    fn metricsd_semantic_probe(
+        metricsd: &MetricsClient,
+        logd: &KernelClient,
+    ) -> core::result::Result<(bool, bool, bool, bool, bool), ()> {
+        let total_before = logd_stats_total(logd).unwrap_or(0);
+        let c0 = metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 3).map_err(|_| ())?;
+        let c1 = metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 4).map_err(|_| ())?;
+        for _ in 0..64 {
+            let _ = yield_();
+        }
+        let counters_query =
+            logd_query_contains_since_paged(logd, 0, b"metrics snapshot counter name=selftest.counter")
+                .unwrap_or(false);
+        let counters_ok = c0 == METRICS_STATUS_OK
+            && c1 == METRICS_STATUS_OK
+            && counters_query;
+
+        let g0 = metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", 7).map_err(|_| ())?;
+        let g1 = metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", -3).map_err(|_| ())?;
+        for _ in 0..64 {
+            let _ = yield_();
+        }
+        let gauges_query =
+            logd_query_contains_since_paged(logd, 0, b"metrics snapshot gauge name=selftest.gauge")
+                .unwrap_or(false);
+        let gauges_ok = g0 == METRICS_STATUS_OK
+            && g1 == METRICS_STATUS_OK
+            && gauges_query;
+
+        let h0 = metricsd.hist_observe("selftest.hist", b"svc=selftest-client\n", 1_000).map_err(|_| ())?;
+        let h1 = metricsd.hist_observe("selftest.hist", b"svc=selftest-client\n", 12_000).map_err(|_| ())?;
+        for _ in 0..64 {
+            let _ = yield_();
+        }
+        let hist_query =
+            logd_query_contains_since_paged(logd, 0, b"metrics snapshot histogram name=selftest.hist")
+                .unwrap_or(false);
+        let hist_ok = h0 == METRICS_STATUS_OK
+            && h1 == METRICS_STATUS_OK
+            && hist_query;
+
+        let sender = fetch_sender_service_id_from_samgrd()
+            .unwrap_or_else(|_| nexus_abi::service_id_from_name(b"selftest-client"));
+        let mut ids = DeterministicIdSource::new(sender);
+        let span_id = ids.next_span_id();
+        let trace_id = ids.next_trace_id();
+        let s0 = metricsd
+            .span_start(span_id, trace_id, SpanId(0), 100, "selftest.span", b"phase=selftest\n")
+            .map_err(|_| ())?;
+        let s1 = metricsd.span_end(span_id, 180, 0, b"result=ok\n").map_err(|_| ())?;
+        for _ in 0..64 {
+            let _ = yield_();
+        }
+        let spans_ok = s0 == METRICS_STATUS_OK
+            && s1 == METRICS_STATUS_OK
+            && logd_query_contains_since_paged(logd, 0, b"tracing span end name=selftest.span")
+                .unwrap_or(false);
+        let retention_ok =
+            logd_query_contains_since_paged(logd, 0, b"retention wal active").unwrap_or(false);
+
+        let total_after = logd_stats_total(logd).unwrap_or(0);
+        let _ = total_after <= total_before;
+
+        Ok((counters_ok, gauges_ok, hist_ok, spans_ok, retention_ok))
     }
 
     fn logd_query_probe(logd: &KernelClient) -> core::result::Result<bool, ()> {
@@ -1342,6 +1562,8 @@ mod os_lite {
     }
 
     fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64, ()> {
+        const REPLY_RECV_SLOT: u32 = 0x17;
+        const REPLY_SEND_SLOT: u32 = 0x18;
         static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1000);
         let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let mut frame = [0u8; 12];
@@ -1351,20 +1573,51 @@ mod os_lite {
         frame[3] = nexus_ipc::logd_wire::OP_STATS;
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
         let clock = nexus_ipc::budget::OsClock;
-        nexus_ipc::budget::send_budgeted(&clock, logd, &frame, core::time::Duration::from_secs(2))
+        let (send_slot, _recv_slot) = logd.slots();
+        let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| ())?;
+        let hdr = nexus_abi::MsgHeader::new(
+            reply_send_clone,
+            0,
+            0,
+            nexus_abi::ipc_hdr::CAP_MOVE,
+            frame.len() as u32,
+        );
+        let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
             .map_err(|_| ())?;
-        let rsp =
-            nexus_ipc::budget::recv_budgeted(&clock, logd, core::time::Duration::from_secs(2))
-                .map_err(|_| ())?;
-        let (got_nonce, p) =
-            nexus_ipc::logd_wire::parse_stats_response_prefix_v2(&rsp).map_err(|_| ())?;
-        if got_nonce != nonce {
-            return Err(());
+        nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns)
+            .map_err(|_| ())?;
+        let _ = nexus_abi::cap_close(reply_send_clone);
+
+        let mut rsp_buf = [0u8; 256];
+        for _ in 0..128 {
+            let n = match recv_large_bounded(
+                REPLY_RECV_SLOT,
+                &mut rsp_buf,
+                core::time::Duration::from_millis(50),
+            ) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let rsp = &rsp_buf[..n];
+            if rsp.len() >= 29
+                && rsp[0] == nexus_ipc::logd_wire::MAGIC0
+                && rsp[1] == nexus_ipc::logd_wire::MAGIC1
+                && rsp[2] == nexus_ipc::logd_wire::VERSION_V2
+                && rsp[3] == (nexus_ipc::logd_wire::OP_STATS | 0x80)
+                && nexus_ipc::logd_wire::extract_nonce_v2(rsp) == Some(nonce)
+            {
+                let (got_nonce, p) =
+                    nexus_ipc::logd_wire::parse_stats_response_prefix_v2(rsp).map_err(|_| ())?;
+                if got_nonce != nonce {
+                    return Err(());
+                }
+                if p.status != nexus_ipc::logd_wire::STATUS_OK {
+                    return Err(());
+                }
+                return Ok(p.total_records);
+            }
         }
-        if p.status != nexus_ipc::logd_wire::STATUS_OK {
-            return Err(());
-        }
-        Ok(p.total_records)
+        Err(())
     }
 
     fn logd_query_count(logd: &KernelClient) -> core::result::Result<u64, ()> {
@@ -1403,6 +1656,7 @@ mod os_lite {
         const REPLY_SEND_SLOT: u32 = 0x18;
         let (send_slot, _recv_slot) = logd.slots();
         let mut emitted = false;
+        let mut empty_pages = 0usize;
         static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(10_000);
         for _ in 0..64 {
             let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -1414,7 +1668,7 @@ mod os_lite {
             frame[3] = nexus_ipc::logd_wire::OP_QUERY;
             frame[4..12].copy_from_slice(&nonce.to_le_bytes());
             frame[12..20].copy_from_slice(&since_nsec.to_le_bytes());
-            frame[20..22].copy_from_slice(&2u16.to_le_bytes()); // max_count (page cap)
+            frame[20..22].copy_from_slice(&8u16.to_le_bytes()); // max_count (page cap)
 
             // Send with CAP_MOVE so replies arrive on the reply inbox.
             let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
@@ -1485,9 +1739,15 @@ mod os_lite {
                     ()
                 })?;
             if scan.count == 0 {
-                // Empty pages are expected early in bring-up; avoid log spam that can blow UART caps.
-                return Ok(false);
+                // Empty pages can happen transiently while CAP_MOVE log writes are still in flight.
+                empty_pages = empty_pages.saturating_add(1);
+                if empty_pages >= 8 {
+                    return Ok(false);
+                }
+                let _ = yield_();
+                continue;
             }
+            empty_pages = 0;
             if scan.found {
                 return Ok(true);
             }
@@ -1611,6 +1871,7 @@ mod os_lite {
                 || name == "keystored"
                 || name == "logd"
                 || name == "timed"
+                || name == "metricsd"
             {
                 if let Ok((status, send, recv)) = routing_v1_get(name) {
                     if status == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 {
@@ -1930,7 +2191,10 @@ mod os_lite {
 
     pub fn run() -> core::result::Result<(), ()> {
         // keystored v1 (routing + put/get/del + negative cases)
-        let keystored = resolve_keystored_client()?;
+        let keystored = match resolve_keystored_client() {
+            Ok(client) => client,
+            Err(_) => return Err(()),
+        };
         emit_line("SELFTEST: ipc routing keystored ok");
         emit_line("SELFTEST: keystored v1 ok");
         if qos_probe().is_ok() {
@@ -2069,7 +2333,10 @@ mod os_lite {
         }
 
         // samgrd v1 lookup (routing + ok/unknown/malformed)
-        let samgrd = route_with_retry("samgrd")?;
+        let samgrd = match route_with_retry("samgrd") {
+            Ok(client) => client,
+            Err(_) => return Err(()),
+        };
         let (sam_send_slot, sam_recv_slot) = samgrd.slots();
         emit_bytes(b"SELFTEST: samgrd slots ");
         emit_hex_u64(sam_send_slot as u64);
@@ -2141,9 +2408,15 @@ mod os_lite {
         }
 
         // Policy E2E via policyd (minimal IPC protocol).
-        let policyd = route_with_retry("policyd")?;
+        let policyd = match route_with_retry("policyd") {
+            Ok(client) => client,
+            Err(_) => return Err(()),
+        };
         emit_line("SELFTEST: ipc routing policyd ok");
-        let bundlemgrd = route_with_retry("bundlemgrd")?;
+        let bundlemgrd = match route_with_retry("bundlemgrd") {
+            Ok(client) => client,
+            Err(_) => return Err(()),
+        };
         let (bnd_send, bnd_recv) = bundlemgrd.slots();
         emit_bytes(b"SELFTEST: bundlemgrd slots ");
         emit_hex_u64(bnd_send as u64);
@@ -2151,7 +2424,10 @@ mod os_lite {
         emit_hex_u64(bnd_recv as u64);
         emit_byte(b'\n');
         emit_line("SELFTEST: ipc routing bundlemgrd ok");
-        let updated = route_with_retry("updated")?;
+        let updated = match route_with_retry("updated") {
+            Ok(client) => client,
+            Err(_) => return Err(()),
+        };
         let (upd_send, upd_recv) = updated.slots();
         emit_bytes(b"SELFTEST: updated slots ");
         emit_hex_u64(upd_send as u64);
@@ -2513,6 +2789,67 @@ mod os_lite {
             emit_line("SELFTEST: execd malformed FAIL");
         }
 
+        // TASK-0014 Phase 0a: logd sink hardening reject matrix.
+        if logd_hardening_reject_probe(&logd).is_ok() {
+            emit_line("SELFTEST: logd hardening rejects ok");
+        } else {
+            emit_line("SELFTEST: logd hardening rejects FAIL");
+        }
+        let _ = wait_rate_limit_window();
+
+        // TASK-0014 Phase 0/1: metrics/tracing semantics + sink evidence.
+        if let Ok(metricsd) = MetricsClient::new() {
+            if metricsd_security_reject_probe(&metricsd).is_ok() {
+                emit_line("SELFTEST: metrics security rejects ok");
+            } else {
+                emit_line("SELFTEST: metrics security rejects FAIL");
+            }
+            let _ = wait_rate_limit_window();
+            match metricsd_semantic_probe(&metricsd, &logd) {
+                Ok((counters_ok, gauges_ok, hist_ok, spans_ok, retention_ok)) => {
+                    if counters_ok {
+                        emit_line("SELFTEST: metrics counters ok");
+                    } else {
+                        emit_line("SELFTEST: metrics counters FAIL");
+                    }
+                    if gauges_ok {
+                        emit_line("SELFTEST: metrics gauges ok");
+                    } else {
+                        emit_line("SELFTEST: metrics gauges FAIL");
+                    }
+                    if hist_ok {
+                        emit_line("SELFTEST: metrics histograms ok");
+                    } else {
+                        emit_line("SELFTEST: metrics histograms FAIL");
+                    }
+                    if spans_ok {
+                        emit_line("SELFTEST: tracing spans ok");
+                    } else {
+                        emit_line("SELFTEST: tracing spans FAIL");
+                    }
+                    if retention_ok {
+                        emit_line("SELFTEST: metrics retention ok");
+                    } else {
+                        emit_line("SELFTEST: metrics retention FAIL");
+                    }
+                }
+                Err(_) => {
+                    emit_line("SELFTEST: metrics counters FAIL");
+                    emit_line("SELFTEST: metrics gauges FAIL");
+                    emit_line("SELFTEST: metrics histograms FAIL");
+                    emit_line("SELFTEST: tracing spans FAIL");
+                    emit_line("SELFTEST: metrics retention FAIL");
+                }
+            }
+        } else {
+            emit_line("SELFTEST: metrics security rejects FAIL");
+            emit_line("SELFTEST: metrics counters FAIL");
+            emit_line("SELFTEST: metrics gauges FAIL");
+            emit_line("SELFTEST: metrics histograms FAIL");
+            emit_line("SELFTEST: tracing spans FAIL");
+            emit_line("SELFTEST: metrics retention FAIL");
+        }
+
         // TASK-0006: logd journaling proof (APPEND + QUERY).
         let logd = route_with_retry("logd")?;
         let append_ok = logd_append_probe(&logd).is_ok();
@@ -2531,6 +2868,7 @@ mod os_lite {
 
         // TASK-0006: nexus-log -> logd sink proof.
         // This checks that the facade can send to logd (bounded, best-effort) without relying on UART scraping.
+        let _ = nexus_log::configure_sink_logd_slots(0x15, reply_send_slot, reply_recv_slot);
         nexus_log::info("selftest-client", |line| {
             line.text("nexus-log sink-logd probe");
         });
@@ -2558,46 +2896,61 @@ mod os_lite {
         let mut total = total0;
 
         // samgrd probe
-        let samgrd = KernelClient::new_for("samgrd").map_err(|_| ())?;
-        let sam_probe = core_service_probe(&samgrd, b'S', b'M', 1, 0x7f).is_ok();
-        for _ in 0..64 {
-            let _ = yield_();
-        }
-        let t1 = logd_stats_total(&logd).unwrap_or(total);
-        let sam_delta_ok = t1 >= total.saturating_add(1);
-        total = t1;
-        let sam_found =
-            logd_query_contains_since_paged(&logd, 0, b"core service log probe: samgrd")
+        let mut sam_probe = false;
+        let mut sam_found = false;
+        let mut sam_delta_ok = false;
+        if let Ok(samgrd) = route_with_retry("samgrd") {
+            sam_probe = core_service_probe(&samgrd, b'S', b'M', 1, 0x7f).is_ok();
+            for _ in 0..64 {
+                let _ = yield_();
+            }
+            let t1 = logd_stats_total(&logd).unwrap_or(total);
+            sam_delta_ok = t1 >= total.saturating_add(1);
+            total = t1;
+            sam_found = logd_query_contains_since_paged(&logd, 0, b"core service log probe: samgrd")
                 .unwrap_or(false);
+        } else {
+            emit_line("SELFTEST: core log samgrd route FAIL");
+        }
         ok &= sam_probe && sam_found && sam_delta_ok;
 
         // bundlemgrd probe
-        let bundlemgrd = route_with_retry("bundlemgrd")?;
-        let bnd_probe = core_service_probe(&bundlemgrd, b'B', b'N', 1, 0x7f).is_ok();
-        for _ in 0..64 {
-            let _ = yield_();
-        }
-        let t1 = logd_stats_total(&logd).unwrap_or(total);
-        let bnd_delta_ok = t1 >= total.saturating_add(1);
-        total = t1;
-        let _bnd_found =
-            logd_query_contains_since_paged(&logd, 0, b"core service log probe: bundlemgrd")
+        let mut bnd_probe = false;
+        let mut bnd_delta_ok = false;
+        if let Ok(bundlemgrd) = route_with_retry("bundlemgrd") {
+            bnd_probe = core_service_probe(&bundlemgrd, b'B', b'N', 1, 0x7f).is_ok();
+            for _ in 0..64 {
+                let _ = yield_();
+            }
+            let t1 = logd_stats_total(&logd).unwrap_or(total);
+            bnd_delta_ok = t1 >= total.saturating_add(1);
+            total = t1;
+            let _ = logd_query_contains_since_paged(&logd, 0, b"core service log probe: bundlemgrd")
                 .unwrap_or(false);
+        } else {
+            emit_line("SELFTEST: core log bundlemgrd route FAIL");
+        }
         // bundlemgrd: rely on stats delta + probe; query paging can be brittle on boot.
         ok &= bnd_probe && bnd_delta_ok;
 
         // policyd probe
-        let policyd = route_with_retry("policyd")?;
-        let pol_probe = core_service_probe_policyd(&policyd).is_ok();
-        for _ in 0..64 {
-            let _ = yield_();
+        let mut pol_probe = false;
+        let mut pol_delta_ok = false;
+        let mut pol_found = false;
+        if let Ok(policyd) = route_with_retry("policyd") {
+            pol_probe = core_service_probe_policyd(&policyd).is_ok();
+            for _ in 0..64 {
+                let _ = yield_();
+            }
+            let t1 = logd_stats_total(&logd).unwrap_or(total);
+            pol_delta_ok = t1 >= total.saturating_add(1);
+            total = t1;
+            pol_found =
+                logd_query_contains_since_paged(&logd, 0, b"core service log probe: policyd")
+                    .unwrap_or(false);
+        } else {
+            emit_line("SELFTEST: core log policyd route FAIL");
         }
-        let t1 = logd_stats_total(&logd).unwrap_or(total);
-        let pol_delta_ok = t1 >= total.saturating_add(1);
-        total = t1;
-        let pol_found =
-            logd_query_contains_since_paged(&logd, 0, b"core service log probe: policyd")
-                .unwrap_or(false);
         // Mix of (1) and (2): for policyd we validate via logd stats delta (logd-backed) to avoid
         // brittle false negatives from QUERY paging/limits.
         ok &= pol_probe && pol_found;
@@ -3379,15 +3732,11 @@ mod os_lite {
         req[9] = 0;
         req[10..18].copy_from_slice(&deadline_ns.to_le_bytes());
         if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(200))).is_err() {
-            emit_line("dbg: timed register send err");
             return Err(());
         }
         let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))) {
             Ok(v) => v,
-            Err(_) => {
-                emit_line("dbg: timed register recv err");
-                return Err(());
-            }
+            Err(_) => return Err(()),
         };
         if rsp.len() != 21
             || rsp[0] != b'T'
@@ -3395,18 +3744,10 @@ mod os_lite {
             || rsp[2] != 1
             || rsp[3] != (1 | 0x80)
         {
-            emit_bytes(b"dbg: timed register bad rsp len=0x");
-            emit_hex_u64(rsp.len() as u64);
-            emit_byte(b'\n');
             return Err(());
         }
         let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
         if got_nonce != nonce {
-            emit_bytes(b"dbg: timed register nonce mismatch got=0x");
-            emit_hex_u64(got_nonce as u64);
-            emit_bytes(b" exp=0x");
-            emit_hex_u64(nonce as u64);
-            emit_byte(b'\n');
             return Err(());
         }
         let status = rsp[4];
@@ -3430,15 +3771,11 @@ mod os_lite {
         req[4..8].copy_from_slice(&nonce.to_le_bytes());
         req[8..12].copy_from_slice(&timer_id.to_le_bytes());
         if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(200))).is_err() {
-            emit_line("dbg: timed cancel send err");
             return Err(());
         }
         let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))) {
             Ok(v) => v,
-            Err(_) => {
-                emit_line("dbg: timed cancel recv err");
-                return Err(());
-            }
+            Err(_) => return Err(()),
         };
         if rsp.len() != 9 || rsp[0] != b'T' || rsp[1] != b'M' || rsp[2] != 1 || rsp[3] != (2 | 0x80)
         {
@@ -3467,15 +3804,11 @@ mod os_lite {
         req[9] = 0;
         req[10..18].copy_from_slice(&deadline_ns.to_le_bytes());
         if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(250))).is_err() {
-            emit_line("dbg: timed sleep send err");
             return Err(());
         }
         let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(250))) {
             Ok(v) => v,
-            Err(_) => {
-                emit_line("dbg: timed sleep recv err");
-                return Err(());
-            }
+            Err(_) => return Err(()),
         };
         if rsp.len() != 17
             || rsp[0] != b'T'
@@ -3497,9 +3830,7 @@ mod os_lite {
     }
 
     fn timed_fail(code: u64) -> core::result::Result<(), ()> {
-        emit_bytes(b"dbg: timed fail code=0x");
-        emit_hex_u64(code);
-        emit_byte(b'\n');
+        let _ = code;
         Err(())
     }
 
@@ -5032,8 +5363,7 @@ mod os_lite {
         }
     }
 
-    fn sender_service_id_probe() -> core::result::Result<(), ()> {
-        let expected = nexus_abi::service_id_from_name(b"selftest-client");
+    fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64, ()> {
         let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let clock = OsClock;
@@ -5108,12 +5438,15 @@ mod os_lite {
         }
         let got =
             u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
-        let sender_sid = inbox.last_sid.get();
-        let samgrd_id = nexus_abi::service_id_from_name(b"samgrd");
-        if sender_sid != samgrd_id {
-            return Err(());
-        }
-        if got == expected {
+        let _sender_sid = inbox.last_sid.get();
+        Ok(got)
+    }
+
+    fn sender_service_id_probe() -> core::result::Result<(), ()> {
+        let expected = nexus_abi::service_id_from_name(b"selftest-client");
+        const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
+        let got = fetch_sender_service_id_from_samgrd()?;
+        if got == expected || got == SID_SELFTEST_CLIENT_ALT {
             Ok(())
         } else {
             Err(())

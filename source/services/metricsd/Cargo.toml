@@ -1,19 +1,24 @@
 [package]
-name = "timed"
+name = "metricsd"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
 [features]
 default = ["std"]
-std = []
+std = ["dep:nexus-metrics"]
 os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-abi",
     "dep:nexus-ipc",
-    "dep:nexus-metrics",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
+    "dep:nexus-log",
+    "dep:nexus-metrics",
+    "nexus-metrics/os-lite",
+    "dep:statefs",
+    "statefs/ipc-client",
+    "statefs/os-lite",
 ]
 
 [lib]
@@ -23,8 +28,6 @@ path = "src/lib.rs"
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
-nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false, features = ["os-lite"] }
-
-[[bin]]
-name = "timed"
-path = "src/main.rs"
+nexus-log = { path = "../../libs/nexus-log", optional = true, default-features = false, features = ["sink-logd"] }
+nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false }
+statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }

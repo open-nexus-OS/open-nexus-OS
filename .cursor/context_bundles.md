@@ -87,16 +87,26 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
 - `docs/testing/index.md`
 - `scripts/qemu-test.sh`
+- `docs/observability/logging.md`
+- `docs/observability/metrics.md`
+- `docs/observability/tracing.md`
 
 ### @task_0014_touched
 - `source/services/metricsd/`
 - `userspace/nexus-metrics/`
+- `source/libs/nexus-log/` (sink-logd wiring contract for deterministic slot configuration)
 - `source/apps/selftest-client/`
+- `source/services/policyd/`
+- `source/services/rngd/`
+- `source/services/keystored/`
+- `source/services/statefsd/`
+- `source/init/nexus-init/`
 - `source/services/execd/`
 - `source/services/bundlemgrd/`
 - `source/services/dsoftbusd/`
 - `source/services/timed/`
 - `recipes/observability/metrics.toml`
+- `recipes/policy/base.toml`
 - `tools/nexus-idl/schemas/` (optional docs schema)
 - `scripts/qemu-test.sh`
 - `docs/observability/`

@@ -12,7 +12,7 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (closed with deterministic QoS/timed proofs; foundation set for observability v2)
+- **last_decision**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (phase-0 sink-path stabilized with explicit deterministic slot wiring contract in `nexus-log`)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
@@ -33,16 +33,16 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (prep complete; implementation next)
+- **active_task**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (implementation complete for planned slices; task intentionally kept In Progress pending explicit closure command)
 - **seed_contract**: `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md` (design seed / active contract for TASK-0014)
 - **contract_dependencies**:
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (bounded log sink baseline)
   - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (`/state` substrate baseline for retention slices)
   - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (shared-inbox correlation floor)
   - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (timed producer baseline)
-- **phase_now**: TASK-0014 planning/prep finalized; execution slice can start drift-free
+- **phase_now**: TASK-0014 execution active; planned full-scope implementation slices are built and proofs green
 - **baseline_commit**: `f44a4f7`
-- **next_task_slice**: implement metricsd + nexus-metrics bounded v2 export path (local only)
+- **next_task_slice**: closure handoff readiness + evidence preservation (status remains In Progress until explicit close instruction)
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
@@ -91,10 +91,37 @@ Rules:
   - implemented: privileged QoS authority bound to kernel service identity (`execd`/`policyd`) instead of capability-slot shortcut.
   - implemented: explicit audit trail for QoS/timer decisions (`QOS-AUDIT` + `timed: audit register ...`).
   - proof reruns green: host gates + `just test-os` + SMP=2 + SMP=1 after final patch.
-- `tasks/TASK-0014-observability-v2-metrics-tracing.md` — **PREP COMPLETE, IMPLEMENTATION NEXT**:
-  - header now includes `enables` and `follow-up-tasks` for `TASK-0038/0040/0041/0143/0046`,
-  - security section + security proof requirements are present,
-  - scope boundary fixed: local metrics/spans + logd export only; remote/cross-node deferred to follow-ups.
+- `tasks/TASK-0014-observability-v2-metrics-tracing.md` — **IN PROGRESS**:
+  - phase-0a logd hardening and phase-0 metricsd+nexus-metrics baseline are green in mmio proofs,
+  - `metricsd -> nexus-log -> logd` path stabilized by explicit per-service `configure_sink_logd_slots(...)` contract,
+  - current proven runtime progress:
+    - `SELFTEST: metrics security rejects ok`
+    - `SELFTEST: metrics counters ok`
+    - `SELFTEST: metrics gauges ok`
+    - `SELFTEST: metrics histograms ok`
+    - `SELFTEST: tracing spans ok`
+    - `SELFTEST: metrics retention ok`
+    - `SELFTEST: device key pubkey ok`
+    - `SELFTEST: statefs put ok`
+    - `SELFTEST: statefs persist ok`
+    - `SELFTEST: ota stage ok`
+    - `SELFTEST: ota switch ok`
+    - `SELFTEST: ota health ok`
+    - `SELFTEST: ota rollback ok`
+    - `SELFTEST: bootctl persist ok`
+  - latest ladder proof: `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` returned `exit_code=0` with no missing marker.
+  - final closure run in this slice also passed:
+    - `just dep-gate`
+    - `just diag-os`
+    - `cargo test --workspace`
+    - `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - additional hardening applied in this slice:
+    - `selftest-client` logd STATS path migrated to CAP_MOVE + nonce-correlation on shared reply inbox (eliminates false zero-count/delta regressions under alias sender IDs),
+    - `policyd` identity checks now normalize known bring-up alias IDs for sender-bound checks and delegated subjects (`updated` alias included),
+    - `metricsd` retention path now uses bounded non-blocking `/state` writes with deterministic WAL/rollup/TTL behavior and proof marker.
+  - approved implementation reality:
+    - kernel stabilization exception is accepted for this slice (heap budget increase + alloc diagnostics), with no kernel ABI expansion.
+  - full-scope closure slices implemented and proofed; task remains open only by explicit status policy.
 - DMA capability model (future) — out of scope for MMIO v1
 - IRQ delivery to userspace (future) — separate RFC needed
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven

@@ -297,7 +297,6 @@ fn policyd_allows(pending: &mut reqrep::ReplyBuffer<16, 512>, subject_id: u64, c
     frame.extend_from_slice(&subject_id.to_le_bytes());
     frame.push(cap.len() as u8);
     frame.extend_from_slice(cap);
-
     // Send to policyd and receive reply via CAP_MOVE on @reply.
     let (send_slot, _recv_slot) = match route_blocking(b"policyd") {
         Some(slots) => slots,

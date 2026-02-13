@@ -37,7 +37,7 @@ use spin::Mutex;
 // NOTE: This region lives in `.bss.heap` and must not overlap the page-table pool range.
 // Keep it large enough to avoid ALLOC-FAIL during bring-up selftests, but below the pool base.
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 1664 * 1024; // 1.625 MiB
+const HEAP_SIZE: usize = 1792 * 1024; // 1.75 MiB
 
 #[cfg(target_os = "none")]
 #[repr(align(4096))]
@@ -209,11 +209,24 @@ fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
     // CRITICAL: Use only raw UART, no allocation allowed here!
     use core::fmt::Write;
     let mut u = crate::uart::raw_writer();
-    let _ = u.write_str("\n!!! ALLOC ERROR !!!\n");
-    let _ = u.write_str("size=");
+    let _ = u.write_str("\n!!! KERNEL HEAP OOM !!!\n");
+    let _ = u.write_str("req_size=");
     crate::trap::uart_write_hex(&mut u, layout.size());
-    let _ = u.write_str(" align=");
+    let _ = u.write_str(" req_align=");
     crate::trap::uart_write_hex(&mut u, layout.align());
+
+    // Snapshot allocator budget state at failure time.
+    // IMPORTANT: no allocations here; this is a plain lock + metadata read.
+    let (heap_used, heap_free) = {
+        let alloc = ALLOC.0.lock();
+        (alloc.used(), alloc.free())
+    };
+    let _ = u.write_str("\nheap_budget_used=");
+    crate::trap::uart_write_hex(&mut u, heap_used);
+    let _ = u.write_str(" heap_budget_free=");
+    crate::trap::uart_write_hex(&mut u, heap_free);
+    let _ = u.write_str(" heap_budget_total=");
+    crate::trap::uart_write_hex(&mut u, HEAP_SIZE);
 
     // Show current SATP to identify which AS we're in
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -231,8 +244,11 @@ fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
 
     // Show heap address to verify it's accessible
     let heap_start = unsafe { addr_of_mut!(HEAP.0) as usize };
+    let heap_end = heap_start.saturating_add(HEAP_SIZE);
     let _ = u.write_str("\nheap_start=");
     crate::trap::uart_write_hex(&mut u, heap_start);
+    let _ = u.write_str(" heap_end=");
+    crate::trap::uart_write_hex(&mut u, heap_end);
 
     let _ = u.write_str("\n");
     panic!("ALLOC-FAIL");

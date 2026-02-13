@@ -29,6 +29,7 @@ os-lite = [
     "dep:nexus-net",
     "dep:nexus-ipc",
     "dep:nexus-log",
+    "dep:nexus-metrics",
     "dep:nexus-vfs",
     "dep:exec-payloads",
     "dep:demo-exit0",
@@ -66,6 +67,7 @@ nexus-hal = { path = "../../../source/libs/nexus-hal", optional = true }
 nexus-net = { path = "../../../userspace/nexus-net", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-log = { path = "../../../source/libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
+nexus-metrics = { path = "../../../userspace/nexus-metrics", default-features = false, features = ["os-lite"], optional = true }
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
 updates = { path = "../../../userspace/updates", default-features = false, optional = true }

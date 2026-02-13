@@ -368,6 +368,8 @@ struct CtrlChannel {
     timed_recv_slot: Option<u32>,
     net_send_slot: Option<u32>,
     net_recv_slot: Option<u32>,
+    metrics_send_slot: Option<u32>,
+    metrics_recv_slot: Option<u32>,
     log_send_slot: Option<u32>,
     log_recv_slot: Option<u32>,
     /// Optional routing for target "dsoftbusd" from the perspective of this PID:
@@ -804,6 +806,8 @@ where
                     timed_recv_slot: None,
                     net_send_slot: None,
                     net_recv_slot: None,
+                    metrics_send_slot: None,
+                    metrics_recv_slot: None,
                     log_send_slot: None,
                     log_recv_slot: None,
                     dsoft_send_slot: None,
@@ -882,6 +886,7 @@ where
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
     let timed_pid = find_pid(&ctrl_channels, "timed").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
+    let metricsd_pid = find_pid(&ctrl_channels, "metricsd");
 
     // selftest-client <-> service endpoint pairs
     let vfs_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, vfsd_pid, 8)
@@ -994,6 +999,18 @@ where
         (None, None)
     };
 
+    // metricsd (optional) service endpoints (request/response).
+    // If metricsd is present, selftest-client gets a deterministic pair.
+    let (metrics_req, metrics_rsp) = if let Some(pid) = metricsd_pid {
+        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+            .map_err(InitError::Abi)?;
+        (Some(req), Some(rsp))
+    } else {
+        (None, None)
+    };
+
     // bundlemgrd <-> execd dedicated pair (avoid reusing selftest-client <-> execd channels)
     let bnd_exe_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
         .map_err(InitError::Abi)?;
@@ -1050,14 +1067,39 @@ where
             .map_err(InitError::Abi)?;
 
     // Ensure policyd control channels are live before policy-gated grants.
-    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_route_req, Rights::RECV)
-        .map_err(InitError::Abi)?;
-    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_route_rsp, Rights::SEND)
-        .map_err(InitError::Abi)?;
-    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_exec_req, Rights::RECV)
-        .map_err(InitError::Abi)?;
-    let _ = nexus_abi::cap_transfer(policyd_pid, pol_ctl_exec_rsp, Rights::SEND)
-        .map_err(InitError::Abi)?;
+    // These must be pinned to fixed child slots; `policyd` reads route/exec control on 5/6 and 7/8.
+    const POLICYD_CTL_ROUTE_RECV_SLOT: u32 = 5;
+    const POLICYD_CTL_ROUTE_SEND_SLOT: u32 = 6;
+    const POLICYD_CTL_EXEC_RECV_SLOT: u32 = 7;
+    const POLICYD_CTL_EXEC_SEND_SLOT: u32 = 8;
+    let _ = nexus_abi::cap_transfer_to_slot(
+        policyd_pid,
+        pol_ctl_route_req,
+        Rights::RECV,
+        POLICYD_CTL_ROUTE_RECV_SLOT,
+    )
+    .map_err(InitError::Abi)?;
+    let _ = nexus_abi::cap_transfer_to_slot(
+        policyd_pid,
+        pol_ctl_route_rsp,
+        Rights::SEND,
+        POLICYD_CTL_ROUTE_SEND_SLOT,
+    )
+    .map_err(InitError::Abi)?;
+    let _ = nexus_abi::cap_transfer_to_slot(
+        policyd_pid,
+        pol_ctl_exec_req,
+        Rights::RECV,
+        POLICYD_CTL_EXEC_RECV_SLOT,
+    )
+    .map_err(InitError::Abi)?;
+    let _ = nexus_abi::cap_transfer_to_slot(
+        policyd_pid,
+        pol_ctl_exec_rsp,
+        Rights::SEND,
+        POLICYD_CTL_EXEC_SEND_SLOT,
+    )
+    .map_err(InitError::Abi)?;
 
     // Policy-gated DeviceMmio grants (per-device windows) before other cap transfers.
     let grant_mmio_with_wait =
@@ -1758,6 +1800,50 @@ where
                 chan.timed_send_slot = Some(send_slot);
                 chan.timed_recv_slot = Some(recv_slot);
             }
+            "metricsd" => {
+                if let (Some(req), Some(rsp)) = (metrics_req, metrics_rsp) {
+                    let recv_slot =
+                        nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(InitError::Abi)?;
+                    let send_slot =
+                        nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.metrics_send_slot = Some(send_slot);
+                    chan.metrics_recv_slot = Some(recv_slot);
+                    debug_write_bytes(b"init: metricsd slots recv=0x");
+                    debug_write_hex(recv_slot as usize);
+                    debug_write_bytes(b" send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_byte(b'\n');
+                }
+
+                // Provide a reply inbox for CAP_MOVE reply routing (used by log sink).
+                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                    .map_err(InitError::Abi)?;
+                let reply_recv_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x05)
+                    .map_err(InitError::Abi)?;
+                let reply_send_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x06)
+                    .map_err(InitError::Abi)?;
+                chan.reply_recv_slot = Some(reply_recv_slot);
+                chan.reply_send_slot = Some(reply_send_slot);
+
+                // Allow metricsd to export snapshots/spans via nexus-log -> logd sink.
+                if let Some(req) = log_req {
+                    let send_slot = nexus_abi::cap_transfer_to_slot(pid, req, Rights::SEND, 0x08)
+                        .map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                    debug_write_bytes(b"init: metricsd logd slots send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(reply_recv_slot as usize);
+                    debug_write_byte(b'\n');
+                }
+
+                // Allow metricsd retention writer to call statefsd via CAP_MOVE/@reply.
+                let send_slot = nexus_abi::cap_transfer_to_slot(pid, state_req, Rights::SEND, 0x07)
+                    .map_err(InitError::Abi)?;
+                chan.state_send_slot = Some(send_slot);
+                chan.state_recv_slot = Some(reply_recv_slot);
+            }
             "logd" => {
                 if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
                     let recv_slot =
@@ -1878,6 +1964,19 @@ where
                     chan.log_send_slot = Some(send_slot);
                     chan.log_recv_slot = Some(recv_slot);
                     debug_write_bytes(b"init: selftest logd slots send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(recv_slot as usize);
+                    debug_write_byte(b'\n');
+                }
+                if let (Some(req), Some(rsp)) = (metrics_req, metrics_rsp) {
+                    let send_slot = nexus_abi::cap_transfer_to_slot(pid, req, Rights::SEND, 0x21)
+                        .map_err(InitError::Abi)?;
+                    let recv_slot = nexus_abi::cap_transfer_to_slot(pid, rsp, Rights::RECV, 0x22)
+                        .map_err(InitError::Abi)?;
+                    chan.metrics_send_slot = Some(send_slot);
+                    chan.metrics_recv_slot = Some(recv_slot);
+                    debug_write_bytes(b"init: selftest metricsd slots send=0x");
                     debug_write_hex(send_slot as usize);
                     debug_write_bytes(b" recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -2316,6 +2415,11 @@ where
                 }
             } else if name == b"logd" {
                 match (chan.log_send_slot, chan.log_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"metricsd" {
+                match (chan.metrics_send_slot, chan.metrics_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }

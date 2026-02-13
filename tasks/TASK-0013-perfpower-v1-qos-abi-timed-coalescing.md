@@ -18,7 +18,7 @@ links:
   - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
   - Testing contract: scripts/qemu-test.sh
 ---
-
+ 
 ## Context
 
 The kernel scheduler already has QoS buckets (`QosClass`). To improve user experience and power we

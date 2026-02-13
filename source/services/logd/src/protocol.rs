@@ -39,6 +39,12 @@ pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_UNSUPPORTED: u8 = 2;
 pub const STATUS_TOO_LARGE: u8 = 3;
+/// Deterministic reject class: malformed/identity-spoof/invalid payload.
+pub const STATUS_INVALID_ARGS: u8 = 4;
+/// Deterministic reject class: bounded resource limit exceeded.
+pub const STATUS_OVER_LIMIT: u8 = 5;
+/// Deterministic reject class: per-sender budget exhausted.
+pub const STATUS_RATE_LIMITED: u8 = 6;
 
 pub const MAX_SCOPE_LEN: usize = 64;
 pub const MAX_MSG_LEN: usize = 256;

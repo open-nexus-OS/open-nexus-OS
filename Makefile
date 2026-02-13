@@ -44,10 +44,10 @@ ifeq ($(MODE),container)
 		  rustup default stable; \
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd --exclude netstackd && \
 		  echo "[1b/2] cross-compile OS services (riscv64)"; \
-		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p samgrd -p bundlemgrd -p dsoftbusd -p execd -p keystored -p netstackd -p packagefsd -p policyd -p vfsd -p timed --target riscv64imac-unknown-none-elf --no-default-features --features os-lite && \
+		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p samgrd -p bundlemgrd -p dsoftbusd -p execd -p keystored -p netstackd -p packagefsd -p policyd -p vfsd -p timed -p metricsd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite && \
 		  echo "[1c/2] RFC-0009 dep-gate (OS graph)"; \
 		  forbidden="parking_lot parking_lot_core getrandom"; \
-		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed"; \
+		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd"; \
 		  found=0; \
 		  for svc in $$services; do \
 		    tree_output=$$($(CARGO_BIN) +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \
@@ -70,7 +70,7 @@ else
 	@echo "==> Building workspace on host"
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"' cargo build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd --exclude netstackd
 	@echo "==> Cross-compiling OS services (riscv64)"
-	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p samgrd -p bundlemgrd -p dsoftbusd -p execd -p keystored -p netstackd -p packagefsd -p policyd -p vfsd -p timed --target riscv64imac-unknown-none-elf --no-default-features --features os-lite
+	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p samgrd -p bundlemgrd -p dsoftbusd -p execd -p keystored -p netstackd -p packagefsd -p policyd -p vfsd -p timed -p metricsd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite
 	@$(MAKE) dep-gate
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p nexus-init --lib --target riscv64imac-unknown-none-elf --no-default-features --features os-lite
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite
@@ -149,7 +149,7 @@ run:
 dep-gate:
 	@echo "==> RFC-0009 Dependency Hygiene Gate (Makefile)"
 	@forbidden="parking_lot parking_lot_core getrandom"; \
-	services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed"; \
+	services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd"; \
 	found=0; \
 	for svc in $$services; do \
 	  tree_output=$$(cargo +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \

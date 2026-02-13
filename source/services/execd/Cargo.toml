@@ -22,6 +22,8 @@ os-lite = [
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
     "dep:nexus-log",
+    "dep:nexus-metrics",
+    "nexus-metrics/os-lite",
     "dep:exec-payloads",
     "dep:demo-exit0",
 ]
@@ -36,6 +38,7 @@ demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-log = { path = "../../libs/nexus-log", optional = true, default-features = false, features = ["sink-logd"] }
+nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false }
 nexus-loader = { path = "../../../userspace/nexus-loader", optional = true }
 capnp = { version = "0.24", optional = true }
 thiserror = { version = "1", optional = true }

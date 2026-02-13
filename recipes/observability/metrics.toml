@@ -1,0 +1,30 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[metrics]
+# Bounded registry semantics (RFC-0024 / TASK-0014).
+max_series_total = 64
+max_series_per_metric = 16
+max_live_spans = 64
+
+[ingest]
+# Per-sender event budget per second.
+rate_window_ns = 1000000000
+max_events_per_window = 64
+max_subjects = 64
+
+[wire]
+max_metric_name_len = 48
+max_labels_len = 192
+max_span_name_len = 48
+max_attrs_len = 192
+
+[retention]
+enabled = 1
+max_segments = 8
+max_records_per_segment = 64
+rollup_every = 16
+best_effort_retries = 1
+critical_retries = 2
+ttl_windows = 12
+gc_batch = 2

@@ -127,6 +127,22 @@ pub fn debug_static(target: &str, message: &str) {
     debug(target, |line| line.text_ref(StrRef::from(message)));
 }
 
+/// Configure deterministic logd sink slots for the current process.
+///
+/// This is an opt-in override used by services that receive fixed slots from init-lite.
+/// If not configured (or invalid), sink-logd falls back to routed discovery.
+pub fn configure_sink_logd_slots(logd_send: u32, reply_send: u32, reply_recv: u32) -> bool {
+    #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+    {
+        return sink_logd::configure_slots(logd_send, reply_send, reply_recv);
+    }
+    #[cfg(not(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (logd_send, reply_send, reply_recv);
+        false
+    }
+}
+
 pub fn log(meta: LineMeta<'_>, f: impl FnOnce(&mut LineBuilder)) {
     if !level_enabled(meta.level) || !topic_enabled(meta.topic) {
         return;
@@ -1005,7 +1021,9 @@ mod sink_userspace {
 mod sink_logd {
     use core::sync::atomic::{AtomicU32, Ordering};
 
-    use nexus_abi::{cap_clone, ipc_recv_v1, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE};
+    use nexus_abi::{
+        cap_clone, cap_close, ipc_recv_v1, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE,
+    };
     use nexus_ipc::KernelClient;
 
     use crate::Level;
@@ -1025,7 +1043,7 @@ mod sink_logd {
 
     pub fn try_append(level: Level, target: &str, line: &[u8]) {
         // Best-effort only: logging must not block or panic.
-        let (logd_send, reply_send, reply_recv) = match ensure_slots() {
+        let (logd_send, reply_send, reply_recv) = match ensure_slots(target) {
             Some(v) => v,
             None => return,
         };
@@ -1073,7 +1091,17 @@ mod sink_logd {
         drain_reply(reply_recv);
     }
 
-    fn ensure_slots() -> Option<(u32, u32, u32)> {
+    pub fn configure_slots(logd_send: u32, reply_send: u32, reply_recv: u32) -> bool {
+        if !slots_present(logd_send, reply_send, reply_recv) {
+            return false;
+        }
+        LOGD_SEND_SLOT.store(logd_send, Ordering::Relaxed);
+        REPLY_SEND_SLOT.store(reply_send, Ordering::Relaxed);
+        REPLY_RECV_SLOT.store(reply_recv, Ordering::Relaxed);
+        true
+    }
+
+    fn ensure_slots(target: &str) -> Option<(u32, u32, u32)> {
         let send = LOGD_SEND_SLOT.load(Ordering::Relaxed);
         let rs = REPLY_SEND_SLOT.load(Ordering::Relaxed);
         let rr = REPLY_RECV_SLOT.load(Ordering::Relaxed);
@@ -1093,6 +1121,13 @@ mod sink_logd {
         REPLY_RECV_SLOT.store(reply_recv, Ordering::Relaxed);
 
         Some((logd_send, reply_send, reply_recv))
+    }
+
+    fn slots_present(logd_send: u32, reply_send: u32, reply_recv: u32) -> bool {
+        let ok_send = cap_clone(logd_send).map(|tmp| cap_close(tmp)).is_ok();
+        let ok_reply_send = cap_clone(reply_send).map(|tmp| cap_close(tmp)).is_ok();
+        let ok_reply_recv = cap_clone(reply_recv).map(|tmp| cap_close(tmp)).is_ok();
+        ok_send && ok_reply_send && ok_reply_recv
     }
 
     fn drain_reply(recv_slot: u32) {

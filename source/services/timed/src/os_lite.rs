@@ -16,6 +16,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use nexus_abi::{debug_putc, nsec, yield_};
 use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_metrics::client::MetricsClient;
 
 use crate::protocol::*;
 use crate::{coalesced_deadline, RegisterReject, TimerRegistry};
@@ -27,20 +28,17 @@ static REGISTER_ALLOW_AUDIT_EMITTED: AtomicBool = AtomicBool::new(false);
 pub fn service_main_loop(notifier: ReadyNotifier) -> TimedResult<()> {
     let server = match route_timed_blocking() {
         Some(v) => v,
-        None => {
-            emit_line("dbg: timed route fail");
-            return Err(TimedError::Ipc("route failed"));
-        }
+        None => return Err(TimedError::Ipc("route failed")),
     };
     notifier.notify();
+    if !READY_MARKER_EMITTED.swap(true, Ordering::Relaxed) {
+        emit_line("timed: ready");
+    }
     let mut registry = TimerRegistry::new();
 
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
-                if !READY_MARKER_EMITTED.swap(true, Ordering::Relaxed) {
-                    emit_line("timed: ready");
-                }
                 let rsp = handle_frame(&mut registry, sender_service_id, frame.as_slice());
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
@@ -90,6 +88,8 @@ fn handle_register(registry: &mut TimerRegistry, sender_service_id: u64, frame: 
     };
     match registry.register(sender_service_id, coalesced_ns) {
         Ok(id) => {
+            let delta_ns = coalesced_ns.saturating_sub(deadline_ns);
+            metrics_hist_coalesce_delta(delta_ns);
             if !REGISTER_ALLOW_AUDIT_EMITTED.swap(true, Ordering::Relaxed) {
                 emit_register_audit("allow", "applied");
             }
@@ -286,6 +286,13 @@ fn emit_line_no_nl(message: &str) {
     for b in message.as_bytes() {
         let _ = debug_putc(*b);
     }
+}
+
+fn metrics_hist_coalesce_delta(delta_ns: u64) {
+    let Ok(metrics) = MetricsClient::new() else {
+        return;
+    };
+    let _ = metrics.hist_observe("timed.coalesce.delta_ns", b"svc=timed\n", delta_ns);
 }
 
 /// Result type for timed service operations.

@@ -23,8 +23,8 @@ use crate::protocol::{
     encode_query_response_bounded_iter as encode_query_response_bounded_iter_proto,
     encode_query_response_bounded_iter_v2 as encode_query_response_bounded_iter_proto_v2,
     BoundedFrame, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY,
-    OP_STATS, STATUS_MALFORMED, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED, VERSION,
-    VERSION_V2,
+    OP_STATS, STATUS_INVALID_ARGS, STATUS_OK, STATUS_OVER_LIMIT, STATUS_RATE_LIMITED, STATUS_MALFORMED,
+    STATUS_TOO_LARGE, STATUS_UNSUPPORTED, VERSION, VERSION_V2,
 };
 
 /// Result alias surfaced by the lite logd backend.
@@ -103,6 +103,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut saw_selftest_query = false;
     let mut saw_any_append = false;
     let mut saw_any_append_rsp = false;
+    let mut saw_reject_invalid_args = false;
+    let mut saw_reject_over_limit = false;
+    let mut saw_reject_rate_limited = false;
+    let mut rate_limiter = crate::security::SenderRateLimiter::new();
     let selftest_sid = service_id_from_name(b"selftest-client");
     loop {
         let mut inbuf = [0u8; 512];
@@ -119,7 +123,27 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     frame,
                     &mut fallback_ts,
                     &mut last_ts,
+                    &mut rate_limiter,
                 );
+                if frame.get(3).copied().unwrap_or(0) == OP_APPEND {
+                    if let Some(status) = append_response_status(&rsp) {
+                        match status {
+                            STATUS_INVALID_ARGS if !saw_reject_invalid_args => {
+                                emit_line("logd: reject invalid_args");
+                                saw_reject_invalid_args = true;
+                            }
+                            STATUS_OVER_LIMIT if !saw_reject_over_limit => {
+                                emit_line("logd: reject over_limit");
+                                saw_reject_over_limit = true;
+                            }
+                            STATUS_RATE_LIMITED if !saw_reject_rate_limited => {
+                                emit_line("logd: reject rate_limited");
+                                saw_reject_rate_limited = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 if !saw_any_append && frame.get(3).copied().unwrap_or(0) == OP_APPEND {
                     emit_line("logd: append rx");
                     saw_any_append = true;
@@ -307,6 +331,7 @@ fn handle_frame(
     frame: &[u8],
     fallback_ts: &mut u64,
     last_ts: &mut u64,
+    rate_limiter: &mut crate::security::SenderRateLimiter,
 ) -> ResponseFrame {
     let candidate = match nsec() {
         Ok(value) => value,
@@ -332,6 +357,20 @@ fn handle_frame(
         VERSION => match frame[3] {
             OP_APPEND => match decode_append_v1(frame) {
                 Ok((level, scope, message, fields)) => {
+                    if crate::security::has_payload_identity_claim(fields) {
+                        return encode_append_response_small(
+                            STATUS_INVALID_ARGS,
+                            RecordId(0),
+                            journal.stats().dropped_records,
+                        );
+                    }
+                    if rate_limiter.is_rate_limited(sender_service_id, now.0) {
+                        return encode_append_response_small(
+                            STATUS_RATE_LIMITED,
+                            RecordId(0),
+                            journal.stats().dropped_records,
+                        );
+                    }
                     match journal.append(sender_service_id, now, level, scope, message, fields) {
                         Ok(outcome) => encode_append_response_small(
                             STATUS_OK,
@@ -339,13 +378,17 @@ fn handle_frame(
                             outcome.dropped_records,
                         ),
                         Err(_) => encode_append_response_small(
-                            STATUS_TOO_LARGE,
+                            STATUS_OVER_LIMIT,
                             RecordId(0),
                             journal.stats().dropped_records,
                         ),
                     }
                 }
-                Err(err) => encode_append_response_small(err, RecordId(0), stats.dropped_records),
+                Err(err) => encode_append_response_small(
+                    map_append_decode_status(err),
+                    RecordId(0),
+                    stats.dropped_records,
+                ),
             },
             OP_QUERY => match decode_query_v1(frame) {
                 Ok((since, max_count)) => {
@@ -372,6 +415,22 @@ fn handle_frame(
             match frame[3] {
                 OP_APPEND => match decode_append_v2(frame) {
                     Ok((level, scope, message, fields)) => {
+                        if crate::security::has_payload_identity_claim(fields) {
+                            return encode_append_response_small_v2(
+                                STATUS_INVALID_ARGS,
+                                nonce,
+                                RecordId(0),
+                                journal.stats().dropped_records,
+                            );
+                        }
+                        if rate_limiter.is_rate_limited(sender_service_id, now.0) {
+                            return encode_append_response_small_v2(
+                                STATUS_RATE_LIMITED,
+                                nonce,
+                                RecordId(0),
+                                journal.stats().dropped_records,
+                            );
+                        }
                         match journal.append(sender_service_id, now, level, scope, message, fields)
                         {
                             Ok(outcome) => encode_append_response_small_v2(
@@ -381,7 +440,7 @@ fn handle_frame(
                                 outcome.dropped_records,
                             ),
                             Err(_) => encode_append_response_small_v2(
-                                STATUS_TOO_LARGE,
+                                STATUS_OVER_LIMIT,
                                 nonce,
                                 RecordId(0),
                                 journal.stats().dropped_records,
@@ -389,7 +448,7 @@ fn handle_frame(
                         }
                     }
                     Err(err) => encode_append_response_small_v2(
-                        err,
+                        map_append_decode_status(err),
                         nonce,
                         RecordId(0),
                         stats.dropped_records,
@@ -413,6 +472,28 @@ fn handle_frame(
         }
         _ => encode_stats_response_small(STATUS_UNSUPPORTED, stats),
     }
+}
+
+fn map_append_decode_status(status: u8) -> u8 {
+    match status {
+        STATUS_TOO_LARGE => STATUS_OVER_LIMIT,
+        STATUS_MALFORMED | STATUS_UNSUPPORTED => STATUS_INVALID_ARGS,
+        other => other,
+    }
+}
+
+fn append_response_status(frame: &ResponseFrame) -> Option<u8> {
+    let bytes = frame.as_slice();
+    if bytes.len() < 5 {
+        return None;
+    }
+    if bytes[0] != MAGIC0 || bytes[1] != MAGIC1 {
+        return None;
+    }
+    if bytes[3] != (OP_APPEND | 0x80) {
+        return None;
+    }
+    Some(bytes[4])
 }
 
 fn decode_level(byte: u8) -> Result<crate::journal::LogLevel, u8> {

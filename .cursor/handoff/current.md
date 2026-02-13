@@ -1,43 +1,57 @@
-# Current Handoff: TASK-0014 Observability v2 (metrics/tracing) — PREP READY
+# Current Handoff: TASK-0014 Observability v2 (metrics/tracing) — FULL SLICES BUILT, PROOFS GREEN
 
-**Date**: 2026-02-11  
-**Status**: TASK-0013 is closed/archived. TASK-0014 is prepared with follow-up wiring, security section, and drift corrections.
+**Date**: 2026-02-13  
+**Status**: `TASK-0014` remains active by policy (no explicit closure command yet). `phase-0a`, `phase-0`, `phase-1`, and `phase-2` are green, full planned closure slices are implemented, and final proof chain passed (`just dep-gate && just diag-os && cargo test --workspace && RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
+**Delta report**: `.cursor/handoff/task-0014-delta-closure-report.md`
 
 ---
 
-## Baseline fixed (carry-in)
+## What is stable now
 
-- `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`: Done.
-- `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`: Implemented (v1).
-- Archived snapshot created:
-  - `.cursor/handoff/archive/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
-- Upstream platform floors unchanged:
-  - `TASK-0006` logd v1 available as bounded sink.
-  - `TASK-0009` `/state` substrate available for bounded WAL/retention slices.
+- `metricsd` + `nexus-metrics` baseline is live and selftests pass in active mmio runs.
+- `metricsd -> nexus-log -> logd` sink-path remains deterministic and green.
+- Kernel heap OOM diagnostics now emit explicit budget and request details (`heap_budget_used/free/total`, request size/alignment).
+- Delegated-policy sender/subject normalization is now evidence-driven for mmio bring-up aliases (selftest/rngd/keystored/statefsd paths).
+- `policyd` identity binding now normalizes known bring-up aliases for sender-bound checks (`OP_CHECK/ROUTE/EXEC`) and delegated subjects (including `updated` alt SID observed in mmio runs).
+- `selftest-client` logd STATS probe now uses CAP_MOVE + nonce correlation on the shared reply inbox, eliminating false zero-count/delta failures.
+- Kernel stabilization for this slice is intentional (no rollback planned): heap budget increase + alloc diagnostics are treated as approved implementation reality for deterministic bring-up.
 
-## Active focus (TASK-0014)
+## Runtime progress proven this slice
 
-- Active task: `tasks/TASK-0014-observability-v2-metrics-tracing.md`.
-- Seed contract: `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md`.
-- Task header synced:
-  - `enables` + `follow-up-tasks` added (`TASK-0038`, `TASK-0040`, `TASK-0041`, `TASK-0143`, `TASK-0046`).
-  - explicit prerequisites now include `TASK-0006`, `TASK-0009`, `RFC-0019`, and `TASK-0013` producer baseline.
-- Security coverage added in task:
-  - threat model + invariants + DON'T DO + mitigations + security proof requirements.
-  - deterministic reject markers and `test_reject_*` style negative tests mandated.
-- Scope guard fixed to avoid drift:
-  - local metrics/spans + logd export only in TASK-0014,
-  - remote/cross-node stays in follow-up tasks (`TASK-0040`/`TASK-0038`).
+- `rngd` delegated policy now allows entropy path deterministically (`rngd: policy allow`, `rngd: mmio window mapped ok`).
+- Metrics/tracing semantics now pass in mmio (`SELFTEST: metrics security rejects ok`, `SELFTEST: metrics counters ok`, `SELFTEST: metrics gauges ok`, `SELFTEST: metrics histograms ok`, `SELFTEST: tracing spans ok`).
+- Retention proof is now active in mmio (`[INFO metricsd] retention wal active`, `SELFTEST: metrics retention ok`).
+- Device-key and statefs selftest proofs now pass (`SELFTEST: device key pubkey ok`, `SELFTEST: device key persist ok`, `SELFTEST: statefs put ok`, `SELFTEST: statefs persist ok`).
+- `ipc sender service_id` selftest is green in the current ladder.
+- OTA/update path now passes in mmio (`SELFTEST: ota stage ok`, `SELFTEST: ota switch ok`, `SELFTEST: ota health ok`, `SELFTEST: ota rollback ok`, `SELFTEST: bootctl persist ok`).
+- Latest proof snapshot: `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` with `exit_code=0`, `first_failed_phase=""`, `missing_marker=""`.
+- Final build/proof chain snapshot:
+  - `just dep-gate`: pass (`no forbidden crates in OS graph`)
+  - `just diag-os`: pass
+  - `cargo test --workspace`: pass
+  - `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`: pass (`exit_code=0`)
 
-## Next implementation slice (start here)
+## New architectural decision (this slice)
 
-- Implement `source/services/metricsd/` and `userspace/nexus-metrics/` with bounded series/span state.
-- Keep kernel untouched; all work remains userspace and OS-lite compatible.
-- Prove via deterministic host tests + QEMU marker ladder against logd export path.
+- `nexus-log` now exposes explicit sink-slot configuration:
+  - `configure_sink_logd_slots(logd_send, reply_send, reply_recv)`.
+- Deterministic wiring is now **opt-in per service/process** (init-lite assigned slots), not a hidden global fallback policy in `nexus-log`.
+- If slots are not configured (or invalid), `nexus-log` still uses routed discovery (`logd` + `@reply`) as bounded fallback.
+
+## Active focus (next)
+
+- Keep TASK/RFC/state artifacts in lockstep with implementation reality and proof outputs.
+- Keep reject-matrix and retention claims strictly evidence-bound (host tests + marker ladder).
+- Keep sender-alias normalization constrained to observed/verified identities only; avoid speculative broadening.
+- Prepare explicit closure handoff package for `TASK-0014` (without changing status unless requested).
+
+## Why still in progress
+
+- Full-scope slices are implemented and proven, but user requested to keep `TASK-0014` in `In Progress` until explicit closure command.
 
 ## Guardrails
 
-- No fake success markers (`ready`/`ok` only after real behavior).
-- No unbounded cardinality, payload, or live-span growth.
-- Policy/identity decisions based on kernel-authenticated `sender_service_id`, never payload claims.
-- Preserve modern virtio-mmio deterministic proof floor and bounded test timeouts.
+- No fake success markers (`ready`/`ok` only after proven behavior).
+- No unbounded cardinality, payload, span-table, or rate growth.
+- Identity/policy from kernel-authenticated `sender_service_id` only.
+- Proof floor remains modern virtio-mmio with bounded deterministic timeouts.

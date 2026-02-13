@@ -24,6 +24,8 @@ os-lite = [
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "dep:nexus-log",
+    "dep:nexus-metrics",
+    "nexus-metrics/os-lite",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
 ]
@@ -41,6 +43,7 @@ nexus-packagefs = { path = "../../../userspace/nexus-packagefs", optional = true
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
+nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false }
 
 [lib]
 path = "src/lib.rs"

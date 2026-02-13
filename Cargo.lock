@@ -240,6 +240,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-log",
+ "nexus-metrics",
  "nexus-packagefs",
  "nexus-service-entry",
  "sha2",
@@ -654,6 +655,7 @@ dependencies = [
  "nexus-discovery-packet",
  "nexus-ipc",
  "nexus-log",
+ "nexus-metrics",
  "nexus-noise-xk",
  "nexus-peer-lru",
  "nexus-service-entry",
@@ -754,6 +756,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-loader",
  "nexus-log",
+ "nexus-metrics",
  "nexus-service-entry",
  "thiserror",
 ]
@@ -1135,6 +1138,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "metricsd"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-log",
+ "nexus-metrics",
+ "nexus-service-entry",
+ "statefs",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1288,6 +1303,13 @@ name = "nexus-log"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-ipc",
+]
+
+[[package]]
+name = "nexus-metrics"
+version = "0.1.0"
+dependencies = [
  "nexus-ipc",
 ]
 
@@ -1970,6 +1992,7 @@ dependencies = [
  "nexus-init",
  "nexus-ipc",
  "nexus-log",
+ "nexus-metrics",
  "nexus-net",
  "nexus-net-os",
  "nexus-noise-xk",
@@ -2302,6 +2325,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-ipc",
+ "nexus-metrics",
  "nexus-service-entry",
 ]
 

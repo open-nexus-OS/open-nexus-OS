@@ -11,9 +11,10 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use core::fmt;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use nexus_abi::{debug_putc, yield_, MsgHeader};
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 /// Result type surfaced by the lite bundle manager shim.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -83,6 +84,7 @@ const SLOT_A: u8 = 1;
 const SLOT_B: u8 = 2;
 
 static ACTIVE_SLOT: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(SLOT_A);
+static METRICS_NONCE: AtomicU32 = AtomicU32::new(1);
 
 fn active_slot_label() -> u8 {
     match ACTIVE_SLOT.load(core::sync::atomic::Ordering::Relaxed) {
@@ -276,6 +278,7 @@ fn handle_frame(frame: &[u8]) -> [u8; 8] {
                 return rsp(op, STATUS_MALFORMED, 0);
             }
             // Bring-up: one deterministic bundle image is available.
+            metrics_counter_inc_best_effort("bundlemgrd.list.ok");
             rsp(op, STATUS_OK, 1)
         }
         OP_ROUTE_STATUS => {
@@ -288,6 +291,11 @@ fn handle_frame(frame: &[u8]) -> [u8; 8] {
             }
             let name = core::str::from_utf8(&frame[5..]).unwrap_or("");
             let code = route_status(name).unwrap_or(nexus_abi::routing::STATUS_MALFORMED);
+            if code == nexus_abi::routing::STATUS_OK {
+                metrics_counter_inc_best_effort("bundlemgrd.route_status.ok");
+            } else {
+                metrics_counter_inc_best_effort("bundlemgrd.route_status.fail");
+            }
             rsp2(op, STATUS_OK, code)
         }
         OP_FETCH_IMAGE => {
@@ -296,6 +304,7 @@ fn handle_frame(frame: &[u8]) -> [u8; 8] {
             }
             // For now, we return OK and let the caller fetch the static image from a separate
             // service endpoint (see handle_frame_vec).
+            metrics_counter_inc_best_effort("bundlemgrd.fetch.request");
             rsp(op, STATUS_OK, 0)
         }
         OP_SET_ACTIVE_SLOT => {
@@ -307,6 +316,7 @@ fn handle_frame(frame: &[u8]) -> [u8; 8] {
                 return rsp2(op, STATUS_MALFORMED, 0);
             }
             ACTIVE_SLOT.store(slot, core::sync::atomic::Ordering::Relaxed);
+            metrics_counter_inc_best_effort("bundlemgrd.slot_switch.ok");
             emit_line(if slot == SLOT_A {
                 "bundlemgrd: slot a active"
             } else {
@@ -354,6 +364,8 @@ fn handle_frame_vec(frame: &[u8]) -> alloc::vec::Vec<u8> {
             out.push(STATUS_OK);
             out.extend_from_slice(&(img.len() as u32).to_le_bytes());
             out.extend_from_slice(&img);
+            metrics_counter_inc_best_effort("bundlemgrd.fetch.ok");
+            metrics_hist_observe_best_effort("bundlemgrd.fetch.image_bytes", img.len() as u64);
             return out;
         }
     }
@@ -487,6 +499,40 @@ fn emit_line(message: &str) {
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
+}
+
+fn metrics_counter_inc_best_effort(name: &str) {
+    let Ok(client) = KernelClient::new_for("metricsd") else {
+        return;
+    };
+    let Ok(metric_name) = nexus_metrics::MetricName::new(name.as_bytes()) else {
+        return;
+    };
+    let Ok(labels) = nexus_metrics::BoundedFields::labels(b"svc=bundlemgrd\n") else {
+        return;
+    };
+    let nonce = METRICS_NONCE.fetch_add(1, Ordering::Relaxed);
+    let Ok(frame) = nexus_metrics::encode_counter_inc(nonce, metric_name, labels, 1) else {
+        return;
+    };
+    let _ = client.send(&frame, Wait::NonBlocking);
+}
+
+fn metrics_hist_observe_best_effort(name: &str, value: u64) {
+    let Ok(client) = KernelClient::new_for("metricsd") else {
+        return;
+    };
+    let Ok(metric_name) = nexus_metrics::MetricName::new(name.as_bytes()) else {
+        return;
+    };
+    let Ok(labels) = nexus_metrics::BoundedFields::labels(b"svc=bundlemgrd\n") else {
+        return;
+    };
+    let nonce = METRICS_NONCE.fetch_add(1, Ordering::Relaxed);
+    let Ok(frame) = nexus_metrics::encode_hist_observe(nonce, metric_name, labels, value) else {
+        return;
+    };
+    let _ = client.send(&frame, Wait::NonBlocking);
 }
 
 #[cfg(all(test, nexus_env = "os", feature = "os-lite"))]

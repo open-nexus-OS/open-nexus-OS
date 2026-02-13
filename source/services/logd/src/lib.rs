@@ -33,6 +33,7 @@ extern crate alloc;
 pub mod journal;
 pub mod lite_handler;
 pub mod protocol;
+pub mod security;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;

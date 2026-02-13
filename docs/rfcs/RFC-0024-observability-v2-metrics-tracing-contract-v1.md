@@ -3,7 +3,7 @@
 - Status: Draft
 - Owners: @runtime
 - Created: 2026-02-11
-- Last Updated: 2026-02-11
+- Last Updated: 2026-02-13
 - Links:
   - Tasks: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (execution + proof)
   - ADRs: `docs/adr/0025-qemu-smoke-proof-gating.md` (deterministic QEMU proof policy)
@@ -15,14 +15,28 @@
 
 ## Status at a Glance
 
-- **Phase 0a (logd sink hardening preflight)**: ⬜
-- **Phase 0 (local v2 contract + service/lib shape)**: ⬜
-- **Phase 1 (bounded security and failure semantics)**: ⬜
-- **Phase 2 (proof gates + anti-drift sync)**: ⬜
+- **Phase 0a (logd sink hardening preflight)**: ✅
+- **Phase 0 (local v2 contract + service/lib shape)**: ✅
+- **Phase 1 (bounded security and failure semantics)**: ✅
+- **Phase 2 (proof gates + anti-drift sync)**: ✅
+- **Task closure state (`TASK-0014`)**: 🟨 in progress (full-scope implementation slices are complete; task remains open until explicit closure command)
+- **Runtime stabilization note (2026-02-13)**: mmio green re-verified after (a) CAP_MOVE+nonce correlation for selftest logd STATS on shared inbox and (b) policyd alias normalization for sender-bound identity checks and delegated `updated` subject checks.
 
 Definition:
 
 - "Complete" means the contract is defined and the proof gates are green (tests/markers). It does not mean "never changes again".
+
+## Implementation reality (approved, documented)
+
+- **Kernel stabilization exception (approved)**:
+  - During deterministic mmio proof closure for `TASK-0014`, kernel heap bring-up stability was improved by:
+    - increasing kernel heap budget (`HEAP_SIZE`) and
+    - extending allocation-failure diagnostics (`heap_budget_used/free/total`, request size/alignment).
+  - This is treated as an explicit stabilization exception, not as a scope accident.
+  - The contract boundary remains: no new kernel ABI/syscall surface is introduced by this RFC.
+- **Identity normalization in bring-up paths (transitional)**:
+  - Observed sender-id aliases in mmio bring-up were normalized in policy paths to preserve deterministic proofs.
+  - This is a compatibility layer and must stay evidence-driven (no speculative broadening).
 
 ## Scope boundaries (anti-drift)
 
@@ -100,6 +114,12 @@ The contract must remain deterministic, bounded, and local-only for v1 to avoid 
 - **Service boundary**:
   - producer -> `metricsd` via compact versioned byte frames for update operations,
   - `metricsd` -> `logd` via structured records through `nexus-log`.
+- **Sink wiring contract (`nexus-log` -> `logd`)**:
+  - services that receive deterministic init-lite capabilities SHOULD call
+    `configure_sink_logd_slots(logd_send, reply_send, reply_recv)` once at startup,
+  - when configured slots are valid, sink-logd MUST use them without route-control dependence,
+  - when not configured (or invalid), sink-logd MUST fall back to routed discovery (`logd` + `@reply`),
+  - sink-logd MUST NOT hardcode a service-specific direct-slot policy as global default behavior.
 - **Metric model**:
   - `Counter(u64)`: monotonic increment only.
   - `Gauge(i64)`: set/replace semantics.
@@ -167,6 +187,24 @@ The contract must remain deterministic, bounded, and local-only for v1 to avoid 
 
 - Final wire opcode/field vocabulary can drift if follow-up tasks bypass this contract.
 - Secret-redaction policy quality depends on key taxonomy and must be tested with explicit negative cases.
+- "Phase gates green" can hide unfinished v2 scope unless closure deltas remain explicit in task/RFC/state artifacts.
+
+## Remaining deltas for full `TASK-0014` closure
+
+Implementation deltas from the full-scope backlog are now built and proven:
+
+- [x] Retention/gatekeeping persistence slice in `metricsd` on top of `/state`:
+  - WAL + deterministic segment rotation,
+  - bounded raw -> 10s -> 60s rollups,
+  - TTL/GC with deterministic behavior.
+- [x] Runtime limits bound from `recipes/observability/metrics.toml` (live limits are no longer hardcoded-only).
+- [x] Tracing payload fidelity completed in runtime/export path:
+  - parent-child linkage handling and
+  - bounded attrs handling in emitted records.
+- [x] Soll-first gauge proof coverage completed (host + QEMU evidence parity with counter/hist/span).
+- [x] Planned producer instrumentation completed (`execd`, `bundlemgrd`, `dsoftbusd`, `timed`) using shared observability primitives.
+- [x] `nexus-metrics` ergonomics extended to planned macro level (including span guard end-on-drop behavior).
+- [x] Retention proof marker added and gated in QEMU ladder: `SELFTEST: metrics retention ok`.
 
 ## Failure model (normative)
 
@@ -201,10 +239,12 @@ QEMU proof should run with modern virtio-mmio defaults to keep marker behavior d
 - `logd: reject rate_limited`
 - `SELFTEST: logd hardening rejects ok`
 - `metricsd: ready`
+- `SELFTEST: metrics security rejects ok`
 - `SELFTEST: metrics counters ok`
+- `SELFTEST: metrics gauges ok`
 - `SELFTEST: metrics histograms ok`
 - `SELFTEST: tracing spans ok`
-- `SELFTEST: metrics security rejects ok`
+- `SELFTEST: metrics retention ok`
 
 ### Feature-to-proof matrix (soll-first, normative)
 
@@ -235,7 +275,7 @@ QEMU proof should run with modern virtio-mmio defaults to keep marker behavior d
 
 ## Open questions
 
-- Should reject categories be mapped to a stable numeric status table in v1 or stay semantic labels until phase 1 closes?
+- Should reject categories be frozen as a stable numeric status table before cross-node/remote follow-ups, or remain semantic labels until those contracts land?
 - Which default histogram buckets are global vs service-specific in v1 config?
 - Which attribute key policy (allowlist-first vs denylist-first) is preferred for initial rollout?
 
@@ -256,10 +296,11 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0a**: `logd` APPEND hardening (bounds/rate/identity) + deterministic reject proof - proof: `cargo test -p logd -- reject --nocapture`
-- [ ] **Phase 0**: local metrics/spans contract + `metricsd`/`nexus-metrics` skeleton + sink-path proof wiring - proof: `cargo test -p metricsd -- --nocapture`
-- [ ] **Phase 1**: cardinality/rate/size hardening + deterministic reject matrix - proof: `cargo test -p metricsd -- reject --nocapture`
-- [ ] **Phase 2**: QEMU marker ladder + anti-drift sync with follow-up boundaries - proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0a**: `logd` APPEND hardening (bounds/rate/identity) + deterministic reject proof - proof: `cargo test -p logd -- reject --nocapture`
+- [x] **Phase 0**: local metrics/spans contract + `metricsd`/`nexus-metrics` skeleton + sink-path proof wiring - proof: `cargo test -p metricsd -- --nocapture`
+- [x] **Phase 1**: cardinality/rate/size hardening + deterministic reject matrix - proof: `cargo test -p metricsd -- reject --nocapture`
+- [x] **Phase 2**: QEMU marker ladder + anti-drift sync with follow-up boundaries - proof: `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).
+- [x] Full-scope closure backlog for `TASK-0014` (retention/config binding/tracing fidelity/gauge proof/instrumentation ergonomics) resolved.

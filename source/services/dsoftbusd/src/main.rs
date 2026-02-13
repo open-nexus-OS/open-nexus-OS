@@ -1247,6 +1247,22 @@ fn os_entry() -> core::result::Result<(), ()> {
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn metrics_counter_inc_best_effort(name: &str) {
+    let Ok(metrics) = nexus_metrics::client::MetricsClient::new() else {
+        return;
+    };
+    let _ = metrics.counter_inc(name, b"svc=dsoftbusd\n", 1);
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn metrics_hist_observe_best_effort(name: &str, value: u64) {
+    let Ok(metrics) = nexus_metrics::client::MetricsClient::new() else {
+        return;
+    };
+    let _ = metrics.hist_observe(name, b"svc=dsoftbusd\n", value);
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::result::Result<(), ()> {
     use alloc::string::String;
     use alloc::vec::Vec;
@@ -1929,6 +1945,8 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
     let mut dial_attempts: u32 = 0;
     let mut accept_attempts: u32 = 0;
     let mut dial_fallback_logged = false;
+    let session_setup_start_ns = nexus_abi::nsec().ok().unwrap_or(0);
+    let mut session_fail_counted = false;
 
     // Single cooperative setup loop:
     // - continuously announces + receives discovery packets
@@ -2188,9 +2206,19 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
         match transport_attempt {
             Ok(transport) => {
                 fsm.set_ready();
+                let now = nexus_abi::nsec().ok().unwrap_or(session_setup_start_ns);
+                metrics_counter_inc_best_effort("dsoftbusd.session.ok");
+                metrics_hist_observe_best_effort(
+                    "dsoftbusd.handshake.duration_ns",
+                    now.saturating_sub(session_setup_start_ns),
+                );
                 break 'session_setup transport;
             }
             Err(()) => {
+                if !session_fail_counted {
+                    session_fail_counted = true;
+                    metrics_counter_inc_best_effort("dsoftbusd.session.fail");
+                }
                 if let Some(old_sid) = fsm.begin_reconnect() {
                     let mut netio =
                         CrossVmTransport::new(&mut pending_replies, &mut nonce_ctr, net);

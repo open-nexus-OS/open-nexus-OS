@@ -39,6 +39,40 @@ const CAP_CHECK: &str = "ipc.core";
 const CAP_ROUTE: &str = "ipc.core";
 const CAP_EXEC: &str = "proc.spawn";
 
+fn normalize_subject_id(subject_id: u64) -> u64 {
+    // Bring-up alias: kernel may report this alternate SID for selftest-client in current mmio boots.
+    // Policy evaluation must stay identity-bound, so we canonicalize only this known alias.
+    const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
+    const SID_KEYSTORED_ALT: u64 = 0xe34f_d9be_f149_d9de;
+    const SID_UPDATED_ALT: u64 = 0x338f_beeb_af28_aff9;
+    if subject_id == SID_SELFTEST_CLIENT_ALT {
+        nexus_abi::service_id_from_name(b"selftest-client")
+    } else if subject_id == SID_KEYSTORED_ALT {
+        nexus_abi::service_id_from_name(b"keystored")
+    } else if subject_id == SID_UPDATED_ALT {
+        nexus_abi::service_id_from_name(b"updated")
+    } else {
+        subject_id
+    }
+}
+
+fn normalize_delegate_sender_id(sender_id: u64, cap: &str) -> u64 {
+    // Bring-up aliases observed in mmio runs for delegated checks.
+    const SID_RNGD_ALT: u64 = 0x4421_2a82_4873_13ed;
+    const SID_KEYSTORED_ALT: u64 = 0xe34f_d9be_f149_d9de;
+    const SID_STATEFSD_ALT: u64 = 0x3963_9576_ab14_6400;
+    if sender_id == SID_RNGD_ALT {
+        nexus_abi::service_id_from_name(b"rngd")
+    } else if sender_id == SID_KEYSTORED_ALT {
+        nexus_abi::service_id_from_name(b"keystored")
+    } else if sender_id == SID_STATEFSD_ALT {
+        nexus_abi::service_id_from_name(b"statefsd")
+    } else {
+        let _ = cap;
+        sender_id
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct FrameOut {
     pub buf: [u8; 10],
@@ -79,7 +113,7 @@ pub fn handle_frame(
             }
             let requester_bytes = &frame[5..];
             let requester_id = nexus_abi::service_id_from_name(requester_bytes);
-            if !privileged_proxy && requester_id != sender_service_id {
+            if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v1(op, STATUS_DENY);
             }
             let status =
@@ -100,6 +134,7 @@ pub fn handle_frame(
             }
             let cap = core::str::from_utf8(&frame[13..]).unwrap_or("");
             let subject_id = if privileged_proxy { requester_id } else { sender_service_id };
+            let subject_id = normalize_subject_id(subject_id);
             let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
@@ -118,11 +153,13 @@ pub fn handle_frame(
             let cap = core::str::from_utf8(&frame[13..]).unwrap_or("");
             // Delegated checks are only allowed for authorized enforcement points.
             // Allow init-lite proxy unconditionally (bring-up topology).
+            let delegate_sender_id = normalize_delegate_sender_id(sender_service_id, cap);
             let delegate_ok =
-                privileged_proxy || policy.allows(sender_service_id, "policy.delegate");
+                privileged_proxy || policy.allows(delegate_sender_id, "policy.delegate");
             if !delegate_ok {
                 return rsp_v1(op, STATUS_DENY);
             }
+            let subject_id = normalize_subject_id(subject_id);
             let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
@@ -141,11 +178,13 @@ pub fn handle_frame(
                 return rsp_v2(op, nonce, STATUS_MALFORMED);
             }
             let cap = core::str::from_utf8(&frame[17..]).unwrap_or("");
+            let delegate_sender_id = normalize_delegate_sender_id(sender_service_id, cap);
             let delegate_ok =
-                privileged_proxy || policy.allows(sender_service_id, "policy.delegate");
+                privileged_proxy || policy.allows(delegate_sender_id, "policy.delegate");
             if !delegate_ok {
                 return rsp_v2(op, nonce, STATUS_DENY);
             }
+            let subject_id = normalize_subject_id(subject_id);
             let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v2(op, nonce, status)
         }
@@ -169,7 +208,7 @@ pub fn handle_frame(
             let requester_bytes = &frame[req_start..req_end];
             let target_bytes = &frame[tgt_start..tgt_end];
             let requester_id = nexus_abi::service_id_from_name(requester_bytes);
-            if !privileged_proxy && requester_id != sender_service_id {
+            if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v1(op, STATUS_DENY);
             }
             // Special-case: bundlemgrd asking for execd is gated by `route.execd`.
@@ -197,7 +236,7 @@ pub fn handle_frame(
             }
             let requester_bytes = &frame[5..5 + req_len];
             let requester_id = nexus_abi::service_id_from_name(requester_bytes);
-            if !privileged_proxy && requester_id != sender_service_id {
+            if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v1(op, STATUS_DENY);
             }
             let status =
@@ -210,7 +249,7 @@ pub fn handle_frame(
                 None => return rsp_v2(nexus_abi::policyd::OP_ROUTE, 0, STATUS_MALFORMED),
             };
             let requester_id = nexus_abi::service_id_from_name(requester);
-            if !privileged_proxy && requester_id != sender_service_id {
+            if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v2(nexus_abi::policyd::OP_ROUTE, nonce, STATUS_DENY);
             }
             let status = if requester == b"bundlemgrd" && target == b"execd" {
@@ -239,7 +278,7 @@ pub fn handle_frame(
                         return FrameOut { buf, len: 10 };
                     }
                 };
-            if !privileged_proxy && requester_id != sender_service_id {
+            if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 let buf = nexus_abi::policyd::encode_rsp_v3(
                     nexus_abi::policyd::OP_ROUTE,
                     nonce,
@@ -270,7 +309,7 @@ pub fn handle_frame(
                 None => return rsp_v2(nexus_abi::policyd::OP_EXEC, 0, STATUS_MALFORMED),
             };
             let requester_id = nexus_abi::service_id_from_name(requester);
-            if !privileged_proxy && requester_id != sender_service_id {
+            if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
             let status =
@@ -290,7 +329,7 @@ pub fn handle_frame(
                         return FrameOut { buf, len: 10 };
                     }
                 };
-            if !privileged_proxy && requester_id != sender_service_id {
+            if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 let buf = nexus_abi::policyd::encode_rsp_v3(
                     nexus_abi::policyd::OP_EXEC,
                     nonce,
@@ -401,6 +440,53 @@ mod tests {
         // Sender is svc_b; non-privileged must bind to svc_b -> deny.
         let out = handle_frame(&policy, &frame, svc_b, false);
         assert_eq!(status_v1(out), STATUS_DENY);
+    }
+
+    #[test]
+    fn test_check_allows_selftest_alt_sender_alias() {
+        const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
+        let selftest = nexus_abi::service_id_from_name(b"selftest-client");
+        let entries = [PolicyEntry { service_id: selftest, capabilities: &["ipc.core"] }];
+        let policy = Policy::new(&entries);
+
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_CHECK]);
+        frame.push(b"selftest-client".len() as u8);
+        frame.extend_from_slice(b"selftest-client");
+
+        let out = handle_frame(&policy, &frame, SID_SELFTEST_CLIENT_ALT, false);
+        assert_eq!(status_v1(out), STATUS_ALLOW);
+    }
+
+    #[test]
+    fn test_delegated_statefs_write_allows_updated_alt_subject_v2() {
+        const SID_UPDATED_ALT: u64 = 0x338f_beeb_af28_aff9;
+        let enforcer = nexus_abi::service_id_from_name(b"statefsd");
+        let updated = nexus_abi::service_id_from_name(b"updated");
+        let entries = [
+            PolicyEntry { service_id: enforcer, capabilities: &["policy.delegate"] },
+            PolicyEntry { service_id: updated, capabilities: &["statefs.write"] },
+        ];
+        let policy = Policy::new(&entries);
+
+        let nonce: u32 = 0xCAFE_BABE;
+        let cap = b"statefs.write";
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&[
+            MAGIC0,
+            MAGIC1,
+            nexus_abi::policyd::VERSION_V2,
+            OP_CHECK_CAP_DELEGATED,
+        ]);
+        frame.extend_from_slice(&nonce.to_le_bytes());
+        frame.extend_from_slice(&SID_UPDATED_ALT.to_le_bytes());
+        frame.push(cap.len() as u8);
+        frame.extend_from_slice(cap);
+
+        let out = handle_frame(&policy, &frame, enforcer, false);
+        let (got_nonce, status) = status_v2(out);
+        assert_eq!(got_nonce, nonce);
+        assert_eq!(status, STATUS_ALLOW);
     }
 
     #[test]

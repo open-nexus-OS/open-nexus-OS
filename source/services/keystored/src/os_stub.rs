@@ -150,7 +150,14 @@ impl KeyStore {
 
     fn get(&mut self, sender_service_id: u64, key: &[u8]) -> Result<Option<Vec<u8>>, StatefsError> {
         match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => store.get(sender_service_id, key),
+            KeyStoreBackend::Statefs(store) => match store.get(sender_service_id, key) {
+                Ok(value) => Ok(value),
+                Err(StatefsError::AccessDenied) => {
+                    self.fallback_to_memory_backend();
+                    self.get(sender_service_id, key)
+                }
+                Err(err) => Err(err),
+            },
             KeyStoreBackend::Memory(map) => {
                 Ok(map.get(&(sender_service_id, key.to_vec())).cloned())
             }
@@ -164,7 +171,14 @@ impl KeyStore {
         value: &[u8],
     ) -> Result<(), StatefsError> {
         match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => store.put(sender_service_id, key, value),
+            KeyStoreBackend::Statefs(store) => match store.put(sender_service_id, key, value) {
+                Ok(()) => Ok(()),
+                Err(StatefsError::AccessDenied) => {
+                    self.fallback_to_memory_backend();
+                    self.put(sender_service_id, key, value)
+                }
+                Err(err) => Err(err),
+            },
             KeyStoreBackend::Memory(map) => {
                 map.insert((sender_service_id, key.to_vec()), value.to_vec());
                 Ok(())
@@ -174,7 +188,14 @@ impl KeyStore {
 
     fn delete(&mut self, sender_service_id: u64, key: &[u8]) -> Result<bool, StatefsError> {
         match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => store.delete(sender_service_id, key),
+            KeyStoreBackend::Statefs(store) => match store.delete(sender_service_id, key) {
+                Ok(deleted) => Ok(deleted),
+                Err(StatefsError::AccessDenied) => {
+                    self.fallback_to_memory_backend();
+                    self.delete(sender_service_id, key)
+                }
+                Err(err) => Err(err),
+            },
             KeyStoreBackend::Memory(map) => {
                 Ok(map.remove(&(sender_service_id, key.to_vec())).is_some())
             }
@@ -212,10 +233,23 @@ impl KeyStore {
 
     fn set_device_key_bytes(&mut self, bytes: [u8; 32]) -> Result<(), StatefsError> {
         if let KeyStoreBackend::Statefs(store) = &mut self.backend {
-            store.store_device_key(&bytes)?;
+            if let Err(err) = store.store_device_key(&bytes) {
+                if err == StatefsError::AccessDenied {
+                    self.fallback_to_memory_backend();
+                } else {
+                    return Err(err);
+                }
+            }
         }
         self.device_key_bytes = Some(bytes);
         Ok(())
+    }
+
+    fn fallback_to_memory_backend(&mut self) {
+        if !matches!(self.backend, KeyStoreBackend::Memory(_)) {
+            emit_line("keystored: statefs access denied fallback");
+            self.backend = KeyStoreBackend::Memory(BTreeMap::new());
+        }
     }
 }
 
@@ -672,7 +706,6 @@ fn policyd_allows(pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8
     frame.extend_from_slice(&subject_id.to_le_bytes());
     frame.push(cap.len() as u8);
     frame.extend_from_slice(cap);
-
     let send_slot = POL_SEND_SLOT;
     let reply_send_slot = REPLY_SEND_SLOT;
     let reply_recv_slot = REPLY_RECV_SLOT;

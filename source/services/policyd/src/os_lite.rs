@@ -230,6 +230,60 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
             _ => {}
         }
     }
+    // #region agent log
+    if frame.len() >= 13 && frame[0] == MAGIC0 && frame[1] == MAGIC1 && frame[2] == VERSION
+        && frame[3] == OP_CHECK_CAP
+    {
+        let subject_id = u64::from_le_bytes([
+            frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
+        ]);
+        let cap_len = frame[12] as usize;
+        if cap_len > 0 && cap_len <= 48 && frame.len() == 13 + cap_len {
+            let cap = &frame[13..13 + cap_len];
+            let _effective_subject_id = if privileged_proxy { subject_id } else { sender_service_id };
+            let status = if out.len >= 5 { out.buf[4] } else { STATUS_UNSUPPORTED };
+            if cap == b"device.mmio.net" {
+                emit_line(if status == STATUS_ALLOW {
+                    if privileged_proxy {
+                        "policyd: mmio net allow priv"
+                    } else {
+                        "policyd: mmio net allow nonpriv"
+                    }
+                } else if privileged_proxy {
+                    "policyd: mmio net deny priv"
+                } else {
+                    "policyd: mmio net deny nonpriv"
+                });
+            }
+            if cap == b"device.mmio.rng" {
+                emit_line(if status == STATUS_ALLOW {
+                    if privileged_proxy {
+                        "policyd: mmio rng allow priv"
+                    } else {
+                        "policyd: mmio rng allow nonpriv"
+                    }
+                } else if privileged_proxy {
+                    "policyd: mmio rng deny priv"
+                } else {
+                    "policyd: mmio rng deny nonpriv"
+                });
+            }
+            if cap == b"device.mmio.blk" {
+                emit_line(if status == STATUS_ALLOW {
+                    if privileged_proxy {
+                        "policyd: mmio blk allow priv"
+                    } else {
+                        "policyd: mmio blk allow nonpriv"
+                    }
+                } else if privileged_proxy {
+                    "policyd: mmio blk deny priv"
+                } else {
+                    "policyd: mmio blk deny nonpriv"
+                });
+            }
+        }
+    }
+    // #endregion
     FrameOut { buf: out.buf, len: out.len }
 }
 
@@ -259,8 +313,11 @@ match (ver, op) {
                 );
                 return rsp_v1(op, STATUS_DENY);
             }
-            let status =
-                if POLICY.allows(requester_id, CAP_CHECK) { STATUS_ALLOW } else { STATUS_DENY };
+            let status = if POLICY.allows(requester_id, CAP_CHECK) {
+                STATUS_ALLOW
+            } else {
+                STATUS_DENY
+            };
             emit_audit(
                 op,
                 if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
@@ -291,6 +348,76 @@ match (ver, op) {
             } else {
                 STATUS_DENY
             };
+            // #region agent log
+            let sid_netstackd = nexus_abi::service_id_from_name(b"netstackd");
+            let sid_rngd = nexus_abi::service_id_from_name(b"rngd");
+            let sid_selftest = nexus_abi::service_id_from_name(b"selftest-client");
+            let sid_statefsd = nexus_abi::service_id_from_name(b"statefsd");
+            if cap == b"device.mmio.net"
+                && subject_id == sid_netstackd
+                && !DBG_MMIO_NET_CHECK_EMITTED.swap(true, Ordering::Relaxed)
+            {
+                emit_line(if status == STATUS_ALLOW {
+                    if privileged_proxy {
+                        "policyd: mmio netstackd allow priv"
+                    } else {
+                        "policyd: mmio netstackd allow nonpriv"
+                    }
+                } else if privileged_proxy {
+                    "policyd: mmio netstackd deny priv"
+                } else {
+                    "policyd: mmio netstackd deny nonpriv"
+                });
+            }
+            if cap == b"device.mmio.rng"
+                && subject_id == sid_rngd
+                && !DBG_MMIO_RNG_CHECK_EMITTED.swap(true, Ordering::Relaxed)
+            {
+                emit_line(if status == STATUS_ALLOW {
+                    if privileged_proxy {
+                        "policyd: mmio rngd allow priv"
+                    } else {
+                        "policyd: mmio rngd allow nonpriv"
+                    }
+                } else if privileged_proxy {
+                    "policyd: mmio rngd deny priv"
+                } else {
+                    "policyd: mmio rngd deny nonpriv"
+                });
+            }
+            if cap == b"device.mmio.net"
+                && subject_id == sid_selftest
+                && !DBG_MMIO_SELFTEST_NET_CHECK_EMITTED.swap(true, Ordering::Relaxed)
+            {
+                emit_line(if status == STATUS_ALLOW {
+                    if privileged_proxy {
+                        "policyd: mmio selftest-net allow priv"
+                    } else {
+                        "policyd: mmio selftest-net allow nonpriv"
+                    }
+                } else if privileged_proxy {
+                    "policyd: mmio selftest-net deny priv"
+                } else {
+                    "policyd: mmio selftest-net deny nonpriv"
+                });
+            }
+            if cap == b"device.mmio.blk"
+                && subject_id == sid_statefsd
+                && !DBG_MMIO_STATEFSD_BLK_CHECK_EMITTED.swap(true, Ordering::Relaxed)
+            {
+                emit_line(if status == STATUS_ALLOW {
+                    if privileged_proxy {
+                        "policyd: mmio statefsd-blk allow priv"
+                    } else {
+                        "policyd: mmio statefsd-blk allow nonpriv"
+                    }
+                } else if privileged_proxy {
+                    "policyd: mmio statefsd-blk deny priv"
+                } else {
+                    "policyd: mmio statefsd-blk deny nonpriv"
+                });
+            }
+            // #endregion
             emit_audit(
                 op,
                 if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
@@ -362,8 +489,7 @@ match (ver, op) {
 
             // Security: only allow delegated checks from authorized enforcement points.
             // Allow init-lite proxy unconditionally (bring-up topology).
-            let delegate_ok =
-                privileged_proxy || POLICY.allows(sender_service_id, "policy.delegate");
+            let delegate_ok = privileged_proxy || POLICY.allows(sender_service_id, "policy.delegate");
             if !delegate_ok {
                 emit_audit(
                     op,
@@ -466,8 +592,11 @@ match (ver, op) {
                 return rsp_v1(op, STATUS_DENY);
             }
             let _image_id = frame[5 + req_len]; // reserved
-            let status =
-                if POLICY.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
+            let status = if POLICY.allows(requester_id, CAP_EXEC) {
+                STATUS_ALLOW
+            } else {
+                STATUS_DENY
+            };
             emit_audit(
                 op,
                 if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
@@ -572,8 +701,11 @@ match (ver, op) {
                 );
                 return rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
-            let status =
-                if POLICY.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
+            let status = if POLICY.allows(requester_id, CAP_EXEC) {
+                STATUS_ALLOW
+            } else {
+                STATUS_DENY
+            };
             emit_audit(
                 op,
                 if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
@@ -604,8 +736,11 @@ match (ver, op) {
                 );
                 return FrameOut { buf, len: 10 };
             }
-            let status =
-                if POLICY.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
+            let status = if POLICY.allows(requester_id, CAP_EXEC) {
+                STATUS_ALLOW
+            } else {
+                STATUS_DENY
+            };
             emit_audit(
                 op,
                 if status == STATUS_ALLOW { AuditDecision::Allow } else { AuditDecision::Deny },
