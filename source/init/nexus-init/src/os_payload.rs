@@ -1816,12 +1816,15 @@ where
                 }
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by log sink).
-                let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                    .map_err(InitError::Abi)?;
-                let reply_recv_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x05)
-                    .map_err(InitError::Abi)?;
-                let reply_send_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x06)
-                    .map_err(InitError::Abi)?;
+                let reply_ep =
+                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        .map_err(InitError::Abi)?;
+                let reply_recv_slot =
+                    nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x05)
+                        .map_err(InitError::Abi)?;
+                let reply_send_slot =
+                    nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x06)
+                        .map_err(InitError::Abi)?;
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
 

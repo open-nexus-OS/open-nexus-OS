@@ -23,8 +23,8 @@ use crate::protocol::{
     encode_query_response_bounded_iter as encode_query_response_bounded_iter_proto,
     encode_query_response_bounded_iter_v2 as encode_query_response_bounded_iter_proto_v2,
     BoundedFrame, MAGIC0, MAGIC1, MAX_FIELDS_LEN, MAX_MSG_LEN, MAX_SCOPE_LEN, OP_APPEND, OP_QUERY,
-    OP_STATS, STATUS_INVALID_ARGS, STATUS_OK, STATUS_OVER_LIMIT, STATUS_RATE_LIMITED, STATUS_MALFORMED,
-    STATUS_TOO_LARGE, STATUS_UNSUPPORTED, VERSION, VERSION_V2,
+    OP_STATS, STATUS_INVALID_ARGS, STATUS_MALFORMED, STATUS_OK, STATUS_OVER_LIMIT,
+    STATUS_RATE_LIMITED, STATUS_TOO_LARGE, STATUS_UNSUPPORTED, VERSION, VERSION_V2,
 };
 
 /// Result alias surfaced by the lite logd backend.

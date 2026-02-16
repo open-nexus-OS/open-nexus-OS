@@ -162,7 +162,8 @@ impl DeterministicIdSource {
 
     /// Returns the next deterministic trace ID.
     pub fn next_trace_id(&mut self) -> TraceId {
-        let id = compose_deterministic_id(self.sender_service_id ^ 0x5443_525f_4944, self.next_local);
+        let id =
+            compose_deterministic_id(self.sender_service_id ^ 0x5443_525f_4944, self.next_local);
         self.next_local = self.next_local.saturating_add(1);
         TraceId(id)
     }
@@ -176,7 +177,13 @@ fn compose_deterministic_id(sender_service_id: u64, local: u64) -> u64 {
 pub trait SpanEndClient {
     type Error;
 
-    fn end_span(&self, span_id: SpanId, end_ns: u64, status: u8, attrs: &[u8]) -> Result<u8, Self::Error>;
+    fn end_span(
+        &self,
+        span_id: SpanId,
+        end_ns: u64,
+        status: u8,
+        attrs: &[u8],
+    ) -> Result<u8, Self::Error>;
 }
 
 /// RAII guard that emits `span_end` on drop unless ended explicitly.
@@ -292,7 +299,13 @@ pub fn encode_counter_inc(
     labels: BoundedFields<'_>,
     delta: u64,
 ) -> Result<Vec<u8>, EncodeError> {
-    encode_metric_value_frame(OP_COUNTER_INC, nonce, name.as_bytes(), labels.as_bytes(), delta as i64)
+    encode_metric_value_frame(
+        OP_COUNTER_INC,
+        nonce,
+        name.as_bytes(),
+        labels.as_bytes(),
+        delta as i64,
+    )
 }
 
 /// Encodes a GAUGE_SET frame.
@@ -312,7 +325,13 @@ pub fn encode_hist_observe(
     labels: BoundedFields<'_>,
     value: u64,
 ) -> Result<Vec<u8>, EncodeError> {
-    encode_metric_value_frame(OP_HIST_OBSERVE, nonce, name.as_bytes(), labels.as_bytes(), value as i64)
+    encode_metric_value_frame(
+        OP_HIST_OBSERVE,
+        nonce,
+        name.as_bytes(),
+        labels.as_bytes(),
+        value as i64,
+    )
 }
 
 fn encode_metric_value_frame(
@@ -333,7 +352,7 @@ fn encode_metric_value_frame(
     out.extend_from_slice(&nonce.to_le_bytes());
     out.push(name.len() as u8);
     out.extend_from_slice(&(labels.len() as u16).to_le_bytes());
-    out.extend_from_slice(&(value as i64).to_le_bytes());
+    out.extend_from_slice(&value.to_le_bytes());
     out.extend_from_slice(name);
     out.extend_from_slice(labels);
     Ok(out)
@@ -410,7 +429,9 @@ pub fn decode_request(frame: &[u8]) -> Result<Request<'_>, DecodeError> {
     let op = frame[3];
     let nonce = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
     match op {
-        OP_COUNTER_INC | OP_GAUGE_SET | OP_HIST_OBSERVE => decode_metric_value(op, nonce, &frame[8..]),
+        OP_COUNTER_INC | OP_GAUGE_SET | OP_HIST_OBSERVE => {
+            decode_metric_value(op, nonce, &frame[8..])
+        }
         OP_SPAN_START => decode_span_start(nonce, &frame[8..]),
         OP_SPAN_END => decode_span_end(nonce, &frame[8..]),
         OP_PING => {
@@ -424,14 +445,25 @@ pub fn decode_request(frame: &[u8]) -> Result<Request<'_>, DecodeError> {
     }
 }
 
-fn decode_metric_value<'a>(op: u8, nonce: u32, payload: &'a [u8]) -> Result<Request<'a>, DecodeError> {
+fn decode_metric_value<'a>(
+    op: u8,
+    nonce: u32,
+    payload: &'a [u8],
+) -> Result<Request<'a>, DecodeError> {
     if payload.len() < 1 + 2 + 8 {
         return Err(DecodeError::Malformed);
     }
     let name_len = payload[0] as usize;
     let labels_len = u16::from_le_bytes([payload[1], payload[2]]) as usize;
     let value = i64::from_le_bytes([
-        payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9], payload[10],
+        payload[3],
+        payload[4],
+        payload[5],
+        payload[6],
+        payload[7],
+        payload[8],
+        payload[9],
+        payload[10],
     ]);
     if name_len == 0 || name_len > MAX_METRIC_NAME_LEN || labels_len > MAX_LABELS_LEN {
         return Err(DecodeError::OverLimit);
@@ -464,16 +496,38 @@ fn decode_span_start<'a>(nonce: u32, payload: &'a [u8]) -> Result<Request<'a>, D
         return Err(DecodeError::Malformed);
     }
     let span_id = SpanId(u64::from_le_bytes([
-        payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7],
+        payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
+        payload[7],
     ]));
     let trace_id = TraceId(u64::from_le_bytes([
-        payload[8], payload[9], payload[10], payload[11], payload[12], payload[13], payload[14], payload[15],
+        payload[8],
+        payload[9],
+        payload[10],
+        payload[11],
+        payload[12],
+        payload[13],
+        payload[14],
+        payload[15],
     ]));
     let parent_span_id = SpanId(u64::from_le_bytes([
-        payload[16], payload[17], payload[18], payload[19], payload[20], payload[21], payload[22], payload[23],
+        payload[16],
+        payload[17],
+        payload[18],
+        payload[19],
+        payload[20],
+        payload[21],
+        payload[22],
+        payload[23],
     ]));
     let start_ns = u64::from_le_bytes([
-        payload[24], payload[25], payload[26], payload[27], payload[28], payload[29], payload[30], payload[31],
+        payload[24],
+        payload[25],
+        payload[26],
+        payload[27],
+        payload[28],
+        payload[29],
+        payload[30],
+        payload[31],
     ]);
     let name_len = payload[32] as usize;
     let attrs_len = u16::from_le_bytes([payload[33], payload[34]]) as usize;
@@ -493,10 +547,18 @@ fn decode_span_end<'a>(nonce: u32, payload: &'a [u8]) -> Result<Request<'a>, Dec
         return Err(DecodeError::Malformed);
     }
     let span_id = SpanId(u64::from_le_bytes([
-        payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7],
+        payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
+        payload[7],
     ]));
     let end_ns = u64::from_le_bytes([
-        payload[8], payload[9], payload[10], payload[11], payload[12], payload[13], payload[14], payload[15],
+        payload[8],
+        payload[9],
+        payload[10],
+        payload[11],
+        payload[12],
+        payload[13],
+        payload[14],
+        payload[15],
     ]);
     let status = payload[16];
     let attrs_len = u16::from_le_bytes([payload[17], payload[18]]) as usize;
@@ -519,7 +581,11 @@ pub fn encode_status_response(op: u8, nonce: u32, status: u8) -> Vec<u8> {
 }
 
 /// Decodes a status-only response and validates nonce/opcode.
-pub fn decode_status_response(frame: &[u8], expected_op: u8, expected_nonce: u32) -> Result<u8, DecodeError> {
+pub fn decode_status_response(
+    frame: &[u8],
+    expected_op: u8,
+    expected_nonce: u32,
+) -> Result<u8, DecodeError> {
     if frame.len() != 9 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
         return Err(DecodeError::Malformed);
     }
@@ -575,7 +641,12 @@ pub mod client {
         }
 
         /// Sends a counter increment.
-        pub fn counter_inc(&self, name: &str, labels: &[u8], delta: u64) -> Result<u8, ClientError> {
+        pub fn counter_inc(
+            &self,
+            name: &str,
+            labels: &[u8],
+            delta: u64,
+        ) -> Result<u8, ClientError> {
             let nonce = self.nonce();
             let frame = encode_counter_inc(
                 nonce,
@@ -601,7 +672,12 @@ pub mod client {
         }
 
         /// Sends a histogram observation.
-        pub fn hist_observe(&self, name: &str, labels: &[u8], value: u64) -> Result<u8, ClientError> {
+        pub fn hist_observe(
+            &self,
+            name: &str,
+            labels: &[u8],
+            value: u64,
+        ) -> Result<u8, ClientError> {
             let nonce = self.nonce();
             let frame = encode_hist_observe(
                 nonce,
@@ -648,7 +724,8 @@ pub mod client {
         ) -> Result<SpanGuard<'_, Self>, ClientError> {
             let span_id = ids.next_span_id();
             let trace_id = ids.next_trace_id();
-            let status = self.span_start(span_id, trace_id, parent_span_id, start_ns, name, attrs)?;
+            let status =
+                self.span_start(span_id, trace_id, parent_span_id, start_ns, name, attrs)?;
             if status != STATUS_OK {
                 return Err(ClientError::Decode(DecodeError::Malformed));
             }
@@ -697,7 +774,13 @@ pub mod client {
     impl SpanEndClient for MetricsClient {
         type Error = ClientError;
 
-        fn end_span(&self, span_id: SpanId, end_ns: u64, status: u8, attrs: &[u8]) -> Result<u8, Self::Error> {
+        fn end_span(
+            &self,
+            span_id: SpanId,
+            end_ns: u64,
+            status: u8,
+            attrs: &[u8],
+        ) -> Result<u8, Self::Error> {
             MetricsClient::span_end(self, span_id, end_ns, status, attrs)
         }
     }
@@ -758,7 +841,11 @@ pub mod host {
 
         /// Records a span start event.
         pub fn span_start(&mut self, span_id: SpanId, trace_id: TraceId, name: &str) {
-            self.events.push(Event::SpanStart { span_id, trace_id, name: name.as_bytes().to_vec() });
+            self.events.push(Event::SpanStart {
+                span_id,
+                trace_id,
+                name: name.as_bytes().to_vec(),
+            });
         }
 
         /// Records a span end event.
@@ -826,7 +913,7 @@ macro_rules! metrics_span_guard_start {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -914,7 +1001,13 @@ mod tests {
     impl SpanEndClient for FakeSpanClient {
         type Error = ();
 
-        fn end_span(&self, span_id: SpanId, end_ns: u64, status: u8, _attrs: &[u8]) -> Result<u8, Self::Error> {
+        fn end_span(
+            &self,
+            span_id: SpanId,
+            end_ns: u64,
+            status: u8,
+            _attrs: &[u8],
+        ) -> Result<u8, Self::Error> {
             self.calls.fetch_add(1, Ordering::Relaxed);
             self.span.store(span_id.0, Ordering::Relaxed);
             self.end_ns.store(end_ns, Ordering::Relaxed);

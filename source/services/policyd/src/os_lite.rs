@@ -231,7 +231,10 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         }
     }
     // #region agent log
-    if frame.len() >= 13 && frame[0] == MAGIC0 && frame[1] == MAGIC1 && frame[2] == VERSION
+    if frame.len() >= 13
+        && frame[0] == MAGIC0
+        && frame[1] == MAGIC1
+        && frame[2] == VERSION
         && frame[3] == OP_CHECK_CAP
     {
         let subject_id = u64::from_le_bytes([
@@ -240,7 +243,8 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         let cap_len = frame[12] as usize;
         if cap_len > 0 && cap_len <= 48 && frame.len() == 13 + cap_len {
             let cap = &frame[13..13 + cap_len];
-            let _effective_subject_id = if privileged_proxy { subject_id } else { sender_service_id };
+            let _effective_subject_id =
+                if privileged_proxy { subject_id } else { sender_service_id };
             let status = if out.len >= 5 { out.buf[4] } else { STATUS_UNSUPPORTED };
             if cap == b"device.mmio.net" {
                 emit_line(if status == STATUS_ALLOW {

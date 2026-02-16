@@ -511,7 +511,8 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
                 if buf[3] != (OP_CHECK_CAP_DELEGATED | 0x80) {
                     continue;
                 }
-                return crate::decode_delegated_cap_decision(&buf[..n], nonce) == Some(STATUS_ALLOW);
+                return crate::decode_delegated_cap_decision(&buf[..n], nonce)
+                    == Some(STATUS_ALLOW);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {
                 let _ = yield_();

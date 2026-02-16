@@ -33,16 +33,16 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (implementation complete for planned slices; task intentionally kept In Review pending explicit closure command)
+- **active_task**: none (TASK-0014 closed; awaiting next task selection)
 - **seed_contract**: `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md` (design seed / active contract for TASK-0014)
 - **contract_dependencies**:
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (bounded log sink baseline)
   - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (`/state` substrate baseline for retention slices)
   - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (shared-inbox correlation floor)
   - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (timed producer baseline)
-- **phase_now**: TASK-0014 implementation complete; review evidence synced and proofs green
+- **phase_now**: TASK-0014 closed as Done; closure evidence synced and proofs green
 - **baseline_commit**: `f44a4f7`
-- **next_task_slice**: closure handoff readiness + evidence preservation (status remains In Review until explicit close instruction)
+- **next_task_slice**: select next task after TASK-0014 closure handoff
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
@@ -91,7 +91,7 @@ Rules:
   - implemented: privileged QoS authority bound to kernel service identity (`execd`/`policyd`) instead of capability-slot shortcut.
   - implemented: explicit audit trail for QoS/timer decisions (`QOS-AUDIT` + `timed: audit register ...`).
   - proof reruns green: host gates + `just test-os` + SMP=2 + SMP=1 after final patch.
-- `tasks/TASK-0014-observability-v2-metrics-tracing.md` — **IN REVIEW**:
+- `tasks/TASK-0014-observability-v2-metrics-tracing.md` — **DONE**:
   - phase-0a logd hardening and phase-0 metricsd+nexus-metrics baseline are green in mmio proofs,
   - `metricsd -> nexus-log -> logd` path stabilized by explicit per-service `configure_sink_logd_slots(...)` contract,
   - current proven runtime progress:
@@ -122,7 +122,7 @@ Rules:
     - fail-closed nonce-correlated delegated-cap decode helpers are now centralized and unit-tested in `execd`, `rngd`, `keystored`, and `statefsd`.
   - approved implementation reality:
     - kernel stabilization exception is accepted for this slice (heap budget increase + alloc diagnostics), with no kernel ABI expansion.
-  - full-scope closure slices implemented and proofed; task remains open only by explicit status policy.
+  - full-scope closure slices implemented and proofed; task closed by explicit status command.
 - DMA capability model (future) — out of scope for MMIO v1
 - IRQ delivery to userspace (future) — separate RFC needed
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
@@ -131,7 +131,7 @@ Rules:
   - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — complete (SMP baseline + anti-fake markers + negative tests)
   - `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` — complete (bounded enqueue, trap/IPI contract hardening, CPU-ID guarded hybrid path)
   - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — complete (QoS ABI + timed coalescing closure)
-  - `tasks/TASK-0014-observability-v2-metrics-tracing.md` — in review (metricsd + tracing export via logd; closure pending explicit command)
+  - `tasks/TASK-0014-observability-v2-metrics-tracing.md` — done (metricsd + tracing export via logd; closure command applied)
 - **exported prerequisites**:
   - `TASK-0013`: consumes 0012+0012B scheduler baseline (no alternate scheduler authority)
   - `TASK-0014`: consumes `TASK-0006` + `TASK-0009` + `RFC-0019` + `TASK-0013`; exports baseline for `TASK-0038/0040/0041/0143/0046`

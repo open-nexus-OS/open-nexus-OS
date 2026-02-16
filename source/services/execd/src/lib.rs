@@ -28,6 +28,7 @@ pub use std_server::*;
 ///
 /// Returns `Some(status)` only when the frame is valid and `nonce` matches
 /// the expected request nonce; otherwise returns `None` so callers can fail-closed.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 pub(crate) fn decode_exec_policy_decision(frame: &[u8], expected_nonce: u32) -> Option<u8> {
     let (nonce, status) = nexus_abi::policy::decode_exec_check_rsp(frame)?;
     if nonce != expected_nonce {
@@ -44,10 +45,7 @@ mod tests {
     fn test_decode_exec_policy_decision_accepts_matching_nonce() {
         let nonce = 0xA1B2_C3D4;
         let rsp = nexus_abi::policy::encode_exec_check_rsp(nonce, nexus_abi::policy::STATUS_ALLOW);
-        assert_eq!(
-            decode_exec_policy_decision(&rsp, nonce),
-            Some(nexus_abi::policy::STATUS_ALLOW)
-        );
+        assert_eq!(decode_exec_policy_decision(&rsp, nonce), Some(nexus_abi::policy::STATUS_ALLOW));
     }
 
     #[test]

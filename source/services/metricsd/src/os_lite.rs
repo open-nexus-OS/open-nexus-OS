@@ -28,7 +28,10 @@ use nexus_metrics::{
     STATUS_OK, STATUS_OVER_LIMIT, STATUS_RATE_LIMITED,
 };
 
-use crate::{RateLimiter, Registry, RejectReason, RetentionEngine, RetentionEventKind, RuntimeLimits};
+use crate::{
+    RateLimiter, Registry, RejectReason, RetentionEngine, RetentionEventKind, RuntimeLimits,
+    SpanStartArgs,
+};
 
 use statefs::client::StatefsClient;
 use statefs::protocol as statefs_proto;
@@ -70,16 +73,12 @@ impl RetentionSink {
             None
         };
         let proof_client = if limits.retention_enabled {
-            let client = KernelClient::new_with_slots(
-                METRICSD_STATEFSD_SEND_SLOT,
-                METRICSD_REPLY_RECV_SLOT,
-            )
-            .ok();
-            let reply = KernelClient::new_with_slots(
-                METRICSD_REPLY_SEND_SLOT,
-                METRICSD_REPLY_RECV_SLOT,
-            )
-            .ok();
+            let client =
+                KernelClient::new_with_slots(METRICSD_STATEFSD_SEND_SLOT, METRICSD_REPLY_RECV_SLOT)
+                    .ok();
+            let reply =
+                KernelClient::new_with_slots(METRICSD_REPLY_SEND_SLOT, METRICSD_REPLY_RECV_SLOT)
+                    .ok();
             match (client, reply) {
                 (Some(c), Some(r)) => Some(StatefsClient::from_clients(c, Some(r))),
                 _ => None,
@@ -143,7 +142,8 @@ impl RetentionSink {
             }
         }
         if let Some(rollup_10s) = update.rollup_10s.as_ref() {
-            let key = format!("/state/observability/metricsd/rollup/10s/w_{}", rollup_10s.window_id);
+            let key =
+                format!("/state/observability/metricsd/rollup/10s/w_{}", rollup_10s.window_id);
             let _ = put_with_retries(
                 client,
                 key.as_str(),
@@ -162,7 +162,8 @@ impl RetentionSink {
             let _ = statefs_delete_nonblocking(client, key.as_str());
         }
         if let Some(rollup_60s) = update.rollup_60s.as_ref() {
-            let key = format!("/state/observability/metricsd/rollup/60s/w_{}", rollup_60s.window_id);
+            let key =
+                format!("/state/observability/metricsd/rollup/60s/w_{}", rollup_60s.window_id);
             let _ = put_with_retries(
                 client,
                 key.as_str(),
@@ -256,8 +257,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
                         fallback_now
                     }
                 };
-                let (rsp, reject_status) =
-                    handle_frame(&mut registry, &mut limiter, &mut retention, sender_service_id, now, frame.as_slice());
+                let (rsp, reject_status) = handle_frame(
+                    &mut registry,
+                    &mut limiter,
+                    &mut retention,
+                    sender_service_id,
+                    now,
+                    frame.as_slice(),
+                );
                 if let Some(status) = reject_status {
                     match status {
                         STATUS_INVALID_ARGS if !reject_invalid_args_emitted => {
@@ -300,9 +307,15 @@ fn handle_frame(
     let op = frame.get(3).copied().unwrap_or(0);
     let decoded = match decode_request(frame) {
         Ok(req) => req,
-        Err(DecodeError::Malformed) => return (encode_status_response(op, 0, STATUS_INVALID_ARGS), Some(STATUS_INVALID_ARGS)),
-        Err(DecodeError::OverLimit) => return (encode_status_response(op, 0, STATUS_OVER_LIMIT), Some(STATUS_OVER_LIMIT)),
-        Err(DecodeError::Unsupported) => return (encode_status_response(op, 0, STATUS_INVALID_ARGS), Some(STATUS_INVALID_ARGS)),
+        Err(DecodeError::Malformed) => {
+            return (encode_status_response(op, 0, STATUS_INVALID_ARGS), Some(STATUS_INVALID_ARGS))
+        }
+        Err(DecodeError::OverLimit) => {
+            return (encode_status_response(op, 0, STATUS_OVER_LIMIT), Some(STATUS_OVER_LIMIT))
+        }
+        Err(DecodeError::Unsupported) => {
+            return (encode_status_response(op, 0, STATUS_INVALID_ARGS), Some(STATUS_INVALID_ARGS))
+        }
     };
 
     // Budget all mutating operations except ping.
@@ -345,17 +358,16 @@ fn handle_frame(
                 Err(reject) => reject_rsp(OP_HIST_OBSERVE, nonce, reject),
             }
         }
-        Request::SpanStart {
-            nonce,
-            span_id,
-            trace_id,
-            parent_span_id,
-            start_ns,
-            name,
-            attrs,
-        } => {
-            let result =
-                registry.span_start(sender_service_id, span_id.0, trace_id.0, parent_span_id.0, start_ns, name, attrs);
+        Request::SpanStart { nonce, span_id, trace_id, parent_span_id, start_ns, name, attrs } => {
+            let result = registry.span_start(SpanStartArgs {
+                sender_service_id,
+                span_id: span_id.0,
+                trace_id: trace_id.0,
+                parent_span_id: parent_span_id.0,
+                start_ns,
+                name,
+                attrs,
+            });
             match result {
                 Ok(()) => (encode_status_response(OP_SPAN_START, nonce, STATUS_OK), None),
                 Err(reject) => reject_rsp(OP_SPAN_START, nonce, reject),
@@ -472,7 +484,8 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
                     if got_nonce != nonce {
                         continue;
                     }
-                    let (status, send_slot, recv_slot) = nexus_abi::routing::decode_route_rsp(&buf[..13])?;
+                    let (status, send_slot, recv_slot) =
+                        nexus_abi::routing::decode_route_rsp(&buf[..13])?;
                     if status == nexus_abi::routing::STATUS_OK {
                         return Some((send_slot, recv_slot));
                     }
@@ -521,7 +534,14 @@ fn log_hist_snapshot(name: &[u8], count: u64, sum: u64) {
     });
 }
 
-fn log_span_end(name: &[u8], parent_span_id: u64, duration_ns: u64, status: u8, start_attrs: &[u8], end_attrs: &[u8]) {
+fn log_span_end(
+    name: &[u8],
+    parent_span_id: u64,
+    duration_ns: u64,
+    status: u8,
+    start_attrs: &[u8],
+    end_attrs: &[u8],
+) {
     let start_attrs_text = escaped_attrs_or_placeholder(start_attrs);
     let end_attrs_text = escaped_attrs_or_placeholder(end_attrs);
     nexus_log::info("metricsd", |line| {
@@ -541,28 +561,15 @@ fn log_span_end(name: &[u8], parent_span_id: u64, duration_ns: u64, status: u8, 
 }
 
 fn metric_counter_record(name: &[u8], value: u64) -> String {
-    format!(
-        "metric counter name={} value={}",
-        as_utf8_or_placeholder(name),
-        value
-    )
+    format!("metric counter name={} value={}", as_utf8_or_placeholder(name), value)
 }
 
 fn metric_gauge_record(name: &[u8], value: i64) -> String {
-    format!(
-        "metric gauge name={} value={}",
-        as_utf8_or_placeholder(name),
-        value
-    )
+    format!("metric gauge name={} value={}", as_utf8_or_placeholder(name), value)
 }
 
 fn metric_hist_record(name: &[u8], count: u64, sum: u64) -> String {
-    format!(
-        "metric histogram name={} count={} sum={}",
-        as_utf8_or_placeholder(name),
-        count,
-        sum
-    )
+    format!("metric histogram name={} count={} sum={}", as_utf8_or_placeholder(name), count, sum)
 }
 
 fn span_end_record(

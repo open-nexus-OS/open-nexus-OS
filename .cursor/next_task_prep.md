@@ -10,7 +10,7 @@ It should be updated during the previous task's wrap-up, before handing off.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (**IN REVIEW**, implementation complete)
+- **task**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (**DONE**, closure applied)
 - **handoff_target**: `.cursor/handoff/current.md` (always updated as the live entry-point)
 - **handoff_archive**: `.cursor/handoff/archive/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (latest completed-task snapshot, present)
 - **linked_contracts**:
@@ -23,10 +23,10 @@ It should be updated during the previous task's wrap-up, before handing off.
   - `tasks/TASK-0038-tracing-v2-cross-node-correlation.md` (follow-up: cross-node correlation)
   - `tasks/TASK-0040-remote-observability-v1-scrape-over-dsoftbus.md` (follow-up: remote pipeline)
   - `scripts/qemu-test.sh` (marker contract; deterministic proof gate)
-- **first_action**: review/closure decision for `TASK-0014`; select follow-up task only after explicit closure command.
+- **first_action**: select the next task after TASK-0014 closure.
 
 ## Start slice (now)
-- **slice_name**: TASK-0014 review hardening + doc synchronization
+- **slice_name**: post-TASK-0014 closure handoff + next-task selection
 - **target_file**: follow TASK-0014 touched-path allowlist only
 - **must_cover**:
   - keep kernel untouched; userspace only
@@ -40,7 +40,7 @@ It should be updated during the previous task's wrap-up, before handing off.
 2. **TASK-0012**: complete
 3. **TASK-0012B**: complete
 4. **TASK-0013**: complete
-5. **TASK-0014**: in review
+5. **TASK-0014**: done
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
@@ -67,7 +67,7 @@ It should be updated during the previous task's wrap-up, before handing off.
   - ✅ deterministic proof policy remains aligned (`scripts/qemu-test.sh`, modern MMIO floor)
 
 ## Decision
-- **status**: HOLD (wait for explicit TASK-0014 closure command before selecting next implementation task)
+- **status**: READY (TASK-0014 closed; pick next implementation task)
 - **notes**:
   - keep scope local and deterministic; avoid follow-up creep
   - maintain reject-first security posture with explicit negative tests

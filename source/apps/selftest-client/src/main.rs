@@ -86,8 +86,8 @@ mod os_lite {
     use nexus_metrics::client::MetricsClient;
     use nexus_metrics::{
         DeterministicIdSource, SpanId, TraceId, STATUS_INVALID_ARGS as METRICS_STATUS_INVALID_ARGS,
-        STATUS_NOT_FOUND as METRICS_STATUS_NOT_FOUND,
-        STATUS_OK as METRICS_STATUS_OK, STATUS_OVER_LIMIT as METRICS_STATUS_OVER_LIMIT,
+        STATUS_NOT_FOUND as METRICS_STATUS_NOT_FOUND, STATUS_OK as METRICS_STATUS_OK,
+        STATUS_OVER_LIMIT as METRICS_STATUS_OVER_LIMIT,
         STATUS_RATE_LIMITED as METRICS_STATUS_RATE_LIMITED,
     };
     #[cfg(feature = "smoltcp-probe")]
@@ -1252,7 +1252,9 @@ mod os_lite {
         const LEVEL_INFO: u8 = 2;
         static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
-        if scope.len() > 255 || message.len() > u16::MAX as usize || fields.len() > u16::MAX as usize
+        if scope.len() > 255
+            || message.len() > u16::MAX as usize
+            || fields.len() > u16::MAX as usize
         {
             return Err(());
         }
@@ -1424,9 +1426,7 @@ mod os_lite {
             labels[3] = b'0' + ((idx / 10) % 10);
             labels[4] = b'0' + (idx % 10);
             labels[5] = b'\n';
-            let st = metricsd
-                .counter_inc("selftest.cap", &labels[..6], 1)
-                .map_err(|_| ())?;
+            let st = metricsd.counter_inc("selftest.cap", &labels[..6], 1).map_err(|_| ())?;
             if st == METRICS_STATUS_OVER_LIMIT {
                 over_limit_seen = true;
                 break;
@@ -1462,8 +1462,9 @@ mod os_lite {
         let mut ids = DeterministicIdSource::new(sender);
         let span_id = ids.next_span_id();
         let trace_id = ids.next_trace_id();
-        let start_status =
-            metricsd.span_start(span_id, trace_id, SpanId(0), 10, "selftest.sanity", b"").map_err(|_| ())?;
+        let start_status = metricsd
+            .span_start(span_id, trace_id, SpanId(0), 10, "selftest.sanity", b"")
+            .map_err(|_| ())?;
         if start_status != METRICS_STATUS_OK {
             return Err(());
         }
@@ -1496,41 +1497,54 @@ mod os_lite {
     ) -> core::result::Result<(bool, bool, bool, bool, bool), ()> {
         let query_since = nexus_abi::nsec().map_err(|_| ())?;
         let total_before = logd_stats_total(logd).unwrap_or(0);
-        let c0 = metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 3).map_err(|_| ())?;
-        let c1 = metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 4).map_err(|_| ())?;
+        let c0 = metricsd
+            .counter_inc("selftest.counter", b"svc=selftest-client\n", 3)
+            .map_err(|_| ())?;
+        let c1 = metricsd
+            .counter_inc("selftest.counter", b"svc=selftest-client\n", 4)
+            .map_err(|_| ())?;
         for _ in 0..64 {
             let _ = yield_();
         }
-        let counters_query =
-            logd_query_contains_since_paged(logd, query_since, b"metrics snapshot counter name=selftest.counter")
-                .unwrap_or(false);
-        let counters_ok = c0 == METRICS_STATUS_OK
-            && c1 == METRICS_STATUS_OK
-            && counters_query;
+        let counters_query = logd_query_contains_since_paged(
+            logd,
+            query_since,
+            b"metrics snapshot counter name=selftest.counter",
+        )
+        .unwrap_or(false);
+        let counters_ok = c0 == METRICS_STATUS_OK && c1 == METRICS_STATUS_OK && counters_query;
 
-        let g0 = metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", 7).map_err(|_| ())?;
-        let g1 = metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", -3).map_err(|_| ())?;
+        let g0 =
+            metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", 7).map_err(|_| ())?;
+        let g1 =
+            metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", -3).map_err(|_| ())?;
         for _ in 0..64 {
             let _ = yield_();
         }
-        let gauges_query =
-            logd_query_contains_since_paged(logd, query_since, b"metrics snapshot gauge name=selftest.gauge")
-                .unwrap_or(false);
-        let gauges_ok = g0 == METRICS_STATUS_OK
-            && g1 == METRICS_STATUS_OK
-            && gauges_query;
+        let gauges_query = logd_query_contains_since_paged(
+            logd,
+            query_since,
+            b"metrics snapshot gauge name=selftest.gauge",
+        )
+        .unwrap_or(false);
+        let gauges_ok = g0 == METRICS_STATUS_OK && g1 == METRICS_STATUS_OK && gauges_query;
 
-        let h0 = metricsd.hist_observe("selftest.hist", b"svc=selftest-client\n", 1_000).map_err(|_| ())?;
-        let h1 = metricsd.hist_observe("selftest.hist", b"svc=selftest-client\n", 12_000).map_err(|_| ())?;
+        let h0 = metricsd
+            .hist_observe("selftest.hist", b"svc=selftest-client\n", 1_000)
+            .map_err(|_| ())?;
+        let h1 = metricsd
+            .hist_observe("selftest.hist", b"svc=selftest-client\n", 12_000)
+            .map_err(|_| ())?;
         for _ in 0..64 {
             let _ = yield_();
         }
-        let hist_query =
-            logd_query_contains_since_paged(logd, query_since, b"metrics snapshot histogram name=selftest.hist")
-                .unwrap_or(false);
-        let hist_ok = h0 == METRICS_STATUS_OK
-            && h1 == METRICS_STATUS_OK
-            && hist_query;
+        let hist_query = logd_query_contains_since_paged(
+            logd,
+            query_since,
+            b"metrics snapshot histogram name=selftest.hist",
+        )
+        .unwrap_or(false);
+        let hist_ok = h0 == METRICS_STATUS_OK && h1 == METRICS_STATUS_OK && hist_query;
 
         let sender = fetch_sender_service_id_from_samgrd()
             .unwrap_or_else(|_| nexus_abi::service_id_from_name(b"selftest-client"));
@@ -1546,8 +1560,12 @@ mod os_lite {
         }
         let spans_ok = s0 == METRICS_STATUS_OK
             && s1 == METRICS_STATUS_OK
-            && logd_query_contains_since_paged(logd, query_since, b"tracing span end name=selftest.span")
-                .unwrap_or(false);
+            && logd_query_contains_since_paged(
+                logd,
+                query_since,
+                b"tracing span end name=selftest.span",
+            )
+            .unwrap_or(false);
         let retention_ok =
             logd_query_contains_since_paged(logd, 0, b"retention wal verified").unwrap_or(false);
 
@@ -1583,8 +1601,9 @@ mod os_lite {
             nexus_abi::ipc_hdr::CAP_MOVE,
             frame.len() as u32,
         );
-        let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
-            .map_err(|_| ())?;
+        let deadline_ns =
+            nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
+                .map_err(|_| ())?;
         nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns)
             .map_err(|_| ())?;
         let _ = nexus_abi::cap_close(reply_send_clone);
@@ -2908,8 +2927,9 @@ mod os_lite {
             let t1 = logd_stats_total(&logd).unwrap_or(total);
             sam_delta_ok = t1 >= total.saturating_add(1);
             total = t1;
-            sam_found = logd_query_contains_since_paged(&logd, 0, b"core service log probe: samgrd")
-                .unwrap_or(false);
+            sam_found =
+                logd_query_contains_since_paged(&logd, 0, b"core service log probe: samgrd")
+                    .unwrap_or(false);
         } else {
             emit_line("SELFTEST: core log samgrd route FAIL");
         }
@@ -2926,8 +2946,9 @@ mod os_lite {
             let t1 = logd_stats_total(&logd).unwrap_or(total);
             bnd_delta_ok = t1 >= total.saturating_add(1);
             total = t1;
-            let _ = logd_query_contains_since_paged(&logd, 0, b"core service log probe: bundlemgrd")
-                .unwrap_or(false);
+            let _ =
+                logd_query_contains_since_paged(&logd, 0, b"core service log probe: bundlemgrd")
+                    .unwrap_or(false);
         } else {
             emit_line("SELFTEST: core log bundlemgrd route FAIL");
         }

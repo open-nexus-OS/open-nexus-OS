@@ -1101,7 +1101,7 @@ mod sink_logd {
         true
     }
 
-    fn ensure_slots(target: &str) -> Option<(u32, u32, u32)> {
+    fn ensure_slots(_target: &str) -> Option<(u32, u32, u32)> {
         let send = LOGD_SEND_SLOT.load(Ordering::Relaxed);
         let rs = REPLY_SEND_SLOT.load(Ordering::Relaxed);
         let rr = REPLY_RECV_SLOT.load(Ordering::Relaxed);

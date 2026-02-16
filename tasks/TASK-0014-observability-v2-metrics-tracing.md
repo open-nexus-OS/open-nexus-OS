@@ -1,6 +1,6 @@
 ---
 title: TASK-0014 Observability v2 (OS): metricsd (counters/gauges/histograms) + spans exported via logd
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 links:
@@ -341,7 +341,7 @@ Notes:
   - [x] Planned instrumentation completion (`execd`/`bundlemgrd`/`dsoftbusd`/`timed`) and `nexus-metrics` macro ergonomics (including span guard end-on-drop).
   - [x] Retention proof marker integrated: `SELFTEST: metrics retention ok`.
 
-Task status intentionally remains `In Review` until explicit user closure command.
+Task status set to `Done` by explicit user closure command.
 
 ## RFC seeds (for later, once green)
 

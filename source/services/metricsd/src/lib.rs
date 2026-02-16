@@ -22,9 +22,9 @@
 
 extern crate alloc;
 
+use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::collections::VecDeque;
 
 use nexus_metrics::{MAX_ATTRS_LEN, MAX_LABELS_LEN, MAX_METRIC_NAME_LEN, MAX_SPAN_NAME_LEN};
 
@@ -112,10 +112,14 @@ impl RuntimeLimits {
             let value_u64 = v.trim().parse::<u64>().map_err(|_| ConfigError::InvalidValue)?;
             match (section, key) {
                 ("metrics", "max_series_total") => cfg.max_series_total = value_u64 as usize,
-                ("metrics", "max_series_per_metric") => cfg.max_series_per_metric = value_u64 as usize,
+                ("metrics", "max_series_per_metric") => {
+                    cfg.max_series_per_metric = value_u64 as usize
+                }
                 ("metrics", "max_live_spans") => cfg.max_live_spans = value_u64 as usize,
                 ("ingest", "rate_window_ns") => cfg.rate_window_ns = value_u64,
-                ("ingest", "max_events_per_window") => cfg.rate_max_events_per_window = value_u64 as u32,
+                ("ingest", "max_events_per_window") => {
+                    cfg.rate_max_events_per_window = value_u64 as u32
+                }
                 ("ingest", "max_subjects") => cfg.rate_max_subjects = value_u64 as usize,
                 ("wire", "max_metric_name_len") => cfg.max_metric_name_len = value_u64 as usize,
                 ("wire", "max_labels_len") => cfg.max_labels_len = value_u64 as usize,
@@ -130,7 +134,9 @@ impl RuntimeLimits {
                 ("retention", "best_effort_retries") => {
                     cfg.retention_best_effort_retries = value_u64 as u32
                 }
-                ("retention", "critical_retries") => cfg.retention_critical_retries = value_u64 as u32,
+                ("retention", "critical_retries") => {
+                    cfg.retention_critical_retries = value_u64 as u32
+                }
                 ("retention", "ttl_windows") => cfg.retention_ttl_windows = value_u64 as u32,
                 ("retention", "gc_batch") => cfg.retention_gc_batch = value_u64 as u32,
                 _ => return Err(ConfigError::UnknownKey),
@@ -271,7 +277,7 @@ impl RetentionEngine {
         let mut gc_rollup_10s = Vec::new();
         let mut gc_rollup_60s = Vec::new();
 
-        if total_events % self.limits.retention_rollup_every as u64 == 0 {
+        if total_events.checked_rem(self.limits.retention_rollup_every as u64) == Some(0) {
             let window_10s_id = total_events / self.limits.retention_rollup_every as u64;
             let window_10s = RollupWindow {
                 id: window_10s_id,
@@ -464,6 +470,17 @@ pub struct EndedSpan {
     pub status: u8,
 }
 
+/// Span start request payload for bounded registry insertion.
+pub struct SpanStartArgs<'a> {
+    pub sender_service_id: u64,
+    pub span_id: u64,
+    pub trace_id: u64,
+    pub parent_span_id: u64,
+    pub start_ns: u64,
+    pub name: &'a [u8],
+    pub attrs: &'a [u8],
+}
+
 /// Bounded metrics and tracing state machine.
 pub struct Registry {
     series: Vec<SeriesEntry>,
@@ -477,11 +494,7 @@ impl Registry {
     }
 
     pub fn new_with_limits(limits: RuntimeLimits) -> Self {
-        Self {
-            series: Vec::new(),
-            live_spans: Vec::new(),
-            limits,
-        }
+        Self { series: Vec::new(), live_spans: Vec::new(), limits }
     }
 
     pub fn counter_inc(
@@ -523,16 +536,16 @@ impl Registry {
         Ok((series.histogram.count, series.histogram.sum))
     }
 
-    pub fn span_start(
-        &mut self,
-        sender_service_id: u64,
-        span_id: u64,
-        trace_id: u64,
-        parent_span_id: u64,
-        start_ns: u64,
-        name: &[u8],
-        attrs: &[u8],
-    ) -> Result<(), RejectReason> {
+    pub fn span_start(&mut self, args: SpanStartArgs<'_>) -> Result<(), RejectReason> {
+        let SpanStartArgs {
+            sender_service_id,
+            span_id,
+            trace_id,
+            parent_span_id,
+            start_ns,
+            name,
+            attrs,
+        } = args;
         if !span_id_matches_sender(sender_service_id, span_id) {
             return Err(RejectReason::InvalidArgs);
         }
@@ -542,7 +555,10 @@ impl Registry {
         if name.len() > self.limits.max_span_name_len || attrs.len() > self.limits.max_attrs_len {
             return Err(RejectReason::OverLimit);
         }
-        if self.live_spans.iter().any(|span| span.sender_service_id == sender_service_id && span.span_id == span_id)
+        if self
+            .live_spans
+            .iter()
+            .any(|span| span.sender_service_id == sender_service_id && span.span_id == span_id)
         {
             return Err(RejectReason::InvalidArgs);
         }
@@ -604,7 +620,8 @@ impl Registry {
         if name.is_empty() {
             return Err(RejectReason::InvalidArgs);
         }
-        if name.len() > self.limits.max_metric_name_len || labels.len() > self.limits.max_labels_len {
+        if name.len() > self.limits.max_metric_name_len || labels.len() > self.limits.max_labels_len
+        {
             return Err(RejectReason::OverLimit);
         }
         if let Some(pos) = self.series.iter().position(|entry| {
@@ -664,14 +681,12 @@ impl RateLimiter {
     }
 
     pub fn new_with_limits(limits: RuntimeLimits) -> Self {
-        Self {
-            windows: Vec::new(),
-            limits,
-        }
+        Self { windows: Vec::new(), limits }
     }
 
     pub fn is_limited(&mut self, sender_service_id: u64, now_ns: u64) -> bool {
-        if let Some(pos) = self.windows.iter().position(|window| window.sender_service_id == sender_service_id)
+        if let Some(pos) =
+            self.windows.iter().position(|window| window.sender_service_id == sender_service_id)
         {
             let window = &mut self.windows[pos];
             if now_ns.saturating_sub(window.window_start_ns) >= self.limits.rate_window_ns {
@@ -740,7 +755,17 @@ mod tests {
         let mut reg = Registry::new();
         let sender = 0x1234u64;
         let span_id = (sender << 32) | 1;
-        assert!(reg.span_start(sender, span_id, 77, 0, 100, b"exec.path", b"phase=run\n").is_ok());
+        assert!(reg
+            .span_start(SpanStartArgs {
+                sender_service_id: sender,
+                span_id,
+                trace_id: 77,
+                parent_span_id: 0,
+                start_ns: 100,
+                name: b"exec.path",
+                attrs: b"phase=run\n",
+            })
+            .is_ok());
         let ended = reg.span_end(sender, span_id, 180, 0, b"result=ok\n").unwrap_or(EndedSpan {
             sender_service_id: 0,
             span_id: 0,
@@ -780,11 +805,29 @@ mod tests {
         let sender = 0x42u64;
         for i in 0..MAX_LIVE_SPANS {
             let span_id = ((sender & 0xffff_ffff) << 32) | (i as u64 + 1);
-            assert!(reg.span_start(sender, span_id, i as u64, 0, i as u64, b"s", b"").is_ok());
+            assert!(reg
+                .span_start(SpanStartArgs {
+                    sender_service_id: sender,
+                    span_id,
+                    trace_id: i as u64,
+                    parent_span_id: 0,
+                    start_ns: i as u64,
+                    name: b"s",
+                    attrs: b"",
+                })
+                .is_ok());
         }
         let over = ((sender & 0xffff_ffff) << 32) | 0xffff;
         assert_eq!(
-            reg.span_start(sender, over, 999, 0, 999, b"s", b""),
+            reg.span_start(SpanStartArgs {
+                sender_service_id: sender,
+                span_id: over,
+                trace_id: 999,
+                parent_span_id: 0,
+                start_ns: 999,
+                name: b"s",
+                attrs: b"",
+            }),
             Err(RejectReason::OverLimit)
         );
     }
@@ -794,7 +837,15 @@ mod tests {
         let mut reg = Registry::new();
         let spoofed_span = (0x9999u64 << 32) | 1;
         assert_eq!(
-            reg.span_start(0x1111, spoofed_span, 1, 0, 1, b"spoof", b""),
+            reg.span_start(SpanStartArgs {
+                sender_service_id: 0x1111,
+                span_id: spoofed_span,
+                trace_id: 1,
+                parent_span_id: 0,
+                start_ns: 1,
+                name: b"spoof",
+                attrs: b"",
+            }),
             Err(RejectReason::InvalidArgs)
         );
     }
@@ -907,10 +958,7 @@ max_metric_name_len = 999
 
     #[test]
     fn test_retention_engine_emits_rollup_deterministically() {
-        let limits = RuntimeLimits {
-            retention_rollup_every: 2,
-            ..RuntimeLimits::default()
-        };
+        let limits = RuntimeLimits { retention_rollup_every: 2, ..RuntimeLimits::default() };
         let mut retention = RetentionEngine::new(limits);
         let first = retention.append(RetentionEventKind::Metric, b"m1").unwrap();
         assert!(first.rollup_10s.is_none());
@@ -922,18 +970,12 @@ max_metric_name_len = 999
 
     #[test]
     fn test_retention_engine_emits_60s_rollup_after_six_10s_windows() {
-        let limits = RuntimeLimits {
-            retention_rollup_every: 1,
-            ..RuntimeLimits::default()
-        };
+        let limits = RuntimeLimits { retention_rollup_every: 1, ..RuntimeLimits::default() };
         let mut retention = RetentionEngine::new(limits);
         let mut saw_60 = None;
         for i in 0..6 {
-            let kind = if i % 2 == 0 {
-                RetentionEventKind::Metric
-            } else {
-                RetentionEventKind::Span
-            };
+            let kind =
+                if i % 2 == 0 { RetentionEventKind::Metric } else { RetentionEventKind::Span };
             let update = retention.append(kind, b"x").unwrap();
             if update.rollup_60s.is_some() {
                 saw_60 = update.rollup_60s.map(|r| r.bytes);

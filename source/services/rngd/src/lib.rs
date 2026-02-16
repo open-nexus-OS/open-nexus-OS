@@ -73,6 +73,7 @@ pub mod protocol {
 /// Decodes a policyd delegated-capability v2 response with nonce correlation.
 ///
 /// Returns `Some(status)` only when the response shape is valid and nonce matches.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 pub(crate) fn decode_delegated_cap_decision(frame: &[u8], expected_nonce: u32) -> Option<u8> {
     if frame.len() != 10 || frame[0] != b'P' || frame[1] != b'O' || frame[2] != 2 {
         return None;

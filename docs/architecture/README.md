@@ -83,7 +83,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 **Current Status (2026-01-14)**:
 - TASK-0006: ✅ Done (logd RAM journal, nexus-log sink, execd crash reports, core service wiring)
-- TASK-0014: In Review (metrics/tracing exports via logd implemented and under final review)
+- TASK-0014: Done (metrics/tracing exports via logd implemented and closure accepted)
 
 ## Policy Authority + Audit
 

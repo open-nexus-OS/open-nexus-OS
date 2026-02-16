@@ -1,7 +1,7 @@
 # Current Handoff: TASK-0014 Observability v2 (metrics/tracing) — FULL SLICES BUILT, PROOFS GREEN
 
 **Date**: 2026-02-13  
-**Status**: `TASK-0014` is in `In Review` by explicit user command. `phase-0a`, `phase-0`, `phase-1`, and `phase-2` are green, full planned closure slices are implemented, and final proof chain passed (`just dep-gate && just diag-os && cargo test --workspace && RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
+**Status**: `TASK-0014` is `Done` by explicit user command. `phase-0a`, `phase-0`, `phase-1`, and `phase-2` are green, full planned closure slices are implemented, and final proof chain passed (`just dep-gate && just diag-os && cargo test --workspace && RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
 **Delta report**: `.cursor/handoff/task-0014-delta-closure-report.md`
 
 ---
@@ -44,11 +44,11 @@
 - Keep TASK/RFC/state artifacts in lockstep with implementation reality and proof outputs.
 - Keep reject-matrix and retention claims strictly evidence-bound (host tests + marker ladder).
 - Keep sender-alias normalization constrained to observed/verified identities only; avoid speculative broadening.
-- Keep `TASK-0014` review package concise and evidence-linked (`In Review` remains unchanged unless explicitly requested).
+- Keep `TASK-0014` closure package concise and evidence-linked (task status is now `Done`).
 
-## Why still open
+## Closure note
 
-- Full-scope slices are implemented and proven; task is intentionally left in `In Review` pending final review/closure command.
+- Full-scope slices are implemented and proven; task has been explicitly closed as `Done`.
 
 ## Guardrails
 
