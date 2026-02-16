@@ -445,11 +445,7 @@ pub fn decode_request(frame: &[u8]) -> Result<Request<'_>, DecodeError> {
     }
 }
 
-fn decode_metric_value<'a>(
-    op: u8,
-    nonce: u32,
-    payload: &'a [u8],
-) -> Result<Request<'a>, DecodeError> {
+fn decode_metric_value(op: u8, nonce: u32, payload: &[u8]) -> Result<Request<'_>, DecodeError> {
     if payload.len() < 1 + 2 + 8 {
         return Err(DecodeError::Malformed);
     }
@@ -491,7 +487,7 @@ fn decode_metric_value<'a>(
     }
 }
 
-fn decode_span_start<'a>(nonce: u32, payload: &'a [u8]) -> Result<Request<'a>, DecodeError> {
+fn decode_span_start(nonce: u32, payload: &[u8]) -> Result<Request<'_>, DecodeError> {
     if payload.len() < 8 + 8 + 8 + 8 + 1 + 2 {
         return Err(DecodeError::Malformed);
     }
@@ -542,7 +538,7 @@ fn decode_span_start<'a>(nonce: u32, payload: &'a [u8]) -> Result<Request<'a>, D
     Ok(Request::SpanStart { nonce, span_id, trace_id, parent_span_id, start_ns, name, attrs })
 }
 
-fn decode_span_end<'a>(nonce: u32, payload: &'a [u8]) -> Result<Request<'a>, DecodeError> {
+fn decode_span_end(nonce: u32, payload: &[u8]) -> Result<Request<'_>, DecodeError> {
     if payload.len() < 8 + 8 + 1 + 2 {
         return Err(DecodeError::Malformed);
     }
