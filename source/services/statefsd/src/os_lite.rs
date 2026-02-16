@@ -14,8 +14,10 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use core::fmt;
+use core::time::Duration;
 
 use nexus_abi::{debug_putc, yield_};
+use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use statefs::protocol::{self as proto, Request};
@@ -453,32 +455,19 @@ fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
         nexus_abi::ipc_hdr::CAP_MOVE,
         frame.len() as u32,
     );
-    let start = match nexus_abi::nsec() {
-        Ok(value) => value,
-        Err(_) => return false,
-    };
-    let deadline = start.saturating_add(2_000_000_000);
-
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(POL_SEND_SLOT, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = match nexus_abi::nsec() {
-                        Ok(value) => value,
-                        Err(_) => return false,
-                    };
-                    if now >= deadline {
-                        let _ = nexus_abi::cap_close(reply_send_clone);
-                        return false;
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return false,
+    let clock = OsClock;
+    let deadline = match deadline_after(&clock, Duration::from_secs(2)) {
+        Ok(v) => v,
+        Err(_) => {
+            let _ = nexus_abi::cap_close(reply_send_clone);
+            return false;
         }
-        i = i.wrapping_add(1);
+    };
+
+    if nexus_ipc::budget::raw::send_budgeted(&clock, POL_SEND_SLOT, &hdr, &frame, deadline).is_err()
+    {
+        let _ = nexus_abi::cap_close(reply_send_clone);
+        return false;
     }
     // Best-effort close: keep local cap table bounded even though the cap was moved.
     let _ = nexus_abi::cap_close(reply_send_clone);

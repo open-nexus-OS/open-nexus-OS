@@ -11,8 +11,10 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::time::Duration;
 
 use nexus_abi::{debug_putc, yield_};
+use nexus_ipc::budget::{NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{budget, reqrep};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
@@ -110,72 +112,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     const CTRL_SEND_SLOT: u32 = 1;
     const CTRL_RECV_SLOT: u32 = 2;
-    if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
-        return None;
-    }
-    static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
-    let nonce = ROUTE_NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-
-    // Routing v1+nonce extension:
-    // GET: [R,T,1,OP_ROUTE_GET, name_len, name..., nonce:u32le]
-    // RSP: [R,T,1,OP_ROUTE_RSP, status, send_slot:u32le, recv_slot:u32le, nonce:u32le]
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
-    let base_len = nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()])?;
-    req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
-    let req_len = base_len + 4;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-
-    loop {
-        loop {
-            match nexus_abi::ipc_send_v1(
-                CTRL_SEND_SLOT,
-                &hdr,
-                &req[..req_len],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    let _ = yield_();
-                }
-                Err(_) => return None,
-            }
-        }
-
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        loop {
-            match nexus_abi::ipc_recv_v1(
-                CTRL_RECV_SLOT,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = n as usize;
-                    if n == 17 {
-                        let (status, send_slot, recv_slot) =
-                            nexus_abi::routing::decode_route_rsp(&buf[..13])?;
-                        let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
-                        if got_nonce != nonce {
-                            continue;
-                        }
-                        if status == nexus_abi::routing::STATUS_OK {
-                            return Some((send_slot, recv_slot));
-                        }
-                        break;
-                    }
-                    // Ignore legacy/non-correlated control frames.
-                    let _ = yield_();
-                    continue;
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return None,
-            }
-        }
+    match budget::route_with_nonce_budgeted(
+        name,
+        CTRL_SEND_SLOT,
+        CTRL_RECV_SLOT,
+        Duration::from_secs(2),
+        NonceMismatchBudget::new(64),
+    ) {
+        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
+        _ => None,
     }
 }
 
@@ -352,7 +297,7 @@ fn policyd_allows(pending: &mut reqrep::ReplyBuffer<16, 512>, subject_id: u64, c
             Err(_) => return false,
         }
         i = i.wrapping_add(1);
-        send_spins = send_spins.wrapping_add(1);
+        send_spins = send_spins.saturating_add(1);
     }
 
     // Close our local clone of the reply send cap (it has been moved to policyd).

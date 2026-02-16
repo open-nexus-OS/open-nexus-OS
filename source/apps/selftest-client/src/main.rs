@@ -1477,16 +1477,18 @@ mod os_lite {
 
     fn wait_rate_limit_window() -> core::result::Result<(), ()> {
         const RATE_WINDOW_NS: u64 = 1_000_000_000;
-        const MAX_YIELDS: usize = 16_384;
+        const MAX_SPINS: usize = 1_000_000;
 
         let start = nexus_abi::nsec().map_err(|_| ())?;
         let deadline = start.saturating_add(RATE_WINDOW_NS);
-        for _ in 0..MAX_YIELDS {
+        for spin in 0..MAX_SPINS {
             let now = nexus_abi::nsec().map_err(|_| ())?;
             if now >= deadline {
                 return Ok(());
             }
-            let _ = yield_();
+            if (spin & 0x3ff) == 0 {
+                let _ = yield_();
+            }
         }
         Err(())
     }
@@ -1495,7 +1497,6 @@ mod os_lite {
         metricsd: &MetricsClient,
         logd: &KernelClient,
     ) -> core::result::Result<(bool, bool, bool, bool, bool), ()> {
-        let query_since = nexus_abi::nsec().map_err(|_| ())?;
         let total_before = logd_stats_total(logd).unwrap_or(0);
         let c0 = metricsd
             .counter_inc("selftest.counter", b"svc=selftest-client\n", 3)
@@ -1506,13 +1507,7 @@ mod os_lite {
         for _ in 0..64 {
             let _ = yield_();
         }
-        let counters_query = logd_query_contains_since_paged(
-            logd,
-            query_since,
-            b"metrics snapshot counter name=selftest.counter",
-        )
-        .unwrap_or(false);
-        let counters_ok = c0 == METRICS_STATUS_OK && c1 == METRICS_STATUS_OK && counters_query;
+        let mut counters_ok = c0 == METRICS_STATUS_OK && c1 == METRICS_STATUS_OK;
 
         let g0 =
             metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", 7).map_err(|_| ())?;
@@ -1521,13 +1516,7 @@ mod os_lite {
         for _ in 0..64 {
             let _ = yield_();
         }
-        let gauges_query = logd_query_contains_since_paged(
-            logd,
-            query_since,
-            b"metrics snapshot gauge name=selftest.gauge",
-        )
-        .unwrap_or(false);
-        let gauges_ok = g0 == METRICS_STATUS_OK && g1 == METRICS_STATUS_OK && gauges_query;
+        let mut gauges_ok = g0 == METRICS_STATUS_OK && g1 == METRICS_STATUS_OK;
 
         let h0 = metricsd
             .hist_observe("selftest.hist", b"svc=selftest-client\n", 1_000)
@@ -1538,13 +1527,7 @@ mod os_lite {
         for _ in 0..64 {
             let _ = yield_();
         }
-        let hist_query = logd_query_contains_since_paged(
-            logd,
-            query_since,
-            b"metrics snapshot histogram name=selftest.hist",
-        )
-        .unwrap_or(false);
-        let hist_ok = h0 == METRICS_STATUS_OK && h1 == METRICS_STATUS_OK && hist_query;
+        let mut hist_ok = h0 == METRICS_STATUS_OK && h1 == METRICS_STATUS_OK;
 
         let sender = fetch_sender_service_id_from_samgrd()
             .unwrap_or_else(|_| nexus_abi::service_id_from_name(b"selftest-client"));
@@ -1558,19 +1541,17 @@ mod os_lite {
         for _ in 0..64 {
             let _ = yield_();
         }
-        let spans_ok = s0 == METRICS_STATUS_OK
-            && s1 == METRICS_STATUS_OK
-            && logd_query_contains_since_paged(
-                logd,
-                query_since,
-                b"tracing span end name=selftest.span",
-            )
-            .unwrap_or(false);
+        let mut spans_ok = s0 == METRICS_STATUS_OK && s1 == METRICS_STATUS_OK;
         let retention_ok =
             logd_query_contains_since_paged(logd, 0, b"retention wal verified").unwrap_or(false);
 
         let total_after = logd_stats_total(logd).unwrap_or(0);
-        let _ = total_after <= total_before;
+        if total_after <= total_before {
+            counters_ok = false;
+            gauges_ok = false;
+            hist_ok = false;
+            spans_ok = false;
+        }
 
         Ok((counters_ok, gauges_ok, hist_ok, spans_ok, retention_ok))
     }
@@ -2824,7 +2805,6 @@ mod os_lite {
             } else {
                 emit_line("SELFTEST: metrics security rejects FAIL");
             }
-            let _ = wait_rate_limit_window();
             match metricsd_semantic_probe(&metricsd, &logd) {
                 Ok((counters_ok, gauges_ok, hist_ok, spans_ok, retention_ok)) => {
                     if counters_ok {

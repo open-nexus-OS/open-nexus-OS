@@ -146,6 +146,7 @@ TASK-0012 and TASK-0012B stabilized scheduler/SMP internals and marker semantics
 - **Policy granularity**: escalation delegation is still coarse (service-level privileged path), not per-capability/per-image policy intent.
 - **Audit sink normalization**: v1 emits deterministic audit markers; later phases may route all policy/audit records through a stricter centralized sink model.
 - **Future scheduler policy depth**: affinity/shares and richer QoS budgets remain follow-up scope (`TASK-0042`), not RFC-0023 v1.
+- **IPC liveness hardening follow-up**: cross-service bounded retry/correlation convergence is tracked in `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md` and `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md`.
 
 ## Security reject test matrix (normative)
 

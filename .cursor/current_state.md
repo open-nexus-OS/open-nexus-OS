@@ -12,7 +12,7 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (phase-0 sink-path stabilized with explicit deterministic slot wiring contract in `nexus-log`)
+- **last_decision**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (cross-service bounded retry/correlation hardening started with RFC-0025 seed)
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
@@ -33,16 +33,16 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: none (TASK-0014 closed; awaiting next task selection)
-- **seed_contract**: `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md` (design seed / active contract for TASK-0014)
+- **active_task**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (in review)
+- **seed_contract**: `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md` (design seed / active contract for TASK-0013B)
 - **contract_dependencies**:
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (bounded log sink baseline)
   - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (`/state` substrate baseline for retention slices)
   - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (shared-inbox correlation floor)
   - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (timed producer baseline)
-- **phase_now**: TASK-0014 closed as Done; closure evidence synced and proofs green
+- **phase_now**: TASK-0013B review phase (implementation complete; proof caveat documented)
 - **baseline_commit**: `f44a4f7`
-- **next_task_slice**: select next task after TASK-0014 closure handoff
+- **next_task_slice**: review evidence package and decide SMP2 timeout-floor policy (90s vs 180s)
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
@@ -123,6 +123,20 @@ Rules:
   - approved implementation reality:
     - kernel stabilization exception is accepted for this slice (heap budget increase + alloc diagnostics), with no kernel ABI expansion.
   - full-scope closure slices implemented and proofed; task closed by explicit status command.
+- `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` — **IN REVIEW**:
+  - RFC seed created: `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`.
+  - Drift-free task/index scaffolding created and linked.
+  - Shared bounded retry helper contract implemented in `userspace/nexus-ipc` with `NonceMismatchBudget` + `RouteRetryOutcome` (`#[must_use]`).
+  - Service migrations landed for `timed`, `metricsd`, `rngd`, `execd`, `keystored`, `statefsd`, `policyd`, and `updated`.
+  - Kernel-aligned liveness hardening test added in `source/kernel/neuron/src/sched/mod.rs` (`set_task_qos` queue-full revert contract).
+  - Proof snapshot:
+    - ✅ `cargo test -p nexus-ipc -- --nocapture`
+    - ✅ `cargo test -p timed -- --nocapture`
+    - ✅ `cargo test --workspace`
+    - ✅ `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+    - ✅ `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+    - 🟨 `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` times out near `SELFTEST: end` on this host load profile
+    - ✅ `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=180s ./scripts/qemu-test.sh`
 - DMA capability model (future) — out of scope for MMIO v1
 - IRQ delivery to userspace (future) — separate RFC needed
 - virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
@@ -167,6 +181,10 @@ Rules:
   - cardinality/rate limits must be enforced deterministically to avoid observability-induced DoS.
   - local-v2 scope must remain strict (no remote/cross-node creep from `TASK-0038`/`TASK-0040`).
   - proof must validate logd export path, not only local in-memory counters.
+- **TASK-0013B execution risks (active)**:
+  - service-local routing/reply loops may remain unbounded until migrated to shared bounded helpers.
+  - timeout semantics drift across services unless helper contract is adopted consistently.
+  - kernel-aligned hardening must not introduce alternate SMP/scheduler authority.
 
 ## DON'T DO (session-local)
 - DON'T add kernel MMIO grants via name-checks (init-controlled distribution only)

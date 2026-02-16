@@ -26,6 +26,44 @@ use crate::{Client, IpcError, Result, Wait};
 
 const SPIN_CHECK_MASK: usize = 0x7f; // check time every 128 spins
 
+/// Maximum number of nonce-mismatched replies tolerated while waiting for a correlated response.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NonceMismatchBudget(u32);
+
+impl NonceMismatchBudget {
+    /// Creates a nonce-mismatch budget.
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw budget value.
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+/// Outcome of a bounded routing attempt.
+#[must_use = "routing outcomes must be handled explicitly"]
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteRetryOutcome {
+    /// Route resolved successfully.
+    Success {
+        /// Send slot returned by samgrd routing.
+        send_slot: u32,
+        /// Receive slot returned by samgrd routing.
+        recv_slot: u32,
+    },
+    /// Route operation timed out under budget.
+    Timeout,
+    /// Too many nonce mismatches were observed.
+    NonceMismatchBudgetExceeded,
+    /// Route response decoded but returned a non-OK status or malformed frame.
+    Rejected,
+    /// Low-level IPC/runtime failure.
+    Ipc(IpcError),
+}
+
 /// Clock source used for budgeted loops.
 pub trait Clock {
     /// Returns the current time in nanoseconds, or `None` if not available.
@@ -169,6 +207,103 @@ pub fn send_until(
 /// Receives a frame from `client` using non-blocking attempts until `deadline_ns`.
 pub fn recv_until(clock: &impl Clock, client: &impl Client, deadline_ns: u64) -> Result<Vec<u8>> {
     retry_ipc_until(clock, deadline_ns, || client.recv(Wait::NonBlocking))
+}
+
+/// Resolves a service route using routing v1+nonce with a deterministic deadline and mismatch cap.
+///
+/// This helper is intended for os-lite bring-up services that still perform direct control-channel
+/// routing calls and need bounded behavior under queue contention.
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub fn route_with_nonce_budgeted(
+    name: &[u8],
+    ctrl_send_slot: u32,
+    ctrl_recv_slot: u32,
+    budget: Duration,
+    mismatch_budget: NonceMismatchBudget,
+) -> RouteRetryOutcome {
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
+        return RouteRetryOutcome::Rejected;
+    }
+
+    static ROUTE_NONCE: AtomicU32 = AtomicU32::new(1);
+    let nonce = ROUTE_NONCE.fetch_add(1, Ordering::Relaxed);
+
+    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
+    let base_len = match nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()]) {
+        Some(v) => v,
+        None => return RouteRetryOutcome::Rejected,
+    };
+    req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
+    let req_len = base_len + 4;
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+
+    let clock = OsClock;
+    let deadline_ns = match deadline_after(&clock, budget) {
+        Ok(v) => v,
+        Err(e) => return RouteRetryOutcome::Ipc(e),
+    };
+
+    if let Err(e) = raw::send_budgeted(&clock, ctrl_send_slot, &hdr, &req[..req_len], deadline_ns) {
+        return if e == IpcError::Timeout {
+            RouteRetryOutcome::Timeout
+        } else {
+            RouteRetryOutcome::Ipc(e)
+        };
+    }
+
+    let mut mismatches: u32 = 0;
+    let mut loops: usize = 0;
+    loop {
+        if (loops & 0x1f) == 0 {
+            match clock.now_ns() {
+                Some(now) if now >= deadline_ns => return RouteRetryOutcome::Timeout,
+                Some(_) => {}
+                None => return RouteRetryOutcome::Ipc(IpcError::Unsupported),
+            }
+        }
+
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        let n = match raw::recv_budgeted(&clock, ctrl_recv_slot, &mut rh, &mut buf, deadline_ns) {
+            Ok(v) => core::cmp::min(v, buf.len()),
+            Err(IpcError::Timeout) => return RouteRetryOutcome::Timeout,
+            Err(e) => return RouteRetryOutcome::Ipc(e),
+        };
+
+        if n != 17 {
+            let _ = nexus_abi::yield_();
+            loops = loops.wrapping_add(1);
+            continue;
+        }
+
+        let (status, send_slot, recv_slot) = match nexus_abi::routing::decode_route_rsp(&buf[..13])
+        {
+            Some(v) => v,
+            None => {
+                let _ = nexus_abi::yield_();
+                loops = loops.wrapping_add(1);
+                continue;
+            }
+        };
+        let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
+        if got_nonce != nonce {
+            mismatches = mismatches.saturating_add(1);
+            if mismatches > mismatch_budget.raw() {
+                return RouteRetryOutcome::NonceMismatchBudgetExceeded;
+            }
+            let _ = nexus_abi::yield_();
+            loops = loops.wrapping_add(1);
+            continue;
+        }
+
+        return if status == nexus_abi::routing::STATUS_OK {
+            RouteRetryOutcome::Success { send_slot, recv_slot }
+        } else {
+            RouteRetryOutcome::Rejected
+        };
+    }
 }
 
 /// Low-level helpers for kernel IPC v1 syscalls (slot + `MsgHeader`).

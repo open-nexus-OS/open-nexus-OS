@@ -446,25 +446,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, qn as u32);
     // Init-lite may be busy answering ROUTE_GET queries (policyd-gated) during early bring-up.
-    // Avoid deadline-based blocking IPC; use bounded NONBLOCK send/recv loops.
-    let start = nexus_abi::nsec().ok().unwrap_or(0);
-    let deadline = start.saturating_add(2_000_000_000); // 2s
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(1, &hdr, &q[..qn], nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().ok().unwrap_or(0);
-                    if now >= deadline {
-                        return rsp(op, STATUS_FAILED, 0).to_vec();
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
-        }
-        i = i.wrapping_add(1);
+    // Keep send path bounded and deterministic.
+    let clock = OsClock;
+    let deadline_ns = match deadline_after(&clock, Duration::from_secs(2)) {
+        Ok(v) => v,
+        Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
+    };
+    if nexus_ipc::budget::raw::send_budgeted(&clock, 1, &hdr, &q[..qn], deadline_ns).is_err() {
+        return rsp(op, STATUS_FAILED, 0).to_vec();
     }
     struct CtlInbox;
     impl nexus_ipc::Client for CtlInbox {
@@ -488,12 +477,6 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             }
         }
     }
-
-    let clock = OsClock;
-    let deadline_ns = match deadline_after(&clock, Duration::from_secs(2)) {
-        Ok(v) => v,
-        Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
-    };
 
     let rb = match recv_match_until(
         &clock,

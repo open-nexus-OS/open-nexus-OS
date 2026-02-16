@@ -580,7 +580,14 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     let deadline = now.saturating_add(1_000_000_000);
     let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 32];
+    let mut spins: usize = 0;
     loop {
+        if (spins & 0x7f) == 0 {
+            let now = nexus_abi::nsec().map_err(|_| "reply-time")?;
+            if now >= deadline {
+                return Err("reply-timeout");
+            }
+        }
         match nexus_abi::ipc_recv_v1(
             reply_recv_slot,
             &mut hdr,
@@ -619,6 +626,7 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
                 })
             }
         }
+        spins = spins.wrapping_add(1);
     }
 }
 
@@ -802,60 +810,41 @@ fn keystored_verify(
     frame.extend_from_slice(public_key);
     frame.extend_from_slice(signature);
     frame.extend_from_slice(message);
-    // Avoid kernel deadline-based blocking IPC here; use explicit nsec()-bounded NONBLOCK retry.
-    // This keeps bring-up deterministic/bounded even if deadline semantics are flaky.
-    {
-        let start_ns = nexus_abi::nsec().map_err(|_| VerifyError::Backend("nsec"))?;
-        let deadline_ns = start_ns.saturating_add(1_000_000_000); // 1s
-        let mut i: usize = 0;
-        loop {
-            match client.send(&frame, Wait::NonBlocking) {
-                Ok(()) => break,
-                Err(nexus_ipc::IpcError::WouldBlock) => {
-                    if (i & 0x7f) == 0 {
-                        let now = nexus_abi::nsec().map_err(|_| VerifyError::Backend("nsec"))?;
-                        if now >= deadline_ns {
-                            return Err(VerifyError::Backend("send-timeout"));
-                        }
-                    }
-                    let _ = yield_();
-                }
-                Err(_) => return Err(VerifyError::Backend("send")),
-            }
-            i = i.wrapping_add(1);
-        }
-    }
-    for _ in 0..512 {
+    let clock = nexus_ipc::budget::OsClock;
+    let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(1))
+        .map_err(|_| VerifyError::Backend("nsec"))?;
+    nexus_ipc::budget::send_until(&clock, &client, &frame, deadline_ns)
+        .map_err(|_| VerifyError::Backend("send-timeout"))?;
+
+    let rsp = nexus_ipc::budget::retry_ipc_until(&clock, deadline_ns, || {
         match client.recv(Wait::NonBlocking) {
-            Ok(rsp) => {
-                if rsp.len() < 7 {
-                    continue;
-                }
-                if rsp[0] != KEYSTORE_MAGIC0
-                    || rsp[1] != KEYSTORE_MAGIC1
-                    || rsp[2] != KEYSTORE_VERSION
+            Ok(v) => {
+                if v.len() < 7
+                    || v[0] != KEYSTORE_MAGIC0
+                    || v[1] != KEYSTORE_MAGIC1
+                    || v[2] != KEYSTORE_VERSION
+                    || v[3] != (KEYSTORE_OP_VERIFY | 0x80)
                 {
-                    continue;
+                    return Err(nexus_ipc::IpcError::WouldBlock);
                 }
-                if rsp[3] != (KEYSTORE_OP_VERIFY | 0x80) {
-                    continue;
-                }
-                if rsp[4] != KEYSTORE_STATUS_OK {
-                    return Err(VerifyError::Backend("status"));
-                }
-                let len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                if rsp.len() < 7 + len || len != 1 {
-                    return Err(VerifyError::Backend("payload"));
-                }
-                return Ok(rsp[7] == 1);
+                Ok(v)
             }
-            Err(nexus_ipc::IpcError::WouldBlock) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(VerifyError::Backend("recv")),
+            Err(e) => Err(e),
         }
+    })
+    .map_err(|err| match err {
+        nexus_ipc::IpcError::Timeout => VerifyError::Backend("timeout"),
+        _ => VerifyError::Backend("recv"),
+    })?;
+
+    if rsp[4] != KEYSTORE_STATUS_OK {
+        return Err(VerifyError::Backend("status"));
     }
-    Err(VerifyError::Backend("timeout"))
+    let len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+    if rsp.len() < 7 + len || len != 1 {
+        return Err(VerifyError::Backend("payload"));
+    }
+    Ok(rsp[7] == 1)
 }
 
 fn rsp(op: u8, status: u8, payload: &[u8]) -> Vec<u8> {

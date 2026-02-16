@@ -651,4 +651,24 @@ mod tests {
                 if cap == capacity
         ));
     }
+
+    #[test]
+    fn test_reject_set_task_qos_when_target_queue_full() {
+        let mut sched = Scheduler::new();
+        let target = Pid::from_raw(0x1234);
+        assert!(matches!(sched.enqueue(target, QosClass::Normal), EnqueueOutcome::Enqueued));
+
+        let cap = Scheduler::runtime_queue_capacity_for(QosClass::Interactive).raw();
+        for i in 0..cap {
+            let pid = Pid::from_raw(0x4000u32.wrapping_add(i as u32));
+            assert!(matches!(sched.enqueue(pid, QosClass::Interactive), EnqueueOutcome::Enqueued));
+        }
+
+        let outcome = sched.set_task_qos(target, QosClass::Interactive);
+        assert_eq!(outcome, SetQosOutcome::QueueFull);
+        assert_eq!(sched.queues[2].len(), cap);
+        assert!(sched.queues[1]
+            .iter()
+            .any(|task| task.id == target && task.qos == QosClass::Normal));
+    }
 }

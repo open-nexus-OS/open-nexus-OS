@@ -10,37 +10,33 @@ It should be updated during the previous task's wrap-up, before handing off.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (**DONE**, closure applied)
+- **task**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (**IN REVIEW**)
 - **handoff_target**: `.cursor/handoff/current.md` (always updated as the live entry-point)
 - **handoff_archive**: `.cursor/handoff/archive/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (latest completed-task snapshot, present)
 - **linked_contracts**:
-  - `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md` (seed contract)
-  - `tasks/TASK-0014-observability-v2-metrics-tracing.md` (execution SSOT + stop conditions)
-  - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (bounded sink baseline)
-  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (`/state` persistence baseline)
+  - `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md` (seed contract)
+  - `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (execution SSOT + stop conditions)
   - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (nonce-correlation floor)
-  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (timed producer baseline)
-  - `tasks/TASK-0038-tracing-v2-cross-node-correlation.md` (follow-up: cross-node correlation)
-  - `tasks/TASK-0040-remote-observability-v1-scrape-over-dsoftbus.md` (follow-up: remote pipeline)
+  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (baseline contract completed; this task is hardening follow-up)
+  - `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` (kernel runtime hardening dependency context)
   - `scripts/qemu-test.sh` (marker contract; deterministic proof gate)
-- **first_action**: select the next task after TASK-0014 closure.
+- **first_action**: review proof package and timeout-floor caveat for final closeout decision.
 
 ## Start slice (now)
-- **slice_name**: post-TASK-0014 closure handoff + next-task selection
-- **target_file**: follow TASK-0014 touched-path allowlist only
+- **slice_name**: TASK-0013B review/closeout
+- **target_file**: follow TASK-0013B touched-path allowlist only
 - **must_cover**:
-  - keep kernel untouched; userspace only
-  - bounded cardinality/spans/payloads with deterministic rejects
-  - logd export path as primary proof, not only in-memory checks
+  - bounded retry/deadline/mismatch behavior for routing + reply loops
+  - preserve sender-identity and fail-closed correlation semantics
   - deterministic markers and bounded test loops/timeouts
-  - preserve TASK-0013 behavior/markers (no regressions in timed/qos proofs)
+  - preserve TASK-0013/TASK-0014 behavior and marker ladders (no regressions)
 
 ## Execution order
 1. **TASK-0011B**: complete
 2. **TASK-0012**: complete
 3. **TASK-0012B**: complete
 4. **TASK-0013**: complete
-5. **TASK-0014**: done
+5. **TASK-0013B**: in review
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
@@ -67,7 +63,7 @@ It should be updated during the previous task's wrap-up, before handing off.
   - ✅ deterministic proof policy remains aligned (`scripts/qemu-test.sh`, modern MMIO floor)
 
 ## Decision
-- **status**: READY (TASK-0014 closed; pick next implementation task)
+- **status**: REVIEWING (TASK-0013B in review)
 - **notes**:
   - keep scope local and deterministic; avoid follow-up creep
   - maintain reject-first security posture with explicit negative tests

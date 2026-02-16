@@ -1,54 +1,51 @@
-# Current Handoff: TASK-0014 Observability v2 (metrics/tracing) — FULL SLICES BUILT, PROOFS GREEN
+# Current Handoff: TASK-0013B IPC liveness hardening — in review
 
-**Date**: 2026-02-13  
-**Status**: `TASK-0014` is `Done` by explicit user command. `phase-0a`, `phase-0`, `phase-1`, and `phase-2` are green, full planned closure slices are implemented, and final proof chain passed (`just dep-gate && just diag-os && cargo test --workspace && RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
-**Delta report**: `.cursor/handoff/task-0014-delta-closure-report.md`
+**Date**: 2026-02-16  
+**Status**: `TASK-0013B` is `In Review`. Migration slices are implemented and proof sync is complete with one documented runtime-timeout caveat on SMP2 at 90s.
+**Contract seed**: `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`
 
 ---
 
 ## What is stable now
 
-- `metricsd` + `nexus-metrics` baseline is live and selftests pass in active mmio runs.
-- `metricsd -> nexus-log -> logd` sink-path remains deterministic and green.
-- Kernel heap OOM diagnostics now emit explicit budget and request details (`heap_budget_used/free/total`, request size/alignment).
-- Delegated-policy sender/subject normalization is now evidence-driven for mmio bring-up aliases (selftest/rngd/keystored/statefsd paths).
-- `policyd` identity binding now normalizes known bring-up aliases for sender-bound checks (`OP_CHECK/ROUTE/EXEC`) and delegated subjects (including `updated` alt SID observed in mmio runs).
-- `selftest-client` logd STATS probe now uses CAP_MOVE + nonce correlation on the shared reply inbox, eliminating false zero-count/delta failures.
-- Kernel stabilization for this slice is intentional (no rollback planned): heap budget increase + alloc diagnostics are treated as approved implementation reality for deterministic bring-up.
+- `TASK-0014` remains closed (`Done`) and its proof package stays green.
+- New hardening contract seed (`RFC-0025`) exists and is linked to new follow-up task `TASK-0013B`.
+- Drift-free status/index scaffolding is updated for new RFC/task workstream.
 
-## Runtime progress proven this slice
+## Runtime progress in this slice
 
-- `rngd` delegated policy now allows entropy path deterministically (`rngd: policy allow`, `rngd: mmio window mapped ok`).
-- Metrics/tracing semantics now pass in mmio (`SELFTEST: metrics security rejects ok`, `SELFTEST: metrics counters ok`, `SELFTEST: metrics gauges ok`, `SELFTEST: metrics histograms ok`, `SELFTEST: tracing spans ok`).
-- Retention proof is now active in mmio (`[INFO metricsd] retention wal verified`, `SELFTEST: metrics retention ok`).
-- Delegated-cap policy decode hardening is fail-closed and nonce-correlated in enforcement paths (`execd`, `rngd`, `keystored`, `statefsd`) with unit tests.
-- Device-key and statefs selftest proofs now pass (`SELFTEST: device key pubkey ok`, `SELFTEST: device key persist ok`, `SELFTEST: statefs put ok`, `SELFTEST: statefs persist ok`).
-- `ipc sender service_id` selftest is green in the current ladder.
-- OTA/update path now passes in mmio (`SELFTEST: ota stage ok`, `SELFTEST: ota switch ok`, `SELFTEST: ota health ok`, `SELFTEST: ota rollback ok`, `SELFTEST: bootctl persist ok`).
-- Latest proof snapshot: `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` with `exit_code=0`, `first_failed_phase=""`, `missing_marker=""`.
-- Final build/proof chain snapshot:
-  - `just dep-gate`: pass (`no forbidden crates in OS graph`)
-  - `just diag-os`: pass
-  - `cargo test --workspace`: pass
-  - `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`: pass (`exit_code=0`)
+- `RFC-0025` and `TASK-0013B` scaffolding are complete and drift-free indexes are synced.
+- Shared retry contract landed in `userspace/nexus-ipc`:
+  - `NonceMismatchBudget` newtype
+  - `RouteRetryOutcome` `#[must_use]` bounded outcome
+  - `route_with_nonce_budgeted(...)` deterministic helper.
+- Service migrations landed:
+  - wave-1: `timed`, `metricsd`, `rngd`
+  - wave-2: `execd`, `keystored`, `statefsd`, `policyd`, `updated`
+- Kernel-aligned hardening landed:
+  - scheduler regression test for `set_task_qos` queue-full rollback invariant.
+- Proof snapshot:
+  - ✅ `cargo test -p nexus-ipc -- --nocapture`
+  - ✅ `cargo test -p timed -- --nocapture`
+  - ✅ `cargo test --workspace`
+  - ✅ `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - ✅ `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - 🟨 `SMP=2 ... RUN_TIMEOUT=90s` times out close to `SELFTEST: end` on this host load profile
+  - ✅ `SMP=2 ... RUN_TIMEOUT=180s` green with full marker ladder.
 
 ## New architectural decision (this slice)
 
-- `nexus-log` now exposes explicit sink-slot configuration:
-  - `configure_sink_logd_slots(logd_send, reply_send, reply_recv)`.
-- Deterministic wiring is now **opt-in per service/process** (init-lite assigned slots), not a hidden global fallback policy in `nexus-log`.
-- If slots are not configured (or invalid), `nexus-log` still uses routed discovery (`logd` + `@reply`) as bounded fallback.
+- Cross-service IPC retry behavior will be centralized on shared bounded helpers in `nexus-ipc` instead of service-local ad-hoc loops.
+- Liveness hardening remains authority-preserving: no alternate SMP/scheduler authority is introduced.
 
 ## Active focus (next)
 
-- Keep TASK/RFC/state artifacts in lockstep with implementation reality and proof outputs.
-- Keep reject-matrix and retention claims strictly evidence-bound (host tests + marker ladder).
-- Keep sender-alias normalization constrained to observed/verified identities only; avoid speculative broadening.
-- Keep `TASK-0014` closure package concise and evidence-linked (task status is now `Done`).
+- Review and approve timeout-floor policy for SMP2 (keep 90s target vs ratify 180s on current host profile).
+- Collect review feedback and decide closeout criteria.
 
 ## Closure note
 
-- Full-scope slices are implemented and proven; task has been explicitly closed as `Done`.
+- `TASK-0014` remains explicitly closed as `Done`; current work is follow-up hardening (`TASK-0013B` / `RFC-0025`).
 
 ## Guardrails
 

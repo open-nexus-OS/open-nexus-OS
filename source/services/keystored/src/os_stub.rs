@@ -720,32 +720,18 @@ fn policyd_allows(pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8
         nexus_abi::ipc_hdr::CAP_MOVE,
         frame.len() as u32,
     );
-    let start = match nexus_abi::nsec() {
-        Ok(value) => value,
-        Err(_) => return false,
-    };
-    let deadline = start.saturating_add(500_000_000);
-
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = match nexus_abi::nsec() {
-                        Ok(value) => value,
-                        Err(_) => return false,
-                    };
-                    if now >= deadline {
-                        let _ = nexus_abi::cap_close(reply_send_clone);
-                        return false;
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return false,
+    let clock = OsClock;
+    let deadline_ns = match deadline_after(&clock, Duration::from_millis(500)) {
+        Ok(v) => v,
+        Err(_) => {
+            let _ = nexus_abi::cap_close(reply_send_clone);
+            return false;
         }
-        i = i.wrapping_add(1);
+    };
+    if nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns).is_err()
+    {
+        let _ = nexus_abi::cap_close(reply_send_clone);
+        return false;
     }
     // Best-effort close: keep local cap table bounded even though the cap was moved.
     let _ = nexus_abi::cap_close(reply_send_clone);
@@ -1077,23 +1063,13 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
     );
 
     // Send request
-    let start = nexus_abi::nsec().ok()?;
-    let deadline = start.saturating_add(500_000_000);
-
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(rng_send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 && nexus_abi::nsec().ok()? >= deadline {
-                    let _ = nexus_abi::cap_close(reply_send_clone);
-                    return None;
-                }
-                let _ = yield_();
-            }
-            Err(_) => return None,
-        }
-        i = i.wrapping_add(1);
+    let clock = OsClock;
+    let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).ok()?;
+    if nexus_ipc::budget::raw::send_budgeted(&clock, rng_send_slot, &hdr, &req, deadline_ns)
+        .is_err()
+    {
+        let _ = nexus_abi::cap_close(reply_send_clone);
+        return None;
     }
 
     struct ReplyInboxV1 {
@@ -1120,7 +1096,6 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
         }
     }
     let clock = OsClock;
-    let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).ok()?;
     let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
     let rsp = recv_match_until(
         &clock,

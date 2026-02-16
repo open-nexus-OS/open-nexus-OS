@@ -6,8 +6,10 @@ use alloc::boxed::Box;
 
 use core::fmt;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use core::time::Duration;
 
 use nexus_abi::{debug_putc, yield_};
+use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_sel::Policy;
 
 /// Result alias used by the lite policyd backend.
@@ -1027,30 +1029,15 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
     let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
 
     // Send bounded NONBLOCK.
-    let start = nexus_abi::nsec().ok().unwrap_or(0);
-    let deadline = start.saturating_add(500_000_000);
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(
-            LOGD_SEND_SLOT,
-            &hdr,
-            &frame[..len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        ) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().ok().unwrap_or(0);
-                    if now >= deadline {
-                        return false;
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return false,
-        }
-        i = i.wrapping_add(1);
+    let clock = OsClock;
+    let deadline = match deadline_after(&clock, Duration::from_millis(500)) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    if nexus_ipc::budget::raw::send_budgeted(&clock, LOGD_SEND_SLOT, &hdr, &frame[..len], deadline)
+        .is_err()
+    {
+        return false;
     }
 
     // Deterministic: wait (bounded) for the APPEND ack so the reply inbox cannot fill.
@@ -1059,41 +1046,37 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
     let mut j: usize = 0;
     loop {
         if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().ok().unwrap_or(0);
+            let now = match nexus_abi::nsec() {
+                Ok(v) => v,
+                Err(_) => return false,
+            };
             if now >= deadline {
                 return false;
             }
         }
-        match nexus_abi::ipc_recv_v1(
+        let n = match nexus_ipc::budget::raw::recv_budgeted(
+            &clock,
             REPLY_RECV_SLOT,
             &mut ah,
             &mut abuf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
+            deadline,
         ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, abuf.len());
-                if n >= 13
-                    && abuf[0] == MAGIC0
-                    && abuf[1] == MAGIC1
-                    && abuf[2] == VERSION
-                    && abuf[3] == (OP_APPEND | 0x80)
-                {
-                    if let Ok((status, got_nonce)) =
-                        nexus_ipc::logd_wire::parse_append_response_v2_prefix(&abuf[..n])
-                    {
-                        if got_nonce == nonce {
-                            return status == STATUS_OK;
-                        }
-                    }
-                }
-                // Unexpected reply on the inbox (should be rare); keep waiting until deadline.
-                let _ = yield_();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
+            Ok(v) => core::cmp::min(v, abuf.len()),
             Err(_) => return false,
+        };
+        if n >= 13
+            && abuf[0] == MAGIC0
+            && abuf[1] == MAGIC1
+            && abuf[2] == VERSION
+            && abuf[3] == (OP_APPEND | 0x80)
+        {
+            if let Ok((status, got_nonce)) =
+                nexus_ipc::logd_wire::parse_append_response_v2_prefix(&abuf[..n])
+            {
+                if got_nonce == nonce {
+                    return status == STATUS_OK;
+                }
+            }
         }
         j = j.wrapping_add(1);
     }
