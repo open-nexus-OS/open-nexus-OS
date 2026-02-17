@@ -78,6 +78,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0023: QoS ABI + timed coalescing contract v1 (authorization + bounded timer policy)
 - RFC-0024: Observability v2 local contract (bounded metrics/tracing export via logd)
 - RFC-0025: IPC liveness hardening v1 (bounded retry/correlation + deterministic timeout contract)
+- RFC-0026: IPC performance optimization v1 (deterministic control-plane reuse + zero-copy-aligned data paths)
 
 ## Index
 
@@ -129,5 +130,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md
 - RFC-0024: Observability v2 local contract - metricsd + tracing export via logd (Draft)
   - docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md
-- RFC-0025: IPC liveness hardening v1 - bounded retry/correlation + deterministic timeout contract (In Progress)
+- RFC-0025: IPC liveness hardening v1 - bounded retry/correlation + deterministic timeout contract (In Review)
   - docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md
+- RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths (In Review)
+  - docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md

@@ -410,6 +410,12 @@ fn append_probe_to_logd() -> bool {
     const STATUS_OK: u8 = 0;
     static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
+    let scope: &[u8] = b"bundlemgrd";
+    let msg: &[u8] = b"core service log probe: bundlemgrd";
+    if scope.len() > 64 || msg.len() > 256 {
+        return false;
+    }
+
     let logd = match nexus_ipc::KernelClient::new_for("logd") {
         Ok(c) => c,
         Err(_) => return false,
@@ -423,12 +429,6 @@ fn append_probe_to_logd() -> bool {
         Ok(slot) => slot,
         Err(_) => return false,
     };
-
-    let scope: &[u8] = b"bundlemgrd";
-    let msg: &[u8] = b"core service log probe: bundlemgrd";
-    if scope.len() > 64 || msg.len() > 256 {
-        return false;
-    }
 
     let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let mut frame = alloc::vec::Vec::with_capacity(12 + 1 + 1 + 2 + 2 + scope.len() + msg.len());

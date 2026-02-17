@@ -362,6 +362,12 @@ fn handle_stage(
         Some(bytes) => bytes,
         None => return rsp(OP_STAGE, STATUS_MALFORMED, &[]),
     };
+    // Phase-2 (RFC-0026): keep stage payloads explicitly within bounded inline frame limits.
+    // Larger artifacts must use the existing bulk path contract (not ad-hoc control-plane growth).
+    if payload.len().saturating_add(8) > MAX_STAGE_FRAME {
+        audit("stage", "fail", Some("oversized-inline"));
+        return rsp(OP_STAGE, STATUS_MALFORMED, &[]);
+    }
 
     let verifier = KeystoredVerifier;
     // Cooperative-yield throttling: this must yield often enough to avoid starving other

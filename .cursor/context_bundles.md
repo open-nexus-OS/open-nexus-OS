@@ -91,6 +91,35 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/observability/metrics.md`
 - `docs/observability/tracing.md`
 
+### @task_0013b_context
+- `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md`
+- `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`
+- `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md`
+- `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
+- `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
+- `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
+- `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
+- `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md`
+- `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+
+### @task_0013b_touched
+- `userspace/nexus-ipc/`
+- `source/services/timed/`
+- `source/services/metricsd/`
+- `source/services/rngd/`
+- `source/services/execd/`
+- `source/services/keystored/`
+- `source/services/statefsd/`
+- `source/services/policyd/`
+- `source/services/updated/`
+- `source/apps/selftest-client/`
+- `source/kernel/neuron/src/sched/`
+- `scripts/qemu-test.sh`
+- `docs/rfcs/`
+- `tasks/`
+
 ### @task_0014_touched
 - `source/services/metricsd/`
 - `userspace/nexus-metrics/`
@@ -132,3 +161,6 @@ Kontext strikt: @core_context @task_0013_context @quality_gates @task_0013_touch
 
 ## Standard instruction line (TASK-0014)
 Kontext strikt: @core_context @task_0014_context @quality_gates @task_0014_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0013B)
+Kontext strikt: @core_context @task_0013b_context @quality_gates @task_0013b_touched. Kein @codebase Scan.

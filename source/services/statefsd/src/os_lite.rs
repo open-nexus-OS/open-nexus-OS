@@ -68,6 +68,8 @@ pub fn touch_schemas() {}
 const BLOCK_SIZE: usize = 512;
 const BLOCK_COUNT: u64 = 64;
 const MAX_LIST_RESPONSE_BYTES: usize = 512;
+const IPC_MAX_FRAME_BYTES: usize = 8 * 1024;
+const MAX_INLINE_VALUE_BYTES: usize = IPC_MAX_FRAME_BYTES - 64;
 
 const CAP_READ: &str = "statefs.read";
 const CAP_WRITE: &str = "statefs.write";
@@ -252,6 +254,13 @@ fn handle_frame(
 
     match request {
         Request::Put { key, value } => {
+            if value.len() > MAX_INLINE_VALUE_BYTES {
+                return proto::encode_status_response_with_nonce(
+                    proto::OP_PUT,
+                    proto::STATUS_VALUE_TOO_LARGE,
+                    nonce,
+                );
+            }
             if !policy_allows(sender_service_id, proto::OP_PUT, key) {
                 emit_access_denied(key, sender_service_id);
                 return proto::encode_status_response_with_nonce(
@@ -281,7 +290,17 @@ fn handle_frame(
                 );
             }
             match engine.get(key) {
-                Ok(value) => proto::encode_get_response_with_nonce(proto::STATUS_OK, &value, nonce),
+                Ok(value) => {
+                    if value.len() > MAX_INLINE_VALUE_BYTES {
+                        proto::encode_get_response_with_nonce(
+                            proto::STATUS_VALUE_TOO_LARGE,
+                            &[],
+                            nonce,
+                        )
+                    } else {
+                        proto::encode_get_response_with_nonce(proto::STATUS_OK, &value, nonce)
+                    }
+                }
                 Err(err) => {
                     proto::encode_get_response_with_nonce(proto::status_from_error(err), &[], nonce)
                 }

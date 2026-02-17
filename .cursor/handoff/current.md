@@ -1,8 +1,8 @@
-# Current Handoff: TASK-0013B IPC liveness hardening — in review
+# Current Handoff: TASK-0013B IPC liveness hardening — extension in review
 
 **Date**: 2026-02-16  
-**Status**: `TASK-0013B` is `In Review`. Migration slices are implemented and proof sync is complete with one documented runtime-timeout caveat on SMP2 at 90s.
-**Contract seed**: `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`
+**Status**: `TASK-0013B` is now `In Review` with the RFC-0026 extension slices implemented and proofed.
+**Contract seed**: `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` (extends RFC-0025 baseline)
 
 ---
 
@@ -15,6 +15,8 @@
 ## Runtime progress in this slice
 
 - `RFC-0025` and `TASK-0013B` scaffolding are complete and drift-free indexes are synced.
+- `RFC-0026` created as a new contract seed (README/template compliant) for minimal-invasive performance optimization on top of the RFC-0025 baseline.
+- Review package artifact created: `.cursor/handoff/task-0013b-rfc0026-review-package.md`.
 - Shared retry contract landed in `userspace/nexus-ipc`:
   - `NonceMismatchBudget` newtype
   - `RouteRetryOutcome` `#[must_use]` bounded outcome
@@ -30,8 +32,9 @@
   - ✅ `cargo test --workspace`
   - ✅ `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
   - ✅ `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - 🟨 `SMP=2 ... RUN_TIMEOUT=90s` times out close to `SELFTEST: end` on this host load profile
+  - ✅ `SMP=2 ... RUN_TIMEOUT=90s` green (sequential run discipline)
   - ✅ `SMP=2 ... RUN_TIMEOUT=180s` green with full marker ladder.
+  - discipline note: parallel QEMU smoke execution is invalid evidence (shared image/log contention); proofs are recorded from sequential runs only.
 
 ## New architectural decision (this slice)
 
@@ -40,8 +43,8 @@
 
 ## Active focus (next)
 
-- Review and approve timeout-floor policy for SMP2 (keep 90s target vs ratify 180s on current host profile).
-- Collect review feedback and decide closeout criteria.
+- Hold `TASK-0013B` in `In Review` until explicit close decision.
+- Preserve sequential QEMU proof discipline for any re-runs and incremental follow-up optimization work.
 
 ## Closure note
 

@@ -71,7 +71,7 @@ mod os_lite {
     use alloc::vec::Vec;
 
     use core::cell::Cell;
-    use core::sync::atomic::{AtomicU64, Ordering};
+    use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
     use core::time::Duration;
 
     use exec_payloads::HELLO_ELF;
@@ -101,6 +101,63 @@ mod os_lite {
 
     use crate::markers;
     use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_i64, emit_u64};
+
+    static REPLY_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+    static REPLY_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+    static NETSTACKD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+    static NETSTACKD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+    static SAMGRD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+    static SAMGRD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+    static DSOFTBUSD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+    static DSOFTBUSD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+
+    fn invalidate_client_cache(send_slot: &AtomicU32, recv_slot: &AtomicU32) {
+        send_slot.store(0, Ordering::Relaxed);
+        recv_slot.store(0, Ordering::Relaxed);
+    }
+
+    fn cached_client(
+        target: &str,
+        send_slot: &AtomicU32,
+        recv_slot: &AtomicU32,
+    ) -> core::result::Result<KernelClient, ()> {
+        for force_refresh in [false, true] {
+            if !force_refresh {
+                let cached_send = send_slot.load(Ordering::Relaxed);
+                let cached_recv = recv_slot.load(Ordering::Relaxed);
+                if cached_send != 0 && cached_recv != 0 {
+                    if let Ok(client) = KernelClient::new_with_slots(cached_send, cached_recv) {
+                        return Ok(client);
+                    }
+                    invalidate_client_cache(send_slot, recv_slot);
+                }
+            }
+            if let Ok(client) = KernelClient::new_for(target) {
+                let (new_send, new_recv) = client.slots();
+                send_slot.store(new_send, Ordering::Relaxed);
+                recv_slot.store(new_recv, Ordering::Relaxed);
+                return Ok(client);
+            }
+            invalidate_client_cache(send_slot, recv_slot);
+        }
+        Err(())
+    }
+
+    fn cached_reply_client() -> core::result::Result<KernelClient, ()> {
+        cached_client("@reply", &REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE)
+    }
+
+    fn cached_netstackd_client() -> core::result::Result<KernelClient, ()> {
+        cached_client("netstackd", &NETSTACKD_SEND_SLOT_CACHE, &NETSTACKD_RECV_SLOT_CACHE)
+    }
+
+    fn cached_samgrd_client() -> core::result::Result<KernelClient, ()> {
+        cached_client("samgrd", &SAMGRD_SEND_SLOT_CACHE, &SAMGRD_RECV_SLOT_CACHE)
+    }
+
+    fn cached_dsoftbusd_client() -> core::result::Result<KernelClient, ()> {
+        cached_client("dsoftbusd", &DSOFTBUSD_SEND_SLOT_CACHE, &DSOFTBUSD_RECV_SLOT_CACHE)
+    }
 
     // SECURITY: bring-up test system-set signed with a test key (NOT production custody).
     const SYSTEM_TEST_NXS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/system-test.nxs"));
@@ -3969,7 +4026,7 @@ mod os_lite {
         const STATUS_OK: u8 = 0;
 
         fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let reply = cached_reply_client().map_err(|_| ())?;
             let (reply_send_slot, reply_recv_slot) = reply.slots();
             let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
             client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
@@ -3994,7 +4051,7 @@ mod os_lite {
         }
 
         // Connect to netstackd
-        let netstackd = KernelClient::new_for("netstackd").map_err(|_| ())?;
+        let netstackd = cached_netstackd_client().map_err(|_| ())?;
 
         // Gateway address: 10.0.2.2 (QEMU usernet)
         let gateway_ip: [u8; 4] = [10, 0, 2, 2];
@@ -4037,7 +4094,7 @@ mod os_lite {
         const STATUS_WOULD_BLOCK: u8 = 3;
 
         fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let reply = cached_reply_client().map_err(|_| ())?;
             let (reply_send_slot, reply_recv_slot) = reply.slots();
             let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
             client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
@@ -4061,7 +4118,7 @@ mod os_lite {
             Err(())
         }
 
-        let net = KernelClient::new_for("netstackd").map_err(|_| ())?;
+        let net = cached_netstackd_client().map_err(|_| ())?;
 
         // Connect to dsoftbusd session port.
         let port: u16 = 34_567;
@@ -4148,7 +4205,7 @@ mod os_lite {
                 r[3] = OP_READ;
                 r[4..8].copy_from_slice(&sid.to_le_bytes());
                 r[8..10].copy_from_slice(&(len as u16).to_le_bytes());
-                let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+                let reply = cached_reply_client().map_err(|_| ())?;
                 let (reply_send_slot, reply_recv_slot) = reply.slots();
                 let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
                 net.send_with_cap_move(&r, reply_send_clone).map_err(|_| ())?;
@@ -4213,7 +4270,7 @@ mod os_lite {
             w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
             w[10..10 + data.len()].copy_from_slice(data);
 
-            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let reply = cached_reply_client().map_err(|_| ())?;
             let (reply_send_slot, reply_recv_slot) = reply.slots();
             let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
             net.send_with_cap_move(&w[..10 + data.len()], reply_send_clone).map_err(|_| ())?;
@@ -4312,7 +4369,7 @@ mod os_lite {
         const STATUS_OK: u8 = 0;
 
         fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-            let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+            let reply = cached_reply_client().map_err(|_| ())?;
             let (reply_send_slot, reply_recv_slot) = reply.slots();
             let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
             client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
@@ -4336,7 +4393,7 @@ mod os_lite {
             Err(())
         }
 
-        let net = KernelClient::new_for("netstackd").ok()?;
+        let net = cached_netstackd_client().ok()?;
         let req = [MAGIC0, MAGIC1, VERSION, OP_LOCAL_ADDR];
         let rsp = rpc(&net, &req).ok()?;
         if rsp[0] != MAGIC0
@@ -4359,7 +4416,7 @@ mod os_lite {
 
         // Bounded debug: if routing is missing, remote proof can never succeed.
         static mut ROUTE_LOGGED: bool = false;
-        let d = match KernelClient::new_for("dsoftbusd") {
+        let d = match cached_dsoftbusd_client() {
             Ok(x) => x,
             Err(_) => {
                 unsafe {
@@ -4402,7 +4459,7 @@ mod os_lite {
         const OP: u8 = 2;
         const STATUS_OK: u8 = 0;
 
-        let d = KernelClient::new_for("dsoftbusd").map_err(|_| ())?;
+        let d = cached_dsoftbusd_client().map_err(|_| ())?;
         let req = [D0, D1, VER, OP];
         d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
         let rsp =
@@ -5258,7 +5315,7 @@ mod os_lite {
 
         // 2) Send a CAP_MOVE ping to samgrd, moving reply_send_slot as the reply cap.
         //    samgrd will reply by sending "PONG"+nonce on the moved cap and then closing it.
-        let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
+        let sam = cached_samgrd_client().map_err(|_| ())?;
         // Keep our reply-send slot by cloning it and moving the clone.
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
         let mut frame = [0u8; 12];
@@ -5291,7 +5348,7 @@ mod os_lite {
 
     fn sender_pid_probe() -> core::result::Result<(), ()> {
         let me = nexus_abi::pid().map_err(|_| ())?;
-        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+        let reply = cached_reply_client().map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let clock = OsClock;
         let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).map_err(|_| ())?;
@@ -5300,7 +5357,7 @@ mod os_lite {
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
 
-        let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
+        let sam = cached_samgrd_client().map_err(|_| ())?;
         let mut frame = [0u8; 16];
         frame[0] = b'S';
         frame[1] = b'M';
@@ -5366,7 +5423,7 @@ mod os_lite {
     }
 
     fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64, ()> {
-        let reply = KernelClient::new_for("@reply").map_err(|_| ())?;
+        let reply = cached_reply_client().map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let clock = OsClock;
         let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).map_err(|_| ())?;
@@ -5375,7 +5432,7 @@ mod os_lite {
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
 
-        let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
+        let sam = cached_samgrd_client().map_err(|_| ())?;
         let mut frame = [0u8; 12];
         frame[0] = b'S';
         frame[1] = b'M';
@@ -5464,7 +5521,7 @@ mod os_lite {
     /// - execd lifecycle regressions (spawn + wait)
     fn ipc_soak_probe() -> core::result::Result<(), ()> {
         // Set up a few clients once (avoid repeated route lookups / allocations).
-        let sam = KernelClient::new_for("samgrd").map_err(|_| ())?;
+        let sam = cached_samgrd_client().map_err(|_| ())?;
         // Deterministic reply inbox slots distributed by init-lite to selftest-client.
         const REPLY_RECV_SLOT: u32 = 0x17;
         const REPLY_SEND_SLOT: u32 = 0x18;

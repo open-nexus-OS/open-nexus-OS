@@ -1,6 +1,6 @@
 # RFC-0025: IPC liveness hardening v1 - bounded retry, correlation, and deterministic timeout contract
 
-- Status: In Progress
+- Status: In Review
 - Owners: @runtime @kernel-team
 - Created: 2026-02-16
 - Last Updated: 2026-02-16
@@ -16,7 +16,7 @@
 
 - **Phase 0 (shared retry/correlation contract)**: ✅
 - **Phase 1 (cross-service userspace migration)**: ✅
-- **Phase 2 (kernel-aligned overload/liveness hardening)**: 🟨 (implemented; SMP2 90s gate currently host-timeout sensitive, passes at 180s)
+- **Phase 2 (kernel-aligned overload/liveness hardening)**: ✅
 
 Definition:
 
@@ -162,7 +162,7 @@ Observed on 2026-02-16:
 
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` ✅
 - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` ✅
-- `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` 🟨 timeout close to `SELFTEST: end` under current host load.
+- `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` ✅
 - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=180s ./scripts/qemu-test.sh` ✅
 
 ### Deterministic markers (if applicable)

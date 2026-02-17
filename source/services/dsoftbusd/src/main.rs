@@ -21,12 +21,77 @@ nexus_service_entry::declare_entry!(os_entry);
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+use core::sync::atomic::{AtomicU32, Ordering};
+
 // Deterministic reply-inbox slots distributed by init-lite to dsoftbusd (recv=0x5 send=0x6).
 // Using these avoids reliance on routing v1 replies for "@reply" during early boot.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 const DSOFT_REPLY_RECV_SLOT: u32 = 0x5;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 const DSOFT_REPLY_SEND_SLOT: u32 = 0x6;
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+static SAMGRD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+static SAMGRD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+static BUNDLEMGRD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+static BUNDLEMGRD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+static LOGD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+static LOGD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn invalidate_cached_slots(send_slot: &AtomicU32, recv_slot: &AtomicU32) {
+    send_slot.store(0, Ordering::Relaxed);
+    recv_slot.store(0, Ordering::Relaxed);
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn cached_client_slots(
+    target: &str,
+    send_slot: &AtomicU32,
+    recv_slot: &AtomicU32,
+    force_refresh: bool,
+) -> Option<nexus_ipc::KernelClient> {
+    if !force_refresh {
+        let cached_send = send_slot.load(Ordering::Relaxed);
+        let cached_recv = recv_slot.load(Ordering::Relaxed);
+        if cached_send != 0 && cached_recv != 0 {
+            if let Ok(client) = nexus_ipc::KernelClient::new_with_slots(cached_send, cached_recv) {
+                return Some(client);
+            }
+            invalidate_cached_slots(send_slot, recv_slot);
+        }
+    }
+    let client = nexus_ipc::KernelClient::new_for(target).ok()?;
+    let (new_send, new_recv) = client.slots();
+    send_slot.store(new_send, Ordering::Relaxed);
+    recv_slot.store(new_recv, Ordering::Relaxed);
+    Some(client)
+}
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn cached_client_slots_bounded(
+    target: &str,
+    send_slot: &AtomicU32,
+    recv_slot: &AtomicU32,
+    attempts: usize,
+) -> Option<nexus_ipc::KernelClient> {
+    if let Some(client) = cached_client_slots(target, send_slot, recv_slot, false) {
+        return Some(client);
+    }
+    for _ in 0..attempts {
+        if let Some(client) = cached_client_slots(target, send_slot, recv_slot, true) {
+            return Some(client);
+        }
+        let _ = nexus_abi::yield_();
+    }
+    None
+}
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> core::result::Result<(), ()> {
@@ -2256,22 +2321,20 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
 
     // Node B: remote gateway server loop (serve requests from node-a).
     if !is_initiator {
-        let samgrd = loop {
-            match KernelClient::new_for("samgrd") {
-                Ok(c) => break c,
-                Err(_) => {
-                    let _ = yield_();
-                }
-            }
-        };
-        let bundlemgrd = loop {
-            match KernelClient::new_for("bundlemgrd") {
-                Ok(c) => break c,
-                Err(_) => {
-                    let _ = yield_();
-                }
-            }
-        };
+        let samgrd = cached_client_slots_bounded(
+            "samgrd",
+            &SAMGRD_SEND_SLOT_CACHE,
+            &SAMGRD_RECV_SLOT_CACHE,
+            128,
+        )
+        .ok_or(())?;
+        let bundlemgrd = cached_client_slots_bounded(
+            "bundlemgrd",
+            &BUNDLEMGRD_SEND_SLOT_CACHE,
+            &BUNDLEMGRD_RECV_SLOT_CACHE,
+            128,
+        )
+        .ok_or(())?;
         // Reply inbox for CAP_MOVE request/reply to local services.
         // Use deterministic init-lite distributed slots (avoid uncorrelated routing replies).
         let reply_send_slot: u32 = DSOFT_REPLY_SEND_SLOT;
@@ -2647,7 +2710,7 @@ fn cross_vm_main(net: &nexus_ipc::KernelClient, local_ip: [u8; 4]) -> core::resu
 
 #[cfg(all(target_os = "none", target_arch = "riscv64"))]
 fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
-    use nexus_ipc::{KernelClient, Wait};
+    use nexus_ipc::Wait;
 
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
@@ -2660,9 +2723,13 @@ fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
         return false;
     }
 
-    let logd = match KernelClient::new_for("logd") {
-        Ok(c) => c,
-        Err(_) => return false,
+    let mut logd_opt = cached_client_slots("logd", &LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE, false);
+    if logd_opt.is_none() {
+        logd_opt = cached_client_slots("logd", &LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE, true);
+    }
+    let Some(logd) = logd_opt else {
+        invalidate_cached_slots(&LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE);
+        return false;
     };
     // Use deterministic init-lite distributed reply inbox slots for dsoftbusd (recv=0x5 send=0x6).
     // Avoid relying on routing v1 here (uncorrelated replies under bring-up).
@@ -2686,6 +2753,7 @@ fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
     // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
     if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
         let _ = nexus_abi::cap_close(moved);
+        invalidate_cached_slots(&LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE);
         return false;
     }
 

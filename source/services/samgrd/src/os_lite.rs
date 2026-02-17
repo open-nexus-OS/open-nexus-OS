@@ -13,6 +13,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use core::fmt;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use nexus_abi::{cap_close, debug_putc, yield_};
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
@@ -72,6 +73,46 @@ const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_UNSUPPORTED: u8 = 3;
+static LOGD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+static LOGD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+static REPLY_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+static REPLY_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+
+fn invalidate_client_cache(send_slot: &AtomicU32, recv_slot: &AtomicU32) {
+    send_slot.store(0, Ordering::Relaxed);
+    recv_slot.store(0, Ordering::Relaxed);
+}
+
+fn cached_client(
+    target: &str,
+    send_slot: &AtomicU32,
+    recv_slot: &AtomicU32,
+    force_refresh: bool,
+) -> Option<KernelClient> {
+    if !force_refresh {
+        let cached_send = send_slot.load(Ordering::Relaxed);
+        let cached_recv = recv_slot.load(Ordering::Relaxed);
+        if cached_send != 0 && cached_recv != 0 {
+            if let Ok(client) = KernelClient::new_with_slots(cached_send, cached_recv) {
+                return Some(client);
+            }
+            invalidate_client_cache(send_slot, recv_slot);
+        }
+    }
+    let client = KernelClient::new_for(target).ok()?;
+    let (new_send, new_recv) = client.slots();
+    send_slot.store(new_send, Ordering::Relaxed);
+    recv_slot.store(new_recv, Ordering::Relaxed);
+    Some(client)
+}
+
+fn cached_logd_client(force_refresh: bool) -> Option<KernelClient> {
+    cached_client("logd", &LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE, force_refresh)
+}
+
+fn cached_reply_client(force_refresh: bool) -> Option<KernelClient> {
+    cached_client("@reply", &REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE, force_refresh)
+}
 
 /// Minimal samgrd bring-up service loop.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
@@ -401,83 +442,100 @@ fn append_probe_to_logd() -> bool {
     const STATUS_OK: u8 = 0;
     static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
 
-    let logd = match KernelClient::new_for("logd") {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let reply = match KernelClient::new_for("@reply") {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let (reply_send, reply_recv) = reply.slots();
-    let moved = match nexus_abi::cap_clone(reply_send) {
-        Ok(slot) => slot,
-        Err(_) => return false,
-    };
-
     let scope: &[u8] = b"samgrd";
     let msg: &[u8] = b"core service log probe: samgrd";
     if scope.len() > 64 || msg.len() > 256 {
         return false;
     }
 
-    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    let mut frame = alloc::vec::Vec::with_capacity(12 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
-    frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
-    frame.extend_from_slice(&nonce.to_le_bytes());
-    frame.push(LEVEL_INFO);
-    frame.push(scope.len() as u8);
-    frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
-    frame.extend_from_slice(&0u16.to_le_bytes()); // fields_len
-    frame.extend_from_slice(scope);
-    frame.extend_from_slice(msg);
-
-    // Deterministic: require an APPEND ack (bounded). This keeps the shared @reply inbox from filling.
-    if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
-        let _ = cap_close(moved);
-        return false;
-    }
-    let _ = cap_close(moved);
-
-    let start = nexus_abi::nsec().ok().unwrap_or(0);
-    let deadline = start.saturating_add(250_000_000); // 250ms
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 64];
-    let mut spins: usize = 0;
-    loop {
-        if (spins & 0x7f) == 0 {
-            let now = nexus_abi::nsec().ok().unwrap_or(0);
-            if now >= deadline {
-                return false;
+    for force_refresh in [false, true] {
+        let logd = match cached_logd_client(force_refresh) {
+            Some(client) => client,
+            None => {
+                invalidate_client_cache(&LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE);
+                continue;
             }
+        };
+        let reply = match cached_reply_client(force_refresh) {
+            Some(client) => client,
+            None => {
+                invalidate_client_cache(&REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE);
+                continue;
+            }
+        };
+        let (reply_send, reply_recv) = reply.slots();
+        let moved = match nexus_abi::cap_clone(reply_send) {
+            Ok(slot) => slot,
+            Err(_) => {
+                invalidate_client_cache(&REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE);
+                continue;
+            }
+        };
+
+        let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let mut frame =
+            alloc::vec::Vec::with_capacity(12 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
+        frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+        frame.extend_from_slice(&nonce.to_le_bytes());
+        frame.push(LEVEL_INFO);
+        frame.push(scope.len() as u8);
+        frame.extend_from_slice(&(msg.len() as u16).to_le_bytes());
+        frame.extend_from_slice(&0u16.to_le_bytes()); // fields_len
+        frame.extend_from_slice(scope);
+        frame.extend_from_slice(msg);
+
+        // Deterministic: require an APPEND ack (bounded). This keeps the shared @reply inbox from filling.
+        if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
+            let _ = cap_close(moved);
+            invalidate_client_cache(&LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE);
+            invalidate_client_cache(&REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE);
+            continue;
         }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n >= 13 && buf[0] == MAGIC0 && buf[1] == MAGIC1 && buf[2] == VERSION {
-                    if buf[3] == (OP_APPEND | 0x80) {
-                        if let Ok((status, got_nonce)) =
-                            nexus_ipc::logd_wire::parse_append_response_v2_prefix(&buf[..n])
-                        {
-                            if got_nonce == nonce {
-                                return status == STATUS_OK;
+        let _ = cap_close(moved);
+
+        let start = nexus_abi::nsec().ok().unwrap_or(0);
+        let deadline = start.saturating_add(250_000_000); // 250ms
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64];
+        let mut spins: usize = 0;
+        loop {
+            if (spins & 0x7f) == 0 {
+                let now = nexus_abi::nsec().ok().unwrap_or(0);
+                if now >= deadline {
+                    break;
+                }
+            }
+            match nexus_abi::ipc_recv_v1(
+                reply_recv,
+                &mut hdr,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => {
+                    let n = core::cmp::min(n as usize, buf.len());
+                    if n >= 13 && buf[0] == MAGIC0 && buf[1] == MAGIC1 && buf[2] == VERSION {
+                        if buf[3] == (OP_APPEND | 0x80) {
+                            if let Ok((status, got_nonce)) =
+                                nexus_ipc::logd_wire::parse_append_response_v2_prefix(&buf[..n])
+                            {
+                                if got_nonce == nonce {
+                                    return status == STATUS_OK;
+                                }
                             }
                         }
                     }
+                    let _ = yield_();
                 }
-                let _ = yield_();
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = yield_();
+                }
+                Err(_) => break,
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return false,
+            spins = spins.wrapping_add(1);
         }
-        spins = spins.wrapping_add(1);
+        invalidate_client_cache(&LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE);
+        invalidate_client_cache(&REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE);
     }
+    false
 }
