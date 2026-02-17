@@ -1,7 +1,7 @@
 # TASK-0013B / RFC-0026 Review Package
 
 Date: 2026-02-12
-Status: Review ready (task is `In Review`)
+Status: Review ready (task is `Done`)
 
 ## Scope closed in this package
 

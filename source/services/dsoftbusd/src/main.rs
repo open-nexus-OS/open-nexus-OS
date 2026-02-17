@@ -2723,7 +2723,8 @@ fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
         return false;
     }
 
-    let mut logd_opt = cached_client_slots("logd", &LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE, false);
+    let mut logd_opt =
+        cached_client_slots("logd", &LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE, false);
     if logd_opt.is_none() {
         logd_opt = cached_client_slots("logd", &LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE, true);
     }

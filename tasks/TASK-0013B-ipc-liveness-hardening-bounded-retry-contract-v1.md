@@ -1,6 +1,6 @@
 ---
 title: TASK-0013B IPC liveness hardening v1: bounded retry/correlation contract across services
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-02-16
 links:
@@ -142,3 +142,7 @@ Latest evidence (2026-02-16):
 - [x] Phase 6 RFC-0026 control-plane optimization slice
 - [x] Phase 7 RFC-0026 data-plane alignment slice
 - [x] Phase 8 proof + review sync for reopened scope
+
+Task closure state:
+
+- ✅ `Done` (explicit closure command applied)

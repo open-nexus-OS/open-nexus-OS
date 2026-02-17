@@ -1,7 +1,7 @@
-# Current Handoff: TASK-0013B IPC liveness hardening — extension in review
+# Current Handoff: TASK-0013B IPC liveness hardening — extension closed
 
 **Date**: 2026-02-16  
-**Status**: `TASK-0013B` is now `In Review` with the RFC-0026 extension slices implemented and proofed.
+**Status**: `TASK-0013B` is now `Done` with the RFC-0026 extension slices implemented and proofed.
 **Contract seed**: `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` (extends RFC-0025 baseline)
 
 ---
@@ -43,8 +43,8 @@
 
 ## Active focus (next)
 
-- Hold `TASK-0013B` in `In Review` until explicit close decision.
-- Preserve sequential QEMU proof discipline for any re-runs and incremental follow-up optimization work.
+- `TASK-0013B` closure is complete; preserve sequential QEMU proof discipline for any follow-up reruns.
+- Wait for explicit next-task selection before opening a new execution slice.
 
 ## Closure note
 

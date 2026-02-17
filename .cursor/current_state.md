@@ -12,7 +12,7 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` moved to `In Review` after RFC-0026 extension implementation + proof package
+- **last_decision**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` moved to `Done` after RFC-0026 extension implementation + proof package
 - **rationale**:
   - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
   - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
@@ -33,7 +33,7 @@ Rules:
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (in review)
+- **active_task**: none (`TASK-0013B` closed; awaiting next task selection)
 - **seed_contract**: `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` (active extension contract for TASK-0013B performance slices)
 - **contract_dependencies**:
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (bounded log sink baseline)
@@ -41,9 +41,9 @@ Rules:
   - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (shared-inbox correlation floor)
   - `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md` (bounded retry/correlation baseline now treated as completed base for extension)
   - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (timed producer baseline)
-- **phase_now**: TASK-0013B extension review hold (implementation complete, awaiting closure decision)
+- **phase_now**: TASK-0013B closure sync complete
 - **baseline_commit**: `f44a4f7`
-- **next_task_slice**: keep sequential proof discipline for any rerun and decide close vs optional follow-up optimization slices
+- **next_task_slice**: choose and scope the next task; preserve sequential QEMU proof discipline for reruns
 - **proof_commands**:
   - `cargo test --workspace`
   - `just dep-gate`
@@ -124,14 +124,14 @@ Rules:
   - approved implementation reality:
     - kernel stabilization exception is accepted for this slice (heap budget increase + alloc diagnostics), with no kernel ABI expansion.
   - full-scope closure slices implemented and proofed; task closed by explicit status command.
-- `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` — **IN REVIEW (EXTENDED)**:
+- `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` — **DONE (EXTENDED)**:
   - RFC seed created: `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`.
   - Extension contract created: `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md`.
   - Drift-free task/index scaffolding created and linked.
   - Shared bounded retry helper contract implemented in `userspace/nexus-ipc` with `NonceMismatchBudget` + `RouteRetryOutcome` (`#[must_use]`).
   - Service migrations landed for `timed`, `metricsd`, `rngd`, `execd`, `keystored`, `statefsd`, `policyd`, and `updated`.
   - Kernel-aligned liveness hardening test added in `source/kernel/neuron/src/sched/mod.rs` (`set_task_qos` queue-full revert contract).
-  - Current extension objective: reduce SMP=2 timeout pressure toward 90s with deterministic, minimal-invasive control-plane/data-plane optimizations (no ABI drift).
+  - Extension objective completed: reduced SMP=2 timeout pressure toward 90s with deterministic, minimal-invasive control-plane/data-plane optimizations (no ABI drift).
   - Proof snapshot:
     - ✅ `cargo test -p nexus-ipc -- --nocapture`
     - ✅ `cargo test -p timed -- --nocapture`

@@ -44,7 +44,7 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 | TASK-0011B | Kernel Rust idioms pre-SMP | Queued | TASK-0011 | Ownership + newtypes |
 | TASK-0012 | Kernel SMP v1 | Done | TASK-0011, TASK-0011B | Baseline complete; maintain proof stability |
 | TASK-0012B | Kernel SMP v1b hardening bridge | Queued | TASK-0012 | Scheduler/SMP hardening without scope drift |
-| TASK-0013B | IPC liveness hardening v1 (bounded retry/correlation) | In Review | TASK-0013 | Review package prepared; keep sequential proof discipline for any follow-up reruns |
+| TASK-0013B | IPC liveness hardening v1 (bounded retry/correlation) | Done | TASK-0013 | Closed with review package + sequential proof discipline documented |
 
 ---
 

@@ -10,7 +10,7 @@ It should be updated during the previous task's wrap-up, before handing off.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (**IN REVIEW (extended)**)
+- **task**: none (`TASK-0013B` is **DONE**; awaiting explicit next-task selection)
 - **handoff_target**: `.cursor/handoff/current.md` (always updated as the live entry-point)
 - **handoff_archive**: `.cursor/handoff/archive/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (latest completed-task snapshot, present)
 - **linked_contracts**:
@@ -21,10 +21,10 @@ It should be updated during the previous task's wrap-up, before handing off.
   - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (baseline contract completed; this task is hardening follow-up)
   - `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` (kernel runtime hardening dependency context)
   - `scripts/qemu-test.sh` (marker contract; deterministic proof gate)
-- **first_action**: review package handoff is complete; hold for closure decision or explicit follow-up optimization scope.
+- **first_action**: pick the next task from `tasks/STATUS-BOARD.md` and sync handoff/current_state before execution.
 
 ## Start slice (now)
-- **slice_name**: TASK-0013B extension review hold / closure decision
+- **slice_name**: post-TASK-0013B closure / next-task selection
 - **target_file**: follow TASK-0013B touched-path allowlist only
 - **must_cover**:
   - bounded retry/deadline/mismatch behavior for routing + reply loops
@@ -37,7 +37,7 @@ It should be updated during the previous task's wrap-up, before handing off.
 2. **TASK-0012**: complete
 3. **TASK-0012B**: complete
 4. **TASK-0013**: complete
-5. **TASK-0013B**: in review (extended)
+5. **TASK-0013B**: done (extended)
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
@@ -64,7 +64,7 @@ It should be updated during the previous task's wrap-up, before handing off.
   - ✅ deterministic proof policy remains aligned (`scripts/qemu-test.sh`, modern MMIO floor)
 
 ## Decision
-- **status**: READY_FOR_REVIEW (TASK-0013B extension implemented and proofed)
+- **status**: READY (TASK-0013B closed; repo waiting for next execution target)
 - **notes**:
   - keep scope local and deterministic; avoid follow-up creep
   - maintain reject-first security posture with explicit negative tests
