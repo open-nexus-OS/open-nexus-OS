@@ -1,0 +1,11 @@
+[package]
+name = "ipc-bench-cross"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nexus-abi = { path = "../../libs/nexus-abi" }
+nexus-service-entry = { path = "../../libs/nexus-service-entry" }
+
+[features]
+os-lite = []

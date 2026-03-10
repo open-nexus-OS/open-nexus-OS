@@ -1,0 +1,19 @@
+[package]
+name = "ipc-bench-client"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[features]
+default = []
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+]
+
+[dependencies]
+nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../../source/libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }

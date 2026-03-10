@@ -1,0 +1,18 @@
+[package]
+name = "ipc-bench-simple"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "ipc-bench-simple"
+path = "src/main.rs"
+
+[features]
+default = []
+os-lite = []
+
+[dependencies]
+nexus-abi = { path = "../../libs/nexus-abi" }
+nexus-service-entry = { path = "../../libs/nexus-service-entry" }

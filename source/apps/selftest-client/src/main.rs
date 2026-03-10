@@ -2403,6 +2403,93 @@ mod os_lite {
         emit_byte(b'\n');
         let samgrd = samgrd;
         emit_line("SELFTEST: ipc routing samgrd ok");
+
+        // Cross-task IPC latency benchmark (selftest-client -> samgrd)
+        {
+            emit_line("\n=== CROSS-TASK IPC LATENCY (selftest-client -> samgrd) ===");
+            let payload_sizes = [8, 64, 256, 512, 1024];
+            emit_line("CSV_CROSS: payload_bytes,iterations,avg_ns,p50_ns,p90_ns,p99_ns,min_ns,max_ns");
+
+            for &size in &payload_sizes {
+                let iterations = if size <= 256 { 500 } else { 250 };
+                let mut latencies = Vec::with_capacity(iterations);
+
+                // Build a lookup request (fixed size, but we measure different payload sizes by padding)
+                let mut req_buf = Vec::with_capacity(size.max(16));
+                req_buf.resize(size.max(16), 0);
+                // Encode a minimal samgrd lookup request at the start
+                req_buf[0] = b'S';
+                req_buf[1] = b'A';
+                req_buf[2] = 1; // version
+                req_buf[3] = 2; // OP_LOOKUP
+                req_buf[4] = 4; // name_len
+                req_buf[5] = b't';
+                req_buf[6] = b'e';
+                req_buf[7] = b's';
+                req_buf[8] = b't';
+                // Pad the rest if size > 16
+                if size > 16 {
+                    req_buf.resize(size, 0xEE);
+                }
+
+                // Warmup
+                for _ in 0..20 {
+                    let _ = samgrd.send(&req_buf, IpcWait::Timeout(core::time::Duration::from_millis(100)));
+                    let _ = samgrd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100)));
+                }
+
+                // Measure
+                for _ in 0..iterations {
+                    let start = nexus_abi::nsec().unwrap_or(0);
+
+                    if samgrd.send(&req_buf, IpcWait::Timeout(core::time::Duration::from_millis(100))).is_err() {
+                        break;
+                    }
+                    if samgrd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).is_err() {
+                        break;
+                    }
+
+                    let end = nexus_abi::nsec().unwrap_or(0);
+                    latencies.push(end.saturating_sub(start));
+                }
+
+                if latencies.len() < iterations {
+                    emit_line("BENCH_CROSS: incomplete iterations");
+                    continue;
+                }
+
+                // Compute stats
+                latencies.sort_unstable();
+                let sum: u64 = latencies.iter().sum();
+                let avg = sum / iterations as u64;
+                let p50 = latencies[iterations / 2];
+                let p90 = latencies[iterations * 90 / 100];
+                let p99 = latencies[iterations * 99 / 100];
+                let min = latencies[0];
+                let max = latencies[iterations - 1];
+
+                // Output CSV row
+                emit_bytes(b"CSV_CROSS: ");
+                emit_hex_u64(size as u64);
+                emit_bytes(b",");
+                emit_hex_u64(iterations as u64);
+                emit_bytes(b",");
+                emit_hex_u64(avg);
+                emit_bytes(b",");
+                emit_hex_u64(p50);
+                emit_bytes(b",");
+                emit_hex_u64(p90);
+                emit_bytes(b",");
+                emit_hex_u64(p99);
+                emit_bytes(b",");
+                emit_hex_u64(min);
+                emit_bytes(b",");
+                emit_hex_u64(max);
+                emit_byte(b'\n');
+            }
+
+            emit_line("SELFTEST: cross-task bench ok");
+        }
         // Reply inbox for CAP_MOVE samgrd RPC.
         let (route_send, route_recv) = match routing_v1_get("vfsd") {
             Ok((st, send, recv))

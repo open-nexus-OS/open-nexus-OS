@@ -1,41 +1,19 @@
-#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
-
-// Copyright 2024 Open Nexus OS Contributors
-// SPDX-License-Identifier: Apache-2.0
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
 
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
 fn main() {}
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod os_entry {
-    use nexus_init::os_payload::{self, ReadyNotifier};
+    use nexus_abi::{debug_putc, ipc_send_v1, ipc_recv_v1, nsec, MsgHeader};
     use nexus_service_entry::declare_entry;
 
-    declare_entry!(init_main);
+    extern crate alloc;
+    use alloc::vec::Vec;
 
-    mod services {
-        include!(concat!(env!("OUT_DIR"), "/services.rs"));
-    }
+    declare_entry!(bench_main);
 
-    type Result<T> = core::result::Result<T, os_payload::InitError>;
-
-    fn init_main() -> Result<()> {
-        let notifier = ReadyNotifier::new(|| ());
-
-        // Run loopback IPC benchmarks before entering main loop
-        run_ipc_benchmarks();
-
-        match os_payload::service_main_loop_images(services::SERVICE_IMAGES, notifier) {
-            Ok(()) => unreachable!(),
-            Err(err) => os_payload::fatal_err(err),
-        }
-    }
-
-    fn run_ipc_benchmarks() {
-        use nexus_abi::{debug_putc, ipc_endpoint_create_v2, ipc_send_v1, ipc_recv_v1, nsec, MsgHeader, IPC_SYS_NONBLOCK};
-        extern crate alloc;
-        use alloc::vec::Vec;
-
+    fn bench_main() -> Result<(), ()> {
         fn print(s: &str) {
             for b in s.bytes() {
                 let _ = debug_putc(b);
@@ -63,42 +41,37 @@ mod os_entry {
             }
         }
 
-        print("BENCH: IPC benchmark starting (init-lite context)\n");
+        print("\n=== CROSS-TASK PING-PONG BENCHMARK ===\n");
 
-        // Create endpoint using factory in slot 1
-        let ep = match ipc_endpoint_create_v2(1, 4) {
-            Ok(slot) => {
-                print("BENCH: endpoint created in slot ");
-                print_u64(slot as u64);
-                print("\n");
-                slot
-            }
-            Err(_) => {
-                print("BENCH: ERROR - failed to create endpoint\n");
-                return;
-            }
-        };
+        // Endpoints configured by init-lite:
+        // slot 3: send to pong server
+        // slot 4: receive from pong server
+        let ep_send = 3;
+        let ep_recv = 4;
 
-        // Measure loopback latency for multiple payload sizes
-        let payload_sizes = [8, 64, 256, 512, 1024, 2048, 4096, 8192];
-
-        print("\n=== IPC LOOPBACK LATENCY SWEEP ===\n");
-        print("CSV: payload_bytes,iterations,avg_ns,p50_ns,p90_ns,p99_ns,min_ns,max_ns\n");
+        let payload_sizes = [8, 64, 256, 512, 1024];
+        print("CSV_CROSS: payload_bytes,iterations,avg_ns,p50_ns,p90_ns,p99_ns,min_ns,max_ns\n");
 
         for &size in &payload_sizes {
-            let iterations = if size <= 256 { 2_000 } else if size <= 1024 { 1_000 } else { 500 };
+            let iterations = if size <= 256 { 1_000 } else { 500 };
 
             let mut send_buf = Vec::with_capacity(size);
-            send_buf.resize(size, 0xAA);
+            send_buf.resize(size, 0xCC);
             let mut recv_buf = Vec::with_capacity(8192);
             recv_buf.resize(8192, 0);
 
             // Warmup
             for _ in 0..50 {
                 let hdr = MsgHeader::new(0, 0, 1, 0, size as u32);
-                let _ = ipc_send_v1(ep, &hdr, &send_buf, IPC_SYS_NONBLOCK, 0);
+                if ipc_send_v1(ep_send, &hdr, &send_buf, 0, 0).is_err() {
+                    print("BENCH_CROSS: ERROR - send failed during warmup\n");
+                    return Err(());
+                }
                 let mut rhdr = MsgHeader::new(0, 0, 0, 0, 0);
-                let _ = ipc_recv_v1(ep, &mut rhdr, &mut recv_buf, 0, 0);
+                if ipc_recv_v1(ep_recv, &mut rhdr, &mut recv_buf, 0, 0).is_err() {
+                    print("BENCH_CROSS: ERROR - recv failed during warmup\n");
+                    return Err(());
+                }
             }
 
             // Measure
@@ -107,12 +80,23 @@ mod os_entry {
                 let start = nsec().unwrap_or(0);
 
                 let hdr = MsgHeader::new(0, 0, 1, 0, size as u32);
-                let _ = ipc_send_v1(ep, &hdr, &send_buf, IPC_SYS_NONBLOCK, 0);
+                if ipc_send_v1(ep_send, &hdr, &send_buf, 0, 0).is_err() {
+                    print("BENCH_CROSS: ERROR - send failed\n");
+                    break;
+                }
                 let mut rhdr = MsgHeader::new(0, 0, 0, 0, 0);
-                let _ = ipc_recv_v1(ep, &mut rhdr, &mut recv_buf, 0, 0);
+                if ipc_recv_v1(ep_recv, &mut rhdr, &mut recv_buf, 0, 0).is_err() {
+                    print("BENCH_CROSS: ERROR - recv failed\n");
+                    break;
+                }
 
                 let end = nsec().unwrap_or(0);
                 latencies.push(end.saturating_sub(start));
+            }
+
+            if latencies.len() < iterations {
+                print("BENCH_CROSS: ERROR - incomplete iterations\n");
+                return Err(());
             }
 
             // Compute stats
@@ -126,7 +110,7 @@ mod os_entry {
             let max = latencies[iterations - 1];
 
             // Output CSV row
-            print("CSV: ");
+            print("CSV_CROSS: ");
             print_u64(size as u64);
             print(",");
             print_u64(iterations as u64);
@@ -145,6 +129,7 @@ mod os_entry {
             print("\n");
         }
 
-        print("\nSELFTEST: bench ok\n");
+        print("\nSELFTEST: cross-task bench ok\n");
+        Ok(())
     }
 }

@@ -963,6 +963,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipc-bench-client"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+]
+
+[[package]]
+name = "ipc-bench-cross"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+]
+
+[[package]]
+name = "ipc-bench-cross-simple"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+]
+
+[[package]]
+name = "ipc-bench-pong"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+]
+
+[[package]]
+name = "ipc-bench-server"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+]
+
+[[package]]
+name = "ipc-bench-simple"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
