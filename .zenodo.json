@@ -1,0 +1,27 @@
+{
+  "title": "Open Nexus OS",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "Apache-2.0",
+  "language": "eng",
+  "creators": [
+    {
+      "name": "Schäfer, Jenning",
+      "orcid": "0009-0004-6778-1398"
+    }
+  ],
+  "description": "Open Nexus OS is a research microkernel operating system written in Rust for RISC-V virtual hardware. The project follows a host-first, QEMU-last workflow and combines a minimal microkernel architecture with an OpenHarmony-inspired userspace. It emphasizes deterministic testing, capability-based security, and userspace-first service design.",
+  "keywords": [
+    "microkernel",
+    "operating system",
+    "Rust",
+    "RISC-V",
+    "capability-based security",
+    "research software"
+  ],
+  "communities": [
+    {
+      "identifier": "rse"
+    }
+  ]
+}
