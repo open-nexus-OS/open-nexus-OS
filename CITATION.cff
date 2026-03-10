@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use Open Nexus OS, please cite the software DOI and the related architecture papers listed in the README."
+title: "Open Nexus OS"
+type: software
+authors:
+  - family-names: "Schäfer"
+    given-names: "Jenning"
+    orcid: "https://orcid.org/0009-0004-6778-1398"
+doi: "10.5281/zenodo.18934993"
+license: "Apache-2.0"
+version: "0.0.1"
+date-released: "2026-03-10"
+repository-code: "https://github.com/open-nexus-OS/open-nexus-OS"
+url: "https://github.com/open-nexus-OS/open-nexus-OS"
+abstract: "Open Nexus OS is a Rust-based research microkernel operating system for RISC-V virtual hardware, focused on deterministic construction, capability-based security, and host-first, QEMU-last validation."
+keywords:
+  - "microkernel"
+  - "operating system"
+  - "Rust"
+  - "RISC-V"
+  - "capability-based security"
+  - "research software"

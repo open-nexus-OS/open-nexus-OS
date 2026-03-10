@@ -1,7 +1,20 @@
 # open-nexus-os
 
+[![Software DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.18934993-blue)](https://doi.org/10.5281/zenodo.18934993)
+
 Open Nexus OS is a research microkernel targeting QEMU RISC‑V `virt` hardware with an OpenHarmony‑inspired userland.
 The repo is run **host-first, QEMU-last**: most logic lives in host-testable userspace crates, while QEMU is used for bounded end-to-end smoke proofs.
+
+## Citation
+
+If you use Open Nexus OS in research or reference its architecture, please cite the software record and the related architecture series papers.
+
+- Software DOI: [10.5281/zenodo.18934993](https://doi.org/10.5281/zenodo.18934993)
+- Part I, Type-Driven Deterministic Construction of a Capability Microkernel: [10.5281/zenodo.18935402](https://doi.org/10.5281/zenodo.18935402)
+- Part II, Bounded Control-Plane IPC and Explicit Bulk Data Paths: [10.5281/zenodo.18935755](https://doi.org/10.5281/zenodo.18935755)
+- Part III, Service Planes and a Capability-Governed Mesh: [10.5281/zenodo.18938789](https://doi.org/10.5281/zenodo.18938789)
+- Part IV, Userspace Device Services Substrate: [10.5281/zenodo.18939217](https://doi.org/10.5281/zenodo.18939217)
+- Contract-Governed LLM Development: [10.5281/zenodo.18941284](https://doi.org/10.5281/zenodo.18941284)
 
 ## Quickstart (new machine)
 
