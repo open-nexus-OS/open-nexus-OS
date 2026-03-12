@@ -10,61 +10,56 @@ It should be updated during the previous task's wrap-up, before handing off.
 -->
 
 ## Candidate next task
-- **task**: none (`TASK-0013B` is **DONE**; awaiting explicit next-task selection)
+- **task**: `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
 - **handoff_target**: `.cursor/handoff/current.md` (always updated as the live entry-point)
-- **handoff_archive**: `.cursor/handoff/archive/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (latest completed-task snapshot, present)
+- **handoff_archive**: `.cursor/handoff/archive/TASK-0014-observability-v2-metrics-tracing.md` (latest completed-task snapshot, present)
 - **linked_contracts**:
-  - `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md` (seed contract)
-  - `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` (extension contract)
-  - `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (execution SSOT + stop conditions)
-  - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (nonce-correlation floor)
-  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (baseline contract completed; this task is hardening follow-up)
-  - `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` (kernel runtime hardening dependency context)
-  - `scripts/qemu-test.sh` (marker contract; deterministic proof gate)
-- **first_action**: pick the next task from `tasks/STATUS-BOARD.md` and sync handoff/current_state before execution.
+  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` (execution SSOT + stop conditions)
+  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md` (contract seed for the daemon refactor boundary)
+  - `docs/adr/0005-dsoftbus-architecture.md` (service boundary / backend architecture)
+  - `docs/distributed/dsoftbus-lite.md` (current daemon/backends overview)
+  - `scripts/qemu-test.sh` (single-VM marker contract)
+  - `tools/os2vm.sh` (cross-VM proof contract)
+- **first_action**: inspect `source/services/dsoftbusd/src/main.rs`, confirm extraction seams, and start the first behavior-preserving module split.
 
 ## Start slice (now)
-- **slice_name**: post-TASK-0013B closure / next-task selection
-- **target_file**: follow TASK-0013B touched-path allowlist only
+- **slice_name**: TASK-0015 preparation / first refactor slice
+- **target_file**: `source/services/dsoftbusd/src/main.rs`
 - **must_cover**:
-  - bounded retry/deadline/mismatch behavior for routing + reply loops
-  - preserve sender-identity and fail-closed correlation semantics
-  - deterministic markers and bounded test loops/timeouts
-  - preserve TASK-0013/TASK-0014 behavior and marker ladders (no regressions)
+  - keep single-VM and cross-VM behavior unchanged
+  - preserve marker names, marker timing semantics, and bounded retry loops
+  - preserve nonce-correlated reply handling and remote proxy deny-by-default behavior
+  - create seams for netstack IPC, discovery, session, gateway, and observability code
 
 ## Execution order
-1. **TASK-0011B**: complete
-2. **TASK-0012**: complete
-3. **TASK-0012B**: complete
-4. **TASK-0013**: complete
-5. **TASK-0013B**: done (extended)
+1. **TASK-0014**: complete
+2. **TASK-0015**: ready to start
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
-  - prereqs for local observability v2 are done (`TASK-0006`, `TASK-0009`, `TASK-0013`, `RFC-0019`)
+  - task order is synced through `TASK-0014`; `TASK-0015` is the next explicit slice
 - **best_system_solution**: YES
-  - local-first metrics/tracing baseline reduces risk before remote/cross-node expansion
+  - preparatory daemon modularization reduces risk before new DSoftBus features land
 - **scope_clear**: YES
-  - remote/cross-node explicitly deferred to `TASK-0038` and `TASK-0040`
+  - task explicitly forbids new features, protocol changes, and shared-core extraction
 - **touched_paths_allowlist_present**: YES
-  - task includes dedicated touched list for service/lib/selftest/docs/harness
+  - task limits edits to `source/services/dsoftbusd/**` plus narrow docs sync
 
 ## Header / follow-up hygiene
 - **follow_ups_in_task_header**: YES
-  - task header now lists `TASK-0038/0040/0041/0143/0046`
+  - task header links the immediate DSoftBus follow-ons (`TASK-0016`, `TASK-0020`, `TASK-0021`, `TASK-0022`)
 - **security_considerations_complete**: YES
-  - threat model, invariants, DON'T DO, mitigations, security proof and hardening markers are present
+  - threat model, invariants, DON'T DO, mitigations, and proof expectations are present
 
 ## Dependencies & blockers
 - **blocked_by**: none
 - **prereqs_ready**: YES
-  - ✅ `TASK-0006` completed (logd sink)
-  - ✅ `TASK-0009` completed (`/state`)
-  - ✅ `TASK-0013` completed (timed producer + QoS baseline)
-  - ✅ deterministic proof policy remains aligned (`scripts/qemu-test.sh`, modern MMIO floor)
+  - ✅ `TASK-0005` completed (cross-VM DSoftBus baseline)
+  - ✅ `TASK-0014` completed and archived
+  - ✅ deterministic proof policy remains aligned (`scripts/qemu-test.sh`, `tools/os2vm.sh`)
 
 ## Decision
-- **status**: READY (TASK-0013B closed; repo waiting for next execution target)
+- **status**: ACTIVE (`TASK-0015` is now in progress; preparation files synced)
 - **notes**:
-  - keep scope local and deterministic; avoid follow-up creep
-  - maintain reject-first security posture with explicit negative tests
+  - keep the task strictly refactor-only
+  - prefer one extraction seam at a time and recheck proofs after each substantial split

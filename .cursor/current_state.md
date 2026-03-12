@@ -12,48 +12,42 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` moved to `Done` after RFC-0026 extension implementation + proof package
+- **last_decision**: `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` selected as the next execution slice after `TASK-0014`
 - **rationale**:
-  - Lower kernel debug/navigation cost with explicit module headers and a stable physical layout
-  - Make pre-SMP ownership and concurrency boundaries explicit before behavioral SMP work
-  - Lock TASK-0012 authority boundaries early (no duplicate SMP stack in TASK-0247 extensions)
-  - Deterministic persistence substrate for `/state` with bounded replay and CRC32-C integrity
-  - Deterministic request/reply correlation (nonces + bounded dispatcher) to avoid shared-inbox desync under QEMU/OS
-  - QEMU harness defaults to modern virtio-mmio (legacy opt-in) for virtio-blk determinism
-  - QEMU smoke proofs must be deterministic; networking proofs are opt-in (ADR-0025)
-  - StateFS v1 remains a service authority (no VFS mount in v1)
+  - `dsoftbusd` currently concentrates transport IPC, discovery, session lifecycle, handshake, gateway, and observability in one OS-specific `main.rs`
+  - Upcoming DSoftBus work (`TASK-0016`, `TASK-0020`, `TASK-0021`, `TASK-0022`) needs clearer internal seams before new behavior is added
+  - This refactor should reduce review risk and make future changes narrower without reopening transport contracts
 - **active_constraints**:
   - No fake success markers (only emit `ok` after real behavior proven)
   - OS-lite feature gating (`--no-default-features --features os-lite`)
-  - W^X for MMIO (device mappings are USER|RW, never EXEC)
-  - Policy decisions bound to kernel `sender_service_id` (not payload strings)
-  - All security decisions audited via logd (no secrets in logs)
-  - Kernel remains minimal (device enumeration, policy logic in userspace)
-  - CRC32-C (Castagnoli) is the StateFS v1 integrity contract
+  - Preserve existing DSoftBus wire formats, marker semantics, and retry/timeout budgets
+  - Keep remote proxy deny-by-default and keep nonce-correlated shared-inbox handling fail-closed
+  - No new DSoftBus features in this task; refactor only
+  - Kernel remains minimal; no kernel or netstack ownership changes
 
 ## Current focus (execution)
 
-- **active_task**: none (`TASK-0013B` closed; awaiting next task selection)
-- **seed_contract**: `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` (active extension contract for TASK-0013B performance slices)
+- **active_task**: `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+- **seed_contract**: `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
 - **contract_dependencies**:
-  - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (bounded log sink baseline)
-  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (`/state` substrate baseline for retention slices)
-  - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (shared-inbox correlation floor)
-  - `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md` (bounded retry/correlation baseline now treated as completed base for extension)
-  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (timed producer baseline)
-- **phase_now**: TASK-0013B closure sync complete
-- **baseline_commit**: `f44a4f7`
-- **next_task_slice**: choose and scope the next task; preserve sequential QEMU proof discipline for reruns
+  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+  - `docs/adr/0005-dsoftbus-architecture.md`
+  - `docs/distributed/dsoftbus-lite.md`
+  - `scripts/qemu-test.sh`
+  - `tools/os2vm.sh`
+- **phase_now**: task is in progress; first implementation slice should extract internal daemon seams without behavior change
+- **baseline_commit**: unknown (not captured in this prep slice)
+- **next_task_slice**: thin `main.rs`, create `os/` module tree, centralize transport/discovery/session/gateway seams
 - **proof_commands**:
-  - `cargo test --workspace`
+  - `cargo test -p dsoftbusd -- --nocapture`
   - `just dep-gate`
   - `just diag-os`
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-  - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- **last_completed**: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
-  - Proof gates: `cargo test --workspace`, `just dep-gate`, `just diag-os`, `just test-os`, `SMP=2 REQUIRE_SMP=1 ...`, `SMP=1 ...`, `make build`, `make test`, `make run`
-  - Outcome: QoS ABI hard rejects + timed coalescing service + deterministic audit/marker proofs
+  - `just diag-host`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- **last_completed**: `tasks/TASK-0014-observability-v2-metrics-tracing.md`
+  - Outcome: observability v2 closed; task tracking and handoff are now advanced to `TASK-0015`
 
 ## Active invariants (must hold)
 - **security**
@@ -76,124 +70,25 @@ Rules:
   - `just diag-os` verifies OS services compile for riscv64
 
 ## Open threads / follow-ups
-- `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` — **COMPLETED** (host tests + QEMU persistence markers green under modern virtio-mmio)
-- `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` — **COMPLETED** (Phases 0/1/2 green; LO v2 nonce frames implemented for multiplexed logd RPCs)
-- `userspace/nexus-ipc::reqrep` exists (bounded reply buffer + unit tests) and core services use strict nonce matching on shared inboxes.
-- Deterministic host tests now exist for IPC budget + **logd/policyd wire parsing**: `cargo test -p nexus-ipc` (no QEMU required for these proof slices)
-- `tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md` — draft; no longer blocked on persistence (TASK-0009 done); remaining gates are the update/apply/verify/commit implementation + proofs
-- `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — **CLOSED**:
-  - implemented: `timed` service + deterministic coalescing windows + per-owner timer cap + `timed: ready` + `SELFTEST: timed coalesce ok`
-  - implemented: QoS decode overflow hard reject (`-EINVAL`) and timer over-limit reject tests
-  - implemented: init-lite timed routing/wiring including deterministic self-route allow for service bootstrap
-  - implemented: exec-path stability unblock:
-    - fixed VMO arena identity-map/base mismatch (removed deterministic `KPGF` at `0x81800000` boundary),
-    - fixed post-unblock deterministic `ALLOC-FAIL` via AS/page-table reclamation on child reap (`destroy` + `PageTable::drop` heap-page free under `bringup_identity`),
-    - latest `RUN_PHASE=mmio` smoke is green (`exit_code=0`, no KPGF/ALLOC-FAIL).
-  - implemented: privileged QoS authority bound to kernel service identity (`execd`/`policyd`) instead of capability-slot shortcut.
-  - implemented: explicit audit trail for QoS/timer decisions (`QOS-AUDIT` + `timed: audit register ...`).
-  - proof reruns green: host gates + `just test-os` + SMP=2 + SMP=1 after final patch.
-- `tasks/TASK-0014-observability-v2-metrics-tracing.md` — **DONE**:
-  - phase-0a logd hardening and phase-0 metricsd+nexus-metrics baseline are green in mmio proofs,
-  - `metricsd -> nexus-log -> logd` path stabilized by explicit per-service `configure_sink_logd_slots(...)` contract,
-  - current proven runtime progress:
-    - `SELFTEST: metrics security rejects ok`
-    - `SELFTEST: metrics counters ok`
-    - `SELFTEST: metrics gauges ok`
-    - `SELFTEST: metrics histograms ok`
-    - `SELFTEST: tracing spans ok`
-    - `SELFTEST: metrics retention ok`
-    - `SELFTEST: device key pubkey ok`
-    - `SELFTEST: statefs put ok`
-    - `SELFTEST: statefs persist ok`
-    - `SELFTEST: ota stage ok`
-    - `SELFTEST: ota switch ok`
-    - `SELFTEST: ota health ok`
-    - `SELFTEST: ota rollback ok`
-    - `SELFTEST: bootctl persist ok`
-  - latest ladder proof: `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` returned `exit_code=0` with no missing marker and included `[INFO metricsd] retention wal verified`.
-  - final closure run in this slice also passed:
-    - `just dep-gate`
-    - `just diag-os`
-    - `cargo test --workspace`
-    - `RUN_PHASE=mmio RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-  - additional hardening applied in this slice:
-    - `selftest-client` logd STATS path migrated to CAP_MOVE + nonce-correlation on shared reply inbox (eliminates false zero-count/delta regressions under alias sender IDs),
-    - `policyd` identity checks now normalize known bring-up alias IDs for sender-bound checks and delegated subjects (`updated` alias included),
-    - `metricsd` retention path now uses bounded non-blocking `/state` writes with deterministic WAL/rollup/TTL behavior and proof marker.
-    - fail-closed nonce-correlated delegated-cap decode helpers are now centralized and unit-tested in `execd`, `rngd`, `keystored`, and `statefsd`.
-  - approved implementation reality:
-    - kernel stabilization exception is accepted for this slice (heap budget increase + alloc diagnostics), with no kernel ABI expansion.
-  - full-scope closure slices implemented and proofed; task closed by explicit status command.
-- `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` — **DONE (EXTENDED)**:
-  - RFC seed created: `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`.
-  - Extension contract created: `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md`.
-  - Drift-free task/index scaffolding created and linked.
-  - Shared bounded retry helper contract implemented in `userspace/nexus-ipc` with `NonceMismatchBudget` + `RouteRetryOutcome` (`#[must_use]`).
-  - Service migrations landed for `timed`, `metricsd`, `rngd`, `execd`, `keystored`, `statefsd`, `policyd`, and `updated`.
-  - Kernel-aligned liveness hardening test added in `source/kernel/neuron/src/sched/mod.rs` (`set_task_qos` queue-full revert contract).
-  - Extension objective completed: reduced SMP=2 timeout pressure toward 90s with deterministic, minimal-invasive control-plane/data-plane optimizations (no ABI drift).
-  - Proof snapshot:
-    - ✅ `cargo test -p nexus-ipc -- --nocapture`
-    - ✅ `cargo test -p timed -- --nocapture`
-    - ✅ `cargo test --workspace`
-    - ✅ `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-    - ✅ `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-    - ✅ `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-    - ✅ `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=180s ./scripts/qemu-test.sh`
-    - discipline note: parallel QEMU runs are treated as invalid evidence; all proofs above are from sequential runs.
-- DMA capability model (future) — out of scope for MMIO v1
-- IRQ delivery to userspace (future) — separate RFC needed
-- virtio virtqueue operations beyond MMIO probing — follow-up after statefs proven
-- **kernel execution order (current)**:
-  - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — complete (phases 0→5, proofs green)
-  - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — complete (SMP baseline + anti-fake markers + negative tests)
-  - `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` — complete (bounded enqueue, trap/IPI contract hardening, CPU-ID guarded hybrid path)
-  - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — complete (QoS ABI + timed coalescing closure)
-  - `tasks/TASK-0014-observability-v2-metrics-tracing.md` — done (metricsd + tracing export via logd; closure command applied)
-- **exported prerequisites**:
-  - `TASK-0013`: consumes 0012+0012B scheduler baseline (no alternate scheduler authority)
-  - `TASK-0014`: consumes `TASK-0006` + `TASK-0009` + `RFC-0019` + `TASK-0013`; exports baseline for `TASK-0038/0040/0041/0143/0046`
-  - `TASK-0042`: extends affinity/shares without violating 0012+0012B ownership and bounded-steal invariants
-  - `TASK-0247`: may harden SBI/HSM/IPI/per-hart timers on top of 0012+0012B only
-  - `TASK-0283`: optional `PerCpu<T>` hardening layer refines 0012+0012B contracts only
-  - `TASK-0013` must keep mutable trap-runtime boundary unchanged (boot-hart-only until `TASK-0247`)
+- `TASK-0015` should prepare, but not subsume, `TASK-0022`:
+  - extract seams inside `dsoftbusd`
+  - do not move logic into shared crates unless the task scope is updated explicitly
+- Keep `source/services/dsoftbusd/src/main.rs` behavior-stable while splitting:
+  - netstack IPC adapter
+  - discovery state
+  - session FSM / handshake
+  - gateway / local IPC
+  - observability helpers
+- If the refactor reveals a missing external contract, stop and decide whether a new RFC/ADR is required before continuing.
 
 ## Known risks / hazards
-- **Post-TASK-0012 carry-over**:
-  - Keep SMP proof ladder sequential; parallel QEMU runs can still produce lock/contention artifacts.
-  - TASK-0012B/TASK-0013/TASK-0042 must preserve `test_reject_*` determinism and the strict IPI evidence chain.
-  - TASK-0012B must make queue/backpressure and CPU-ID fast-path/fallback contracts explicit and tested.
-- **QEMU smoke gating**:
-  - Default `just test-os` now reaches `SELFTEST: end` deterministically and early-exits within the 90s harness timeout (no missing-marker deadlocks).
-  - `REQUIRE_QEMU_DHCP=1` is green because we accept the honest static fallback marker when DHCP does not bind.
-  - `REQUIRE_QEMU_DHCP_STRICT=1` is green and now reaches DHCP bound again:
-    - Root cause (resolved): virtio-net RX parsing assumed a 10-byte header, but QEMU delivered frames with the 12-byte MRG_RXBUF header → Ethernet frames were misaligned and RX traffic was unreadable.
-    - After fixing the header length, strict mode reaches `net: dhcp bound ...` and emits the dependent proofs (`SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: icmp ping ok`).
-  - **Operational gotcha**: do not run multiple QEMU smoke runs in parallel; they contend on `build/blk.img` and can trip QEMU “write lock” errors. Run sequentially in CI/dev.
-- **Shared inbox correlation**:
-  - **StateFS** now uses a nonce-correlated `SF v2` frame shape for shared reply inbox calls (removes “drain stale replies” from the persistence proof path).
-  - Init-lite routing now supports a backwards-compatible routing v1+nonce extension so ctrl-plane queries no longer rely on stale-drain patterns.
-- **Policy timing**: early boot race between policyd readiness and init cap distribution
-  - Current: retry loops with bounded timeout (1s deadline)
-  - Future: explicit readiness channel to avoid retry polling
-- **MMIO slot discovery**: dynamic probing of virtio-mmio devices at fixed addresses
-  - Current: hardcoded QEMU virt addresses (0x10001000 + 0x1000 * slot)
-  - Future: proper device tree parsing if targeting real hardware
-- **TASK-0013 completion risk**:
-  - closed in this slice; no remaining exec/QoS/timed blocker observed in proof ladder.
-- **TASK-0014 execution risks (active)**:
-  - cardinality/rate limits must be enforced deterministically to avoid observability-induced DoS.
-  - local-v2 scope must remain strict (no remote/cross-node creep from `TASK-0038`/`TASK-0040`).
-  - proof must validate logd export path, not only local in-memory counters.
-- **TASK-0013B execution risks (active)**:
-  - service-local routing/reply loops may remain unbounded until migrated to shared bounded helpers.
-  - timeout semantics drift across services unless helper contract is adopted consistently.
-  - kernel-aligned hardening must not introduce alternate SMP/scheduler authority.
+- Refactor may accidentally change marker timing or the bounded retry semantics relied on by QEMU proofs.
+- Cross-VM path is especially regression-prone because transport helpers, session lifecycle, and gateway logic are interleaved in one file today.
+- Duplicate helper extraction across single-VM and cross-VM flows can drift if shared seams are chosen poorly.
+- QEMU proofs must still run sequentially; no parallel smoke or 2-VM runs on shared artifacts.
 
 ## DON'T DO (session-local)
-- DON'T add kernel MMIO grants via name-checks (init-controlled distribution only)
-- DON'T skip policy checks for "trusted" services (deny-by-default always)
 - DON'T emit `ready` or `ok` markers for stub/placeholder paths
 - DON'T add `parking_lot` or `getrandom` to OS service dependencies
-- DON'T extend TASK-0009 scope to include VFS mount (statefs authority first, mount is follow-up)
-- DON'T assume real reboot/VM reset works in v1 (soft reboot = statefsd restart only)
+- DON'T change DSoftBus wire formats, marker strings, or remote-proxy policy surface in this task
+- DON'T pull `TASK-0022` shared-core extraction into `TASK-0015` without updating the task scope first

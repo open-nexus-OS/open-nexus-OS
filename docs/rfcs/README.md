@@ -134,3 +134,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md
 - RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths (In Review)
   - docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
+- RFC-0027: DSoftBusd modular daemon structure v1 (In Progress)
+  - docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md

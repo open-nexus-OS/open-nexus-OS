@@ -8,43 +8,36 @@ This is the "everything green" guard against fake success.
 
 ## Automatic (must be green when applicable)
 - [ ] Host diagnostics compile (when host code touched): `just diag-host`
-- [ ] Host tests pass (when host tests exist/changed): `cargo test --workspace`
+- [ ] Narrow host/unit tests pass (when extracted seams get tests): `cargo test -p dsoftbusd -- --nocapture`
 - [ ] OS dependency gate (when OS code touched): `just dep-gate`
 - [ ] OS diagnostics compile (when OS code touched): `just diag-os`
-- [ ] QEMU smoke tests / marker run (when behavior affects OS runtime): `just test-os` or `RUN_UNTIL_MARKER=1 just test-os`
-- [ ] SMP tasks: dual-mode QEMU proof is green:
-  - [ ] `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (SMP marker gate enabled)
-  - [ ] `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (default smoke semantics preserved)
-  - [ ] (`just test-smp` is acceptable when it executes the same two commands)
+- [ ] Single-VM QEMU marker proof is green: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [ ] Cross-VM QEMU proof is green when the refactor touches the cross-VM path: `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
 - [ ] QEMU runs were executed sequentially (no parallel smoke/harness runs contending on shared artifacts)
-- [ ] Determinism floor respected: modern virtio-mmio default used for green proofs (legacy mode only for debug/bisect)
+- [ ] Determinism floor respected: existing marker order and bounded retry semantics preserved
 - [ ] No new lints in touched files (run lints per task or workspace policy)
 
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (from task + linked RFC)
 - [ ] Tests validate the **specified desired behavior** (Soll-Zustand), not current implementation quirks
 - [ ] No fake-success logs/markers introduced (ready/ok only after real behavior)
-- [ ] For TASK-0012B-class hardening: queue/backpressure and CPU-ID fast-path/fallback contracts are explicit and covered by tests/proofs
-- [ ] For TASK-0013-class policy work: QoS authorization semantics are explicit (self vs privileged other-pid) and covered by reject tests
-- [ ] For TASK-0013-class policy work: syscall arg decoding rejects non-representable wire values (no silent integer truncation)
-- [ ] For TASK-0013-class policy work: timer registration/coalescing bounds are explicit and covered by reject tests
-- [ ] For TASK-0014-class observability work: series/span/field bounds are explicit and enforced with deterministic rejects
-- [ ] For TASK-0014-class observability work: producer identity/policy uses kernel-authenticated `sender_service_id`, never payload claims
-- [ ] For TASK-0014-class observability work: logd export path is proven end-to-end (not only local in-memory counters)
-- [ ] For TASK-0014-class observability work: sensitive telemetry fields are denied/redacted and covered by negative tests
+- [ ] `main.rs` is thinner and the new module boundaries are cohesive rather than speculative
+- [ ] Netstack IPC adapter logic is centralized without changing on-wire frame shapes
+- [ ] Session/discovery/gateway code is extracted without changing marker meanings
+- [ ] Cross-VM path still proves authenticated session + remote proxy behavior
+- [ ] No follow-on feature scope (`mux`, `quic`, remote-fs, shared-core extraction) leaked into this task
 
 ## Post-implementation (before claiming "Done")
 
-- [ ] **RFC**: Status updated to repository convention (`Done`/`Complete`) if all proofs green; Implementation Checklist filled
-- [ ] **RFC README**: Entry updated with matching status in `docs/rfcs/README.md`
-- [ ] Tests green (`just test-host`, `just test-e2e`, and relevant QEMU markers)
+- [ ] **Task docs**: `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` still matches reality
+- [ ] Tests/proofs referenced in handoff and task evidence section
 - [ ] OS build hygiene passed (if OS code touched): `just dep-gate`, `just diag-os`
-- [ ] Lint + format passed: `just lint`, `just fmt-check`
+- [ ] Host diagnostics passed when applicable: `just diag-host`
 - [ ] No `unwrap`/`expect` on untrusted data in services
-- [ ] Security negative tests (`test_reject_*`) exist if security-relevant
+- [ ] Focused negative/unit tests exist if extracted seams justify them
 - [ ] Markers honest (no `ready/ok` for stub paths)
 - [ ] Headers updated (CONTEXT, TEST_COVERAGE, ADR)
-- [ ] Docs synced (architecture, testing, contracts)
+- [ ] Docs synced only where touched by the refactor (`docs/distributed/dsoftbus-lite.md`, `docs/testing/index.md`)
 - [ ] Follow-up boundaries are documented (no implicit scope creep into later tasks)
 - [ ] If task changed marker expectations/gates, `.cursor/current_state.md`, `.cursor/handoff/current.md`, and `.cursor/next_task_prep.md` are updated in the same slice
-- [ ] If task changes ownership/newtype/Send-Sync boundaries, task header and linked RFC contract are updated in the same slice
+- [ ] If the refactor reveals a missing external contract, stop and decide whether a new RFC/ADR is required before merging

@@ -140,6 +140,19 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `scripts/qemu-test.sh`
 - `docs/observability/`
 
+### @task_0015_context
+- `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+- `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `docs/distributed/dsoftbus-lite.md`
+- `scripts/qemu-test.sh`
+- `tools/os2vm.sh`
+
+### @task_0015_touched
+- `source/services/dsoftbusd/**`
+- `docs/distributed/dsoftbus-lite.md`
+- `docs/testing/index.md`
+
 ### @touched
 - Only the directories listed in the task's **Touched paths** allowlist.
 
@@ -164,3 +177,6 @@ Kontext strikt: @core_context @task_0014_context @quality_gates @task_0014_touch
 
 ## Standard instruction line (TASK-0013B)
 Kontext strikt: @core_context @task_0013b_context @quality_gates @task_0013b_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0015)
+Kontext strikt: @core_context @task_0015_context @quality_gates @task_0015_touched. Kein @codebase Scan.

@@ -42,7 +42,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Done (Tasks 0001–0008)
+## Done (Tasks 0001–0014)
 
 | Task | Title | Completed |
 |------|-------|-----------|
@@ -56,25 +56,31 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0006 | Observability v1: logd journal + crash reports | — |
 | ✅ TASK-0007 | Updates & Packaging v1.0: A/B skeleton | — |
 | ✅ TASK-0008 | Security hardening v1: policy engine + audit trail | 2026-01-25 |
+| ✅ TASK-0008B | Device identity keys v1 (virtio-rng + rngd + keystored keygen) | — |
+| ✅ TASK-0009 | Persistence v1 (virtio-blk + statefs) | — |
+| ✅ TASK-0010 | Device MMIO access model | — |
+| ✅ TASK-0011 | Kernel simplification phase A | — |
+| ✅ TASK-0011B | Kernel Rust idioms pre-SMP | — |
+| ✅ TASK-0012 | Kernel SMP v1 (per-CPU runqueues + IPIs) | — |
+| ✅ TASK-0012B | Kernel SMP v1b hardening bridge (scheduler + SMP internals) | — |
+| ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | — |
+| ✅ TASK-0013B | IPC liveness hardening v1: bounded retry/correlation | — |
+| ✅ TASK-0014 | Observability v2: metrics + tracing | — |
 
 ---
 
-## Current: TASK-0008B → TASK-0009 and onward
+## Current: TASK-0015 and onward
 
-Execute in numerical order. Current position: **TASK-0008B**.
+Execute in numerical order. Current position: **TASK-0015**.
 
 | Task | Title | Prereqs | Status |
 |------|-------|---------|--------|
-| **TASK-0008B** | Device identity keys v1 (virtio-rng + rngd + keystored keygen) | TASK-0008, TASK-0010 | Next |
-| TASK-0009 | Persistence v1 (virtio-blk + statefs) | TASK-0008B, TASK-0010 | Queued |
-| TASK-0010 | Device MMIO access model | — | Queued |
-| TASK-0011 | Kernel simplification phase A | — | Queued |
-| TASK-0011B | Kernel Rust idioms pre-SMP | TASK-0011 | Queued |
-| TASK-0012 | Kernel SMP v1 (per-CPU runqueues + IPIs) | TASK-0011, TASK-0011B | Queued |
-| TASK-0012B | Kernel SMP v1b hardening bridge (scheduler + SMP internals) | TASK-0012 | Queued |
-| TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | TASK-0012B | Queued |
-| TASK-0013B | IPC liveness hardening v1: bounded retry/correlation (RFC-0026 slices implemented; review package archived) | TASK-0013 | Done |
-| TASK-0014 | Observability v2: metrics + tracing | TASK-0006 | Done |
+| **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure without behavior change | — | Draft |
+| TASK-0016 | DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams | TASK-0005 | Draft |
+| TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Draft |
+| TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Draft |
+| TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |
+| TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Draft |
 
 ---
 
@@ -83,6 +89,7 @@ Execute in numerical order. Current position: **TASK-0008B**.
 Continue in numerical order after TASK-0014.
 
 Notable upcoming tasks:
+- **TASK-0015**: DSoftBusd refactor v1: modular OS daemon structure without behavior change
 - **TASK-0016–0024**: DSoftBus advanced features (remote packagefs, statefs, QUIC, etc.)
 - **TASK-0025–0028**: StateFS hardening + ABI filters v2
 - **TASK-0029**: Supply chain v1 (SBOM + signing policy)

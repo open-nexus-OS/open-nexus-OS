@@ -11,25 +11,15 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] All stated Security Invariants are enforced and have negative tests where appropriate (`test_reject_*`)
 - [ ] No regressions against `.cursor/current_state.md` constraints/invariants
 - [ ] Proof artifacts exist and are referenced in the task/handoff (tests, QEMU markers, logs)
-- [ ] For QoS/timed tasks:
-  - [ ] QoS set authorization semantics are explicit and tested (`self` vs privileged `other-pid`)
-  - [ ] Invalid QoS class and unauthorized set paths have reject tests
-  - [ ] Syscall argument decoding does not silently truncate/clamp wire values before validation (overflow rejects deterministically)
-  - [ ] Timer registration/coalescing bounds are explicit and have reject tests
-  - [ ] SMP marker semantics remain unchanged (no drift from TASK-0012/TASK-0012B)
-- [ ] For observability tasks (metrics/tracing/log export):
-  - [ ] Series cardinality, live spans, and payload sizes are bounded and enforced
-  - [ ] Invalid/malformed/oversized inputs have deterministic reject paths and negative tests
-  - [ ] Identity/policy checks are bound to authenticated `sender_service_id` (no payload-identity trust)
-  - [ ] Export proof validates sink path (`logd`) end-to-end with deterministic markers
-  - [ ] Scope remains local unless a follow-up task explicitly owns remote/cross-node behavior
-- [ ] For SMP/parallelism tasks:
-  - [ ] SMP>=2 proof is green (explicit marker-gated run)
-  - [ ] SMP=1 regression proof is green (default smoke behavior unchanged)
+- [ ] For TASK-0015-class daemon refactor work:
+  - [ ] `main.rs` is reduced to thin entry/wiring responsibilities
+  - [ ] Internal seams exist for transport IPC, discovery, session lifecycle, gateway/local IPC, and observability
+  - [ ] Existing DSoftBus wire formats are unchanged
+  - [ ] Existing marker names and marker semantics are unchanged
+  - [ ] Single-VM proof remains green
+  - [ ] Cross-VM proof remains green when the cross-VM path was touched
   - [ ] No unresolved RED decision points remain in the task file
-  - [ ] Queue capacity/backpressure semantics are explicit (reject/defer behavior documented and tested)
-  - [ ] CPU-ID fast-path/fallback contract is explicit and proven deterministic
-  - [ ] Trap/IPI hardening preserves existing marker meaning (no semantic drift)
+  - [ ] No speculative feature modules were introduced just to mirror future tasks
 - [ ] Header blocks updated to reflect:
   - [ ] API stability impact (if any)
   - [ ] Test coverage (what exists, where, and how to run)
@@ -45,3 +35,4 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] Scope expanded beyond touched-path allowlist without explicit note and plan update
 - [ ] QEMU proofs were run in parallel and produced lock/contention artifacts instead of deterministic evidence
 - [ ] Ownership/newtype/Send-Sync boundary changes were made without task/RFC/header synchronization
+- [ ] The refactor silently changed wire layout, retry budgets, or remote-proxy behavior while still claiming “no behavior change”
