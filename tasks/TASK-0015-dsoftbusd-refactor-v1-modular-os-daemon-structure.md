@@ -1,6 +1,6 @@
 ---
 title: TASK-0015 DSoftBusd refactor v1: modular OS daemon structure without behavior change
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2026-03-12
 links:
@@ -9,7 +9,14 @@ links:
   - RFC: docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - Docs: docs/distributed/dsoftbus-lite.md
+  - Docs: docs/testing/index.md
+  - Depends-on: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - Depends-on: tasks/TASK-0003B-dsoftbus-noise-xk-os.md
+  - Depends-on: tasks/TASK-0003C-dsoftbus-udp-discovery-os.md
+  - Depends-on: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
+  - Depends-on: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
   - Follow-on: tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md
+  - Follow-on: tasks/TASK-0017-dsoftbus-remote-statefs-rw.md
   - Follow-on: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Follow-on: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
   - Follow-on: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
@@ -26,12 +33,37 @@ links:
   - cross-VM remote proxy handling,
   - local IPC API for selftests,
   - metrics / logd helpers.
-- This is now a maintenance problem, not just a style issue: the file is hard to review safely, hard to test in narrow slices, and hard to extend for upcoming DSoftBus work (`TASK-0016`, `TASK-0020`, `TASK-0021`, `TASK-0022`) without re-opening the whole daemon each time.
+- This is now a maintenance problem, not just a style issue: the file is hard to review safely, hard to test in narrow slices, and hard to extend for upcoming DSoftBus work (`TASK-0016`, `TASK-0017`, `TASK-0020`, `TASK-0021`, `TASK-0022`) without re-opening the whole daemon each time.
 - We need a preparatory refactor that improves internal structure **without** changing the existing transport contracts, marker semantics, or proof behavior.
 
 ## Goal
 
 - Refactor `dsoftbusd` into a small set of internal modules with explicit boundaries so the daemon stays behavior-compatible today, but becomes safe to extend in later DSoftBus tasks.
+
+## Current progress snapshot (2026-03-12, Phase 3 complete)
+
+- **Completed in this task (slice 1 + slice 2 + slice 3A + Phase 3 orchestration flattening)**:
+  - internal `src/os/` scaffold added (`mod.rs`, `entry.rs`, `observability.rs`, `service_clients.rs`),
+  - netstack seam extracted into `src/os/netstack/` (`mod.rs`, `ids.rs`, `rpc.rs`, `stream_io.rs`),
+  - session seam extracted into `src/os/session/` (`mod.rs`, `fsm.rs`, `handshake.rs`, `records.rs`),
+  - orchestration runners extracted into `src/os/session/` (`single_vm.rs`, `selftest_server.rs`, `cross_vm.rs`),
+  - discovery/gateway seams extracted into `src/os/discovery/` and `src/os/gateway/`,
+  - remote-proxy and local-ipc long loops moved from `main.rs` into `os/gateway` modules,
+  - bootstrap/warmup loops and remaining heavy single-VM helper blocks (`rpc_nonce`, slot wait, local-ip resolution, UDP bind, listen retry, peer-ip map helpers, deterministic test-key derivation, connect/accept/read/write helpers) delegated from `main.rs` to `os/entry.rs`,
+  - pure, host-testable seams added (`src/os/entry_pure.rs`, `src/os/netstack/validate.rs`, `src/os/session/steps.rs`) and wired into runtime paths without behavior drift,
+  - host tests added under `source/services/dsoftbusd/tests/` (`p0_unit.rs`, `reject_transport_validation.rs`, `session_steps.rs`),
+  - `dbg:h10..dbg:h13` instrumentation removed/replaced with stable `dbg:dsoftbusd:*` labels.
+- **Proof state (final completion gate, sequentially executed)**:
+  - `cargo test -p dsoftbusd -- --nocapture`,
+  - `cargo test -p remote_e2e -- --nocapture`,
+  - `just dep-gate`,
+  - `just diag-os`,
+  - `just diag-host`,
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`,
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`.
+- **Structure outcome**:
+  - `source/services/dsoftbusd/src/main.rs` reduced from `2699` to `85` LOC and now acts as entry/wiring + high-level routing only,
+  - large inline single-VM and cross-VM domain loops moved behind `src/os/**` orchestration surfaces.
 
 ## Non-Goals
 
@@ -102,9 +134,13 @@ links:
 ### Audit tests (negative cases / attack simulation)
 - Command(s):
   - `cargo test -p dsoftbusd -- --nocapture`
-- Required coverage (if module seams are extracted cleanly enough):
-  - nonce-correlation helper rejects mismatched replies
-  - session FSM reconnect path advances epoch and drops old session handle
+- Implemented coverage:
+  - `test_reject_nonce_mismatch_response`
+  - `test_reject_unexpected_response_opcode`
+  - `test_reject_zero_length_status_ok_read_frame`
+  - `test_reject_oversized_udp_payload`
+  - `test_reject_identity_binding_mismatch`
+  - `test_reconnect_path_closes_old_session_and_advances_retry_state`
 
 ### Hardening markers (QEMU, if applicable)
 - Existing marker semantics remain unchanged:
@@ -142,6 +178,10 @@ links:
     - `just dep-gate`
     - `just diag-os`
     - `just diag-host`
+- **Proof (host-first regression)**:
+  - Command(s):
+    - `cargo test -p dsoftbusd -- --nocapture`
+    - `cargo test -p remote_e2e -- --nocapture`
 - **Proof (single VM / canonical)**:
   - Command(s):
     - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
@@ -156,6 +196,25 @@ links:
     - `dsoftbusd: cross-vm session ok`
     - `SELFTEST: remote resolve ok`
     - `SELFTEST: remote query ok`
+- **Execution discipline**:
+  - single-VM and cross-VM QEMU proofs are run sequentially (never in parallel).
+
+## Erfuellt-Bedingung (normative completion gate)
+
+Per `docs/testing/index.md` (host-first, OS-last), this task is only considered fulfilled when all of the following are green and marker semantics remain unchanged:
+
+1. Host seam/regression checks:
+   - `cargo test -p dsoftbusd -- --nocapture`
+   - `cargo test -p remote_e2e -- --nocapture`
+2. Build hygiene:
+   - `just dep-gate`
+   - `just diag-os`
+   - `just diag-host`
+3. OS smoke / proof:
+   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+   - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+4. Execution discipline:
+   - QEMU proofs executed sequentially (single-VM, then 2-VM).
 
 ## Touched paths (allowlist)
 
@@ -164,6 +223,7 @@ Only these paths may be modified without opening a separate task/ADR:
 - `source/services/dsoftbusd/**`
 - `docs/distributed/dsoftbus-lite.md`
 - `docs/testing/index.md`
+- `tools/os2vm.sh` (harness-only sync; no marker/wire contract drift)
 
 ## Plan (small PRs)
 
@@ -220,6 +280,18 @@ Only these paths may be modified without opening a separate task/ADR:
    - Re-run existing canonical proofs.
    - Update docs only where the internal daemon structure or developer guidance would otherwise drift.
 
+## Task map alignment (program-level sequencing)
+
+- **P0 foundations (already completed prerequisites)**:
+  - `TASK-0003`, `TASK-0003B`, `TASK-0003C`, `TASK-0004`, `TASK-0005`
+- **P1 immediate consumers of this refactor seam**:
+  - `TASK-0016` (remote packagefs RO)
+  - `TASK-0017` (remote statefs RW)
+- **P2 transport/evolution follow-ons that depend on clean seams**:
+  - `TASK-0020` (streams v2 mux/flow-control)
+  - `TASK-0021` (QUIC v1 host-first OS scaffold)
+  - `TASK-0022` (shared no_std transport-core refactor)
+
 ## Acceptance criteria (behavioral)
 
 - `main.rs` is a thin wrapper instead of the execution truth for the whole daemon.
@@ -235,12 +307,20 @@ Only these paths may be modified without opening a separate task/ADR:
   - `just dep-gate`
   - `just diag-os`
   - `just diag-host`
+- Host-first regression:
+  - `cargo test -p dsoftbusd -- --nocapture`
+  - `cargo test -p remote_e2e -- --nocapture`
 - Single VM:
   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - Cross-VM:
   - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Discipline:
+  - single-VM and 2-VM proofs run sequentially
 - Tests:
-  - any added `cargo test -p dsoftbusd -- --nocapture` summary
+  - `source/services/dsoftbusd/tests/p0_unit.rs`
+  - `source/services/dsoftbusd/tests/reject_transport_validation.rs`
+  - `source/services/dsoftbusd/tests/session_steps.rs`
+  - summary of host and OS proof outputs above
 
 ## RFC seeds (for later, when the step is complete)
 
