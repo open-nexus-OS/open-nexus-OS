@@ -142,9 +142,20 @@ Use these in chat prompts to keep work deterministic and low-token.
 
 ### @task_0015_context
 - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+- `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
+- `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
+- `tasks/TASK-0003C-dsoftbus-udp-discovery-os.md`
+- `tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md`
+- `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
+- `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+- `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
+- `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
+- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
 - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
 - `docs/adr/0005-dsoftbus-architecture.md`
 - `docs/distributed/dsoftbus-lite.md`
+- `docs/testing/index.md`
 - `scripts/qemu-test.sh`
 - `tools/os2vm.sh`
 
@@ -152,6 +163,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `source/services/dsoftbusd/**`
 - `docs/distributed/dsoftbus-lite.md`
 - `docs/testing/index.md`
+- `tools/os2vm.sh` (harness-only sync when required for deterministic proof parity)
 
 ### @touched
 - Only the directories listed in the task's **Touched paths** allowlist.

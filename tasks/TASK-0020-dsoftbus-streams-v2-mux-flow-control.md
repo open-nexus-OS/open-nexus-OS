@@ -7,11 +7,16 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
+  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Depends-on (OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
+  - Depends-on (core split for OS backend): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Unblocks: tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md
   - Unblocks: tasks/TASK-0017-dsoftbus-remote-statefs-rw.md
+  - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
+  - Testing contract (2-VM): tools/os2vm.sh
 ---
 
 ## Context
@@ -36,6 +41,13 @@ Provide a robust stream-multiplexing layer over the existing authenticated trans
 - window-based flow control provides backpressure (no unbounded buffering),
 - keepalive detects dead peers deterministically.
 
+## Target-state alignment (post TASK-0015 / RFC-0027)
+
+- Mux integration into OS path must follow modular seams (session/netstack/gateway), not reopen monolithic
+  `dsoftbusd` control flow.
+- Mux state machine and frame accounting should be backend/core-owned and reusable for TASK-0022 extraction.
+- Observability and marker emission should stay deterministic and routed through existing helper boundaries.
+
 ## Non-Goals
 
 - Full yamux protocol compatibility.
@@ -55,6 +67,34 @@ Provide a robust stream-multiplexing layer over the existing authenticated trans
 - **No fake success**: markers only emitted after real multiplexed data transfer.
 - **No async runtime requirement**: prefer a pump/poll API that works in host tests and OS bring-up
   without pulling in an async executor.
+
+## Security considerations
+
+### Threat model
+
+- Malformed/hostile frames attempt stream-state corruption or cross-stream confusion.
+- Window/credit abuse causes memory growth or starvation (availability attack).
+- Keepalive abuse induces false liveness or false teardown.
+
+### Security invariants (MUST hold)
+
+- Stream IDs and stream lifecycle transitions are validated fail-closed.
+- Frame payload, window deltas, and buffered bytes are strictly bounded.
+- Backpressure semantics are explicit (`WouldBlock`/credit exhaustion), never hidden by unbounded queues.
+- Priority policy guarantees bounded starvation (high-priority traffic must not permanently starve lower levels).
+
+### DON'T DO
+
+- DON'T allocate per-frame/per-stream buffers without hard caps.
+- DON'T accept WINDOW_UPDATE overflows/underflows.
+- DON'T emit mux success markers before confirmed multiplexed roundtrip.
+
+### Required negative tests
+
+- `test_reject_mux_frame_oversize`
+- `test_reject_invalid_stream_state_transition`
+- `test_reject_window_credit_overflow_or_underflow`
+- `test_reject_unknown_stream_frame`
 
 ## Red flags / decision points
 
@@ -85,6 +125,7 @@ Add deterministic host tests (new crate `tests/dsoftbus_mux_host` or under `user
 - keepalive timeout (missing PONG tears down),
 - RST propagation,
 - fuzz-ish deterministic state-machine test (seeded) for frame ordering/credit invariants.
+- security rejects from `test_reject_*` suite are green.
 
 ### Proof (OS / QEMU) — gated on OS backend
 
@@ -96,6 +137,8 @@ Once OS DSoftBus streams exist:
   - `SELFTEST: mux pri control ok`
   - `SELFTEST: mux bulk ok`
   - `SELFTEST: mux backpressure ok`
+- when 2-VM mux proof is available, validate via `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- keep QEMU proofs sequential (single-VM then 2-VM)
 
 Notes:
 

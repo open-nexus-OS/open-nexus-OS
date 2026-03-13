@@ -18,6 +18,7 @@ This prevents subjective completion and reduces drift across sessions.
   - [ ] Existing marker names and marker semantics are unchanged
   - [ ] Single-VM proof remains green
   - [ ] Cross-VM proof remains green when the cross-VM path was touched
+  - [ ] Any `tools/os2vm.sh` edits are harness-only parity updates (no silent marker/wire contract drift)
   - [ ] No unresolved RED decision points remain in the task file
   - [ ] No speculative feature modules were introduced just to mirror future tasks
 - [ ] Header blocks updated to reflect:

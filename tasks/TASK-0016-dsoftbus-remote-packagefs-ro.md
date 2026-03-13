@@ -7,8 +7,12 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
+  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Depends-on (DSoftBus OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
+  - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
+  - Testing contract (2-VM): tools/os2vm.sh
 ---
 
 ## Context
@@ -30,6 +34,16 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
 - a peer can stat/open/read/close a file under `/packages/...` / `pkg:/...`,
 - all operations are bounded and read-only.
 
+## Target-state alignment (post TASK-0015 / RFC-0027)
+
+- Remote-packagefs logic must land on explicit daemon seams, not as new monolithic `main.rs` branches:
+  - gateway surface (request routing),
+  - session/authenticated stream surface,
+  - observability helpers.
+- Transport retry/buffering behavior must reuse bounded stream/session handling rather than introducing
+  parallel loop logic.
+- Marker emission must stay deterministic and routed through existing observability conventions.
+
 ## Non-Goals
 
 - Generic remote VFS (directories, rename, write).
@@ -48,6 +62,34 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
 - **Security**:
   - only serve requests on an authenticated stream,
   - reject path traversal and non-packagefs schemes deterministically.
+
+## Security considerations
+
+### Threat model
+
+- Unauthenticated or stale session attempts to read package contents.
+- Path traversal (`..`, mixed schemes) escaping packagefs namespace.
+- Resource exhaustion via oversized path/read requests or too many open handles.
+
+### Security invariants (MUST hold)
+
+- Read service is available only after authenticated session establishment.
+- Resolved path remains under packagefs namespace after canonicalization.
+- All request sizes and handle counts are capped and enforced fail-closed.
+- Logs/markers must not leak secret/session material.
+
+### DON'T DO
+
+- DON'T permit write-like opcodes in this task.
+- DON'T serve non-`pkg:/` and non-`/packages/` namespaces.
+- DON'T treat failed auth/path validation as recoverable warning; reject deterministically.
+
+### Required negative tests
+
+- `test_reject_unauthenticated_stream_request`
+- `test_reject_path_traversal`
+- `test_reject_non_packagefs_scheme`
+- `test_reject_oversize_read_or_path`
 
 ## Red flags / decision points
 
@@ -72,13 +114,16 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
 - Add deterministic host tests that spin two host DSoftBus nodes and an in-mem packagefs backend:
   - roundtrip stat/open/read/close
   - negative cases: ENOENT, EBADF, oversize read rejected, path traversal rejected
+  - security rejects: unauthenticated stream and non-packagefs scheme are rejected
 
 ### Proof (OS / QEMU)
 
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
   - Extend expected markers with:
     - `dsoftbusd: remote packagefs served`
     - `SELFTEST: remote pkgfs read ok`
+  - keep QEMU proofs sequential (single-VM then 2-VM)
 
 ## Touched paths (allowlist)
 

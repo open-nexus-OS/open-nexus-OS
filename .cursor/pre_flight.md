@@ -38,6 +38,7 @@ This is the "everything green" guard against fake success.
 - [ ] Markers honest (no `ready/ok` for stub paths)
 - [ ] Headers updated (CONTEXT, TEST_COVERAGE, ADR)
 - [ ] Docs synced only where touched by the refactor (`docs/distributed/dsoftbus-lite.md`, `docs/testing/index.md`)
+- [ ] If `tools/os2vm.sh` was touched, change is harness-only parity (service list/proof wiring) with no marker/wire semantic drift
 - [ ] Follow-up boundaries are documented (no implicit scope creep into later tasks)
 - [ ] If task changed marker expectations/gates, `.cursor/current_state.md`, `.cursor/handoff/current.md`, and `.cursor/next_task_prep.md` are updated in the same slice
 - [ ] If the refactor reveals a missing external contract, stop and decide whether a new RFC/ADR is required before merging

@@ -7,10 +7,15 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
+  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Unblocks: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Unblocks: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Unblocks: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
+  - Testing methodology: docs/testing/index.md
+  - Testing contract: scripts/qemu-test.sh
+  - Testing contract (2-VM): tools/os2vm.sh
 ---
 
 ## Context
@@ -36,6 +41,15 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - introducing a minimal transport trait that can be implemented by host TCP and OS nexus-net UDP/TCP,
 - removing `todo!()` placeholders in OS backend by replacing them with a real adapter boundary (even if the first OS impl stays ENOTSUP).
 
+## Target-state alignment (post TASK-0015 / RFC-0027)
+
+- Extraction boundaries should mirror stabilized daemon seams:
+  - transport adapter surface,
+  - discovery/session state machine ownership,
+  - gateway/protocol payload handling.
+- Avoid pulling policy/gateway decisions into transport-core; keep security boundaries explicit and layered.
+- `dsoftbusd` integration after this split should reduce daemon-local duplication, not re-monolithize logic.
+
 ## Non-Goals
 
 - Implement OS networking (nexus-net) in this task.
@@ -47,6 +61,34 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - `dsoftbus-core` must be **`#![no_std]` + `extern crate alloc`** (no `std`).
 - No `unwrap`/`expect`; no blanket `allow(dead_code)`.
 - Deterministic tests on host for the core state machine.
+
+## Security considerations
+
+### Threat model
+
+- Contract drift during split weakens identity/session validation paths.
+- Nonce/reply-correlation behavior regresses when moving logic into shared core.
+- `std`-only convenience APIs sneak into OS-facing paths and bypass deterministic bounds/error handling.
+
+### Security invariants (MUST hold)
+
+- Identity/auth decisions remain fail-closed and transport-agnostic.
+- Correlation/state-machine transitions remain deterministic and bounded (no unbounded wait loops).
+- Core parsing/frame handling enforces explicit size bounds.
+- No secret/session material is emitted in logs/errors during core/backend boundaries.
+
+### DON'T DO
+
+- DON'T move policy authorization decisions into generic transport core.
+- DON'T accept unauthenticated payload strings as identity inputs.
+- DON'T introduce hidden `std` dependencies in no_std core paths.
+
+### Required negative tests
+
+- `test_reject_invalid_state_transition`
+- `test_reject_nonce_mismatch_or_stale_reply`
+- `test_reject_oversize_frame_or_record`
+- `test_reject_unauthenticated_message_path`
 
 ## Red flags / decision points
 
@@ -66,6 +108,10 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - Documentation clearly explains:
   - what is “core” vs “backend”
   - what is required for an OS backend (UDP, timers, entropy/identity).
+- Security gate:
+  - `test_reject_*` coverage for parser/state/correlation invariants exists and is green.
+- OS proof discipline:
+  - if OS integration hooks are touched, run single-VM + 2-VM proofs sequentially (`scripts/qemu-test.sh`, `tools/os2vm.sh`).
 
 ## Alignment note (2026-02, low-drift)
 

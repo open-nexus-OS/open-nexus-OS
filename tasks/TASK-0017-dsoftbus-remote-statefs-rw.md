@@ -7,11 +7,15 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
+  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Depends-on (DSoftBus OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
   - Depends-on (statefs): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (policy/audit semantics): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
+  - Testing contract (2-VM): tools/os2vm.sh
 ---
 
 ## Context
@@ -31,6 +35,14 @@ Prove in QEMU:
 - every remote write is audited (exported via logd once available),
 - selftest can roundtrip a RW key to a peer.
 
+## Target-state alignment (post TASK-0015 / RFC-0027)
+
+- Remote-statefs proxying must attach to explicit daemon seams (gateway/session/observability),
+  not re-expand `dsoftbusd/src/main.rs` into cross-cutting control flow.
+- ACL and audit decisions stay at the gateway/policy boundary and remain independent from transport
+  retry mechanics.
+- Reconnect behavior must remain idempotent and bounded; no unbounded retry/write loops.
+
 ## Non-Goals
 
 - Full remote `/state` access.
@@ -49,6 +61,35 @@ Prove in QEMU:
   - chunking for larger payloads if needed.
 - **Audit**:
   - every remote PUT/DELETE must produce an audit record (or deterministic UART marker until logd exists).
+
+## Security considerations
+
+### Threat model
+
+- Unauthorized peer writes outside the shared state namespace.
+- ACL bypass by crafted key paths/prefix confusion.
+- Missing audit trail for remote mutations.
+- Replay/duplicate side effects under reconnect/retry edges.
+
+### Security invariants (MUST hold)
+
+- Only authenticated peers may perform remote RW operations.
+- ACL remains deny-by-default; only `/state/shared/*` (or declared equivalent) is writable remotely.
+- Authorization and audit behavior is deterministic even under transport retries.
+- Remote writes/deletes must always produce an audit event (logd or deterministic fallback marker).
+
+### DON'T DO
+
+- DON'T expose full `/state` RW remotely.
+- DON'T continue writes silently when audit emission path is unavailable; emit deterministic fallback evidence.
+- DON'T encode authorization in client-provided identity fields; rely on authenticated session identity.
+
+### Required negative tests
+
+- `test_reject_statefs_write_outside_acl`
+- `test_reject_statefs_prefix_escape`
+- `test_reject_oversize_statefs_write`
+- `test_reject_unauthenticated_statefs_request`
 
 ## Red flags / decision points
 
@@ -72,13 +113,16 @@ Prove in QEMU:
   - RW roundtrip within allowed prefix
   - EPERM for disallowed keys
   - oversize write rejected
+  - audit marker/record emission validated for PUT/DEL paths
 
 ### Proof (OS / QEMU)
 
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
   - Extend expected markers with:
     - `dsoftbusd: remote statefs served`
     - `SELFTEST: remote statefs rw ok`
+  - keep QEMU proofs sequential (single-VM then 2-VM)
 
 ## Touched paths (allowlist)
 
