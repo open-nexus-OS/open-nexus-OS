@@ -11,16 +11,17 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] All stated Security Invariants are enforced and have negative tests where appropriate (`test_reject_*`)
 - [ ] No regressions against `.cursor/current_state.md` constraints/invariants
 - [ ] Proof artifacts exist and are referenced in the task/handoff (tests, QEMU markers, logs)
-- [ ] For TASK-0015-class daemon refactor work:
-  - [ ] `main.rs` is reduced to thin entry/wiring responsibilities
-  - [ ] Internal seams exist for transport IPC, discovery, session lifecycle, gateway/local IPC, and observability
-  - [ ] Existing DSoftBus wire formats are unchanged
-  - [ ] Existing marker names and marker semantics are unchanged
+- [ ] For TASK-0016-class remote packagefs RO work:
+  - [ ] Exposed remote operations are read-only only (`stat/open/read/close`)
+  - [ ] Non-packagefs paths/schemes are rejected fail-closed
+  - [ ] Path traversal attempts are rejected fail-closed
+  - [ ] Request bounds (path/read/chunk/handle limits) are enforced with deterministic errors
+  - [ ] Existing DSoftBus wire/marker semantics remain stable unless explicitly revised in task evidence
   - [ ] Single-VM proof remains green
-  - [ ] Cross-VM proof remains green when the cross-VM path was touched
+  - [ ] Cross-VM proof remains green when cross-VM path was touched
   - [ ] Any `tools/os2vm.sh` edits are harness-only parity updates (no silent marker/wire contract drift)
   - [ ] No unresolved RED decision points remain in the task file
-  - [ ] No speculative feature modules were introduced just to mirror future tasks
+  - [ ] No follow-on scope (`TASK-0017`, `TASK-0020`, `TASK-0021`, `TASK-0022`) was silently absorbed
 - [ ] Header blocks updated to reflect:
   - [ ] API stability impact (if any)
   - [ ] Test coverage (what exists, where, and how to run)

@@ -1,15 +1,20 @@
 ---
 title: TASK-0016 DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (remote packagefs contract): docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md
   - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
   - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Depends-on (DSoftBus OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
+  - Follow-on (remote mutable state): tasks/TASK-0017-dsoftbus-remote-statefs-rw.md
+  - Follow-on (mux/backpressure): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - Follow-on (transport evolution): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
+  - Follow-on (core/backend split): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
@@ -24,7 +29,10 @@ changes.
 Today:
 
 - `packagefsd` already serves RO bundle entries in OS-lite (`manifest.json`, `payload.elf`, etc.).
-- DSoftBus OS backend must be functional first (streams, auth, discovery).
+- DSoftBus OS path for discovery/session/auth is already proven in OS bring-up (`TASK-0005`).
+- Daemon modular seams required for this task are now in place (`TASK-0015` Done, `RFC-0027` Completed).
+- `userspace/dsoftbus` OS backend remains a placeholder (`userspace/dsoftbus/src/os.rs`), so this task
+  should stay daemon-seam first and bounded instead of blocking on a shared backend rewrite.
 
 ## Goal
 
@@ -33,6 +41,14 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
 - a node can serve remote packagefs requests over an authenticated DSoftBus stream,
 - a peer can stat/open/read/close a file under `/packages/...` / `pkg:/...`,
 - all operations are bounded and read-only.
+
+## Current state snapshot (2026-03-12)
+
+- Structural prerequisite closed: `TASK-0015` is Done (`dsoftbusd` main is thin, orchestration modularized).
+- Contract prerequisite closed: `RFC-0027` is Completed.
+- Proof baseline is green for single-VM and 2-VM harness paths.
+- Main remaining risk for this task is protocol-surface design (RO bounds, path safety, deterministic markers),
+  not daemon structure.
 
 ## Target-state alignment (post TASK-0015 / RFC-0027)
 
@@ -93,18 +109,18 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
 
 ## Red flags / decision points
 
-- **RED**:
-  - `userspace/dsoftbus` OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`).
-    Note: OS bring-up streams exist via os-lite services (`netstackd` + `dsoftbusd`) as of TASK-0005,
-    but this task still requires factoring the remote-fs protocol into a reusable, bounded handler surface.
 - **YELLOW**:
+  - `userspace/dsoftbus` OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`).
+    This task should use the now-stable `dsoftbusd` seams first and avoid coupling completion to
+    shared backend extraction (tracked by `TASK-0022`).
   - On-wire encoding: prefer compact versioned byte frames for OS bring-up; Cap'n Proto schemas may exist as documentation but must not be the only contract.
   - **RPC Format Migration**: This task uses OS-lite byte frames (`PK` magic) as a **bring-up shortcut**. When TASK-0020 (Mux v2) or TASK-0021 (QUIC) lands, consider migrating to schema-based RPC (Cap'n Proto or equivalent). See TASK-0005 "Technical Debt" section for details.
 
 ## Contract sources (single source of truth)
 
 - Packagefs behavior: `source/services/packagefsd/src/os_lite.rs`
-- DSoftBus stream contract: `userspace/dsoftbus` (`Stream::send/recv` with channel + bytes)
+- DSoftBus OS seam baseline: `source/services/dsoftbusd/src/os/` (gateway/session/observability boundaries)
+- DSoftBus stream contract (host/shared abstraction): `userspace/dsoftbus` (`Stream::send/recv` with channel + bytes)
 - QEMU marker contract: `scripts/qemu-test.sh`
 
 ## Stop conditions (Definition of Done)

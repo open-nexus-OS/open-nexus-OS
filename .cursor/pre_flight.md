@@ -21,15 +21,15 @@ This is the "everything green" guard against fake success.
 - [ ] Acceptance Criteria satisfied (from task + linked RFC)
 - [ ] Tests validate the **specified desired behavior** (Soll-Zustand), not current implementation quirks
 - [ ] No fake-success logs/markers introduced (ready/ok only after real behavior)
-- [ ] `main.rs` is thinner and the new module boundaries are cohesive rather than speculative
-- [ ] Netstack IPC adapter logic is centralized without changing on-wire frame shapes
-- [ ] Session/discovery/gateway code is extracted without changing marker meanings
-- [ ] Cross-VM path still proves authenticated session + remote proxy behavior
-- [ ] No follow-on feature scope (`mux`, `quic`, remote-fs, shared-core extraction) leaked into this task
+- [ ] Remote packagefs surface is read-only only (`stat/open/read/close`)
+- [ ] Path canonicalization keeps resolution inside packagefs namespace (`pkg:/` or `/packages/`)
+- [ ] Security rejects are fail-closed for unauthenticated, traversal, non-scheme, and oversize requests
+- [ ] Marker semantics stay deterministic and evidence reflects real remote packagefs behavior
+- [ ] No follow-on feature scope (`TASK-0017`, `TASK-0020`, `TASK-0021`, `TASK-0022`) leaked into this task
 
 ## Post-implementation (before claiming "Done")
 
-- [ ] **Task docs**: `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` still matches reality
+- [ ] **Task docs**: `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md` still matches reality
 - [ ] Tests/proofs referenced in handoff and task evidence section
 - [ ] OS build hygiene passed (if OS code touched): `just dep-gate`, `just diag-os`
 - [ ] Host diagnostics passed when applicable: `just diag-host`
@@ -37,7 +37,7 @@ This is the "everything green" guard against fake success.
 - [ ] Focused negative/unit tests exist if extracted seams justify them
 - [ ] Markers honest (no `ready/ok` for stub paths)
 - [ ] Headers updated (CONTEXT, TEST_COVERAGE, ADR)
-- [ ] Docs synced only where touched by the refactor (`docs/distributed/dsoftbus-lite.md`, `docs/testing/index.md`)
+- [ ] Docs synced only where touched by the task (`docs/distributed/dsoftbus-lite.md`, `docs/testing/index.md`)
 - [ ] If `tools/os2vm.sh` was touched, change is harness-only parity (service list/proof wiring) with no marker/wire semantic drift
 - [ ] Follow-up boundaries are documented (no implicit scope creep into later tasks)
 - [ ] If task changed marker expectations/gates, `.cursor/current_state.md`, `.cursor/handoff/current.md`, and `.cursor/next_task_prep.md` are updated in the same slice

@@ -12,7 +12,7 @@ It should be updated during the previous task's wrap-up, before handing off.
 ## Candidate next task
 - **task**: `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
 - **handoff_target**: `.cursor/handoff/current.md` (always updated as the live entry-point)
-- **handoff_archive**: `.cursor/handoff/archive/TASK-0014-observability-v2-metrics-tracing.md` (latest completed-task snapshot, present)
+- **handoff_archive**: `.cursor/handoff/archive/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` (latest completed-task snapshot, present)
 - **linked_contracts**:
   - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
   - `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
@@ -31,7 +31,7 @@ It should be updated during the previous task's wrap-up, before handing off.
   - `docs/testing/index.md` (proof sequencing + DSoftBus testing discipline)
   - `scripts/qemu-test.sh` (single-VM marker contract)
   - `tools/os2vm.sh` (cross-VM proof contract)
-- **first_action**: start `TASK-0016` using the now-stabilized `dsoftbusd` seams from completed `TASK-0015`, without changing established marker/wire contracts.
+- **first_action**: start `TASK-0016` implementation using stabilized `dsoftbusd` seams from completed `TASK-0015`, without changing established marker/wire contracts.
 
 ## Start slice (now)
 - **slice_name**: TASK-0016 kickoff / remote packagefs RO over DSoftBus seams
@@ -43,17 +43,17 @@ It should be updated during the previous task's wrap-up, before handing off.
   - run host-first and sequential QEMU proofs after substantial changes
 
 ## Execution order
-1. **TASK-0014**: complete
-2. **TASK-0015**: complete
-3. **TASK-0016**: next
+1. **TASK-0015**: complete
+2. **TASK-0016**: active
+3. **TASK-0017**: next after TASK-0016 closure
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
-  - task order is synced through completed `TASK-0015`; `TASK-0016` is the next explicit slice
+  - task order is synced through completed `TASK-0015`; `TASK-0016` is now the active slice
 - **best_system_solution**: YES
   - preparatory daemon modularization is complete and provides stable seams for remote packagefs work
 - **scope_clear**: YES
-  - next task scope is explicit and can be executed without reopening RFC-0027 Phase 3 refactor work
+  - task scope is explicit and can be executed without reopening RFC-0027 Phase 3 refactor work
 - **touched_paths_allowlist_present**: YES
   - task limits edits to `source/services/dsoftbusd/**`, docs sync, and harness-only `tools/os2vm.sh` parity updates
 
@@ -71,7 +71,7 @@ It should be updated during the previous task's wrap-up, before handing off.
   - ✅ deterministic proof policy remains aligned (`scripts/qemu-test.sh`, `tools/os2vm.sh`)
 
 ## Decision
-- **status**: READY (`TASK-0015` complete; prep synced for `TASK-0016` kickoff)
+- **status**: READY/ACTIVE (`TASK-0015` complete; prep + handoff synced for `TASK-0016`)
 - **notes**:
   - keep follow-on changes additive and preserve established marker/wire/security invariants
   - re-run host-first + sequential QEMU proofs after substantial changes

@@ -71,12 +71,12 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ## Current: TASK-0016 and onward
 
-Execute in numerical order. Current position: **TASK-0016**.
+Execute in numerical order. Current position: **TASK-0016 (In Progress)**.
 
 | Task | Title | Prereqs | Status |
 |------|-------|---------|--------|
 | **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure without behavior change | — | Done |
-| TASK-0016 | DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams | TASK-0005 | Draft |
+| TASK-0016 | DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams | TASK-0005 | In Progress |
 | TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Draft |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Draft |
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |
