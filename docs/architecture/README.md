@@ -56,10 +56,12 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **RFC-0007**: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)
 - **RFC-0008**: DSoftBus Noise XK v1 (handshake + identity binding)
 - **RFC-0009**: no_std Dependency Hygiene v1 (OS build policy)
+- **RFC-0027**: DSoftBusd modular daemon structure v1 (Completed)
 
-**Current Status (2026-01-07)**:
-- TASK-0003/3B/3C: ✅ Done (loopback scope)
-- TASK-0004: Next (dual-node + identity binding)
+**Current Status (2026-03-12)**:
+- TASK-0003/0003B/0003C: ✅ Done (OS transport + Noise XK + UDP discovery)
+- TASK-0004/TASK-0005: ✅ Done (dual-node identity binding + cross-VM harness/proxy)
+- TASK-0015: 🟨 In Review (daemon modularization complete; `dsoftbusd` `main.rs` is now a thin entry/wiring layer)
 
 ## Services and contracts
 

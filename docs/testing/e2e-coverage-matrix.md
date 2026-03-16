@@ -94,6 +94,7 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 
 - **Testing methodology**: `docs/testing/index.md`
 - **TASK-0005** (DSoftBus remote proxy): `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
+- **TASK-0015** (DSoftBus daemon modularization + seam tests): `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
 - **TASK-0006** (logd journal): `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
-- **RFC-0010** (DSoftBus remote proxy): `docs/rfcs/RFC-0010-dsoftbus-remote-proxy-v1.md`
+- **RFC-0010** (DSoftBus cross-VM harness): `docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md`
 - **RFC-0011** (logd journal): `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`

@@ -1,6 +1,6 @@
 ---
 title: TASK-0015 DSoftBusd refactor v1: modular OS daemon structure without behavior change
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-03-12
 links:
@@ -40,7 +40,7 @@ links:
 
 - Refactor `dsoftbusd` into a small set of internal modules with explicit boundaries so the daemon stays behavior-compatible today, but becomes safe to extend in later DSoftBus tasks.
 
-## Current progress snapshot (2026-03-12, Phase 3 complete)
+## Current progress snapshot (2026-03-12, Done: Phase 3 + test expansion complete)
 
 - **Completed in this task (slice 1 + slice 2 + slice 3A + Phase 3 orchestration flattening)**:
   - internal `src/os/` scaffold added (`mod.rs`, `entry.rs`, `observability.rs`, `service_clients.rs`),
@@ -141,6 +141,11 @@ links:
   - `test_reject_oversized_udp_payload`
   - `test_reject_identity_binding_mismatch`
   - `test_reconnect_path_closes_old_session_and_advances_retry_state`
+  - `test_parse_helpers_cover_status_and_nonce_extraction`
+  - `test_identity_binding_absent_mapping_is_nonfatal`
+  - `test_discovery_step_cadence_rules`
+  - `test_fsm_phase_setters_are_exercised`
+  - full seam suites in `source/services/dsoftbusd/tests/p0_unit.rs`, `source/services/dsoftbusd/tests/reject_transport_validation.rs`, `source/services/dsoftbusd/tests/session_steps.rs`
 
 ### Hardening markers (QEMU, if applicable)
 - Existing marker semantics remain unchanged:

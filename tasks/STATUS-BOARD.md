@@ -43,12 +43,12 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 
 ---
 
-## In Progress / Next
+## Next
 
 | Task | Title | Status | Blocked by | Next action |
 |------|-------|--------|------------|-------------|
-| **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure | In Progress | — | Start the preparatory `dsoftbusd` refactor slice |
-| TASK-0016 | DSoftBus Remote-FS v1: Remote PackageFS proxy | Draft | TASK-0005 | Follow after the daemon refactor slice |
+| **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure | Done | — | Closed: modular daemon baseline + proof package complete |
+| TASK-0016 | DSoftBus Remote-FS v1: Remote PackageFS proxy | Draft | TASK-0005 | Start as next execution slice |
 | TASK-0017 | DSoftBus Remote-StateFS v1 | Draft | TASK-0005 | Queue after Remote-FS planning |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | Draft | TASK-0005 | Host-first mux work after refactor groundwork |
 | TASK-0021 | DSoftBus QUIC v1 | Draft | TASK-0003, TASK-0005, TASK-0020 | Keep OS fallback path gated |
@@ -77,7 +77,7 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 | ✅ RFC-0015 | Policy Authority & Audit v1 | Complete | TASK-0008 |
 | 🟨 RFC-0025 | IPC liveness hardening v1 | In Review | TASK-0013B |
 | 🟨 RFC-0026 | IPC performance optimization v1 | In Review | TASK-0013B |
-| 🟨 RFC-0027 | DSoftBusd modular daemon structure v1 | In Progress | TASK-0015 |
+| ✅ RFC-0027 | DSoftBusd modular daemon structure v1 | Completed | TASK-0015 |
 
 ---
 

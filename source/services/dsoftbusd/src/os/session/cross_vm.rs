@@ -11,8 +11,8 @@ use nexus_peer_lru::{PeerEntry, PeerLru};
 use crate::os::discovery::state::{get_peer_ip, set_peer_ip, DISC_PORT, MCAST_IP};
 use crate::os::entry::{DSOFT_REPLY_RECV_SLOT, DSOFT_REPLY_SEND_SLOT};
 use crate::os::netstack::{
-    next_nonce, rpc_nonce, tcp_listen, udp_bind, udp_send_to, CrossVmTransport, SessionId, UdpSocketId, STATUS_IO,
-    STATUS_WOULD_BLOCK,
+    next_nonce, rpc_nonce, tcp_listen, udp_bind, udp_send_to, CrossVmTransport, SessionId,
+    UdpSocketId, STATUS_IO, STATUS_WOULD_BLOCK,
 };
 use crate::os::session::fsm::SessionFsm;
 use crate::os::session::handshake::derive_test_secret;
@@ -26,7 +26,10 @@ const VERSION: u8 = 1;
 const OP_UDP_RECV_FROM: u8 = 8;
 const STATUS_OK: u8 = 0;
 
-pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::result::Result<(), ()> {
+pub(crate) fn run_cross_vm_main(
+    net: &KernelClient,
+    local_ip: [u8; 4],
+) -> core::result::Result<(), ()> {
     let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) =
         if local_ip == [10, 42, 0, 10] {
             ("node-a", 34_567u16, [10, 42, 0, 11], 34_568u16, "node-b", 0xD0u8, 0xD1u8)
@@ -143,7 +146,8 @@ pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::
                 }
             }
 
-            let peer_known = peers.peek(peer_device_id).is_some() && get_peer_ip(&peer_ips, peer_device_id).is_some();
+            let peer_known = peers.peek(peer_device_id).is_some()
+                && get_peer_ip(&peer_ips, peer_device_id).is_some();
             let should_poll_discovery = should_poll_discovery(peer_known, now);
             if should_poll_discovery {
                 let nonce = next_nonce(&mut nonce_ctr);
@@ -164,7 +168,10 @@ pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::
                     DSOFT_REPLY_RECV_SLOT,
                     DSOFT_REPLY_SEND_SLOT,
                 ) {
-                    if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+                    if rsp[0] == MAGIC0
+                        && rsp[1] == MAGIC1
+                        && rsp[2] == VERSION
+                        && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
                     {
                         if rsp[4] == STATUS_OK {
                             let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
@@ -174,18 +181,26 @@ pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::
                                 let payload = &rsp[base..base + n];
                                 match decode_announce_v1(payload) {
                                     Ok(pkt) => {
-                                        let entry =
-                                            PeerEntry::new(pkt.device_id.clone(), pkt.port, pkt.noise_static, pkt.services);
+                                        let entry = PeerEntry::new(
+                                            pkt.device_id.clone(),
+                                            pkt.port,
+                                            pkt.noise_static,
+                                            pkt.services,
+                                        );
                                         peers.insert(entry);
                                         set_peer_ip(&mut peer_ips, &pkt.device_id, from_ip);
                                         if peers.peek(peer_device_id).is_some()
                                             && get_peer_ip(&peer_ips, peer_device_id).is_some()
                                         {
-                                            let _ = nexus_abi::debug_println("dsoftbusd: discovery peer learned");
+                                            let _ = nexus_abi::debug_println(
+                                                "dsoftbusd: discovery peer learned",
+                                            );
                                         }
                                     }
                                     Err(_) => {
-                                        let _ = nexus_abi::debug_println("dsoftbusd: announce ignored (malformed)");
+                                        let _ = nexus_abi::debug_println(
+                                            "dsoftbusd: announce ignored (malformed)",
+                                        );
                                     }
                                 }
                             }
@@ -212,7 +227,8 @@ pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::
                     }
                     if !used_discovery_mapping && !dial_fallback_logged {
                         dial_fallback_logged = true;
-                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial fallback no-discovery");
+                        let _ =
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial fallback no-discovery");
                     }
                     if !dial_logged {
                         let _ = nexus_abi::debug_println("dsoftbusd: cross-vm dial start");
@@ -233,13 +249,16 @@ pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::
                         Err(status) => {
                             if status == STATUS_WOULD_BLOCK && !dial_status_would_block_logged {
                                 dial_status_would_block_logged = true;
-                                let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status would_block");
+                                let _ = nexus_abi::debug_println(
+                                    "dbg:dsoftbusd: dial status would_block",
+                                );
                             } else if status == STATUS_IO && !dial_status_io_logged {
                                 dial_status_io_logged = true;
                                 let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status io");
                             } else if !dial_status_other_logged {
                                 dial_status_other_logged = true;
-                                let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status other");
+                                let _ =
+                                    nexus_abi::debug_println("dbg:dsoftbusd: dial status other");
                             }
                         }
                     }
@@ -279,11 +298,14 @@ pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::
         let session_id = fsm.sid().ok_or(())?;
         fsm.set_handshaking();
 
-        use nexus_noise_xk::{StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
+        use nexus_noise_xk::{
+            StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN,
+        };
 
         let self_static = StaticKeypair::from_secret(derive_test_secret(key_tag_self, listen_port));
         let self_eph_seed = derive_test_secret(0xE0, listen_port);
-        let peer_expected_pub = StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
+        let peer_expected_pub =
+            StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
 
         let transport_attempt = (|| -> core::result::Result<Transport, ()> {
             let discovered = peers.peek(peer_device_id).map(|peer_entry| peer_entry.noise_static);
@@ -413,7 +435,9 @@ pub(crate) fn run_cross_vm_main(net: &KernelClient, local_ip: [u8; 4]) -> core::
             Err(()) => {
                 if !session_fail_counted {
                     session_fail_counted = true;
-                    crate::os::observability::metrics_counter_inc_best_effort("dsoftbusd.session.fail");
+                    crate::os::observability::metrics_counter_inc_best_effort(
+                        "dsoftbusd.session.fail",
+                    );
                 }
                 let action = on_handshake_failure(&mut fsm);
                 if let Some(old_sid) = action.close_sid {

@@ -572,7 +572,7 @@ These tasks depend on kernel networking primitives (TASK-0010 MMIO access).
 
 ### 9. Identity Binding Enforcement (DSoftBus)
 
-**Status**: ⚠️ Needs verification in TASK-0004
+**Status**: ✅ Verified in TASK-0004
 
 **Decision**: `device_id` must be cryptographically bound to `noise_static_pub` before session acceptance.
 
@@ -580,25 +580,25 @@ These tasks depend on kernel networking primitives (TASK-0010 MMIO access).
 
 - ✅ TASK-0003B (Noise XK - handshake only)
 
-- ⚠️ TASK-0004 (Identity binding enforcement)
+- ✅ TASK-0004 (Identity binding enforcement)
 
-- ⚠️ TASK-0005 (Cross-VM sessions)
+- ✅ TASK-0005 (Cross-VM sessions)
 
-**Action Required**: Verify TASK-0004 Security section explicitly covers identity binding enforcement.
+**Action**: None required (already aligned and verified).
 
 ---
 
 ### 10. Remote Gateway Authority (DSoftBus)
 
-**Status**: ⚠️ Needs verification in TASK-0005
+**Status**: ✅ Verified in TASK-0005
 
 **Decision**: Remote gateway is deny-by-default; only `samgrd`/`bundlemgrd` proxied in v1.
 
 **Affected Tasks**:
 
-- ⚠️ TASK-0005 (Cross-VM sessions)
+- ✅ TASK-0005 (Cross-VM sessions)
 
-**Action Required**: Verify TASK-0005 Security section explicitly covers remote gateway authority model.
+**Action**: None required (already aligned and verified).
 
 ---
 
@@ -1862,4 +1862,4 @@ Even with strong documentation, **optimality depends on implementation choices**
 
 4. **Document DriverKit ABI**: Create ADR for versioning and stability
 
-5. **Verify Remaining Action Items**: Complete TASK-0004/0005/0009 verification
+5. **Verification maintenance**: Keep this inventory synced as new networking/kernel-touch tasks land

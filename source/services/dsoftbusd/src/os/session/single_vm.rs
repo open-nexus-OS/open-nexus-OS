@@ -6,7 +6,9 @@ use nexus_abi::yield_;
 use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
 use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::KernelClient;
-use nexus_noise_xk::{StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
+use nexus_noise_xk::{
+    StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN,
+};
 use nexus_peer_lru::{PeerEntry, PeerLru};
 
 const MAGIC0: u8 = b'N';
@@ -18,12 +20,7 @@ const STATUS_OK: u8 = 0;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_WOULD_BLOCK: u8 = 3;
 
-fn set_peer_ip(
-    peers: &PeerLru,
-    ips: &mut Vec<(String, [u8; 4])>,
-    device_id: &str,
-    ip: [u8; 4],
-) {
+fn set_peer_ip(peers: &PeerLru, ips: &mut Vec<(String, [u8; 4])>, device_id: &str, ip: [u8; 4]) {
     crate::os::entry::set_peer_ip(ips, device_id, ip);
     crate::os::entry::rebuild_peer_ips(peers, ips);
 }
@@ -94,13 +91,17 @@ pub(crate) fn run_single_vm_dual_node_bringup(
                 device_id: String::from(node_b_device_id),
                 port: node_b_port,
                 // SECURITY: bring-up test keys, NOT production custody
-                noise_static: StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xD1, node_b_port))
-                    .public,
+                noise_static: StaticKeypair::from_secret(crate::os::entry::derive_test_secret(
+                    0xD1,
+                    node_b_port,
+                ))
+                .public,
                 services: alloc::vec!["dsoftbusd".into()],
             };
 
             let ok_b = match encode_announce_v1(&ann_b).ok() {
-                Some(b) => send_announce(pending_replies, net, nonce_ctr, udp_id, disc_port, &b).unwrap_or(false),
+                Some(b) => send_announce(pending_replies, net, nonce_ctr, udp_id, disc_port, &b)
+                    .unwrap_or(false),
                 None => false,
             };
 
@@ -122,9 +123,19 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         r[4..8].copy_from_slice(&udp_id.to_le_bytes());
         r[8..10].copy_from_slice(&(256u16).to_le_bytes());
         r[10..18].copy_from_slice(&recv_nonce.to_le_bytes());
-        let rsp = crate::os::entry::rpc_nonce(pending_replies, net, &r, OP_UDP_RECV_FROM | 0x80, recv_nonce)
-            .map_err(|_| ())?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_UDP_RECV_FROM | 0x80) {
+        let rsp = crate::os::entry::rpc_nonce(
+            pending_replies,
+            net,
+            &r,
+            OP_UDP_RECV_FROM | 0x80,
+            recv_nonce,
+        )
+        .map_err(|_| ())?;
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_UDP_RECV_FROM | 0x80)
+        {
             match rsp[4] {
                 STATUS_OK => {
                     let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
@@ -133,12 +144,18 @@ pub(crate) fn run_single_vm_dual_node_bringup(
                     if n <= 256 && base + n <= rsp.len() {
                         let payload = &rsp[base..base + n];
                         if let Ok(pkt) = decode_announce_v1(payload) {
-                            let entry =
-                                PeerEntry::new(pkt.device_id.clone(), pkt.port, pkt.noise_static, pkt.services);
+                            let entry = PeerEntry::new(
+                                pkt.device_id.clone(),
+                                pkt.port,
+                                pkt.noise_static,
+                                pkt.services,
+                            );
                             peers.insert(entry);
                             set_peer_ip(&peers, &mut peer_ips, &pkt.device_id, from_ip);
                             if peers.peek(node_b_device_id).is_some() {
-                                let _ = nexus_abi::debug_println("dsoftbusd: discovery peer found device=local");
+                                let _ = nexus_abi::debug_println(
+                                    "dsoftbusd: discovery peer found device=local",
+                                );
                                 break;
                             }
                         }
@@ -170,7 +187,9 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     req_b[5] = (port_b >> 8) as u8;
     let nonce_b = crate::os::entry::next_nonce(nonce_ctr);
     req_b[6..14].copy_from_slice(&nonce_b.to_le_bytes());
-    let rsp_b = crate::os::entry::rpc_nonce(pending_replies, net, &req_b, OP_LISTEN | 0x80, nonce_b).map_err(|_| ())?;
+    let rsp_b =
+        crate::os::entry::rpc_nonce(pending_replies, net, &req_b, OP_LISTEN | 0x80, nonce_b)
+            .map_err(|_| ())?;
     if rsp_b[0] != MAGIC0
         || rsp_b[1] != MAGIC1
         || rsp_b[2] != VERSION
@@ -197,11 +216,8 @@ pub(crate) fn run_single_vm_dual_node_bringup(
             let _ = yield_();
         }
     };
-    let peer_ip = if peer_b.port == 34_567 || peer_b.port == 34_568 {
-        [10, 0, 2, 15]
-    } else {
-        peer_ip
-    };
+    let peer_ip =
+        if peer_b.port == 34_567 || peer_b.port == 34_568 { [10, 0, 2, 15] } else { peer_ip };
 
     let _ = nexus_abi::debug_println("dsoftbusd: session connect peer=node-b");
     if peer_b.port == 34_568 {
@@ -215,7 +231,8 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         let _ = nexus_abi::debug_println("dsoftbusd: connect ip loopback BAD");
     }
 
-    let connect_result = crate::os::entry::tcp_connect(pending_replies, net, nonce_ctr, peer_ip, peer_b.port);
+    let connect_result =
+        crate::os::entry::tcp_connect(pending_replies, net, nonce_ctr, peer_ip, peer_b.port);
     let accept_result = crate::os::entry::tcp_accept(pending_replies, net, nonce_ctr, lid_b);
     let (sid_a, sid_b) = match (connect_result, accept_result) {
         (Ok(a), Ok(b)) => (a, b),
@@ -227,9 +244,11 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         }
     };
 
-    let node_a_static = StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xD0, port_b));
+    let node_a_static =
+        StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xD0, port_b));
     let node_a_eph_seed = crate::os::entry::derive_test_secret(0xE0, port_b);
-    let node_b_static = StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xD1, port_b));
+    let node_b_static =
+        StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xD1, port_b));
     let node_b_eph_seed = crate::os::entry::derive_test_secret(0xE1, port_b);
 
     let Some(peer_b) = peers.peek(node_b_device_id) else {
@@ -260,7 +279,9 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     }
 
     let mut msg1_recv = [0u8; MSG1_LEN];
-    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg1_recv).is_err() {
+    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg1_recv)
+        .is_err()
+    {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg1 read FAIL");
         loop {
             let _ = yield_();
@@ -281,7 +302,9 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     }
 
     let mut msg2_recv = [0u8; MSG2_LEN];
-    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_a, &mut msg2_recv).is_err() {
+    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_a, &mut msg2_recv)
+        .is_err()
+    {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 read FAIL");
         loop {
             let _ = yield_();
@@ -305,7 +328,9 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     }
 
     let mut msg3_recv = [0u8; MSG3_LEN];
-    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg3_recv).is_err() {
+    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg3_recv)
+        .is_err()
+    {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg3 read FAIL");
         loop {
             let _ = yield_();

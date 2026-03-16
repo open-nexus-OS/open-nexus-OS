@@ -264,8 +264,15 @@ traffic over the encrypted stream. Each node hosts real `samgrd` and
 `bundlemgrd` loops via in-process IPC, while the identity keys are derived using
 the shared `userspace/identity` crate. Artifact transfers are staged over a
 dedicated DSoftBus channel before issuing the install request, mirroring the VMO
-hand-off the OS build will use later. Execute the tests with
-`cargo test -p remote_e2e`—they finish in a few seconds and require no QEMU. (Note: the DSoftBus OS backend is stubbed until kernel networking is available.)
+hand-off used by the OS build today. Execute the tests with
+`cargo test -p remote_e2e`—they finish in a few seconds and require no QEMU.
+
+The DSoftBus OS backend is implemented (`TASK-0003` through `TASK-0005`) and the
+daemon orchestration is now modularized (`TASK-0015`): `source/services/dsoftbusd/src/main.rs`
+is a thin entry/wiring layer, with host seam coverage in
+`source/services/dsoftbusd/tests/p0_unit.rs`,
+`source/services/dsoftbusd/tests/reject_transport_validation.rs`, and
+`source/services/dsoftbusd/tests/session_steps.rs`.
 
 ## Environment parity & prerequisites
 
@@ -306,7 +313,7 @@ Run security-specific tests:
 cargo test -- reject --nocapture
 
 # Specific crate security tests
-cargo test -p dsoftbus -- reject
+cargo test -p dsoftbusd -- reject
 cargo test -p keystored -- reject
 cargo test -p nexus-sel -- reject
 ```

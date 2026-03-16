@@ -14,6 +14,6 @@ pub(crate) mod validate;
 pub(crate) use ids::{SessionId, UdpSocketId};
 pub(crate) use rpc::{next_nonce, rpc_nonce};
 pub(crate) use stream_io::{
-    tcp_listen, udp_bind, udp_send_to, stream_read_exact, stream_write_all, CrossVmTransport,
+    stream_read_exact, stream_write_all, tcp_listen, udp_bind, udp_send_to, CrossVmTransport,
     STATUS_IO, STATUS_WOULD_BLOCK,
 };

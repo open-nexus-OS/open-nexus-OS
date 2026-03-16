@@ -1,8 +1,8 @@
 //! Nonce-correlated netstack RPC over deterministic reply slots.
 
+use super::validate::{extract_netstack_reply_nonce, response_matches};
 use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::{KernelClient, Wait};
-use super::validate::{extract_netstack_reply_nonce, response_matches};
 
 #[inline]
 pub(crate) fn next_nonce(n: &mut u64) -> u64 {
@@ -21,10 +21,7 @@ pub(crate) fn rpc_nonce(
     reply_send_slot: u32,
 ) -> core::result::Result<[u8; 512], ()> {
     let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-    if net
-        .send_with_cap_move_wait(req, reply_send_clone, Wait::NonBlocking)
-        .is_err()
-    {
+    if net.send_with_cap_move_wait(req, reply_send_clone, Wait::NonBlocking).is_err() {
         let _ = nexus_abi::cap_close(reply_send_clone);
         return Err(());
     }

@@ -132,7 +132,8 @@ pub(crate) fn run_local_ipc_loop(
                                     reply_send_slot,
                                 )?;
                                 let mut rsp_plain = [0u8; RSP_PLAIN];
-                                let n = transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
+                                let n =
+                                    transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
                                 if n != RSP_PLAIN {
                                     return Err(());
                                 }
@@ -147,7 +148,8 @@ pub(crate) fn run_local_ipc_loop(
                                         && p[4] == 0;
                                 }
                                 Ok(())
-                            })();
+                            })(
+                            );
                             if remote_result.is_err() && !remote_rpc_fail_logged {
                                 remote_rpc_fail_logged = true;
                                 let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote rpc fail");

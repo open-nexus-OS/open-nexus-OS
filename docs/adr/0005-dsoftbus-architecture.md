@@ -75,7 +75,7 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 6. ⬜ Implement reliable streams with multiplexing (TASK-0020+)
 7. ✅ Add comprehensive test coverage (host tests green)
 
-## Implementation Status (2026-01-25)
+## Implementation Status (2026-03-12)
 
 | Component | Host | OS | Task |
 | --------- | ---- | -- | ---- |
@@ -87,6 +87,8 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 | Dual-node proof | ✅ | ✅ | TASK-0004 |
 | Cross-VM sessions (2× QEMU, opt-in) | ✅ | ✅ | TASK-0005 |
 | Remote proxy (`samgrd`/`bundlemgrd`, deny-by-default) | ✅ | ✅ | TASK-0005 |
+| Modular daemon orchestration (`src/os/**`, thin `main.rs`) | ✅ | 🟨 In Review | TASK-0015 |
+| Host seam/security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ | ✅ | TASK-0015 |
 
 **Cross-VM harness contract (opt-in)**:
 

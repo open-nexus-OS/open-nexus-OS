@@ -32,11 +32,13 @@ pub(crate) fn run_selftest_server_loop(
         a[3] = OP_ACCEPT;
         a[4..8].copy_from_slice(&lid.to_le_bytes());
         a[8..16].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = match crate::os::entry::rpc_nonce(pending_replies, net, &a, OP_ACCEPT | 0x80, nonce) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80) {
+        let rsp =
+            match crate::os::entry::rpc_nonce(pending_replies, net, &a, OP_ACCEPT | 0x80, nonce) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80)
+        {
             if rsp[4] == STATUS_OK {
                 sid = Some(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
                 break;
@@ -55,7 +57,8 @@ pub(crate) fn run_selftest_server_loop(
 
     // REAL Noise XK Handshake with selftest-client (RFC-0008).
     // SECURITY: bring-up test keys, NOT production custody.
-    let server_static = StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xA0, port));
+    let server_static =
+        StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xA0, port));
     // SECURITY: bring-up test keys, NOT production custody.
     let server_eph_seed = crate::os::entry::derive_test_secret(0xC0, port);
     // SECURITY: bring-up test keys, NOT production custody.
@@ -124,7 +127,8 @@ pub(crate) fn run_selftest_server_loop(
         r[4..8].copy_from_slice(&sid.to_le_bytes());
         r[8..10].copy_from_slice(&(4u16).to_le_bytes());
         r[10..18].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = match crate::os::entry::rpc_nonce(pending_replies, net, &r, OP_READ | 0x80, nonce) {
+        let rsp = match crate::os::entry::rpc_nonce(pending_replies, net, &r, OP_READ | 0x80, nonce)
+        {
             Ok(v) => v,
             Err(_) => continue,
         };

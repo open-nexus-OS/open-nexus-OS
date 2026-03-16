@@ -28,8 +28,5 @@ pub(crate) struct HandshakeFailureAction<S> {
 
 #[inline]
 pub(crate) fn on_handshake_failure<S: Copy>(fsm: &mut SessionFsm<S>) -> HandshakeFailureAction<S> {
-    HandshakeFailureAction {
-        close_sid: fsm.begin_reconnect(),
-        retry: true,
-    }
+    HandshakeFailureAction { close_sid: fsm.begin_reconnect(), retry: true }
 }

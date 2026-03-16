@@ -126,8 +126,9 @@ pub(crate) fn run_remote_proxy_loop(
                     if !got {
                         status = 1;
                     }
-                    let _ =
-                        nexus_abi::debug_println("dsoftbusd: remote proxy ok (peer=node-a service=samgrd)");
+                    let _ = nexus_abi::debug_println(
+                        "dsoftbusd: remote proxy ok (peer=node-a service=samgrd)",
+                    );
                 }
             }
             SVC_BUNDLE_LIST => {
@@ -168,12 +169,14 @@ pub(crate) fn run_remote_proxy_loop(
                 if !got {
                     status = 1;
                 }
-                let _ =
-                    nexus_abi::debug_println("dsoftbusd: remote proxy ok (peer=node-a service=bundlemgrd)");
+                let _ = nexus_abi::debug_println(
+                    "dsoftbusd: remote proxy ok (peer=node-a service=bundlemgrd)",
+                );
             }
             _ => {
                 status = 1;
-                let _ = nexus_abi::debug_println("dsoftbusd: remote proxy denied (service=unknown)");
+                let _ =
+                    nexus_abi::debug_println("dsoftbusd: remote proxy denied (service=unknown)");
             }
         }
 

@@ -39,7 +39,8 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut pending_replies: ReplyBuffer<16, 512> = ReplyBuffer::new();
 
     // Wait for netstackd to finish IPv4 configuration (DHCP or deterministic static fallback).
-    let local_ip = os::entry::resolve_local_ip_with_wait(&mut pending_replies, &net, &mut nonce_ctr);
+    let local_ip =
+        os::entry::resolve_local_ip_with_wait(&mut pending_replies, &net, &mut nonce_ctr);
     let is_cross_vm = os::entry::is_cross_vm_ip(local_ip);
     if is_cross_vm {
         // Cross-VM mode (TASK-0005 / RFC-0010): real UDP datagrams + TCP sessions across two QEMU instances.
@@ -50,8 +51,12 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // UDP discovery socket bind (Phase 1): bind to 0.0.0.0:<port>.
     let disc_port: u16 = 37_020;
-    let udp_id =
-        os::entry::bind_discovery_udp_with_wait(&mut pending_replies, &net, &mut nonce_ctr, disc_port);
+    let udp_id = os::entry::bind_discovery_udp_with_wait(
+        &mut pending_replies,
+        &net,
+        &mut nonce_ctr,
+        disc_port,
+    );
 
     let port: u16 = 34_567;
     let lid = os::session::single_vm::run_single_vm_dual_node_bringup(

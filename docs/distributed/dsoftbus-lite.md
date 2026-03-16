@@ -19,8 +19,8 @@ later), while the kernel stays minimal and capability-based (see `docs/agents/VI
 
 1. **Discovery** – each node announces its device identifier, published
    services, and listening port. The host backend uses an in-process registry so
-   tests can run without sockets; the OS build will swap in a multicast-based
-   discovery layer once networking is available.
+   tests can run without sockets; the OS build uses multicast UDP discovery via
+   `netstackd`.
 2. **Authenticated session establishment** – peers authenticate using Noise XK
    handshakes seeded with static keys derived from the identity daemon. During
    the handshake both sides sign an attestation covering their Noise static
@@ -57,7 +57,7 @@ Two backends exist today:
   - TCP sessions over the sockets facade
   - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
 
-## Current OS Implementation Status (2026-01-25)
+## Current OS Implementation Status (2026-03-12)
 
 | Feature | Status | Task |
 |---------|--------|------|
@@ -69,6 +69,8 @@ Two backends exist today:
 | Dual-node proof | ✅ Done | TASK-0004 |
 | Cross-VM sessions (2× QEMU) | ✅ Done (opt-in) | TASK-0005 |
 | Remote proxy (`samgrd`/`bundlemgrd`, deny-by-default) | ✅ Done (opt-in) | TASK-0005 |
+| Daemon modular structure (`src/os/**`, thin `main.rs`) | 🟨 In Review | TASK-0015 |
+| Host seam + security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ Done | TASK-0015 |
 
 **2-VM proof harness (opt-in)**:
 - Canonical harness: `tools/os2vm.sh`

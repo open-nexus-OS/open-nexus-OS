@@ -71,7 +71,8 @@ pub(crate) fn rpc_nonce(
             0
         }
     };
-    if !use_cap_move && !CAP_CLONE_FAIL_LOGGED_NONCE.swap(true, core::sync::atomic::Ordering::Relaxed)
+    if !use_cap_move
+        && !CAP_CLONE_FAIL_LOGGED_NONCE.swap(true, core::sync::atomic::Ordering::Relaxed)
     {
         let _ = nexus_abi::debug_println("dsoftbusd: cap clone missing; fallback to direct recv");
     }
@@ -89,7 +90,9 @@ pub(crate) fn rpc_nonce(
                 sent = true;
                 break;
             }
-            Err(IpcErrorLite::WouldBlock) | Err(IpcErrorLite::Timeout) | Err(IpcErrorLite::NoSpace) => {
+            Err(IpcErrorLite::WouldBlock)
+            | Err(IpcErrorLite::Timeout)
+            | Err(IpcErrorLite::NoSpace) => {
                 let _ = nexus_abi::yield_();
             }
             Err(_) => {
@@ -194,7 +197,8 @@ pub(crate) fn get_local_ip(
             return None;
         }
     };
-    if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_LOCAL_ADDR | 0x80) {
+    if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_LOCAL_ADDR | 0x80)
+    {
         return None;
     }
     if rsp[4] != STATUS_OK {
@@ -396,7 +400,11 @@ pub(crate) fn tcp_connect(
         c[8..10].copy_from_slice(&port.to_le_bytes());
         c[10..18].copy_from_slice(&nonce.to_le_bytes());
         let rsp = rpc_nonce(pending, net, &c, OP_CONNECT | 0x80, nonce)?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_CONNECT | 0x80) {
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_CONNECT | 0x80)
+        {
             if rsp[4] == STATUS_OK {
                 return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
             }
@@ -427,7 +435,8 @@ pub(crate) fn tcp_accept(
         a[4..8].copy_from_slice(&lid.to_le_bytes());
         a[8..16].copy_from_slice(&nonce.to_le_bytes());
         let rsp = rpc_nonce(pending, net, &a, OP_ACCEPT | 0x80, nonce)?;
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80) {
+        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80)
+        {
             if rsp[4] == STATUS_OK {
                 return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
             }

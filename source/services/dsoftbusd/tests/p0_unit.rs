@@ -1,15 +1,15 @@
 extern crate alloc;
 
-#[path = "../src/os/session/fsm.rs"]
-mod fsm;
 #[path = "../src/os/discovery/state.rs"]
 mod discovery_state;
-#[path = "../src/os/netstack/ids.rs"]
-mod ids;
-#[path = "../src/os/session/handshake.rs"]
-mod handshake;
 #[path = "../src/os/entry_pure.rs"]
 mod entry_pure;
+#[path = "../src/os/session/fsm.rs"]
+mod fsm;
+#[path = "../src/os/session/handshake.rs"]
+mod handshake;
+#[path = "../src/os/netstack/ids.rs"]
+mod ids;
 
 use alloc::string::String;
 use alloc::vec::Vec;
