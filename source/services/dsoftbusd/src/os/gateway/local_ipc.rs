@@ -220,8 +220,9 @@ pub(crate) fn run_local_ipc_loop(
                             if remote_result.is_err() && !remote_rpc_fail_logged {
                                 remote_rpc_fail_logged = true;
                                 // #region agent log
-                                let _ =
-                                    nexus_abi::debug_println("dbg:dsoftbusd: remote rpc fail resolve");
+                                let _ = nexus_abi::debug_println(
+                                    "dbg:dsoftbusd: remote rpc fail resolve",
+                                );
                                 // #endregion
                             }
 
@@ -309,26 +310,14 @@ pub(crate) fn run_local_ipc_loop(
                 }
                 LOP_REMOTE_PKGFS_STAT | LOP_REMOTE_PKGFS_OPEN => {
                     if frame.len() < 5 {
-                        out.extend_from_slice(&[
-                            L0,
-                            L1,
-                            LVER,
-                            frame[3] | 0x80,
-                            LSTATUS_FAIL,
-                        ]);
+                        out.extend_from_slice(&[L0, L1, LVER, frame[3] | 0x80, LSTATUS_FAIL]);
                     } else {
                         let path_len = frame[4] as usize;
                         if path_len == 0
                             || path_len > pkg::PK_MAX_PATH_LEN
                             || frame.len() != 5 + path_len
                         {
-                            out.extend_from_slice(&[
-                                L0,
-                                L1,
-                                LVER,
-                                frame[3] | 0x80,
-                                LSTATUS_FAIL,
-                            ]);
+                            out.extend_from_slice(&[L0, L1, LVER, frame[3] | 0x80, LSTATUS_FAIL]);
                         } else {
                             let pk_op = if frame[3] == LOP_REMOTE_PKGFS_STAT {
                                 pkg::PK_OP_STAT
@@ -337,7 +326,12 @@ pub(crate) fn run_local_ipc_loop(
                             };
                             let path = &frame[5..];
                             let mut req = Vec::with_capacity(6 + path.len());
-                            req.extend_from_slice(&[pkg::PK_MAGIC0, pkg::PK_MAGIC1, pkg::PK_VERSION, pk_op]);
+                            req.extend_from_slice(&[
+                                pkg::PK_MAGIC0,
+                                pkg::PK_MAGIC1,
+                                pkg::PK_VERSION,
+                                pk_op,
+                            ]);
                             req.extend_from_slice(&(path.len() as u16).to_le_bytes());
                             req.extend_from_slice(path);
 
@@ -374,7 +368,10 @@ pub(crate) fn run_local_ipc_loop(
                                     return Err(());
                                 }
                                 status = p[4];
-                                if pk_op == pkg::PK_OP_STAT && status == pkg::PK_STATUS_OK && p.len() >= 15 {
+                                if pk_op == pkg::PK_OP_STAT
+                                    && status == pkg::PK_STATUS_OK
+                                    && p.len() >= 15
+                                {
                                     size = u64::from_le_bytes([
                                         p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12],
                                     ]);
@@ -384,12 +381,14 @@ pub(crate) fn run_local_ipc_loop(
                                     handle = u32::from_le_bytes([p[5], p[6], p[7], p[8]]);
                                 }
                                 Ok(())
-                            })();
+                            })(
+                            );
                             if remote_result.is_err() && !remote_rpc_fail_logged {
                                 remote_rpc_fail_logged = true;
                                 // #region agent log
-                                let _ =
-                                    nexus_abi::debug_println("dbg:dsoftbusd: remote rpc fail pkgfs-stat-open");
+                                let _ = nexus_abi::debug_println(
+                                    "dbg:dsoftbusd: remote rpc fail pkgfs-stat-open",
+                                );
                                 // #endregion
                             }
                             out.extend_from_slice(&[L0, L1, LVER, frame[3] | 0x80, status]);
@@ -457,12 +456,14 @@ pub(crate) fn run_local_ipc_loop(
                             data_len = n as u16;
                             read_data.extend_from_slice(&p[7..7 + n]);
                             Ok(())
-                        })();
+                        })(
+                        );
                         if remote_result.is_err() && !remote_rpc_fail_logged {
                             remote_rpc_fail_logged = true;
                             // #region agent log
-                            let _ =
-                                nexus_abi::debug_println("dbg:dsoftbusd: remote rpc fail pkgfs-read");
+                            let _ = nexus_abi::debug_println(
+                                "dbg:dsoftbusd: remote rpc fail pkgfs-read",
+                            );
                             // #endregion
                         }
                         out.extend_from_slice(&[
@@ -523,12 +524,14 @@ pub(crate) fn run_local_ipc_loop(
                             }
                             status = p[4];
                             Ok(())
-                        })();
+                        })(
+                        );
                         if remote_result.is_err() && !remote_rpc_fail_logged {
                             remote_rpc_fail_logged = true;
                             // #region agent log
-                            let _ =
-                                nexus_abi::debug_println("dbg:dsoftbusd: remote rpc fail pkgfs-close");
+                            let _ = nexus_abi::debug_println(
+                                "dbg:dsoftbusd: remote rpc fail pkgfs-close",
+                            );
                             // #endregion
                         }
                         out.extend_from_slice(&[

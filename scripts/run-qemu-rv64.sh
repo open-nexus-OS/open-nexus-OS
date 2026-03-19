@@ -174,7 +174,7 @@ prepare_build_tmpdir() {
 
 declare -a SERVICES=()
 
-DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
+DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
 
 prepare_service_payloads() {
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
@@ -248,7 +248,10 @@ monitor_uart() {
   local line
   local saw_init_start=0
   local saw_init_start_keystored=0
+  local saw_init_start_rngd=0
   local saw_init_start_policyd=0
+  local saw_init_start_logd=0
+  local saw_init_start_metricsd=0
   local saw_init_start_samgrd=0
   local saw_init_start_bundlemgrd=0
   local saw_init_start_packagefsd=0
@@ -297,8 +300,12 @@ monitor_uart() {
   local saw_bundlemgrd_route_execd_denied=0
   local saw_pkgfs_ready=0
   local saw_vfsd_ready=0
+  local saw_metricsd_ready=0
   local saw_init_up_keystored=0
+  local saw_init_up_rngd=0
   local saw_init_up_policyd=0
+  local saw_init_up_logd=0
+  local saw_init_up_metricsd=0
   local saw_init_up_samgrd=0
   local saw_init_up_bundlemgrd=0
   local saw_init_up_packagefsd=0
@@ -326,8 +333,17 @@ monitor_uart() {
       *"init: start keystored"*)
         saw_init_start_keystored=1
         ;;
+      *"init: start rngd"*)
+        saw_init_start_rngd=1
+        ;;
       *"init: start policyd"*)
         saw_init_start_policyd=1
+        ;;
+      *"init: start logd"*)
+        saw_init_start_logd=1
+        ;;
+      *"init: start metricsd"*)
+        saw_init_start_metricsd=1
         ;;
       *"init: start samgrd"*)
         saw_init_start_samgrd=1
@@ -353,8 +369,17 @@ monitor_uart() {
       *"init: up keystored"*)
         saw_init_up_keystored=1
         ;;
+      *"init: up rngd"*)
+        saw_init_up_rngd=1
+        ;;
       *"init: up policyd"*)
         saw_init_up_policyd=1
+        ;;
+      *"init: up logd"*)
+        saw_init_up_logd=1
+        ;;
+      *"init: up metricsd"*)
+        saw_init_up_metricsd=1
         ;;
       *"init: up samgrd"*)
         saw_init_up_samgrd=1
@@ -376,6 +401,9 @@ monitor_uart() {
         ;;
       *"vfsd: ready"*)
         saw_vfsd_ready=1
+        ;;
+      *"metricsd: ready"*)
+        saw_metricsd_ready=1
         ;;
       *"execd: elf load ok"*)
         saw_elf_ok=1

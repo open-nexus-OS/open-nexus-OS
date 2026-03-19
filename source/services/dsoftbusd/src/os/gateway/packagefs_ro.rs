@@ -38,9 +38,12 @@ pub(crate) const PK_STATUS_IO: u8 = 9;
 pub(crate) const PK_MAX_PATH_LEN: usize = 192;
 pub(crate) const PK_MAX_READ_LEN: usize = 128;
 pub(crate) const PK_MAX_HANDLES: usize = 8;
+#[allow(dead_code)]
 pub(crate) const PK_MAX_OPEN_FILE_BYTES: usize = 16 * 1024;
 
+#[allow(dead_code)]
 pub(crate) const PACKAGEFS_KIND_FILE: u16 = 0;
+#[allow(dead_code)]
 pub(crate) const PACKAGEFSD_OP_RESOLVE: u8 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,9 +142,7 @@ fn parse_close_request(frame: &[u8]) -> core::result::Result<PackagefsRequest, R
     Ok(PackagefsRequest::Close { handle })
 }
 
-pub(crate) fn normalize_packagefs_path(
-    path: &str,
-) -> core::result::Result<String, RejectReason> {
+pub(crate) fn normalize_packagefs_path(path: &str) -> core::result::Result<String, RejectReason> {
     let rel = if let Some(rest) = path.strip_prefix("pkg:/") {
         rest
     } else if let Some(rest) = path.strip_prefix("/packages/") {
@@ -187,12 +188,24 @@ pub(crate) fn decode_packagefs_resolve_rsp(
     if found != 1 {
         return Err(());
     }
-    let size = u64::from_le_bytes([
-        rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8],
-    ]);
+    let size = u64::from_le_bytes([rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8]]);
     let kind = u16::from_le_bytes([rsp[9], rsp[10]]);
+    if kind != PACKAGEFS_KIND_FILE {
+        return Err(());
+    }
     let bytes = rsp[11..].to_vec();
+    if bytes.len() > PK_MAX_OPEN_FILE_BYTES {
+        return Err(());
+    }
     Ok(Some(PackagefsEntry { kind, size, bytes }))
+}
+
+#[allow(dead_code)]
+pub(crate) fn encode_packagefs_resolve_req(rel_path: &str) -> Vec<u8> {
+    let mut req = Vec::with_capacity(1 + rel_path.len());
+    req.push(PACKAGEFSD_OP_RESOLVE);
+    req.extend_from_slice(rel_path.as_bytes());
+    req
 }
 
 pub(crate) fn encode_status_only(op: u8, status: u8) -> Vec<u8> {

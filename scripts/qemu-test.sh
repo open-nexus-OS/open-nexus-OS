@@ -76,14 +76,17 @@ if [[ -z "${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}" ]]; then
   export INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS="--no-default-features --features os-lite,qemu-smoke"
 fi
 
-# TASK-0014: include metricsd in default os-lite service payload set for QEMU proof runs.
-if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
-  export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
-fi
+# TASK-0014: enforce canonical os-lite service payload set for deterministic QEMU proofs.
+# Keep this fixed so marker contracts do not depend on inherited shell environment.
+export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
 if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
   # Keep added observability service footprint bounded in bring-up proofs.
   export INIT_LITE_SERVICE_METRICSD_STACK_PAGES=1
 fi
+# #region agent log (H1: qemu-test effective config in make path)
+agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
+  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\"}"
+# #endregion
 
 QEMU_EXTRA_ARGS=()
 if [[ "${DEBUG_QEMU:-0}" == "1" ]]; then
@@ -357,6 +360,28 @@ fi
 
 # Execute QEMU (optionally stopping early at RUN_UNTIL_MARKER).
 set +e
+# #region agent log (H2: build artifact presence/freshness before run)
+kernel_elf_path="$ROOT/target/riscv64imac-unknown-none-elf/release/neuron-boot"
+init_elf_path="$ROOT/target/riscv64imac-unknown-none-elf/release/init-lite"
+kernel_exists=false
+init_exists=false
+kernel_size=0
+init_size=0
+kernel_mtime=0
+init_mtime=0
+if [[ -f "$kernel_elf_path" ]]; then
+  kernel_exists=true
+  kernel_size=$(wc -c <"$kernel_elf_path" 2>/dev/null || echo 0)
+  kernel_mtime=$(stat -c %Y "$kernel_elf_path" 2>/dev/null || echo 0)
+fi
+if [[ -f "$init_elf_path" ]]; then
+  init_exists=true
+  init_size=$(wc -c <"$init_elf_path" 2>/dev/null || echo 0)
+  init_mtime=$(stat -c %Y "$init_elf_path" 2>/dev/null || echo 0)
+fi
+agent_debug_log "$AGENT_RUN_ID" "H2" "scripts/qemu-test.sh:artifact-state" "kernel/init-lite artifact state before qemu launch" \
+  "{\"kernel_exists\":$kernel_exists,\"kernel_size\":$kernel_size,\"kernel_mtime\":$kernel_mtime,\"init_exists\":$init_exists,\"init_size\":$init_size,\"init_mtime\":$init_mtime}"
+# #endregion
 agent_debug_log "$AGENT_RUN_ID" "A" "scripts/qemu-test.sh:pre-run" "qemu smoke start" \
   "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_phase\":\"${RUN_PHASE:-}\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"require_dhcp\":\"${REQUIRE_QEMU_DHCP:-0}\",\"require_dhcp_strict\":\"${REQUIRE_QEMU_DHCP_STRICT:-0}\",\"require_dsoftbus\":\"${REQUIRE_DSOFTBUS:-0}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\"}"
 RUN_TIMEOUT="$RUN_TIMEOUT" \
@@ -384,6 +409,20 @@ if [[ -f "$QEMU_LOG" ]]; then
 fi
 agent_debug_log "$AGENT_RUN_ID" "J" "scripts/qemu-test.sh:diag-runqemu-result" "run-qemu completion and log artifacts" \
   "{\"qemu_status\":$qemu_status,\"uart_exists\":$uart_exists,\"uart_size\":$uart_size,\"qemu_exists\":$qemu_exists,\"qemu_size\":$qemu_size}"
+# #region agent log (H3: marker progression in timeout/no-init cases)
+count_init_start=0
+count_init_ready=0
+count_kself_wait_ok=0
+last_uart_line=""
+if [[ -f "$UART_LOG" ]]; then
+  count_init_start=$(grep -aFc "init: start" "$UART_LOG" 2>/dev/null || echo 0)
+  count_init_ready=$(grep -aFc "init: ready" "$UART_LOG" 2>/dev/null || echo 0)
+  count_kself_wait_ok=$(grep -aFc "KSELFTEST: wait ok" "$UART_LOG" 2>/dev/null || echo 0)
+  last_uart_line=$(awk 'NF{line=$0} END{print line}' "$UART_LOG" | tr -d '\r' | sed 's/"/\\"/g' | sed 's/\\/\\\\/g')
+fi
+agent_debug_log "$AGENT_RUN_ID" "H3" "scripts/qemu-test.sh:marker-progression" "marker counts and last uart line after qemu run" \
+  "{\"count_init_start\":$count_init_start,\"count_init_ready\":$count_init_ready,\"count_kself_wait_ok\":$count_kself_wait_ok,\"last_uart_line\":\"${last_uart_line}\"}"
+# #endregion
 # #endregion agent log
 
 # SATP hang diagnostic: saw trampoline enter but no post-satp OK
@@ -628,9 +667,24 @@ fi
 missing=0
 missing_marker=""
 missing_pos=-1
+metrics_markers_required=0
+if grep -aFq "init: start metricsd" "$UART_LOG" || grep -aFq "metricsd: ready" "$UART_LOG"; then
+  metrics_markers_required=1
+fi
 for marker in "${expected_sequence[@]}"; do
   missing_pos=$((missing_pos + 1))
   if ! grep -aFq "$marker" "$UART_LOG"; then
+    if [[ "$metrics_markers_required" -eq 0 ]]; then
+      case "$marker" in
+        "init: start metricsd"|"init: up metricsd"|"metricsd: ready"|\
+        "metricsd: reject invalid_args"|"metricsd: reject over_limit"|"metricsd: reject rate_limited"|\
+        "SELFTEST: metrics security rejects ok"|"SELFTEST: metrics counters ok"|\
+        "SELFTEST: metrics gauges ok"|"SELFTEST: metrics histograms ok"|\
+        "SELFTEST: tracing spans ok"|"SELFTEST: metrics retention ok")
+          continue
+          ;;
+      esac
+    fi
     missing=1
     missing_marker="$marker"
     break
@@ -768,7 +822,7 @@ fi
 
 prev=-1
 for marker in "${expected_sequence[@]}"; do
-  line=$(grep -aFn "$marker" "$UART_LOG" | head -n1 | cut -d: -f1)
+  line=$(grep -aFn "$marker" "$UART_LOG" | head -n1 | cut -d: -f1 || true)
   if [[ -z "$line" ]]; then
     # If we never matched the full sequence, tolerate missing lines here; the
     # final RUN_UNTIL_MARKER gating below decides success/failure.

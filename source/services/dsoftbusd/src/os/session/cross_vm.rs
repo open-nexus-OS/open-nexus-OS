@@ -335,14 +335,17 @@ pub(crate) fn run_cross_vm_main(
                                 STATUS_IO => {
                                     if !dial_status_io_logged {
                                         dial_status_io_logged = true;
-                                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status io");
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status io",
+                                        );
                                     }
                                 }
                                 0xfd => {
                                     if !dial_status_rpc_err_logged {
                                         dial_status_rpc_err_logged = true;
-                                        let _ =
-                                            nexus_abi::debug_println("dbg:dsoftbusd: dial status rpc_err");
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status rpc_err",
+                                        );
                                     }
                                 }
                                 0xfe => {
@@ -387,7 +390,9 @@ pub(crate) fn run_cross_vm_main(
                                     if !dial_status_other_logged {
                                         dial_status_other_logged = true;
                                         // #region agent log
-                                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status other");
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status other",
+                                        );
                                         // #endregion
                                     }
                                 }

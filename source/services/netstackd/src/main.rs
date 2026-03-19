@@ -19,6 +19,10 @@
 //! - Prove the facade can do real on-wire traffic (gateway ping + UDP DNS).
 //! - Export a minimal sockets facade via IPC for other services (TASK-0003).
 
+#[cfg(any(
+    all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"),
+    test
+))]
 #[inline]
 fn fallback_ipv4_config(is_qemu_smoke: bool, mac: [u8; 6]) -> ([u8; 4], u8, Option<[u8; 4]>) {
     if is_qemu_smoke {
@@ -912,11 +916,13 @@ fn os_entry() -> core::result::Result<(), ()> {
                             // #endregion
                         } else if dbg_connect_req_count == 512 {
                             // #region agent log
-                            let _ = nexus_abi::debug_println("dbg:netstackd: connect req count 512");
+                            let _ =
+                                nexus_abi::debug_println("dbg:netstackd: connect req count 512");
                             // #endregion
                         } else if dbg_connect_req_count == 4096 {
                             // #region agent log
-                            let _ = nexus_abi::debug_println("dbg:netstackd: connect req count 4096");
+                            let _ =
+                                nexus_abi::debug_println("dbg:netstackd: connect req count 4096");
                             // #endregion
                         }
                         if !dbg_connect_target_printed
@@ -975,7 +981,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let mut reused_pending = false;
                             let mut drop_stale_pending = false;
                             if let Some((pending_remote, pending_stream)) = pending_dial.as_mut() {
-                                if pending_remote.ip == remote.ip && pending_remote.port == remote.port
+                                if pending_remote.ip == remote.ip
+                                    && pending_remote.port == remote.port
                                 {
                                     if pending_stream.is_closed_or_listen() {
                                         drop_stale_pending = true;
@@ -989,7 +996,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                                             );
                                             // #endregion
                                         }
-                                        if pending_stream.wait_writable_bounded(TCP_READY_SPIN_BUDGET) {
+                                        if pending_stream
+                                            .wait_writable_bounded(TCP_READY_SPIN_BUDGET)
+                                        {
                                             if !dbg_connect_kick_ok_logged {
                                                 dbg_connect_kick_ok_logged = true;
                                                 // #region agent log
@@ -1022,7 +1031,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                                                 rsp[5..9].copy_from_slice(&sid.to_le_bytes());
                                                 reply(&rsp);
                                             }
-                                            let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
+                                            let _ = nexus_abi::debug_println(
+                                                "netstackd: rpc connect ok",
+                                            );
                                         } else {
                                             if !dbg_connect_kick_would_block_logged {
                                                 dbg_connect_kick_would_block_logged = true;
@@ -1112,7 +1123,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                                             rsp[5..9].copy_from_slice(&sid.to_le_bytes());
                                             reply(&rsp);
                                         }
-                                        let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
+                                        let _ =
+                                            nexus_abi::debug_println("netstackd: rpc connect ok");
                                     } else {
                                         if !dbg_connect_kick_would_block_logged {
                                             dbg_connect_kick_would_block_logged = true;
@@ -1187,8 +1199,9 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     if !dbg_connect_status_io_logged {
                                         dbg_connect_status_io_logged = true;
                                         // #region agent log
-                                        let _ =
-                                            nexus_abi::debug_println("dbg:netstackd: connect status io");
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:netstackd: connect status io",
+                                        );
                                         // #endregion
                                     }
                                     if let Some(nonce) = nonce {
@@ -1865,7 +1878,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                                                 rsp[2] = VERSION;
                                                 rsp[3] = OP_WRITE | 0x80;
                                                 rsp[4] = STATUS_OK;
-                                                rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                                rsp[5..7]
+                                                    .copy_from_slice(&(n as u16).to_le_bytes());
                                                 append_nonce(&mut rsp[7..15], nonce);
                                                 reply(&rsp);
                                             } else {
@@ -1875,7 +1889,8 @@ fn os_entry() -> core::result::Result<(), ()> {
                                                 rsp[2] = VERSION;
                                                 rsp[3] = OP_WRITE | 0x80;
                                                 rsp[4] = STATUS_OK;
-                                                rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                                rsp[5..7]
+                                                    .copy_from_slice(&(n as u16).to_le_bytes());
                                                 reply(&rsp);
                                             }
                                         }

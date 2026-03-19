@@ -149,30 +149,34 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
             nexus_abi::routing::STATUS_NOT_FOUND => {
                 if !PKG_ROUTE_NOT_FOUND_LOGGED.swap(true, Ordering::Relaxed) {
                     // #region agent log
-                    let _ =
-                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=not-found");
+                    let _ = nexus_abi::debug_println(
+                        "dbg:nexus-ipc: route packagefsd status=not-found",
+                    );
                     // #endregion
                 }
             }
             nexus_abi::routing::STATUS_DENIED => {
                 if !PKG_ROUTE_DENIED_LOGGED.swap(true, Ordering::Relaxed) {
                     // #region agent log
-                    let _ = nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=denied");
+                    let _ =
+                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=denied");
                     // #endregion
                 }
             }
             nexus_abi::routing::STATUS_MALFORMED => {
                 if !PKG_ROUTE_MALFORMED_LOGGED.swap(true, Ordering::Relaxed) {
                     // #region agent log
-                    let _ =
-                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=malformed");
+                    let _ = nexus_abi::debug_println(
+                        "dbg:nexus-ipc: route packagefsd status=malformed",
+                    );
                     // #endregion
                 }
             }
             _ => {
                 if !PKG_ROUTE_OTHER_LOGGED.swap(true, Ordering::Relaxed) {
                     // #region agent log
-                    let _ = nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=other");
+                    let _ =
+                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=other");
                     // #endregion
                 }
             }

@@ -258,8 +258,9 @@ pub(crate) fn run_remote_proxy_loop(
                     if !pkg_dep_ok_logged {
                         pkg_dep_ok_logged = true;
                         // #region agent log
-                        let _ =
-                            nexus_abi::debug_println("dbg:dsoftbusd: remote proxy dep packagefsd ok");
+                        let _ = nexus_abi::debug_println(
+                            "dbg:dsoftbusd: remote proxy dep packagefsd ok",
+                        );
                         // #endregion
                     }
                     let (pkg_rsp, served_ok) = handle_packagefs_ro_request(
@@ -279,8 +280,9 @@ pub(crate) fn run_remote_proxy_loop(
                     if !pkg_dep_fail_logged {
                         pkg_dep_fail_logged = true;
                         // #region agent log
-                        let _ =
-                            nexus_abi::debug_println("dbg:dsoftbusd: remote proxy dep packagefsd fail");
+                        let _ = nexus_abi::debug_println(
+                            "dbg:dsoftbusd: remote proxy dep packagefsd fail",
+                        );
                         // #endregion
                     }
                     status = 0;
@@ -446,20 +448,15 @@ fn resolve_package_entry(
     packagefsd: &KernelClient,
     rel_path: &str,
 ) -> core::result::Result<Option<pkg::PackagefsEntry>, ()> {
-    let mut req = Vec::with_capacity(1 + rel_path.len());
-    req.push(pkg::PACKAGEFSD_OP_RESOLVE);
-    req.extend_from_slice(rel_path.as_bytes());
-    packagefsd
-        .send(&req, Wait::Timeout(core::time::Duration::from_millis(300)))
-        .map_err(|_| {
-            // #region agent log
-            let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve send fail");
-            // #endregion
-            ()
-        })?;
-    let rsp = packagefsd
-        .recv(Wait::Timeout(core::time::Duration::from_millis(300)))
-        .map_err(|_| {
+    let req = pkg::encode_packagefs_resolve_req(rel_path);
+    packagefsd.send(&req, Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| {
+        // #region agent log
+        let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve send fail");
+        // #endregion
+        ()
+    })?;
+    let rsp =
+        packagefsd.recv(Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| {
             // #region agent log
             let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve timeout");
             // #endregion

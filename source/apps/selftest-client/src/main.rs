@@ -3166,70 +3166,69 @@ mod os_lite {
         // TASK-0005: Cross-VM remote proxy proof (opt-in 2-VM harness).
         // Only Node A emits the markers; single-VM smoke must not block on remote RPC waits.
         if os2vm && local_ip.is_some() {
-                // Retry with a wall-clock bound to keep tests deterministic and fast.
-                // dsoftbusd must establish the session first.
-                let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-                let deadline_ms = start_ms.saturating_add(4_000);
-                let mut ok = false;
-                loop {
-                    if dsoftbusd_remote_resolve("bundlemgrd").is_ok() {
-                        ok = true;
-                        break;
-                    }
-                    let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-                    if now_ms >= deadline_ms {
-                        break;
-                    }
-                    let _ = yield_();
+            // Retry with a wall-clock bound to keep tests deterministic and fast.
+            // dsoftbusd must establish the session first.
+            let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+            let deadline_ms = start_ms.saturating_add(4_000);
+            let mut ok = false;
+            loop {
+                if dsoftbusd_remote_resolve("bundlemgrd").is_ok() {
+                    ok = true;
+                    break;
                 }
-                if ok {
-                    emit_line("SELFTEST: remote resolve ok");
-                } else {
-                    emit_line("SELFTEST: remote resolve FAIL");
+                let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                if now_ms >= deadline_ms {
+                    break;
                 }
+                let _ = yield_();
+            }
+            if ok {
+                emit_line("SELFTEST: remote resolve ok");
+            } else {
+                emit_line("SELFTEST: remote resolve FAIL");
+            }
 
-                let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-                let deadline_ms = start_ms.saturating_add(4_000);
-                let mut got: Option<u16> = None;
-                loop {
-                    if let Ok(count) = dsoftbusd_remote_bundle_list() {
-                        got = Some(count);
-                        break;
-                    }
-                    let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-                    if now_ms >= deadline_ms {
-                        break;
-                    }
-                    let _ = yield_();
+            let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+            let deadline_ms = start_ms.saturating_add(4_000);
+            let mut got: Option<u16> = None;
+            loop {
+                if let Ok(count) = dsoftbusd_remote_bundle_list() {
+                    got = Some(count);
+                    break;
                 }
-                if let Some(_count) = got {
-                    emit_line("SELFTEST: remote query ok");
-                } else {
-                    emit_line("SELFTEST: remote query FAIL");
+                let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                if now_ms >= deadline_ms {
+                    break;
                 }
+                let _ = yield_();
+            }
+            if let Some(_count) = got {
+                emit_line("SELFTEST: remote query ok");
+            } else {
+                emit_line("SELFTEST: remote query FAIL");
+            }
 
-                let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-                let deadline_ms = start_ms.saturating_add(4_000);
-                let mut pkg_ok = false;
-                loop {
-                    if let Ok(bytes) = dsoftbusd_remote_pkgfs_read_once("pkg:/system/build.prop", 64)
-                    {
-                        if !bytes.is_empty() {
-                            pkg_ok = true;
-                            break;
-                        }
-                    }
-                    let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-                    if now_ms >= deadline_ms {
+            let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+            let deadline_ms = start_ms.saturating_add(4_000);
+            let mut pkg_ok = false;
+            loop {
+                if let Ok(bytes) = dsoftbusd_remote_pkgfs_read_once("pkg:/system/build.prop", 64) {
+                    if !bytes.is_empty() {
+                        pkg_ok = true;
                         break;
                     }
-                    let _ = yield_();
                 }
-                if pkg_ok {
-                    emit_line("SELFTEST: remote pkgfs read ok");
-                } else {
-                    emit_line("SELFTEST: remote pkgfs read FAIL");
+                let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                if now_ms >= deadline_ms {
+                    break;
                 }
+                let _ = yield_();
+            }
+            if pkg_ok {
+                emit_line("SELFTEST: remote pkgfs read ok");
+            } else {
+                emit_line("SELFTEST: remote pkgfs read FAIL");
+            }
         }
 
         emit_line("SELFTEST: end");
@@ -4471,9 +4470,7 @@ mod os_lite {
             return Err(());
         }
         let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
-                REMOTE_DSOFTBUS_WAIT_MS,
-            )))
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
             .map_err(|_| ())?;
         if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
         {
@@ -4494,15 +4491,10 @@ mod os_lite {
 
         let d = cached_dsoftbusd_client().map_err(|_| ())?;
         let req = [D0, D1, VER, OP];
-        d.send(
-            &req,
-            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
-        )
-        .map_err(|_| ())?;
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+            .map_err(|_| ())?;
         let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
-                REMOTE_DSOFTBUS_WAIT_MS,
-            )))
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
             .map_err(|_| ())?;
         if rsp.len() != 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
         {
@@ -4528,15 +4520,10 @@ mod os_lite {
         let mut req = alloc::vec::Vec::with_capacity(5 + p.len());
         req.extend_from_slice(&[D0, D1, VER, OP, p.len() as u8]);
         req.extend_from_slice(p);
-        d.send(
-            &req,
-            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
-        )
-        .map_err(|_| ())?;
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+            .map_err(|_| ())?;
         let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
-                REMOTE_DSOFTBUS_WAIT_MS,
-            )))
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
             .map_err(|_| ())?;
         if rsp.len() != 15 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
         {
@@ -4545,9 +4532,8 @@ mod os_lite {
         if rsp[4] != STATUS_OK {
             return Err(());
         }
-        let size = u64::from_le_bytes([
-            rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
-        ]);
+        let size =
+            u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
         let kind = u16::from_le_bytes([rsp[13], rsp[14]]);
         Ok((size, kind))
     }
@@ -4566,15 +4552,10 @@ mod os_lite {
         let mut req = alloc::vec::Vec::with_capacity(5 + p.len());
         req.extend_from_slice(&[D0, D1, VER, OP, p.len() as u8]);
         req.extend_from_slice(p);
-        d.send(
-            &req,
-            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
-        )
-        .map_err(|_| ())?;
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+            .map_err(|_| ())?;
         let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
-                REMOTE_DSOFTBUS_WAIT_MS,
-            )))
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
             .map_err(|_| ())?;
         if rsp.len() != 9 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
         {
@@ -4608,22 +4589,12 @@ mod os_lite {
         req[4..8].copy_from_slice(&handle.to_le_bytes());
         req[8..12].copy_from_slice(&offset.to_le_bytes());
         req[12..14].copy_from_slice(&read_len.to_le_bytes());
-        d.send(
-            &req,
-            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
-        )
-        .map_err(|_| ())?;
-        let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
-                REMOTE_DSOFTBUS_WAIT_MS,
-            )))
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
             .map_err(|_| ())?;
-        if rsp.len() < 7
-            || rsp[0] != D0
-            || rsp[1] != D1
-            || rsp[2] != VER
-            || rsp[3] != (OP | 0x80)
-        {
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+            .map_err(|_| ())?;
+        if rsp.len() < 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
             return Err(());
         }
         if rsp[4] != STATUS_OK {
@@ -4649,15 +4620,10 @@ mod os_lite {
         req[2] = VER;
         req[3] = OP;
         req[4..8].copy_from_slice(&handle.to_le_bytes());
-        d.send(
-            &req,
-            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
-        )
-        .map_err(|_| ())?;
+        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+            .map_err(|_| ())?;
         let rsp = d
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
-                REMOTE_DSOFTBUS_WAIT_MS,
-            )))
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
             .map_err(|_| ())?;
         if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
         {

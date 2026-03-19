@@ -522,7 +522,9 @@ fn handle_packagefs_frame(
                 Err(status) => return encode_pkg_stat(status, 0, 0),
             };
             match resolve_pkg_path(&rel) {
-                Some(bytes) => encode_pkg_stat(PK_STATUS_OK, bytes.len() as u64, PACKAGEFS_KIND_FILE),
+                Some(bytes) => {
+                    encode_pkg_stat(PK_STATUS_OK, bytes.len() as u64, PACKAGEFS_KIND_FILE)
+                }
                 None => encode_pkg_stat(PK_STATUS_NOT_FOUND, 0, 0),
             }
         }

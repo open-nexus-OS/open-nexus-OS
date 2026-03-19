@@ -177,6 +177,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/adr/0005-dsoftbus-architecture.md`
 - `docs/distributed/dsoftbus-lite.md`
 - `docs/testing/index.md`
+- `docs/testing/network-distributed-debugging.md`
 - `scripts/qemu-test.sh`
 - `tools/os2vm.sh`
 
@@ -219,3 +220,13 @@ Kontext strikt: @core_context @task_0015_context @quality_gates @task_0015_touch
 
 ## Standard instruction line (TASK-0016)
 Kontext strikt: @core_context @task_0016_context @quality_gates @task_0016_touched. Kein @codebase Scan.
+
+### @network_distributed_debug_context
+- `docs/testing/network-distributed-debugging.md`
+- `tools/os2vm.sh`
+- `scripts/qemu-test.sh`
+- `source/services/dsoftbusd/src/os/session/cross_vm.rs`
+- `source/services/dsoftbusd/src/os/netstack/stream_io.rs`
+
+## Standard instruction line (TASK-0016 runtime triage)
+Kontext strikt: @core_context @task_0016_context @network_distributed_debug_context @quality_gates @task_0016_touched. Kein @codebase Scan.

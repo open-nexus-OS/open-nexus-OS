@@ -4,8 +4,8 @@ extern crate alloc;
 mod packagefs_ro;
 
 use packagefs_ro::{
-    parse_request, RejectReason, PK_MAGIC0, PK_MAGIC1, PK_MAX_PATH_LEN, PK_MAX_READ_LEN, PK_OP_READ,
-    PK_OP_STAT, PK_VERSION,
+    parse_request, RejectReason, PK_MAGIC0, PK_MAGIC1, PK_MAX_PATH_LEN, PK_MAX_READ_LEN,
+    PK_OP_READ, PK_OP_STAT, PK_VERSION,
 };
 
 fn stat_frame(path: &str) -> alloc::vec::Vec<u8> {
@@ -37,8 +37,7 @@ fn test_reject_non_packagefs_scheme() {
 
 #[test]
 fn test_reject_oversize_read_or_path() {
-    let long_path = alloc::string::String::from("pkg:/")
-        + &"a".repeat(PK_MAX_PATH_LEN + 1);
+    let long_path = alloc::string::String::from("pkg:/") + &"a".repeat(PK_MAX_PATH_LEN + 1);
     let req = stat_frame(&long_path);
     assert_eq!(parse_request(&req, true), Err(RejectReason::OversizedReadOrPath));
 

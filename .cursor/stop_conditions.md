@@ -11,6 +11,7 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] All stated Security Invariants are enforced and have negative tests where appropriate (`test_reject_*`)
 - [ ] No regressions against `.cursor/current_state.md` constraints/invariants
 - [ ] Proof artifacts exist and are referenced in the task/handoff (tests, QEMU markers, logs)
+- [ ] For `tools/os2vm.sh`-based proof, typed summary artifacts are present and linked (`os2vm-summary-*.json` / `.txt`)
 - [ ] For TASK-0016-class remote packagefs RO work:
   - [ ] Exposed remote operations are read-only only (`stat/open/read/close`)
   - [ ] Non-packagefs paths/schemes are rejected fail-closed
@@ -28,7 +29,7 @@ This prevents subjective completion and reduces drift across sessions.
   - [ ] ADR/RFC references (if boundaries/contracts were touched)
 - [ ] Documentation updated when it is a contract surface:
   - [ ] docs/arch (if architecture changed)
-  - [ ] docs/testing (if new tests/markers introduced)
+  - [ ] docs/testing (if new tests/markers introduced), including SSOT sync in `docs/testing/network-distributed-debugging.md`
   - [ ] README/guide docs (if developer workflow changed)
 
 ## Never claim success if…
@@ -38,3 +39,4 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] QEMU proofs were run in parallel and produced lock/contention artifacts instead of deterministic evidence
 - [ ] Ownership/newtype/Send-Sync boundary changes were made without task/RFC/header synchronization
 - [ ] The refactor silently changed wire layout, retry budgets, or remote-proxy behavior while still claiming “no behavior change”
+- [ ] `os2vm` typed rule-matrix and docs SSOT drifted (script behavior no longer matches `docs/testing/network-distributed-debugging.md`)

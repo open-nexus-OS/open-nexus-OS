@@ -28,19 +28,21 @@ It should be updated during the previous task's wrap-up, before handing off.
   - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md` (contract seed for the daemon refactor boundary)
   - `docs/adr/0005-dsoftbus-architecture.md` (service boundary / backend architecture)
   - `docs/distributed/dsoftbus-lite.md` (current daemon/backends overview)
-  - `docs/testing/index.md` (proof sequencing + DSoftBus testing discipline)
+  - `docs/testing/index.md` (global testing methodology)
+  - `docs/testing/network-distributed-debugging.md` (SSOT for network/distributed triage + os2vm rule matrix)
   - `scripts/qemu-test.sh` (single-VM marker contract)
   - `tools/os2vm.sh` (cross-VM proof contract)
-- **first_action**: start `TASK-0016` implementation using stabilized `dsoftbusd` seams from completed `TASK-0015`, without changing established marker/wire contracts.
+- **first_action**: execute `TASK-0016` close-out using new `os2vm` phase/summary flow (`session` then `remote`) and sync RFC evidence.
 
 ## Start slice (now)
-- **slice_name**: TASK-0016 kickoff / remote packagefs RO over DSoftBus seams
+- **slice_name**: TASK-0016 proof close-out with typed `os2vm` diagnostics
 - **target_file**: `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
 - **must_cover**:
   - keep single-VM and cross-VM marker/wire semantics unchanged while adding `TASK-0016` behavior
   - preserve nonce-correlated reply handling and remote proxy deny-by-default behavior
   - keep `source/services/dsoftbusd/src/main.rs` thin (no orchestration regressions back into main)
-  - run host-first and sequential QEMU proofs after substantial changes
+  - use `tools/os2vm.sh` summary artifacts (`json` + `txt`) as primary cross-VM triage evidence
+  - update RFC/task proof sections with typed failure/success evidence, not only raw timeout output
 
 ## Execution order
 1. **TASK-0015**: complete
@@ -49,13 +51,13 @@ It should be updated during the previous task's wrap-up, before handing off.
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
-  - task order is synced through completed `TASK-0015`; `TASK-0016` is now the active slice
+  - `TASK-0016` remains active and now has improved deterministic debugging/proof tooling
 - **best_system_solution**: YES
-  - preparatory daemon modularization is complete and provides stable seams for remote packagefs work
+  - phase-gated/typed `os2vm` and SSOT docs reduce timeout-only debugging and proof ambiguity
 - **scope_clear**: YES
-  - task scope is explicit and can be executed without reopening RFC-0027 Phase 3 refactor work
+  - remote packagefs RO remains primary scope; harness/doc changes are now in place for proof quality
 - **touched_paths_allowlist_present**: YES
-  - task limits edits to `source/services/dsoftbusd/**`, docs sync, and harness-only `tools/os2vm.sh` parity updates
+  - task allows `source/services/dsoftbusd/**`, docs sync, and harness updates in `tools/os2vm.sh`
 
 ## Header / follow-up hygiene
 - **follow_ups_in_task_header**: YES
@@ -69,10 +71,49 @@ It should be updated during the previous task's wrap-up, before handing off.
   - ✅ `TASK-0005` completed (cross-VM DSoftBus baseline)
   - ✅ `TASK-0014` completed and archived
   - ✅ deterministic proof policy remains aligned (`scripts/qemu-test.sh`, `tools/os2vm.sh`)
+  - ✅ network/distributed debugging SSOT added (`docs/testing/network-distributed-debugging.md`)
 
 ## Decision
-- **status**: READY/ACTIVE (`TASK-0015` complete; prep + handoff synced for `TASK-0016`)
+- **status**: READY/ACTIVE (`TASK-0016` execution continues with upgraded proof/triage tooling)
 - **notes**:
-  - keep follow-on changes additive and preserve established marker/wire/security invariants
-  - re-run host-first + sequential QEMU proofs after substantial changes
-  - avoid reintroducing large orchestration loops into `main.rs`
+  - keep follow-on changes additive and preserve marker/wire/security invariants
+  - prefer `RUN_PHASE=session|remote` loops for faster deterministic debugging
+  - keep RFC and task evidence synchronized with `os2vm` typed summaries
+  
+## Next Task Preparation (Drift-Free)
+
+## Candidate next task
+- **task**: finalize `TASK-0016` review package and commit scope.
+- **handoff_target**: `.cursor/handoff/current.md`
+- **linked_contracts**:
+  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+  - `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
+  - `docs/testing/network-distributed-debugging.md`
+  - `scripts/qemu-test.sh`
+  - `scripts/run-qemu-rv64.sh`
+  - `tools/os2vm.sh`
+  - `Makefile`
+  - `justfile`
+
+## Start slice (now)
+- **slice_name**: final consistency + release hygiene
+- **must_cover**:
+  - keep test surfaces green (`fmt-check`, `test-all`, `make build`, `make test`)
+  - decide and document `make run` default timeout policy
+  - remove stale-editor ambiguity by using build/test evidence as source of truth
+  - keep protocol constants cleanly used (no dead-code suppression shortcuts)
+
+## Drift-free check
+- **aligns_with_current_state**: YES
+- **scope_clear**: YES
+- **touched_paths_allowlist_present**: YES (task + harness/docs sync paths only)
+
+## Dependencies & blockers
+- **blocked_by**: none hard
+- **watch_items**:
+  - rust-analyzer stale diagnostics after rapid refactors
+  - timeout budget mismatch between `make run` defaults and full marker ladder
+
+## Decision
+- **status**: READY
+- **first_action**: confirm/implement timeout policy for `make run` and then finalize commit.

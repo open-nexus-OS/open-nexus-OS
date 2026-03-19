@@ -12,24 +12,24 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: close `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` as Done and start preparation for `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+- **last_decision**: implement `OS2VM Debugging + SSOT Consolidation` while continuing `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
 - **rationale**:
-  - `TASK-0015` delivered the needed modular seams in `dsoftbusd` and removed monolithic orchestration risk from `main.rs`
-  - security-negative seam tests and full proof gate are green, so follow-on DSoftBus tasks can build on a stable baseline
-  - `TASK-0016` now carries the next functional increment (remote packagefs RO) with security and boundedness as primary constraints
+  - cross-VM failures were previously timeout-heavy with weak first-failure localization
+  - deterministic modern virtio-mmio proofs need stronger run evidence (success and failure), not marker-only outcomes
+  - network/distributed debugging guidance was duplicated across testing docs and drift-prone
 - **active_constraints**:
   - No fake success markers (only emit `ok` after real behavior proven)
   - OS-lite feature gating (`--no-default-features --features os-lite`)
-  - Preserve existing DSoftBus wire formats, marker semantics, and retry/timeout budgets
-  - Keep remote proxy deny-by-default and keep nonce-correlated shared-inbox handling fail-closed
-  - For `TASK-0016`: read-only packagefs surface only (`stat/open/read/close`), no write-like opcodes
-  - Kernel remains minimal; no kernel or netstack ownership changes
-  - Follow `docs/testing/index.md` for deterministic, sequential proof execution (single-VM then cross-VM)
+  - Preserve DSoftBus wire compatibility and marker intent unless explicitly revised in task/RFC evidence
+  - Keep remote proxy deny-by-default and nonce-correlated shared-inbox handling fail-closed
+  - For `TASK-0016`: remote packagefs remains read-only (`stat/open/read/close`) with bounded ingress
+  - Cross-VM proof remains sequential and deterministic (no parallel QEMU runs)
+  - Network/distributed debugging procedures are SSOT in `docs/testing/network-distributed-debugging.md`
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md` (active kickoff)
-- **seed_contract**: `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md` (completed baseline contract)
+- **active_task**: `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md` (active; proof hardening + verification loop)
+- **seed_contract**: `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md` (active)
 - **contract_dependencies**:
   - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
   - `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
@@ -46,11 +46,12 @@ Rules:
   - `docs/adr/0005-dsoftbus-architecture.md`
   - `docs/distributed/dsoftbus-lite.md`
   - `docs/testing/index.md`
+  - `docs/testing/network-distributed-debugging.md`
   - `scripts/qemu-test.sh`
   - `tools/os2vm.sh`
-- **phase_now**: `TASK-0016` prep/kickoff (task doc + `.cursor` working state aligned)
-- **baseline_commit**: `4f84e1d` (latest dsoftbusd clippy gate fix after TASK-0015 closure)
-- **next_task_slice**: implement bounded remote packagefs RO handler path on existing `dsoftbusd` seams
+- **phase_now**: `TASK-0016` runtime-proof hardening complete; continue functional close-out with new `os2vm` diagnostics
+- **baseline_commit**: `main` working tree (local staged evolution during TASK-0016 debug loop)
+- **next_task_slice**: verify remote markers with new typed `os2vm` summaries and finalize RFC/task evidence
 - **proof_commands**:
   - `cargo clippy -p dsoftbusd --tests -- -D warnings`
   - `cargo test -p dsoftbusd -- --nocapture`
@@ -59,9 +60,11 @@ Rules:
   - `just diag-os`
   - `just diag-host`
   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-- **last_completed**: `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
-  - Outcome: Done; RFC-0027 complete; modular seams stabilized; full gate green
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s RUN_PHASE=build OS2VM_SKIP_BUILD=1 tools/os2vm.sh`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s RUN_PHASE=session OS2VM_PCAP=on OS2VM_EXIT_CODE_MODE=typed tools/os2vm.sh`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s RUN_PHASE=remote OS2VM_PCAP=auto tools/os2vm.sh`
+- **last_completed**: `OS2VM Debugging + SSOT Consolidation` implementation slice
+  - Outcome: phase-gated `os2vm`, typed error matrix, structured summaries, packet correlation, SSOT docs sync
 
 ## Active invariants (must hold)
 - **security**
@@ -84,17 +87,17 @@ Rules:
   - `just diag-os` verifies OS services compile for riscv64
 
 ## Open threads / follow-ups
-- `TASK-0016` must keep RO-only and bounded request behavior while reusing gateway/session seams.
-- `TASK-0017`/`TASK-0020`/`TASK-0021`/`TASK-0022` remain explicit follow-ons; no scope borrowing into `TASK-0016`.
-- Keep canonical proof discipline (host-first, then sequential single-VM/2-VM) for DSoftBus transport/session/gateway changes.
-- If byte-frame shortcuts become limiting, record migration boundaries explicitly for `TASK-0020/0021`.
+- Finish green end-to-end `TASK-0016` marker proof using new `os2vm` summaries as evidence input.
+- If `OS2VM_E_SESSION_NO_SYN`/`OS2VM_E_SESSION_NO_SYNACK` recurs, keep fixes transport-local and evidence-driven.
+- Keep follow-ons explicit (`TASK-0017`, `TASK-0020`, `TASK-0021`, `TASK-0022`); no scope pull-in.
+- Evaluate CI usage of `OS2VM_EXIT_CODE_MODE=typed` after local stability.
 
 ## Known risks / hazards
 - Path normalization mistakes could allow traversal outside packagefs namespace.
 - Unauthenticated/stale-session requests might bypass intended fail-closed checks if handler boundaries are blurred.
 - Oversize read/path or handle exhaustion can regress boundedness guarantees if limits are not enforced at ingress.
 - QEMU proofs must still run sequentially; no parallel smoke or 2-VM runs on shared artifacts.
-- Harness-level drift can mask service regressions; keep harness parity as part of proof hygiene.
+- Typed harness diagnostics can still misclassify if packet capture is unavailable; validate with UART + marker evidence together.
 
 ## DON'T DO (session-local)
 - DON'T emit `ready` or `ok` markers for stub/placeholder paths
@@ -102,4 +105,5 @@ Rules:
 - DON'T add write-like packagefs operations in `TASK-0016`
 - DON'T accept non-`pkg:/` or non-`/packages/` paths
 - DON'T change DSoftBus marker/wire contracts without corresponding task/contract evidence updates
+- DON'T bypass `os2vm` phase summaries when classifying failures
 - DON'T pull `TASK-0022` shared-core extraction into `TASK-0016` scope

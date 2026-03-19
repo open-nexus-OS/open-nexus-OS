@@ -41,7 +41,8 @@ fn remote_pkgfs_roundtrip_and_negative_statuses() {
 
     let long_rel = "a".repeat(193);
     let long_path = format!("pkg:/{}", long_rel);
-    let (st_oversized, _, _) = connection.remote_pkgfs_stat_status(&long_path).expect("stat oversized");
+    let (st_oversized, _, _) =
+        connection.remote_pkgfs_stat_status(&long_path).expect("stat oversized");
     assert_eq!(st_oversized, 7, "expected PK_STATUS_OVERSIZED");
 
     let (st_open, handle) =
@@ -54,15 +55,13 @@ fn remote_pkgfs_roundtrip_and_negative_statuses() {
 
     let mut open_handles = Vec::new();
     for _ in 0..8 {
-        let (st, h) = connection
-            .remote_pkgfs_open_status("pkg:/system/build.prop")
-            .expect("open for limit");
+        let (st, h) =
+            connection.remote_pkgfs_open_status("pkg:/system/build.prop").expect("open for limit");
         assert_eq!(st, 0, "expected PK_STATUS_OK while below limit");
         open_handles.push(h);
     }
-    let (st_limit, _) = connection
-        .remote_pkgfs_open_status("pkg:/system/build.prop")
-        .expect("open at limit");
+    let (st_limit, _) =
+        connection.remote_pkgfs_open_status("pkg:/system/build.prop").expect("open at limit");
     assert_eq!(st_limit, 8, "expected PK_STATUS_LIMIT");
     for h in open_handles {
         let st = connection.remote_pkgfs_close_status(h).expect("close opened handle");
