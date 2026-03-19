@@ -1,6 +1,6 @@
 ---
 title: TASK-0016 DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 links:
@@ -36,7 +36,7 @@ Today:
 
 ## Goal
 
-Prove in QEMU (single VM dual-node or 2-VM harness once available):
+Prove in QEMU (single VM smoke + 2-VM harness):
 
 - a node can serve remote packagefs requests over an authenticated DSoftBus stream,
 - a peer can stat/open/read/close a file under `/packages/...` / `pkg:/...`,
@@ -138,8 +138,25 @@ Prove in QEMU (single VM dual-node or 2-VM harness once available):
 - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
   - Extend expected markers with:
     - `dsoftbusd: remote packagefs served`
+    - `SELFTEST: remote pkgfs stat ok`
+    - `SELFTEST: remote pkgfs open ok`
+    - `SELFTEST: remote pkgfs read step ok`
+    - `SELFTEST: remote pkgfs close ok`
     - `SELFTEST: remote pkgfs read ok`
   - keep QEMU proofs sequential (single-VM then 2-VM)
+
+## Verified closure evidence (2026-03-16)
+
+- Host proof:
+  - `cargo test -p dsoftbusd --tests -- --nocapture` (green)
+  - `cargo test -p remote_e2e -- --nocapture` (green, includes remote packagefs roundtrip + negative cases)
+- Single-VM proof:
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s REQUIRE_DSOFTBUS=1 REQUIRE_DSOFTBUS_REMOTE_PKGFS=1 ./scripts/qemu-test.sh` (green; remote gate auto-skips when cross-vm session markers are absent in single-VM profile)
+- 2-VM proof:
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh` (green)
+  - Evidence run: `artifacts/os2vm/runs/os2vm_1773847433/summary.json`
+- Hygiene proof:
+  - repeated `os2vm` launch-phase runs keep tagged QEMU process count at zero after exit and write only run-scoped artifacts under `artifacts/os2vm/runs/`.
 
 ## Touched paths (allowlist)
 

@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use std::{collections::HashMap, convert::TryFrom};
 
 use anyhow::{anyhow, Context, Result};
 use bundlemgrd::{self, run_with_transport as bundle_run_with_transport, ArtifactStore};
@@ -49,6 +50,28 @@ use nexus_net::fake::FakeNet;
 const CHAN_SAMGR: u32 = 1;
 const CHAN_BUNDLEMGR: u32 = 2;
 const CHAN_ARTIFACT: u32 = 3;
+const CHAN_PACKAGEFS: u32 = 4;
+
+const PK_MAGIC0: u8 = b'P';
+const PK_MAGIC1: u8 = b'K';
+const PK_VERSION: u8 = 1;
+const PK_OP_STAT: u8 = 1;
+const PK_OP_OPEN: u8 = 2;
+const PK_OP_READ: u8 = 3;
+const PK_OP_CLOSE: u8 = 4;
+const PK_STATUS_OK: u8 = 0;
+const PK_STATUS_BAD_REQUEST: u8 = 1;
+const PK_STATUS_PATH_TRAVERSAL: u8 = 3;
+const PK_STATUS_NON_PACKAGEFS_SCHEME: u8 = 4;
+const PK_STATUS_NOT_FOUND: u8 = 5;
+const PK_STATUS_BADF: u8 = 6;
+const PK_STATUS_OVERSIZED: u8 = 7;
+const PK_STATUS_LIMIT: u8 = 8;
+const PK_MAX_PATH_LEN: usize = 192;
+const PK_MAX_READ_LEN: usize = 128;
+const PK_MAX_HANDLES: usize = 8;
+const PACKAGEFS_KIND_FILE: u16 = 0;
+const PACKAGEFS_BUILD_PROP: &[u8] = b"ro.nexus.build=dev\n";
 
 /// Artifact payload kinds supported by the remote harness.
 #[derive(Clone, Copy, Debug)]
@@ -394,6 +417,8 @@ fn handle_session(
     bundle: Arc<LoopbackClient>,
     artifacts: ArtifactStore,
 ) -> Result<(), HarnessError> {
+    let mut pkg_handles: HashMap<u32, Vec<u8>> = HashMap::new();
+    let mut next_pkg_handle: u32 = 1;
     loop {
         match stream.recv() {
             Ok(Some(FramePayload { channel, bytes })) => match channel {
@@ -451,6 +476,13 @@ fn handle_session(
                         .send(CHAN_ARTIFACT, &[])
                         .map_err(|err| HarnessError::Forward(err.to_string()))?;
                 }
+                CHAN_PACKAGEFS => {
+                    let response =
+                        handle_packagefs_frame(&bytes, &mut pkg_handles, &mut next_pkg_handle);
+                    stream
+                        .send(CHAN_PACKAGEFS, &response)
+                        .map_err(|err| HarnessError::Forward(err.to_string()))?;
+                }
                 other => {
                     return Err(HarnessError::Protocol(format!("unknown channel {other}")));
                 }
@@ -468,6 +500,176 @@ fn forward_ipc(client: &LoopbackClient, frame: Vec<u8>) -> Result<Vec<u8>, Harne
     let rsp = client.recv(Wait::Blocking).map_err(|err| HarnessError::Forward(err.to_string()))?;
     eprintln!("[remote_e2e] forward_ipc rx len={}", rsp.len());
     Ok(rsp)
+}
+
+fn handle_packagefs_frame(
+    frame: &[u8],
+    handles: &mut HashMap<u32, Vec<u8>>,
+    next_handle: &mut u32,
+) -> Vec<u8> {
+    if frame.len() < 4 {
+        return encode_pkg_status(PK_OP_STAT, PK_STATUS_BAD_REQUEST);
+    }
+    if frame[0] != PK_MAGIC0 || frame[1] != PK_MAGIC1 || frame[2] != PK_VERSION {
+        let op = if frame.len() >= 4 { frame[3] } else { PK_OP_STAT };
+        return encode_pkg_status(op, PK_STATUS_BAD_REQUEST);
+    }
+
+    match frame[3] {
+        PK_OP_STAT => {
+            let rel = match parse_pkg_path_request(frame) {
+                Ok(v) => v,
+                Err(status) => return encode_pkg_stat(status, 0, 0),
+            };
+            match resolve_pkg_path(&rel) {
+                Some(bytes) => encode_pkg_stat(PK_STATUS_OK, bytes.len() as u64, PACKAGEFS_KIND_FILE),
+                None => encode_pkg_stat(PK_STATUS_NOT_FOUND, 0, 0),
+            }
+        }
+        PK_OP_OPEN => {
+            let rel = match parse_pkg_path_request(frame) {
+                Ok(v) => v,
+                Err(status) => return encode_pkg_open(status, 0),
+            };
+            let Some(bytes) = resolve_pkg_path(&rel) else {
+                return encode_pkg_open(PK_STATUS_NOT_FOUND, 0);
+            };
+            if handles.len() >= PK_MAX_HANDLES {
+                return encode_pkg_open(PK_STATUS_LIMIT, 0);
+            }
+            let Some(handle) = allocate_pkg_handle(handles, next_handle) else {
+                return encode_pkg_open(PK_STATUS_LIMIT, 0);
+            };
+            handles.insert(handle, bytes);
+            encode_pkg_open(PK_STATUS_OK, handle)
+        }
+        PK_OP_READ => {
+            if frame.len() != 14 {
+                return encode_pkg_read(PK_STATUS_BAD_REQUEST, &[]);
+            }
+            let handle = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+            let offset = u32::from_le_bytes([frame[8], frame[9], frame[10], frame[11]]) as usize;
+            let read_len = u16::from_le_bytes([frame[12], frame[13]]) as usize;
+            if read_len == 0 || read_len > PK_MAX_READ_LEN {
+                return encode_pkg_read(PK_STATUS_OVERSIZED, &[]);
+            }
+            let Some(data) = handles.get(&handle) else {
+                return encode_pkg_read(PK_STATUS_BADF, &[]);
+            };
+            let start = core::cmp::min(offset, data.len());
+            let end = core::cmp::min(start.saturating_add(read_len), data.len());
+            encode_pkg_read(PK_STATUS_OK, &data[start..end])
+        }
+        PK_OP_CLOSE => {
+            if frame.len() != 8 {
+                return encode_pkg_status(PK_OP_CLOSE, PK_STATUS_BAD_REQUEST);
+            }
+            let handle = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+            if handles.remove(&handle).is_some() {
+                encode_pkg_status(PK_OP_CLOSE, PK_STATUS_OK)
+            } else {
+                encode_pkg_status(PK_OP_CLOSE, PK_STATUS_BADF)
+            }
+        }
+        op => encode_pkg_status(op, PK_STATUS_BAD_REQUEST),
+    }
+}
+
+fn parse_pkg_path_request(frame: &[u8]) -> core::result::Result<String, u8> {
+    if frame.len() < 6 {
+        return Err(PK_STATUS_BAD_REQUEST);
+    }
+    let path_len = u16::from_le_bytes([frame[4], frame[5]]) as usize;
+    if path_len == 0 || path_len > PK_MAX_PATH_LEN {
+        return Err(PK_STATUS_OVERSIZED);
+    }
+    if frame.len() != 6 + path_len {
+        return Err(PK_STATUS_BAD_REQUEST);
+    }
+    let path = core::str::from_utf8(&frame[6..]).map_err(|_| PK_STATUS_BAD_REQUEST)?;
+    normalize_pkg_path(path)
+}
+
+fn normalize_pkg_path(path: &str) -> core::result::Result<String, u8> {
+    let rel = if let Some(rest) = path.strip_prefix("pkg:/") {
+        rest
+    } else if let Some(rest) = path.strip_prefix("/packages/") {
+        rest
+    } else {
+        return Err(PK_STATUS_NON_PACKAGEFS_SCHEME);
+    };
+    if rel.is_empty() || rel.len() > PK_MAX_PATH_LEN {
+        return Err(PK_STATUS_OVERSIZED);
+    }
+    let mut normalized = String::new();
+    let mut first = true;
+    for seg in rel.split('/') {
+        if seg.is_empty() || seg == "." || seg == ".." {
+            return Err(PK_STATUS_PATH_TRAVERSAL);
+        }
+        if seg.bytes().any(|b| b == b'\\' || b == 0) {
+            return Err(PK_STATUS_PATH_TRAVERSAL);
+        }
+        if !first {
+            normalized.push('/');
+        }
+        normalized.push_str(seg);
+        first = false;
+    }
+    if normalized.is_empty() {
+        return Err(PK_STATUS_PATH_TRAVERSAL);
+    }
+    Ok(normalized)
+}
+
+fn resolve_pkg_path(rel: &str) -> Option<Vec<u8>> {
+    match rel {
+        "system/build.prop" => Some(PACKAGEFS_BUILD_PROP.to_vec()),
+        _ => None,
+    }
+}
+
+fn allocate_pkg_handle(handles: &HashMap<u32, Vec<u8>>, next_handle: &mut u32) -> Option<u32> {
+    let mut candidate = *next_handle;
+    for _ in 0..(PK_MAX_HANDLES * 2) {
+        if candidate == 0 {
+            candidate = 1;
+        }
+        if !handles.contains_key(&candidate) {
+            *next_handle = candidate.wrapping_add(1);
+            return Some(candidate);
+        }
+        candidate = candidate.wrapping_add(1);
+    }
+    None
+}
+
+fn encode_pkg_status(op: u8, status: u8) -> Vec<u8> {
+    vec![PK_MAGIC0, PK_MAGIC1, PK_VERSION, op | 0x80, status]
+}
+
+fn encode_pkg_stat(status: u8, size: u64, kind: u16) -> Vec<u8> {
+    let mut out = Vec::with_capacity(15);
+    out.extend_from_slice(&[PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_STAT | 0x80, status]);
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&kind.to_le_bytes());
+    out
+}
+
+fn encode_pkg_open(status: u8, handle: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(9);
+    out.extend_from_slice(&[PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_OPEN | 0x80, status]);
+    out.extend_from_slice(&handle.to_le_bytes());
+    out
+}
+
+fn encode_pkg_read(status: u8, data: &[u8]) -> Vec<u8> {
+    let n = core::cmp::min(data.len(), PK_MAX_READ_LEN);
+    let mut out = Vec::with_capacity(7 + n);
+    out.extend_from_slice(&[PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_READ | 0x80, status]);
+    out.extend_from_slice(&(n as u16).to_le_bytes());
+    out.extend_from_slice(&data[..n]);
+    out
 }
 
 fn build_samgr_register(name: &str, endpoint: u32) -> Result<Vec<u8>> {
@@ -690,6 +892,186 @@ impl RemoteConnection {
         eprintln!("[remote_e2e] client: query rx len={}", response.bytes.len());
         parse_bundle_query(&response.bytes)
     }
+
+    /// Executes remote packagefs STAT and returns `(status, size, kind)`.
+    pub fn remote_pkgfs_stat_status(&self, path: &str) -> Result<(u8, u64, u16)> {
+        let request = build_pkgfs_path_req(PK_OP_STAT, path)?;
+        let mut stream = self.stream.lock();
+        stream.send(CHAN_PACKAGEFS, &request).map_err(|err| anyhow!(err.to_string()))?;
+        let response = stream
+            .recv()
+            .map_err(|err| anyhow!(err.to_string()))?
+            .ok_or_else(|| anyhow!("remote closed stream"))?;
+        if response.channel != CHAN_PACKAGEFS {
+            return Err(anyhow!("pkgfs stat response on unexpected channel"));
+        }
+        parse_pkgfs_stat_rsp(&response.bytes)
+    }
+
+    /// Executes remote packagefs OPEN and returns `(status, handle)`.
+    pub fn remote_pkgfs_open_status(&self, path: &str) -> Result<(u8, u32)> {
+        let request = build_pkgfs_path_req(PK_OP_OPEN, path)?;
+        let mut stream = self.stream.lock();
+        stream.send(CHAN_PACKAGEFS, &request).map_err(|err| anyhow!(err.to_string()))?;
+        let response = stream
+            .recv()
+            .map_err(|err| anyhow!(err.to_string()))?
+            .ok_or_else(|| anyhow!("remote closed stream"))?;
+        if response.channel != CHAN_PACKAGEFS {
+            return Err(anyhow!("pkgfs open response on unexpected channel"));
+        }
+        parse_pkgfs_open_rsp(&response.bytes)
+    }
+
+    /// Executes remote packagefs READ and returns `(status, bytes)`.
+    pub fn remote_pkgfs_read_status(
+        &self,
+        handle: u32,
+        offset: u32,
+        read_len: u16,
+    ) -> Result<(u8, Vec<u8>)> {
+        let request = build_pkgfs_read_req(handle, offset, read_len);
+        let mut stream = self.stream.lock();
+        stream.send(CHAN_PACKAGEFS, &request).map_err(|err| anyhow!(err.to_string()))?;
+        let response = stream
+            .recv()
+            .map_err(|err| anyhow!(err.to_string()))?
+            .ok_or_else(|| anyhow!("remote closed stream"))?;
+        if response.channel != CHAN_PACKAGEFS {
+            return Err(anyhow!("pkgfs read response on unexpected channel"));
+        }
+        parse_pkgfs_read_rsp(&response.bytes)
+    }
+
+    /// Executes remote packagefs CLOSE and returns status.
+    pub fn remote_pkgfs_close_status(&self, handle: u32) -> Result<u8> {
+        let request = build_pkgfs_close_req(handle);
+        let mut stream = self.stream.lock();
+        stream.send(CHAN_PACKAGEFS, &request).map_err(|err| anyhow!(err.to_string()))?;
+        let response = stream
+            .recv()
+            .map_err(|err| anyhow!(err.to_string()))?
+            .ok_or_else(|| anyhow!("remote closed stream"))?;
+        if response.channel != CHAN_PACKAGEFS {
+            return Err(anyhow!("pkgfs close response on unexpected channel"));
+        }
+        parse_pkgfs_close_rsp(&response.bytes)
+    }
+
+    /// Convenience helper for `STAT -> OPEN -> READ -> CLOSE`.
+    pub fn remote_pkgfs_read_once(&self, path: &str, max_len: u16) -> Result<Vec<u8>> {
+        let (stat_st, _size, kind) = self.remote_pkgfs_stat_status(path)?;
+        if stat_st != PK_STATUS_OK || kind != PACKAGEFS_KIND_FILE {
+            return Err(anyhow!("remote pkgfs stat failed status={stat_st} kind={kind}"));
+        }
+        let (open_st, handle) = self.remote_pkgfs_open_status(path)?;
+        if open_st != PK_STATUS_OK {
+            return Err(anyhow!("remote pkgfs open failed status={open_st}"));
+        }
+        let (read_st, bytes) = self.remote_pkgfs_read_status(handle, 0, max_len)?;
+        if read_st != PK_STATUS_OK {
+            return Err(anyhow!("remote pkgfs read failed status={read_st}"));
+        }
+        let close_st = self.remote_pkgfs_close_status(handle)?;
+        if close_st != PK_STATUS_OK {
+            return Err(anyhow!("remote pkgfs close failed status={close_st}"));
+        }
+        Ok(bytes)
+    }
+}
+
+fn build_pkgfs_path_req(op: u8, path: &str) -> Result<Vec<u8>> {
+    let bytes = path.as_bytes();
+    let path_len = u16::try_from(bytes.len()).map_err(|_| anyhow!("path too long"))?;
+    let mut out = Vec::with_capacity(6 + bytes.len());
+    out.extend_from_slice(&[PK_MAGIC0, PK_MAGIC1, PK_VERSION, op]);
+    out.extend_from_slice(&path_len.to_le_bytes());
+    out.extend_from_slice(bytes);
+    Ok(out)
+}
+
+fn build_pkgfs_read_req(handle: u32, offset: u32, read_len: u16) -> Vec<u8> {
+    let mut out = Vec::with_capacity(14);
+    out.extend_from_slice(&[PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_READ]);
+    out.extend_from_slice(&handle.to_le_bytes());
+    out.extend_from_slice(&offset.to_le_bytes());
+    out.extend_from_slice(&read_len.to_le_bytes());
+    out
+}
+
+fn build_pkgfs_close_req(handle: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8);
+    out.extend_from_slice(&[PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_CLOSE]);
+    out.extend_from_slice(&handle.to_le_bytes());
+    out
+}
+
+fn parse_pkgfs_stat_rsp(bytes: &[u8]) -> Result<(u8, u64, u16)> {
+    if bytes.len() < 15 {
+        return Err(anyhow!("pkgfs stat rsp too short"));
+    }
+    if bytes[0] != PK_MAGIC0
+        || bytes[1] != PK_MAGIC1
+        || bytes[2] != PK_VERSION
+        || bytes[3] != (PK_OP_STAT | 0x80)
+    {
+        return Err(anyhow!("pkgfs stat rsp header mismatch"));
+    }
+    let status = bytes[4];
+    let size = u64::from_le_bytes([
+        bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12],
+    ]);
+    let kind = u16::from_le_bytes([bytes[13], bytes[14]]);
+    Ok((status, size, kind))
+}
+
+fn parse_pkgfs_open_rsp(bytes: &[u8]) -> Result<(u8, u32)> {
+    if bytes.len() < 9 {
+        return Err(anyhow!("pkgfs open rsp too short"));
+    }
+    if bytes[0] != PK_MAGIC0
+        || bytes[1] != PK_MAGIC1
+        || bytes[2] != PK_VERSION
+        || bytes[3] != (PK_OP_OPEN | 0x80)
+    {
+        return Err(anyhow!("pkgfs open rsp header mismatch"));
+    }
+    let status = bytes[4];
+    let handle = u32::from_le_bytes([bytes[5], bytes[6], bytes[7], bytes[8]]);
+    Ok((status, handle))
+}
+
+fn parse_pkgfs_read_rsp(bytes: &[u8]) -> Result<(u8, Vec<u8>)> {
+    if bytes.len() < 7 {
+        return Err(anyhow!("pkgfs read rsp too short"));
+    }
+    if bytes[0] != PK_MAGIC0
+        || bytes[1] != PK_MAGIC1
+        || bytes[2] != PK_VERSION
+        || bytes[3] != (PK_OP_READ | 0x80)
+    {
+        return Err(anyhow!("pkgfs read rsp header mismatch"));
+    }
+    let status = bytes[4];
+    let n = u16::from_le_bytes([bytes[5], bytes[6]]) as usize;
+    if bytes.len() < 7 + n {
+        return Err(anyhow!("pkgfs read rsp len mismatch"));
+    }
+    Ok((status, bytes[7..7 + n].to_vec()))
+}
+
+fn parse_pkgfs_close_rsp(bytes: &[u8]) -> Result<u8> {
+    if bytes.len() < 5 {
+        return Err(anyhow!("pkgfs close rsp too short"));
+    }
+    if bytes[0] != PK_MAGIC0
+        || bytes[1] != PK_MAGIC1
+        || bytes[2] != PK_VERSION
+        || bytes[3] != (PK_OP_CLOSE | 0x80)
+    {
+        return Err(anyhow!("pkgfs close rsp header mismatch"));
+    }
+    Ok(bytes[4])
 }
 
 /// Generates a random high port in the dynamic range for host tests.

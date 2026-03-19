@@ -69,6 +69,7 @@ Two backends exist today:
 | Dual-node proof | ✅ Done | TASK-0004 |
 | Cross-VM sessions (2× QEMU) | ✅ Done (opt-in) | TASK-0005 |
 | Remote proxy (`samgrd`/`bundlemgrd`, deny-by-default) | ✅ Done (opt-in) | TASK-0005 |
+| Remote packagefs RO (`STAT/OPEN/READ/CLOSE`, authenticated streams) | 🟨 In Progress | TASK-0016 |
 | Daemon modular structure (`src/os/**`, thin `main.rs`) | 🟨 In Review | TASK-0015 |
 | Host seam + security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ Done | TASK-0015 |
 
@@ -80,6 +81,7 @@ Two backends exist today:
 - RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)
 - RFC-0008: DSoftBus Noise XK v1 (handshake + identity binding)
 - RFC-0009: no_std Dependency Hygiene v1 (OS build policy)
+- RFC-0028: Remote packagefs RO v1 (bounded `pkg:/` and `/packages/` access over authenticated streams)
 
 By keeping the kernel unaware of IDL parsing or Cap'n Proto framing we preserve
 its minimal trusted computing base. Only the userland daemon deals with schema

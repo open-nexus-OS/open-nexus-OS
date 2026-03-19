@@ -722,6 +722,7 @@ fi
 #   the dedicated 2-VM harness: `just os2vm` / `tools/os2vm.sh`).
 # - When REQUIRE_DSOFTBUS=1, enforce the DSoftBus marker ladder.
 REQUIRE_DSOFTBUS=${REQUIRE_DSOFTBUS:-0}
+REQUIRE_DSOFTBUS_REMOTE_PKGFS=${REQUIRE_DSOFTBUS_REMOTE_PKGFS:-0}
 if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
   for m in \
     "dsoftbusd: discovery up (udp loopback)" \
@@ -743,6 +744,26 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
       exit 1
     fi
   done
+  if [[ "$REQUIRE_DSOFTBUS_REMOTE_PKGFS" == "1" ]]; then
+    if grep -aFq "dsoftbusd: cross-vm session ok" "$UART_LOG"; then
+      for m in \
+        "dsoftbusd: remote packagefs served" \
+        "SELFTEST: remote pkgfs stat ok" \
+        "SELFTEST: remote pkgfs open ok" \
+        "SELFTEST: remote pkgfs read step ok" \
+        "SELFTEST: remote pkgfs close ok" \
+        "SELFTEST: remote pkgfs read ok"; do
+        if ! grep -aFq "$m" "$UART_LOG"; then
+          echo "[error] first_failed_phase=routing missing_marker='$m'" >&2
+          echo "[error] Missing UART marker (REQUIRE_DSOFTBUS_REMOTE_PKGFS=1): $m" >&2
+          print_uart_excerpt "${PHASE_START_MARKER[routing]}" "SELFTEST: remote query ok"
+          exit 1
+        fi
+      done
+    else
+      echo "[warn] REQUIRE_DSOFTBUS_REMOTE_PKGFS=1 but cross-vm session marker is absent; skipping remote packagefs gate for single-VM profile" >&2
+    fi
+  fi
 fi
 
 prev=-1

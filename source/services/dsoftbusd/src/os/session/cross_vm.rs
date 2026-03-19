@@ -1,4 +1,12 @@
-//! Cross-VM orchestration runner.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Cross-VM DSoftBus orchestration runner (discovery + session establishment)
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Host session seam tests + QEMU 2-VM marker proof (`tools/os2vm.sh`)
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -25,6 +33,9 @@ const MAGIC1: u8 = b'S';
 const VERSION: u8 = 1;
 const OP_UDP_RECV_FROM: u8 = 8;
 const STATUS_OK: u8 = 0;
+const STATUS_NOT_FOUND: u8 = 1;
+const STATUS_MALFORMED: u8 = 2;
+const STATUS_TIMED_OUT: u8 = 5;
 
 pub(crate) fn run_cross_vm_main(
     net: &KernelClient,
@@ -87,8 +98,18 @@ pub(crate) fn run_cross_vm_main(
     let mut dial_fallback_logged = false;
     let mut dial_status_would_block_logged = false;
     let mut dial_status_io_logged = false;
+    let mut dial_status_rpc_err_logged = false;
+    let mut dial_status_parse_err_logged = false;
+    let mut dial_status_not_found_logged = false;
+    let mut dial_status_malformed_logged = false;
+    let mut dial_status_timed_out_logged = false;
     let mut dial_status_other_logged = false;
+    let mut dial_target_mode_logged = false;
+    let mut dial_target_ip_logged = false;
+    let mut dial_target_port_logged = false;
     let mut accept_pending_logged = false;
+    let mut dial_connected_logged = false;
+    let mut accept_connected_logged = false;
     let mut hs_init_write_msg1_fail_logged = false;
     let mut hs_init_read_msg2_fail_logged = false;
     let mut hs_resp_read_msg1_fail_logged = false;
@@ -230,11 +251,60 @@ pub(crate) fn run_cross_vm_main(
                         let _ =
                             nexus_abi::debug_println("dbg:dsoftbusd: dial fallback no-discovery");
                     }
+                    if !dial_target_mode_logged {
+                        dial_target_mode_logged = true;
+                        // #region agent log
+                        let _ = if used_discovery_mapping {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target mode discovery")
+                        } else {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target mode fallback")
+                        };
+                        // #endregion
+                    }
+                    if !dial_target_ip_logged {
+                        dial_target_ip_logged = true;
+                        // #region agent log
+                        let _ = if ip == [10, 42, 0, 10] {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target ip 10.42.0.10")
+                        } else if ip == [10, 42, 0, 11] {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target ip 10.42.0.11")
+                        } else if ip == [10, 0, 2, 15] {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target ip 10.0.2.15")
+                        } else {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target ip other")
+                        };
+                        // #endregion
+                    }
+                    if !dial_target_port_logged {
+                        dial_target_port_logged = true;
+                        // #region agent log
+                        let _ = if port == 34_567 {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target port 34567")
+                        } else if port == 34_568 {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target port 34568")
+                        } else {
+                            nexus_abi::debug_println("dbg:dsoftbusd: dial target port other")
+                        };
+                        // #endregion
+                    }
                     if !dial_logged {
                         let _ = nexus_abi::debug_println("dsoftbusd: cross-vm dial start");
                         dial_logged = true;
                     }
                     dial_attempts = dial_attempts.wrapping_add(1);
+                    if dial_attempts == 1 {
+                        // #region agent log
+                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial attempts 1");
+                        // #endregion
+                    } else if dial_attempts == 512 {
+                        // #region agent log
+                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial attempts 512");
+                        // #endregion
+                    } else if dial_attempts == 4096 {
+                        // #region agent log
+                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial attempts 4096");
+                        // #endregion
+                    }
                     let mut netio = CrossVmTransport::new(
                         &mut pending_replies,
                         &mut nonce_ctr,
@@ -244,21 +314,83 @@ pub(crate) fn run_cross_vm_main(
                     );
                     match netio.connect(ip, port) {
                         Ok(s) => {
+                            if !dial_connected_logged {
+                                dial_connected_logged = true;
+                                // #region agent log
+                                let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial connected");
+                                // #endregion
+                            }
                             fsm.set_connected(s);
                         }
                         Err(status) => {
-                            if status == STATUS_WOULD_BLOCK && !dial_status_would_block_logged {
-                                dial_status_would_block_logged = true;
-                                let _ = nexus_abi::debug_println(
-                                    "dbg:dsoftbusd: dial status would_block",
-                                );
-                            } else if status == STATUS_IO && !dial_status_io_logged {
-                                dial_status_io_logged = true;
-                                let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status io");
-                            } else if !dial_status_other_logged {
-                                dial_status_other_logged = true;
-                                let _ =
-                                    nexus_abi::debug_println("dbg:dsoftbusd: dial status other");
+                            match status {
+                                STATUS_WOULD_BLOCK => {
+                                    if !dial_status_would_block_logged {
+                                        dial_status_would_block_logged = true;
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status would_block",
+                                        );
+                                    }
+                                }
+                                STATUS_IO => {
+                                    if !dial_status_io_logged {
+                                        dial_status_io_logged = true;
+                                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status io");
+                                    }
+                                }
+                                0xfd => {
+                                    if !dial_status_rpc_err_logged {
+                                        dial_status_rpc_err_logged = true;
+                                        let _ =
+                                            nexus_abi::debug_println("dbg:dsoftbusd: dial status rpc_err");
+                                    }
+                                }
+                                0xfe => {
+                                    if !dial_status_parse_err_logged {
+                                        dial_status_parse_err_logged = true;
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status parse_err",
+                                        );
+                                    }
+                                }
+                                STATUS_NOT_FOUND => {
+                                    if !dial_status_not_found_logged {
+                                        dial_status_not_found_logged = true;
+                                        // #region agent log
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status not_found",
+                                        );
+                                        // #endregion
+                                    }
+                                }
+                                STATUS_MALFORMED => {
+                                    if !dial_status_malformed_logged {
+                                        dial_status_malformed_logged = true;
+                                        // #region agent log
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status malformed",
+                                        );
+                                        // #endregion
+                                    }
+                                }
+                                STATUS_TIMED_OUT => {
+                                    if !dial_status_timed_out_logged {
+                                        dial_status_timed_out_logged = true;
+                                        // #region agent log
+                                        let _ = nexus_abi::debug_println(
+                                            "dbg:dsoftbusd: dial status timed_out",
+                                        );
+                                        // #endregion
+                                    }
+                                }
+                                _ => {
+                                    if !dial_status_other_logged {
+                                        dial_status_other_logged = true;
+                                        // #region agent log
+                                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: dial status other");
+                                        // #endregion
+                                    }
+                                }
                             }
                         }
                     }
@@ -269,6 +401,19 @@ pub(crate) fn run_cross_vm_main(
                         accept_logged = true;
                     }
                     accept_attempts = accept_attempts.wrapping_add(1);
+                    if accept_attempts == 1 {
+                        // #region agent log
+                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: accept attempts 1");
+                        // #endregion
+                    } else if accept_attempts == 512 {
+                        // #region agent log
+                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: accept attempts 512");
+                        // #endregion
+                    } else if accept_attempts == 4096 {
+                        // #region agent log
+                        let _ = nexus_abi::debug_println("dbg:dsoftbusd: accept attempts 4096");
+                        // #endregion
+                    }
                     let mut netio = CrossVmTransport::new(
                         &mut pending_replies,
                         &mut nonce_ctr,
@@ -278,6 +423,12 @@ pub(crate) fn run_cross_vm_main(
                     );
                     match netio.accept(lid) {
                         Ok(s) => {
+                            if !accept_connected_logged {
+                                accept_connected_logged = true;
+                                // #region agent log
+                                let _ = nexus_abi::debug_println("dbg:dsoftbusd: accept connected");
+                                // #endregion
+                            }
                             fsm.set_connected(s);
                         }
                         Err(()) => {

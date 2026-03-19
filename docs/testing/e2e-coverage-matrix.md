@@ -9,6 +9,8 @@ This document maps E2E test coverage across host-first and OS-last layers for Op
 
 Both layers are **necessary and complementary**: host tests prove logic correctness, QEMU tests prove OS reality.
 
+Operational debugging procedures (phase gating, packet capture workflow, typed `os2vm` failure matrix) are maintained in `docs/testing/network-distributed-debugging.md`.
+
 ---
 
 ## Coverage Matrix
@@ -35,12 +37,12 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 
 | Suite | Tests | Focus | Command |
 | ----- | ----- | ----- | ------- |
-| `nexus-e2e` | 5 | samgrd/bundlemgrd/keystored integration, signature validation | `cargo test -p nexus-e2e` |
-| `remote_e2e` | 1 | DSoftBus discovery, Noise XK, remote proxy | `cargo test -p remote_e2e` |
+| `nexus-e2e` | 10 | samgrd/bundlemgrd/keystored integration, signature validation | `cargo test -p nexus-e2e` |
+| `remote_e2e` | 5 | DSoftBus discovery, Noise XK, remote proxy, remote packagefs RO roundtrip + negative statuses | `cargo test -p remote_e2e` |
 | `logd-e2e` | 7 | logd journal, overflow, crash reports, concurrency | `cargo test -p logd-e2e` |
 | `vfs-e2e` | 1 | packagefsd/vfsd/bundlemgrd integration | `cargo test -p vfs-e2e` |
 | `e2e_policy` | 1 | policyd allow/deny, capability checks | `cargo test -p e2e_policy` |
-| **Total** | **15** | | `just test-e2e` |
+| **Total** | **24** | | `just test-e2e` |
 
 ### QEMU Tests
 
@@ -93,6 +95,7 @@ Both layers are **necessary and complementary**: host tests prove logic correctn
 ## References
 
 - **Testing methodology**: `docs/testing/index.md`
+- **Network/distributed debugging SSOT**: `docs/testing/network-distributed-debugging.md`
 - **TASK-0005** (DSoftBus remote proxy): `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
 - **TASK-0015** (DSoftBus daemon modularization + seam tests): `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
 - **TASK-0006** (logd journal): `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`

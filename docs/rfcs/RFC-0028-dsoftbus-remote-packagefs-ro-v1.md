@@ -1,9 +1,9 @@
 # RFC-0028: DSoftBus remote packagefs RO v1
 
-- Status: In Progress
+- Status: Completed
 - Owners: @runtime
 - Created: 2026-03-12
-- Last Updated: 2026-03-12
+- Last Updated: 2026-03-16
 - Links:
   - Tasks: `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md` (execution + proof)
   - Task dependencies:
@@ -23,9 +23,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (RO protocol contract + handler boundaries)**: 🟨
-- **Phase 1 (security hardening + negative tests)**: ⬜
-- **Phase 2 (host/QEMU proof integration + docs sync)**: ⬜
+- **Phase 0 (RO protocol contract + handler boundaries)**: ✅
+- **Phase 1 (security hardening + negative tests)**: ✅
+- **Phase 2 (host/QEMU proof integration + docs sync)**: ✅
 
 Definition:
 
@@ -141,6 +141,10 @@ Versioning strategy:
   - `test_reject_oversize_read_or_path`
 - QEMU markers:
   - `dsoftbusd: remote packagefs served`
+  - `SELFTEST: remote pkgfs stat ok`
+  - `SELFTEST: remote pkgfs open ok`
+  - `SELFTEST: remote pkgfs read step ok`
+  - `SELFTEST: remote pkgfs close ok`
   - `SELFTEST: remote pkgfs read ok`
 
 ## Failure model (normative)
@@ -168,7 +172,28 @@ cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh
 ### Deterministic markers (if applicable)
 
 - `dsoftbusd: remote packagefs served`
+- `SELFTEST: remote pkgfs stat ok`
+- `SELFTEST: remote pkgfs open ok`
+- `SELFTEST: remote pkgfs read step ok`
+- `SELFTEST: remote pkgfs close ok`
 - `SELFTEST: remote pkgfs read ok`
+
+## Implementation status (2026-03-16)
+
+- Landed in `dsoftbusd` gateway seams:
+  - PK v1 byte-frame contract (`STAT/OPEN/READ/CLOSE`) with bounded validation and fail-closed rejects
+  - Remote packagefs handler routing through authenticated remote-proxy stream path
+  - deterministic serve marker on first successful request: `dsoftbusd: remote packagefs served`
+- Landed in `selftest-client`:
+  - remote packagefs probe (`stat -> open -> read -> close`) with non-fake step markers and final flow marker
+- Proofs green:
+  - `cargo test -p dsoftbusd --tests -- --nocapture`
+  - `cargo test -p remote_e2e -- --nocapture`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s REQUIRE_DSOFTBUS=1 REQUIRE_DSOFTBUS_REMOTE_PKGFS=1 ./scripts/qemu-test.sh`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh`
+- Runtime evidence:
+  - 2-VM green summary: `artifacts/os2vm/runs/os2vm_1773847433/summary.json`
+  - repeated launch-phase hygiene runs: `artifacts/os2vm/runs/os2vm_1773847535/summary.json`, `artifacts/os2vm/runs/os2vm_1773847537/summary.json`
 
 ## Alternatives considered
 
@@ -199,9 +224,9 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: v1 remote packagefs RO contract + bounded validation finalized — proof: `just diag-host`
-- [ ] **Phase 1**: security-negative tests for auth/path/scheme/size are green — proof: `cargo test -p dsoftbusd -- --nocapture`
-- [ ] **Phase 2**: host + QEMU proof markers are green and docs synced — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: v1 remote packagefs RO contract + bounded validation finalized — proof: `just diag-host`
+- [x] **Phase 1**: security-negative tests for auth/path/scheme/size are green — proof: `cargo test -p dsoftbusd -- --nocapture`
+- [x] **Phase 2**: host + QEMU proof markers are green and docs synced — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=120s REQUIRE_DSOFTBUS=1 REQUIRE_DSOFTBUS_REMOTE_PKGFS=1 ./scripts/qemu-test.sh && RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

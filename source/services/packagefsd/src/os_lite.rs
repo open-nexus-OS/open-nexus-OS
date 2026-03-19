@@ -121,6 +121,8 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
 
 fn run_loop(server: &KernelServer, registry: &BundleRegistry) -> LiteResult<()> {
     let mut response = Vec::with_capacity(256);
+    let mut dbg_resolve_count: u32 = 0;
+    let mut dbg_resolve_rsp_logged = false;
     loop {
         match server.recv(Wait::Blocking) {
             Ok(bytes) => {
@@ -130,14 +132,36 @@ fn run_loop(server: &KernelServer, registry: &BundleRegistry) -> LiteResult<()> 
                 match bytes[0] {
                     OPCODE_RESOLVE => {
                         let rel = core::str::from_utf8(&bytes[1..]).unwrap_or("");
+                        dbg_resolve_count = dbg_resolve_count.wrapping_add(1);
+                        if dbg_resolve_count == 1 {
+                            if rel == "system/build.prop" {
+                                debug_print("dbg:packagefsd: resolve req#1 buildprop\n");
+                            } else {
+                                debug_print("dbg:packagefsd: resolve req#1 other\n");
+                            }
+                        } else if dbg_resolve_count == 2 {
+                            if rel == "system/build.prop" {
+                                debug_print("dbg:packagefsd: resolve req#2 buildprop\n");
+                            } else {
+                                debug_print("dbg:packagefsd: resolve req#2 other\n");
+                            }
+                        }
                         let entry = registry.resolve(rel);
                         response.clear();
                         if let Some(entry) = entry {
+                            if !dbg_resolve_rsp_logged {
+                                dbg_resolve_rsp_logged = true;
+                                debug_print("dbg:packagefsd: resolve rsp found\n");
+                            }
                             response.push(1);
                             response.extend_from_slice(&entry.size.to_le_bytes());
                             response.extend_from_slice(&entry.kind.to_le_bytes());
                             response.extend_from_slice(&entry.bytes);
                         } else {
+                            if !dbg_resolve_rsp_logged {
+                                dbg_resolve_rsp_logged = true;
+                                debug_print("dbg:packagefsd: resolve rsp miss\n");
+                            }
                             response.push(0);
                             response.extend_from_slice(&0u64.to_le_bytes());
                             response.extend_from_slice(&0u16.to_le_bytes());

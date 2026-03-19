@@ -14,6 +14,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
 use crate::{Client, IpcError, Result, Server, Wait};
@@ -38,6 +39,14 @@ const CTRL_RECV_SLOT: u32 = 2; // init-lite transfers control RSP (child RECV) i
 // Routing queries can be policy-gated inside init-lite (policyd roundtrip). Keep this comfortably
 // above the policyd control-plane deadline to avoid flaky bring-up under QEMU.
 const ROUTE_QUERY_TIMEOUT: Duration = Duration::from_secs(8);
+static PKG_ROUTE_OK_LOGGED: AtomicBool = AtomicBool::new(false);
+static PKG_ROUTE_NOT_FOUND_LOGGED: AtomicBool = AtomicBool::new(false);
+static PKG_ROUTE_DENIED_LOGGED: AtomicBool = AtomicBool::new(false);
+static PKG_ROUTE_MALFORMED_LOGGED: AtomicBool = AtomicBool::new(false);
+static PKG_ROUTE_OTHER_LOGGED: AtomicBool = AtomicBool::new(false);
+static PKG_ROUTE_TIMEOUT_LOGGED: AtomicBool = AtomicBool::new(false);
+static PKG_ROUTE_UNSUPPORTED_LOGGED: AtomicBool = AtomicBool::new(false);
+static PKG_ROUTE_KERNEL_LOGGED: AtomicBool = AtomicBool::new(false);
 
 fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     let name = target.as_bytes();
@@ -128,6 +137,47 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     };
     let (status, send_slot, recv_slot) =
         nexus_abi::routing::decode_route_rsp(&buf[..n]).ok_or(IpcError::Unsupported)?;
+    if target == "packagefsd" {
+        match status {
+            nexus_abi::routing::STATUS_OK => {
+                if !PKG_ROUTE_OK_LOGGED.swap(true, Ordering::Relaxed) {
+                    // #region agent log
+                    let _ = nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=ok");
+                    // #endregion
+                }
+            }
+            nexus_abi::routing::STATUS_NOT_FOUND => {
+                if !PKG_ROUTE_NOT_FOUND_LOGGED.swap(true, Ordering::Relaxed) {
+                    // #region agent log
+                    let _ =
+                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=not-found");
+                    // #endregion
+                }
+            }
+            nexus_abi::routing::STATUS_DENIED => {
+                if !PKG_ROUTE_DENIED_LOGGED.swap(true, Ordering::Relaxed) {
+                    // #region agent log
+                    let _ = nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=denied");
+                    // #endregion
+                }
+            }
+            nexus_abi::routing::STATUS_MALFORMED => {
+                if !PKG_ROUTE_MALFORMED_LOGGED.swap(true, Ordering::Relaxed) {
+                    // #region agent log
+                    let _ =
+                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=malformed");
+                    // #endregion
+                }
+            }
+            _ => {
+                if !PKG_ROUTE_OTHER_LOGGED.swap(true, Ordering::Relaxed) {
+                    // #region agent log
+                    let _ = nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=other");
+                    // #endregion
+                }
+            }
+        }
+    }
     if status != nexus_abi::routing::STATUS_OK {
         return Err(IpcError::Unsupported);
     }
@@ -184,8 +234,44 @@ impl KernelClient {
 
     /// Creates a client for a specific target.
     pub fn new_for(target: &str) -> Result<Self> {
-        let (send_slot, recv_slot) = query_route(target, Wait::Timeout(ROUTE_QUERY_TIMEOUT))?;
-        Ok(Self { send_slot, recv_slot })
+        match query_route(target, Wait::Timeout(ROUTE_QUERY_TIMEOUT)) {
+            Ok((send_slot, recv_slot)) => Ok(Self { send_slot, recv_slot }),
+            Err(err) => {
+                if target == "packagefsd" {
+                    match err {
+                        IpcError::Timeout => {
+                            if !PKG_ROUTE_TIMEOUT_LOGGED.swap(true, Ordering::Relaxed) {
+                                // #region agent log
+                                let _ = nexus_abi::debug_println(
+                                    "dbg:nexus-ipc: route packagefsd new_for timeout",
+                                );
+                                // #endregion
+                            }
+                        }
+                        IpcError::Unsupported => {
+                            if !PKG_ROUTE_UNSUPPORTED_LOGGED.swap(true, Ordering::Relaxed) {
+                                // #region agent log
+                                let _ = nexus_abi::debug_println(
+                                    "dbg:nexus-ipc: route packagefsd new_for unsupported",
+                                );
+                                // #endregion
+                            }
+                        }
+                        IpcError::Kernel(_) => {
+                            if !PKG_ROUTE_KERNEL_LOGGED.swap(true, Ordering::Relaxed) {
+                                // #region agent log
+                                let _ = nexus_abi::debug_println(
+                                    "dbg:nexus-ipc: route packagefsd new_for kernel",
+                                );
+                                // #endregion
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Err(err)
+            }
+        }
     }
 
     /// Creates a client using explicit capability slot numbers for send/recv.

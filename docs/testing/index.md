@@ -56,7 +56,7 @@ For a detailed feature-by-feature breakdown, see: **[E2E Coverage Matrix](e2e-co
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
 | Host VFS (`tests/vfs_e2e`) | In-process `packagefsd`, `vfsd`, and `bundlemgrd` validating bundle publication and VFS reads. | `cargo test -p vfs-e2e` | Publishes a demo bundle, checks alias resolution, and verifies read/error paths via `nexus-vfs`. |
 | QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness now waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), the policy allow/deny probes, and the VFS checks before stopping. Logs are trimmed to keep artefacts small. |
-| QEMU 2-VM opt-in (`tools/os2vm.sh`) | Two QEMU instances exercising cross-VM DSoftBus discovery, Noise-authenticated session establishment, and remote proxy (`samgrd`/`bundlemgrd`). | `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` | Canonical proof for TASK-0005. Requires socket-based net backend; does not rely on DHCP (netstackd falls back to static IP under the 2-VM harness). |
+| QEMU 2-VM opt-in (`tools/os2vm.sh`) | Two QEMU instances exercising cross-VM DSoftBus discovery, Noise-authenticated session establishment, and remote proxy (`samgrd`/`bundlemgrd` + TASK-0016 remote packagefs RO marker ladder). | `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh` | Canonical proof for TASK-0005/TASK-0016. Uses run-scoped artifacts under `artifacts/os2vm/runs/<runId>/` with retention/GC and typed failure classification. |
 
 ## Workflow checklist
 
@@ -73,6 +73,7 @@ For a detailed feature-by-feature breakdown, see: **[E2E Coverage Matrix](e2e-co
 ## Topic guides
 
 - `docs/testing/device-mmio-access.md` — Device MMIO access tests today + extension plan.
+- `docs/testing/network-distributed-debugging.md` — SSOT for network/distributed triage (`qemu-test` proof knobs, `os2vm` phases, packet capture, typed error matrix).
 
 ## Scaffold sanity
 
@@ -90,6 +91,7 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - QEMU smoke (Strict DHCP gate): `just test-os-dhcp-strict`
 - DSoftBus 2-VM harness (TASK-0005): `just test-dsoftbus-2vm` (or `just os2vm`)
 - DSoftBus 2-VM harness + PCAP: `just test-dsoftbus-2vm-pcap` (or `just os2vm-pcap`)
+  - Expected remote markers on success: `SELFTEST: remote resolve ok`, `SELFTEST: remote query ok`, `SELFTEST: remote pkgfs stat ok`, `SELFTEST: remote pkgfs open ok`, `SELFTEST: remote pkgfs read step ok`, `SELFTEST: remote pkgfs close ok`, `SELFTEST: remote pkgfs read ok`, and `dsoftbusd: remote packagefs served`
 - Full gate (recommended before “everything is green”): `just test-all`
   - Includes `fmt-check`, `lint`, `deny-check`, host tests, Miri tiers, `arch-check`, and QEMU selftests.
 - Make convenience wrapper: `make verify`
@@ -119,27 +121,13 @@ On failure, the harness prints:
 - `missing_marker='<marker>'`
 - a **bounded** UART excerpt scoped to the failed phase.
 
-### QEMU smoke proof knobs (determinism)
+### Network/distributed debugging (SSOT)
 
-Some networking proofs are environment-sensitive under QEMU (slirp/usernet DHCP). The smoke harness keeps
-the default gate deterministic and allows stricter proofs via opt-in flags:
+Canonical networking proof semantics and knobs now live in:
 
-- Default smoke: requires `net: smoltcp iface up ...` (no DHCP/DSoftBus required).
-- `REQUIRE_QEMU_DHCP=1` to request DHCP; if DHCP binds (`net: dhcp bound`) the harness additionally requires dependent proofs (`SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: icmp ping ok`).
-- `REQUIRE_QEMU_DHCP_STRICT=1` (with `REQUIRE_QEMU_DHCP=1`) enforces **DHCP bound** (`net: dhcp bound`) and fails otherwise.
-  - Rationale: “Strict” is reserved for environments/backends where slirp DHCP is proven deterministic under `-icount`.
-  - If you want deterministic signal without requiring DHCP RX, use `REQUIRE_QEMU_DHCP=1` (non-strict), which accepts the honest fallback marker `net: dhcp unavailable (fallback static ...)` and skips DHCP-dependent proofs.
-- `REQUIRE_DSOFTBUS=1` to require DSoftBus OS transport markers (loopback scope).
+- `docs/testing/network-distributed-debugging.md` (SSOT)
 
-Host-first DHCP invariants should be validated via:
-
-```bash
-cargo test -p nexus-net-os
-```
-
-See `docs/adr/0025-qemu-smoke-proof-gating.md` for the rationale and gating policy.
-
-Operational note: do not run multiple QEMU smoke runs concurrently (they contend on `build/blk.img` and can trip QEMU “write lock” errors). Run sequentially in CI/dev.
+Keep this file focused on the global testing workflow. For DHCP/DSoftBus proof gates, packet evidence expectations, and `os2vm` typed failure triage, use the SSOT document.
 
 ### Miri tiers
 
@@ -414,121 +402,8 @@ cargo tree --target riscv64imac-unknown-none-elf -p dsoftbusd -i parking_lot
 
 ### QEMU smoke proof knobs (determinism)
 
-QEMU smoke runs validate a strict UART marker ladder in `scripts/qemu-test.sh`. Some networking proofs can be environment-sensitive (e.g. slirp/usernet DHCP), so they are **optional by default** and can be explicitly required when appropriate:
+Network/distributed debugging runbooks, packet capture workflow, `os2vm` phase controls, typed error matrix, and slot-mismatch triage are maintained in:
 
-- **Default smoke**: requires `net: smoltcp iface up ...` and does **not** require DHCP or DSoftBus.
-- **Require DHCP proof**: set `REQUIRE_QEMU_DHCP=1` (enforces `net: dhcp bound`, gateway ping, and UDP DNS proof markers).
-- **Require DSoftBus proof**: set `REQUIRE_DSOFTBUS=1` (enforces DSoftBus discovery/session markers).
+- `docs/testing/network-distributed-debugging.md` (SSOT)
 
-Single-VM smoke builds `netstackd` in a compatibility mode (`feature = "qemu-smoke"`) so that if DHCP is unavailable the stack falls back to `10.0.2.15/24` (slirp/usernet convention), preserving deterministic loopback bring-up.
-
-See `docs/adr/0025-qemu-smoke-proof-gating.md` for the decision record.
-
-### Capturing OS networking traffic (PCAP / Wireshark)
-
-When debugging cross-VM networking issues (ARP/UDP/TCP handshakes), it is often fastest to capture the QEMU network traffic into PCAP files and inspect them with Wireshark/tshark.
-
-- **2-VM harness with PCAP**:
-
-```bash
-RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PCAP=1 tools/os2vm.sh
-```
-
-- **Outputs**: `os2vm-A.pcap` and `os2vm-B.pcap` (in the current directory unless `LOG_DIR` is set).
-- **Inspect**: open the PCAPs in Wireshark and filter on `arp`, `icmp`, `udp.port==37020`, or `tcp.port==34567`.
-
-## Networking testing & debugging strategy (host-first, OS-last)
-
-Networking issues are notoriously easy to “fake-green” (e.g. a connect syscall returns OK but no packets are ever emitted). For Open Nexus OS we treat networking as a **layered proof problem** with deterministic markers and opt-in deep capture.
-
-### Goals
-
-- **Fast feedback**: most protocol logic is proven on host first.
-- **Realism only where needed**: QEMU is used to validate end-to-end wiring and on-wire behavior.
-- **No fake success**: markers must correspond to *observable* behavior (packets, state transitions), not “we called a function”.
-- **Determinism**: bounded loops, stable markers, stable seeds.
-
-### Layered proof ladder (recommended)
-
-- **Host (contract tests)**:
-  - Parse/encode of wire formats (golden vectors).
-  - State machine stepping (Noise handshake, discovery cache, session framing) using host backends / fakes.
-  - Negative cases (`test_reject_*`): malformed frames, oversized input, identity mismatch.
-  - Networking: DHCP on-wire invariants + integration logic: `cargo test -p nexus-net-os`
-- **OS (unit smoke)**:
-  - `netstackd` facade health: interface up, socket bind/listen works.
-  - **L2**: ARP request/response observed (PCAP or bounded in-OS marker derived from real traffic).
-  - **L3**: ICMP echo where applicable (DHCP/usernet path); otherwise skip deterministically.
-  - **L4/UDP**: discovery announce/recv with real datagrams under 2-VM harness (no loopback shortcuts).
-  - **L4/TCP**: SYN/SYN-ACK observed (PCAP) and accept/connect completes; only then run higher layers.
-- **OS (integration)**:
-  - DSoftBus sessions + Noise auth + identity binding.
-  - Remote proxy allowlist (`samgrd` / `bundlemgrd`) with bounded frames and deny-by-default behavior.
-
-### Debugging toolbox (recommended order)
-
-1) **PCAP capture (best ROI)** via the 2-VM harness (`OS2VM_PCAP=1`). This proves whether ARP/UDP/TCP packets are actually emitted and received.
-2) **Bounded OS diagnostics** (markers or one-shot logs) to narrow failures without spamming UART:
-   - “entered SYN-SENT” vs. “TX emitted SYN”
-   - “accept returned WOULD_BLOCK” vs. “accept OK”
-3) **Host reproduction**: reduce the failing OS scenario into a host test or a small deterministic harness.
-
-### How to avoid fake-green markers
-
-- Prefer markers that reflect **external observables**:
-  - “pcap contains TCP SYN” is stronger than “connect() returned OK”.
-  - “received announce from `<peer>`” is stronger than “announce sent”.
-- If a marker is necessarily internal (e.g. “state entered SYN-SENT”), label it as such and pair it with an on-wire proof marker.
-
-### Future log hygiene
-
-Once the outstanding kernel guard fault is root-caused we’ll align the UART policy with other production kernels:
-
-- **Compile-time silencing (seL4-style):** panic/guard prints move behind a `panic_uart` feature, with CI builds using the trap ring + symbolization instead of raw UART spam.
-- **Runtime `klog` topics (Fuchsia-style):** the kernel will emit severity/target-tagged records into a ring buffer, and only mirror them to UART when `kernel.serial`-style boot args (or our `INIT_LITE_LOG_TOPICS`) request it.
-- **Strict single-path boot (OHOS-style):** redundant “init-lite vs. shared loader” shims are already gone; the next phase deletes any legacy probes that stay quiet for a full regression run so unexpected noise can’t creep back in.
-
-Keep these knobs in mind when adding diagnostics—new prints should either use `nexus_log` topics or the kernel trap ring so we can flip the switch once the bug hunt ends.
-
-### IPC slot mismatch debugging
-
-A common failure mode is **deterministic slot mismatch**: init-lite assigns capability slots sequentially per-process, but services may hardcode slot numbers that don't match.
-
-**Symptoms:**
-- Service sends successfully (`rpc send ok`) but receiver never gets the message
-- `ipc_recv` returns `QueueEmpty` forever
-- No error messages, just silent timeout
-
-**Debugging steps:**
-1. Add logging in init-lite to print actual slot assignments:
-   ```rust
-   debug_write_bytes(b"init: <service> svc slots recv=0x");
-   debug_write_hex(recv_slot as usize);
-   ```
-2. Compare with hardcoded slots in the service code
-3. Fix slot constants OR use routing queries (`KernelServer::new_for`)
-
-**Example (dsoftbusd/netstackd):**
-- init-lite assigned netstackd recv=0x5, send=0x6
-- netstackd hardcoded slots 3/4 → messages never received
-- Fix: update netstackd to use slots 5/6
-
-**Prevention:** Prefer routing queries over hardcoded slots. If deterministic slots are needed, add init-lite logging to verify assignments.
-
-### Init-lite logging topics
-
-`init-lite` currently recognises the following topics:
-
-| Topic | Description |
-| --- | --- |
-| `general` | Default logs (always enabled). |
-| `svc-meta` | Service metadata probes (`svc meta …` traces, guard diagnostics). |
-| `probe` | Loader/allocator instrumentation and raw guard telemetry. Disabled by default to keep UART noise down. |
-
-Example:
-
-```bash
-INIT_LITE_LOG_TOPICS=general,svc-meta,probe RUN_UNTIL_MARKER=1 just test-os
-```
-
-Because the knob is evaluated at build time, you only need to export it before running the Just/QEMU helper; the script’s rebuild step will pick it up automatically.
+Keep this index focused on the global testing framework; use the SSOT document for operational network/distributed triage details.

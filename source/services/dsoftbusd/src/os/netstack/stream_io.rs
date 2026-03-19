@@ -1,4 +1,12 @@
-//! Bounded stream and UDP/TCP helper operations for cross-VM path.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Bounded netstack RPC stream I/O helpers for cross-VM transport
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Host transport validation tests + QEMU 2-VM session markers
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 use super::ids::{ListenerId, SessionId, UdpSocketId};
 use super::rpc::{next_nonce, rpc_nonce};
@@ -23,7 +31,8 @@ const OP_CLOSE: u8 = 11;
 const STATUS_OK: u8 = 0;
 pub(crate) const STATUS_WOULD_BLOCK: u8 = 3;
 pub(crate) const STATUS_IO: u8 = 4;
-const STREAM_WOULD_BLOCK_BUDGET: u32 = 1_024;
+// Cross-VM QEMU under -icount can delay ACCEPT progress substantially; keep bounded but generous.
+const STREAM_WOULD_BLOCK_BUDGET: u32 = 8_192;
 
 pub(crate) fn stream_write_all(
     pending: &mut ReplyBuffer<16, 512>,
@@ -50,7 +59,7 @@ pub(crate) fn stream_write_all(
         req[3] = OP_WAIT_WRITABLE;
         req[4..8].copy_from_slice(&sid.as_raw().to_le_bytes());
         req[8..16].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(
+        let rsp = match rpc_nonce(
             pending,
             net,
             &req,
@@ -58,8 +67,24 @@ pub(crate) fn stream_write_all(
             nonce,
             reply_recv_slot,
             reply_send_slot,
-        )?;
-        let status = parse_status_frame(&rsp, OP_WAIT_WRITABLE | 0x80)?;
+        ) {
+            Ok(v) => v,
+            Err(()) => {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: wait_writable rpc err");
+                // #endregion
+                return Err(());
+            }
+        };
+        let status = match parse_status_frame(&rsp, OP_WAIT_WRITABLE | 0x80) {
+            Ok(v) => v,
+            Err(()) => {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: wait_writable parse err");
+                // #endregion
+                return Err(());
+            }
+        };
         if status == STATUS_OK {
             return Ok(true);
         }
@@ -91,7 +116,12 @@ pub(crate) fn stream_write_all(
                     let _ = nexus_abi::yield_();
                     continue;
                 }
-                Err(()) => return Err(()),
+                Err(()) => {
+                    // #region agent log
+                    let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream wait_writable err");
+                    // #endregion
+                    return Err(());
+                }
             }
         }
         let chunk = core::cmp::min(480, data.len() - off);
@@ -105,7 +135,7 @@ pub(crate) fn stream_write_all(
         w[8..10].copy_from_slice(&(chunk as u16).to_le_bytes());
         w[10..10 + chunk].copy_from_slice(&data[off..off + chunk]);
         w[10 + chunk..10 + chunk + 8].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(
+        let rsp = match rpc_nonce(
             pending,
             net,
             &w[..10 + chunk + 8],
@@ -113,10 +143,34 @@ pub(crate) fn stream_write_all(
             nonce,
             reply_recv_slot,
             reply_send_slot,
-        )?;
-        let status = parse_status_frame(&rsp, OP_WRITE | 0x80)?;
+        ) {
+            Ok(v) => v,
+            Err(()) => {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream write rpc err");
+                // #endregion
+                return Err(());
+            }
+        };
+        let status = match parse_status_frame(&rsp, OP_WRITE | 0x80) {
+            Ok(v) => v,
+            Err(()) => {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream write parse err");
+                // #endregion
+                return Err(());
+            }
+        };
         if status == STATUS_OK {
-            let wrote = parse_write_ok_wrote(&rsp)?;
+            let wrote = match parse_write_ok_wrote(&rsp) {
+                Ok(v) => v,
+                Err(()) => {
+                    // #region agent log
+                    let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream write wrote parse err");
+                    // #endregion
+                    return Err(());
+                }
+            };
             would_block_spins = 0;
             off = off.saturating_add(wrote);
             continue;
@@ -129,6 +183,15 @@ pub(crate) fn stream_write_all(
             }
             let _ = nexus_abi::yield_();
             continue;
+        }
+        if status == STATUS_IO {
+            // #region agent log
+            let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream write status io");
+            // #endregion
+        } else {
+            // #region agent log
+            let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream write status other");
+            // #endregion
         }
         return Err(());
     }
@@ -157,11 +220,42 @@ pub(crate) fn stream_read_exact(
         r[4..8].copy_from_slice(&sid.as_raw().to_le_bytes());
         r[8..10].copy_from_slice(&(want as u16).to_le_bytes());
         r[10..18].copy_from_slice(&nonce.to_le_bytes());
-        let rsp =
-            rpc_nonce(pending, net, &r, OP_READ | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
-        let status = parse_status_frame(&rsp, OP_READ | 0x80)?;
+        let rsp = match rpc_nonce(
+            pending,
+            net,
+            &r,
+            OP_READ | 0x80,
+            nonce,
+            reply_recv_slot,
+            reply_send_slot,
+        ) {
+            Ok(v) => v,
+            Err(()) => {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream read rpc err");
+                // #endregion
+                return Err(());
+            }
+        };
+        let status = match parse_status_frame(&rsp, OP_READ | 0x80) {
+            Ok(v) => v,
+            Err(()) => {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream read parse err");
+                // #endregion
+                return Err(());
+            }
+        };
         if status == STATUS_OK {
-            let n = parse_read_ok_len(&rsp)?;
+            let n = match parse_read_ok_len(&rsp) {
+                Ok(v) => v,
+                Err(()) => {
+                    // #region agent log
+                    let _ = nexus_abi::debug_println("dbg:dsoftbusd: stream read len parse err");
+                    // #endregion
+                    return Err(());
+                }
+            };
             would_block_spins = 0;
             out[off..off + n].copy_from_slice(&rsp[7..7 + n]);
             off += n;

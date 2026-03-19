@@ -1031,6 +1031,28 @@ impl OsTcpStream {
         }
         false
     }
+
+    /// Close and dispose the underlying socket handle from the shared socket set.
+    ///
+    /// Use this when a connect attempt must be abandoned before the stream is handed out.
+    pub fn close_and_remove(self) {
+        let mut inner = self.inner.borrow_mut();
+        {
+            let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+            sock.close();
+        }
+        inner.sockets.remove(self.handle);
+    }
+
+    /// Returns true when the stream is no longer in a connect/connected state.
+    pub fn is_closed_or_listen(&self) -> bool {
+        let mut inner = self.inner.borrow_mut();
+        let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
+        matches!(
+            sock.state(),
+            smoltcp::socket::tcp::State::Closed | smoltcp::socket::tcp::State::Listen
+        )
+    }
 }
 
 impl TcpStream for OsTcpStream {
@@ -1133,11 +1155,11 @@ impl NetStack for SmoltcpVirtioNetStack {
         let ep = smoltcp::wire::IpEndpoint::new(IpAddress::Ipv4(ip), local.port);
         let rx = smoltcp::socket::udp::PacketBuffer::new(
             alloc::vec![smoltcp::socket::udp::PacketMetadata::EMPTY; 4],
-            alloc::vec![0u8; 2048],
+            alloc::vec![0u8; 512],
         );
         let tx = smoltcp::socket::udp::PacketBuffer::new(
             alloc::vec![smoltcp::socket::udp::PacketMetadata::EMPTY; 4],
-            alloc::vec![0u8; 2048],
+            alloc::vec![0u8; 512],
         );
         let mut sock = smoltcp::socket::udp::Socket::new(rx, tx);
         sock.bind(ep).map_err(|_| NetError::AddrInUse)?;
@@ -1151,10 +1173,10 @@ impl NetStack for SmoltcpVirtioNetStack {
         _backlog: usize,
     ) -> Result<Self::TcpListener, NetError> {
         let mut inner = self.inner.borrow_mut();
-        // Bring-up sizing: keep per-socket buffers small to avoid exhausting the bump allocator
-        // in `nexus-service-entry`.
-        let rx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 1024]);
-        let tx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 1024]);
+        // Bring-up sizing: keep per-socket buffers very small to avoid exhausting the bump allocator
+        // in `nexus-service-entry` during 2-VM session setup.
+        let rx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 512]);
+        let tx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 512]);
         let mut sock = smoltcp::socket::tcp::Socket::new(rx, tx);
         sock.set_keep_alive(Some(smoltcp::time::Duration::from_secs(2)));
         sock.listen(local.port).map_err(|_| NetError::AddrInUse)?;
@@ -1174,8 +1196,10 @@ impl NetStack for SmoltcpVirtioNetStack {
                 return Err(NetError::TimedOut);
             }
         }
-        let rx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 8192]);
-        let tx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 8192]);
+        // Keep connect-time buffers tiny to stay within netstackd's fixed bring-up heap budget.
+        // Larger buffers caused deterministic alloc failures under 2-VM -icount runs.
+        let rx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 512]);
+        let tx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 512]);
         let sock = smoltcp::socket::tcp::Socket::new(rx, tx);
         // Use the configured interface address (DHCP or deterministic static fallback).
         // NOTE: this must match an address present on the interface, otherwise smoltcp rejects the connect.

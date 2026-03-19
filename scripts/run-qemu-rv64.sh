@@ -9,6 +9,13 @@
 #   UART_LOG_MAX     – maximum size of uart.log after trimming (default: 10485760 bytes)
 #   QEMU_LOG / UART_LOG – override log file paths.
 #   INIT_LITE_LOG_TOPICS – comma separated init-lite log topic list (e.g. "svc-meta") propagated to the build script.
+#   SANDBOX_CACHE_GC – sandbox cache GC mode: auto|on|off (default: auto)
+#   SANDBOX_CACHE_DIR – sandbox cache root (default: /tmp/cursor-sandbox-cache)
+#   SANDBOX_CACHE_MAX_MB – trigger GC when cache grows above this (default: 1024)
+#   SANDBOX_CACHE_TARGET_FREE_MB – trigger/continue GC when /tmp free is below this (default: 1024)
+#   SANDBOX_CACHE_MIN_AGE_SECS – in auto mode, keep newer entries than this age (default: 1800)
+#   BUILD_TMPDIR_DEFAULT – TMPDIR fallback for Rust builds (default: $ROOT/.tmp/build)
+#   BUILD_TMP_MIN_FREE_MB – minimum free space required in TMPDIR before fallback (default: 256)
 
 set -euo pipefail
 
@@ -37,6 +44,13 @@ QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
 QEMU_BLK_LOCK_FILE=${QEMU_BLK_LOCK_FILE:-"$ROOT/build/.qemu-blk.lock"}
 QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}
+SANDBOX_CACHE_GC=${SANDBOX_CACHE_GC:-auto}
+SANDBOX_CACHE_DIR=${SANDBOX_CACHE_DIR:-/tmp/cursor-sandbox-cache}
+SANDBOX_CACHE_MAX_MB=${SANDBOX_CACHE_MAX_MB:-1024}
+SANDBOX_CACHE_TARGET_FREE_MB=${SANDBOX_CACHE_TARGET_FREE_MB:-1024}
+SANDBOX_CACHE_MIN_AGE_SECS=${SANDBOX_CACHE_MIN_AGE_SECS:-1800}
+BUILD_TMPDIR_DEFAULT=${BUILD_TMPDIR_DEFAULT:-"$ROOT/.tmp/build"}
+BUILD_TMP_MIN_FREE_MB=${BUILD_TMP_MIN_FREE_MB:-256}
 
 join_by() {
   local IFS="$1"
@@ -49,6 +63,113 @@ set_env_var() {
   local value=$2
   printf -v "$name" '%s' "$value"
   export "$name"
+}
+
+df_available_kb() {
+  local path=$1
+  if ! command -v df >/dev/null 2>&1; then
+    echo -1
+    return 0
+  fi
+  df -Pk "$path" 2>/dev/null | awk 'NR==2 {print $4}' || echo -1
+}
+
+sandbox_cache_usage_kb() {
+  local cache_root=$1
+  if [[ ! -d "$cache_root" ]]; then
+    echo 0
+    return 0
+  fi
+  du -sk "$cache_root" 2>/dev/null | awk '{print $1}' || echo 0
+}
+
+gc_sandbox_cache() {
+  local mode=${SANDBOX_CACHE_GC:-auto}
+  case "$mode" in
+    off|OFF|0|false|FALSE) return 0 ;;
+    on|ON|1|true|TRUE) mode="on" ;;
+    auto|AUTO|*) mode="auto" ;;
+  esac
+  if [[ ! -d "$SANDBOX_CACHE_DIR" ]]; then
+    return 0
+  fi
+
+  local max_cache_kb=$(( SANDBOX_CACHE_MAX_MB * 1024 ))
+  local target_free_kb=$(( SANDBOX_CACHE_TARGET_FREE_MB * 1024 ))
+  local min_age_secs=${SANDBOX_CACHE_MIN_AGE_SECS:-1800}
+  local cache_kb
+  local tmp_free_kb
+  cache_kb=$(sandbox_cache_usage_kb "$SANDBOX_CACHE_DIR")
+  tmp_free_kb=$(df_available_kb /tmp)
+
+  local need_gc=0
+  if [[ "$mode" == "on" ]]; then
+    need_gc=1
+  elif (( cache_kb > max_cache_kb )); then
+    need_gc=1
+  elif [[ "$tmp_free_kb" =~ ^[0-9]+$ ]] && (( tmp_free_kb >= 0 && tmp_free_kb < target_free_kb )); then
+    need_gc=1
+  fi
+  if (( need_gc == 0 )); then
+    return 0
+  fi
+
+  local now
+  now=$(date +%s)
+  local -a entries=()
+  shopt -s nullglob
+  entries=( "$SANDBOX_CACHE_DIR"/* )
+  shopt -u nullglob
+  if (( ${#entries[@]} == 0 )); then
+    return 0
+  fi
+  IFS=$'\n' entries=($(ls -1dt "${entries[@]}" 2>/dev/null || true))
+  unset IFS
+
+  local idx
+  local entry
+  local mtime
+  local age
+  local removed=0
+  local before_kb=$cache_kb
+  for (( idx=${#entries[@]} - 1; idx>=0; idx-- )); do
+    entry=${entries[$idx]}
+    [[ -e "$entry" ]] || continue
+    mtime=$(stat -c %Y "$entry" 2>/dev/null || echo "$now")
+    age=$(( now - mtime ))
+    if [[ "$mode" == "auto" ]] && (( age < min_age_secs )); then
+      continue
+    fi
+    rm -rf "$entry" 2>/dev/null || true
+    removed=$(( removed + 1 ))
+    cache_kb=$(sandbox_cache_usage_kb "$SANDBOX_CACHE_DIR")
+    tmp_free_kb=$(df_available_kb /tmp)
+    if (( cache_kb <= max_cache_kb )); then
+      if ! [[ "$tmp_free_kb" =~ ^[0-9]+$ ]] || (( tmp_free_kb >= target_free_kb )); then
+        break
+      fi
+    fi
+  done
+  if (( removed > 0 )); then
+    echo "[info] sandbox cache gc: removed=${removed} before_kb=${before_kb} after_kb=${cache_kb} tmp_free_kb=${tmp_free_kb}" >&2
+  fi
+}
+
+prepare_build_tmpdir() {
+  if [[ -z "${TMPDIR:-}" ]]; then
+    export TMPDIR="$BUILD_TMPDIR_DEFAULT"
+  fi
+  mkdir -p "$TMPDIR"
+  local min_kb=$(( BUILD_TMP_MIN_FREE_MB * 1024 ))
+  local tmp_free_kb
+  tmp_free_kb=$(df_available_kb "$TMPDIR")
+  if [[ "$tmp_free_kb" =~ ^[0-9]+$ ]] && (( tmp_free_kb >= 0 && tmp_free_kb < min_kb )); then
+    local fallback="$ROOT/.tmp/build-fallback"
+    mkdir -p "$fallback"
+    export TMPDIR="$fallback"
+    echo "[warn] low tmp free space; switching TMPDIR=$TMPDIR" >&2
+  fi
+  echo "[info] Build TMPDIR=$TMPDIR" >&2
 }
 
 declare -a SERVICES=()
@@ -191,7 +312,7 @@ monitor_uart() {
   local saw_vfs_read=0
   local saw_vfs_ebadf=0
   local saw_selftest_end=0
-    while IFS= read -r line; do
+  while IFS= read -r line; do
     # Generic single-marker short-circuit: if RUN_UNTIL_MARKER is a non-zero,
     # non-"1" string, stop as soon as the line contains it.
     if [[ "$RUN_UNTIL_MARKER" != "0" && "$RUN_UNTIL_MARKER" != "1" ]]; then
@@ -485,6 +606,8 @@ finish() {
   return "$status"
 }
 
+gc_sandbox_cache
+prepare_build_tmpdir
 prepare_service_payloads
 
 # Ensure a deterministic virtio-blk backing image exists for QEMU.

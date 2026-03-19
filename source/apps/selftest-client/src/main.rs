@@ -3164,9 +3164,8 @@ mod os_lite {
         }
 
         // TASK-0005: Cross-VM remote proxy proof (opt-in 2-VM harness).
-        // Only Node A emits the markers.
-        if let Some(ip) = local_ip {
-            if ip == [10, 42, 0, 10] {
+        // Only Node A emits the markers; single-VM smoke must not block on remote RPC waits.
+        if os2vm && local_ip.is_some() {
                 // Retry with a wall-clock bound to keep tests deterministic and fast.
                 // dsoftbusd must establish the session first.
                 let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -3208,7 +3207,29 @@ mod os_lite {
                 } else {
                     emit_line("SELFTEST: remote query FAIL");
                 }
-            }
+
+                let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                let deadline_ms = start_ms.saturating_add(4_000);
+                let mut pkg_ok = false;
+                loop {
+                    if let Ok(bytes) = dsoftbusd_remote_pkgfs_read_once("pkg:/system/build.prop", 64)
+                    {
+                        if !bytes.is_empty() {
+                            pkg_ok = true;
+                            break;
+                        }
+                    }
+                    let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
+                    if now_ms >= deadline_ms {
+                        break;
+                    }
+                    let _ = yield_();
+                }
+                if pkg_ok {
+                    emit_line("SELFTEST: remote pkgfs read ok");
+                } else {
+                    emit_line("SELFTEST: remote pkgfs read FAIL");
+                }
         }
 
         emit_line("SELFTEST: end");
@@ -4407,6 +4428,8 @@ mod os_lite {
         Some([rsp[5], rsp[6], rsp[7], rsp[8]])
     }
 
+    const REMOTE_DSOFTBUS_WAIT_MS: u64 = 3000;
+
     fn dsoftbusd_remote_resolve(name: &str) -> core::result::Result<(), ()> {
         const D0: u8 = b'D';
         const D1: u8 = b'S';
@@ -4439,9 +4462,19 @@ mod os_lite {
         req.push(OP);
         req.push(n.len() as u8);
         req.extend_from_slice(n);
-        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
-        let rsp =
-            d.recv(IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
+        if d.send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+        )
+        .is_err()
+        {
+            return Err(());
+        }
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+                REMOTE_DSOFTBUS_WAIT_MS,
+            )))
+            .map_err(|_| ())?;
         if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
         {
             return Err(());
@@ -4461,9 +4494,16 @@ mod os_lite {
 
         let d = cached_dsoftbusd_client().map_err(|_| ())?;
         let req = [D0, D1, VER, OP];
-        d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
-        let rsp =
-            d.recv(IpcWait::Timeout(core::time::Duration::from_millis(800))).map_err(|_| ())?;
+        d.send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+        )
+        .map_err(|_| ())?;
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+                REMOTE_DSOFTBUS_WAIT_MS,
+            )))
+            .map_err(|_| ())?;
         if rsp.len() != 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
         {
             return Err(());
@@ -4472,6 +4512,197 @@ mod os_lite {
             return Err(());
         }
         Ok(u16::from_le_bytes([rsp[5], rsp[6]]))
+    }
+
+    fn dsoftbusd_remote_pkgfs_stat(path: &str) -> core::result::Result<(u64, u16), ()> {
+        const D0: u8 = b'D';
+        const D1: u8 = b'S';
+        const VER: u8 = 1;
+        const OP: u8 = 3;
+        const STATUS_OK: u8 = 0;
+        let d = cached_dsoftbusd_client().map_err(|_| ())?;
+        let p = path.as_bytes();
+        if p.is_empty() || p.len() > 192 {
+            return Err(());
+        }
+        let mut req = alloc::vec::Vec::with_capacity(5 + p.len());
+        req.extend_from_slice(&[D0, D1, VER, OP, p.len() as u8]);
+        req.extend_from_slice(p);
+        d.send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+        )
+        .map_err(|_| ())?;
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+                REMOTE_DSOFTBUS_WAIT_MS,
+            )))
+            .map_err(|_| ())?;
+        if rsp.len() != 15 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
+        {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        let size = u64::from_le_bytes([
+            rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
+        ]);
+        let kind = u16::from_le_bytes([rsp[13], rsp[14]]);
+        Ok((size, kind))
+    }
+
+    fn dsoftbusd_remote_pkgfs_open(path: &str) -> core::result::Result<u32, ()> {
+        const D0: u8 = b'D';
+        const D1: u8 = b'S';
+        const VER: u8 = 1;
+        const OP: u8 = 4;
+        const STATUS_OK: u8 = 0;
+        let d = cached_dsoftbusd_client().map_err(|_| ())?;
+        let p = path.as_bytes();
+        if p.is_empty() || p.len() > 192 {
+            return Err(());
+        }
+        let mut req = alloc::vec::Vec::with_capacity(5 + p.len());
+        req.extend_from_slice(&[D0, D1, VER, OP, p.len() as u8]);
+        req.extend_from_slice(p);
+        d.send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+        )
+        .map_err(|_| ())?;
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+                REMOTE_DSOFTBUS_WAIT_MS,
+            )))
+            .map_err(|_| ())?;
+        if rsp.len() != 9 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
+        {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]))
+    }
+
+    fn dsoftbusd_remote_pkgfs_read(
+        handle: u32,
+        offset: u32,
+        read_len: u16,
+    ) -> core::result::Result<alloc::vec::Vec<u8>, ()> {
+        const D0: u8 = b'D';
+        const D1: u8 = b'S';
+        const VER: u8 = 1;
+        const OP: u8 = 5;
+        const STATUS_OK: u8 = 0;
+        let d = cached_dsoftbusd_client().map_err(|_| ())?;
+        if read_len == 0 || read_len > 128 {
+            return Err(());
+        }
+        let mut req = [0u8; 14];
+        req[0] = D0;
+        req[1] = D1;
+        req[2] = VER;
+        req[3] = OP;
+        req[4..8].copy_from_slice(&handle.to_le_bytes());
+        req[8..12].copy_from_slice(&offset.to_le_bytes());
+        req[12..14].copy_from_slice(&read_len.to_le_bytes());
+        d.send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+        )
+        .map_err(|_| ())?;
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+                REMOTE_DSOFTBUS_WAIT_MS,
+            )))
+            .map_err(|_| ())?;
+        if rsp.len() < 7
+            || rsp[0] != D0
+            || rsp[1] != D1
+            || rsp[2] != VER
+            || rsp[3] != (OP | 0x80)
+        {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+        if n > 128 || rsp.len() < 7 + n {
+            return Err(());
+        }
+        Ok(rsp[7..7 + n].to_vec())
+    }
+
+    fn dsoftbusd_remote_pkgfs_close(handle: u32) -> core::result::Result<(), ()> {
+        const D0: u8 = b'D';
+        const D1: u8 = b'S';
+        const VER: u8 = 1;
+        const OP: u8 = 6;
+        const STATUS_OK: u8 = 0;
+        let d = cached_dsoftbusd_client().map_err(|_| ())?;
+        let mut req = [0u8; 8];
+        req[0] = D0;
+        req[1] = D1;
+        req[2] = VER;
+        req[3] = OP;
+        req[4..8].copy_from_slice(&handle.to_le_bytes());
+        d.send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+        )
+        .map_err(|_| ())?;
+        let rsp = d
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+                REMOTE_DSOFTBUS_WAIT_MS,
+            )))
+            .map_err(|_| ())?;
+        if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
+        {
+            return Err(());
+        }
+        if rsp[4] != STATUS_OK {
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn dsoftbusd_remote_pkgfs_read_once(
+        path: &str,
+        read_len: u16,
+    ) -> core::result::Result<alloc::vec::Vec<u8>, ()> {
+        let (_size, kind) = match dsoftbusd_remote_pkgfs_stat(path) {
+            Ok(v) => v,
+            Err(()) => return Err(()),
+        };
+        if kind != 0 {
+            return Err(());
+        }
+        emit_line("SELFTEST: remote pkgfs stat ok");
+        let handle = match dsoftbusd_remote_pkgfs_open(path) {
+            Ok(v) => v,
+            Err(()) => return Err(()),
+        };
+        emit_line("SELFTEST: remote pkgfs open ok");
+        let read_bytes = match dsoftbusd_remote_pkgfs_read(handle, 0, read_len) {
+            Ok(v) => v,
+            Err(()) => {
+                let _ = dsoftbusd_remote_pkgfs_close(handle);
+                return Err(());
+            }
+        };
+        if read_bytes.is_empty() {
+            let _ = dsoftbusd_remote_pkgfs_close(handle);
+            return Err(());
+        }
+        emit_line("SELFTEST: remote pkgfs read step ok");
+        if dsoftbusd_remote_pkgfs_close(handle).is_err() {
+            return Err(());
+        }
+        emit_line("SELFTEST: remote pkgfs close ok");
+        Ok(read_bytes)
     }
 
     fn cap_query_mmio_probe() -> core::result::Result<(), ()> {

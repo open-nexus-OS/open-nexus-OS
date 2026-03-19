@@ -39,7 +39,9 @@ pub(crate) fn rpc_nonce(
 
     let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 512];
-    for _ in 0..50_000 {
+    // Under QEMU -icount cross-VM runs, control-plane replies can be significantly delayed.
+    // Keep this bounded but generous to avoid false transport timeouts.
+    for _ in 0..200_000 {
         match nexus_abi::ipc_recv_v1(
             reply_recv_slot,
             &mut hdr,

@@ -75,8 +75,8 @@ build-kernel-lib:
 qemu *args:
     # ensure the binary is built before launching
     just build-kernel
-    RUN_TIMEOUT=${RUN_TIMEOUT:-30s} scripts/run-qemu-rv64.sh {{args}}
-    @echo "[hint] Set RUN_UNTIL_MARKER=1 to stop on success markers; set QEMU_TRACE=1 to enable tracing."
+    RUN_TIMEOUT=${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER="${RUN_UNTIL_MARKER:-SELFTEST: dsoftbus ping ok}" scripts/run-qemu-rv64.sh {{args}}
+    @echo "[hint] Default stop marker is 'SELFTEST: dsoftbus ping ok'. Set RUN_UNTIL_MARKER=1 for full readiness ladder or QEMU_TRACE=1 for tracing."
 
 test-os:
     scripts/qemu-test.sh

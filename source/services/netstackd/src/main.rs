@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg_attr(
     all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"),
     no_std,
@@ -9,11 +12,24 @@
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Proven via QEMU markers (TASK-0003..0005 / scripts/qemu-test.sh + tools/os2vm.sh)
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //!
 //! Responsibilities (v0, Step 1):
 //! - Own virtio-net + smoltcp via `userspace/nexus-net-os`.
 //! - Prove the facade can do real on-wire traffic (gateway ping + UDP DNS).
 //! - Export a minimal sockets facade via IPC for other services (TASK-0003).
+
+#[inline]
+fn fallback_ipv4_config(is_qemu_smoke: bool, mac: [u8; 6]) -> ([u8; 4], u8, Option<[u8; 4]>) {
+    if is_qemu_smoke {
+        // QEMU usernet-compatible static fallback.
+        ([10, 0, 2, 15], 24u8, Some([10, 0, 2, 2]))
+    } else {
+        // Deterministic 2-VM fallback from NIC MAC LSB.
+        let host = if mac[5] == 0 { 1 } else { mac[5] };
+        ([10, 42, 0, host], 24u8, None)
+    }
+}
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 extern crate alloc;
@@ -196,17 +212,14 @@ fn os_entry() -> core::result::Result<(), ()> {
         // In that environment, downstream bring-up (DSoftBus loopback shortcuts) expects 10.0.2.15.
         //
         // The 2-VM harness uses the MAC-derived 10.42.0.x addresses and must not rely on usernet.
-        let (ip, prefix_len, gw) = if cfg!(feature = "qemu-smoke") {
-            // QEMU slirp/usernet convention: 10.0.2.2 is the gateway/host.
-            // When DHCP is flaky/unavailable we still need a default route so ICMP/TCP proofs work.
-            ([10, 0, 2, 15], 24u8, Some([10, 0, 2, 2]))
+        let is_qemu_smoke = cfg!(feature = "qemu-smoke");
+        let mac = net.mac();
+        let (ip, prefix_len, gw) = fallback_ipv4_config(is_qemu_smoke, mac);
+        if is_qemu_smoke {
+            let _ = nexus_abi::debug_println("dbg:netstackd: fallback profile qemu-smoke");
         } else {
-            let mac = net.mac();
-            // Use the virtio MAC LSB directly so the harness can pick stable, distinct IPs by setting MACs.
-            // 0 is reserved; map it to 1 to stay routable.
-            let host = if mac[5] == 0 { 1 } else { mac[5] };
-            ([10, 42, 0, host], 24u8, None)
-        };
+            let _ = nexus_abi::debug_println("dbg:netstackd: fallback profile os2vm-static");
+        }
         net.set_static_ipv4(ip, prefix_len, gw);
 
         // Honest marker: DHCP was unavailable.
@@ -481,7 +494,10 @@ fn os_entry() -> core::result::Result<(), ()> {
     }
 
     enum Stream {
-        Tcp(OsTcpStream),
+        // Outbound connector stream (created via OP_CONNECT).
+        TcpDial(OsTcpStream),
+        // Inbound accepted stream (created via OP_ACCEPT on listener socket).
+        TcpAccepted(OsTcpStream),
         Loop { peer: u32, rx: LoopBuf },
     }
 
@@ -503,6 +519,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Pre-allocate small tables to avoid late heap pressure during bring-up.
     let mut listeners: Vec<Option<Listener>> = Vec::with_capacity(4);
     let mut streams: Vec<Option<Stream>> = Vec::with_capacity(4);
+    let mut pending_dial: Option<(NetSocketAddrV4, OsTcpStream)> = None;
     let mut udps: Vec<Option<UdpSock>> = Vec::with_capacity(4);
     // Debug help for TASK-0005: log the first non-loopback TCP connect target we see.
     // Keep it bounded (single marker) to avoid UART spam.
@@ -511,6 +528,15 @@ fn os_entry() -> core::result::Result<(), ()> {
     let mut dbg_udp_bind_logged = false;
     let mut dbg_connect_kick_ok_logged = false;
     let mut dbg_connect_kick_would_block_logged = false;
+    let mut dbg_connect_pending_set_logged = false;
+    let mut dbg_connect_pending_reused_logged = false;
+    let mut dbg_connect_pending_stale_logged = false;
+    let mut dbg_connect_status_would_block_logged = false;
+    let mut dbg_connect_status_io_logged = false;
+    let mut dbg_connect_req_count: u32 = 0;
+    let mut dbg_accept_status_ok_logged = false;
+    let mut dbg_accept_status_would_block_logged = false;
+    let mut dbg_accept_status_io_logged = false;
     let mut dbg_listen_loopback_logged = false;
     let mut dbg_listen_tcp_logged = false;
 
@@ -730,7 +756,15 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 }
                                 match accept_result {
                                     Ok(s) => {
-                                        streams.push(Some(Stream::Tcp(s)));
+                                        if !dbg_accept_status_ok_logged {
+                                            dbg_accept_status_ok_logged = true;
+                                            // #region agent log
+                                            let _ = nexus_abi::debug_println(
+                                                "dbg:netstackd: accept status ok",
+                                            );
+                                            // #endregion
+                                        }
+                                        streams.push(Some(Stream::TcpAccepted(s)));
                                         let sid = streams.len() as u32;
                                         if let Some(nonce) = nonce {
                                             let mut rsp = [0u8; 17];
@@ -754,6 +788,14 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         }
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
+                                        if !dbg_accept_status_would_block_logged {
+                                            dbg_accept_status_would_block_logged = true;
+                                            // #region agent log
+                                            let _ = nexus_abi::debug_println(
+                                                "dbg:netstackd: accept status would-block",
+                                            );
+                                            // #endregion
+                                        }
                                         if let Some(nonce) = nonce {
                                             let mut rsp = [0u8; 13];
                                             rsp[..5].copy_from_slice(&[
@@ -776,6 +818,14 @@ fn os_entry() -> core::result::Result<(), ()> {
                                         }
                                     }
                                     Err(_) => {
+                                        if !dbg_accept_status_io_logged {
+                                            dbg_accept_status_io_logged = true;
+                                            // #region agent log
+                                            let _ = nexus_abi::debug_println(
+                                                "dbg:netstackd: accept status io",
+                                            );
+                                            // #endregion
+                                        }
                                         if let Some(nonce) = nonce {
                                             let mut rsp = [0u8; 13];
                                             rsp[..5].copy_from_slice(&[
@@ -855,6 +905,20 @@ fn os_entry() -> core::result::Result<(), ()> {
                         let nonce = parse_nonce(req, 10);
                         let ip = [req[4], req[5], req[6], req[7]];
                         let port = u16::from_le_bytes([req[8], req[9]]);
+                        dbg_connect_req_count = dbg_connect_req_count.wrapping_add(1);
+                        if dbg_connect_req_count == 1 {
+                            // #region agent log
+                            let _ = nexus_abi::debug_println("dbg:netstackd: connect req count 1");
+                            // #endregion
+                        } else if dbg_connect_req_count == 512 {
+                            // #region agent log
+                            let _ = nexus_abi::debug_println("dbg:netstackd: connect req count 512");
+                            // #endregion
+                        } else if dbg_connect_req_count == 4096 {
+                            // #region agent log
+                            let _ = nexus_abi::debug_println("dbg:netstackd: connect req count 4096");
+                            // #endregion
+                        }
                         if !dbg_connect_target_printed
                             && ip != [10, 0, 2, 15]
                             && (port == 34_567 || port == 34_568)
@@ -905,12 +969,151 @@ fn os_entry() -> core::result::Result<(), ()> {
                             }
                         } else {
                             let remote = NetSocketAddrV4::new(ip, port);
+
+                            // Reuse an in-flight connect socket to avoid repeated allocations while the
+                            // handshake is still progressing (allocator has no free/dealloc path).
+                            let mut reused_pending = false;
+                            let mut drop_stale_pending = false;
+                            if let Some((pending_remote, pending_stream)) = pending_dial.as_mut() {
+                                if pending_remote.ip == remote.ip && pending_remote.port == remote.port
+                                {
+                                    if pending_stream.is_closed_or_listen() {
+                                        drop_stale_pending = true;
+                                    } else {
+                                        reused_pending = true;
+                                        if !dbg_connect_pending_reused_logged {
+                                            dbg_connect_pending_reused_logged = true;
+                                            // #region agent log
+                                            let _ = nexus_abi::debug_println(
+                                                "dbg:netstackd: connect pending reused",
+                                            );
+                                            // #endregion
+                                        }
+                                        if pending_stream.wait_writable_bounded(TCP_READY_SPIN_BUDGET) {
+                                            if !dbg_connect_kick_ok_logged {
+                                                dbg_connect_kick_ok_logged = true;
+                                                // #region agent log
+                                                let _ = nexus_abi::debug_println(
+                                                    "dbg:netstackd: connect kick ok",
+                                                );
+                                                // #endregion
+                                            }
+                                            let (_, stream) =
+                                                pending_dial.take().expect("pending exists");
+                                            streams.push(Some(Stream::TcpDial(stream)));
+                                            let sid = streams.len() as u32;
+                                            if let Some(nonce) = nonce {
+                                                let mut rsp = [0u8; 17];
+                                                rsp[0] = MAGIC0;
+                                                rsp[1] = MAGIC1;
+                                                rsp[2] = VERSION;
+                                                rsp[3] = OP_CONNECT | 0x80;
+                                                rsp[4] = STATUS_OK;
+                                                rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                                append_nonce(&mut rsp[9..17], nonce);
+                                                reply(&rsp);
+                                            } else {
+                                                let mut rsp = [0u8; 9];
+                                                rsp[0] = MAGIC0;
+                                                rsp[1] = MAGIC1;
+                                                rsp[2] = VERSION;
+                                                rsp[3] = OP_CONNECT | 0x80;
+                                                rsp[4] = STATUS_OK;
+                                                rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                                reply(&rsp);
+                                            }
+                                            let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
+                                        } else {
+                                            if !dbg_connect_kick_would_block_logged {
+                                                dbg_connect_kick_would_block_logged = true;
+                                                // #region agent log
+                                                let _ = nexus_abi::debug_println(
+                                                    "dbg:netstackd: connect kick would-block",
+                                                );
+                                                // #endregion
+                                            }
+                                            if let Some(nonce) = nonce {
+                                                let mut rsp = [0u8; 13];
+                                                rsp[..5].copy_from_slice(&[
+                                                    MAGIC0,
+                                                    MAGIC1,
+                                                    VERSION,
+                                                    OP_CONNECT | 0x80,
+                                                    STATUS_WOULD_BLOCK,
+                                                ]);
+                                                append_nonce(&mut rsp[5..13], nonce);
+                                                reply(&rsp);
+                                            } else {
+                                                reply(&[
+                                                    MAGIC0,
+                                                    MAGIC1,
+                                                    VERSION,
+                                                    OP_CONNECT | 0x80,
+                                                    STATUS_WOULD_BLOCK,
+                                                ]);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Drop stale pending connect when caller switches target.
+                                    if let Some((_, stale)) = pending_dial.take() {
+                                        stale.close_and_remove();
+                                    }
+                                }
+                            }
+                            if drop_stale_pending {
+                                if !dbg_connect_pending_stale_logged {
+                                    dbg_connect_pending_stale_logged = true;
+                                    // #region agent log
+                                    let _ = nexus_abi::debug_println(
+                                        "dbg:netstackd: connect pending stale",
+                                    );
+                                    // #endregion
+                                }
+                                if let Some((_, stale)) = pending_dial.take() {
+                                    stale.close_and_remove();
+                                }
+                            }
+                            if reused_pending {
+                                let _ = yield_();
+                                continue;
+                            }
+
                             match net.tcp_connect(remote, Some(now_ms + TCP_READY_STEP_MS)) {
-                                Ok(s) => {
-                                    // Wait for writable state in a bounded way before exposing the stream ID.
-                                    // Marker-only check; actual write gating is exposed via OP_WAIT_WRITABLE.
-                                    let mut s = s;
-                                    if !s.wait_writable_bounded(TCP_READY_SPIN_BUDGET) {
+                                Ok(mut s) => {
+                                    if s.wait_writable_bounded(TCP_READY_SPIN_BUDGET) {
+                                        if !dbg_connect_kick_ok_logged {
+                                            dbg_connect_kick_ok_logged = true;
+                                            // #region agent log
+                                            let _ = nexus_abi::debug_println(
+                                                "dbg:netstackd: connect kick ok",
+                                            );
+                                            // #endregion
+                                        }
+                                        streams.push(Some(Stream::TcpDial(s)));
+                                        let sid = streams.len() as u32;
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 17];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_CONNECT | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                            append_nonce(&mut rsp[9..17], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            let mut rsp = [0u8; 9];
+                                            rsp[0] = MAGIC0;
+                                            rsp[1] = MAGIC1;
+                                            rsp[2] = VERSION;
+                                            rsp[3] = OP_CONNECT | 0x80;
+                                            rsp[4] = STATUS_OK;
+                                            rsp[5..9].copy_from_slice(&sid.to_le_bytes());
+                                            reply(&rsp);
+                                        }
+                                        let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
+                                    } else {
                                         if !dbg_connect_kick_would_block_logged {
                                             dbg_connect_kick_would_block_logged = true;
                                             // #region agent log
@@ -919,39 +1122,46 @@ fn os_entry() -> core::result::Result<(), ()> {
                                             );
                                             // #endregion
                                         }
-                                    } else if !dbg_connect_kick_ok_logged {
-                                        dbg_connect_kick_ok_logged = true;
+                                        if !dbg_connect_pending_set_logged {
+                                            dbg_connect_pending_set_logged = true;
+                                            // #region agent log
+                                            let _ = nexus_abi::debug_println(
+                                                "dbg:netstackd: connect pending set",
+                                            );
+                                            // #endregion
+                                        }
+                                        pending_dial = Some((remote, s));
+                                        if let Some(nonce) = nonce {
+                                            let mut rsp = [0u8; 13];
+                                            rsp[..5].copy_from_slice(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_CONNECT | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                            append_nonce(&mut rsp[5..13], nonce);
+                                            reply(&rsp);
+                                        } else {
+                                            reply(&[
+                                                MAGIC0,
+                                                MAGIC1,
+                                                VERSION,
+                                                OP_CONNECT | 0x80,
+                                                STATUS_WOULD_BLOCK,
+                                            ]);
+                                        }
+                                    }
+                                }
+                                Err(nexus_net::NetError::WouldBlock) => {
+                                    if !dbg_connect_status_would_block_logged {
+                                        dbg_connect_status_would_block_logged = true;
                                         // #region agent log
                                         let _ = nexus_abi::debug_println(
-                                            "dbg:netstackd: connect kick ok",
+                                            "dbg:netstackd: connect status would-block",
                                         );
                                         // #endregion
                                     }
-                                    streams.push(Some(Stream::Tcp(s)));
-                                    let sid = streams.len() as u32;
-                                    if let Some(nonce) = nonce {
-                                        let mut rsp = [0u8; 17];
-                                        rsp[0] = MAGIC0;
-                                        rsp[1] = MAGIC1;
-                                        rsp[2] = VERSION;
-                                        rsp[3] = OP_CONNECT | 0x80;
-                                        rsp[4] = STATUS_OK;
-                                        rsp[5..9].copy_from_slice(&sid.to_le_bytes());
-                                        append_nonce(&mut rsp[9..17], nonce);
-                                        reply(&rsp);
-                                    } else {
-                                        let mut rsp = [0u8; 9];
-                                        rsp[0] = MAGIC0;
-                                        rsp[1] = MAGIC1;
-                                        rsp[2] = VERSION;
-                                        rsp[3] = OP_CONNECT | 0x80;
-                                        rsp[4] = STATUS_OK;
-                                        rsp[5..9].copy_from_slice(&sid.to_le_bytes());
-                                        reply(&rsp);
-                                    }
-                                    let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
-                                }
-                                Err(nexus_net::NetError::WouldBlock) => {
                                     if let Some(nonce) = nonce {
                                         let mut rsp = [0u8; 13];
                                         rsp[..5].copy_from_slice(&[
@@ -974,6 +1184,13 @@ fn os_entry() -> core::result::Result<(), ()> {
                                     }
                                 }
                                 Err(_) => {
+                                    if !dbg_connect_status_io_logged {
+                                        dbg_connect_status_io_logged = true;
+                                        // #region agent log
+                                        let _ =
+                                            nexus_abi::debug_println("dbg:netstackd: connect status io");
+                                        // #endregion
+                                    }
                                     if let Some(nonce) = nonce {
                                         let mut rsp = [0u8; 13];
                                         rsp[..5].copy_from_slice(&[
@@ -1589,8 +1806,10 @@ fn os_entry() -> core::result::Result<(), ()> {
                             continue;
                         };
                         match kind {
-                            Stream::Tcp(_) => {
-                                let Some(Some(Stream::Tcp(s))) = streams.get_mut(sid0) else {
+                            Stream::TcpDial(_) | Stream::TcpAccepted(_) => {
+                                let Some(Some(Stream::TcpDial(s) | Stream::TcpAccepted(s))) =
+                                    streams.get_mut(sid0)
+                                else {
                                     reply(&[MAGIC0, MAGIC1, VERSION, OP_WRITE | 0x80, STATUS_IO]);
                                     let _ = yield_();
                                     continue;
@@ -1617,25 +1836,48 @@ fn os_entry() -> core::result::Result<(), ()> {
                                 }
                                 match write_result {
                                     Ok(n) => {
-                                        if let Some(nonce) = nonce {
-                                            let mut rsp = [0u8; 15];
-                                            rsp[0] = MAGIC0;
-                                            rsp[1] = MAGIC1;
-                                            rsp[2] = VERSION;
-                                            rsp[3] = OP_WRITE | 0x80;
-                                            rsp[4] = STATUS_OK;
-                                            rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
-                                            append_nonce(&mut rsp[7..15], nonce);
-                                            reply(&rsp);
+                                        if n == 0 {
+                                            if let Some(nonce) = nonce {
+                                                let mut rsp = [0u8; 13];
+                                                rsp[..5].copy_from_slice(&[
+                                                    MAGIC0,
+                                                    MAGIC1,
+                                                    VERSION,
+                                                    OP_WRITE | 0x80,
+                                                    STATUS_WOULD_BLOCK,
+                                                ]);
+                                                append_nonce(&mut rsp[5..13], nonce);
+                                                reply(&rsp);
+                                            } else {
+                                                reply(&[
+                                                    MAGIC0,
+                                                    MAGIC1,
+                                                    VERSION,
+                                                    OP_WRITE | 0x80,
+                                                    STATUS_WOULD_BLOCK,
+                                                ]);
+                                            }
                                         } else {
-                                            let mut rsp = [0u8; 7];
-                                            rsp[0] = MAGIC0;
-                                            rsp[1] = MAGIC1;
-                                            rsp[2] = VERSION;
-                                            rsp[3] = OP_WRITE | 0x80;
-                                            rsp[4] = STATUS_OK;
-                                            rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
-                                            reply(&rsp);
+                                            if let Some(nonce) = nonce {
+                                                let mut rsp = [0u8; 15];
+                                                rsp[0] = MAGIC0;
+                                                rsp[1] = MAGIC1;
+                                                rsp[2] = VERSION;
+                                                rsp[3] = OP_WRITE | 0x80;
+                                                rsp[4] = STATUS_OK;
+                                                rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                                append_nonce(&mut rsp[7..15], nonce);
+                                                reply(&rsp);
+                                            } else {
+                                                let mut rsp = [0u8; 7];
+                                                rsp[0] = MAGIC0;
+                                                rsp[1] = MAGIC1;
+                                                rsp[2] = VERSION;
+                                                rsp[3] = OP_WRITE | 0x80;
+                                                rsp[4] = STATUS_OK;
+                                                rsp[5..7].copy_from_slice(&(n as u16).to_le_bytes());
+                                                reply(&rsp);
+                                            }
                                         }
                                     }
                                     Err(nexus_net::NetError::WouldBlock) => {
@@ -1768,7 +2010,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                             continue;
                         };
                         match s {
-                            Stream::Tcp(s) => {
+                            Stream::TcpDial(s) | Stream::TcpAccepted(s) => {
                                 let mut buf = [0u8; 480];
                                 let mut read_result =
                                     s.read(Some(now_ms + TCP_READY_STEP_MS), &mut buf[..max]);
@@ -1912,7 +2154,7 @@ fn os_entry() -> core::result::Result<(), ()> {
                         let sid = u32::from_le_bytes([req[4], req[5], req[6], req[7]]) as usize;
                         let sid0 = sid.wrapping_sub(1);
                         let status = match streams.get_mut(sid0) {
-                            Some(Some(Stream::Tcp(s))) => {
+                            Some(Some(Stream::TcpDial(s) | Stream::TcpAccepted(s))) => {
                                 if s.wait_writable_bounded(TCP_READY_SPIN_BUDGET) {
                                     STATUS_OK
                                 } else {
@@ -1970,8 +2212,18 @@ fn os_entry() -> core::result::Result<(), ()> {
                             let _ = yield_();
                             continue;
                         };
-                        let status =
-                            if slot.take().is_some() { STATUS_OK } else { STATUS_NOT_FOUND };
+                        let status = match slot.take() {
+                            Some(Stream::TcpDial(s)) => {
+                                s.close_and_remove();
+                                STATUS_OK
+                            }
+                            Some(Stream::TcpAccepted(mut s)) => {
+                                s.close();
+                                STATUS_OK
+                            }
+                            Some(Stream::Loop { .. }) => STATUS_OK,
+                            None => STATUS_NOT_FOUND,
+                        };
                         if let Some(nonce) = nonce {
                             let mut rsp = [0u8; 13];
                             rsp[..5].copy_from_slice(&[
@@ -2133,5 +2385,34 @@ fn main() -> ! {
     // Host builds intentionally do nothing for now.
     loop {
         core::hint::spin_loop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fallback_ipv4_config;
+
+    #[test]
+    fn test_fallback_ipv4_qemu_smoke_profile() {
+        let (ip, prefix, gw) = fallback_ipv4_config(true, [0x52, 0x54, 0x00, 0x12, 0x34, 0x0a]);
+        assert_eq!(ip, [10, 0, 2, 15]);
+        assert_eq!(prefix, 24);
+        assert_eq!(gw, Some([10, 0, 2, 2]));
+    }
+
+    #[test]
+    fn test_fallback_ipv4_os2vm_profile_uses_mac_lsb() {
+        let (ip, prefix, gw) = fallback_ipv4_config(false, [0x52, 0x54, 0x00, 0x12, 0x34, 0x0a]);
+        assert_eq!(ip, [10, 42, 0, 10]);
+        assert_eq!(prefix, 24);
+        assert_eq!(gw, None);
+    }
+
+    #[test]
+    fn test_fallback_ipv4_os2vm_profile_zero_mac_lsb_maps_to_one() {
+        let (ip, prefix, gw) = fallback_ipv4_config(false, [0x52, 0x54, 0x00, 0x12, 0x34, 0x00]);
+        assert_eq!(ip, [10, 42, 0, 1]);
+        assert_eq!(prefix, 24);
+        assert_eq!(gw, None);
     }
 }
