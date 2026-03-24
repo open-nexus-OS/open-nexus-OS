@@ -190,6 +190,31 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `scripts/qemu-test.sh`
 - `docs/distributed/**`
 
+### @task_0016b_context
+- `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
+- `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
+- `tasks/TASK-0010-device-mmio-access-model.md`
+- `tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md`
+- `tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md`
+- `tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md`
+- `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
+- `docs/rfcs/RFC-0006-userspace-networking-v1.md`
+- `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `docs/testing/index.md`
+- `docs/testing/network-distributed-debugging.md`
+- `scripts/qemu-test.sh`
+- `tools/os2vm.sh`
+
+### @task_0016b_touched
+- `source/services/netstackd/**`
+- `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
+- `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
+- `docs/rfcs/README.md`
+- `docs/testing/index.md` (only if proof/developer guidance would otherwise drift)
+- `scripts/qemu-test.sh` (only if gate definitions need sync without semantic drift)
+- `tools/os2vm.sh` (only if regression-harness sync is required without semantic drift)
+
 ### @touched
 - Only the directories listed in the task's **Touched paths** allowlist.
 
@@ -220,6 +245,9 @@ Kontext strikt: @core_context @task_0015_context @quality_gates @task_0015_touch
 
 ## Standard instruction line (TASK-0016)
 Kontext strikt: @core_context @task_0016_context @quality_gates @task_0016_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0016B)
+Kontext strikt: @core_context @task_0016b_context @quality_gates @task_0016b_touched. Kein @codebase Scan.
 
 ### @network_distributed_debug_context
 - `docs/testing/network-distributed-debugging.md`

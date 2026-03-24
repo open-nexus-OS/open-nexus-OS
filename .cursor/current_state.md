@@ -12,59 +12,49 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: implement `OS2VM Debugging + SSOT Consolidation` while continuing `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+- **last_decision**: start `TASK-0016B` as the next networking-structure task after closing out the `TASK-0016` handoff state
 - **rationale**:
-  - cross-VM failures were previously timeout-heavy with weak first-failure localization
-  - deterministic modern virtio-mmio proofs need stronger run evidence (success and failure), not marker-only outcomes
-  - network/distributed debugging guidance was duplicated across testing docs and drift-prone
+  - `source/services/netstackd/src/main.rs` is now the next high-risk monolith on the networking path
+  - later networking/devnet work should extend explicit seams, not reopen a 2.4k-line daemon file
+  - the new task must follow the `TASK-0015` pattern: contract-first, behavior-preserving structure first, then bounded hardening
 - **active_constraints**:
   - No fake success markers (only emit `ok` after real behavior proven)
   - OS-lite feature gating (`--no-default-features --features os-lite`)
-  - Preserve DSoftBus wire compatibility and marker intent unless explicitly revised in task/RFC evidence
-  - Keep remote proxy deny-by-default and nonce-correlated shared-inbox handling fail-closed
-  - For `TASK-0016`: remote packagefs remains read-only (`stat/open/read/close`) with bounded ingress
-  - Cross-VM proof remains sequential and deterministic (no parallel QEMU runs)
-  - Network/distributed debugging procedures are SSOT in `docs/testing/network-distributed-debugging.md`
+  - Preserve `netstackd` wire compatibility and marker intent unless explicitly revised in task/RFC evidence
+  - Keep `netstackd` as the networking owner per `TASK-0003` / `RFC-0006`; no duplicate authority
+  - Loop/retry ownership must stay explicit and bounded; no hidden unbounded helper loops
+  - QEMU proofs remain sequential and deterministic (no parallel smoke / 2-VM runs)
+  - Network/distributed debugging procedures remain SSOT in `docs/testing/network-distributed-debugging.md`
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md` (active; proof hardening + verification loop)
-- **seed_contract**: `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md` (active)
+- **active_task**: `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md` (In Progress; planning/docs seeded, ready for Phase 0 execution)
+- **seed_contract**: `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md` (In Progress)
 - **contract_dependencies**:
   - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
-  - `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
-  - `tasks/TASK-0003C-dsoftbus-udp-discovery-os.md`
-  - `tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md`
-  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
-  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
-  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
-  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
-  - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-  - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-  - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
-  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+  - `tasks/TASK-0010-device-mmio-access-model.md`
+  - `tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md`
+  - `tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md`
+  - `tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md`
+  - `docs/rfcs/RFC-0006-userspace-networking-v1.md`
+  - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
+  - `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
   - `docs/adr/0005-dsoftbus-architecture.md`
-  - `docs/distributed/dsoftbus-lite.md`
   - `docs/testing/index.md`
   - `docs/testing/network-distributed-debugging.md`
   - `scripts/qemu-test.sh`
   - `tools/os2vm.sh`
-- **phase_now**: `TASK-0016` runtime-proof hardening complete; continue functional close-out with new `os2vm` diagnostics
-- **baseline_commit**: `main` working tree (local staged evolution during TASK-0016 debug loop)
-- **next_task_slice**: verify remote markers with new typed `os2vm` summaries and finalize RFC/task evidence
+- **phase_now**: `TASK-0016B` definition + RFC seed complete; ready for Phase 0 implementation planning/execution
+- **baseline_commit**: `main` working tree (new task kickoff after `TASK-0016` handoff archival)
+- **next_task_slice**: create the `netstackd` internal `src/os/` scaffold and reduce `main.rs` to entry/wiring boundaries only
 - **proof_commands**:
-  - `cargo clippy -p dsoftbusd --tests -- -D warnings`
-  - `cargo test -p dsoftbusd -- --nocapture`
-  - `cargo test -p remote_e2e -- --nocapture`
+  - `cargo test -p netstackd --tests -- --nocapture`
   - `just dep-gate`
   - `just diag-os`
-  - `just diag-host`
   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s RUN_PHASE=build OS2VM_SKIP_BUILD=1 tools/os2vm.sh`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s RUN_PHASE=session OS2VM_PCAP=on OS2VM_EXIT_CODE_MODE=typed tools/os2vm.sh`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s RUN_PHASE=remote OS2VM_PCAP=auto tools/os2vm.sh`
-- **last_completed**: `OS2VM Debugging + SSOT Consolidation` implementation slice
-  - Outcome: phase-gated `os2vm`, typed error matrix, structured summaries, packet correlation, SSOT docs sync
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- **last_completed**: `TASK-0016` handoff archival + `TASK-0016B` / `RFC-0029` seed creation
+  - Outcome: new task/RFC/SSOT chain created for `netstackd` modularization and hardening
 
 ## Active invariants (must hold)
 - **security**
@@ -87,23 +77,22 @@ Rules:
   - `just diag-os` verifies OS services compile for riscv64
 
 ## Open threads / follow-ups
-- Finish green end-to-end `TASK-0016` marker proof using new `os2vm` summaries as evidence input.
-- If `OS2VM_E_SESSION_NO_SYN`/`OS2VM_E_SESSION_NO_SYNACK` recurs, keep fixes transport-local and evidence-driven.
-- Keep follow-ons explicit (`TASK-0017`, `TASK-0020`, `TASK-0021`, `TASK-0022`); no scope pull-in.
-- Evaluate CI usage of `OS2VM_EXIT_CODE_MODE=typed` after local stability.
+- Implement `TASK-0016B` Phase 0 without widening scope into new networking features.
+- Keep likely follow-ons explicit (`TASK-0194`, `TASK-0196`, `TASK-0249`); no scope pull-in.
+- Decide after Phase 0 whether any remaining observability/debug labels need a tiny cleanup follow-up rather than bundling into the structural task.
+- Reuse the `TASK-0015` discipline: structure first, then bounded hardening, then proofs/docs sync.
 
 ## Known risks / hazards
-- Path normalization mistakes could allow traversal outside packagefs namespace.
-- Unauthenticated/stale-session requests might bypass intended fail-closed checks if handler boundaries are blurred.
-- Oversize read/path or handle exhaustion can regress boundedness guarantees if limits are not enforced at ingress.
+- Refactor drift could silently change `netstackd` marker timing or IPC frame behavior.
+- Over-splitting by hypothetical future networking features could create unstable seams.
+- Loop cleanup could accidentally hide explicit halt/failure policy behind generic helpers.
 - QEMU proofs must still run sequentially; no parallel smoke or 2-VM runs on shared artifacts.
-- Typed harness diagnostics can still misclassify if packet capture is unavailable; validate with UART + marker evidence together.
+- `netstackd` currently lacks a real host test suite, so test extraction must create narrow seams before claiming hardening coverage.
 
 ## DON'T DO (session-local)
 - DON'T emit `ready` or `ok` markers for stub/placeholder paths
 - DON'T add `parking_lot` or `getrandom` to OS service dependencies
-- DON'T add write-like packagefs operations in `TASK-0016`
-- DON'T accept non-`pkg:/` or non-`/packages/` paths
-- DON'T change DSoftBus marker/wire contracts without corresponding task/contract evidence updates
-- DON'T bypass `os2vm` phase summaries when classifying failures
-- DON'T pull `TASK-0022` shared-core extraction into `TASK-0016` scope
+- DON'T change `netstackd` marker/wire contracts without corresponding task/contract evidence updates
+- DON'T hide bounded retry ownership inside generic unbounded helper loops
+- DON'T introduce a second network-stack authority or MMIO bypass path
+- DON'T pull future feature work (`devnet`, `fetchd`, new public networking surface) into `TASK-0016B`

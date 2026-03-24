@@ -23,6 +23,20 @@ This prevents subjective completion and reduces drift across sessions.
   - [ ] Any `tools/os2vm.sh` edits are harness-only parity updates (no silent marker/wire contract drift)
   - [ ] No unresolved RED decision points remain in the task file
   - [ ] No follow-on scope (`TASK-0017`, `TASK-0020`, `TASK-0021`, `TASK-0022`) was silently absorbed
+- [ ] For TASK-0016B-class `netstackd` structural refactor work:
+  - [ ] `source/services/netstackd/src/main.rs` is reduced to entry/wiring only
+  - [ ] Bootstrap, IPC/wire handling, handle ownership, loopback shim, and facade ops live behind explicit internal seams
+  - [ ] Existing `netstackd` wire and marker semantics remain stable unless explicitly revised in task evidence
+  - [ ] `netstackd` remains the networking owner per `TASK-0003` / `RFC-0006`
+  - [ ] No duplicate authority or MMIO bypass path was introduced
+  - [ ] Loop/retry ownership remains explicit and bounded
+  - [ ] Daemon-path `unwrap`/`expect` are removed from runtime-sensitive paths
+  - [ ] Narrow host tests exist for extracted seams where practical
+  - [ ] Single-VM proof remains green
+  - [ ] Cross-VM regression remains green when the harness path was touched or relied on
+  - [ ] Any `scripts/qemu-test.sh` / `tools/os2vm.sh` edits are parity updates only (no silent contract drift)
+  - [ ] No unresolved RED decision points remain in the task file
+  - [ ] No follow-on scope (`TASK-0194`, `TASK-0196`, `TASK-0249`) was silently absorbed
 - [ ] Header blocks updated to reflect:
   - [ ] API stability impact (if any)
   - [ ] Test coverage (what exists, where, and how to run)
@@ -40,3 +54,4 @@ This prevents subjective completion and reduces drift across sessions.
 - [ ] Ownership/newtype/Send-Sync boundary changes were made without task/RFC/header synchronization
 - [ ] The refactor silently changed wire layout, retry budgets, or remote-proxy behavior while still claiming “no behavior change”
 - [ ] `os2vm` typed rule-matrix and docs SSOT drifted (script behavior no longer matches `docs/testing/network-distributed-debugging.md`)
+- [ ] `netstackd` structural cleanup quietly turned explicit fatal/terminal bring-up policy into hidden fallback success

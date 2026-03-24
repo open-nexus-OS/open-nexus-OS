@@ -1,68 +1,57 @@
-# Current Handoff: TASK-0016 remote packagefs RO proof close-out
+# Current Handoff: TASK-0016B netstackd modular refactor kickoff
 
-**Date**: 2026-03-17  
-**Status**: `TASK-0016` active; `os2vm` debugging + docs SSOT consolidation applied.  
-**Contract baseline**: `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md` (`In progress`)
+**Date**: 2026-03-24  
+**Status**: `TASK-0016B` active; task and RFC seed created and now marked `In Progress`.  
+**Contract baseline**: `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md` (`In Progress`)
 
 ---
 
 ## What is stable now
 
-- `tools/os2vm.sh` now provides:
-  - phase gating (`RUN_PHASE=build|launch|discovery|session|remote|end`)
-  - skip-build mode (`OS2VM_SKIP_BUILD=1`) with artifact validation
-  - typed error classification (`OS2VM_E_*`) and typed exit mode (`OS2VM_EXIT_CODE_MODE=typed`)
-  - structured run summaries (`os2vm-summary-<runId>.json/.txt`)
-  - packet capture modes (`OS2VM_PCAP=off|on|auto`) and packet counter evidence
-- Testing docs were consolidated:
-  - new SSOT: `docs/testing/network-distributed-debugging.md`
-  - `docs/testing/index.md` and `docs/testing/e2e-coverage-matrix.md` now link to SSOT
-- Debugging-relevant CONTEXT headers synchronized in:
-  - `source/services/dsoftbusd/src/os/session/cross_vm.rs`
-  - `source/services/dsoftbusd/src/os/netstack/stream_io.rs`
-  - `source/services/dsoftbusd/src/os/gateway/mod.rs`
-  - `source/services/netstackd/src/main.rs`
+- `TASK-0016` handoff state was archived to `.cursor/handoff/archive/TASK-0016-remote-packagefs-ro.md`.
+- New execution task exists:
+  - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
+- New contract seed exists:
+  - `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
+- RFC index was updated to include `RFC-0029`.
+- SSOT cursor files now point to `TASK-0016B` as the next active task.
 
 ## Current focus
 
-- Close out `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md` using upgraded runtime evidence flow.
-- Keep scope strict: remote packagefs RO behavior and proof completion only.
+- Start `TASK-0016B` Phase 0: modularize `source/services/netstackd/src/main.rs` without changing marker or wire semantics.
+- Keep scope strict: structural extraction first, then bounded loop/idiom hardening inside the same task.
 
 ## Relevant contracts and linked work
 
 - Active task:
-  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+  - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - Baseline contracts/docs:
-  - `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
+  - `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
+  - `docs/rfcs/RFC-0006-userspace-networking-v1.md`
+  - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
   - `docs/adr/0005-dsoftbus-architecture.md`
-  - `docs/distributed/dsoftbus-lite.md`
   - `docs/testing/index.md`
   - `docs/testing/network-distributed-debugging.md`
-- Dependency tasks:
+- Dependency / related tasks:
   - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
-  - `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
-  - `tasks/TASK-0003C-dsoftbus-udp-discovery-os.md`
-  - `tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md`
-  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
-  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+  - `tasks/TASK-0010-device-mmio-access-model.md`
+  - `tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md`
 - Follow-ons (do not absorb into this slice):
-  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
-  - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-  - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-  - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+  - `tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md`
+  - `tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md`
 
 ## Immediate next slice
 
-1. Run `RUN_PHASE=session` and `RUN_PHASE=remote` loops with `OS2VM_EXIT_CODE_MODE=typed`.
-2. Use `os2vm-summary-<runId>.json` as first-failure source, then correlate with UART/PCAP.
-3. Complete RFC-0028 evidence update based on typed results and marker/packet correlation.
-4. Confirm final full run (`RUN_PHASE=end`) with expected remote markers and `dsoftbusd: remote packagefs served`.
+1. Create the `source/services/netstackd/src/os/` skeleton.
+2. Move bootstrap, marker helpers, and internal state/context ownership out of `main.rs`.
+3. Reduce `main.rs` to environment selection + entry wiring.
+4. Keep all existing `netstackd` and `SELFTEST` markers semantically unchanged.
+5. Add the first narrow host tests once pure/near-pure seams exist.
 
 ## Guardrails
 
 - No fake success markers.
-- No write opcodes for packagefs in this task.
-- Reject non-`pkg:/` and non-`/packages/` paths deterministically.
-- Keep wire/marker semantics stable unless task evidence updates contracts explicitly.
+- Keep `netstackd` wire and marker semantics stable unless task/RFC evidence updates contracts explicitly.
+- Keep `netstackd` as the networking owner; no duplicate authority or MMIO bypass path.
+- Keep bounded retry/failure policy explicit; do not replace it with hidden unbounded helpers.
 - Keep QEMU proofs sequential only.
-- For cross-VM failures, classify via `os2vm` error code + summary before proposing fixes.
