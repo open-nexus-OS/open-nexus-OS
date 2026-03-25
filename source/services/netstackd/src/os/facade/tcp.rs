@@ -22,7 +22,7 @@ use nexus_net_os::SmoltcpVirtioNetStack;
 use crate::os::config::{TCP_READY_SPIN_BUDGET, TCP_READY_STEP_MS};
 
 #[cfg(test)]
-#[must_use]
+#[must_use = "must evaluate writable wait outcome before deciding retry behavior"]
 #[inline]
 pub(crate) fn wait_writable_outcome(ready: bool) -> StepOutcome {
     if ready {

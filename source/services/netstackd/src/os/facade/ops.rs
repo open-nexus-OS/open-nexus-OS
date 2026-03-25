@@ -12,7 +12,7 @@
 use super::validation::StepOutcome;
 
 #[cfg(test)]
-#[must_use]
+#[must_use = "must evaluate pending connect readiness outcome before branching"]
 #[inline]
 pub(crate) fn pending_connect_ready(is_ready: bool) -> StepOutcome {
     if is_ready {
