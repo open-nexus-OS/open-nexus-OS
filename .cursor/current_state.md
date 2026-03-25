@@ -12,11 +12,12 @@ Rules:
 -->
 
 ## Current architecture state
-- **last_decision**: start `TASK-0016B` as the next networking-structure task after closing out the `TASK-0016` handoff state
+- **last_decision**: complete `TASK-0016B` plus address-profile governance sync (matrix + ADR + code-alignment + proof reruns)
 - **rationale**:
-  - `source/services/netstackd/src/main.rs` is now the next high-risk monolith on the networking path
-  - later networking/devnet work should extend explicit seams, not reopen a 2.4k-line daemon file
-  - the new task must follow the `TASK-0015` pattern: contract-first, behavior-preserving structure first, then bounded hardening
+  - keep module boundaries reviewable while reducing duplication drift across handlers
+  - enforce stronger type separation across handle families, loopback state, and reply-cap routing
+  - preserve deterministic and honest proof markers while improving MMIO/net-failure triage
+  - prevent future address/profile drift by defining one normative networking matrix and ADR-backed policy
 - **active_constraints**:
   - No fake success markers (only emit `ok` after real behavior proven)
   - OS-lite feature gating (`--no-default-features --features os-lite`)
@@ -25,11 +26,12 @@ Rules:
   - Loop/retry ownership must stay explicit and bounded; no hidden unbounded helper loops
   - QEMU proofs remain sequential and deterministic (no parallel smoke / 2-VM runs)
   - Network/distributed debugging procedures remain SSOT in `docs/testing/network-distributed-debugging.md`
+  - Address/subnet/profile choices are governed by `docs/architecture/network-address-matrix.md` and `docs/adr/0026-network-address-profiles-and-validation.md`
 
 ## Current focus (execution)
 
-- **active_task**: `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md` (In Progress; planning/docs seeded, ready for Phase 0 execution)
-- **seed_contract**: `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md` (In Progress)
+- **active_task**: `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md` (Complete)
+- **seed_contract**: `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md` (Complete)
 - **contract_dependencies**:
   - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
   - `tasks/TASK-0010-device-mmio-access-model.md`
@@ -40,21 +42,37 @@ Rules:
   - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
   - `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
   - `docs/adr/0005-dsoftbus-architecture.md`
+  - `docs/adr/0025-qemu-smoke-proof-gating.md`
+  - `docs/adr/0026-network-address-profiles-and-validation.md`
+  - `docs/architecture/network-address-matrix.md`
   - `docs/testing/index.md`
   - `docs/testing/network-distributed-debugging.md`
   - `scripts/qemu-test.sh`
   - `tools/os2vm.sh`
-- **phase_now**: `TASK-0016B` definition + RFC seed complete; ready for Phase 0 implementation planning/execution
-- **baseline_commit**: `main` working tree (new task kickoff after `TASK-0016` handoff archival)
-- **next_task_slice**: create the `netstackd` internal `src/os/` scaffold and reduce `main.rs` to entry/wiring boundaries only
+- **phase_now**: task-complete optimization + address-governance sync landed and fully re-proven; prepare follow-on networking tasks
+- **baseline_commit**: local working tree after `TASK-0016B` implementation (uncommitted)
+- **next_task_slice**: hand off stabilized netstackd seams to follow-ons (`TASK-0194`, `TASK-0196`, `TASK-0249`)
 - **proof_commands**:
   - `cargo test -p netstackd --tests -- --nocapture`
+  - `cargo test -p dsoftbusd --tests -- --nocapture`
   - `just dep-gate`
   - `just diag-os`
+  - `just test-os-dhcp-strict`
   - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-- **last_completed**: `TASK-0016` handoff archival + `TASK-0016B` / `RFC-0029` seed creation
-  - Outcome: new task/RFC/SSOT chain created for `netstackd` modularization and hardening
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh`
+- **last_completed**: `TASK-0016B` implementation + optimization + address-governance sync + full proof gates
+  - Outcome:
+    - `main.rs` reduced to entry/wiring
+    - runtime logic split into `src/os/facade/{runtime,dispatch,state,handlers/*}.rs` with UDP submodule split (`handlers/udp/{bind,send_to,recv_from}.rs`)
+    - IPC parse/reply helpers consolidated and extended for payload replies (`src/os/ipc/{parse,reply}.rs`)
+    - typed ownership tightened (`StreamId` for loopback peer/pending, `ReplyCapSlot` newtype)
+    - malformed-op quirk fixes landed for read/write parse paths
+    - DNS selftest marker made honest-green; deterministic MMIO/net fail-codes + halt-reason markers added
+    - address-profile constants centralized across `netstackd` and `dsoftbusd` hot paths
+    - semantic DNS proof acceptance aligned to protocol attributes (port/QR/TXID) instead of fixed source IP
+    - governance/docs aligned via `docs/architecture/network-address-matrix.md` + `docs/adr/0026-network-address-profiles-and-validation.md`
+    - host tests extended (`ipc_parse_reply.rs`, `handler_rejects.rs`, `runtime_steps.rs`, `p0_unit.rs`)
+    - proof gates green (`cargo test`, `dep-gate`, `diag-os`, `test-os-dhcp-strict`, `os2vm`)
 
 ## Active invariants (must hold)
 - **security**
@@ -77,17 +95,15 @@ Rules:
   - `just diag-os` verifies OS services compile for riscv64
 
 ## Open threads / follow-ups
-- Implement `TASK-0016B` Phase 0 without widening scope into new networking features.
 - Keep likely follow-ons explicit (`TASK-0194`, `TASK-0196`, `TASK-0249`); no scope pull-in.
-- Decide after Phase 0 whether any remaining observability/debug labels need a tiny cleanup follow-up rather than bundling into the structural task.
-- Reuse the `TASK-0015` discipline: structure first, then bounded hardening, then proofs/docs sync.
+- Optional future cleanup: reduce remaining dead-code warnings in shared helper modules without regressing test-path `#[path]` includes.
+- Keep address/profile changes centralized through matrix + ADR updates (no ad-hoc literals in follow-on tasks).
 
 ## Known risks / hazards
-- Refactor drift could silently change `netstackd` marker timing or IPC frame behavior.
+- Residual edge-case drift could still hide in malformed/nonce reply branches despite broad proof coverage.
 - Over-splitting by hypothetical future networking features could create unstable seams.
-- Loop cleanup could accidentally hide explicit halt/failure policy behind generic helpers.
-- QEMU proofs must still run sequentially; no parallel smoke or 2-VM runs on shared artifacts.
-- `netstackd` currently lacks a real host test suite, so test extraction must create narrow seams before claiming hardening coverage.
+- QEMU proofs must remain sequential and deterministic; avoid shared-artifact races.
+- Remaining larger handler files increase review burden and should be split only with strict parity checks.
 
 ## DON'T DO (session-local)
 - DON'T emit `ready` or `ok` markers for stub/placeholder paths

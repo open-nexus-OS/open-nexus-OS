@@ -361,14 +361,19 @@ fi
 # Execute QEMU (optionally stopping early at RUN_UNTIL_MARKER).
 set +e
 # #region agent log (H2: build artifact presence/freshness before run)
-kernel_elf_path="$ROOT/target/riscv64imac-unknown-none-elf/release/neuron-boot"
-init_elf_path="$ROOT/target/riscv64imac-unknown-none-elf/release/init-lite"
+target_root="${CARGO_TARGET_DIR:-$ROOT/target}"
+kernel_elf_path="$target_root/riscv64imac-unknown-none-elf/release/neuron-boot"
+init_elf_path="$target_root/riscv64imac-unknown-none-elf/release/init-lite"
+netstackd_elf_path="$target_root/riscv64imac-unknown-none-elf/release/netstackd"
 kernel_exists=false
 init_exists=false
+netstackd_exists=false
 kernel_size=0
 init_size=0
+netstackd_size=0
 kernel_mtime=0
 init_mtime=0
+netstackd_mtime=0
 if [[ -f "$kernel_elf_path" ]]; then
   kernel_exists=true
   kernel_size=$(wc -c <"$kernel_elf_path" 2>/dev/null || echo 0)
@@ -379,8 +384,13 @@ if [[ -f "$init_elf_path" ]]; then
   init_size=$(wc -c <"$init_elf_path" 2>/dev/null || echo 0)
   init_mtime=$(stat -c %Y "$init_elf_path" 2>/dev/null || echo 0)
 fi
+if [[ -f "$netstackd_elf_path" ]]; then
+  netstackd_exists=true
+  netstackd_size=$(wc -c <"$netstackd_elf_path" 2>/dev/null || echo 0)
+  netstackd_mtime=$(stat -c %Y "$netstackd_elf_path" 2>/dev/null || echo 0)
+fi
 agent_debug_log "$AGENT_RUN_ID" "H2" "scripts/qemu-test.sh:artifact-state" "kernel/init-lite artifact state before qemu launch" \
-  "{\"kernel_exists\":$kernel_exists,\"kernel_size\":$kernel_size,\"kernel_mtime\":$kernel_mtime,\"init_exists\":$init_exists,\"init_size\":$init_size,\"init_mtime\":$init_mtime}"
+  "{\"target_root\":\"$target_root\",\"kernel_exists\":$kernel_exists,\"kernel_size\":$kernel_size,\"kernel_mtime\":$kernel_mtime,\"init_exists\":$init_exists,\"init_size\":$init_size,\"init_mtime\":$init_mtime,\"netstackd_exists\":$netstackd_exists,\"netstackd_size\":$netstackd_size,\"netstackd_mtime\":$netstackd_mtime}"
 # #endregion
 agent_debug_log "$AGENT_RUN_ID" "A" "scripts/qemu-test.sh:pre-run" "qemu smoke start" \
   "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_phase\":\"${RUN_PHASE:-}\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"require_dhcp\":\"${REQUIRE_QEMU_DHCP:-0}\",\"require_dhcp_strict\":\"${REQUIRE_QEMU_DHCP_STRICT:-0}\",\"require_dsoftbus\":\"${REQUIRE_DSOFTBUS:-0}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\"}"
@@ -422,6 +432,24 @@ if [[ -f "$UART_LOG" ]]; then
 fi
 agent_debug_log "$AGENT_RUN_ID" "H3" "scripts/qemu-test.sh:marker-progression" "marker counts and last uart line after qemu run" \
   "{\"count_init_start\":$count_init_start,\"count_init_ready\":$count_init_ready,\"count_kself_wait_ok\":$count_kself_wait_ok,\"last_uart_line\":\"${last_uart_line}\"}"
+# #endregion
+# #region agent log (hypothesis DNS1-DNS5: DHCP DNS proof path diagnostics)
+count_dhcp_bound=0
+count_dhcp_fallback=0
+count_dns_ok=0
+count_dns_unavailable=0
+count_dns_fail=0
+count_dns_rx_other=0
+if [[ -f "$UART_LOG" ]]; then
+  count_dhcp_bound=$(grep -aFc "net: dhcp bound" "$UART_LOG" 2>/dev/null || echo 0)
+  count_dhcp_fallback=$(grep -aFc "net: dhcp unavailable (fallback static" "$UART_LOG" 2>/dev/null || echo 0)
+  count_dns_ok=$(grep -aFc "SELFTEST: net udp dns ok" "$UART_LOG" 2>/dev/null || echo 0)
+  count_dns_unavailable=$(grep -aFc "netstackd: udp dns unavailable (fallback dhcp proof)" "$UART_LOG" 2>/dev/null || echo 0)
+  count_dns_fail=$(grep -aFc "netstackd: net dns proof fail" "$UART_LOG" 2>/dev/null || echo 0)
+  count_dns_rx_other=$(grep -aFc "netstackd: udp dns rx other" "$UART_LOG" 2>/dev/null || echo 0)
+fi
+agent_debug_log "$AGENT_RUN_ID" "DNS" "scripts/qemu-test.sh:diag-net-dns-proof" "dhcp/dns proof markers and dns loop stats" \
+  "{\"dhcp_bound\":$count_dhcp_bound,\"dhcp_fallback\":$count_dhcp_fallback,\"dns_ok\":$count_dns_ok,\"dns_unavailable\":$count_dns_unavailable,\"dns_fail\":$count_dns_fail,\"dns_rx_other\":$count_dns_rx_other}"
 # #endregion
 # #endregion agent log
 
@@ -728,7 +756,43 @@ fi
 REQUIRE_QEMU_DHCP_STRICT=${REQUIRE_QEMU_DHCP_STRICT:-0}
 REQUIRE_QEMU_DHCP=${REQUIRE_QEMU_DHCP:-0}
 if [[ "$REQUIRE_QEMU_DHCP" == "1" ]]; then
+  dhcp_bound_seen=false
+  dhcp_fallback_seen=false
+  dns_ok_seen=false
+  dns_fail_seen=false
+  dns_unavailable_seen=false
   if grep -aFq "net: dhcp bound" "$UART_LOG"; then
+    dhcp_bound_seen=true
+  fi
+  if grep -aFq "net: dhcp unavailable (fallback static" "$UART_LOG"; then
+    dhcp_fallback_seen=true
+  fi
+  if grep -aFq "SELFTEST: net udp dns ok" "$UART_LOG"; then
+    dns_ok_seen=true
+  fi
+  if grep -aFq "netstackd: net dns proof fail" "$UART_LOG"; then
+    dns_fail_seen=true
+  fi
+  if grep -aFq "netstackd: udp dns unavailable (fallback dhcp proof)" "$UART_LOG"; then
+    dns_unavailable_seen=true
+  fi
+  # #region agent log (DHCP gate determinism / fake-green guard)
+  agent_debug_log "$AGENT_RUN_ID" "DNS_GATE" "scripts/qemu-test.sh:dhcp-gate" "dhcp gate marker state snapshot" \
+    "{\"dhcp_bound\":$dhcp_bound_seen,\"dhcp_fallback\":$dhcp_fallback_seen,\"dns_ok\":$dns_ok_seen,\"dns_fail\":$dns_fail_seen,\"dns_unavailable\":$dns_unavailable_seen,\"require_dhcp_strict\":$REQUIRE_QEMU_DHCP_STRICT}"
+  # #endregion
+  if [[ "$dhcp_bound_seen" == "true" && "$dhcp_fallback_seen" == "true" ]]; then
+    echo "[error] first_failed_phase=mmio missing_marker='dhcp-state-exclusive'" >&2
+    echo "[error] Contradictory DHCP markers: both bound and fallback seen in same run" >&2
+    print_uart_excerpt "${PHASE_START_MARKER[mmio]}" "SELFTEST: net iface ok"
+    exit 1
+  fi
+  if [[ "$dhcp_bound_seen" == "true" ]]; then
+    if [[ "$dns_fail_seen" == "true" || "$dns_unavailable_seen" == "true" ]]; then
+      echo "[error] first_failed_phase=mmio missing_marker='dns-proof-no-fail-marker'" >&2
+      echo "[error] DHCP bound run emitted DNS failure marker (fake-green guard tripped)" >&2
+      print_uart_excerpt "netstackd: net dns proof fail" "SELFTEST: net ping ok"
+      exit 1
+    fi
     for m in \
       "SELFTEST: net ping ok" \
       "SELFTEST: net udp dns ok" \

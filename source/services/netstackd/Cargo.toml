@@ -12,6 +12,7 @@ os-lite = []
 # QEMU smoke harness compatibility:
 # - Prefer the slirp/usernet-compatible fallback IP (10.0.2.15) when DHCP is unavailable
 # - This keeps loopback-based DSoftBus bring-up deterministic in single-VM smoke runs
+# - 2-VM os2vm profile keeps deterministic MAC-derived fallback in 10.42.0.0/24
 qemu-smoke = []
 
 [dependencies]

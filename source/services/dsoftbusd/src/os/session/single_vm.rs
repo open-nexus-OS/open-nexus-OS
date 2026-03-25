@@ -38,7 +38,7 @@ fn send_announce(
     bytes: &[u8],
 ) -> core::result::Result<bool, ()> {
     const OP_UDP_SEND_TO: u8 = 7;
-    const LOCAL_IP: [u8; 4] = [10, 0, 2, 15];
+    const LOCAL_IP: [u8; 4] = crate::os::entry::DEFAULT_LOCAL_IP;
 
     let mut send = [0u8; 16 + 256 + 8];
     let hdr_len = 16;
@@ -216,8 +216,11 @@ pub(crate) fn run_single_vm_dual_node_bringup(
             let _ = yield_();
         }
     };
-    let peer_ip =
-        if peer_b.port == 34_567 || peer_b.port == 34_568 { [10, 0, 2, 15] } else { peer_ip };
+    let peer_ip = if peer_b.port == 34_567 || peer_b.port == 34_568 {
+        crate::os::entry::DEFAULT_LOCAL_IP
+    } else {
+        peer_ip
+    };
 
     let _ = nexus_abi::debug_println("dsoftbusd: session connect peer=node-b");
     if peer_b.port == 34_568 {
@@ -225,7 +228,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     } else {
         let _ = nexus_abi::debug_println("dsoftbusd: connect portB BAD");
     }
-    if peer_ip == [10, 0, 2, 15] {
+    if peer_ip == crate::os::entry::DEFAULT_LOCAL_IP {
         let _ = nexus_abi::debug_println("dsoftbusd: connect ip loopback ok");
     } else {
         let _ = nexus_abi::debug_println("dsoftbusd: connect ip loopback BAD");
@@ -288,7 +291,10 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         }
     }
     let mut msg2 = [0u8; MSG2_LEN];
-    if responder.read_msg1_write_msg2(&msg1_recv, &mut msg2).is_err() {
+    if responder
+        .read_msg1_write_msg2(&msg1_recv, &mut msg2)
+        .is_err()
+    {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 gen FAIL");
         loop {
             let _ = yield_();

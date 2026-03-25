@@ -18,6 +18,7 @@ use nexus_peer_lru::{PeerEntry, PeerLru};
 
 use crate::os::discovery::state::{get_peer_ip, set_peer_ip, DISC_PORT, MCAST_IP};
 use crate::os::entry::{DSOFT_REPLY_RECV_SLOT, DSOFT_REPLY_SEND_SLOT};
+use crate::os::entry_pure::{OS2VM_NODE_A_IP, OS2VM_NODE_B_IP, QEMU_USERNET_FALLBACK_IP};
 use crate::os::netstack::{
     next_nonce, rpc_nonce, tcp_listen, udp_bind, udp_send_to, CrossVmTransport, SessionId,
     UdpSocketId, STATUS_IO, STATUS_WOULD_BLOCK,
@@ -42,10 +43,26 @@ pub(crate) fn run_cross_vm_main(
     local_ip: [u8; 4],
 ) -> core::result::Result<(), ()> {
     let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) =
-        if local_ip == [10, 42, 0, 10] {
-            ("node-a", 34_567u16, [10, 42, 0, 11], 34_568u16, "node-b", 0xD0u8, 0xD1u8)
+        if local_ip == OS2VM_NODE_A_IP {
+            (
+                "node-a",
+                34_567u16,
+                OS2VM_NODE_B_IP,
+                34_568u16,
+                "node-b",
+                0xD0u8,
+                0xD1u8,
+            )
         } else {
-            ("node-b", 34_568u16, [10, 42, 0, 10], 34_567u16, "node-a", 0xD1u8, 0xD0u8)
+            (
+                "node-b",
+                34_568u16,
+                OS2VM_NODE_A_IP,
+                34_567u16,
+                "node-a",
+                0xD1u8,
+                0xD0u8,
+            )
         };
 
     let mut nonce_ctr: u64 = 1;
@@ -264,11 +281,11 @@ pub(crate) fn run_cross_vm_main(
                     if !dial_target_ip_logged {
                         dial_target_ip_logged = true;
                         // #region agent log
-                        let _ = if ip == [10, 42, 0, 10] {
+                        let _ = if ip == OS2VM_NODE_A_IP {
                             nexus_abi::debug_println("dbg:dsoftbusd: dial target ip 10.42.0.10")
-                        } else if ip == [10, 42, 0, 11] {
+                        } else if ip == OS2VM_NODE_B_IP {
                             nexus_abi::debug_println("dbg:dsoftbusd: dial target ip 10.42.0.11")
-                        } else if ip == [10, 0, 2, 15] {
+                        } else if ip == QEMU_USERNET_FALLBACK_IP {
                             nexus_abi::debug_println("dbg:dsoftbusd: dial target ip 10.0.2.15")
                         } else {
                             nexus_abi::debug_println("dbg:dsoftbusd: dial target ip other")
@@ -464,7 +481,9 @@ pub(crate) fn run_cross_vm_main(
             StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
 
         let transport_attempt = (|| -> core::result::Result<Transport, ()> {
-            let discovered = peers.peek(peer_device_id).map(|peer_entry| peer_entry.noise_static);
+            let discovered = peers
+                .peek(peer_device_id)
+                .map(|peer_entry| peer_entry.noise_static);
             if !identity_binding_matches(discovered, peer_expected_pub) {
                 let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=crossvm");
                 return Err(());

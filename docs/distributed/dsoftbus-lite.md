@@ -57,6 +57,9 @@ Two backends exist today:
   - TCP sessions over the sockets facade
   - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
 
+Address-profile contracts used by these paths are documented in
+`docs/architecture/network-address-matrix.md`.
+
 ## Current OS Implementation Status (2026-03-12)
 
 | Feature | Status | Task |
@@ -76,6 +79,7 @@ Two backends exist today:
 **2-VM proof harness (opt-in)**:
 - Canonical harness: `tools/os2vm.sh`
 - Deterministic non-DHCP networking: `netstackd` falls back to a MAC-derived static IPv4 under the 2-VM socket/mcast backend
+  (`10.42.0.x/24`; node role mapping uses `10.42.0.10`/`10.42.0.11`, see matrix doc).
 
 **RFC Contracts**:
 - RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)

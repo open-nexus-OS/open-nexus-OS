@@ -1,25 +1,38 @@
 # RFC-0029: Netstackd modular daemon structure v1
 
-- Status: In Progress
+- Status: Complete
 - Owners: @runtime
 - Created: 2026-03-24
 - Last Updated: 2026-03-24
 - Links:
   - Tasks: `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md` (execution + proof)
   - ADRs: `docs/adr/0005-dsoftbus-architecture.md`
+  - ADRs: `docs/adr/0026-network-address-profiles-and-validation.md`
+  - Architecture SSOT: `docs/architecture/network-address-matrix.md`
   - Related RFCs:
     - `docs/rfcs/RFC-0006-userspace-networking-v1.md`
     - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
 
 ## Status at a Glance
 
-- **Phase 0 (module boundary definition)**: ⬜
-- **Phase 1 (behavior-preserving extraction)**: ⬜
-- **Phase 2 (loop and idiom hardening + proof sync)**: ⬜
+- **Phase 0 (module boundary definition)**: ✅
+- **Phase 1 (behavior-preserving extraction)**: ✅
+- **Phase 2 (loop and idiom hardening + proof sync)**: ✅
 
 Definition:
 
 - “Complete” means the contract is defined and the proof gates are green (tests/markers). It does not mean “never changes again”.
+
+Post-completion sync (2026-03-24):
+
+- Address/profile governance for QEMU + os2vm is now anchored outside this RFC in:
+  - `docs/architecture/network-address-matrix.md`
+  - `docs/adr/0026-network-address-profiles-and-validation.md`
+- Runtime code and proof gates were re-validated after this governance sync:
+  - `cargo test -p netstackd --tests -- --nocapture`
+  - `cargo test -p dsoftbusd --tests -- --nocapture`
+  - `just test-os-dhcp-strict`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh`
 
 ## Scope boundaries (anti-drift)
 
@@ -192,9 +205,9 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: module boundary defined and reflected in `netstackd` structure — proof: `just diag-os`
-- [ ] **Phase 1**: behavior-preserving extraction completed for bootstrap/IPC/loopback/facade seams — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] **Phase 2**: loop/idiom hardening completed with narrow host tests and unchanged marker/wire semantics — proof: `cargo test -p netstackd --tests -- --nocapture`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: module boundary defined and reflected in `netstackd` structure — proof: `just diag-os`
+- [x] **Phase 1**: behavior-preserving extraction completed for bootstrap/IPC/loopback/facade seams — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] **Phase 2**: loop/idiom hardening completed with narrow host tests and unchanged marker/wire semantics — proof: `cargo test -p netstackd --tests -- --nocapture`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

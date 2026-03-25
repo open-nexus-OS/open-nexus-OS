@@ -50,10 +50,13 @@ fn test_set_phase_progression_smoke() {
 #[test]
 fn test_set_peer_ip_insert_then_update() {
     let mut ips: Vec<(String, [u8; 4])> = Vec::new();
-    discovery_state::set_peer_ip(&mut ips, "node-b", [10, 42, 0, 11]);
+    discovery_state::set_peer_ip(&mut ips, "node-b", entry_pure::OS2VM_NODE_B_IP);
     discovery_state::set_peer_ip(&mut ips, "node-b", [10, 42, 0, 12]);
     assert_eq!(ips.len(), 1);
-    assert_eq!(discovery_state::get_peer_ip(&ips, "node-b"), Some([10, 42, 0, 12]));
+    assert_eq!(
+        discovery_state::get_peer_ip(&ips, "node-b"),
+        Some([10, 42, 0, 12])
+    );
 }
 
 #[test]
@@ -87,8 +90,11 @@ fn test_derive_test_secret_deterministic_and_distinct() {
 
 #[test]
 fn test_entry_pure_is_cross_vm_ip() {
-    assert!(entry_pure::is_cross_vm_ip([10, 42, 0, 10]));
-    assert!(!entry_pure::is_cross_vm_ip([10, 0, 2, 15]));
+    assert!(entry_pure::is_cross_vm_ip(entry_pure::OS2VM_NODE_A_IP));
+    assert!(!entry_pure::is_cross_vm_ip([10, 42, 1, 10]));
+    assert!(!entry_pure::is_cross_vm_ip(
+        entry_pure::QEMU_USERNET_FALLBACK_IP
+    ));
 }
 
 #[test]
@@ -121,8 +127,11 @@ fn test_entry_pure_rebuild_peer_ips_preserves_lru_order() {
 #[test]
 fn test_entry_pure_set_get_and_derive_helpers() {
     let mut ips: Vec<(String, [u8; 4])> = Vec::new();
-    entry_pure::set_peer_ip(&mut ips, "node-a", [10, 0, 2, 15]);
-    assert_eq!(entry_pure::get_peer_ip(&ips, "node-a"), Some([10, 0, 2, 15]));
+    entry_pure::set_peer_ip(&mut ips, "node-a", entry_pure::QEMU_USERNET_FALLBACK_IP);
+    assert_eq!(
+        entry_pure::get_peer_ip(&ips, "node-a"),
+        Some(entry_pure::QEMU_USERNET_FALLBACK_IP)
+    );
     let a = entry_pure::derive_test_secret(0xD0, 34_567);
     let b = entry_pure::derive_test_secret(0xD0, 34_567);
     assert_eq!(a, b);

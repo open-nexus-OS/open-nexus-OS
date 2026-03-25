@@ -21,9 +21,13 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
-KERNEL_ELF=$ROOT/target/$TARGET/release/neuron-boot
-KERNEL_BIN=$ROOT/target/$TARGET/release/neuron-boot.bin
-INIT_ELF=$ROOT/target/$TARGET/release/init-lite
+# Keep cargo outputs and ELF lookup in the same target root.
+# If CARGO_TARGET_DIR is set by the caller/sandbox, honor it for both build and run paths.
+TARGET_ROOT=${CARGO_TARGET_DIR:-"$ROOT/target"}
+export CARGO_TARGET_DIR="$TARGET_ROOT"
+KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
+KERNEL_BIN=$TARGET_ROOT/$TARGET/release/neuron-boot.bin
+INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
 RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 export RUSTFLAGS="$RUSTFLAGS_OS"
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
@@ -170,6 +174,7 @@ prepare_build_tmpdir() {
     echo "[warn] low tmp free space; switching TMPDIR=$TMPDIR" >&2
   fi
   echo "[info] Build TMPDIR=$TMPDIR" >&2
+  echo "[info] Build target dir=$TARGET_ROOT" >&2
 }
 
 declare -a SERVICES=()
@@ -209,7 +214,7 @@ prepare_service_payloads() {
     fi
     (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}")
 
-    local elf_path="$ROOT/target/$TARGET/release/$svc"
+    local elf_path="$TARGET_ROOT/$TARGET/release/$svc"
     set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$elf_path"
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     if [[ -z "${!stack_var:-}" ]]; then

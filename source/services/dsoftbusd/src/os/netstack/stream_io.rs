@@ -293,14 +293,23 @@ pub(crate) fn udp_bind(
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
     req[10..18].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &req, OP_UDP_BIND | 0x80, nonce, reply_recv_slot, reply_send_slot)
-            .map_err(|_| ())?;
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &req,
+        OP_UDP_BIND | 0x80,
+        nonce,
+        reply_recv_slot,
+        reply_send_slot,
+    )
+    .map_err(|_| ())?;
     let status = parse_status_frame(&rsp, OP_UDP_BIND | 0x80).map_err(|_| ())?;
     if status != STATUS_OK {
         return Err(());
     }
-    Ok(UdpSocketId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])))
+    Ok(UdpSocketId::from_raw(u32::from_le_bytes([
+        rsp[5], rsp[6], rsp[7], rsp[8],
+    ])))
 }
 
 pub(crate) fn udp_send_to(
@@ -364,13 +373,22 @@ pub(crate) fn tcp_listen(
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
     req[10..18].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &req, OP_LISTEN | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &req,
+        OP_LISTEN | 0x80,
+        nonce,
+        reply_recv_slot,
+        reply_send_slot,
+    )?;
     let status = parse_status_frame(&rsp, OP_LISTEN | 0x80)?;
     if status != STATUS_OK {
         return Err(());
     }
-    Ok(ListenerId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])))
+    Ok(ListenerId::from_raw(u32::from_le_bytes([
+        rsp[5], rsp[6], rsp[7], rsp[8],
+    ])))
 }
 
 pub(crate) fn tcp_connect(
@@ -391,12 +409,21 @@ pub(crate) fn tcp_connect(
     c[4..8].copy_from_slice(&ip);
     c[8..10].copy_from_slice(&port.to_le_bytes());
     c[10..18].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &c, OP_CONNECT | 0x80, nonce, reply_recv_slot, reply_send_slot)
-            .map_err(|_| 0xfd)?;
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &c,
+        OP_CONNECT | 0x80,
+        nonce,
+        reply_recv_slot,
+        reply_send_slot,
+    )
+    .map_err(|_| 0xfd)?;
     let status = parse_status_frame(&rsp, OP_CONNECT | 0x80).map_err(|_| 0xfe)?;
     if status == STATUS_OK {
-        return Ok(SessionId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])));
+        return Ok(SessionId::from_raw(u32::from_le_bytes([
+            rsp[5], rsp[6], rsp[7], rsp[8],
+        ])));
     }
     Err(status)
 }
@@ -417,11 +444,20 @@ pub(crate) fn tcp_accept(
     a[3] = OP_ACCEPT;
     a[4..8].copy_from_slice(&lid.as_raw().to_le_bytes());
     a[8..16].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &a, OP_ACCEPT | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &a,
+        OP_ACCEPT | 0x80,
+        nonce,
+        reply_recv_slot,
+        reply_send_slot,
+    )?;
     let status = parse_status_frame(&rsp, OP_ACCEPT | 0x80)?;
     if status == STATUS_OK {
-        return Ok(SessionId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])));
+        return Ok(SessionId::from_raw(u32::from_le_bytes([
+            rsp[5], rsp[6], rsp[7], rsp[8],
+        ])));
     }
     if status == STATUS_WOULD_BLOCK {
         return Err(());
@@ -445,8 +481,15 @@ pub(crate) fn tcp_close(
     c[3] = OP_CLOSE;
     c[4..8].copy_from_slice(&sid.as_raw().to_le_bytes());
     c[8..16].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &c, OP_CLOSE | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &c,
+        OP_CLOSE | 0x80,
+        nonce,
+        reply_recv_slot,
+        reply_send_slot,
+    )?;
     let status = parse_status_frame(&rsp, OP_CLOSE | 0x80)?;
     if status == STATUS_OK {
         return Ok(());
@@ -470,7 +513,13 @@ impl<'a> CrossVmTransport<'a> {
         reply_recv_slot: u32,
         reply_send_slot: u32,
     ) -> Self {
-        Self { pending, nonce_ctr, net, reply_recv_slot, reply_send_slot }
+        Self {
+            pending,
+            nonce_ctr,
+            net,
+            reply_recv_slot,
+            reply_send_slot,
+        }
     }
 
     pub(crate) fn connect(

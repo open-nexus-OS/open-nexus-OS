@@ -55,10 +55,20 @@ pub(crate) struct PackagefsEntry {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PackagefsRequest {
-    Stat { rel_path: String },
-    Open { rel_path: String },
-    Read { handle: u32, offset: u32, read_len: u16 },
-    Close { handle: u32 },
+    Stat {
+        rel_path: String,
+    },
+    Open {
+        rel_path: String,
+    },
+    Read {
+        handle: u32,
+        offset: u32,
+        read_len: u16,
+    },
+    Close {
+        handle: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,7 +141,11 @@ fn parse_read_request(frame: &[u8]) -> core::result::Result<PackagefsRequest, Re
     if read_len == 0 || (read_len as usize) > PK_MAX_READ_LEN {
         return Err(RejectReason::OversizedReadOrPath);
     }
-    Ok(PackagefsRequest::Read { handle, offset, read_len })
+    Ok(PackagefsRequest::Read {
+        handle,
+        offset,
+        read_len,
+    })
 }
 
 fn parse_close_request(frame: &[u8]) -> core::result::Result<PackagefsRequest, RejectReason> {
@@ -188,7 +202,9 @@ pub(crate) fn decode_packagefs_resolve_rsp(
     if found != 1 {
         return Err(());
     }
-    let size = u64::from_le_bytes([rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8]]);
+    let size = u64::from_le_bytes([
+        rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8],
+    ]);
     let kind = u16::from_le_bytes([rsp[9], rsp[10]]);
     if kind != PACKAGEFS_KIND_FILE {
         return Err(());

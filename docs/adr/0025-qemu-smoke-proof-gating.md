@@ -52,12 +52,14 @@ The 2-VM harness remains the canonical proof for cross-VM networking and must no
   - `REQUIRE_DSOFTBUS=1 ...`
   - `REQUIRE_SMP=1 SMP=2 ...`
 - `netstackd` gains a `qemu-smoke` feature used only by the QEMU smoke harness build.
+- Concrete profile values are maintained in `docs/architecture/network-address-matrix.md`.
 
 ## Invariants
 
 - DHCP on-wire behavior must follow standards:
   - UDP **68 → 67**
   - initial IPv4 **0.0.0.0 → 255.255.255.255**
+- DNS proof validation must be protocol-semantic (port/header/TXID), not pinned to a single source IP.
 - Markers remain stable, deterministic strings.
 - No success markers for stubbed behavior.
 

@@ -755,6 +755,12 @@ apply_error_matrix() {
       ERROR_CONFIDENCE="0.84"
       ERROR_TYPED_EXIT=58
       ;;
+    OS2VM_E_REMOTE_NEGATIVE_MARKER)
+      ERROR_SUBSYSTEM="selftest-client/remote"
+      ERROR_HINT="remote FAIL marker observed despite success ladder; treat as fake-green contradiction"
+      ERROR_CONFIDENCE="0.96"
+      ERROR_TYPED_EXIT=59
+      ;;
     OS2VM_E_BUILD_ARTIFACT_MISSING)
       ERROR_SUBSYSTEM="build/artifacts"
       ERROR_HINT="required build artifacts missing; run build phase or verify target dir"
@@ -1202,6 +1208,22 @@ phase_remote() {
     return 1
   fi
   MARKER_LINES["B_remote_served"]=$LAST_WAIT_LINE
+  # Fake-green guard: if any explicit remote FAIL marker appeared, classify run as failure
+  # even when later success markers are present.
+  local remote_resolve_fail
+  local remote_query_fail
+  local remote_pkgfs_fail
+  remote_resolve_fail=$(count_marker "$UART_A" "SELFTEST: remote resolve FAIL")
+  remote_query_fail=$(count_marker "$UART_A" "SELFTEST: remote query FAIL")
+  remote_pkgfs_fail=$(count_marker "$UART_A" "SELFTEST: remote pkgfs read FAIL")
+  # #region agent log
+  agent_session_log "REMOTE_GUARD" "tools/os2vm.sh:phase_remote" "remote fail-marker guard snapshot" "{\"resolveFail\":$remote_resolve_fail,\"queryFail\":$remote_query_fail,\"pkgfsFail\":$remote_pkgfs_fail}"
+  # #endregion
+  if (( remote_resolve_fail > 0 || remote_query_fail > 0 || remote_pkgfs_fail > 0 )); then
+    MISSING_MARKER="remote-fail-marker-absent"
+    set_failure "OS2VM_E_REMOTE_NEGATIVE_MARKER" "remote" "A" "remote FAIL marker observed in successful marker ladder"
+    return 1
+  fi
   agent_debug_log "H4" "tools/os2vm.sh:remote_markers_done" "remote proxy markers reached on node A" "{\"status\":\"ok\"}"
   return 0
 }

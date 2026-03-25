@@ -1,8 +1,12 @@
 //! Pure entry helpers extracted for host-testable logic checks.
 
+pub(crate) const QEMU_USERNET_FALLBACK_IP: [u8; 4] = [10, 0, 2, 15];
+pub(crate) const OS2VM_NODE_A_IP: [u8; 4] = [10, 42, 0, 10];
+pub(crate) const OS2VM_NODE_B_IP: [u8; 4] = [10, 42, 0, 11];
+
 #[inline]
 pub(crate) fn is_cross_vm_ip(local_ip: [u8; 4]) -> bool {
-    local_ip[0] == 10 && local_ip[1] == 42
+    local_ip[0] == 10 && local_ip[1] == 42 && local_ip[2] == 0
 }
 
 #[inline]
@@ -42,7 +46,9 @@ pub(crate) fn get_peer_ip(
     ips: &[(alloc::string::String, [u8; 4])],
     device_id: &str,
 ) -> Option<[u8; 4]> {
-    ips.iter().find(|(id, _)| id.as_str() == device_id).map(|(_, ip)| *ip)
+    ips.iter()
+        .find(|(id, _)| id.as_str() == device_id)
+        .map(|(_, ip)| *ip)
 }
 
 /// SECURITY: bring-up test keys, NOT production custody.

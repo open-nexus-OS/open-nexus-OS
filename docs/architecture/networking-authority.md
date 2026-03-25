@@ -8,6 +8,9 @@
 
 This document clarifies the networking architecture authority to prevent drift between parallel implementations.
 
+Address-profile authority (subnets/IPs/gateways/DNS targets) is tracked in
+`docs/architecture/network-address-matrix.md`.
+
 ---
 
 ## Canonical Networking System (Primary)
@@ -43,6 +46,8 @@ The **single-VM QEMU smoke** path is a bounded, deterministic-ish wiring proof. 
 
 The **2-VM harness** (`just os2vm`) remains the canonical proof for cross-VM discovery/sessions and
 must not depend on slirp/usernet DHCP.
+
+Concrete profile values are maintained in `docs/architecture/network-address-matrix.md`.
 
 ---
 
@@ -87,6 +92,11 @@ must not depend on slirp/usernet DHCP.
 - All networking tasks MUST explicitly state which path they belong to
 - Tasks MUST link to this document for authority clarification
 
+### 5. Address Matrix Authority
+- Subnet/IP/DNS/gateway choices are normative only when documented in
+  `docs/architecture/network-address-matrix.md`.
+- Any profile change requires ADR + matrix + test/harness updates in the same change set.
+
 ---
 
 ## Task Mapping (Updated 2026-01-07)
@@ -113,6 +123,11 @@ must not depend on slirp/usernet DHCP.
 - **Decision**: TASK-0003 is canonical; TASK-0248/0249 renamed to `*-lite`
 - **Rationale**: TASK-0003 is the primary networking milestone with RFC contracts (RFC-0006, RFC-0007)
 - **Impact**: All downstream tasks (0004, 0005, 0024) depend on canonical path
+
+### 2026-03-24: Address Profile Consolidation
+- **Problem**: address decisions risked drifting across service/runtime/harness docs.
+- **Decision**: keep one normative matrix in `docs/architecture/network-address-matrix.md`.
+- **Impact**: networking and distributed docs now reference the same profile table.
 
 ---
 

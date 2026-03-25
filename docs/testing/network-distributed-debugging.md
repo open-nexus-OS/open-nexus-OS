@@ -3,6 +3,8 @@
 This document is the single source of truth (SSOT) for networking and distributed debugging in Open Nexus OS.
 It covers host-first validation, QEMU proof knobs, `tools/os2vm.sh` operations, packet capture, and typed failure triage.
 
+Address/subnet/profile values are maintained in `docs/architecture/network-address-matrix.md`.
+
 ## Scope
 
 - Networking proof flow for host + OS runs.

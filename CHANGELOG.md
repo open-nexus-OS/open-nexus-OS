@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-03-24
+
+#### Networking modularization + address governance closure sync (`TASK-0016B`, `RFC-0029`, `ADR-0026`)
+
+- `netstackd` modular refactor closure is now synchronized in docs and task/rfc state:
+  - `main.rs` is entry/wiring only, with runtime split under `source/services/netstackd/src/os/**`.
+  - handler and IPC helper seams are now the canonical extension points for follow-on networking tasks.
+- Networking address/profile governance is now explicit and centralized:
+  - `docs/architecture/network-address-matrix.md` is the SSOT for QEMU + os2vm address profiles.
+  - `docs/adr/0026-network-address-profiles-and-validation.md` records policy-level decisions.
+- DNS proof validation remains deterministic but is now protocol-semantic (port/QR/TXID) rather than source-IP-pinned, avoiding backend-specific false negatives.
+- Task board and implementation-order docs were refreshed to match real task/RFC status progression (`TASK-0016` Done, `TASK-0016B` Complete, `RFC-0028` Completed, `RFC-0029` Completed).
+- Verification set for this sync includes:
+  - `just dep-gate`
+  - `just diag-os`
+  - `just test-os-dhcp-strict`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh`
+
 ### Changed - 2026-02-11
 
 #### Perf/Power v1 closure (TASK-0013; RFC-0023 implemented)

@@ -52,11 +52,13 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 ## Networking
 
 - `networking-authority.md` — Canonical vs alternative networking paths, anti-drift rules
+- `network-address-matrix.md` — Normative address/subnet/profile matrix (QEMU + os2vm)
 - **RFC-0006**: Userspace Networking v1 (sockets facade)
 - **RFC-0007**: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)
 - **RFC-0008**: DSoftBus Noise XK v1 (handshake + identity binding)
 - **RFC-0009**: no_std Dependency Hygiene v1 (OS build policy)
 - **RFC-0027**: DSoftBusd modular daemon structure v1 (Completed)
+- **ADR-0026**: Network address profiles + validation semantics
 
 **Current Status (2026-03-12)**:
 - TASK-0003/0003B/0003C: ✅ Done (OS transport + Noise XK + UDP discovery)

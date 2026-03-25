@@ -136,7 +136,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
 - RFC-0027: DSoftBusd modular daemon structure v1 (Completed)
   - docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-- RFC-0028: DSoftBus remote packagefs RO v1 (In Progress)
+- RFC-0028: DSoftBus remote packagefs RO v1 (Completed)
   - docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md
-- RFC-0029: Netstackd modular daemon structure v1 (In Progress)
+- RFC-0029: Netstackd modular daemon structure v1 (Completed)
   - docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md

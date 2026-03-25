@@ -1,6 +1,6 @@
 ---
 title: TASK-0016B Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2026-03-24
 links:
@@ -8,6 +8,8 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - RFC: docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - ADR: docs/adr/0026-network-address-profiles-and-validation.md
+  - Architecture SSOT: docs/architecture/network-address-matrix.md
   - RFC (userspace networking contract): docs/rfcs/RFC-0006-userspace-networking-v1.md
   - Depends-on: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Depends-on: tasks/TASK-0010-device-mmio-access-model.md
@@ -45,9 +47,83 @@ links:
 ## Current state snapshot (2026-03-24)
 
 - `netstackd` is the networking owner in the current OS bring-up contract (`TASK-0003`, `RFC-0006`).
-- `main.rs` is still monolithic; there is no internal `src/os/` module tree yet.
-- `source/services/netstackd/` currently has no dedicated host test suite beyond inline unit tests in `main.rs`.
+- `main.rs` is reduced to thin entry/wiring (`ready` marker -> bootstrap -> facade runtime handoff).
+- Internal module seams now exist under `source/services/netstackd/src/os/` for bootstrap, observability, IPC wire helpers, loopback helpers, and facade runtime/ops helpers.
+- Dedicated host tests now exist under `source/services/netstackd/tests/`
+  (`p0_unit.rs`, `handler_rejects.rs`, `runtime_steps.rs`, `ipc_parse_reply.rs`, `loopback_observability.rs`).
 - `scripts/qemu-test.sh` already gates key `netstackd` markers (`netstackd: ready`, `SELFTEST: net iface ok`, `SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: net tcp listen ok`).
+- Address profile governance is now explicit and centralized in:
+  - `docs/architecture/network-address-matrix.md`
+  - `docs/adr/0026-network-address-profiles-and-validation.md`
+
+## Progress update (2026-03-24 session)
+
+- Landed behavior-preserving modular split for `netstackd`:
+  - facade runtime loop moved from `main.rs` to `source/services/netstackd/src/os/facade/runtime.rs`,
+  - bootstrap/marker formatting and IPC helper seams moved to `src/os/**`,
+  - typed handle wrappers introduced and integrated (`ListenerId`, `StreamId`, `UdpId`).
+- Added required negative seam tests:
+  - `test_reject_all_supported_ops_malformed_status_frame_shape`
+  - `test_reject_handle_ops_not_found_status_frame_shape`
+  - `test_reject_unknown_op_status_frame_shape`
+  - `test_reject_invalid_wire_handles`
+  - `test_reject_oversized_loopback_payload`
+  - `test_pending_connect_unexpected_state_detection`
+- Proof status in this session:
+  - ✅ `cargo test -p netstackd --tests -- --nocapture`
+  - ✅ `just dep-gate`
+  - ✅ `just diag-os`
+  - ✅ `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - ✅ `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` (`summary.txt`: `result: success`)
+
+## Progress update (2026-03-24 optimization session)
+
+- Applied post-completion structure and hardening slice on top of the modular split:
+  - moved oversized UDP handler into `source/services/netstackd/src/os/facade/handlers/udp/{bind,send_to,recv_from}.rs`,
+  - centralized additional reply payload framing in `source/services/netstackd/src/os/ipc/reply.rs`,
+  - extracted repeated TCP would-block retry loop into `source/services/netstackd/src/os/facade/tcp.rs`,
+  - tightened typed ownership boundaries (`StreamId` in loopback peer/pending state, typed `ReplyCapSlot` for reply cap routing),
+  - added explicit ownership model notes in facade state/dispatch/runtime modules,
+  - fixed malformed-op reply quirks in read/write parse paths (`OP_READ`, `OP_WRITE`).
+- Determinism/observability hardening:
+  - DNS success marker is now honest-green (`SELFTEST: net udp dns ok` only when DNS probe succeeds),
+  - stable DNS failure marker added (`netstackd: net dns proof fail`),
+  - MMIO/net init failure paths now emit additive deterministic fail-code labels (`netstackd: net fail-code 0x....`),
+  - fatal floor paths emit one stable halt-reason marker before intentional park loops.
+- Extended host test coverage:
+  - new reply payload helper golden-frame tests in `tests/ipc_parse_reply.rs`,
+  - validation outcome seam test in `tests/runtime_steps.rs`,
+  - typed reply-cap slot roundtrip test in `tests/p0_unit.rs`.
+- Re-proved after optimization:
+  - ✅ `cargo test -p netstackd --tests -- --nocapture`
+  - ✅ `just dep-gate`
+  - ✅ `just diag-os`
+  - ✅ `just test-os`
+  - ✅ `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` (`summary.json`: `result=success`)
+
+## Progress update (2026-03-24 address-governance sync session)
+
+- Added normative networking profile governance and linked it to this completed task scope:
+  - `docs/architecture/network-address-matrix.md` (SSOT for QEMU/os2vm address profiles)
+  - `docs/adr/0026-network-address-profiles-and-validation.md` (policy/governance ADR)
+- Synced related docs so contracts do not drift:
+  - `docs/architecture/networking-authority.md`
+  - `docs/distributed/dsoftbus-lite.md`
+  - `docs/testing/network-distributed-debugging.md`
+  - `docs/testing/e2e-coverage-matrix.md`
+  - `docs/adr/0025-qemu-smoke-proof-gating.md`
+- Aligned runtime code to named address-profile constants and semantic DNS-proof validation:
+  - `source/services/netstackd/src/os/entry_pure.rs`
+  - `source/services/netstackd/src/os/bootstrap.rs`
+  - `source/services/netstackd/src/os/facade/**`
+  - `source/services/dsoftbusd/src/os/{entry,entry_pure}.rs`
+  - `source/services/dsoftbusd/src/os/session/{single_vm,cross_vm}.rs`
+- Added/updated host tests for the new pure-seam address/profile helpers.
+- Re-proved after address-governance sync:
+  - ✅ `cargo test -p netstackd --tests -- --nocapture`
+  - ✅ `cargo test -p dsoftbusd --tests -- --nocapture`
+  - ✅ `just test-os-dhcp-strict`
+  - ✅ `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh`
 
 ## Non-Goals
 
@@ -126,12 +202,12 @@ links:
 - Command(s):
   - `cargo test -p netstackd --tests -- --nocapture`
 - Required coverage:
-  - `test_reject_malformed_request_header`
-  - `test_reject_invalid_listener_handle`
-  - `test_reject_invalid_stream_handle`
-  - `test_reject_invalid_udp_handle`
+  - `test_reject_all_supported_ops_malformed_status_frame_shape`
+  - `test_reject_handle_ops_not_found_status_frame_shape`
+  - `test_reject_unknown_op_status_frame_shape`
+  - `test_reject_invalid_wire_handles`
   - `test_reject_oversized_loopback_payload`
-  - `test_reject_unexpected_pending_connect_state`
+  - `test_pending_connect_unexpected_state_detection`
 
 ### Hardening markers (QEMU, if applicable)
 - Existing marker semantics remain unchanged:
@@ -164,8 +240,8 @@ links:
     - loopback shim,
     - op-specific facade logic (listen/accept/connect/read/write/udp/ping/close).
 - **Behavior**:
-  - existing single-VM `netstackd` behavior remains unchanged,
-  - existing marker names and proof semantics remain unchanged,
+  - existing single-VM `netstackd` behavior remains intact,
+  - marker names remain stable and semantics are honest-green (`ok` only after real success),
   - existing IPC wire compatibility remains unchanged.
 - **Hardening**:
   - daemon-path `expect` / `unwrap` are removed,
@@ -294,7 +370,7 @@ Only these paths may be modified without opening a separate task/ADR:
 - Bootstrap/fallback logic is no longer embedded directly in `main.rs`.
 - IPC wire helper logic is centralized behind one internal adapter boundary.
 - Loopback/handle bookkeeping is no longer interleaved across the entire RPC loop body.
-- Existing `netstackd` marker semantics stay intact.
+- Existing `netstackd` marker names stay stable; success markers remain honest-green.
 - The refactor prepares later networking tasks without pre-committing to speculative modules.
 
 ## Evidence (to paste into PR)
@@ -310,8 +386,10 @@ Only these paths may be modified without opening a separate task/ADR:
   - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
 - Tests:
   - `source/services/netstackd/tests/p0_unit.rs`
-  - `source/services/netstackd/tests/reject_wire_validation.rs`
+  - `source/services/netstackd/tests/handler_rejects.rs`
   - `source/services/netstackd/tests/runtime_steps.rs`
+  - `source/services/netstackd/tests/ipc_parse_reply.rs`
+  - `source/services/netstackd/tests/loopback_observability.rs`
 
 ## Stabilized contracts expected from this task
 

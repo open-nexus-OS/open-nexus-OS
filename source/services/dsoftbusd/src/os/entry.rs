@@ -6,7 +6,7 @@
 //!
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 
-pub(crate) const DEFAULT_LOCAL_IP: [u8; 4] = [10, 0, 2, 15];
+pub(crate) const DEFAULT_LOCAL_IP: [u8; 4] = crate::os::entry_pure::QEMU_USERNET_FALLBACK_IP;
 pub(crate) const DSOFT_REPLY_RECV_SLOT: u32 = 0x5;
 pub(crate) const DSOFT_REPLY_SEND_SLOT: u32 = 0x6;
 
@@ -506,7 +506,13 @@ pub(crate) fn dual_stream_write(
     w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
     w[10..10 + data.len()].copy_from_slice(data);
     w[10 + data.len()..10 + data.len() + 8].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = rpc_nonce(pending, net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &w[..10 + data.len() + 8],
+        OP_WRITE | 0x80,
+        nonce,
+    )?;
     if rsp[4] == STATUS_OK {
         Ok(())
     } else {
