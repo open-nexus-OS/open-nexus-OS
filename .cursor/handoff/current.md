@@ -1,88 +1,62 @@
-# Current Handoff: TASK-0016B netstackd modular refactor + optimization + address-governance sync (implemented)
+# Current Handoff: TASK-0017 remote statefs RW kickoff (prep)
 
 **Date**: 2026-03-24  
-**Status**: `TASK-0016B` implementation + optimization + address-governance sync complete; proofs green, ready for follow-on tasks.  
-**Contract baseline**: `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md` (`Complete`)
+**Status**: prepare `TASK-0017` kickoff; scope and contract set to draft baseline.  
+**Contract baseline**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md` (`Draft`)
 
 ---
 
 ## What is stable now
 
-- `main.rs` is thin entry/wiring (`emit_ready_marker` -> `bootstrap_network` -> `run_facade_loop`).
-- Former runtime monolith was split into:
-  - `source/services/netstackd/src/os/facade/runtime.rs` (orchestration loop only)
-  - `source/services/netstackd/src/os/facade/state.rs`
-  - `source/services/netstackd/src/os/facade/dispatch.rs`
-  - `source/services/netstackd/src/os/facade/handlers/*.rs`
-- UDP handlers are now split into dedicated submodules:
-  - `source/services/netstackd/src/os/facade/handlers/udp/bind.rs`
-  - `source/services/netstackd/src/os/facade/handlers/udp/send_to.rs`
-  - `source/services/netstackd/src/os/facade/handlers/udp/recv_from.rs`
-- IPC helpers were consolidated in:
-  - `source/services/netstackd/src/os/ipc/parse.rs`
-  - `source/services/netstackd/src/os/ipc/reply.rs`
-- Typed boundary hardening landed:
-  - `StreamId` used for loopback peer/pending state
-  - typed reply-cap newtype (`ReplyCapSlot`) used in facade context/runtime path
-- Determinism/observability hardening landed:
-  - `SELFTEST: net udp dns ok` only on real DNS success
-  - DNS miss marker: `netstackd: net dns proof fail`
-  - additive MMIO/net fail-code markers: `netstackd: net fail-code 0x....`
-  - stable halt-reason markers before intentional park loops
-- Modular host tests now include:
-  - `source/services/netstackd/tests/ipc_parse_reply.rs`
-  - `source/services/netstackd/tests/handler_rejects.rs`
-- Address-profile governance is now explicit and centralized:
-  - `docs/architecture/network-address-matrix.md`
-  - `docs/adr/0026-network-address-profiles-and-validation.md`
-- Runtime code now uses centralized address-profile constants (instead of scattered literals) in:
-  - `source/services/netstackd/src/os/entry_pure.rs` + facade/bootstrap callsites
-  - `source/services/dsoftbusd/src/os/{entry,entry_pure}.rs`
-  - `source/services/dsoftbusd/src/os/session/{single_vm,cross_vm}.rs`
-- Proof gates are green:
-  - `cargo test -p netstackd --tests -- --nocapture`
-  - `cargo test -p dsoftbusd --tests -- --nocapture`
-  - `just dep-gate`
-  - `just diag-os`
-  - `just test-os-dhcp-strict`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh` (`summary: result=success`)
+- DSoftBus modular daemon seams from `TASK-0015` are in place (`gateway/session/observability` split, thin main wiring).
+- Remote packagefs RO path from `TASK-0016` is complete and can be reused as transport/reference shape.
+- `netstackd` modularization and deterministic networking proof hardening from `TASK-0016B` are complete and green.
+- Statefs baseline (`TASK-0009`) and policy/audit baseline (`TASK-0008`) are already available for this slice.
+- Canonical proof harnesses are stable:
+  - single VM: `scripts/qemu-test.sh`
+  - two VM: `tools/os2vm.sh`
 
 ## Current focus
 
-- Handoff stable seams to networking follow-ons (`TASK-0194`, `TASK-0196`, `TASK-0249`) without widening scope in this completed task.
+- Start `TASK-0017`: remote statefs proxy over authenticated DSoftBus streams with RW ACL enforcement and deterministic audit evidence.
 
 ## Relevant contracts and linked work
 
 - Active task:
-  - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
-- Baseline contracts/docs:
-  - `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
-  - `docs/rfcs/RFC-0006-userspace-networking-v1.md`
-  - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
+  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
+- Required prerequisites:
+  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
+  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+  - `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
+  - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
+- RFC / ADR baseline:
+  - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
+  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
   - `docs/adr/0005-dsoftbus-architecture.md`
-  - `docs/adr/0025-qemu-smoke-proof-gating.md`
-  - `docs/adr/0026-network-address-profiles-and-validation.md`
-  - `docs/architecture/network-address-matrix.md`
+- Testing contracts:
   - `docs/testing/index.md`
-  - `docs/testing/network-distributed-debugging.md`
-- Dependency / related tasks:
-  - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
-  - `tasks/TASK-0010-device-mmio-access-model.md`
-  - `tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md`
-- Follow-ons (do not absorb into this slice):
-  - `tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md`
-  - `tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md`
+  - `scripts/qemu-test.sh`
+  - `tools/os2vm.sh`
 
 ## Immediate next slice
 
-1. Start `TASK-0194` with the stabilized facade boundaries and typed handle state model.
-2. Keep marker contract honest-green (`ok` only on proven behavior) while extending functionality.
-3. Reuse consolidated reply/validation/tcp retry helpers instead of reintroducing per-handler duplication.
+1. Define the minimal remote-statefs RW protocol boundary and ACL checks at gateway level.
+2. Add host-first behavior tests, especially required negative cases:
+   - `test_reject_statefs_write_outside_acl`
+   - `test_reject_statefs_prefix_escape`
+   - `test_reject_oversize_statefs_write`
+   - `test_reject_unauthenticated_statefs_request`
+3. Add deterministic proof markers and wire them into QEMU gates:
+   - `dsoftbusd: remote statefs served`
+   - `SELFTEST: remote statefs rw ok`
 
 ## Guardrails
 
-- No fake success markers.
-- Keep `netstackd` wire and marker semantics stable unless task/RFC evidence updates contracts explicitly.
-- Keep `netstackd` as the networking owner; no duplicate authority or MMIO bypass path.
-- Keep bounded retry/failure policy explicit; do not replace it with hidden unbounded helpers.
-- Keep QEMU proofs sequential only.
+- Keep scope to remote statefs proxy only; no generic remote filesystem expansion.
+- Enforce ACL deny-by-default (`/state/shared/*` only for remote RW) with deterministic `EPERM` for violations.
+- Emit audit evidence for every remote `PUT`/`DELETE` (logd-backed or deterministic fallback marker).
+- Keep bounded key/value sizes and bounded retry loops; no unbounded transport/write loops.
+- Keep kernel untouched.
+- Keep proofs sequential and deterministic (`qemu-test.sh` then `os2vm.sh`).

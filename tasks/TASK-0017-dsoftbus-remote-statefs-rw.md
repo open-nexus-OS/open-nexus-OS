@@ -7,13 +7,19 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (remote statefs RW contract): docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md
   - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
   - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Depends-on (DSoftBus OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
   - Depends-on (statefs): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (policy/audit semantics): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Related (netstackd modular baseline): tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md
+  - Follow-on (mux/flow-control): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - Follow-on (QUIC transport): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
+  - Follow-on (core abstraction): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Testing methodology: docs/testing/index.md
+  - Testing distributed debug guide: docs/testing/network-distributed-debugging.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
 ---
@@ -42,6 +48,19 @@ Prove in QEMU:
 - ACL and audit decisions stay at the gateway/policy boundary and remain independent from transport
   retry mechanics.
 - Reconnect behavior must remain idempotent and bounded; no unbounded retry/write loops.
+
+## Current state snapshot (2026-03-24)
+
+- Prerequisite seams are available and proven:
+  - `TASK-0015` (`dsoftbusd` modular daemon boundaries) is `Done`.
+  - `TASK-0016` (remote packagefs RO over authenticated streams) is `Done`.
+  - `TASK-0016B` (`netstackd` modularization + deterministic network proof hardening) is `Done`.
+- Prerequisite platform capabilities are available:
+  - `TASK-0009` (`statefsd`) is `Done`.
+  - `TASK-0008` (policy/audit model) and `TASK-0006` (logd/audit sink) are `Done`.
+- Harness/proof baseline is stable:
+  - single-VM marker contract in `scripts/qemu-test.sh` is green.
+  - two-VM contract in `tools/os2vm.sh` is green and emits typed summaries.
 
 ## Non-Goals
 
@@ -93,10 +112,15 @@ Prove in QEMU:
 
 ## Red flags / decision points
 
-- **RED**:
-  - Blocked until `statefsd` exists (TASK-0009) and DSoftBus OS streams exist (TASK-0005).
+- **RED (open blockers at kickoff)**:
+  - none; prerequisite blockers are closed (`TASK-0005`, `TASK-0006`, `TASK-0008`, `TASK-0009`, `TASK-0015`, `TASK-0016`, `TASK-0016B` are complete).
+- **RED (must-pass implementation gates)**:
+  - If remote RW requests can mutate outside the ACL namespace, stop and fix ACL normalization/authorization first.
+  - If audit emission cannot be proven for remote `PUT`/`DELETE`, stop and resolve evidence path before claiming progress.
+  - If unauthenticated requests are not rejected deterministically, stop and fix identity/authorization flow before feature expansion.
 - **YELLOW**:
-  - Audit sink dependency: if TASK-0006 is not landed yet, we must explicitly fall back to UART audit markers and later migrate.
+  - Keep ACL/audit checks transport-independent; retries/reconnects must not duplicate side effects.
+  - Maintain deterministic error labels for ACL/authz/bounds rejects to avoid fake-green ambiguity in QEMU logs.
   - **RPC Format Migration**: This task uses OS-lite byte frames as a **bring-up shortcut**. When TASK-0020 (Mux v2) or TASK-0021 (QUIC) lands, consider migrating to schema-based RPC (Cap'n Proto or equivalent). See TASK-0005 "Technical Debt" section for details.
 
 ## Contract sources (single source of truth)
@@ -104,6 +128,7 @@ Prove in QEMU:
 - Statefs contract: TASK-0009 (Put/Get/Delete/List/Sync semantics and bounds)
 - DSoftBus stream contract: `userspace/dsoftbus`
 - QEMU marker contract: `scripts/qemu-test.sh`
+- 2-VM contract and typed summaries: `tools/os2vm.sh`
 
 ## Stop conditions (Definition of Done)
 
@@ -114,6 +139,14 @@ Prove in QEMU:
   - EPERM for disallowed keys
   - oversize write rejected
   - audit marker/record emission validated for PUT/DEL paths
+  - unauthenticated request rejected fail-closed
+  - prefix-escape/path-normalization bypass rejected fail-closed
+
+### Proof (Build hygiene)
+
+- `just dep-gate`
+- `just diag-os`
+- `cargo test -p dsoftbusd --tests -- --nocapture`
 
 ### Proof (OS / QEMU)
 
@@ -122,6 +155,7 @@ Prove in QEMU:
   - Extend expected markers with:
     - `dsoftbusd: remote statefs served`
     - `SELFTEST: remote statefs rw ok`
+  - Reject markers for unauthorized/oversize writes must remain deterministic and fail-closed
   - keep QEMU proofs sequential (single-VM then 2-VM)
 
 ## Touched paths (allowlist)

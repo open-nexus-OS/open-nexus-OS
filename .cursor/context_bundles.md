@@ -190,6 +190,31 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `scripts/qemu-test.sh`
 - `docs/distributed/**`
 
+### @task_0017_context
+- `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
+- `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+- `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+- `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
+- `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+- `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
+- `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
+- `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
+- `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `docs/testing/index.md`
+- `docs/testing/network-distributed-debugging.md`
+- `scripts/qemu-test.sh`
+- `tools/os2vm.sh`
+
+### @task_0017_touched
+- `source/services/dsoftbusd/**`
+- `userspace/statefs/**`
+- `userspace/remote-fs/remote-statefs/**`
+- `source/apps/selftest-client/**`
+- `scripts/qemu-test.sh`
+- `tools/os2vm.sh`
+- `docs/distributed/remote-fs.md`
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -245,6 +270,9 @@ Kontext strikt: @core_context @task_0015_context @quality_gates @task_0015_touch
 
 ## Standard instruction line (TASK-0016)
 Kontext strikt: @core_context @task_0016_context @quality_gates @task_0016_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0017)
+Kontext strikt: @core_context @task_0017_context @quality_gates @task_0017_touched. Kein @codebase Scan.
 
 ## Standard instruction line (TASK-0016B)
 Kontext strikt: @core_context @task_0016b_context @quality_gates @task_0016b_touched. Kein @codebase Scan.

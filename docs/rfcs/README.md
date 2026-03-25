@@ -79,6 +79,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0024: Observability v2 local contract (bounded metrics/tracing export via logd)
 - RFC-0025: IPC liveness hardening v1 (bounded retry/correlation + deterministic timeout contract)
 - RFC-0026: IPC performance optimization v1 (deterministic control-plane reuse + zero-copy-aligned data paths)
+- RFC-0030: DSoftBus remote statefs RW v1 (authenticated RW + ACL + audit contract)
 
 ## Index
 
@@ -140,3 +141,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md
 - RFC-0029: Netstackd modular daemon structure v1 (Completed)
   - docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
+- RFC-0030: DSoftBus remote statefs RW v1 (Draft)
+  - docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md
