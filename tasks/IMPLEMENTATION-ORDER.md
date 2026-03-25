@@ -72,13 +72,13 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 ## Current: TASK-0016B / TASK-0017 and onward
 
 Execute in numerical order. Current queue head is **TASK-0017 (Draft)**.
-Latest completed closure slice before this queue head: **TASK-0016B (Complete)**.
+Latest completed closure slice before this queue head: **TASK-0016B (Done)**.
 
 | Task | Title | Prereqs | Status |
 |------|-------|---------|--------|
 | **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure without behavior change | — | Done |
 | **TASK-0016** | DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams | TASK-0005 | Done |
-| **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | TASK-0003, TASK-0010 | Complete |
+| **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | TASK-0003, TASK-0010 | Done |
 | TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Draft |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Draft |
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |

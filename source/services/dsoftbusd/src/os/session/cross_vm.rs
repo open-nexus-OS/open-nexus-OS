@@ -44,25 +44,9 @@ pub(crate) fn run_cross_vm_main(
 ) -> core::result::Result<(), ()> {
     let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) =
         if local_ip == OS2VM_NODE_A_IP {
-            (
-                "node-a",
-                34_567u16,
-                OS2VM_NODE_B_IP,
-                34_568u16,
-                "node-b",
-                0xD0u8,
-                0xD1u8,
-            )
+            ("node-a", 34_567u16, OS2VM_NODE_B_IP, 34_568u16, "node-b", 0xD0u8, 0xD1u8)
         } else {
-            (
-                "node-b",
-                34_568u16,
-                OS2VM_NODE_A_IP,
-                34_567u16,
-                "node-a",
-                0xD1u8,
-                0xD0u8,
-            )
+            ("node-b", 34_568u16, OS2VM_NODE_A_IP, 34_567u16, "node-a", 0xD1u8, 0xD0u8)
         };
 
     let mut nonce_ctr: u64 = 1;
@@ -481,9 +465,7 @@ pub(crate) fn run_cross_vm_main(
             StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
 
         let transport_attempt = (|| -> core::result::Result<Transport, ()> {
-            let discovered = peers
-                .peek(peer_device_id)
-                .map(|peer_entry| peer_entry.noise_static);
+            let discovered = peers.peek(peer_device_id).map(|peer_entry| peer_entry.noise_static);
             if !identity_binding_matches(discovered, peer_expected_pub) {
                 let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=crossvm");
                 return Err(());

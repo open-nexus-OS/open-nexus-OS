@@ -252,13 +252,7 @@ fn test_fill_header_prefix_populates_first_five_bytes() {
     reply::fill_header_prefix(&mut out, wire::OP_LOCAL_ADDR, wire::STATUS_OK);
     assert_eq!(
         &out[..5],
-        &[
-            wire::MAGIC0,
-            wire::MAGIC1,
-            wire::VERSION,
-            wire::OP_LOCAL_ADDR | 0x80,
-            wire::STATUS_OK,
-        ]
+        &[wire::MAGIC0, wire::MAGIC1, wire::VERSION, wire::OP_LOCAL_ADDR | 0x80, wire::STATUS_OK,]
     );
     assert_eq!(&out[5..], &[0xff, 0xff, 0xff]);
 }

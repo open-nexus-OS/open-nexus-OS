@@ -1,6 +1,6 @@
 ---
 title: TASK-0016B Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-03-24
 links:

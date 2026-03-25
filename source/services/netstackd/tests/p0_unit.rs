@@ -60,12 +60,7 @@ fn test_is_qemu_loopback_target_only_for_expected_endpoints() {
         8080,
         8081
     ));
-    assert!(!entry_pure::is_qemu_loopback_target(
-        [10, 0, 2, 16],
-        8080,
-        8080,
-        8081
-    ));
+    assert!(!entry_pure::is_qemu_loopback_target([10, 0, 2, 16], 8080, 8080, 8081));
     assert!(!entry_pure::is_qemu_loopback_target(
         entry_pure::QEMU_USERNET_FALLBACK_IP,
         8090,
@@ -77,18 +72,12 @@ fn test_is_qemu_loopback_target_only_for_expected_endpoints() {
 #[test]
 fn test_typed_handle_roundtrip() {
     assert_eq!(handles::ListenerId::to_wire(0), 1);
-    assert_eq!(
-        handles::ListenerId::from_wire(1).map(|id| id.index()),
-        Some(0)
-    );
+    assert_eq!(handles::ListenerId::from_wire(1).map(|id| id.index()), Some(0));
     assert_eq!(handles::StreamId::to_wire(1), 2);
     assert_eq!(handles::StreamId::from_index(1).index(), 1);
     assert_eq!(handles::UdpId::to_wire(2), 3);
     assert_eq!(handles::UdpId::from_wire(3).map(|id| id.index()), Some(2));
-    assert_eq!(
-        handles::StreamId::from_wire(5).map(|id| id.index()),
-        Some(4)
-    );
+    assert_eq!(handles::StreamId::from_wire(5).map(|id| id.index()), Some(4));
 }
 
 #[test]
@@ -110,10 +99,7 @@ fn test_dns_probe_response_accepts_port53_with_txid_and_response_flag() {
     frame[0] = 0x12;
     frame[1] = 0x34;
     frame[2] = 0x80; // QR bit
-    assert!(entry_pure::is_dns_probe_response(
-        &frame,
-        entry_pure::DNS_SERVER_PORT
-    ));
+    assert!(entry_pure::is_dns_probe_response(&frame, entry_pure::DNS_SERVER_PORT));
 }
 
 #[test]
@@ -125,16 +111,10 @@ fn test_dns_probe_response_rejects_wrong_port_txid_or_short_frame() {
     assert!(!entry_pure::is_dns_probe_response(&frame, 9_999));
 
     frame[1] = 0x35;
-    assert!(!entry_pure::is_dns_probe_response(
-        &frame,
-        entry_pure::DNS_SERVER_PORT
-    ));
+    assert!(!entry_pure::is_dns_probe_response(&frame, entry_pure::DNS_SERVER_PORT));
 
     let short = [0x12u8, 0x34u8];
-    assert!(!entry_pure::is_dns_probe_response(
-        &short,
-        entry_pure::DNS_SERVER_PORT
-    ));
+    assert!(!entry_pure::is_dns_probe_response(&short, entry_pure::DNS_SERVER_PORT));
 }
 
 #[test]

@@ -291,10 +291,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         }
     }
     let mut msg2 = [0u8; MSG2_LEN];
-    if responder
-        .read_msg1_write_msg2(&msg1_recv, &mut msg2)
-        .is_err()
-    {
+    if responder.read_msg1_write_msg2(&msg1_recv, &mut msg2).is_err() {
         let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 gen FAIL");
         loop {
             let _ = yield_();

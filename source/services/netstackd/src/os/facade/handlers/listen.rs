@@ -54,10 +54,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
             let _ = nexus_abi::debug_println("dbg:netstackd: listen mode loopback");
             // #endregion
         }
-        listeners.push(Some(Listener::Loop {
-            port,
-            pending: None,
-        }));
+        listeners.push(Some(Listener::Loop { port, pending: None }));
         let id = ListenerId::to_wire(listeners.len() - 1);
         reply_u32_status_maybe_nonce(reply, OP_LISTEN, STATUS_OK, id, nonce);
         let _ = nexus_abi::debug_println("netstackd: rpc listen ok");

@@ -42,10 +42,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
     }
     let nonce = parse_nonce(req, 8);
     let Some(lid_raw) = parse_u32_le(req, 4) else {
-        reply(&crate::os::ipc::reply::status_frame(
-            OP_ACCEPT,
-            STATUS_MALFORMED,
-        ));
+        reply(&crate::os::ipc::reply::status_frame(OP_ACCEPT, STATUS_MALFORMED));
         let _ = yield_();
         return DispatchControl::ContinueLoop;
     };

@@ -8,12 +8,7 @@
 //! TEST_COVERAGE: Covered transitively by netstackd QEMU markers
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 
-#[cfg(all(
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none",
-    feature = "os-lite"
-))]
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 extern crate alloc;
 
 #[cfg(all(
@@ -38,28 +33,16 @@ use nexus_net::{NetError, NetSocketAddrV4, NetStack as _, UdpSocket as _};
 ))]
 use nexus_net_os::SmoltcpVirtioNetStack;
 
-#[cfg(all(
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none",
-    feature = "os-lite"
-))]
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 pub(crate) struct BootstrapResult {
     pub(crate) net: SmoltcpVirtioNetStack,
     pub(crate) bind_ip: [u8; 4],
 }
 
-#[cfg(all(
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none",
-    feature = "os-lite"
-))]
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 pub(crate) fn bootstrap_network() -> BootstrapResult {
     let mut net = {
-        let deadline = nexus_abi::nsec()
-            .unwrap_or(0)
-            .saturating_add(20_000_000_000);
+        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(20_000_000_000);
         loop {
             match SmoltcpVirtioNetStack::new_default() {
                 Ok(n) => break n,
@@ -71,12 +54,8 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
                     }
                     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
                     {
-                        let mut q = nexus_abi::CapQuery {
-                            kind_tag: 0,
-                            reserved: 0,
-                            base: 0,
-                            len: 0,
-                        };
+                        let mut q =
+                            nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
                         if nexus_abi::cap_query(48, &mut q).is_ok() {
                             let _ = nexus_abi::debug_println("netstackd: mmio cap48 present");
                         } else {
@@ -84,23 +63,20 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
                         }
                     }
                     let (fail_label, fail_diag_code) = match err {
-                        nexus_net::NetError::Unsupported => (
-                            "netstackd: net FAIL unsupported",
-                            "netstackd: net fail-code 0x0001",
-                        ),
-                        nexus_net::NetError::NoBufs => (
-                            "netstackd: net FAIL no-bufs",
-                            "netstackd: net fail-code 0x0002",
-                        ),
+                        nexus_net::NetError::Unsupported => {
+                            ("netstackd: net FAIL unsupported", "netstackd: net fail-code 0x0001")
+                        }
+                        nexus_net::NetError::NoBufs => {
+                            ("netstackd: net FAIL no-bufs", "netstackd: net fail-code 0x0002")
+                        }
                         nexus_net::NetError::Internal(msg) => match msg {
                             "mmio cap not found" => (
                                 "netstackd: net FAIL mmio-cap-missing",
                                 "netstackd: net fail-code 0x0101",
                             ),
-                            "mmio_map failed" => (
-                                "netstackd: net FAIL mmio-map",
-                                "netstackd: net fail-code 0x0102",
-                            ),
+                            "mmio_map failed" => {
+                                ("netstackd: net FAIL mmio-map", "netstackd: net fail-code 0x0102")
+                            }
                             "virtio probe failed" => (
                                 "netstackd: net FAIL virtio-probe",
                                 "netstackd: net fail-code 0x0103",
@@ -109,15 +85,11 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
                                 "netstackd: net FAIL virtio-features",
                                 "netstackd: net fail-code 0x0104",
                             ),
-                            _ => (
-                                "netstackd: net FAIL internal",
-                                "netstackd: net fail-code 0x01ff",
-                            ),
+                            _ => {
+                                ("netstackd: net FAIL internal", "netstackd: net fail-code 0x01ff")
+                            }
                         },
-                        _ => (
-                            "netstackd: net FAIL other",
-                            "netstackd: net fail-code 0x00ff",
-                        ),
+                        _ => ("netstackd: net FAIL other", "netstackd: net fail-code 0x00ff"),
                     };
                     let _ = nexus_abi::debug_println(fail_label);
                     let _ = nexus_abi::debug_println(fail_diag_code);
@@ -135,11 +107,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
 
     let mut dhcp_bound = false;
     let mut dhcp_ms: u64 = 0;
-    let dhcp_deadline_ms: u64 = if cfg!(feature = "qemu-smoke") {
-        30_000
-    } else {
-        4_000
-    };
+    let dhcp_deadline_ms: u64 = if cfg!(feature = "qemu-smoke") { 30_000 } else { 4_000 };
     loop {
         net.poll(dhcp_ms);
         if let Some(config) = net.dhcp_poll() {
@@ -191,9 +159,8 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
         let dns_a = NetSocketAddrV4::new(crate::os::entry_pure::QEMU_USERNET_DNS_PRIMARY_IP, 53);
         let dns_b = NetSocketAddrV4::new(crate::os::entry_pure::QEMU_USERNET_GATEWAY_IP, 53);
         let ipcfg = net.get_ipv4_config();
-        let bind_ip = ipcfg
-            .map(|c| c.ip)
-            .unwrap_or(crate::os::entry_pure::QEMU_USERNET_FALLBACK_IP);
+        let bind_ip =
+            ipcfg.map(|c| c.ip).unwrap_or(crate::os::entry_pure::QEMU_USERNET_FALLBACK_IP);
         // #region agent log (H4: ensure IP config exists at DNS proof start)
         if ipcfg.is_none() {
             let _ = nexus_abi::debug_println("dbg:netstackd: dns h4 no-ipcfg");
@@ -250,11 +217,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
         }
 
         let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
-        let dns_budget_ms = if cfg!(feature = "qemu-smoke") {
-            1_500
-        } else {
-            500
-        };
+        let dns_budget_ms = if cfg!(feature = "qemu-smoke") { 1_500 } else { 500 };
         let deadline_ms = start_ms.saturating_add(dns_budget_ms);
         let mut last_send_ms = 0u64;
         for i in 0..200_000u64 {
@@ -381,10 +344,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
         .get_ipv4_config()
         .map(|c| c.ip)
         .unwrap_or(crate::os::entry_pure::QEMU_USERNET_FALLBACK_IP);
-    if net
-        .tcp_listen(NetSocketAddrV4::new(bind_ip, 41_000), 1)
-        .is_ok()
-    {
+    if net.tcp_listen(NetSocketAddrV4::new(bind_ip, 41_000), 1).is_ok() {
         let _ = nexus_abi::debug_println("SELFTEST: net tcp listen ok");
     } else {
         let _ = nexus_abi::debug_println("netstackd: tcp listen FAIL");

@@ -77,20 +77,10 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
     if is_qemu_loopback_target(ip, port, LOOPBACK_PORT, LOOPBACK_PORT_B) {
         let a = StreamId::from_index(streams.len());
         let b = StreamId::from_index(streams.len() + 1);
-        streams.push(Some(Stream::Loop {
-            peer: b,
-            rx: LoopBuf::new(),
-        }));
-        streams.push(Some(Stream::Loop {
-            peer: a,
-            rx: LoopBuf::new(),
-        }));
+        streams.push(Some(Stream::Loop { peer: b, rx: LoopBuf::new() }));
+        streams.push(Some(Stream::Loop { peer: a, rx: LoopBuf::new() }));
         for l in listeners.iter_mut() {
-            if let Some(Listener::Loop {
-                port: listen_port,
-                pending,
-            }) = l
-            {
+            if let Some(Listener::Loop { port: listen_port, pending }) = l {
                 if *listen_port == port && pending.is_none() {
                     *pending = Some(b);
                     break;

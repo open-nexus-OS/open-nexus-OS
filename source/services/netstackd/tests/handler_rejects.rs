@@ -73,13 +73,7 @@ fn test_reject_unknown_op_status_frame_shape() {
     let frame = status_frame(op, wire::STATUS_MALFORMED);
     assert_eq!(
         frame,
-        [
-            wire::MAGIC0,
-            wire::MAGIC1,
-            wire::VERSION,
-            op | 0x80,
-            wire::STATUS_MALFORMED,
-        ]
+        [wire::MAGIC0, wire::MAGIC1, wire::VERSION, op | 0x80, wire::STATUS_MALFORMED,]
     );
 }
 

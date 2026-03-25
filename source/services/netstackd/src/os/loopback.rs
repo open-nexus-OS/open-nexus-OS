@@ -20,12 +20,7 @@ pub(crate) struct LoopBuf {
 
 impl LoopBuf {
     pub(crate) const fn new() -> Self {
-        Self {
-            buf: [0u8; LOOPBUF_CAPACITY],
-            r: 0,
-            w: 0,
-            len: 0,
-        }
+        Self { buf: [0u8; LOOPBUF_CAPACITY], r: 0, w: 0, len: 0 }
     }
 
     #[must_use]

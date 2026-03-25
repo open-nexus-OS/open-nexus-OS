@@ -18,9 +18,7 @@ pub(crate) fn identity_binding_matches(
     expected_noise_static: [u8; 32],
 ) -> bool {
     // Preserve existing behavior: if discovery mapping is absent, do not fail hard here.
-    discovered_noise_static
-        .map(|v| v == expected_noise_static)
-        .unwrap_or(true)
+    discovered_noise_static.map(|v| v == expected_noise_static).unwrap_or(true)
 }
 
 pub(crate) struct HandshakeFailureAction<S> {
@@ -30,8 +28,5 @@ pub(crate) struct HandshakeFailureAction<S> {
 
 #[inline]
 pub(crate) fn on_handshake_failure<S: Copy>(fsm: &mut SessionFsm<S>) -> HandshakeFailureAction<S> {
-    HandshakeFailureAction {
-        close_sid: fsm.begin_reconnect(),
-        retry: true,
-    }
+    HandshakeFailureAction { close_sid: fsm.begin_reconnect(), retry: true }
 }

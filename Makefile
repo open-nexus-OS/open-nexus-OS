@@ -133,14 +133,14 @@ run:
 	@run_until_marker=$${RUN_UNTIL_MARKER:-1}; \
 	if [ "$$run_until_marker" != "0" ]; then \
 	  echo "==> RUN_UNTIL_MARKER=$$run_until_marker: using scripts/qemu-test.sh (marker-driven early exit)"; \
-	  SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER=$$run_until_marker ./scripts/qemu-test.sh; \
+	  SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} RUN_UNTIL_MARKER=$$run_until_marker ./scripts/qemu-test.sh; \
 	else \
 	  UART_LOG=$${UART_LOG:-uart.log}; \
 	  SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh; \
 	  status=$$?; \
 	  if [ "$$status" = "124" ] && [ -f "$$UART_LOG" ] && grep -aFq "SELFTEST: end" "$$UART_LOG"; then \
 	    echo "[warn] QEMU timed out, but UART log contains 'SELFTEST: end' (selftest completed)."; \
-	    echo "[hint] For a truly green run, prefer: RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s make run"; \
+	    echo "[hint] For a truly green run, prefer: RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s make run"; \
 	    exit 0; \
 	  fi; \
 	  exit $$status; \

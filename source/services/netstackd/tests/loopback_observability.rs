@@ -66,25 +66,14 @@ fn test_loopbuf_pop_empty_returns_zero() {
 
 #[test]
 fn test_reject_oversized_loopback_payload() {
-    assert!(loopback::reject_oversized_loopback_payload(
-        loopback::LOOPBUF_CAPACITY + 1
-    ));
-    assert!(!loopback::reject_oversized_loopback_payload(
-        loopback::LOOPBUF_CAPACITY
-    ));
+    assert!(loopback::reject_oversized_loopback_payload(loopback::LOOPBUF_CAPACITY + 1));
+    assert!(!loopback::reject_oversized_loopback_payload(loopback::LOOPBUF_CAPACITY));
 }
 
 #[test]
 fn test_write_u8_decimal_encoding() {
-    let cases: &[(u8, &str)] = &[
-        (0, "0"),
-        (9, "9"),
-        (10, "10"),
-        (42, "42"),
-        (99, "99"),
-        (100, "100"),
-        (255, "255"),
-    ];
+    let cases: &[(u8, &str)] =
+        &[(0, "0"), (9, "9"), (10, "10"), (42, "42"), (99, "99"), (100, "100"), (255, "255")];
 
     for (value, expected) in cases {
         let mut out = [0u8; 3];

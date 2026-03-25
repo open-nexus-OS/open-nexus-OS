@@ -49,7 +49,7 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 |------|-------|--------|------------|-------------|
 | **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure | Done | — | Closed: modular daemon baseline + proof package complete |
 | **TASK-0016** | DSoftBus Remote-FS v1: Remote PackageFS proxy | Done | — | Closed: RFC-0028 contract and proof gates completed |
-| **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | Complete | TASK-0003, TASK-0010 | Closed: modular seam + address-governance sync completed and re-proven |
+| **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | Done | TASK-0003, TASK-0010 | Closed: modular seam + address-governance sync completed and re-proven |
 | TASK-0017 | DSoftBus Remote-StateFS v1 | Draft | TASK-0005 | Queue after Remote-FS planning |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | Draft | TASK-0005 | Host-first mux work after refactor groundwork |
 | TASK-0021 | DSoftBus QUIC v1 | Draft | TASK-0003, TASK-0005, TASK-0020 | Keep OS fallback path gated |
