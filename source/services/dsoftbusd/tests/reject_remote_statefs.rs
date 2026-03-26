@@ -6,6 +6,8 @@ mod statefs_rw;
 use statefs::protocol as sfp;
 use statefs_rw::{parse_request, RejectReason, RS_MAX_VALUE_LEN};
 
+type ValidateResponseShapeFn = fn(u8, Option<u64>, &[u8]) -> core::result::Result<(), ()>;
+
 #[test]
 fn test_reject_statefs_write_outside_acl() {
     let req = sfp::encode_put_request("/state/private/secret", b"deny").expect("encode");
@@ -52,8 +54,7 @@ fn test_statefs_protocol_symbols_are_linked_for_host_seam() {
         statefs_rw::encode_reject_response;
     let _enc_status: fn(u8, u8, Option<u64>) -> alloc::vec::Vec<u8> =
         statefs_rw::encode_status_response;
-    let _validate: fn(u8, Option<u64>, &[u8]) -> core::result::Result<(), ()> =
-        statefs_rw::validate_response_shape;
+    let _validate: ValidateResponseShapeFn = statefs_rw::validate_response_shape;
     let _op_from_frame: fn(&[u8]) -> Option<u8> = statefs_rw::op_from_frame;
     let _nonce_from_frame: fn(&[u8]) -> Option<u64> = statefs_rw::request_nonce_from_frame;
     let _reject_label: fn(u8, RejectReason) -> Option<&'static str> =

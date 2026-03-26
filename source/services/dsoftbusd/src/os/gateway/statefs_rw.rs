@@ -34,7 +34,7 @@ pub(crate) struct ParsedRequest<'a> {
     pub(crate) nonce: Option<u64>,
 }
 
-impl<'a> ParsedRequest<'a> {
+impl ParsedRequest<'_> {
     #[must_use]
     pub(crate) fn op(&self) -> u8 {
         request_op(&self.request)
@@ -46,11 +46,10 @@ impl<'a> ParsedRequest<'a> {
     }
 }
 
-#[must_use]
-pub(crate) fn parse_request<'a>(
-    frame: &'a [u8],
+pub(crate) fn parse_request(
+    frame: &[u8],
     authenticated: bool,
-) -> core::result::Result<ParsedRequest<'a>, RejectReason> {
+) -> core::result::Result<ParsedRequest<'_>, RejectReason> {
     if !authenticated {
         return Err(RejectReason::Unauthenticated);
     }
@@ -99,7 +98,6 @@ pub(crate) fn encode_status_response(
     sfp::encode_status_response_with_nonce(op, status, nonce)
 }
 
-#[must_use]
 pub(crate) fn validate_response_shape(
     request_op: u8,
     request_nonce: Option<u64>,

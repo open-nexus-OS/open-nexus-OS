@@ -13,6 +13,8 @@ use statefs_rw::{
     reject_reason_to_status, validate_response_shape, RejectReason, RS_MAX_RESPONSE_LEN,
 };
 
+type ValidateResponseShapeFn = fn(u8, Option<u64>, &[u8]) -> core::result::Result<(), ()>;
+
 fn emulate_statefsd(frame: &[u8], kv: &mut BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     let (request, nonce) = sfp::decode_request_with_nonce(frame).expect("decode");
     match request {
@@ -117,8 +119,7 @@ fn test_gateway_symbols_are_linked_for_host_seam() {
     let _classify: fn(u8) -> RejectReason = statefs_rw::classify_decode_error;
     let _op_from_frame: fn(&[u8]) -> Option<u8> = statefs_rw::op_from_frame;
     let _nonce_from_frame: fn(&[u8]) -> Option<u64> = statefs_rw::request_nonce_from_frame;
-    let _validate: fn(u8, Option<u64>, &[u8]) -> core::result::Result<(), ()> =
-        statefs_rw::validate_response_shape;
+    let _validate: ValidateResponseShapeFn = statefs_rw::validate_response_shape;
     let _enc_status: fn(u8, u8, Option<u64>) -> alloc::vec::Vec<u8> =
         statefs_rw::encode_status_response;
 
