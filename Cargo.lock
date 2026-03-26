@@ -659,6 +659,7 @@ dependencies = [
  "nexus-noise-xk",
  "nexus-peer-lru",
  "nexus-service-entry",
+ "statefs",
 ]
 
 [[package]]

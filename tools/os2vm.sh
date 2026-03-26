@@ -755,11 +755,23 @@ apply_error_matrix() {
       ERROR_CONFIDENCE="0.84"
       ERROR_TYPED_EXIT=58
       ;;
+    OS2VM_E_REMOTE_STATEFS_FLOW_MISSING)
+      ERROR_SUBSYSTEM="dsoftbusd/remote-proxy-statefs"
+      ERROR_HINT="remote statefs final flow marker missing; inspect statefs proxy and backend path"
+      ERROR_CONFIDENCE="0.86"
+      ERROR_TYPED_EXIT=60
+      ;;
+    OS2VM_E_REMOTE_STATEFS_SERVED_MISSING)
+      ERROR_SUBSYSTEM="dsoftbusd/remote-proxy-statefs-node-b"
+      ERROR_HINT="node B did not emit remote statefs served marker"
+      ERROR_CONFIDENCE="0.86"
+      ERROR_TYPED_EXIT=65
+      ;;
     OS2VM_E_REMOTE_NEGATIVE_MARKER)
       ERROR_SUBSYSTEM="selftest-client/remote"
       ERROR_HINT="remote FAIL marker observed despite success ladder; treat as fake-green contradiction"
       ERROR_CONFIDENCE="0.96"
-      ERROR_TYPED_EXIT=59
+      ERROR_TYPED_EXIT=66
       ;;
     OS2VM_E_BUILD_ARTIFACT_MISSING)
       ERROR_SUBSYSTEM="build/artifacts"
@@ -1144,6 +1156,28 @@ phase_remote() {
   MARKER_LINES["A_remote_query"]=$LAST_WAIT_LINE
 
   rc=0
+  wait_marker "$UART_A" "SELFTEST: remote statefs rw ok" "SELFTEST: end" "$MARKER_TIMEOUT_REMOTE_SECS" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    EVIDENCE["a_remote_statefs_fail"]=$(count_marker "$UART_A" "SELFTEST: remote statefs rw FAIL")
+    EVIDENCE["a_remote_rpc_fail_statefs"]=$(count_marker "$UART_A" "dbg:dsoftbusd: remote rpc fail statefs")
+    EVIDENCE["b_remote_statefs_served"]=$(count_marker "$UART_B" "dsoftbusd: remote statefs served")
+    MISSING_MARKER="SELFTEST: remote statefs rw ok"
+    set_failure "OS2VM_E_REMOTE_STATEFS_FLOW_MISSING" "remote" "A" "remote statefs final marker missing"
+    return 1
+  fi
+  MARKER_LINES["A_remote_statefs_flow"]=$LAST_WAIT_LINE
+
+  rc=0
+  wait_marker "$UART_B" "dsoftbusd: remote statefs served" "SELFTEST: end" "$MARKER_TIMEOUT_REMOTE_SECS" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    EVIDENCE["b_remote_statefs_served"]=$(count_marker "$UART_B" "dsoftbusd: remote statefs served")
+    MISSING_MARKER="dsoftbusd: remote statefs served"
+    set_failure "OS2VM_E_REMOTE_STATEFS_SERVED_MISSING" "remote" "B" "node B missing remote statefs served marker"
+    return 1
+  fi
+  MARKER_LINES["B_remote_statefs_served"]=$LAST_WAIT_LINE
+
+  rc=0
   wait_marker "$UART_A" "SELFTEST: remote pkgfs stat ok" "SELFTEST: end" "$MARKER_TIMEOUT_REMOTE_SECS" || rc=$?
   if [[ $rc -ne 0 ]]; then
     EVIDENCE["a_remote_pkgfs_fail"]=$(count_marker "$UART_A" "SELFTEST: remote pkgfs read FAIL")
@@ -1212,14 +1246,16 @@ phase_remote() {
   # even when later success markers are present.
   local remote_resolve_fail
   local remote_query_fail
+  local remote_statefs_fail
   local remote_pkgfs_fail
   remote_resolve_fail=$(count_marker "$UART_A" "SELFTEST: remote resolve FAIL")
   remote_query_fail=$(count_marker "$UART_A" "SELFTEST: remote query FAIL")
+  remote_statefs_fail=$(count_marker "$UART_A" "SELFTEST: remote statefs rw FAIL")
   remote_pkgfs_fail=$(count_marker "$UART_A" "SELFTEST: remote pkgfs read FAIL")
   # #region agent log
-  agent_session_log "REMOTE_GUARD" "tools/os2vm.sh:phase_remote" "remote fail-marker guard snapshot" "{\"resolveFail\":$remote_resolve_fail,\"queryFail\":$remote_query_fail,\"pkgfsFail\":$remote_pkgfs_fail}"
+  agent_session_log "REMOTE_GUARD" "tools/os2vm.sh:phase_remote" "remote fail-marker guard snapshot" "{\"resolveFail\":$remote_resolve_fail,\"queryFail\":$remote_query_fail,\"statefsFail\":$remote_statefs_fail,\"pkgfsFail\":$remote_pkgfs_fail}"
   # #endregion
-  if (( remote_resolve_fail > 0 || remote_query_fail > 0 || remote_pkgfs_fail > 0 )); then
+  if (( remote_resolve_fail > 0 || remote_query_fail > 0 || remote_statefs_fail > 0 || remote_pkgfs_fail > 0 )); then
     MISSING_MARKER="remote-fail-marker-absent"
     set_failure "OS2VM_E_REMOTE_NEGATIVE_MARKER" "remote" "A" "remote FAIL marker observed in successful marker ladder"
     return 1
@@ -1452,11 +1488,13 @@ collect_marker_lines() {
   MARKER_LINES["B_session"]=${MARKER_LINES["B_session"]:-$(marker_line "$UART_B" "dsoftbusd: cross-vm session ok")}
   MARKER_LINES["A_remote_resolve"]=${MARKER_LINES["A_remote_resolve"]:-$(marker_line "$UART_A" "SELFTEST: remote resolve ok")}
   MARKER_LINES["A_remote_query"]=${MARKER_LINES["A_remote_query"]:-$(marker_line "$UART_A" "SELFTEST: remote query ok")}
+  MARKER_LINES["A_remote_statefs_flow"]=${MARKER_LINES["A_remote_statefs_flow"]:-$(marker_line "$UART_A" "SELFTEST: remote statefs rw ok")}
   MARKER_LINES["A_remote_pkgfs_stat"]=${MARKER_LINES["A_remote_pkgfs_stat"]:-$(marker_line "$UART_A" "SELFTEST: remote pkgfs stat ok")}
   MARKER_LINES["A_remote_pkgfs_open"]=${MARKER_LINES["A_remote_pkgfs_open"]:-$(marker_line "$UART_A" "SELFTEST: remote pkgfs open ok")}
   MARKER_LINES["A_remote_pkgfs_read"]=${MARKER_LINES["A_remote_pkgfs_read"]:-$(marker_line "$UART_A" "SELFTEST: remote pkgfs read step ok")}
   MARKER_LINES["A_remote_pkgfs_close"]=${MARKER_LINES["A_remote_pkgfs_close"]:-$(marker_line "$UART_A" "SELFTEST: remote pkgfs close ok")}
   MARKER_LINES["A_remote_pkgfs_flow"]=${MARKER_LINES["A_remote_pkgfs_flow"]:-$(marker_line "$UART_A" "SELFTEST: remote pkgfs read ok")}
+  MARKER_LINES["B_remote_statefs_served"]=${MARKER_LINES["B_remote_statefs_served"]:-$(marker_line "$UART_B" "dsoftbusd: remote statefs served")}
   MARKER_LINES["B_remote_served"]=${MARKER_LINES["B_remote_served"]:-$(marker_line "$UART_B" "dsoftbusd: remote packagefs served")}
 }
 
@@ -1513,11 +1551,13 @@ write_summary_json() {
     "B_session": ${MARKER_LINES["B_session"]:-0},
     "A_remote_resolve": ${MARKER_LINES["A_remote_resolve"]:-0},
     "A_remote_query": ${MARKER_LINES["A_remote_query"]:-0},
+    "A_remote_statefs_flow": ${MARKER_LINES["A_remote_statefs_flow"]:-0},
     "A_remote_pkgfs_stat": ${MARKER_LINES["A_remote_pkgfs_stat"]:-0},
     "A_remote_pkgfs_open": ${MARKER_LINES["A_remote_pkgfs_open"]:-0},
     "A_remote_pkgfs_read": ${MARKER_LINES["A_remote_pkgfs_read"]:-0},
     "A_remote_pkgfs_close": ${MARKER_LINES["A_remote_pkgfs_close"]:-0},
     "A_remote_pkgfs_flow": ${MARKER_LINES["A_remote_pkgfs_flow"]:-0},
+    "B_remote_statefs_served": ${MARKER_LINES["B_remote_statefs_served"]:-0},
     "B_remote_served": ${MARKER_LINES["B_remote_served"]:-0}
   },
   "qemu": {

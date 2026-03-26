@@ -13,17 +13,23 @@
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::{Client, KernelClient, Wait};
+use statefs::protocol as sfp;
 
 use crate::os::gateway::packagefs_ro as pkg;
+use crate::os::gateway::statefs_rw as stfs;
 use crate::os::netstack::{stream_read_exact, stream_write_all, SessionId};
+use crate::os::observability;
 use crate::os::service_clients;
 use crate::os::session::records::{MAX_REQ, MAX_RSP, REQ_CIPH, REQ_PLAIN, RSP_CIPH, RSP_PLAIN};
 
 pub(crate) const SVC_SAMGR_RESOLVE_STATUS: u8 = 1;
 pub(crate) const SVC_BUNDLE_LIST: u8 = 2;
 pub(crate) const SVC_PACKAGEFS_RO: u8 = 3;
+pub(crate) const SVC_STATEFS_RW: u8 = 4;
+static STATEFS_PROXY_NONCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn run_remote_proxy_loop(
     transport: &mut nexus_noise_xk::Transport,
@@ -68,7 +74,10 @@ pub(crate) fn run_remote_proxy_loop(
     let mut next_pkg_handle: u32 = 1;
     let mut pkg_dep_fail_logged = false;
     let mut pkg_dep_ok_logged = false;
+    let mut statefs_dep_fail_logged = false;
+    let mut statefs_dep_ok_logged = false;
     let mut pkgfs_served_logged = false;
+    let mut statefs_served_logged = false;
     let _ = nexus_abi::debug_println("dsoftbusd: remote proxy up");
     let mut rx_logged = false;
     let mut proxy_io_retry_logged = false;
@@ -290,6 +299,48 @@ pub(crate) fn run_remote_proxy_loop(
                     rsp_payload = pkg::encode_status_only(op, pkg::PK_STATUS_IO);
                 }
             }
+            SVC_STATEFS_RW => {
+                if let Some(statefsd) = service_clients::cached_client_slots_bounded(
+                    "statefsd",
+                    &service_clients::STATEFSD_SEND_SLOT_CACHE,
+                    &service_clients::STATEFSD_RECV_SLOT_CACHE,
+                    128,
+                ) {
+                    if !statefs_dep_ok_logged {
+                        statefs_dep_ok_logged = true;
+                        let _ =
+                            nexus_abi::debug_println("dbg:dsoftbusd: remote proxy dep statefsd ok");
+                    }
+                    let (statefs_rsp, served_ok, audit_label) =
+                        handle_statefs_rw_request(
+                            true,
+                            req,
+                            &statefsd,
+                            reply_send_slot,
+                            reply_recv_slot,
+                        );
+                    status = 0;
+                    rsp_payload = statefs_rsp;
+                    if let Some(label) = audit_label {
+                        emit_remote_statefs_audit(label);
+                    }
+                    if served_ok && !statefs_served_logged {
+                        statefs_served_logged = true;
+                        let _ = nexus_abi::debug_println("dsoftbusd: remote statefs served");
+                    }
+                } else {
+                    if !statefs_dep_fail_logged {
+                        statefs_dep_fail_logged = true;
+                        let _ = nexus_abi::debug_println(
+                            "dbg:dsoftbusd: remote proxy dep statefsd fail",
+                        );
+                    }
+                    status = 0;
+                    let op = stfs::op_from_frame(req).unwrap_or(sfp::OP_SYNC);
+                    let nonce = stfs::request_nonce_from_frame(req);
+                    rsp_payload = encode_statefs_io_response(op, nonce);
+                }
+            }
             _ => {
                 status = 1;
                 let _ =
@@ -468,4 +519,200 @@ fn resolve_package_entry(
         // #endregion
         ()
     })
+}
+
+fn handle_statefs_rw_request(
+    authenticated: bool,
+    req: &[u8],
+    statefsd: &KernelClient,
+    _reply_send_slot: u32,
+    _reply_recv_slot: u32,
+) -> (Vec<u8>, bool, Option<&'static str>) {
+    let op_for_error = stfs::op_from_frame(req).unwrap_or(sfp::OP_SYNC);
+    let parsed = match stfs::parse_request(req, authenticated) {
+        Ok(v) => v,
+        Err(reason) => {
+            return (
+                stfs::encode_reject_response(op_for_error, reason),
+                false,
+                stfs::reject_label_for_request(op_for_error, reason),
+            );
+        }
+    };
+
+    let op = parsed.op();
+    let request_nonce = parsed.nonce();
+    let served_eligible = stfs::is_mutating_request(&parsed.request);
+    let internal_nonce = STATEFS_PROXY_NONCE.fetch_add(1, Ordering::Relaxed);
+    let internal_req = match encode_statefs_request_with_nonce(&parsed.request, internal_nonce) {
+        Ok(frame) => frame,
+        Err(()) => {
+            let io_status = sfp::STATUS_IO_ERROR;
+            return (
+                encode_statefs_io_response(op, request_nonce),
+                false,
+                stfs::audit_label_for_status(op, io_status),
+            );
+        }
+    };
+
+    if statefsd
+        .send(
+            internal_req.as_slice(),
+            Wait::Timeout(core::time::Duration::from_millis(2_000)),
+        )
+        .is_err()
+    {
+        let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote statefs send fail");
+        let io_status = sfp::STATUS_IO_ERROR;
+        return (
+            encode_statefs_io_response(op, request_nonce),
+            false,
+            stfs::audit_label_for_status(op, io_status),
+        );
+    }
+
+    let mut matched_rsp: Option<Vec<u8>> = None;
+    for _ in 0..256u16 {
+        match statefsd.recv(Wait::Timeout(core::time::Duration::from_millis(8))) {
+            Ok(frame) => {
+                if is_matching_statefs_v2_response(op, internal_nonce, frame.as_slice()) {
+                    matched_rsp = Some(frame);
+                    break;
+                }
+            }
+            Err(_) => {
+                let _ = nexus_abi::yield_();
+            }
+        }
+    }
+    let Some(rsp) = matched_rsp else {
+        let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote statefs recv fail");
+        let io_status = sfp::STATUS_IO_ERROR;
+        return (
+            encode_statefs_io_response(op, request_nonce),
+            false,
+            stfs::audit_label_for_status(op, io_status),
+        );
+    };
+    let rsp_status = rsp.get(4).copied().unwrap_or(sfp::STATUS_IO_ERROR);
+    let proxy_rsp = match op {
+        sfp::OP_GET => {
+            if rsp_status == sfp::STATUS_OK {
+                match sfp::decode_get_response(&rsp) {
+                    Ok(value) => sfp::encode_get_response_with_nonce(
+                        sfp::STATUS_OK,
+                        value.as_slice(),
+                        request_nonce,
+                    ),
+                    Err(_) => encode_statefs_io_response(op, request_nonce),
+                }
+            } else {
+                sfp::encode_get_response_with_nonce(rsp_status, &[], request_nonce)
+            }
+        }
+        sfp::OP_LIST => {
+            if rsp_status == sfp::STATUS_OK {
+                match sfp::decode_list_response(&rsp) {
+                    Ok(keys) => sfp::encode_list_response_with_nonce(
+                        sfp::STATUS_OK,
+                        keys.as_slice(),
+                        stfs::RS_MAX_RESPONSE_LEN,
+                        request_nonce,
+                    ),
+                    Err(_) => encode_statefs_io_response(op, request_nonce),
+                }
+            } else {
+                sfp::encode_list_response_with_nonce(
+                    rsp_status,
+                    &[],
+                    stfs::RS_MAX_RESPONSE_LEN,
+                    request_nonce,
+                )
+            }
+        }
+        _ => stfs::encode_status_response(op, rsp_status, request_nonce),
+    };
+
+    if stfs::is_mutating_request(&parsed.request) && rsp_status != sfp::STATUS_OK {
+        emit_remote_statefs_status_debug(op, rsp_status);
+    }
+    (
+        proxy_rsp,
+        served_eligible && rsp_status == sfp::STATUS_OK,
+        stfs::audit_label_for_status(op, rsp_status),
+    )
+}
+
+fn encode_statefs_io_response(op: u8, nonce: Option<u64>) -> Vec<u8> {
+    match op {
+        sfp::OP_GET => sfp::encode_get_response_with_nonce(sfp::STATUS_IO_ERROR, &[], nonce),
+        sfp::OP_LIST => {
+            sfp::encode_list_response_with_nonce(sfp::STATUS_IO_ERROR, &[], stfs::RS_MAX_RESPONSE_LEN, nonce)
+        }
+        _ => stfs::encode_status_response(op, sfp::STATUS_IO_ERROR, nonce),
+    }
+}
+
+fn encode_statefs_request_with_nonce(req: &sfp::Request<'_>, nonce: u64) -> core::result::Result<Vec<u8>, ()> {
+    let mut frame = match req {
+        sfp::Request::Put { key, value } => sfp::encode_put_request(key, value).map_err(|_| ())?,
+        sfp::Request::Get { key } => sfp::encode_key_only_request(sfp::OP_GET, key).map_err(|_| ())?,
+        sfp::Request::Delete { key } => {
+            sfp::encode_key_only_request(sfp::OP_DEL, key).map_err(|_| ())?
+        }
+        sfp::Request::List { prefix, limit } => {
+            sfp::encode_list_request(prefix, *limit).map_err(|_| ())?
+        }
+        sfp::Request::Sync => sfp::encode_sync_request(),
+        sfp::Request::Reopen => sfp::encode_reopen_request(),
+    };
+    if frame.len() < 4 || frame[0] != sfp::MAGIC0 || frame[1] != sfp::MAGIC1 {
+        return Err(());
+    }
+    frame[2] = sfp::VERSION_V2;
+    frame.splice(4..4, nonce.to_le_bytes());
+    Ok(frame)
+}
+
+fn is_matching_statefs_v2_response(op: u8, nonce: u64, frame: &[u8]) -> bool {
+    if frame.len() < 13 {
+        return false;
+    }
+    if frame[0] != sfp::MAGIC0 || frame[1] != sfp::MAGIC1 || frame[2] != sfp::VERSION_V2 {
+        return false;
+    }
+    if frame[3] != (op | 0x80) {
+        return false;
+    }
+    let mut got = [0u8; 8];
+    got.copy_from_slice(&frame[5..13]);
+    u64::from_le_bytes(got) == nonce
+}
+
+fn emit_remote_statefs_audit(label: &'static str) {
+    if !observability::append_probe_to_logd(b"dsoftbusd", label.as_bytes()) {
+        let _ = nexus_abi::debug_println(label);
+    }
+}
+
+fn emit_remote_statefs_status_debug(op: u8, status: u8) {
+    let label = match (op, status) {
+        (sfp::OP_PUT, sfp::STATUS_ACCESS_DENIED) => {
+            "dbg:dsoftbusd: remote statefs put status access_denied"
+        }
+        (sfp::OP_PUT, sfp::STATUS_IO_ERROR) => "dbg:dsoftbusd: remote statefs put status io",
+        (sfp::OP_PUT, sfp::STATUS_VALUE_TOO_LARGE) => {
+            "dbg:dsoftbusd: remote statefs put status value_too_large"
+        }
+        (sfp::OP_PUT, sfp::STATUS_INVALID_KEY) => {
+            "dbg:dsoftbusd: remote statefs put status invalid_key"
+        }
+        (sfp::OP_DEL, sfp::STATUS_ACCESS_DENIED) => {
+            "dbg:dsoftbusd: remote statefs delete status access_denied"
+        }
+        (sfp::OP_DEL, sfp::STATUS_IO_ERROR) => "dbg:dsoftbusd: remote statefs delete status io",
+        _ => "dbg:dsoftbusd: remote statefs mutating status other",
+    };
+    let _ = nexus_abi::debug_println(label);
 }

@@ -11,3 +11,4 @@
 pub(crate) mod local_ipc;
 pub(crate) mod packagefs_ro;
 pub(crate) mod remote_proxy;
+pub(crate) mod statefs_rw;

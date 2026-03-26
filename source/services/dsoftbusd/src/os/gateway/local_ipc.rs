@@ -16,8 +16,9 @@ use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 
 use crate::os::gateway::packagefs_ro as pkg;
+use crate::os::gateway::statefs_rw as stfs;
 use crate::os::gateway::remote_proxy::{
-    SVC_BUNDLE_LIST, SVC_PACKAGEFS_RO, SVC_SAMGR_RESOLVE_STATUS,
+    SVC_BUNDLE_LIST, SVC_PACKAGEFS_RO, SVC_SAMGR_RESOLVE_STATUS, SVC_STATEFS_RW,
 };
 use crate::os::netstack::{stream_read_exact, stream_write_all, SessionId};
 use crate::os::observability;
@@ -32,6 +33,7 @@ pub(crate) const LOP_REMOTE_PKGFS_STAT: u8 = 3;
 pub(crate) const LOP_REMOTE_PKGFS_OPEN: u8 = 4;
 pub(crate) const LOP_REMOTE_PKGFS_READ: u8 = 5;
 pub(crate) const LOP_REMOTE_PKGFS_CLOSE: u8 = 6;
+pub(crate) const LOP_REMOTE_STATEFS: u8 = 7;
 pub(crate) const LOP_LOG_PROBE: u8 = 0x7f;
 pub(crate) const LSTATUS_OK: u8 = 0;
 pub(crate) const LSTATUS_FAIL: u8 = 1;
@@ -541,6 +543,79 @@ pub(crate) fn run_local_ipc_loop(
                             LOP_REMOTE_PKGFS_CLOSE | 0x80,
                             status,
                         ]);
+                    }
+                }
+                LOP_REMOTE_STATEFS => {
+                    if frame.len() < 6 {
+                        out.extend_from_slice(&[
+                            L0,
+                            L1,
+                            LVER,
+                            LOP_REMOTE_STATEFS | 0x80,
+                            LSTATUS_FAIL,
+                        ]);
+                    } else {
+                        let req_len = u16::from_le_bytes([frame[4], frame[5]]) as usize;
+                        if req_len == 0
+                            || req_len > stfs::RS_MAX_FRAME_LEN
+                            || frame.len() != 6 + req_len
+                        {
+                            out.extend_from_slice(&[
+                                L0,
+                                L1,
+                                LVER,
+                                LOP_REMOTE_STATEFS | 0x80,
+                                LSTATUS_FAIL,
+                            ]);
+                        } else {
+                            let req = &frame[6..6 + req_len];
+                            let mut status = LSTATUS_FAIL;
+                            let mut rsp_payload: Vec<u8> = Vec::new();
+                            let remote_result: core::result::Result<(), ()> = (|| {
+                                let rsp = remote_exchange(
+                                    transport,
+                                    pending_replies,
+                                    nonce_ctr,
+                                    net,
+                                    sid,
+                                    reply_recv_slot,
+                                    reply_send_slot,
+                                    SVC_STATEFS_RW,
+                                    req,
+                                )?;
+                                if rsp[0] != 0 {
+                                    return Err(());
+                                }
+                                let n = u16::from_le_bytes([rsp[1], rsp[2]]) as usize;
+                                if n > MAX_RSP {
+                                    return Err(());
+                                }
+                                let p = &rsp[3..3 + n];
+                                let op = stfs::op_from_frame(req).ok_or(())?;
+                                let req_nonce = stfs::request_nonce_from_frame(req);
+                                if stfs::validate_response_shape(op, req_nonce, p).is_err() {
+                                    return Err(());
+                                }
+                                status = LSTATUS_OK;
+                                rsp_payload.extend_from_slice(p);
+                                Ok(())
+                            })();
+                            if remote_result.is_err() && !remote_rpc_fail_logged {
+                                remote_rpc_fail_logged = true;
+                                let _ = nexus_abi::debug_println(
+                                    "dbg:dsoftbusd: remote rpc fail statefs",
+                                );
+                            }
+                            out.extend_from_slice(&[
+                                L0,
+                                L1,
+                                LVER,
+                                LOP_REMOTE_STATEFS | 0x80,
+                                status,
+                            ]);
+                            out.extend_from_slice(&(rsp_payload.len() as u16).to_le_bytes());
+                            out.extend_from_slice(&rsp_payload);
+                        }
                     }
                 }
                 _ => {

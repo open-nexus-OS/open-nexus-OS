@@ -1296,6 +1296,21 @@ where
                 debug_write_byte(b'\n');
                 // #endregion
 
+                // TASK-0017 closeout: allow dsoftbusd to proxy remote statefs via statefsd.
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, state_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, state_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.state_send_slot = Some(send_slot);
+                chan.state_recv_slot = Some(recv_slot);
+                // #region agent log
+                debug_write_bytes(b"init: dsoftbusd statefsd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
+                // #endregion
+
                 // Provide dsoftbusd its own request/response endpoints (server side).
                 let recv_slot = nexus_abi::cap_transfer(pid, dsoft_req, Rights::RECV)
                     .map_err(InitError::Abi)?;

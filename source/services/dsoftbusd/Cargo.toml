@@ -23,6 +23,7 @@ nexus-metrics = { path = "../../../userspace/nexus-metrics", default-features = 
 nexus-noise-xk = { path = "../../libs/nexus-noise-xk" }
 nexus-discovery-packet = { path = "../../libs/nexus-discovery-packet" }
 nexus-peer-lru = { path = "../../libs/nexus-peer-lru" }
+statefs = { path = "../../../userspace/statefs", default-features = false }
 
 [dev-dependencies]
 nexus-abi = { path = "../../libs/nexus-abi" }
@@ -32,3 +33,4 @@ nexus-metrics = { path = "../../../userspace/nexus-metrics", default-features = 
 nexus-noise-xk = { path = "../../libs/nexus-noise-xk" }
 nexus-discovery-packet = { path = "../../libs/nexus-discovery-packet" }
 nexus-peer-lru = { path = "../../libs/nexus-peer-lru" }
+statefs = { path = "../../../userspace/statefs", default-features = false }

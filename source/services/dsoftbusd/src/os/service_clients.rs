@@ -16,6 +16,8 @@ pub(crate) static BUNDLEMGRD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static BUNDLEMGRD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static PACKAGEFSD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static PACKAGEFSD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+pub(crate) static STATEFSD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
+pub(crate) static STATEFSD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static LOGD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static LOGD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 
@@ -46,6 +48,10 @@ pub(crate) fn cached_client_slots(
                 // #region agent log
                 let _ = nexus_abi::debug_println("dbg:dsoftbusd: packagefsd client new_for ok");
                 // #endregion
+            } else if target == "statefsd" {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: statefsd client new_for ok");
+                // #endregion
             }
             client
         }
@@ -53,6 +59,10 @@ pub(crate) fn cached_client_slots(
             if target == "packagefsd" {
                 // #region agent log
                 let _ = nexus_abi::debug_println("dbg:dsoftbusd: packagefsd client new_for fail");
+                // #endregion
+            } else if target == "statefsd" {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: statefsd client new_for fail");
                 // #endregion
             }
             return None;
@@ -82,6 +92,10 @@ pub(crate) fn cached_client_slots_bounded(
     if target == "packagefsd" {
         // #region agent log
         let _ = nexus_abi::debug_println("dbg:dsoftbusd: packagefsd client bounded fail");
+        // #endregion
+    } else if target == "statefsd" {
+        // #region agent log
+        let _ = nexus_abi::debug_println("dbg:dsoftbusd: statefsd client bounded fail");
         // #endregion
     }
     None
