@@ -1,0 +1,16 @@
+[package]
+name = "crash"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "Deterministic bounded crashdump v1 helpers"
+
+[features]
+default = ["std"]
+std = []
+os-lite = ["dep:statefs", "dep:nexus-abi", "statefs/ipc-client", "statefs/os-lite"]
+
+[dependencies]
+nexus-abi = { path = "../../source/libs/nexus-abi", optional = true, default-features = false }
+statefs = { path = "../statefs", optional = true, default-features = false }

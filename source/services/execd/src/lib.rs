@@ -29,6 +29,7 @@ pub use std_server::*;
 /// Returns `Some(status)` only when the frame is valid and `nonce` matches
 /// the expected request nonce; otherwise returns `None` so callers can fail-closed.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+#[must_use]
 pub(crate) fn decode_exec_policy_decision(frame: &[u8], expected_nonce: u32) -> Option<u8> {
     let (nonce, status) = nexus_abi::policy::decode_exec_check_rsp(frame)?;
     if nonce != expected_nonce {
@@ -37,9 +38,23 @@ pub(crate) fn decode_exec_policy_decision(frame: &[u8], expected_nonce: u32) -> 
     Some(status)
 }
 
+/// Enforces a narrow allowlist for crash-event publish callers.
+///
+/// v1 keeps crash publish surface private to trusted selftest paths; all other
+/// callers are rejected fail-closed.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+#[must_use]
+pub(crate) fn crash_event_publish_allowed(
+    sender_service_id: u64,
+    trusted_sender_id: u64,
+    trusted_sender_alt_id: u64,
+) -> bool {
+    sender_service_id == trusted_sender_id || sender_service_id == trusted_sender_alt_id
+}
+
 #[cfg(test)]
 mod tests {
-    use super::decode_exec_policy_decision;
+    use super::{crash_event_publish_allowed, decode_exec_policy_decision};
 
     #[test]
     fn test_decode_exec_policy_decision_accepts_matching_nonce() {
@@ -58,5 +73,21 @@ mod tests {
     fn test_decode_exec_policy_decision_rejects_nonce_mismatch() {
         let rsp = nexus_abi::policy::encode_exec_check_rsp(7, nexus_abi::policy::STATUS_ALLOW);
         assert_eq!(decode_exec_policy_decision(&rsp, 8), None);
+    }
+
+    #[test]
+    fn test_reject_unauthenticated_crash_event_publish() {
+        let trusted = nexus_abi::service_id_from_name(b"selftest-client");
+        let trusted_alt = 0x68c1_66c3_7bcd_7154u64;
+        let attacker = nexus_abi::service_id_from_name(b"attacker");
+        assert!(!crash_event_publish_allowed(attacker, trusted, trusted_alt));
+    }
+
+    #[test]
+    fn test_allow_authenticated_crash_event_publish() {
+        let trusted = nexus_abi::service_id_from_name(b"selftest-client");
+        let trusted_alt = 0x68c1_66c3_7bcd_7154u64;
+        assert!(crash_event_publish_allowed(trusted, trusted, trusted_alt));
+        assert!(crash_event_publish_allowed(trusted_alt, trusted, trusted_alt));
     }
 }

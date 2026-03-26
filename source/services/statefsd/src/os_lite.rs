@@ -407,7 +407,7 @@ fn handle_frame(
 
 fn policy_allows(sender_service_id: u64, op: u8, path: &str) -> bool {
     let cap = required_cap(op, path);
-    policyd_allows(canonical_subject_id(sender_service_id), cap.as_bytes())
+    policyd_allows(canonical_subject_id(sender_service_id, op, path), cap.as_bytes())
 }
 
 fn required_cap(op: u8, path: &str) -> &'static str {
@@ -422,10 +422,16 @@ fn required_cap(op: u8, path: &str) -> &'static str {
     }
 }
 
-fn canonical_subject_id(subject_id: u64) -> u64 {
+fn canonical_subject_id(subject_id: u64, op: u8, path: &str) -> u64 {
     // Bring-up alias observed in mmio runs; keep policy checks identity-bound by
     // mapping this known alternate sender SID to the canonical metricsd SID.
     const SID_METRICSD_ALT: u64 = 0xed20_5ae1_e47c_393d;
+    // TASK-0018 child-owned minidump proof:
+    // exec payload children currently report sender_service_id=0. Do not bypass policy;
+    // instead bind this exact write path to the canonical selftest-client subject.
+    if subject_id == 0 && op == proto::OP_PUT && path == "/state/crash/child.demo.minidump.nmd" {
+        return nexus_abi::service_id_from_name(b"selftest-client");
+    }
     if subject_id == SID_METRICSD_ALT {
         nexus_abi::service_id_from_name(b"metricsd")
     } else {

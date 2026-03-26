@@ -6,33 +6,35 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 -->
 
 ## Task completion stop conditions (must satisfy all applicable)
-- [ ] All MUST Acceptance Criteria are implemented and proven.
-- [ ] All stated Security Invariants are enforced and have negative tests where applicable (`test_reject_*`).
-- [ ] No regressions against `.cursor/current_state.md` constraints/invariants.
-- [ ] Proof artifacts exist and are referenced in task/handoff docs (tests, markers, logs).
+- [x] All MUST Acceptance Criteria are implemented and proven.
+- [x] All stated Security Invariants are enforced and have negative tests where applicable (`test_reject_*`).
+- [x] No regressions against `.cursor/current_state.md` constraints/invariants.
+- [x] Proof artifacts exist and are referenced in task/handoff docs (tests, markers, logs).
 - [ ] For `tools/os2vm.sh` proof paths, typed summary artifacts are present and linked (`os2vm-summary-*.json` / `.txt`).
-- [ ] Header blocks and docs are updated where boundaries/contracts/proofs changed.
+- [x] Header blocks and docs are updated where boundaries/contracts/proofs changed.
 
 ## TASK-0018 class stop conditions (crashdumps v1)
-- [ ] v1 capture path is in-process only and kernel remains untouched.
-- [ ] Dump artifact path is normalized and constrained to `/state/crash/...`.
-- [ ] Dump framing is deterministic and bounded (no unbounded stack/code/full-memory capture).
-- [ ] Malformed/oversized/path-escape crashdump inputs are rejected fail-closed with deterministic behavior.
-- [ ] Crash event path is emitted with deterministic metadata (`build_id`, `dump_path`) where available.
-- [ ] Marker proofs are honest-green:
-  - [ ] `execd: minidump written`
-  - [ ] `SELFTEST: minidump ok`
-- [ ] Host-first proof is green:
-  - [ ] task-defined host minidump/symbolization proof command is green
-  - [ ] required negative tests are present and passing (`test_reject_*` for malformed/oversized/path/auth where applicable)
-- [ ] OS proof is green and sequential:
-  - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] v1 capture path is in-process only and kernel remains untouched.
+- [x] Dump artifact path is normalized and constrained to `/state/crash/...`.
+- [x] Dump framing is deterministic and bounded (no unbounded stack/code/full-memory capture).
+- [x] Malformed/oversized/path-escape crashdump inputs are rejected fail-closed with deterministic behavior.
+- [x] Crash event path is emitted with deterministic metadata (`build_id`, `dump_path`) where available.
+- [x] Marker proofs are honest-green:
+  - [x] `execd: minidump written`
+  - [x] `SELFTEST: minidump ok`
+- [x] Strict child-owned minidump write proof is present in QEMU evidence (`child: minidump start` with persisted `/state/crash/child.demo.minidump.nmd`).
+- [x] Host-first proof is green:
+  - [x] task-defined host minidump/symbolization proof command is green
+  - [x] required negative tests are present and passing (`test_reject_*` for malformed/oversized/path/auth where applicable)
+- [x] OS proof is green and sequential:
+  - [x] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - [ ] `tools/os2vm.sh` only if explicitly required by task scope
-- [ ] Build hygiene stays green when OS code is touched:
-  - [ ] `just dep-gate`
-  - [ ] `just diag-os`
-- [ ] No unresolved RED decision points remain in `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`.
-- [ ] No follow-on scope (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0142`, `TASK-0227`) was silently absorbed.
+- [x] Build hygiene stays green when OS code is touched:
+  - [x] `just dep-gate`
+  - [x] `just diag-os`
+- [x] No unresolved RED decision points remain in `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`.
+- [x] No follow-on scope (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0142`, `TASK-0227`) was silently absorbed.
+- [x] Phase-3 follow-up drift check is documented in TASK-0018 and RFC-0031.
 
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0017-class remote statefs RW ACL/audit stop conditions: use archived closeout evidence in `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`.

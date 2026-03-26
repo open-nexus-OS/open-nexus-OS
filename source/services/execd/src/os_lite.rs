@@ -3,6 +3,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use core::fmt;
@@ -16,7 +17,11 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_metrics::client::MetricsClient;
 use nexus_metrics::{DeterministicIdSource, SpanId};
 
-use demo_exit0::{DEMO_EXIT0_ELF, DEMO_EXIT42_ELF};
+use crash::{
+    deterministic_build_id, normalize_dump_path, validate_dump_path, write_dump_to_statefs,
+    MinidumpFrame,
+};
+use demo_exit0::{DEMO_EXIT0_ELF, DEMO_MINIDUMP_ELF};
 use exec_payloads::HELLO_ELF;
 use nexus_log;
 
@@ -159,16 +164,23 @@ impl State {
         match image_id {
             IMG_HELLO => "demo.hello",
             IMG_EXIT0 => "demo.exit0",
-            IMG_EXIT42 => "demo.exit42",
+            IMG_EXIT42 => "demo.minidump",
             _ => "unknown",
         }
     }
 
-    fn log_crash_via_nexus_log(&mut self, pid: u32, code: i32, name: &str) {
+    fn log_crash_via_nexus_log(
+        &mut self,
+        pid: u32,
+        code: i32,
+        name: &str,
+        build_id: &str,
+        dump_path: Option<&str>,
+    ) {
         // Best-effort: if sink-logd isn't routable, it will fall back to UART-only.
         // Keep the message bounded; sink-logd enforces v1 caps.
-        if name == "demo.exit42" && code == 42 {
-            // Selftest intentionally executes demo.exit42; keep test-all logs warning-free.
+        if name == "demo.minidump" && code == 42 {
+            // Selftest intentionally executes demo.minidump; keep test-all logs warning-free.
             nexus_log::info("execd", |line| {
                 line.text("crash pid=");
                 line.dec(pid as u64);
@@ -203,7 +215,7 @@ impl State {
         // independent of the global nexus-log sink wiring.
         let mut ok = false;
         for _ in 0..8 {
-            if append_crash_to_logd(pid, code, name).is_ok() {
+            if append_crash_to_logd(pid, code, name, build_id, dump_path).is_ok() {
                 ok = true;
                 break;
             }
@@ -217,7 +229,13 @@ impl State {
     }
 }
 
-fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
+fn append_crash_to_logd(
+    pid: u32,
+    code: i32,
+    name: &str,
+    build_id: &str,
+    dump_path: Option<&str>,
+) -> Result<(), ()> {
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
     const VERSION: u8 = 1;
@@ -239,7 +257,20 @@ fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
     if msg.len() > 256 {
         msg.truncate(256);
     }
-    let fields: &[u8] = b"";
+    let mut fields = Vec::with_capacity(192);
+    append_field(&mut fields, b"build_id=", build_id.as_bytes());
+    append_field_i32(&mut fields, b"code=", code);
+    if let Some(path) = dump_path {
+        append_field(&mut fields, b"dump_path=", path.as_bytes());
+    }
+    append_field(&mut fields, b"event=", b"crash.v1");
+    append_field(&mut fields, b"name=", name.as_bytes());
+    append_field_u32(&mut fields, b"pid=", pid);
+    append_field_u32(&mut fields, b"recent_count=", 0);
+    append_field_u64(&mut fields, b"recent_window_nsec=", 0);
+    if fields.len() > 512 {
+        fields.truncate(512);
+    }
 
     let mut frame = Vec::with_capacity(10 + scope.len() + msg.len() + fields.len());
     frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
@@ -249,7 +280,7 @@ fn append_crash_to_logd(pid: u32, code: i32, name: &str) -> Result<(), ()> {
     frame.extend_from_slice(&(fields.len() as u16).to_le_bytes());
     frame.extend_from_slice(scope);
     frame.extend_from_slice(&msg);
-    frame.extend_from_slice(fields);
+    frame.extend_from_slice(&fields);
 
     // Determinism: treat the crash append as fire-and-forget.
     //
@@ -329,6 +360,87 @@ fn push_i32_dec(out: &mut Vec<u8>, value: i32) {
     }
 }
 
+fn append_field(out: &mut Vec<u8>, key: &[u8], value: &[u8]) {
+    out.extend_from_slice(key);
+    out.extend_from_slice(value);
+    out.push(b'\n');
+}
+
+fn append_field_u32(out: &mut Vec<u8>, key: &[u8], value: u32) {
+    out.extend_from_slice(key);
+    push_u32_dec(out, value);
+    out.push(b'\n');
+}
+
+fn append_field_u64(out: &mut Vec<u8>, key: &[u8], mut value: u64) {
+    out.extend_from_slice(key);
+    let mut tmp = [0u8; 20];
+    let mut i = tmp.len();
+    if value == 0 {
+        out.push(b'0');
+        out.push(b'\n');
+        return;
+    }
+    while value != 0 && i != 0 {
+        i -= 1;
+        tmp[i] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    out.extend_from_slice(&tmp[i..]);
+    out.push(b'\n');
+}
+
+fn append_field_i32(out: &mut Vec<u8>, key: &[u8], value: i32) {
+    out.extend_from_slice(key);
+    push_i32_dec(out, value);
+    out.push(b'\n');
+}
+
+fn write_minidump_artifact(pid: u32, code: i32, name: &str, build_id: &str) -> Option<String> {
+    let ts = nsec().ok().unwrap_or(0);
+    let path = normalize_dump_path(ts, pid, name).ok()?;
+    let frame = MinidumpFrame {
+        timestamp_nsec: ts,
+        pid,
+        code,
+        name: String::from(name),
+        build_id: String::from(build_id),
+        pcs: Vec::new(),
+        stack_preview: Vec::new(),
+        code_preview: Vec::new(),
+    };
+    let bytes = frame.encode().ok()?;
+    if write_dump_to_statefs(path.as_str(), &bytes).is_err() {
+        return None;
+    }
+    emit_minidump_written(path.as_str());
+    Some(path)
+}
+
+fn emit_minidump_written(path: &str) {
+    emit_line_no_nl("execd: minidump written ");
+    for b in path.as_bytes().iter().copied() {
+        let _ = debug_putc(b);
+    }
+    let _ = debug_putc(b'\n');
+}
+
+#[must_use]
+fn verify_reported_minidump(path: &str, _pid: u32, code: i32, name: &str, build_id: &str) -> bool {
+    let _ = code;
+    if validate_dump_path(path).is_err() {
+        return false;
+    }
+    if deterministic_build_id(name).as_str() != build_id {
+        return false;
+    }
+    let mut suffix = Vec::with_capacity(name.len() + 5);
+    suffix.push(b'.');
+    suffix.extend_from_slice(name.as_bytes());
+    suffix.extend_from_slice(b".nmd");
+    path.as_bytes().ends_with(&suffix)
+}
+
 fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     // Request v1: [E, X, ver, op, image_id, stack_pages:u8, requester_len:u8, requester...]
     // Response:   [E, X, ver, op|0x80, status, pid:u32le]
@@ -353,8 +465,20 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                     let image_id =
                         state.children.iter().find(|c| c.pid == got_u32).map(|c| c.image_id);
                     let name = image_id.map(State::child_name).unwrap_or("unknown");
-                    emit_crash_marker(got_u32, code, name);
-                    state.log_crash_via_nexus_log(got_u32, code, name);
+                    // For minidump-managed payloads, crash publication is deferred to OP_REPORT_EXIT
+                    // so dump metadata can be validated before emitting success markers.
+                    if name != "demo.minidump" {
+                        let build_id = deterministic_build_id(name);
+                        let dump_path = write_minidump_artifact(got_u32, code, name, &build_id);
+                        emit_crash_marker(got_u32, code, name);
+                        state.log_crash_via_nexus_log(
+                            got_u32,
+                            code,
+                            name,
+                            &build_id,
+                            dump_path.as_deref(),
+                        );
+                    }
                 }
                 let mut out = Vec::with_capacity(13);
                 out.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_WAIT_PID | 0x80, STATUS_OK]);
@@ -379,17 +503,81 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     }
     if op == OP_REPORT_EXIT {
         // Report v1: [E,X,ver,OP, pid:u32le, code:i32le]
-        if frame.len() != 4 + 4 + 4 {
+        // Report v2: [E,X,ver,OP, pid:u32le, code:i32le, build_len:u8, path_len:u16le, build, path]
+        if frame.len() < 4 + 4 + 4 {
             return rsp(op, STATUS_MALFORMED, 0).to_vec();
         }
         let pid = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
         let code = i32::from_le_bytes([frame[8], frame[9], frame[10], frame[11]]);
+        let trusted_sender = service_id_from_name(b"selftest-client");
+        if !crate::crash_event_publish_allowed(
+            sender_service_id,
+            trusted_sender,
+            SID_SELFTEST_CLIENT_ALT,
+        ) {
+            return rsp(op, STATUS_DENIED, pid).to_vec();
+        }
+
+        let reported_meta = if frame.len() == 12 {
+            None
+        } else {
+            if frame.len() < 15 {
+                return rsp(op, STATUS_MALFORMED, pid).to_vec();
+            }
+            let build_len = frame[12] as usize;
+            let path_len = u16::from_le_bytes([frame[13], frame[14]]) as usize;
+            if build_len == 0
+                || build_len > 64
+                || path_len == 0
+                || path_len > 255
+                || frame.len() != 15 + build_len + path_len
+            {
+                return rsp(op, STATUS_MALFORMED, pid).to_vec();
+            }
+            let build_start = 15;
+            let build_end = build_start + build_len;
+            let path_start = build_end;
+            let path_end = path_start + path_len;
+            let build_id = match core::str::from_utf8(&frame[build_start..build_end]) {
+                Ok(v) => v,
+                Err(_) => return rsp(op, STATUS_MALFORMED, pid).to_vec(),
+            };
+            let dump_path = match core::str::from_utf8(&frame[path_start..path_end]) {
+                Ok(v) => v,
+                Err(_) => return rsp(op, STATUS_MALFORMED, pid).to_vec(),
+            };
+            if validate_dump_path(dump_path).is_err() {
+                return rsp(op, STATUS_DENIED, pid).to_vec();
+            }
+            Some((build_id, dump_path))
+        };
+
         let image_id = state.children.iter().find(|c| c.pid == pid).map(|c| c.image_id);
         if let Some(img) = image_id {
             if code != 0 {
                 let name = State::child_name(img);
+                let (build_id, dump_path) = if let Some((build_id, dump_path)) = reported_meta {
+                    if !verify_reported_minidump(dump_path, pid, code, name, build_id) {
+                        return rsp(op, STATUS_FAILED, pid).to_vec();
+                    }
+                    emit_minidump_written(dump_path);
+                    (String::from(build_id), Some(String::from(dump_path)))
+                } else if name == "demo.minidump" {
+                    // v1 minidump flow requires explicit metadata handoff for managed payloads.
+                    return rsp(op, STATUS_FAILED, pid).to_vec();
+                } else {
+                    let build_id = deterministic_build_id(name);
+                    let dump_path = write_minidump_artifact(pid, code, name, &build_id);
+                    (build_id, dump_path)
+                };
                 emit_crash_marker(pid, code, name);
-                state.log_crash_via_nexus_log(pid, code, name);
+                state.log_crash_via_nexus_log(
+                    pid,
+                    code,
+                    name,
+                    build_id.as_str(),
+                    dump_path.as_deref(),
+                );
             }
             return rsp(op, STATUS_OK, pid).to_vec();
         }
@@ -506,7 +694,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     let elf = match image_id {
         IMG_HELLO => HELLO_ELF,
         IMG_EXIT0 => DEMO_EXIT0_ELF,
-        IMG_EXIT42 => DEMO_EXIT42_ELF,
+        IMG_EXIT42 => DEMO_MINIDUMP_ELF,
         _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
     };
     let start_ns = nsec().ok().unwrap_or(0);

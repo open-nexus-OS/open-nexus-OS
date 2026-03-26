@@ -1,8 +1,8 @@
-# Current Handoff: TASK-0018 crashdumps v1 contract kickoff
+# Current Handoff: TASK-0018 crashdumps v1 implementation
 
 **Date**: 2026-03-26  
-**Status**: draft-prep active (task hardened, RFC seed created, implementation not started).  
-**Contract baseline**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (`Draft`)
+**Status**: implementation + proofs complete, Phase 3 (strict child-write + drift lock) documented, pending commit.  
+**Contract baseline**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (`In Review`)
 
 ---
 
@@ -10,19 +10,19 @@
 
 - `TASK-0017` closeout is archived:
   - `.cursor/handoff/archive/TASK-0017-dsoftbus-remote-statefs-rw.md`
-- `TASK-0018` was hardened to match repo discipline:
-  - structured follow-up links in header,
-  - explicit security section (threat model/invariants/DON'T DO),
-  - RED item resolved for v1 scope (in-process capture only; no ptrace-like requirement),
-  - host-vs-OS proof split clarified to avoid fake-green marker claims.
-- RFC seed created:
-  - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` (Draft)
-  - indexed in `docs/rfcs/README.md`.
+- `userspace/crash` now provides deterministic bounded v1 dump framing + path normalization and required reject-path tests.
+- `execd` crash flow now publishes deterministic crash metadata (`build_id`, `dump_path`) and enforces fail-closed publish authorization.
+- `selftest-client` now writes/verifies crash dump artifacts, publishes crash metadata, and proves `SELFTEST: minidump ok`.
+- strict child-owned write path is now proven end-to-end:
+  - child payload writes `/state/crash/child.demo.minidump.nmd`,
+  - `selftest-client` grants child `statefs` caps and reports located artifact metadata.
+- minidump marker honesty is hardened: write path includes read-back + decode verification before success markers.
+- `scripts/qemu-test.sh` marker ladder now includes `execd: minidump written` and `SELFTEST: minidump ok`.
+- Host symbolization proof crate `tools/minidump-host` added and green.
 
 ## Current focus
 
-- Start TASK-0018 implementation slice strictly inside its touched-path allowlist.
-- Keep contract-first behavior: bounded artifacts, deterministic event/marker semantics, host-first symbolization.
+- Keep TASK-0018 docs/SSOT in sync with proof evidence and preserve scope boundaries for follow-ons.
 
 ## Relevant contracts and linked work
 
@@ -41,14 +41,23 @@
 
 ## Immediate next slice
 
-1. Prepare implementation plan against TASK-0018 acceptance/stop conditions.
-2. Add v1 crashdump touched paths (`userspace/crash`, `execd`, `selftest-client`, host symbolization tooling/tests) incrementally.
-3. Keep follow-on scopes (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0227`) out of this implementation slice.
+1. Commit the Phase 3 completion slice.
+2. Open a dedicated identity-hardening follow-up slice (remove v1 proof-path subject mapping once child service identity is available).
+3. Keep follow-on scopes (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0142`, `TASK-0227`) out of this slice.
 
 ## Guardrails
 
 - Keep kernel untouched.
-- Keep v1 capture in-process only; no cross-process post-mortem claims.
+- Keep v1 capture/publish in-process only; no cross-process post-mortem claims.
 - Emit success markers only after real dump write/event publication.
 - Keep artifact size/path validation bounded and deterministic.
 - Maintain RFC/task progressive sync while implementation advances.
+
+## Proof snapshot
+
+- `cargo test -p crash -- --nocapture` ✅
+- `cargo test -p minidump-host -- --nocapture` ✅
+- `cargo test -p execd -- --nocapture` ✅
+- `just dep-gate` ✅
+- `just diag-os` ✅
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` ✅

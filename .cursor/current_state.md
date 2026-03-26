@@ -7,7 +7,7 @@ Keep it compact, explicit, and contract-oriented.
 -->
 
 ## Current architecture state
-- **last_decision**: move execution focus from `TASK-0017` closeout to `TASK-0018` contract preparation; harden task scope first, then seed RFC-0031 before implementation.
+- **last_decision**: complete `TASK-0018` Phase 3 with strict child-owned write proof and explicit follow-up drift lock before commit.
 - **rationale**:
   - crashdump v1 must remain kernel-unchanged and deterministic,
   - v1 must avoid drift with existing crash follow-ons (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0227`),
@@ -20,10 +20,10 @@ Keep it compact, explicit, and contract-oriented.
   - host-first symbolization; on-device DWARF remains out of v1 scope.
 
 ## Current focus (execution)
-- **active_task**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (Draft, hardened)
+- **active_task**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (In Review, implementation + proofs complete)
 - **seed_contract**:
   - `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
-  - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` (Draft)
+  - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` (In Review)
   - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
   - `docs/rfcs/RFC-0018-statefs-journal-format-v1.md`
 - **contract_dependencies**:
@@ -31,11 +31,12 @@ Keep it compact, explicit, and contract-oriented.
   - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
   - `scripts/qemu-test.sh`
   - `docs/testing/index.md`
-- **phase_now**: task hardening complete, RFC seed created, SSOT switched to TASK-0018 prep
-- **baseline_commit**: `01287ac` (latest pre-TASK-0018 setup commit)
+- **phase_now**: TASK-0018 Phase 3 complete; strict child-owned write proof + follow-up drift check documented in task/RFC/SSOT.
+- **baseline_commit**: `cb706e4` (prep commit noted in task kickoff)
 - **next_task_slice**:
-  - finalize plan/proof mapping for TASK-0018,
-  - start implementation only inside TASK-0018 touched-path allowlist.
+  - finalize TASK-0018 commit,
+  - open dedicated identity-hardening follow-up (remove v1 proof-path subject mapping once child service identity is available),
+  - keep crash follow-ons (`TASK-0048`/`TASK-0049`/`TASK-0141`/`TASK-0142`/`TASK-0227`) as separate scope.
 
 ## Last completed
 - `TASK-0017` was archived for handoff continuity:
@@ -43,11 +44,12 @@ Keep it compact, explicit, and contract-oriented.
   - status: in review with completed proofs and commits.
 
 ## Proof baseline currently green
-- `just test-all`
+- `cargo test -p crash -- --nocapture`
+- `cargo test -p minidump-host -- --nocapture`
+- `cargo test -p execd -- --nocapture`
 - `just dep-gate`
 - `just diag-os`
-- `just test-dsoftbus-2vm`
-- `make initial-setup`
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 
 ## Active invariants (must hold)
 - **security**

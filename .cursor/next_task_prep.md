@@ -19,10 +19,10 @@ Update during wrap-up so a new session can start without drift.
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
   - `docs/testing/index.md`
   - `scripts/qemu-test.sh`
-- **first_action**: execute TASK-0018 contract-first with bounded in-process capture and host-first symbolization proofs.
+- **first_action**: commit TASK-0018 Phase 3 completion and open identity-hardening follow-up (no scope leak into crash v2 tasks).
 
 ## Start slice (now)
-- **slice_name**: TASK-0018 crashdump v1 kickoff
+- **slice_name**: TASK-0018 Phase 3 closeout (strict child-write + drift lock)
 - **target_file**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
 - **must_cover**:
   - deterministic and bounded in-process crashdump capture
@@ -54,13 +54,14 @@ Update during wrap-up so a new session can start without drift.
   - threat model, invariants, DON'T DO, and required negative tests are explicit.
 
 ## Dependencies & blockers
-- **blocked_by**: none hard for contract/host-first start
+- **blocked_by**: none (proof baseline already green)
 - **prereqs_ready**: YES
   - `TASK-0006` and `TASK-0009` are completed and available.
   - canonical QEMU harness and observability/state contracts exist.
 
 ## Decision
-- **status**: READY (TASK-0018 implementation kickoff)
+- **status**: READY (TASK-0018 Phase 3 commit)
 - **notes**:
-  - keep v1 symbolization proof host-first; do not claim OS symbolization in this slice.
-  - keep all success markers tied to real artifact/event outcomes only.
+  - keep v1 symbolization proof host-first; do not claim OS DWARF symbolization.
+  - keep follow-on scope (`TASK-0048`/`TASK-0049`/`TASK-0141`/`TASK-0142`/`TASK-0227`) out of the commit.
+  - identity-hardening cleanup (remove proof-path subject mapping) is a separate follow-up slice.

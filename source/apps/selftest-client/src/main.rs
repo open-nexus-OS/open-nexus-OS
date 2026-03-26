@@ -68,6 +68,7 @@ mod os_lite {
     extern crate alloc;
 
     use alloc::collections::VecDeque;
+    use alloc::string::String;
     use alloc::vec::Vec;
 
     use core::cell::Cell;
@@ -98,6 +99,7 @@ mod os_lite {
     use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address};
     use statefs::protocol as statefs_proto;
     use statefs::StatefsError;
+    use crash::{deterministic_build_id, MinidumpFrame};
 
     use crate::markers;
     use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_i64, emit_u64};
@@ -1108,6 +1110,63 @@ mod os_lite {
             .send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100)))
             .map_err(|_| ())?;
         execd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())
+    }
+
+    fn execd_report_exit_with_dump_status(
+        execd: &KernelClient,
+        pid: Pid,
+        code: i32,
+        build_id: &str,
+        dump_path: &str,
+    ) -> core::result::Result<u8, ()> {
+        const MAGIC0: u8 = b'E';
+        const MAGIC1: u8 = b'X';
+        const VERSION: u8 = 1;
+        const OP_REPORT_EXIT: u8 = 2;
+        const STATUS_OK: u8 = 0;
+        if build_id.is_empty() || build_id.len() > 64 || dump_path.is_empty() || dump_path.len() > 255 {
+            return Err(());
+        }
+
+        let mut req = Vec::with_capacity(15 + build_id.len() + dump_path.len());
+        req.push(MAGIC0);
+        req.push(MAGIC1);
+        req.push(VERSION);
+        req.push(OP_REPORT_EXIT);
+        req.extend_from_slice(&(pid as u32).to_le_bytes());
+        req.extend_from_slice(&code.to_le_bytes());
+        req.push(build_id.len() as u8);
+        req.extend_from_slice(&(dump_path.len() as u16).to_le_bytes());
+        req.extend_from_slice(build_id.as_bytes());
+        req.extend_from_slice(dump_path.as_bytes());
+
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(&clock, execd, &req, core::time::Duration::from_millis(500))
+            .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
+            .map_err(|_| ())?;
+        if rsp.len() != 9 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+            return Err(());
+        }
+        if rsp[3] != (OP_REPORT_EXIT | 0x80) {
+            return Err(());
+        }
+        Ok(rsp[4])
+    }
+
+    fn execd_report_exit_with_dump(
+        execd: &KernelClient,
+        pid: Pid,
+        code: i32,
+        build_id: &str,
+        dump_path: &str,
+    ) -> core::result::Result<(), ()> {
+        const STATUS_OK: u8 = 0;
+        let status = execd_report_exit_with_dump_status(execd, pid, code, build_id, dump_path)?;
+        if status != STATUS_OK {
+            return Err(());
+        }
+        Ok(())
     }
 
     fn policy_check(client: &KernelClient, subject: &str) -> core::result::Result<bool, ()> {
@@ -2160,6 +2219,70 @@ mod os_lite {
         Ok(())
     }
 
+    fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Result<bool, ()> {
+        let list = statefs_proto::encode_list_request("/state/crash/", 16).map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &list)?;
+        let keys = statefs_proto::decode_list_response(&rsp).map_err(|_| ())?;
+        Ok(!keys.is_empty())
+    }
+
+    fn grant_statefs_caps_to_child(statefs: &KernelClient, child_pid: Pid) -> core::result::Result<(), ()> {
+        const CHILD_STATEFS_SEND_SLOT: u32 = 7;
+        const CHILD_STATEFS_RECV_SLOT: u32 = 8;
+        let (send_slot, recv_slot) = statefs.slots();
+        let send_clone = nexus_abi::cap_clone(send_slot).map_err(|_| ())?;
+        nexus_abi::cap_transfer_to_slot(
+            child_pid,
+            send_clone,
+            nexus_abi::Rights::SEND,
+            CHILD_STATEFS_SEND_SLOT,
+        )
+        .map_err(|_| ())?;
+        let recv_clone = nexus_abi::cap_clone(recv_slot).map_err(|_| ())?;
+        nexus_abi::cap_transfer_to_slot(
+            child_pid,
+            recv_clone,
+            nexus_abi::Rights::RECV,
+            CHILD_STATEFS_RECV_SLOT,
+        )
+        .map_err(|_| ())?;
+        Ok(())
+    }
+
+    fn locate_minidump_for_crash(
+        client: &KernelClient,
+        _pid: Pid,
+        code: i32,
+        name: &str,
+    ) -> core::result::Result<(String, String), ()> {
+        let keys = {
+            let list = statefs_proto::encode_list_request("/state/crash/", 64).map_err(|_| ())?;
+            let rsp = statefs_send_recv(client, &list)?;
+            statefs_proto::decode_list_response(&rsp).map_err(|_| ())?
+        };
+        let expected_build_id = deterministic_build_id(name);
+        for key in keys {
+            let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key.as_str())
+                .map_err(|_| ())?;
+            let rsp = statefs_send_recv(client, &get)?;
+            let dump_bytes = match statefs_proto::decode_get_response(&rsp) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let decoded = match MinidumpFrame::decode(dump_bytes.as_slice()) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if decoded.code == code
+                && decoded.name.as_str() == name
+                && decoded.build_id.as_str() == expected_build_id.as_str()
+            {
+                return Ok((decoded.build_id, key));
+            }
+        }
+        Err(())
+    }
+
     fn bootctl_persist_check() -> core::result::Result<(), ()> {
         const BOOTCTL_KEY: &str = "/state/boot/bootctl.v1";
         const BOOTCTL_VERSION: u8 = 1;
@@ -2788,18 +2911,52 @@ mod os_lite {
         emit_line_with_pid_status(exit_pid, status);
         emit_line("SELFTEST: child exit ok");
 
-        // TASK-0006: Crash-report proof. Spawn a deterministic non-zero exit (42), then
-        // verify execd appended a crash record into logd (so we don't rely on UART scraping).
+        // TASK-0018: Minidump v1 proof. Spawn a deterministic non-zero exit (42), then
+        // verify execd appended crash metadata and wrote a bounded minidump path.
+        let statefsd = route_with_retry("statefsd").ok();
         let crash_pid = execd_spawn_image(&execd_client, "selftest-client", 3)?;
+        if let Some(statefsd) = statefsd.as_ref() {
+            if grant_statefs_caps_to_child(statefsd, crash_pid).is_err() {
+                emit_line("SELFTEST: minidump cap grant FAIL");
+            }
+        }
         let crash_status = wait_for_pid(&execd_client, crash_pid).unwrap_or(-1);
         emit_line_with_pid_status(crash_pid, crash_status);
+        let mut dump_written = false;
+        if let Some(statefsd) = statefsd.as_ref() {
+            if let Ok((build_id, dump_path)) =
+                locate_minidump_for_crash(statefsd, crash_pid, crash_status, "demo.minidump")
+            {
+                if execd_report_exit_with_dump(
+                    &execd_client,
+                    crash_pid,
+                    crash_status,
+                    build_id.as_str(),
+                    dump_path.as_str(),
+                )
+                .is_ok()
+                {
+                    dump_written = true;
+                } else {
+                    emit_line("SELFTEST: minidump report FAIL");
+                }
+            } else {
+                emit_line("SELFTEST: minidump locate FAIL");
+            }
+        } else {
+            emit_line("SELFTEST: minidump route FAIL");
+        }
         // Give cooperative scheduling a deterministic window to deliver the crash append to logd.
         for _ in 0..256 {
             let _ = yield_();
         }
         let saw_crash = logd_query_contains_since_paged(&logd, 0, b"crash").unwrap_or(false);
-        let saw_name = logd_query_contains_since_paged(&logd, 0, b"demo.exit42").unwrap_or(false);
-        let crash_logged = saw_crash && saw_name;
+        let saw_name = logd_query_contains_since_paged(&logd, 0, b"demo.minidump").unwrap_or(false);
+        let saw_event = logd_query_contains_since_paged(&logd, 0, b"event=crash.v1").unwrap_or(false);
+        let saw_build_id = logd_query_contains_since_paged(&logd, 0, b"build_id=").unwrap_or(false);
+        let saw_dump_path =
+            logd_query_contains_since_paged(&logd, 0, b"dump_path=/state/crash/").unwrap_or(false);
+        let crash_logged = saw_crash && saw_name && saw_event && saw_build_id && saw_dump_path;
         if crash_status == 42 && crash_logged {
             emit_line("SELFTEST: crash report ok");
         } else {
@@ -2807,9 +2964,42 @@ mod os_lite {
                 emit_line("SELFTEST: crash report missing 'crash'");
             }
             if !saw_name {
-                emit_line("SELFTEST: crash report missing 'demo.exit42'");
+                emit_line("SELFTEST: crash report missing 'demo.minidump'");
+            }
+            if !saw_event {
+                emit_line("SELFTEST: crash report missing 'event=crash.v1'");
+            }
+            if !saw_build_id {
+                emit_line("SELFTEST: crash report missing 'build_id='");
+            }
+            if !saw_dump_path {
+                emit_line("SELFTEST: crash report missing 'dump_path=/state/crash/'");
             }
             emit_line("SELFTEST: crash report FAIL");
+        }
+        let dump_present = route_with_retry("statefsd")
+            .ok()
+            .and_then(|statefsd| statefs_has_crash_dump(&statefsd).ok())
+            .unwrap_or(false);
+        if crash_status == 42 && dump_written && crash_logged && dump_present {
+            emit_line("SELFTEST: minidump ok");
+        } else {
+            emit_line("SELFTEST: minidump FAIL");
+        }
+
+        // Negative Soll-Verhalten: forged metadata publish must be rejected fail-closed.
+        let forged_status = execd_report_exit_with_dump_status(
+            &execd_client,
+            crash_pid,
+            crash_status,
+            "binvalid",
+            "/state/crash/forged.demo.minidump.nmd",
+        )
+        .unwrap_or(0xff);
+        if forged_status != 0 {
+            emit_line("SELFTEST: minidump forged metadata rejected");
+        } else {
+            emit_line("SELFTEST: minidump forged metadata FAIL");
         }
 
         // Security: spoofed requester must be denied because execd binds identity to sender_service_id.

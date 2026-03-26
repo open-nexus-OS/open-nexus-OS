@@ -17,6 +17,10 @@ pub const DEMO_EXIT0_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo
 /// Prebuilt ELF payload for a deterministic non-zero exit (code 42).
 pub const DEMO_EXIT42_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-exit42.elf"));
 
+/// Prebuilt ELF payload for minidump-path crash proof (code 42).
+pub const DEMO_MINIDUMP_ELF: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/demo-minidump.elf"));
+
 /// Manifest used by selftests when staging `demo.exit0` through bundlemgrd.
 pub const DEMO_EXIT0_MANIFEST_TOML: &str = r#"name = \"demo.exit0\"
 version = \"0.0.1\"

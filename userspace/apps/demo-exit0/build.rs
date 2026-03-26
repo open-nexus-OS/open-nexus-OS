@@ -7,7 +7,7 @@
 //! API_STABILITY: Stable
 //! ADR: docs/adr/0007-executable-payloads-architecture.md
 
-use std::{env, fs, path::PathBuf};
+use std::{cell::Cell, env, fs, path::PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -22,6 +22,10 @@ fn main() {
     let exit42 = build_elf(&build_text(42, b"child: exit42 start\n\0"));
     let out_path = out_dir.join("demo-exit42.elf");
     fs::write(&out_path, exit42).expect("write demo-exit42");
+
+    let minidump = build_elf(&build_minidump_text());
+    let out_path = out_dir.join("demo-minidump.elf");
+    fs::write(&out_path, minidump).expect("write demo-minidump");
 }
 
 fn build_elf(text: &[u8]) -> Vec<u8> {
@@ -138,6 +142,179 @@ fn build_text(exit_code: i32, msg: &[u8]) -> Vec<u8> {
     text
 }
 
+fn build_minidump_text() -> Vec<u8> {
+    const SYSCALL_YIELD: i32 = 0;
+    const SYSCALL_EXIT: i32 = 11;
+    const SYSCALL_IPC_SEND_V1: i32 = 14;
+    const SYSCALL_DEBUG_PUTC: i32 = 16;
+    const SYSCALL_IPC_RECV_V1: i32 = 18;
+    const STACK_SCRATCH_SIZE: i32 = 64;
+    const HDR_RSP_OFF: i32 = 0;
+    const STATEFS_RSP_OFF: i32 = 16;
+    const RSP_MAX: i32 = 32;
+    const STATEFS_SEND_SLOT: i32 = 7;
+    const STATEFS_RECV_SLOT: i32 = 8;
+
+    const MSG: &[u8] = b"child: minidump start\n\0";
+    const DUMP_NAME: &[u8] = b"demo.minidump";
+    const DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
+    let build_id = deterministic_build_id_bytes(DUMP_NAME);
+    let dump_value = build_minidump_value(DUMP_NAME, &build_id);
+    let put_req = build_statefs_put_request(DUMP_PATH.as_bytes(), &dump_value);
+
+    let mut data = Vec::new();
+    let msg_off = 0usize;
+    data.extend_from_slice(MSG);
+    while (data.len() & 0x3) != 0 {
+        data.push(0);
+    }
+    let put_hdr_off = data.len();
+    data.extend_from_slice(&build_msg_header(put_req.len() as u32));
+    let put_req_off = data.len();
+    data.extend_from_slice(&put_req);
+
+    let mut ins = Vec::<u32>::new();
+    let ins_count = Cell::new(0usize);
+    let mut emit = |op: u32| {
+        ins.push(op);
+        ins_count.set(ins_count.get() + 1);
+    };
+
+    emit(encode_auipc(8, 0)); // s0 = code pc
+    let patch_data_base_idx = ins_count.get();
+    emit(0); // addi s0, s0, data_off
+    let patch_msg_ptr_idx = ins_count.get();
+    emit(0); // addi s4, s0, msg_off
+
+    let loop_idx = ins_count.get();
+    emit(encode_lbu(10, 20, 0)); // a0 = *s4
+    let beq_done_print_idx = ins_count.get();
+    emit(0); // beq a0, x0, done_print
+    emit(encode_addi(17, 0, SYSCALL_DEBUG_PUTC));
+    emit(0x00000073); // ecall
+    emit(encode_addi(20, 20, 1)); // s4++
+    let jal_loop_idx = ins_count.get();
+    emit(0); // jal x0, loop
+    let done_print_idx = ins_count.get();
+
+    emit(encode_addi(2, 2, -STACK_SCRATCH_SIZE)); // sp -= scratch
+
+    // Give execd a bounded window to transfer statefs slots into 7/8.
+    emit(encode_addi(19, 0, 64)); // s3 retries
+    let yield_loop_idx = ins_count.get();
+    emit(encode_addi(17, 0, SYSCALL_YIELD));
+    emit(0x00000073); // ecall
+    emit(encode_addi(19, 19, -1));
+    let beq_yield_done_idx = ins_count.get();
+    emit(0); // beq s3, x0, after_yield
+    let jal_yield_loop_idx = ins_count.get();
+    emit(0); // jal x0, yield_loop
+    let after_yield_idx = ins_count.get();
+
+    // statefs PUT via transferred slots 7/8
+    emit(encode_addi(10, 0, STATEFS_SEND_SLOT));
+    let put_send_hdr_ptr_idx = ins_count.get();
+    emit(0); // a1 = &put hdr
+    let put_send_req_ptr_idx = ins_count.get();
+    emit(0); // a2 = &put req
+    emit(encode_addi(13, 0, put_req.len() as i32));
+    emit(encode_addi(14, 0, 0));
+    emit(encode_addi(15, 0, 0));
+    emit(encode_addi(17, 0, SYSCALL_IPC_SEND_V1));
+    emit(0x00000073); // ecall
+    let blt_put_send_fail_idx = ins_count.get();
+    emit(0); // blt a0, x0, fail
+
+    emit(encode_addi(10, 0, STATEFS_RECV_SLOT));
+    emit(encode_addi(11, 2, HDR_RSP_OFF));
+    emit(encode_addi(12, 2, STATEFS_RSP_OFF));
+    emit(encode_addi(13, 0, RSP_MAX));
+    emit(encode_addi(14, 0, 0));
+    emit(encode_addi(15, 0, 0));
+    emit(encode_addi(17, 0, SYSCALL_IPC_RECV_V1));
+    emit(0x00000073); // ecall
+    let blt_put_recv_fail_idx = ins_count.get();
+    emit(0); // blt a0, x0, fail
+    emit(encode_lbu(6, 2, STATEFS_RSP_OFF));
+    emit(encode_addi(7, 0, b'S' as i32));
+    let bne_put_magic0_fail_idx = ins_count.get();
+    emit(0);
+    emit(encode_lbu(6, 2, STATEFS_RSP_OFF + 1));
+    emit(encode_addi(7, 0, b'F' as i32));
+    let bne_put_magic1_fail_idx = ins_count.get();
+    emit(0);
+    emit(encode_lbu(6, 2, STATEFS_RSP_OFF + 2));
+    emit(encode_addi(7, 0, 1));
+    let bne_put_version_fail_idx = ins_count.get();
+    emit(0);
+    emit(encode_lbu(6, 2, STATEFS_RSP_OFF + 3));
+    emit(encode_addi(7, 0, 0x81));
+    let bne_put_op_fail_idx = ins_count.get();
+    emit(0);
+    emit(encode_lbu(6, 2, STATEFS_RSP_OFF + 4));
+    emit(encode_addi(7, 0, 0));
+    let bne_put_status_fail_idx = ins_count.get();
+    emit(0);
+
+    emit(encode_addi(10, 0, 42)); // success exit
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073); // ecall
+    emit(0x0000006f); // jal x0, 0
+
+    let fail_put_send_idx = ins_count.get();
+    emit(encode_addi(10, 0, 33));
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073); // ecall
+    emit(0x0000006f); // jal x0, 0
+
+    let fail_put_recv_idx = ins_count.get();
+    emit(encode_addi(10, 0, 34));
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073); // ecall
+    emit(0x0000006f); // jal x0, 0
+
+    let code_size = ins_count.get() * 4;
+    assert!(code_size < 2048, "minidump payload code too large");
+
+    ins[patch_data_base_idx] = encode_addi(8, 8, code_size as i32);
+    ins[patch_msg_ptr_idx] = encode_addi(20, 8, msg_off as i32);
+
+    let beq_done_off = ((done_print_idx as i32 - beq_done_print_idx as i32) * 4) as i32;
+    ins[beq_done_print_idx] = encode_beq(10, 0, beq_done_off);
+    let jal_loop_off = ((loop_idx as i32 - jal_loop_idx as i32) * 4) as i32;
+    ins[jal_loop_idx] = encode_jal(0, jal_loop_off);
+    let beq_yield_done_off = ((after_yield_idx as i32 - beq_yield_done_idx as i32) * 4) as i32;
+    ins[beq_yield_done_idx] = encode_beq(19, 0, beq_yield_done_off);
+    let jal_yield_loop_off = ((yield_loop_idx as i32 - jal_yield_loop_idx as i32) * 4) as i32;
+    ins[jal_yield_loop_idx] = encode_jal(0, jal_yield_loop_off);
+
+    ins[put_send_hdr_ptr_idx] = encode_addi(11, 8, put_hdr_off as i32);
+    ins[put_send_req_ptr_idx] = encode_addi(12, 8, put_req_off as i32);
+
+    let patch_fail_branch = |ins: &mut [u32], idx: usize, target: usize| {
+        let off = ((target as i32 - idx as i32) * 4) as i32;
+        ins[idx] = encode_blt(10, 0, off);
+    };
+    patch_fail_branch(&mut ins, blt_put_send_fail_idx, fail_put_send_idx);
+    patch_fail_branch(&mut ins, blt_put_recv_fail_idx, fail_put_recv_idx);
+    let patch_bne_fail = |ins: &mut [u32], idx: usize, target: usize| {
+        let off = ((target as i32 - idx as i32) * 4) as i32;
+        ins[idx] = encode_bne(6, 7, off);
+    };
+    patch_bne_fail(&mut ins, bne_put_magic0_fail_idx, fail_put_recv_idx);
+    patch_bne_fail(&mut ins, bne_put_magic1_fail_idx, fail_put_recv_idx);
+    patch_bne_fail(&mut ins, bne_put_version_fail_idx, fail_put_recv_idx);
+    patch_bne_fail(&mut ins, bne_put_op_fail_idx, fail_put_recv_idx);
+    patch_bne_fail(&mut ins, bne_put_status_fail_idx, fail_put_recv_idx);
+
+    let mut text = Vec::with_capacity(code_size + data.len());
+    for op in ins {
+        text.extend_from_slice(&op.to_le_bytes());
+    }
+    text.extend_from_slice(&data);
+    text
+}
+
 fn push(out: &mut Vec<u8>, instr: u32) {
     out.extend_from_slice(&instr.to_le_bytes());
 }
@@ -186,4 +363,67 @@ fn encode_jal(rd: u8, offset: i32) -> u32 {
     let bit11 = ((imm >> 11) & 0x1) << 20;
     let bits19_12 = ((imm >> 12) & 0xff) << 12;
     bit20 | bits19_12 | bit11 | bits10_1 | ((rd as u32) << 7) | 0x6f
+}
+
+fn encode_blt(rs1: u8, rs2: u8, offset: i32) -> u32 {
+    encode_branch(0b100, rs1, rs2, offset)
+}
+
+fn encode_bne(rs1: u8, rs2: u8, offset: i32) -> u32 {
+    encode_branch(0b001, rs1, rs2, offset)
+}
+
+fn build_msg_header(len: u32) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    out[12..16].copy_from_slice(&len.to_le_bytes());
+    out
+}
+
+fn deterministic_build_id_bytes(name: &[u8]) -> Vec<u8> {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in name {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    let mut out = Vec::with_capacity(17);
+    out.push(b'b');
+    for shift in (0..16).rev() {
+        let nibble = ((h >> (shift * 4)) & 0xf) as u8;
+        out.push(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+    }
+    out
+}
+
+fn build_minidump_value(name: &[u8], build_id: &[u8]) -> Vec<u8> {
+    let header_len = 32usize;
+    let total_len = header_len + build_id.len() + name.len();
+    let mut out = Vec::with_capacity(total_len);
+    out.extend_from_slice(b"NMD1");
+    out.push(1); // version
+    out.push(build_id.len() as u8);
+    out.push(name.len() as u8);
+    out.push(0); // pc_count
+    out.extend_from_slice(&0u16.to_le_bytes()); // stack_len
+    out.extend_from_slice(&0u16.to_le_bytes()); // code_len
+    out.extend_from_slice(&0u32.to_le_bytes()); // pid (v1 demo payload keeps fixed pid=0)
+    out.extend_from_slice(&42i32.to_le_bytes()); // exit code
+    out.extend_from_slice(&0u64.to_le_bytes()); // timestamp
+    out.extend_from_slice(&0u16.to_le_bytes()); // reserved
+    out.extend_from_slice(&(total_len as u16).to_le_bytes());
+    out.extend_from_slice(build_id);
+    out.extend_from_slice(name);
+    out
+}
+
+fn build_statefs_put_request(key: &[u8], value: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(10 + key.len() + value.len());
+    out.push(b'S');
+    out.push(b'F');
+    out.push(1); // protocol version
+    out.push(1); // OP_PUT
+    out.extend_from_slice(&(key.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(key);
+    out.extend_from_slice(value);
+    out
 }

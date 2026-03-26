@@ -26,6 +26,7 @@ os-lite = [
     "nexus-metrics/os-lite",
     "dep:exec-payloads",
     "dep:demo-exit0",
+    "dep:crash",
 ]
 
 [lib]
@@ -43,6 +44,7 @@ nexus-loader = { path = "../../../userspace/nexus-loader", optional = true }
 capnp = { version = "0.24", optional = true }
 thiserror = { version = "1", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+crash = { path = "../../../userspace/crash", optional = true, default-features = false, features = ["os-lite"] }
 
 [[bin]]
 name = "execd"

@@ -1,6 +1,6 @@
 ---
 title: TASK-0018 Crashdumps & Symbolization v1 (OS): deterministic in-process minidumps + host symbolization + /state export
-status: Draft
+status: In Review
 owner: @runtime
 created: 2025-12-22
 links:
@@ -103,7 +103,7 @@ This task does **not** assume:
 
 - **RED resolved (contract decision, no blocker for v1)**:
   - **No ptrace/debug syscall surface**: `execd` cannot reliably read dead child regs/stack today.
-  - **Decision**: v1 uses **in-process capture only** (the crashing process writes its own bounded dump).
+  - **Decision**: v1 uses **in-process capture/publish only** (no cross-process memory/register scraping; bounded dump bytes come from trusted runtime context).
   - **Escalation path**: cross-process post-mortem capture requires a separate kernel ABI task (out of scope).
 - **YELLOW (risky / likely drift / needs follow-up)**:
   - DWARF symbolization on OS may be too heavy initially. v1 should symbolize on host and keep OS dumps as raw PCs + build-id.
@@ -155,10 +155,54 @@ Notes:
 - `userspace/statefs/` (client for writing dumps under `/state/crash/...`)
 - `source/services/execd/` (emit crash event + “minidump written” marker when a dump is present)
 - `source/apps/selftest-client/` (trigger controlled crash and verify markers)
-- `userspace/apps/` (add `demo-panic` / `demo-abort` payload)
+- `userspace/apps/` (add deterministic non-zero crash payload for minidump proof)
 - `tools/` (host symbolizer tool / tests)
 - `scripts/qemu-test.sh`
 - `docs/observability/`
+
+## Implementation status (2026-03-26)
+
+- `userspace/crash` implemented with deterministic v1 framing (`NMD1`), path normalization under `/state/crash/...`, and bounded reject-path tests.
+- `execd` crash flow emits structured `crash.v1` fields including `build_id` and `dump_path` when a dump path is available.
+- Trusted crash publish path is hardened fail-closed (`test_reject_unauthenticated_crash_event_publish`) and supports deterministic metadata handoff.
+- `selftest-client` writes/validates crash dumps and publishes deterministic crash metadata to `execd`, then verifies:
+  - `execd: minidump written <path>`
+  - `SELFTEST: crash report ok`
+  - `SELFTEST: minidump ok`
+- Marker honesty hardening: minidump success path now requires read-back + decode verification before `SELFTEST: minidump ok`.
+- `execd` validates reported minidump metadata against real persisted dump content before emitting `execd: minidump written`.
+- Host symbolization proof added via `tools/minidump-host` with deterministic PC->`fn/file:line` test coverage.
+- **Phase 3 complete**: strict child-owned write proof path validated.
+  - `demo.minidump` child writes `/state/crash/child.demo.minidump.nmd` itself.
+  - `selftest-client` transfers `statefs` caps to the child, then locates and reports the artifact metadata.
+  - `statefsd` keeps policy authority and avoids broad bypasses; the v1 proof path is identity-bound and narrowly scoped.
+
+## Phase 3: follow-up drift check (2026-03-26)
+
+Drift was checked against all header follow-up tasks before this phase was documented.
+
+- `TASK-0048` (host pipeline `nxsym`/`.nxcd`/`nx crash`): **no drift**
+  - no `.nxcd` or `nxsym` contract introduced in v1 implementation,
+  - no host v2 format/tooling scope absorbed.
+- `TASK-0049` (OS `crashd` pipeline): **no drift**
+  - no `crashd` daemon introduced,
+  - no retention/GC or OS symbolization scope absorbed into v1.
+- `TASK-0141` (export/redaction/notify): **no drift**
+  - no notification/export API introduced here,
+  - v1 still focuses on artifact + event proof only.
+- `TASK-0142` (Problem Reporter UI): **no drift**
+  - no UI work or reporter surface added.
+- `TASK-0227` (`nx diagnose` bundles): **no drift**
+  - no bugreport bundle/container orchestration added in v1.
+
+### Proof evidence (green)
+
+- `cargo test -p crash -- --nocapture`
+- `cargo test -p minidump-host -- --nocapture`
+- `cargo test -p execd -- --nocapture`
+- `just dep-gate`
+- `just diag-os`
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 
 ## Plan (small PRs)
 

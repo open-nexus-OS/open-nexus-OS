@@ -1,6 +1,6 @@
 # RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization
 
-- Status: Draft
+- Status: In Review
 - Owners: @runtime @reliability @tools-team
 - Created: 2026-03-26
 - Last Updated: 2026-03-26
@@ -17,9 +17,10 @@
 
 ## Status at a Glance
 
-- **Phase 0 (v1 contract and host format proof)**: 🟨
-- **Phase 1 (OS in-process capture + event path)**: ⬜
-- **Phase 2 (hardening + follow-on handoff boundaries)**: ⬜
+- **Phase 0 (v1 contract and host format proof)**: ✅
+- **Phase 1 (OS in-process capture + event path)**: ✅
+- **Phase 2 (hardening + follow-on handoff boundaries)**: ✅
+- **Phase 3 (strict child-owned write proof + drift lock vs follow-ups)**: ✅
 
 Definition:
 
@@ -46,7 +47,7 @@ This RFC is a design seed and contract for crashdump v1.
 
 ## Context
 
-Open Nexus OS needs deterministic crash artifacts without kernel changes. Current platform constraints do not allow `execd` to read dead child registers/stack reliably after process exit. A v1 path must therefore rely on bounded in-process capture and host-side symbolization while still emitting auditable crash events in the OS flow.
+Open Nexus OS needs deterministic crash artifacts without kernel changes. Current platform constraints do not allow `execd` to read dead child registers/stack reliably after process exit. v1 therefore relies on bounded in-process capture/publish from trusted runtime context and host-side symbolization while still emitting auditable crash events in the OS flow.
 
 ## Goals
 
@@ -78,11 +79,40 @@ Open Nexus OS needs deterministic crash artifacts without kernel changes. Curren
 - **Symbolization model**: host-side DWARF symbolization maps PCs from dump artifacts to `fn/file:line` for matching build-id binaries.
 - **Versioning**: v1 dump format is version-tagged; incompatible extensions move to follow-on tasks/RFCs.
 
+### Implemented v1 shape (2026-03-26)
+
+- Deterministic dump framing implemented in `userspace/crash` (`NMD1`, bounded caps, reject-path tests).
+- Deterministic path normalization implemented under `/state/crash/<ts>.<pid>.<name>.nmd`.
+- Crash metadata publish path hardened in `execd`:
+  - fail-closed unauthenticated publish reject,
+  - crash event fields include `event=crash.v1`, `pid`, `code`, `name`, `recent_count`, `recent_window_nsec`,
+  - `build_id`/`dump_path` included when available.
+- Marker honesty hardening:
+  - `selftest-client` verifies dump write via read-back + decode before asserting `SELFTEST: minidump ok`,
+  - `execd` validates reported `build_id`/`dump_path` against the persisted minidump frame before emitting `execd: minidump written`.
+- QEMU marker ladder includes:
+  - `execd: minidump written`
+  - `SELFTEST: minidump ok`
+- Host symbolization proof implemented in `tools/minidump-host` (`PC -> fn/file:line`).
+
 ### Phases / milestones (contract-level)
 
 - **Phase 0**: lock v1 artifact/event contract and host deterministic format checks.
 - **Phase 1**: implement OS in-process capture + event path + honest-green markers.
 - **Phase 2**: harden reject paths and freeze handoff boundaries to v2 tasks.
+- **Phase 3**: prove strict child-owned dump write path and re-check follow-up boundaries for no-drift.
+
+### Phase 3 drift lock (2026-03-26)
+
+Before finalizing Phase 3, follow-up task contracts were cross-checked:
+
+- `TASK-0048`: no host-v2 symbol/index/container scope absorbed.
+- `TASK-0049`: no `crashd`/retention/OS symbolization scope absorbed.
+- `TASK-0141`: no export/redaction/notification API scope absorbed.
+- `TASK-0142`: no Problem Reporter UI scope absorbed.
+- `TASK-0227`: no offline bundle orchestration scope absorbed.
+
+This keeps RFC-0031 bounded as a v1 contract and avoids silent migration into follow-up backlogs.
 
 ## Security considerations
 
@@ -104,6 +134,7 @@ Open Nexus OS needs deterministic crash artifacts without kernel changes. Curren
 - Oversized or malformed dump payloads are rejected deterministically.
 - Invalid dump paths (escape or non-`/state/crash` destination) are rejected deterministically.
 - Missing artifact write means no success marker is emitted.
+- Invalid or unverifiable reported minidump metadata is rejected fail-closed and does not emit success markers.
 - If crash event publication fails, service emits failure status deterministically and does not claim success.
 - No silent fallback from bounded format to unbounded dumps.
 
@@ -112,7 +143,9 @@ Open Nexus OS needs deterministic crash artifacts without kernel changes. Curren
 ### Proof (Host)
 
 ```bash
-cd /home/jenning/open-nexus-OS && cargo test --workspace -- minidump --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p crash -- --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p minidump-host -- --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p execd -- --nocapture
 ```
 
 ### Proof (OS/QEMU)
@@ -133,16 +166,16 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/q
 
 ## Open questions
 
-- Which exact v1 binary layout is minimal yet future-compatible (`.nmd` framing details)?
-- Should crash event publication be direct from crashing runtime path or mediated strictly through `execd` in all cases?
+- Whether v2 should require strict child-owned dump writes for all crash paths or keep trusted publish mediation for constrained paths.
 
 ## Implementation Checklist
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: Freeze v1 dump/event contract and host deterministic checks — proof: `cd /home/jenning/open-nexus-OS && cargo test --workspace -- minidump --nocapture`
-- [ ] **Phase 1**: OS in-process capture + crash event path + honest-green markers — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] **Phase 2**: Reject-path hardening + follow-on boundary lock — proof: `cd /home/jenning/open-nexus-OS && cargo test --workspace -- reject_minidump --nocapture`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: Freeze v1 dump/event contract and host deterministic checks — proof: `cargo test -p crash -- --nocapture` and `cargo test -p minidump-host -- --nocapture`
+- [x] **Phase 1**: OS in-process capture + crash event path + honest-green markers — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] **Phase 2**: Reject-path hardening + follow-on boundary lock — proof: `cargo test -p execd -- --nocapture` and required `test_reject_*` coverage
+- [x] **Phase 3**: Strict child-owned write proof + follow-up drift re-check — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` with `child: minidump start`, `execd: minidump written`, `SELFTEST: minidump ok`, `SELFTEST: minidump forged metadata rejected`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).
