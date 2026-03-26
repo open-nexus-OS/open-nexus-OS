@@ -99,7 +99,8 @@ fn test_remote_statefs_symbols_are_linked_for_host_seam() {
     let _ = statefs_rw::RS_MAX_LIST_LIMIT;
     let _ = statefs_rw::RS_MAX_RESPONSE_LEN;
 
-    let req = sfp::encode_key_only_request(sfp::OP_GET, "/state/shared/selftest/symbol-link").expect("req");
+    let req = sfp::encode_key_only_request(sfp::OP_GET, "/state/shared/selftest/symbol-link")
+        .expect("req");
     let parsed = parse_request(&req, true).expect("parse");
     assert_eq!(parsed.op(), sfp::OP_GET);
     assert_eq!(parsed.nonce(), None);

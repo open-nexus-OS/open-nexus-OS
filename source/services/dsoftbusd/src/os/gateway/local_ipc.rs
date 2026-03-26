@@ -16,10 +16,10 @@ use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 
 use crate::os::gateway::packagefs_ro as pkg;
-use crate::os::gateway::statefs_rw as stfs;
 use crate::os::gateway::remote_proxy::{
     SVC_BUNDLE_LIST, SVC_PACKAGEFS_RO, SVC_SAMGR_RESOLVE_STATUS, SVC_STATEFS_RW,
 };
+use crate::os::gateway::statefs_rw as stfs;
 use crate::os::netstack::{stream_read_exact, stream_write_all, SessionId};
 use crate::os::observability;
 use crate::os::session::records::{MAX_REQ, MAX_RSP, REQ_CIPH, REQ_PLAIN, RSP_CIPH, RSP_PLAIN};
@@ -599,7 +599,8 @@ pub(crate) fn run_local_ipc_loop(
                                 status = LSTATUS_OK;
                                 rsp_payload.extend_from_slice(p);
                                 Ok(())
-                            })();
+                            })(
+                            );
                             if remote_result.is_err() && !remote_rpc_fail_logged {
                                 remote_rpc_fail_logged = true;
                                 let _ = nexus_abi::debug_println(

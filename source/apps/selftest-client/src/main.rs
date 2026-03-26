@@ -4706,13 +4706,15 @@ mod os_lite {
         frame.extend_from_slice(&[D0, D1, VER, OP]);
         frame.extend_from_slice(&(req.len() as u16).to_le_bytes());
         frame.extend_from_slice(req);
-        d.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-            .map_err(|_| ())?;
+        d.send(
+            &frame,
+            IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+        )
+        .map_err(|_| ())?;
         let rsp = d
             .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
             .map_err(|_| ())?;
-        if rsp.len() < 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80)
-        {
+        if rsp.len() < 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
             return Err(());
         }
         if rsp[4] != STATUS_OK {
@@ -4728,7 +4730,8 @@ mod os_lite {
     fn dsoftbusd_remote_statefs_put(key: &str, value: &[u8]) -> core::result::Result<(), ()> {
         let req = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
         let rsp = dsoftbusd_remote_statefs_call(&req)?;
-        let status = statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).map_err(|_| ())?;
+        let status =
+            statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).map_err(|_| ())?;
         if status == statefs_proto::STATUS_OK {
             Ok(())
         } else {
@@ -4737,15 +4740,18 @@ mod os_lite {
     }
 
     fn dsoftbusd_remote_statefs_get(key: &str) -> core::result::Result<alloc::vec::Vec<u8>, ()> {
-        let req = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key).map_err(|_| ())?;
+        let req =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key).map_err(|_| ())?;
         let rsp = dsoftbusd_remote_statefs_call(&req)?;
         statefs_proto::decode_get_response(&rsp).map_err(|_| ())
     }
 
     fn dsoftbusd_remote_statefs_delete(key: &str) -> core::result::Result<(), ()> {
-        let req = statefs_proto::encode_key_only_request(statefs_proto::OP_DEL, key).map_err(|_| ())?;
+        let req =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_DEL, key).map_err(|_| ())?;
         let rsp = dsoftbusd_remote_statefs_call(&req)?;
-        let status = statefs_proto::decode_status_response(statefs_proto::OP_DEL, &rsp).map_err(|_| ())?;
+        let status =
+            statefs_proto::decode_status_response(statefs_proto::OP_DEL, &rsp).map_err(|_| ())?;
         if status == statefs_proto::STATUS_OK {
             Ok(())
         } else {

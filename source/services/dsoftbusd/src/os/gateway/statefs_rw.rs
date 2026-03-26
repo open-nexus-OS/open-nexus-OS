@@ -181,7 +181,9 @@ pub(crate) fn reject_label_for_request(op: u8, reason: RejectReason) -> Option<&
             RejectReason::WriteOutsideAcl => {
                 "dsoftbusd: audit remote statefs put reject outside_acl"
             }
-            RejectReason::PrefixEscape => "dsoftbusd: audit remote statefs put reject prefix_escape",
+            RejectReason::PrefixEscape => {
+                "dsoftbusd: audit remote statefs put reject prefix_escape"
+            }
             RejectReason::Oversized => "dsoftbusd: audit remote statefs put reject oversized",
         });
     }
@@ -222,7 +224,9 @@ pub(crate) fn audit_label_for_status(op: u8, status: u8) -> Option<&'static str>
     None
 }
 
-fn validate_request_bounds_and_acl(request: &sfp::Request<'_>) -> core::result::Result<(), RejectReason> {
+fn validate_request_bounds_and_acl(
+    request: &sfp::Request<'_>,
+) -> core::result::Result<(), RejectReason> {
     match request {
         sfp::Request::Put { key, value } => {
             validate_key(key, true)?;

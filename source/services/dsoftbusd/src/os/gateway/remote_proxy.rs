@@ -311,14 +311,13 @@ pub(crate) fn run_remote_proxy_loop(
                         let _ =
                             nexus_abi::debug_println("dbg:dsoftbusd: remote proxy dep statefsd ok");
                     }
-                    let (statefs_rsp, served_ok, audit_label) =
-                        handle_statefs_rw_request(
-                            true,
-                            req,
-                            &statefsd,
-                            reply_send_slot,
-                            reply_recv_slot,
-                        );
+                    let (statefs_rsp, served_ok, audit_label) = handle_statefs_rw_request(
+                        true,
+                        req,
+                        &statefsd,
+                        reply_send_slot,
+                        reply_recv_slot,
+                    );
                     status = 0;
                     rsp_payload = statefs_rsp;
                     if let Some(label) = audit_label {
@@ -557,10 +556,7 @@ fn handle_statefs_rw_request(
     };
 
     if statefsd
-        .send(
-            internal_req.as_slice(),
-            Wait::Timeout(core::time::Duration::from_millis(2_000)),
-        )
+        .send(internal_req.as_slice(), Wait::Timeout(core::time::Duration::from_millis(2_000)))
         .is_err()
     {
         let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote statefs send fail");
@@ -647,17 +643,25 @@ fn handle_statefs_rw_request(
 fn encode_statefs_io_response(op: u8, nonce: Option<u64>) -> Vec<u8> {
     match op {
         sfp::OP_GET => sfp::encode_get_response_with_nonce(sfp::STATUS_IO_ERROR, &[], nonce),
-        sfp::OP_LIST => {
-            sfp::encode_list_response_with_nonce(sfp::STATUS_IO_ERROR, &[], stfs::RS_MAX_RESPONSE_LEN, nonce)
-        }
+        sfp::OP_LIST => sfp::encode_list_response_with_nonce(
+            sfp::STATUS_IO_ERROR,
+            &[],
+            stfs::RS_MAX_RESPONSE_LEN,
+            nonce,
+        ),
         _ => stfs::encode_status_response(op, sfp::STATUS_IO_ERROR, nonce),
     }
 }
 
-fn encode_statefs_request_with_nonce(req: &sfp::Request<'_>, nonce: u64) -> core::result::Result<Vec<u8>, ()> {
+fn encode_statefs_request_with_nonce(
+    req: &sfp::Request<'_>,
+    nonce: u64,
+) -> core::result::Result<Vec<u8>, ()> {
     let mut frame = match req {
         sfp::Request::Put { key, value } => sfp::encode_put_request(key, value).map_err(|_| ())?,
-        sfp::Request::Get { key } => sfp::encode_key_only_request(sfp::OP_GET, key).map_err(|_| ())?,
+        sfp::Request::Get { key } => {
+            sfp::encode_key_only_request(sfp::OP_GET, key).map_err(|_| ())?
+        }
         sfp::Request::Delete { key } => {
             sfp::encode_key_only_request(sfp::OP_DEL, key).map_err(|_| ())?
         }

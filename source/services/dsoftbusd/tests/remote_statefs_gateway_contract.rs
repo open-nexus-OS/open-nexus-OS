@@ -28,7 +28,8 @@ fn emulate_statefsd(frame: &[u8], kv: &mut BTreeMap<String, Vec<u8>>) -> Vec<u8>
             }
         }
         sfp::Request::Delete { key } => {
-            let status = if kv.remove(key).is_some() { sfp::STATUS_OK } else { sfp::STATUS_NOT_FOUND };
+            let status =
+                if kv.remove(key).is_some() { sfp::STATUS_OK } else { sfp::STATUS_NOT_FOUND };
             sfp::encode_status_response_with_nonce(sfp::OP_DEL, status, nonce)
         }
         sfp::Request::List { prefix, limit } => {
@@ -43,7 +44,9 @@ fn emulate_statefsd(frame: &[u8], kv: &mut BTreeMap<String, Vec<u8>>) -> Vec<u8>
             }
             sfp::encode_list_response_with_nonce(sfp::STATUS_OK, &out, RS_MAX_RESPONSE_LEN, nonce)
         }
-        sfp::Request::Sync => sfp::encode_status_response_with_nonce(sfp::OP_SYNC, sfp::STATUS_OK, nonce),
+        sfp::Request::Sync => {
+            sfp::encode_status_response_with_nonce(sfp::OP_SYNC, sfp::STATUS_OK, nonce)
+        }
         sfp::Request::Reopen => {
             sfp::encode_status_response_with_nonce(sfp::OP_REOPEN, sfp::STATUS_UNSUPPORTED, nonce)
         }
@@ -60,7 +63,10 @@ fn test_gateway_contract_rw_roundtrip_uses_protocol_shapes() {
     let put_parsed = parse_request(&put, true).expect("parse put");
     let put_rsp = emulate_statefsd(&put, &mut kv);
     assert!(validate_response_shape(put_parsed.op(), put_parsed.nonce(), &put_rsp).is_ok());
-    assert_eq!(sfp::decode_status_response(sfp::OP_PUT, &put_rsp).expect("put rsp"), sfp::STATUS_OK);
+    assert_eq!(
+        sfp::decode_status_response(sfp::OP_PUT, &put_rsp).expect("put rsp"),
+        sfp::STATUS_OK
+    );
     assert_eq!(
         audit_label_for_status(sfp::OP_PUT, sfp::STATUS_OK),
         Some("dsoftbusd: audit remote statefs put allow")
@@ -76,7 +82,10 @@ fn test_gateway_contract_rw_roundtrip_uses_protocol_shapes() {
     let del_parsed = parse_request(&del, true).expect("parse del");
     let del_rsp = emulate_statefsd(&del, &mut kv);
     assert!(validate_response_shape(del_parsed.op(), del_parsed.nonce(), &del_rsp).is_ok());
-    assert_eq!(sfp::decode_status_response(sfp::OP_DEL, &del_rsp).expect("del rsp"), sfp::STATUS_OK);
+    assert_eq!(
+        sfp::decode_status_response(sfp::OP_DEL, &del_rsp).expect("del rsp"),
+        sfp::STATUS_OK
+    );
     assert_eq!(
         audit_label_for_status(sfp::OP_DEL, sfp::STATUS_OK),
         Some("dsoftbusd: audit remote statefs delete allow")
@@ -110,9 +119,9 @@ fn test_gateway_symbols_are_linked_for_host_seam() {
     let _nonce_from_frame: fn(&[u8]) -> Option<u64> = statefs_rw::request_nonce_from_frame;
     let _validate: fn(u8, Option<u64>, &[u8]) -> core::result::Result<(), ()> =
         statefs_rw::validate_response_shape;
-    let _enc_status: fn(u8, u8, Option<u64>) -> alloc::vec::Vec<u8> = statefs_rw::encode_status_response;
+    let _enc_status: fn(u8, u8, Option<u64>) -> alloc::vec::Vec<u8> =
+        statefs_rw::encode_status_response;
 
     let del_req = sfp::Request::Delete { key: "/state/shared/selftest/link" };
     assert!(statefs_rw::is_mutating_request(&del_req));
 }
-
