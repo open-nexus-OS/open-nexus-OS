@@ -143,3 +143,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
 - RFC-0030: DSoftBus remote statefs RW v1 (Complete)
   - docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md
+- RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization (Draft)
+  - docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md

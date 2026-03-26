@@ -7,90 +7,69 @@ Keep it compact, explicit, and contract-oriented.
 -->
 
 ## Current architecture state
-- **last_decision**: close `TASK-0017` with real `statefsd` parity and fake-green-resistant marker gates.
+- **last_decision**: move execution focus from `TASK-0017` closeout to `TASK-0018` contract preparation; harden task scope first, then seed RFC-0031 before implementation.
 - **rationale**:
-  - keep remote statefs scope inside `dsoftbusd` gateway/session seams from `TASK-0015`,
-  - enforce fail-closed ACL/auth/bounds behavior before marker/proof claims,
-  - preserve deterministic single-VM + 2-VM proof discipline.
+  - crashdump v1 must remain kernel-unchanged and deterministic,
+  - v1 must avoid drift with existing crash follow-ons (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0227`),
+  - proofs must stay honest-green (artifact/event path in OS, symbolization on host).
 - **active_constraints**:
-  - no fake-success markers (`ok/ready` only after real behavior),
-  - deny-by-default ACL for remote statefs (`/state/shared/*` only),
-  - authenticated identity source from kernel IPC/session identity only (no payload identity trust),
-  - bounded input/request sizes and bounded retry loops,
-  - no kernel changes in this slice,
-  - OS build hygiene must stay green (`just dep-gate`, `just diag-os`),
-  - QEMU proofs are sequential only (single-VM then 2-VM).
+  - kernel untouched in this slice,
+  - in-process capture only for v1 (no ptrace-like post-mortem path),
+  - bounded dump sizes and deterministic path normalization under `/state/crash/...`,
+  - no fake-success markers (`minidump written` only after real write success),
+  - host-first symbolization; on-device DWARF remains out of v1 scope.
 
 ## Current focus (execution)
-- **active_task**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md` (Complete)
+- **active_task**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (Draft, hardened)
 - **seed_contract**:
-  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
-  - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
-  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-  - `docs/adr/0005-dsoftbus-architecture.md`
+  - `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
+  - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` (Draft)
+  - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
+  - `docs/rfcs/RFC-0018-statefs-journal-format-v1.md`
 - **contract_dependencies**:
-  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
-  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
-  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
-  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
-  - `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
-  - `docs/testing/index.md`
-  - `docs/testing/network-distributed-debugging.md`
+  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
   - `scripts/qemu-test.sh`
-  - `tools/os2vm.sh`
-- **phase_now**: TASK-0017 closeout complete; proofs and SSOT synchronized
-- **baseline_commit**: `86a670b` (TASK-0017 prep reference from handoff)
+  - `docs/testing/index.md`
+- **phase_now**: task hardening complete, RFC seed created, SSOT switched to TASK-0018 prep
+- **baseline_commit**: `01287ac` (latest pre-TASK-0018 setup commit)
 - **next_task_slice**:
-  - keep TASK-0017 closed and drift-free,
-  - start only explicitly scoped follow-on work (`TASK-0020`/`TASK-0021`/`TASK-0022`) when requested.
+  - finalize plan/proof mapping for TASK-0018,
+  - start implementation only inside TASK-0018 touched-path allowlist.
 
 ## Last completed
-- `TASK-0017` is fully closed:
-  - remote statefs v1 gateway contract in `dsoftbusd` (`GET/PUT/DEL/LIST/SYNC` framing path),
-  - remote path is wired to `statefsd` (no authoritative shadow-backend path),
-  - deterministic v2 nonce-correlation is enforced in the gateway bridge for shared reply matching,
-  - required negative tests added and green:
-    - `test_reject_statefs_write_outside_acl`
-    - `test_reject_statefs_prefix_escape`
-    - `test_reject_oversize_statefs_write`
-    - `test_reject_unauthenticated_statefs_request`
-  - deterministic markers proven:
-    - `dsoftbusd: remote statefs served`
-    - `SELFTEST: remote statefs rw ok`
+- `TASK-0017` was archived for handoff continuity:
+  - archive: `.cursor/handoff/archive/TASK-0017-dsoftbus-remote-statefs-rw.md`
+  - status: in review with completed proofs and commits.
 
 ## Proof baseline currently green
-- `cargo test -p dsoftbusd --tests -- --nocapture`
+- `just test-all`
 - `just dep-gate`
 - `just diag-os`
-- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-- `tools/os2vm.sh` summary artifacts:
-  - `artifacts/os2vm/runs/os2vm_1774454076/summary.json`
-  - `artifacts/os2vm/runs/os2vm_1774454076/summary.txt`
+- `just test-dsoftbus-2vm`
+- `make initial-setup`
 
 ## Active invariants (must hold)
 - **security**
-  - no secrets in logs,
-  - authorization fail-closed for remote writes/deletes,
-  - remote writes/deletes must have deterministic audit evidence.
+  - no secret leakage in markers/events/dumps,
+  - reject malformed and oversized crashdump inputs deterministically,
+  - no cross-process capture claims in v1.
 - **determinism**
-  - stable marker strings and bounded waits,
-  - no hidden retry/drain loops,
-  - typed summary artifacts for `os2vm` runs when used.
-- **build hygiene**
-  - `--no-default-features --features os-lite` on OS services,
-  - forbidden crates absent in OS graph (`parking_lot`, `parking_lot_core`, `getrandom`).
+  - stable marker strings and bounded capture payloads,
+  - no unbounded dump reads or implicit fallback paths.
+- **scope hygiene**
+  - keep v1 contract separate from v2 pipeline and export/bundle tasks.
 
 ## Open threads / follow-ups
-- TASK-0017 has no remaining stop-condition gaps.
-- Explicit follow-ons (do not absorb into TASK-0017 scope):
-  - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-  - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-  - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+- TASK-0018 follow-on boundaries (do not absorb now):
+  - `tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md`
+  - `tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md`
+  - `tasks/TASK-0141-crash-v1-export-redaction-notify.md`
+  - `tasks/TASK-0142-ui-problem-reporter-v1.md`
+  - `tasks/TASK-0227-diagnostics-v1-bugreport-bundles-nx-diagnose-offline-deterministic.md`
 
 ## DON'T DO (session-local)
-- DON'T widen remote RW access beyond ACL scope.
-- DON'T claim task progress without negative tests + deterministic proof evidence.
-- DON'T drift marker contracts silently in `scripts/qemu-test.sh` / `tools/os2vm.sh`.
-- DON'T pull `TASK-0020/0021/0022` transport redesign work into `TASK-0017`.
+- DON'T reintroduce ptrace-like requirements into TASK-0018 v1 scope.
+- DON'T claim symbolization is proven on OS in v1; keep that proof host-first.
+- DON'T emit success markers before real artifact write + bounded validation.
+- DON'T silently expand into `TASK-0048/0049/0141/0227` execution scope.

@@ -8,11 +8,11 @@ This is the anti-fake-success gate.
 
 ## Automatic (must be green when applicable)
 - [ ] Host diagnostics compile (when host code touched): `just diag-host`
-- [ ] Narrow host/unit tests pass (task canonical command; for TASK-0017: `cargo test -p dsoftbusd --tests -- --nocapture`)
+- [ ] Narrow host/unit tests pass (task canonical command from active task doc; for TASK-0018: host minidump/symbolization/reject-path tests)
 - [ ] OS dependency gate (when OS code touched): `just dep-gate`
 - [ ] OS diagnostics compile (when OS code touched): `just diag-os`
 - [ ] Single-VM QEMU marker proof is green: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] Cross-VM QEMU proof is green when task path requires it: `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- [ ] Cross-VM QEMU proof is green when the active task explicitly requires it: `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
 - [ ] If `tools/os2vm.sh` path was used, summary artifacts were reviewed (`os2vm-summary-<runId>.json` and `.txt`)
 - [ ] QEMU runs were executed sequentially (no parallel smoke/harness runs contending on shared artifacts)
 - [ ] Determinism floor respected: marker order and bounded retry semantics preserved
@@ -25,14 +25,18 @@ This is the anti-fake-success gate.
 - [ ] Ownership/authority boundaries stayed aligned with linked contracts
 - [ ] No follow-on feature scope leaked into this task
 
-## Task-0017 manual addendum (when applicable)
-- [ ] Remote RW ACL is deny-by-default (`/state/shared/*` only)
-- [ ] Prefix escape/path normalization bypasses are rejected fail-closed
-- [ ] Oversize key/value requests are rejected with deterministic errors
-- [ ] Unauthenticated/identity-spoofed remote requests are rejected fail-closed
-- [ ] Every remote `PUT`/`DELETE` emits deterministic audit evidence
-- [ ] Markers `dsoftbusd: remote statefs served` and `SELFTEST: remote statefs rw ok` are emitted only on real success
-- [ ] No follow-on scope (`TASK-0020`, `TASK-0021`, `TASK-0022`) was silently absorbed
+## Task-0018 manual addendum (when applicable)
+- [ ] Capture path is in-process only (no ptrace-like post-mortem assumptions).
+- [ ] Dump paths are normalized and constrained to `/state/crash/...`.
+- [ ] Dump payload caps are enforced (stack/code/total frame are bounded and tested).
+- [ ] Malformed/oversized/path-escape inputs are rejected deterministically (`test_reject_*`).
+- [ ] Crash event includes deterministic `build_id` + `dump_path` semantics where available.
+- [ ] Markers `execd: minidump written` and `SELFTEST: minidump ok` are emitted only on real success.
+- [ ] Host symbolization proof is green and kept host-first for v1 (no fake OS symbolization claims).
+- [ ] No follow-on scope (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0142`, `TASK-0227`) was silently absorbed.
+
+## Legacy manual profiles (reference only)
+- [ ] TASK-0017 remote statefs ACL/audit checks are tracked in archived task closeout and its task-local evidence.
 
 ## Post-implementation (before claiming "Done")
 - [ ] Task doc still matches reality (status, proofs, touched paths)

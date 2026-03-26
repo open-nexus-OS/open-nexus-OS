@@ -6,9 +6,16 @@ created: 2025-12-22
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - RFC: docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
   - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
+follow-up-tasks:
+  - TASK-0048: Crashdump v2a host pipeline (`nxsym`, `.nxcd`, `nx crash`)
+  - TASK-0049: Crashdump v2b OS pipeline (`crashd`, retention, policy redaction)
+  - TASK-0141: Crash export/redaction + notifications surface
+  - TASK-0142: Problem Reporter UI integration
+  - TASK-0227: Offline bugreport bundles (`nx diagnose`)
 ---
 
 ## Context
@@ -55,6 +62,28 @@ Provide a v1 crashdump pipeline that works **without kernel changes**:
   - avoid dumping secrets by default (future hardening can add redaction/policy).
 - **No fake success**: only emit “minidump written” marker when the write actually succeeded.
 
+## Security considerations
+
+### Threat model
+
+- **Sensitive data exposure**: stack/code previews can leak secrets.
+- **Crash-event spoofing**: forged or malformed crash metadata can pollute observability/audit paths.
+- **Resource abuse**: oversized dump payloads can exhaust memory/storage in crash paths.
+
+### Security invariants
+
+- Crash artifacts are bounded by strict size caps (header, previews, total frame).
+- Dump path stays under `/state/crash/...` with deterministic normalization.
+- Crash event metadata originates from trusted process/runtime context, not untrusted payload strings.
+- No secret material is logged in markers or crash-event fields.
+
+### DON'T DO
+
+- DON'T add ptrace-like cross-process memory/register capture in this v1 scope.
+- DON'T emit `execd: minidump written` or `SELFTEST: minidump ok` before durable write success.
+- DON'T dump unbounded stack/code bytes or full process memory.
+- DON'T add on-device DWARF symbolization in v1.
+
 ## Explicit prerequisites (from TASK-0006 / RFC-0011)
 
 This task assumes:
@@ -72,16 +101,18 @@ This task does **not** assume:
 
 ## Red flags / decision points
 
-- **RED (blocking / must decide now)**:
-  - **No ptrace/debug syscall surface**: today, `execd` cannot reliably read a child’s registers/stack after it dies.
-    The only safe, kernel-unchanged v1 is **in-process capture** (the crashing process writes its own dump).
-    If we require “execd captures dead child regs/stack”, that becomes a kernel ABI task.
+- **RED resolved (contract decision, no blocker for v1)**:
+  - **No ptrace/debug syscall surface**: `execd` cannot reliably read dead child regs/stack today.
+  - **Decision**: v1 uses **in-process capture only** (the crashing process writes its own bounded dump).
+  - **Escalation path**: cross-process post-mortem capture requires a separate kernel ABI task (out of scope).
 - **YELLOW (risky / likely drift / needs follow-up)**:
   - DWARF symbolization on OS may be too heavy initially. v1 should symbolize on host and keep OS dumps as raw PCs + build-id.
   - True “abnormal exits” include page faults; without a kernel-provided trap report interface, only controlled crash paths are covered in v1.
 - **GREEN (confirmed assumptions)**:
   - `/state` can host crash artifacts once TASK-0009 lands.
   - logd can carry a structured crash event once TASK-0006 lands.
+
+No unresolved RED items remain for the v1 scope in this task.
 
 ## Contract sources (single source of truth)
 
@@ -95,7 +126,8 @@ This task does **not** assume:
 
 - Deterministic tests for:
   - minidump encoding/decoding and size caps,
-  - symbolization of known PCs against a test ELF/DWARF using build-id mapping.
+  - symbolization of known PCs against a test ELF/DWARF using build-id mapping,
+  - reject paths for malformed/oversized frames and invalid paths.
 
 ### Proof (OS / QEMU)
 
@@ -103,11 +135,19 @@ This task does **not** assume:
   - Extend expected markers with:
     - `execd: minidump written` (path included)
     - `SELFTEST: minidump ok`
-    - `SELFTEST: symbolize ok` (symbolization validated via logd or via a deterministic host-side check described below)
+  - Symbolization proof remains host-first in v1; QEMU only proves artifact + event path.
 
 Notes:
 
 - Postflight scripts (if added) must **only** delegate to canonical harness/tests; no `uart.log` greps as “truth”.
+
+## Required negative tests (Soll-Verhalten)
+
+- `test_reject_oversize_minidump_stack_preview`
+- `test_reject_oversize_minidump_total_frame`
+- `test_reject_invalid_crash_dump_path_escape`
+- `test_reject_unauthenticated_crash_event_publish` (if publish path is exposed)
+- `test_reject_malformed_minidump_header`
 
 ## Touched paths (allowlist)
 
@@ -162,6 +202,7 @@ Notes:
 - v1 produces deterministic, bounded crash artifacts without kernel changes.
 - Crash event is visible in logd and references the stored dump path.
 - Host tests can symbolize a dump against debug info deterministically.
+- No unresolved RED decision points remain in this task scope.
 
 ## RFC seeds (for later, once green)
 

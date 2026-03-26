@@ -215,6 +215,27 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `tools/os2vm.sh`
 - `docs/distributed/remote-fs.md`
 
+### @task_0018_context
+- `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
+- `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
+- `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
+- `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+- `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
+- `docs/rfcs/RFC-0018-statefs-journal-format-v1.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+
+### @task_0018_touched
+- `userspace/crash/**`
+- `userspace/statefs/**` (only crashdump path client seams)
+- `source/services/execd/**`
+- `source/apps/selftest-client/**`
+- `userspace/apps/**` (crash payload apps only)
+- `tools/**` (host symbolization/minidump tooling only)
+- `scripts/qemu-test.sh`
+- `docs/observability/**`
+- `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -273,6 +294,9 @@ Kontext strikt: @core_context @task_0016_context @quality_gates @task_0016_touch
 
 ## Standard instruction line (TASK-0017)
 Kontext strikt: @core_context @task_0017_context @quality_gates @task_0017_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0018)
+Kontext strikt: @core_context @task_0018_context @quality_gates @task_0018_touched. Kein @codebase Scan.
 
 ## Standard instruction line (TASK-0016B)
 Kontext strikt: @core_context @task_0016b_context @quality_gates @task_0016b_touched. Kein @codebase Scan.

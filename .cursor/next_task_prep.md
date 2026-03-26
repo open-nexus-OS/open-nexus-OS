@@ -7,68 +7,60 @@ Update during wrap-up so a new session can start without drift.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (only when explicitly requested)
+- **task**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
 - **handoff_target**: `.cursor/handoff/current.md`
-- **handoff_archive**: `.cursor/handoff/archive/TASK-0016B-netstackd-modular-refactor-v1.md`
+- **handoff_archive**: `.cursor/handoff/archive/TASK-0017-dsoftbus-remote-statefs-rw.md`
 - **linked_contracts**:
-  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
-  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
-  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
-  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
+  - `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
+  - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
+  - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
+  - `docs/rfcs/RFC-0018-statefs-journal-format-v1.md`
   - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
-  - `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
-  - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
-  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-  - `docs/adr/0005-dsoftbus-architecture.md`
   - `docs/testing/index.md`
-  - `docs/testing/network-distributed-debugging.md`
   - `scripts/qemu-test.sh`
-  - `tools/os2vm.sh`
-- **first_action**: keep TASK-0017 frozen as complete; start follow-on scope only under explicit user direction.
+- **first_action**: execute TASK-0018 contract-first with bounded in-process capture and host-first symbolization proofs.
 
 ## Start slice (now)
-- **slice_name**: TASK-0017 complete - handoff stabilization
-- **target_file**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
+- **slice_name**: TASK-0018 crashdump v1 kickoff
+- **target_file**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
 - **must_cover**:
-  - authenticated peer-only remote RW
-  - deny-by-default ACL (`/state/shared/*` only)
-  - deterministic fail-closed rejects (`EPERM`/bounds/auth)
-  - audit evidence for each remote `PUT`/`DELETE`
-  - bounded retries and deterministic proof markers
-  - keep parity-closed `statefsd` bridge behavior and fake-green-resistant marker gates stable
+  - deterministic and bounded in-process crashdump capture
+  - `/state/crash/...` artifact path normalization and bounded writes
+  - deterministic crash event publication (`build_id`, `dump_path`)
+  - host-first symbolization proof for known build-id/PC fixtures
+  - fail-closed reject behavior for malformed/oversized/path-escape inputs
+  - no unresolved RED decision points in v1 scope
 
 ## Execution order
-1. **TASK-0016**: remote packagefs RO (Done)
-2. **TASK-0016B**: netstackd modularization + hardening (Done)
-3. **TASK-0017**: remote statefs RW ACL/audit (Complete)
-4. **TASK-0020 / TASK-0021 / TASK-0022**: transport and core follow-ons (not in scope now)
+1. **TASK-0017**: remote statefs RW ACL/audit (Archived closeout)
+2. **TASK-0018**: crashdumps v1 (current active slice)
+3. **TASK-0048 / TASK-0049 / TASK-0141 / TASK-0227**: crash follow-ons (out of scope for this slice)
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
-  - current SSOT points at TASK-0017 closeout slice
+  - current SSOT now points at TASK-0018 kickoff.
 - **best_system_solution**: YES
-  - keep proven gateway contract behavior stable and closed
+  - keeps v1 minimal, deterministic, and kernel-unchanged.
 - **scope_clear**: YES
-  - task remains proxy-level RW ACL/audit work, not full distributed storage redesign
+  - task is crashdump v1 only, not v2 crash pipeline/export/bundle work.
 - **touched_paths_allowlist_present**: YES
-  - task allowlist constrained to dsoftbusd/statefs/selftest/harness/docs paths
+  - task allowlist constrained to crash/execd/selftest/tools/harness/docs paths.
 
 ## Header / follow-up hygiene
 - **follow_ups_in_task_header**: YES
-  - TASK-0020, TASK-0021, TASK-0022 are explicitly linked as follow-ons
+  - TASK-0048, TASK-0049, TASK-0141, TASK-0142, TASK-0227 are explicitly linked.
 - **security_considerations_complete**: YES
-  - threat model, invariants, DON'T DO, and required negative tests are explicit
+  - threat model, invariants, DON'T DO, and required negative tests are explicit.
 
 ## Dependencies & blockers
-- **blocked_by**: none hard
+- **blocked_by**: none hard for contract/host-first start
 - **prereqs_ready**: YES
-  - `TASK-0015`, `TASK-0016`, `TASK-0016B` completed
-  - `TASK-0005`, `TASK-0009`, `TASK-0008`, `TASK-0006` completed
-  - single-VM and 2-VM harness contracts available
+  - `TASK-0006` and `TASK-0009` are completed and available.
+  - canonical QEMU harness and observability/state contracts exist.
 
 ## Decision
-- **status**: READY (for follow-on task selection, not TASK-0017 rework)
+- **status**: READY (TASK-0018 implementation kickoff)
 - **notes**:
-  - do not regress the four `test_reject_*` invariants
-  - rerun full sequential proof chain on any future changes touching remote statefs path
+  - keep v1 symbolization proof host-first; do not claim OS symbolization in this slice.
+  - keep all success markers tied to real artifact/event outcomes only.

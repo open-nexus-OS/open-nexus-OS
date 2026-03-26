@@ -1,65 +1,54 @@
-# Current Handoff: TASK-0017 remote statefs RW closeout
+# Current Handoff: TASK-0018 crashdumps v1 contract kickoff
 
-**Date**: 2026-03-25  
-**Status**: complete (all task stop conditions green).  
-**Contract baseline**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md` (`Complete`)
+**Date**: 2026-03-26  
+**Status**: draft-prep active (task hardened, RFC seed created, implementation not started).  
+**Contract baseline**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (`Draft`)
 
 ---
 
 ## What is stable now
 
-- `dsoftbusd` remote statefs gateway contract path is implemented (bounded v1 frame handling, auth/ACL/bounds checks, deterministic fail-closed rejects).
-- Remote statefs path is bridged to `statefsd` (persistence parity closed) with deterministic nonce-correlated response matching.
-- Required negative tests exist and pass:
-  - `test_reject_statefs_write_outside_acl`
-  - `test_reject_statefs_prefix_escape`
-  - `test_reject_oversize_statefs_write`
-  - `test_reject_unauthenticated_statefs_request`
-- Marker evidence is present in QEMU proofs:
-  - `dsoftbusd: remote statefs served`
-  - `SELFTEST: remote statefs rw ok`
-- Proof chain is green (sequential):
-  - `cargo test -p dsoftbusd --tests -- --nocapture`
-  - `just dep-gate`
-  - `just diag-os`
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-  - os2vm evidence: `artifacts/os2vm/runs/os2vm_1774454076/summary.json` + `.txt`
+- `TASK-0017` closeout is archived:
+  - `.cursor/handoff/archive/TASK-0017-dsoftbus-remote-statefs-rw.md`
+- `TASK-0018` was hardened to match repo discipline:
+  - structured follow-up links in header,
+  - explicit security section (threat model/invariants/DON'T DO),
+  - RED item resolved for v1 scope (in-process capture only; no ptrace-like requirement),
+  - host-vs-OS proof split clarified to avoid fake-green marker claims.
+- RFC seed created:
+  - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` (Draft)
+  - indexed in `docs/rfcs/README.md`.
 
 ## Current focus
 
-- Keep TASK-0017 closed and drift-free; do not pull follow-on transport scope into this slice.
+- Start TASK-0018 implementation slice strictly inside its touched-path allowlist.
+- Keep contract-first behavior: bounded artifacts, deterministic event/marker semantics, host-first symbolization.
 
 ## Relevant contracts and linked work
 
 - Active task:
-  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
-- Required prerequisites:
-  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
-  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
-  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
-  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
-  - `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
+  - `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
+- RFC baseline:
+  - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
+- Dependency contracts:
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
-- RFC / ADR baseline:
-  - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
-  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-  - `docs/adr/0005-dsoftbus-architecture.md`
-- Testing contracts:
-  - `docs/testing/index.md`
+  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+  - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
+  - `docs/rfcs/RFC-0018-statefs-journal-format-v1.md`
+- Testing contract:
   - `scripts/qemu-test.sh`
-  - `tools/os2vm.sh`
+  - `docs/testing/index.md`
 
 ## Immediate next slice
 
-1. Keep `TASK-0017` and `RFC-0030` at `Complete` unless contract/proof regressions appear.
-2. Start only explicitly requested follow-on scope (`TASK-0020`/`TASK-0021`/`TASK-0022`).
+1. Prepare implementation plan against TASK-0018 acceptance/stop conditions.
+2. Add v1 crashdump touched paths (`userspace/crash`, `execd`, `selftest-client`, host symbolization tooling/tests) incrementally.
+3. Keep follow-on scopes (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0227`) out of this implementation slice.
 
 ## Guardrails
 
-- Keep scope to remote statefs proxy only; no generic remote filesystem expansion.
-- Enforce ACL deny-by-default (`/state/shared/*` only for remote RW) with deterministic `EPERM` for violations.
-- Emit audit evidence for every remote `PUT`/`DELETE` (logd-backed or deterministic fallback marker).
-- Keep bounded key/value sizes and bounded retry loops; no unbounded transport/write loops.
 - Keep kernel untouched.
-- Keep proofs sequential and deterministic (`qemu-test.sh` then `os2vm.sh`).
+- Keep v1 capture in-process only; no cross-process post-mortem claims.
+- Emit success markers only after real dump write/event publication.
+- Keep artifact size/path validation bounded and deterministic.
+- Maintain RFC/task progressive sync while implementation advances.
