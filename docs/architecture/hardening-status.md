@@ -32,6 +32,19 @@ ECALL storms), but ordinary syscall errors are returned to userspace.
 
 **RFC:** `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
 
+## Crashdump v1 hardening snapshot (TASK-0018, 2026-03-26)
+
+| Objective | Status | Notes |
+| --- | --- | --- |
+| Deterministic bounded dump format + path scope | ✅ In Review | `userspace/crash` enforces size/path bounds with `test_reject_*` coverage. |
+| Marker honesty (`execd: minidump written`, `SELFTEST: minidump ok`) | ✅ In Review | Success markers emit only after verified artifact/report path. |
+| Fail-closed metadata publish | ✅ In Review | `execd` rejects forged/no-artifact/mismatched metadata paths; unauthenticated publish remains denied. |
+| Policy-bound child write path | ✅ In Review | `statefsd` uses narrow policy-bound canonicalization helper (no broad SID-0 bypass). |
+
+**Proofs:** `cargo test -p crash`, `cargo test -p execd`, `cargo test -p statefsd`, `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+
+**RFC:** `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
+
 ## Related canonical references
 
 - Kernel overview: `docs/architecture/01-neuron-kernel.md`

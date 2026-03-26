@@ -18,8 +18,7 @@ use nexus_metrics::client::MetricsClient;
 use nexus_metrics::{DeterministicIdSource, SpanId};
 
 use crash::{
-    deterministic_build_id, normalize_dump_path, validate_dump_path, write_dump_to_statefs,
-    MinidumpFrame,
+    deterministic_build_id, normalize_dump_path, validate_dump_path, write_dump_to_statefs, MinidumpFrame,
 };
 use demo_exit0::{DEMO_EXIT0_ELF, DEMO_MINIDUMP_ELF};
 use exec_payloads::HELLO_ELF;
@@ -426,19 +425,41 @@ fn emit_minidump_written(path: &str) {
 }
 
 #[must_use]
-fn verify_reported_minidump(path: &str, _pid: u32, code: i32, name: &str, build_id: &str) -> bool {
-    let _ = code;
+fn verify_reported_minidump(
+    path: &str,
+    pid: u32,
+    code: i32,
+    name: &str,
+    build_id: &str,
+    dump_bytes: &[u8],
+) -> bool {
     if validate_dump_path(path).is_err() {
         return false;
     }
-    if deterministic_build_id(name).as_str() != build_id {
+    if !crate::reported_minidump_path_matches_name(path, name) {
         return false;
     }
-    let mut suffix = Vec::with_capacity(name.len() + 5);
-    suffix.push(b'.');
-    suffix.extend_from_slice(name.as_bytes());
-    suffix.extend_from_slice(b".nmd");
-    path.as_bytes().ends_with(&suffix)
+    let expected_build_id = deterministic_build_id(name);
+    if expected_build_id.as_str() != build_id {
+        return false;
+    }
+    let frame = match MinidumpFrame::decode(dump_bytes) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    if !crate::reported_minidump_frame_matches_expected(
+        frame.pid,
+        frame.code,
+        frame.name.as_str(),
+        frame.build_id.as_str(),
+        pid,
+        code,
+        name,
+        build_id,
+    ) {
+        return false;
+    }
+    frame.validate().is_ok()
 }
 
 fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
@@ -503,7 +524,8 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     }
     if op == OP_REPORT_EXIT {
         // Report v1: [E,X,ver,OP, pid:u32le, code:i32le]
-        // Report v2: [E,X,ver,OP, pid:u32le, code:i32le, build_len:u8, path_len:u16le, build, path]
+        // Report v2: [E,X,ver,OP, pid:u32le, code:i32le, build_len:u8, path_len:u16le,
+        //             dump_len:u16le, build, path, dump]
         if frame.len() < 4 + 4 + 4 {
             return rsp(op, STATUS_MALFORMED, 0).to_vec();
         }
@@ -521,23 +543,28 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         let reported_meta = if frame.len() == 12 {
             None
         } else {
-            if frame.len() < 15 {
+            if frame.len() < 17 {
                 return rsp(op, STATUS_MALFORMED, pid).to_vec();
             }
             let build_len = frame[12] as usize;
             let path_len = u16::from_le_bytes([frame[13], frame[14]]) as usize;
+            let dump_len = u16::from_le_bytes([frame[15], frame[16]]) as usize;
             if build_len == 0
                 || build_len > 64
                 || path_len == 0
                 || path_len > 255
-                || frame.len() != 15 + build_len + path_len
+                || dump_len == 0
+                || dump_len > 4096
+                || frame.len() != 17 + build_len + path_len + dump_len
             {
                 return rsp(op, STATUS_MALFORMED, pid).to_vec();
             }
-            let build_start = 15;
+            let build_start = 17;
             let build_end = build_start + build_len;
             let path_start = build_end;
             let path_end = path_start + path_len;
+            let dump_start = path_end;
+            let dump_end = dump_start + dump_len;
             let build_id = match core::str::from_utf8(&frame[build_start..build_end]) {
                 Ok(v) => v,
                 Err(_) => return rsp(op, STATUS_MALFORMED, pid).to_vec(),
@@ -549,15 +576,15 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             if validate_dump_path(dump_path).is_err() {
                 return rsp(op, STATUS_DENIED, pid).to_vec();
             }
-            Some((build_id, dump_path))
+            Some((build_id, dump_path, &frame[dump_start..dump_end]))
         };
 
         let image_id = state.children.iter().find(|c| c.pid == pid).map(|c| c.image_id);
         if let Some(img) = image_id {
             if code != 0 {
                 let name = State::child_name(img);
-                let (build_id, dump_path) = if let Some((build_id, dump_path)) = reported_meta {
-                    if !verify_reported_minidump(dump_path, pid, code, name, build_id) {
+                let (build_id, dump_path) = if let Some((build_id, dump_path, dump_bytes)) = reported_meta {
+                    if !verify_reported_minidump(dump_path, pid, code, name, build_id, dump_bytes) {
                         return rsp(op, STATUS_FAILED, pid).to_vec();
                     }
                     emit_minidump_written(dump_path);

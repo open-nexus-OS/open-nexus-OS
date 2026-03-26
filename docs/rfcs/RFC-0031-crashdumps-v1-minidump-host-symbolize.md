@@ -21,6 +21,7 @@
 - **Phase 1 (OS in-process capture + event path)**: ✅
 - **Phase 2 (hardening + follow-on handoff boundaries)**: ✅
 - **Phase 3 (strict child-owned write proof + drift lock vs follow-ups)**: ✅
+- **Phase 4 (final identity/report hardening + explicit negative E2E rejects)**: ✅
 
 Definition:
 
@@ -89,10 +90,12 @@ Open Nexus OS needs deterministic crash artifacts without kernel changes. Curren
   - `build_id`/`dump_path` included when available.
 - Marker honesty hardening:
   - `selftest-client` verifies dump write via read-back + decode before asserting `SELFTEST: minidump ok`,
-  - `execd` validates reported `build_id`/`dump_path` against the persisted minidump frame before emitting `execd: minidump written`.
+  - `execd` validates reported `build_id`/`dump_path` against decoded dump frame bytes before emitting `execd: minidump written`.
 - QEMU marker ladder includes:
   - `execd: minidump written`
   - `SELFTEST: minidump ok`
+  - `SELFTEST: minidump no-artifact metadata rejected`
+  - `SELFTEST: minidump mismatched build_id rejected`
 - Host symbolization proof implemented in `tools/minidump-host` (`PC -> fn/file:line`).
 
 ### Phases / milestones (contract-level)
@@ -101,8 +104,9 @@ Open Nexus OS needs deterministic crash artifacts without kernel changes. Curren
 - **Phase 1**: implement OS in-process capture + event path + honest-green markers.
 - **Phase 2**: harden reject paths and freeze handoff boundaries to v2 tasks.
 - **Phase 3**: prove strict child-owned dump write path and re-check follow-up boundaries for no-drift.
+- **Phase 4**: harden identity/report verification with explicit policy/verify helpers and fail-closed negative E2E coverage.
 
-### Phase 3 drift lock (2026-03-26)
+### Phase 4 drift lock (2026-03-26)
 
 Before finalizing Phase 3, follow-up task contracts were cross-checked:
 
@@ -176,6 +180,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/q
 - [x] **Phase 1**: OS in-process capture + crash event path + honest-green markers — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - [x] **Phase 2**: Reject-path hardening + follow-on boundary lock — proof: `cargo test -p execd -- --nocapture` and required `test_reject_*` coverage
 - [x] **Phase 3**: Strict child-owned write proof + follow-up drift re-check — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` with `child: minidump start`, `execd: minidump written`, `SELFTEST: minidump ok`, `SELFTEST: minidump forged metadata rejected`
+- [x] **Phase 4**: Identity/report hardening + explicit negative E2E rejects — proof: `cargo test -p statefsd -- --nocapture`, `cargo test -p execd -- --nocapture`, and `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` with `SELFTEST: minidump no-artifact metadata rejected` and `SELFTEST: minidump mismatched build_id rejected`
 - [x] Task(s) linked with stop conditions + proof commands.
 - [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
 - [x] Security-relevant negative tests exist (`test_reject_*`).

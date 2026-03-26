@@ -19,10 +19,10 @@ Update during wrap-up so a new session can start without drift.
   - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
   - `docs/testing/index.md`
   - `scripts/qemu-test.sh`
-- **first_action**: commit TASK-0018 Phase 3 completion and open identity-hardening follow-up (no scope leak into crash v2 tasks).
+- **first_action**: run final TASK-0018 stop-condition gap check, prepare commit proposal, then open identity-hardening follow-up (no scope leak into crash v2 tasks).
 
 ## Start slice (now)
-- **slice_name**: TASK-0018 Phase 3 closeout (strict child-write + drift lock)
+- **slice_name**: TASK-0018 Phase 4 closeout (identity/report hardening + explicit negative E2E rejects)
 - **target_file**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
 - **must_cover**:
   - deterministic and bounded in-process crashdump capture
@@ -60,8 +60,8 @@ Update during wrap-up so a new session can start without drift.
   - canonical QEMU harness and observability/state contracts exist.
 
 ## Decision
-- **status**: READY (TASK-0018 Phase 3 commit)
+- **status**: READY (TASK-0018 final closeout check + commit proposal)
 - **notes**:
   - keep v1 symbolization proof host-first; do not claim OS DWARF symbolization.
   - keep follow-on scope (`TASK-0048`/`TASK-0049`/`TASK-0141`/`TASK-0142`/`TASK-0227`) out of the commit.
-  - identity-hardening cleanup (remove proof-path subject mapping) is a separate follow-up slice.
+  - identity-hardening cleanup (remove proof-path sender canonicalization) is a separate follow-up slice.

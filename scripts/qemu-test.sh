@@ -278,6 +278,8 @@ expected_sequence=(
   "SELFTEST: crash report ok"
   "SELFTEST: minidump ok"
   "SELFTEST: minidump forged metadata rejected"
+  "SELFTEST: minidump no-artifact metadata rejected"
+  "SELFTEST: minidump mismatched build_id rejected"
   "SELFTEST: exec denied ok"
   "SELFTEST: execd malformed ok"
   "logd: reject invalid_args"

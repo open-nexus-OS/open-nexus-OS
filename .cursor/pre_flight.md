@@ -34,7 +34,8 @@ This is the anti-fake-success gate.
 - [x] Markers `execd: minidump written` and `SELFTEST: minidump ok` are emitted only on real success.
 - [x] Host symbolization proof is green and kept host-first for v1 (no fake OS symbolization claims).
 - [x] No follow-on scope (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0142`, `TASK-0227`) was silently absorbed.
-- [x] Phase 3 drift lock documented in TASK/RFC and aligned with follow-up task contracts.
+- [x] Phase 4 drift lock documented in TASK/RFC and aligned with follow-up task contracts.
+- [x] Negative crash metadata proofs are explicit in QEMU (`forged`, `no-artifact`, `mismatched build_id`) and fail-closed.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0017 remote statefs ACL/audit checks are tracked in archived task closeout and its task-local evidence.

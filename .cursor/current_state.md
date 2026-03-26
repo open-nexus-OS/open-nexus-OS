@@ -7,7 +7,7 @@ Keep it compact, explicit, and contract-oriented.
 -->
 
 ## Current architecture state
-- **last_decision**: complete `TASK-0018` Phase 3 with strict child-owned write proof and explicit follow-up drift lock before commit.
+- **last_decision**: complete `TASK-0018` Finalphase (Phase 4) with identity/report hardening, explicit negative E2E rejects, and follow-up drift lock before final closeout.
 - **rationale**:
   - crashdump v1 must remain kernel-unchanged and deterministic,
   - v1 must avoid drift with existing crash follow-ons (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0227`),
@@ -31,11 +31,11 @@ Keep it compact, explicit, and contract-oriented.
   - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
   - `scripts/qemu-test.sh`
   - `docs/testing/index.md`
-- **phase_now**: TASK-0018 Phase 3 complete; strict child-owned write proof + follow-up drift check documented in task/RFC/SSOT.
+- **phase_now**: TASK-0018 Phase 4 complete; identity/report hardening + explicit no-artifact/mismatched metadata rejects documented in task/RFC/SSOT.
 - **baseline_commit**: `cb706e4` (prep commit noted in task kickoff)
 - **next_task_slice**:
-  - finalize TASK-0018 commit,
-  - open dedicated identity-hardening follow-up (remove v1 proof-path subject mapping once child service identity is available),
+  - perform final TASK-0018 gap/stop-condition check and prepare commit proposal,
+  - open dedicated follow-up for removing the temporary child sender-id canonicalization once spawn-time child service identity is available,
   - keep crash follow-ons (`TASK-0048`/`TASK-0049`/`TASK-0141`/`TASK-0142`/`TASK-0227`) as separate scope.
 
 ## Last completed

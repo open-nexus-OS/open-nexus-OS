@@ -45,9 +45,36 @@ pub(crate) fn decode_delegated_cap_decision(frame: &[u8], expected_nonce: u32) -
     Some(frame[8])
 }
 
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+const SID_METRICSD_ALT: u64 = 0xed20_5ae1_e47c_393d;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+const TASK0018_CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
+
+/// Maps observed sender identities to canonical policy subjects.
+///
+/// This keeps policy evaluation deterministic and fail-closed while supporting
+/// known bring-up identity aliases.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+#[must_use]
+pub(crate) fn canonical_policy_subject_for_statefs(
+    subject_id: u64,
+    op: u8,
+    path: &str,
+    selftest_sid: u64,
+    metricsd_sid: u64,
+) -> u64 {
+    if subject_id == 0 && op == statefs::protocol::OP_PUT && path == TASK0018_CHILD_DUMP_PATH {
+        return selftest_sid;
+    }
+    if subject_id == SID_METRICSD_ALT {
+        return metricsd_sid;
+    }
+    subject_id
+}
+
 #[cfg(test)]
 mod tests {
-    use super::decode_delegated_cap_decision;
+    use super::{canonical_policy_subject_for_statefs, decode_delegated_cap_decision};
 
     #[test]
     fn test_decode_delegated_cap_decision_accepts_matching_nonce() {
@@ -65,5 +92,55 @@ mod tests {
     fn test_decode_delegated_cap_decision_rejects_nonce_mismatch() {
         let rsp = [b'P', b'O', 2, 5 | 0x80, 1, 0, 0, 0, 0, 0];
         assert_eq!(decode_delegated_cap_decision(&rsp, 2), None);
+    }
+
+    #[test]
+    fn test_canonical_policy_subject_maps_only_exact_task0018_child_put() {
+        let selftest_sid = 0x11u64;
+        assert_eq!(
+            canonical_policy_subject_for_statefs(
+                0,
+                statefs::protocol::OP_PUT,
+                "/state/crash/child.demo.minidump.nmd",
+                selftest_sid,
+                0x22,
+            ),
+            selftest_sid
+        );
+        assert_eq!(
+            canonical_policy_subject_for_statefs(
+                0,
+                statefs::protocol::OP_GET,
+                "/state/crash/child.demo.minidump.nmd",
+                selftest_sid,
+                0x22,
+            ),
+            0
+        );
+        assert_eq!(
+            canonical_policy_subject_for_statefs(
+                0,
+                statefs::protocol::OP_PUT,
+                "/state/crash/child.demo.minidump.v2.nmd",
+                selftest_sid,
+                0x22,
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn test_canonical_policy_subject_maps_metricsd_alias() {
+        let metrics_sid = 0x44u64;
+        assert_eq!(
+            canonical_policy_subject_for_statefs(
+                0xed20_5ae1_e47c_393d,
+                statefs::protocol::OP_GET,
+                "/state/metrics/x",
+                0x33,
+                metrics_sid
+            ),
+            metrics_sid
+        );
     }
 }

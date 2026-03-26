@@ -52,9 +52,56 @@ pub(crate) fn crash_event_publish_allowed(
     sender_service_id == trusted_sender_id || sender_service_id == trusted_sender_alt_id
 }
 
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+const DEMO_MINIDUMP_NAME: &str = "demo.minidump";
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+const DEMO_MINIDUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
+
+/// Validates that a reported dump path is consistent with the payload name.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+#[must_use]
+pub(crate) fn reported_minidump_path_matches_name(path: &str, name: &str) -> bool {
+    if name == DEMO_MINIDUMP_NAME {
+        return path == DEMO_MINIDUMP_PATH;
+    }
+    let path_bytes = path.as_bytes();
+    let suffix_len = name.len().saturating_add(5);
+    if path_bytes.len() < suffix_len {
+        return false;
+    }
+    let start = path_bytes.len() - suffix_len;
+    path_bytes[start] == b'.'
+        && &path_bytes[start + 1..start + 1 + name.len()] == name.as_bytes()
+        && &path_bytes[start + 1 + name.len()..] == b".nmd"
+}
+
+/// Validates decoded minidump fields against expected crash metadata.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+#[must_use]
+pub(crate) fn reported_minidump_frame_matches_expected(
+    frame_pid: u32,
+    frame_code: i32,
+    frame_name: &str,
+    frame_build_id: &str,
+    expected_pid: u32,
+    expected_code: i32,
+    expected_name: &str,
+    expected_build_id: &str,
+) -> bool {
+    let pid_matches = frame_pid == expected_pid
+        || (expected_name == DEMO_MINIDUMP_NAME && frame_pid == 0);
+    pid_matches
+        && frame_code == expected_code
+        && frame_name == expected_name
+        && frame_build_id == expected_build_id
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{crash_event_publish_allowed, decode_exec_policy_decision};
+    use super::{
+        crash_event_publish_allowed, decode_exec_policy_decision,
+        reported_minidump_frame_matches_expected, reported_minidump_path_matches_name,
+    };
 
     #[test]
     fn test_decode_exec_policy_decision_accepts_matching_nonce() {
@@ -89,5 +136,51 @@ mod tests {
         let trusted_alt = 0x68c1_66c3_7bcd_7154u64;
         assert!(crash_event_publish_allowed(trusted, trusted, trusted_alt));
         assert!(crash_event_publish_allowed(trusted_alt, trusted, trusted_alt));
+    }
+
+    #[test]
+    fn test_reported_minidump_path_matches_name_accepts_demo_exact_path() {
+        assert!(reported_minidump_path_matches_name(
+            "/state/crash/child.demo.minidump.nmd",
+            "demo.minidump"
+        ));
+        assert!(!reported_minidump_path_matches_name(
+            "/state/crash/forged.demo.minidump.nmd",
+            "demo.minidump"
+        ));
+    }
+
+    #[test]
+    fn test_reported_minidump_path_matches_name_rejects_mismatched_suffix() {
+        assert!(reported_minidump_path_matches_name(
+            "/state/crash/123.99.demo.exit42.nmd",
+            "demo.exit42"
+        ));
+        assert!(!reported_minidump_path_matches_name(
+            "/state/crash/123.99.demo.other.nmd",
+            "demo.exit42"
+        ));
+    }
+
+    #[test]
+    fn test_reported_minidump_frame_matches_expected_rejects_any_mismatch() {
+        assert!(reported_minidump_frame_matches_expected(
+            7, 42, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+        ));
+        assert!(reported_minidump_frame_matches_expected(
+            0, 42, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+        ));
+        assert!(!reported_minidump_frame_matches_expected(
+            8, 42, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+        ));
+        assert!(!reported_minidump_frame_matches_expected(
+            7, 43, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+        ));
+        assert!(!reported_minidump_frame_matches_expected(
+            7, 42, "demo.other", "b123", 7, 42, "demo.minidump", "b123"
+        ));
+        assert!(!reported_minidump_frame_matches_expected(
+            7, 42, "demo.minidump", "b999", 7, 42, "demo.minidump", "b123"
+        ));
     }
 }

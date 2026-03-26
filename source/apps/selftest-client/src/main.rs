@@ -1118,16 +1118,65 @@ mod os_lite {
         code: i32,
         build_id: &str,
         dump_path: &str,
+        dump_bytes: &[u8],
     ) -> core::result::Result<u8, ()> {
         const MAGIC0: u8 = b'E';
         const MAGIC1: u8 = b'X';
         const VERSION: u8 = 1;
         const OP_REPORT_EXIT: u8 = 2;
         const STATUS_OK: u8 = 0;
-        if build_id.is_empty() || build_id.len() > 64 || dump_path.is_empty() || dump_path.len() > 255 {
+        if build_id.is_empty()
+            || build_id.len() > 64
+            || dump_path.is_empty()
+            || dump_path.len() > 255
+            || dump_bytes.is_empty()
+            || dump_bytes.len() > 4096
+        {
             return Err(());
         }
 
+        let mut req = Vec::with_capacity(17 + build_id.len() + dump_path.len() + dump_bytes.len());
+        req.push(MAGIC0);
+        req.push(MAGIC1);
+        req.push(VERSION);
+        req.push(OP_REPORT_EXIT);
+        req.extend_from_slice(&(pid as u32).to_le_bytes());
+        req.extend_from_slice(&code.to_le_bytes());
+        req.push(build_id.len() as u8);
+        req.extend_from_slice(&(dump_path.len() as u16).to_le_bytes());
+        req.extend_from_slice(&(dump_bytes.len() as u16).to_le_bytes());
+        req.extend_from_slice(build_id.as_bytes());
+        req.extend_from_slice(dump_path.as_bytes());
+        req.extend_from_slice(dump_bytes);
+
+        let clock = nexus_ipc::budget::OsClock;
+        nexus_ipc::budget::send_budgeted(&clock, execd, &req, core::time::Duration::from_millis(500))
+            .map_err(|_| ())?;
+        let rsp = nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
+            .map_err(|_| ())?;
+        if rsp.len() != 9 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+            return Err(());
+        }
+        if rsp[3] != (OP_REPORT_EXIT | 0x80) {
+            return Err(());
+        }
+        Ok(rsp[4])
+    }
+
+    fn execd_report_exit_with_dump_status_legacy(
+        execd: &KernelClient,
+        pid: Pid,
+        code: i32,
+        build_id: &str,
+        dump_path: &str,
+    ) -> core::result::Result<u8, ()> {
+        const MAGIC0: u8 = b'E';
+        const MAGIC1: u8 = b'X';
+        const VERSION: u8 = 1;
+        const OP_REPORT_EXIT: u8 = 2;
+        if build_id.is_empty() || build_id.len() > 64 || dump_path.is_empty() || dump_path.len() > 255 {
+            return Err(());
+        }
         let mut req = Vec::with_capacity(15 + build_id.len() + dump_path.len());
         req.push(MAGIC0);
         req.push(MAGIC1);
@@ -1160,9 +1209,11 @@ mod os_lite {
         code: i32,
         build_id: &str,
         dump_path: &str,
+        dump_bytes: &[u8],
     ) -> core::result::Result<(), ()> {
         const STATUS_OK: u8 = 0;
-        let status = execd_report_exit_with_dump_status(execd, pid, code, build_id, dump_path)?;
+        let status =
+            execd_report_exit_with_dump_status(execd, pid, code, build_id, dump_path, dump_bytes)?;
         if status != STATUS_OK {
             return Err(());
         }
@@ -2220,10 +2271,11 @@ mod os_lite {
     }
 
     fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Result<bool, ()> {
-        let list = statefs_proto::encode_list_request("/state/crash/", 16).map_err(|_| ())?;
-        let rsp = statefs_send_recv(client, &list)?;
-        let keys = statefs_proto::decode_list_response(&rsp).map_err(|_| ())?;
-        Ok(!keys.is_empty())
+        const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
+        let get =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH).map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &get)?;
+        Ok(statefs_proto::decode_get_response(&rsp).is_ok())
     }
 
     fn grant_statefs_caps_to_child(statefs: &KernelClient, child_pid: Pid) -> core::result::Result<(), ()> {
@@ -2251,34 +2303,24 @@ mod os_lite {
 
     fn locate_minidump_for_crash(
         client: &KernelClient,
-        _pid: Pid,
+        pid: Pid,
         code: i32,
         name: &str,
-    ) -> core::result::Result<(String, String), ()> {
-        let keys = {
-            let list = statefs_proto::encode_list_request("/state/crash/", 64).map_err(|_| ())?;
-            let rsp = statefs_send_recv(client, &list)?;
-            statefs_proto::decode_list_response(&rsp).map_err(|_| ())?
-        };
+    ) -> core::result::Result<(String, String, Vec<u8>), ()> {
+        const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
         let expected_build_id = deterministic_build_id(name);
-        for key in keys {
-            let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key.as_str())
-                .map_err(|_| ())?;
-            let rsp = statefs_send_recv(client, &get)?;
-            let dump_bytes = match statefs_proto::decode_get_response(&rsp) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let decoded = match MinidumpFrame::decode(dump_bytes.as_slice()) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if decoded.code == code
-                && decoded.name.as_str() == name
-                && decoded.build_id.as_str() == expected_build_id.as_str()
-            {
-                return Ok((decoded.build_id, key));
-            }
+        let get =
+            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH).map_err(|_| ())?;
+        let rsp = statefs_send_recv(client, &get)?;
+        let dump_bytes = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
+        let decoded = MinidumpFrame::decode(dump_bytes.as_slice()).map_err(|_| ())?;
+        decoded.validate().map_err(|_| ())?;
+        if (decoded.pid == pid || decoded.pid == 0)
+            && decoded.code == code
+            && decoded.name.as_str() == name
+            && decoded.build_id.as_str() == expected_build_id.as_str()
+        {
+            return Ok((decoded.build_id, String::from(CHILD_DUMP_PATH), dump_bytes));
         }
         Err(())
     }
@@ -2924,7 +2966,7 @@ mod os_lite {
         emit_line_with_pid_status(crash_pid, crash_status);
         let mut dump_written = false;
         if let Some(statefsd) = statefsd.as_ref() {
-            if let Ok((build_id, dump_path)) =
+            if let Ok((build_id, dump_path, dump_bytes)) =
                 locate_minidump_for_crash(statefsd, crash_pid, crash_status, "demo.minidump")
             {
                 if execd_report_exit_with_dump(
@@ -2933,6 +2975,7 @@ mod os_lite {
                     crash_status,
                     build_id.as_str(),
                     dump_path.as_str(),
+                    dump_bytes.as_slice(),
                 )
                 .is_ok()
                 {
@@ -2994,12 +3037,50 @@ mod os_lite {
             crash_status,
             "binvalid",
             "/state/crash/forged.demo.minidump.nmd",
+            b"forged",
         )
         .unwrap_or(0xff);
         if forged_status != 0 {
             emit_line("SELFTEST: minidump forged metadata rejected");
         } else {
             emit_line("SELFTEST: minidump forged metadata FAIL");
+        }
+        let no_artifact_status = execd_report_exit_with_dump_status_legacy(
+            &execd_client,
+            crash_pid,
+            crash_status,
+            "binvalid",
+            "/state/crash/forged.demo.minidump.nmd",
+        )
+        .unwrap_or(0xff);
+        if no_artifact_status != 0 {
+            emit_line("SELFTEST: minidump no-artifact metadata rejected");
+        } else {
+            emit_line("SELFTEST: minidump no-artifact metadata FAIL");
+        }
+        let mismatch_status = if let Some(statefsd) = statefsd.as_ref() {
+            if let Ok((_, _, dump_bytes)) =
+                locate_minidump_for_crash(statefsd, crash_pid, crash_status, "demo.minidump")
+            {
+                execd_report_exit_with_dump_status(
+                    &execd_client,
+                    crash_pid,
+                    crash_status,
+                    "binvalid",
+                    "/state/crash/child.demo.minidump.nmd",
+                    dump_bytes.as_slice(),
+                )
+                .unwrap_or(0xff)
+            } else {
+                0xff
+            }
+        } else {
+            0xff
+        };
+        if mismatch_status != 0 {
+            emit_line("SELFTEST: minidump mismatched build_id rejected");
+        } else {
+            emit_line("SELFTEST: minidump mismatched build_id FAIL");
         }
 
         // Security: spoofed requester must be denied because execd binds identity to sender_service_id.

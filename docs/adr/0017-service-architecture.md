@@ -50,6 +50,7 @@ Establish a unified service architecture with the following components:
 - Host and OS backends must provide equivalent functionality
 - Policy decisions bind to `sender_service_id` (kernel-provided, unforgeable)
 - All policy allow/deny decisions are audit-logged via `logd`
+- Crash-event publish paths must stay fail-closed: reported crash metadata is accepted only from authorized senders and only when bounded artifact consistency checks pass.
 
 ### Audit Trail (TASK-0008)
 

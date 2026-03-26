@@ -25,7 +25,8 @@ Operational debugging procedures (phase gating, packet capture workflow, typed `
 | **Remote proxy (samgrd/bundlemgrd)** | ❌ | ✅ (`remote_e2e`) | ❌ | ✅ |
 | **Real network (virtio-net, smoltcp)** | ❌ | ❌ | ✅ | ✅ |
 | **Logging (logd journal)** | ✅ (31 tests) | ✅ (`logd-e2e`, 7 tests) | ✅ | ❌ |
-| **Crash reporting (execd → logd)** | ❌ | ✅ (`logd-e2e`) | ✅ | ❌ |
+| **Crash reporting (execd → logd)** | ✅ (`execd` helper tests) | ✅ (`logd-e2e`) | ✅ | ❌ |
+| **Crashdump v1 artifact/report consistency (TASK-0018)** | ✅ (`crash`, `execd`, `statefsd`) | ❌ | ✅ (selftest markers + reject paths) | ❌ |
 | **Multi-service concurrency** | ❌ | ✅ (`logd-e2e`) | ✅ | ❌ |
 | **Device identity (rngd + keystored keygen)** | ✅ (unit) | ❌ | ✅ (selftest markers) | ❌ |
 
@@ -99,5 +100,7 @@ Operational debugging procedures (phase gating, packet capture workflow, typed `
 - **TASK-0005** (DSoftBus remote proxy): `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
 - **TASK-0015** (DSoftBus daemon modularization + seam tests): `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
 - **TASK-0006** (logd journal): `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
+- **TASK-0018** (crashdump v1): `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
 - **RFC-0010** (DSoftBus cross-VM harness): `docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md`
 - **RFC-0011** (logd journal): `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
+- **RFC-0031** (crashdump v1 contract): `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`

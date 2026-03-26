@@ -9,6 +9,7 @@ Canonical sources:
 - Loader safety/guards: `docs/rfcs/RFC-0004-safe-loader-guards.md`
 - Packaging contract: `docs/packaging/nxb.md`
 - Crash reporting (v1): `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
+- Crashdump v1 contract (in-process minidumps): `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
 - QEMU proof harness: `scripts/qemu-test.sh` (marker contract)
 - Testing guide: `docs/testing/index.md`
 
@@ -18,6 +19,7 @@ Canonical sources:
 - **Delegate loading** to the shared loader library (`userspace/nexus-loader`) rather than duplicating ELF parsing/mapping.
 - **Work with bundle packaging** (`bundlemgrd` ↔ `execd`) so installed bundles can be executed.
 - **Crash reporting (v1)**: On child exit with non-zero code, emit a deterministic crash marker and append a structured crash event to `logd` (see RFC-0011).
+- **Crashdump v1 report verification (TASK-0018)**: accept crash publish metadata only when deterministic path/build metadata and bounded minidump frame checks pass (fail-closed).
 
 ## Non-goals
 
@@ -59,5 +61,6 @@ When you change anything about the exec pipeline:
   - `execd` supervision of spawned pids (uses `wait()` syscall)
   - `logd` availability (crash reports require `logd` IPC)
   - Verify crash markers via `selftest-client`: `SELFTEST: crash report ok`
+  - Verify crashdump markers via `selftest-client`: `SELFTEST: minidump ok`, `SELFTEST: minidump forged metadata rejected`, `SELFTEST: minidump no-artifact metadata rejected`, and `SELFTEST: minidump mismatched build_id rejected`
 
 Always treat `scripts/qemu-test.sh` as the truth for "what must appear".

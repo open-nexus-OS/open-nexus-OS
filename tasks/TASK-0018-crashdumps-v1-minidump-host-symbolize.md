@@ -170,14 +170,21 @@ Notes:
   - `SELFTEST: crash report ok`
   - `SELFTEST: minidump ok`
 - Marker honesty hardening: minidump success path now requires read-back + decode verification before `SELFTEST: minidump ok`.
-- `execd` validates reported minidump metadata against real persisted dump content before emitting `execd: minidump written`.
+- `execd` validates reported minidump metadata against decoded dump bytes + deterministic field checks before emitting `execd: minidump written`.
 - Host symbolization proof added via `tools/minidump-host` with deterministic PC->`fn/file:line` test coverage.
 - **Phase 3 complete**: strict child-owned write proof path validated.
   - `demo.minidump` child writes `/state/crash/child.demo.minidump.nmd` itself.
   - `selftest-client` transfers `statefs` caps to the child, then locates and reports the artifact metadata.
   - `statefsd` keeps policy authority and avoids broad bypasses; the v1 proof path is identity-bound and narrowly scoped.
+- **Phase 4 complete**: final identity/report hardening for deterministic fail-closed publish path.
+  - `statefsd` subject remapping logic is now extracted as a pure helper with explicit positive/negative unit tests.
+  - `execd` report validation now enforces path contract + decoded dump frame field match (pid sentinel-aware for child payload, code/name/build_id exact).
+  - `selftest-client` now proves explicit negative E2E cases:
+    - forged metadata reject,
+    - no-artifact metadata reject (legacy report shape),
+    - mismatched build_id reject.
 
-## Phase 3: follow-up drift check (2026-03-26)
+## Phase 4: follow-up drift check (2026-03-26)
 
 Drift was checked against all header follow-up tasks before this phase was documented.
 
@@ -200,6 +207,7 @@ Drift was checked against all header follow-up tasks before this phase was docum
 - `cargo test -p crash -- --nocapture`
 - `cargo test -p minidump-host -- --nocapture`
 - `cargo test -p execd -- --nocapture`
+- `cargo test -p statefsd -- --nocapture`
 - `just dep-gate`
 - `just diag-os`
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`

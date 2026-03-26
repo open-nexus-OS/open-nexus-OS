@@ -80,6 +80,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0025: IPC liveness hardening v1 (bounded retry/correlation + deterministic timeout contract)
 - RFC-0026: IPC performance optimization v1 (deterministic control-plane reuse + zero-copy-aligned data paths)
 - RFC-0030: DSoftBus remote statefs RW v1 (authenticated RW + ACL + audit contract)
+- RFC-0031: Crashdumps v1 (bounded artifacts + fail-closed crash metadata publish contract)
 
 ## Index
 

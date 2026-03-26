@@ -60,3 +60,14 @@ At the end, update (in the same session/task):
 - `.cursor/current_state.md` (overwrite, compressed "why")
 - `.cursor/handoff/current.md` (proof + next steps)
 - `.cursor/next_task_prep.md` (drift-check the next task)
+
+## 5) Post-Done documentation sweep (mandatory before claiming Done)
+After setting/confirming task status `Done` or `In Review`, perform a final doc sync pass:
+- Task tracking: `tasks/IMPLEMENTATION-ORDER.md` and `tasks/STATUS-BOARD.md`
+- Release notes: `CHANGELOG.md` (Unreleased section)
+- Contract indexes: `docs/rfcs/README.md` (RFC status line must match reality)
+- Proof/docs surfaces as applicable:
+  - `docs/testing/**` (commands, markers, and what is proven)
+  - `docs/architecture/**` (service boundaries/invariants when changed)
+  - `docs/adr/**` (narrow decision records when contract/authority changed)
+- If any of the above are intentionally not updated, document why in the task file and add an explicit follow-up task.

@@ -39,6 +39,7 @@ Key architectural decisions:
 - Journal replay is bounded and deterministic.
 - CRC32 integrity checks are enforced on every record.
 - `statefsd` never emits `ok/ready` markers unless behavior is real.
+- Crashdump artifacts (when present) must remain constrained to `/state/crash/...` and pass policy-bound authorization; no broad anonymous-write bypasses.
 
 ## Implementation Plan
 1. Implement host-first journal engine and BlockDevice abstraction.

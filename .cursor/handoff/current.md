@@ -1,7 +1,7 @@
 # Current Handoff: TASK-0018 crashdumps v1 implementation
 
 **Date**: 2026-03-26  
-**Status**: implementation + proofs complete, Phase 3 (strict child-write + drift lock) documented, pending commit.  
+**Status**: implementation + proofs complete, Phase 4 (final identity/report hardening + drift lock) documented, pending final gap/commit decision.  
 **Contract baseline**: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (`In Review`)
 
 ---
@@ -18,6 +18,11 @@
   - `selftest-client` grants child `statefs` caps and reports located artifact metadata.
 - minidump marker honesty is hardened: write path includes read-back + decode verification before success markers.
 - `scripts/qemu-test.sh` marker ladder now includes `execd: minidump written` and `SELFTEST: minidump ok`.
+- `execd` report verification is hardened to decode dump bytes and compare code/name/build_id (pid sentinel-aware for child payload).
+- explicit negative E2E reject markers are now proven:
+  - `SELFTEST: minidump forged metadata rejected`
+  - `SELFTEST: minidump no-artifact metadata rejected`
+  - `SELFTEST: minidump mismatched build_id rejected`
 - Host symbolization proof crate `tools/minidump-host` added and green.
 
 ## Current focus
@@ -41,7 +46,7 @@
 
 ## Immediate next slice
 
-1. Commit the Phase 3 completion slice.
+1. Run final TASK-0018 stop-condition gap pass and prepare commit proposal.
 2. Open a dedicated identity-hardening follow-up slice (remove v1 proof-path subject mapping once child service identity is available).
 3. Keep follow-on scopes (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0142`, `TASK-0227`) out of this slice.
 

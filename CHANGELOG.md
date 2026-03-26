@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-03-26
+
+#### Crashdump v1 final hardening closure sync (`TASK-0018`, `RFC-0031`)
+
+- `TASK-0018` final hardening slice is now reflected across implementation + proof docs:
+  - identity/report validation is fail-closed and deterministic,
+  - explicit negative E2E markers are part of the canonical QEMU ladder:
+    - `SELFTEST: minidump forged metadata rejected`
+    - `SELFTEST: minidump no-artifact metadata rejected`
+    - `SELFTEST: minidump mismatched build_id rejected`
+- `execd` crash publish path now validates reported metadata against decoded bounded minidump bytes before emitting `execd: minidump written`.
+- `statefsd` crash-write subject canonicalization is documented and unit-tested as a pure helper (narrow, path-bound mapping only; no broad SID-0 bypass).
+- Task planning/status artifacts were synchronized for queue visibility and anti-drift:
+  - `tasks/IMPLEMENTATION-ORDER.md`
+  - `tasks/STATUS-BOARD.md`
+  - `.cursor` SSOT/handoff/pre-flight/stop-conditions files
+- Verification set for this sync includes:
+  - `cargo test -p crash -- --nocapture`
+  - `cargo test -p execd -- --nocapture`
+  - `cargo test -p minidump-host -- --nocapture`
+  - `cargo test -p statefsd -- --nocapture`
+  - `just dep-gate`
+  - `just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+
 ### Changed - 2026-03-24
 
 #### Networking modularization + address governance closure sync (`TASK-0016B`, `RFC-0029`, `ADR-0026`)

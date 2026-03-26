@@ -50,7 +50,8 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 | **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure | Done | — | Closed: modular daemon baseline + proof package complete |
 | **TASK-0016** | DSoftBus Remote-FS v1: Remote PackageFS proxy | Done | — | Closed: RFC-0028 contract and proof gates completed |
 | **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | Done | TASK-0003, TASK-0010 | Closed: modular seam + address-governance sync completed and re-proven |
-| TASK-0017 | DSoftBus Remote-StateFS v1 | Draft | TASK-0005 | Queue after Remote-FS planning |
+| TASK-0017 | DSoftBus Remote-StateFS v1 | In Review | TASK-0005 | Keep closure evidence and follow-up boundaries synchronized |
+| TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | In Review | TASK-0006, TASK-0009 | Final hardening slice complete; maintain no-drift boundaries to TASK-0048/0049/0141/0142/0227 |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | Draft | TASK-0005 | Host-first mux work after refactor groundwork |
 | TASK-0021 | DSoftBus QUIC v1 | Draft | TASK-0003, TASK-0005, TASK-0020 | Keep OS fallback path gated |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | Draft | — | Reuse the seams prepared by TASK-0015 |
@@ -80,6 +81,8 @@ For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
 | 🟨 RFC-0026 | IPC performance optimization v1 | In Review | TASK-0013B |
 | ✅ RFC-0027 | DSoftBusd modular daemon structure v1 | Completed | TASK-0015 |
 | ✅ RFC-0028 | DSoftBus remote packagefs RO v1 | Completed | TASK-0016 |
+| ✅ RFC-0030 | DSoftBus remote statefs RW v1 | Complete | TASK-0017 |
+| 🟨 RFC-0031 | Crashdumps v1: deterministic minidump + host symbolization | In Review | TASK-0018 |
 
 ---
 

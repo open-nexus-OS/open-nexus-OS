@@ -22,6 +22,10 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Marker proofs are honest-green:
   - [x] `execd: minidump written`
   - [x] `SELFTEST: minidump ok`
+- [x] Negative publish proofs are fail-closed and green:
+  - [x] forged metadata reject
+  - [x] no-artifact metadata reject
+  - [x] mismatched `build_id` reject
 - [x] Strict child-owned minidump write proof is present in QEMU evidence (`child: minidump start` with persisted `/state/crash/child.demo.minidump.nmd`).
 - [x] Host-first proof is green:
   - [x] task-defined host minidump/symbolization proof command is green
@@ -34,7 +38,7 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [x] `just diag-os`
 - [x] No unresolved RED decision points remain in `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`.
 - [x] No follow-on scope (`TASK-0048`, `TASK-0049`, `TASK-0141`, `TASK-0142`, `TASK-0227`) was silently absorbed.
-- [x] Phase-3 follow-up drift check is documented in TASK-0018 and RFC-0031.
+- [x] Phase-4 follow-up drift check is documented in TASK-0018 and RFC-0031.
 
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0017-class remote statefs RW ACL/audit stop conditions: use archived closeout evidence in `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`.

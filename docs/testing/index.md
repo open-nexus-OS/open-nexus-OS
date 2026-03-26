@@ -8,6 +8,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0015**: Policy Authority & Audit Baseline v1 — policy engine + audit trail (Complete)
 - **RFC-0017**: Device MMIO access model v1 — capability-gated MMIO mapping + init/policy distribution (Done)
 - **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
+- **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (In Review)
 
 ## Philosophy
 
@@ -55,7 +56,7 @@ For a detailed feature-by-feature breakdown, see: **[E2E Coverage Matrix](e2e-co
 | Logd E2E (`tests/logd_e2e`) | In-process `logd` journal with IPC integration, overflow behavior, crash reports, and concurrent multi-service logging. | `cargo test -p logd-e2e` | Tests APPEND → QUERY → STATS roundtrip, ring buffer drop-oldest policy, and crash event integration (TASK-0006). |
 | Policy E2E (`tests/e2e_policy`) | Loopback `policyd`, `bundlemgrd`, and `execd` exercising allow/deny paths. | `cargo test -p e2e_policy` | Installs manifests for `samgrd` and `demo.testsvc`, asserts capability allow/deny responses. |
 | Host VFS (`tests/vfs_e2e`) | In-process `packagefsd`, `vfsd`, and `bundlemgrd` validating bundle publication and VFS reads. | `cargo test -p vfs-e2e` | Publishes a demo bundle, checks alias resolution, and verifies read/error paths via `nexus-vfs`. |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness now waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), the policy allow/deny probes, and the VFS checks before stopping. Logs are trimmed to keep artefacts small. |
+| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness and crashdump v1 markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), crashdump v1 markers (`execd: minidump written`, `SELFTEST: minidump ok`, negative reject markers), policy probes, and VFS checks before stopping. Logs are trimmed to keep artefacts small. |
 | QEMU 2-VM opt-in (`tools/os2vm.sh`) | Two QEMU instances exercising cross-VM DSoftBus discovery, Noise-authenticated session establishment, and remote proxy (`samgrd`/`bundlemgrd` + TASK-0016 remote packagefs RO marker ladder). | `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh` | Canonical proof for TASK-0005/TASK-0016. Uses run-scoped artifacts under `artifacts/os2vm/runs/<runId>/` with retention/GC and typed failure classification. |
 
 ## Workflow checklist
@@ -90,6 +91,11 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - QEMU smoke (DHCP requested): `just test-os-dhcp`
 - QEMU smoke (Strict DHCP gate): `just test-os-dhcp-strict`
 - DSoftBus 2-VM harness (TASK-0005): `just test-dsoftbus-2vm` (or `just os2vm`)
+- Crashdump v1 host proofs (TASK-0018):
+  - `cargo test -p crash -- --nocapture`
+  - `cargo test -p execd -- --nocapture`
+  - `cargo test -p minidump-host -- --nocapture`
+  - `cargo test -p statefsd -- --nocapture`
 - DSoftBus 2-VM harness + PCAP: `just test-dsoftbus-2vm-pcap` (or `just os2vm-pcap`)
   - Expected remote markers on success: `SELFTEST: remote resolve ok`, `SELFTEST: remote query ok`, `SELFTEST: remote pkgfs stat ok`, `SELFTEST: remote pkgfs open ok`, `SELFTEST: remote pkgfs read step ok`, `SELFTEST: remote pkgfs close ok`, `SELFTEST: remote pkgfs read ok`, and `dsoftbusd: remote packagefs served`
 - Full gate (recommended before “everything is green”): `just test-all`
@@ -218,9 +224,14 @@ Marker order:
 40. `logd: ready` – logd RAM journal ready for APPEND/QUERY/STATS
 41. `SELFTEST: log query ok` – selftest client queried logd and verified records
 42. `SELFTEST: core services log ok` – core services (samgrd/bundlemgrd/policyd/dsoftbusd) emit structured logs to logd (verified via bounded QUERY + STATS delta)
-43. `execd: crash report pid=... code=42 name=demo.exit42` – execd observed non-zero exit and emitted crash report
-44. `SELFTEST: crash report ok` – selftest client verified crash report via logd query
-45. `SELFTEST: end` – concluding marker from the selftest client
+43. `execd: minidump written /state/crash/child.demo.minidump.nmd` – crash artifact metadata validated and accepted
+44. `execd: crash report pid=... code=42 name=demo.minidump` – execd observed non-zero exit and emitted crash report
+45. `SELFTEST: crash report ok` – selftest client verified crash report via logd query
+46. `SELFTEST: minidump ok` – selftest client validated artifact + report path end-to-end
+47. `SELFTEST: minidump forged metadata rejected` – forged metadata rejected fail-closed
+48. `SELFTEST: minidump no-artifact metadata rejected` – report without artifact bytes rejected fail-closed
+49. `SELFTEST: minidump mismatched build_id rejected` – inconsistent build metadata rejected fail-closed
+50. `SELFTEST: end` – concluding marker from the selftest client
 
 ### OS E2E: exec-elf (service path)
 

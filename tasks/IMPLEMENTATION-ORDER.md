@@ -69,9 +69,9 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0016B / TASK-0017 and onward
+## Current: TASK-0017 / TASK-0018 and onward
 
-Execute in numerical order. Current queue head is **TASK-0017 (Draft)**.
+Execute in numerical order. Current queue head is **TASK-0017 (In Review)**.
 Latest completed closure slice before this queue head: **TASK-0016B (Done)**.
 
 | Task | Title | Prereqs | Status |
@@ -79,7 +79,8 @@ Latest completed closure slice before this queue head: **TASK-0016B (Done)**.
 | **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure without behavior change | — | Done |
 | **TASK-0016** | DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams | TASK-0005 | Done |
 | **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | TASK-0003, TASK-0010 | Done |
-| TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Draft |
+| TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | In Review |
+| TASK-0018 | Crashdumps v1: minidump + host symbolization | TASK-0006, TASK-0009 | In Review |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Draft |
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Draft |
@@ -92,6 +93,7 @@ Continue in numerical order after TASK-0014.
 
 Notable upcoming tasks:
 - **TASK-0017–0024**: DSoftBus advanced features (statefs, QUIC, security tightening, etc.)
+- **TASK-0018**: crashdump v1 final hardening in review (identity/report fail-closed checks, deterministic marker proofs)
 - **TASK-0016B**: completed networking-structure closure slice for `netstackd` (supports follow-on networking tasks)
 - **TASK-0025–0028**: StateFS hardening + ABI filters v2
 - **TASK-0029**: Supply chain v1 (SBOM + signing policy)
