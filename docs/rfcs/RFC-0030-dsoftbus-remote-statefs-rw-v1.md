@@ -1,9 +1,9 @@
 # RFC-0030: DSoftBus remote statefs RW v1
 
-- Status: Draft
+- Status: Complete
 - Owners: @runtime
 - Created: 2026-03-24
-- Last Updated: 2026-03-24
+- Last Updated: 2026-03-25
 - Links:
   - Tasks: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md` (execution + proof)
   - Task dependencies:
@@ -28,9 +28,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract + ACL model)**: [ ]
-- **Phase 1 (security hardening + negative tests)**: [ ]
-- **Phase 2 (proof integration + docs sync)**: [ ]
+- **Phase 0 (contract + ACL model)**: [x]
+- **Phase 1 (security hardening + negative tests)**: [x]
+- **Phase 2 (proof integration + docs sync)**: [x]
 
 Definition:
 
@@ -107,6 +107,14 @@ Versioning strategy:
 
 - v1 is a bounded bring-up byte-frame contract.
 - any migration to schema-based RPC belongs to a new or follow-on RFC (out of scope here).
+
+Implementation reality (2026-03-25 closeout):
+
+- Gateway security/ACL/audit contract is implemented and proven with deterministic host + QEMU gates.
+- Remote statefs proxy path is wired to `statefsd` with bounded fail-closed behavior.
+- Shared-inbox reply correlation for remote statefs proxying uses deterministic v2 nonce matching
+  at the gateway bridge layer (RFC-0019-aligned behavior for request/reply matching).
+- Marker proofs remain contract-honest (`dsoftbusd: remote statefs served`, `SELFTEST: remote statefs rw ok`).
 
 ### Phases / milestones (contract-level)
 
@@ -191,9 +199,10 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: v1 remote statefs RW contract + ACL/audit invariants finalized — proof: `just diag-os`
-- [ ] **Phase 1**: security-negative tests for ACL/auth/bounds are green — proof: `cargo test -p dsoftbusd --tests -- --nocapture`
-- [ ] **Phase 2**: host + QEMU proofs are green and docs/contracts synced — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: v1 remote statefs RW contract + ACL/audit invariants finalized — proof: `just diag-os`
+- [x] **Phase 1**: security-negative tests for ACL/auth/bounds are green — proof: `cargo test -p dsoftbusd --tests -- --nocapture`
+- [x] **Phase 2**: host + QEMU proofs are green and docs/contracts synced — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).
+- [x] Statefs persistence-parity alignment is closed (`dsoftbusd` remote statefs path proxies to `statefsd`).

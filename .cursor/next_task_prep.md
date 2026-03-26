@@ -7,7 +7,7 @@ Update during wrap-up so a new session can start without drift.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
+- **task**: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (only when explicitly requested)
 - **handoff_target**: `.cursor/handoff/current.md`
 - **handoff_archive**: `.cursor/handoff/archive/TASK-0016B-netstackd-modular-refactor-v1.md`
 - **linked_contracts**:
@@ -25,10 +25,10 @@ Update during wrap-up so a new session can start without drift.
   - `docs/testing/network-distributed-debugging.md`
   - `scripts/qemu-test.sh`
   - `tools/os2vm.sh`
-- **first_action**: define minimal remote-statefs RW protocol + ACL/audit invariants and seed host negative tests before transport-side expansion.
+- **first_action**: keep TASK-0017 frozen as complete; start follow-on scope only under explicit user direction.
 
 ## Start slice (now)
-- **slice_name**: TASK-0017 remote statefs RW ACL/audit kickoff
+- **slice_name**: TASK-0017 complete - handoff stabilization
 - **target_file**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
 - **must_cover**:
   - authenticated peer-only remote RW
@@ -36,18 +36,19 @@ Update during wrap-up so a new session can start without drift.
   - deterministic fail-closed rejects (`EPERM`/bounds/auth)
   - audit evidence for each remote `PUT`/`DELETE`
   - bounded retries and deterministic proof markers
+  - keep parity-closed `statefsd` bridge behavior and fake-green-resistant marker gates stable
 
 ## Execution order
 1. **TASK-0016**: remote packagefs RO (Done)
 2. **TASK-0016B**: netstackd modularization + hardening (Done)
-3. **TASK-0017**: remote statefs RW ACL/audit (current prep target)
+3. **TASK-0017**: remote statefs RW ACL/audit (Complete)
 4. **TASK-0020 / TASK-0021 / TASK-0022**: transport and core follow-ons (not in scope now)
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
-  - current SSOT now points at TASK-0017 kickoff prep
+  - current SSOT points at TASK-0017 closeout slice
 - **best_system_solution**: YES
-  - leverage existing modular seams and proven harnesses before new transport complexity
+  - keep proven gateway contract behavior stable and closed
 - **scope_clear**: YES
   - task remains proxy-level RW ACL/audit work, not full distributed storage redesign
 - **touched_paths_allowlist_present**: YES
@@ -67,7 +68,7 @@ Update during wrap-up so a new session can start without drift.
   - single-VM and 2-VM harness contracts available
 
 ## Decision
-- **status**: READY
+- **status**: READY (for follow-on task selection, not TASK-0017 rework)
 - **notes**:
-  - start host-first with fail-closed tests and ACL normalization checks
-  - only then wire marker proof extensions into QEMU gates
+  - do not regress the four `test_reject_*` invariants
+  - rerun full sequential proof chain on any future changes touching remote statefs path

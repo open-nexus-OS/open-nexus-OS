@@ -141,5 +141,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md
 - RFC-0029: Netstackd modular daemon structure v1 (Completed)
   - docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
-- RFC-0030: DSoftBus remote statefs RW v1 (Draft)
+- RFC-0030: DSoftBus remote statefs RW v1 (Complete)
   - docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md

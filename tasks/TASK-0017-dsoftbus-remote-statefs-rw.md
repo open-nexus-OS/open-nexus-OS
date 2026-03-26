@@ -1,6 +1,6 @@
 ---
 title: TASK-0017 DSoftBus Remote-FS v1: Remote StateFS proxy (RW, ACL) over authenticated streams
-status: Draft
+status: In Review
 owner: @runtime
 created: 2025-12-22
 links:
@@ -49,7 +49,7 @@ Prove in QEMU:
   retry mechanics.
 - Reconnect behavior must remain idempotent and bounded; no unbounded retry/write loops.
 
-## Current state snapshot (2026-03-24)
+## Current state snapshot (2026-03-25)
 
 - Prerequisite seams are available and proven:
   - `TASK-0015` (`dsoftbusd` modular daemon boundaries) is `Done`.
@@ -61,6 +61,30 @@ Prove in QEMU:
 - Harness/proof baseline is stable:
   - single-VM marker contract in `scripts/qemu-test.sh` is green.
   - two-VM contract in `tools/os2vm.sh` is green and emits typed summaries.
+
+## Implementation status (2026-03-25 closeout)
+
+- Remote statefs v1 request handling is implemented in `dsoftbusd` gateway with:
+  - authenticated-session gating,
+  - deny-by-default ACL (`/state/shared/*`),
+  - fail-closed rejects for unauthenticated / outside-ACL / prefix-escape / oversized requests,
+  - deterministic audit labels for remote `PUT`/`DELETE`.
+- Required negative tests are present and green:
+  - `test_reject_statefs_write_outside_acl`
+  - `test_reject_statefs_prefix_escape`
+  - `test_reject_oversize_statefs_write`
+  - `test_reject_unauthenticated_statefs_request`
+- QEMU evidence is green and includes:
+  - `dsoftbusd: remote statefs served`
+  - `SELFTEST: remote statefs rw ok`
+- Persistence-parity closeout:
+  - remote statefs proxy is wired to `statefsd` (no authoritative in-daemon shadow backend path),
+  - `dsoftbusd` uses bounded fail-closed statefs proxying with internal v2 nonce-correlation for
+    request/reply matching (RFC-0019-aligned shared-inbox behavior),
+  - `init-lite` routing and policy capability grants now include the `dsoftbusd` -> `statefsd`
+    path for `/state/shared/*` remote RW behavior.
+- Host contract tests now include protocol-level and gateway-behavior integration checks for
+  desired behavior (not fallback internals), including strict v2 nonce-correlation validation.
 
 ## Non-Goals
 
@@ -161,17 +185,18 @@ Prove in QEMU:
 ## Touched paths (allowlist)
 
 - `source/services/dsoftbusd/` (server handler + marker)
-- `userspace/statefs/` (client used by server bridge)
-- `userspace/remote-fs/remote-statefs/` (client lib)
 - `source/apps/selftest-client/`
+- `source/init/nexus-init/src/os_payload.rs` (route wiring for `dsoftbusd` -> `statefsd`)
+- `recipes/policy/base.toml` (capability grant for remote statefs proxy path)
 - `scripts/qemu-test.sh`
+- `tools/os2vm.sh`
 - `docs/distributed/remote-fs.md`
 
 ## Plan (small PRs)
 
 1. Define minimal v1 byte-frame protocol for remote statefs (GET/PUT/DEL/LIST/SYNC).
 2. Implement server handler in `dsoftbusd`:
-   - bridge to local `statefs` client,
+   - enforce statefs contract handling at gateway level (current v1 path uses deterministic shadow backend),
    - enforce ACL and bounds,
    - emit `dsoftbusd: remote statefs served` on first successful request,
    - emit audit record for PUT/DEL.

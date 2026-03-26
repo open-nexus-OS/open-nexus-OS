@@ -1,24 +1,34 @@
-# Current Handoff: TASK-0017 remote statefs RW kickoff (prep)
+# Current Handoff: TASK-0017 remote statefs RW closeout
 
-**Date**: 2026-03-24  
-**Status**: prepare `TASK-0017` kickoff; scope and contract set to draft baseline.  
-**Contract baseline**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md` (`Draft`)
+**Date**: 2026-03-25  
+**Status**: complete (all task stop conditions green).  
+**Contract baseline**: `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md` (`Complete`)
 
 ---
 
 ## What is stable now
 
-- DSoftBus modular daemon seams from `TASK-0015` are in place (`gateway/session/observability` split, thin main wiring).
-- Remote packagefs RO path from `TASK-0016` is complete and can be reused as transport/reference shape.
-- `netstackd` modularization and deterministic networking proof hardening from `TASK-0016B` are complete and green.
-- Statefs baseline (`TASK-0009`) and policy/audit baseline (`TASK-0008`) are already available for this slice.
-- Canonical proof harnesses are stable:
-  - single VM: `scripts/qemu-test.sh`
-  - two VM: `tools/os2vm.sh`
+- `dsoftbusd` remote statefs gateway contract path is implemented (bounded v1 frame handling, auth/ACL/bounds checks, deterministic fail-closed rejects).
+- Remote statefs path is bridged to `statefsd` (persistence parity closed) with deterministic nonce-correlated response matching.
+- Required negative tests exist and pass:
+  - `test_reject_statefs_write_outside_acl`
+  - `test_reject_statefs_prefix_escape`
+  - `test_reject_oversize_statefs_write`
+  - `test_reject_unauthenticated_statefs_request`
+- Marker evidence is present in QEMU proofs:
+  - `dsoftbusd: remote statefs served`
+  - `SELFTEST: remote statefs rw ok`
+- Proof chain is green (sequential):
+  - `cargo test -p dsoftbusd --tests -- --nocapture`
+  - `just dep-gate`
+  - `just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+  - os2vm evidence: `artifacts/os2vm/runs/os2vm_1774454076/summary.json` + `.txt`
 
 ## Current focus
 
-- Start `TASK-0017`: remote statefs proxy over authenticated DSoftBus streams with RW ACL enforcement and deterministic audit evidence.
+- Keep TASK-0017 closed and drift-free; do not pull follow-on transport scope into this slice.
 
 ## Relevant contracts and linked work
 
@@ -42,15 +52,8 @@
 
 ## Immediate next slice
 
-1. Define the minimal remote-statefs RW protocol boundary and ACL checks at gateway level.
-2. Add host-first behavior tests, especially required negative cases:
-   - `test_reject_statefs_write_outside_acl`
-   - `test_reject_statefs_prefix_escape`
-   - `test_reject_oversize_statefs_write`
-   - `test_reject_unauthenticated_statefs_request`
-3. Add deterministic proof markers and wire them into QEMU gates:
-   - `dsoftbusd: remote statefs served`
-   - `SELFTEST: remote statefs rw ok`
+1. Keep `TASK-0017` and `RFC-0030` at `Complete` unless contract/proof regressions appear.
+2. Start only explicitly requested follow-on scope (`TASK-0020`/`TASK-0021`/`TASK-0022`).
 
 ## Guardrails
 
