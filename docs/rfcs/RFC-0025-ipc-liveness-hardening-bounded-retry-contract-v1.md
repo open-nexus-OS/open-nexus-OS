@@ -1,6 +1,6 @@
 # RFC-0025: IPC liveness hardening v1 - bounded retry, correlation, and deterministic timeout contract
 
-- Status: In Review
+- Status: Complete
 - Owners: @runtime @kernel-team
 - Created: 2026-02-16
 - Last Updated: 2026-02-16

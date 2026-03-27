@@ -1,15 +1,22 @@
 ---
 title: TASK-0019 Security v2 (OS): userland ABI syscall guardrails (filter chain + profiles + audit)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - RFC: docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md
+  - RFC (kernel IPC/cap baseline): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - RFC (policy authority): docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (policy model): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - Depends-on (statefs contract for selftest paths): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
+follow-up-tasks:
+  - TASK-0028: ABI filters v2 (`learn`/`enforce`, argument matchers, generator)
+  - TASK-0188: kernel-level syscall enforcement boundary (seccomp v3)
 ---
 
 ## Context
@@ -17,7 +24,7 @@ links:
 We want a “seccomp-like” syscall policy, but **kernel remains unchanged**. The best achievable v2 in
 that constraint is a **userland guardrail**:
 
-- centralize all syscalls behind `nexus-abi` wrappers,
+- centralize syscall entry through `nexus-abi` wrappers (phased rollout to all shipped OS components),
 - apply deterministic allow/deny checks before issuing an ecall,
 - emit audit events (deny-by-default profiles) and stable errors.
 
@@ -32,6 +39,18 @@ In QEMU, prove:
 - deny decisions produce audit events via logd,
 - selftest demonstrates allow+deny for statefs and a network bind attempt.
 
+## Target-state alignment (post TASK-0018 closeout)
+
+- `TASK-0018` (crashdump v1) is done; this task must stay focused on ABI syscall guardrails and
+  must not absorb crashdump v2 follow-on scope.
+- Required baseline contracts already exist:
+  - `TASK-0006` (`logd` audit/event sink),
+  - `TASK-0008` (policy authority + audit model),
+  - `TASK-0009` (`/state` persistence semantics used by statefs allow/deny proofs).
+- Queue alignment: `TASK-0019` is the next security slice before transport/statefs v2 follow-ons.
+- Source-of-truth discipline: profile authority remains single-owner (`policyd`/policy model); avoid
+  parallel unsynced profile trees.
+
 ## Non-Goals
 
 - A true sandbox against malicious code issuing raw `ecall` instructions.
@@ -40,9 +59,27 @@ In QEMU, prove:
 ## Constraints / invariants (hard requirements)
 
 - **Kernel untouched**.
-- **Single syscall entry path (for compliant code)**: all OS components we ship must use `nexus-abi` wrappers, not ad-hoc inline asm.
+- **Single syscall entry path (for compliant code)**:
+  - rollout is phased,
+  - end-state is all shipped OS components on `nexus-abi` wrappers,
+  - each phase must ship with explicit coverage/proof of migrated call sites.
 - **Determinism**: profiles are deterministic; matching bounded; errors stable; tests bounded.
 - **Performance**: do not “audit everything always”. Audit denies and optionally sampled/aggregated allows.
+
+## Rollout phases (explicit execution shape)
+
+1. **Phase A — filter chain base + bounded deny/audit path**
+   - Introduce bounded matcher + deny/audit behavior in `nexus-abi` for a minimal syscall subset.
+   - Prove deterministic host rejects before broad service rollout.
+2. **Phase B — staged service rollout (toward all shipped OS components)**
+   - Migrate selected critical services first (deterministic/low-risk set), then expand.
+   - Track migrated wrappers/call sites explicitly; no implicit "all migrated" claim.
+3. **Phase C — profile distribution (separate phase)**
+   - Add authenticated profile delivery path (`sender_service_id`) with subject binding + bounded decode.
+   - Keep profile lifecycle static for TASK-0019 (boot-time fetch/apply; no runtime mode switching).
+4. **Phase D — QEMU proof and marker closure**
+   - Lock marker contract and selftest proofs for deny/allow/netbind deny.
+   - Close only when phased rollout + distribution proofs are green.
 
 ## Red flags / decision points
 
@@ -53,6 +90,8 @@ In QEMU, prove:
 - **YELLOW (risky / needs careful design)**:
   - **Profile source of truth**: avoid introducing a parallel policy tree (`recipes/abi/*`) if we already have `recipes/policy/*`.
     Prefer extending the existing policy model (nexus-sel/policyd) to also serve syscall profiles, or document a clean migration.
+  - **Authenticated profile distribution**: profile payloads must be accepted only from the policy authority
+    (`sender_service_id`), with deterministic reject labels for unauthenticated/mismatched subjects.
   - **Subject identity**: do not trust payload strings. Use kernel-derived identity:
     - `BootstrapInfo.service_id` for “who am I” (available without kernel changes),
     - optional display name from the RO meta name page for logging only.
@@ -76,6 +115,8 @@ In QEMU, prove:
 - Deny decisions MUST produce audit events
 - Profiles MUST be deny-by-default
 - Profile distribution MUST use authenticated channels (`sender_service_id`)
+- Profile subject binding MUST use kernel-derived service identity, never payload-declared subject strings
+- Profile/rule decoding MUST enforce bounded limits (rule count, path length, and argument payload sizes)
 
 ### DON'T DO
 
@@ -84,6 +125,7 @@ In QEMU, prove:
 - DON'T accept unbounded profile sizes
 - DON'T trust subject identity from payload bytes (use `sender_service_id`)
 - DON'T allow runtime profile modification without reboot
+- DON'T load or apply profiles received from unauthenticated senders
 
 ### Attack surface impact
 
@@ -109,12 +151,17 @@ In QEMU, prove:
   - `test_reject_unbounded_profile` — oversized profile → rejected
   - `test_audit_deny_decision` — deny produces audit event
   - `test_default_deny` — no matching rule → denied
+  - `test_reject_unauthenticated_profile_distribution` — non-authority sender → rejected
+  - `test_reject_subject_spoofed_profile_identity` — payload subject mismatch → rejected
+  - `test_reject_profile_rule_count_overflow` — excessive rules → rejected deterministically
 
 #### Hardening markers (QEMU)
 
-- `abi-filterd: deny (subject=<svc> syscall=<op>)` — deny-by-default works
+- `abi-profile: ready (server=policyd|abi-filterd)` — profile server path initialized deterministically
+- `abi-filter: deny (subject=<svc> syscall=<op>)` — deny-by-default works
 - `SELFTEST: abi filter deny ok` — deny path verified
 - `SELFTEST: abi filter allow ok` — allow path verified
+- `SELFTEST: abi netbind deny ok` — privileged net bind reject verified
 
 ## Contract sources (single source of truth)
 
@@ -129,16 +176,24 @@ In QEMU, prove:
 - Deterministic tests for:
   - profile parsing + matching precedence,
   - stable error mapping,
-  - audit event formatting to a mock sink.
+  - audit event formatting to a mock sink,
+  - authenticated profile ingestion (`sender_service_id`) and subject-binding rejects.
 
 ### Proof (OS / QEMU)
 
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - Extend expected markers with:
-    - `abi-filterd: ready` (or `policyd: abi profiles ready` if we choose policyd as the server)
+    - `abi-profile: ready (server=policyd|abi-filterd)`
     - `SELFTEST: abi filter deny ok`
     - `SELFTEST: abi filter allow ok`
     - `SELFTEST: abi netbind deny ok`
+
+### Lifecycle stop condition (must hold for TASK-0019 closeout)
+
+- TASK-0019 remains boot-time/static lifecycle only:
+  - no runtime `learn/enforce` switching,
+  - no runtime hot profile reload path,
+  - lifecycle transition logic is explicitly deferred to `TASK-0028`.
 
 ## Touched paths (allowlist)
 
@@ -151,11 +206,11 @@ In QEMU, prove:
 
 ## Plan (small PRs)
 
-1. **Centralize syscalls in `nexus-abi`**
-   - Provide a `Syscall` enum and a single `Abi::call()` path used by all wrappers.
-   - Filters run before the ecall; on deny return stable `AbiError`/`errno`.
+1. **Phase A — central filter path in `nexus-abi`**
+   - Add a bounded pre-ecall filter path for selected syscall wrappers first.
+   - Return stable `AbiError`/`errno` on deny; emit bounded audit deny labels.
 
-2. **Profile format + matcher**
+2. **Phase B — profile format + matcher**
    - TOML or binary profile, but bounded and deterministic.
    - Default deny; first-match-wins rules for:
      - syscall kind
@@ -163,25 +218,40 @@ In QEMU, prove:
      - ports (net bind)
      - size bounds.
 
-3. **Profile distribution**
+3. **Phase C — staged service rollout to all shipped OS components**
+   - Start with critical service set; expand phase-by-phase until all shipped OS components use wrappers.
+   - Record rollout evidence per phase (migrated call-site set + proof command list).
+
+4. **Phase D — profile distribution (explicit separate phase)**
    - Preferred: `policyd` serves syscall profiles (single policy authority) and emits audit.
    - Alternative: `abi-filterd` as a small loader service (only if policyd coupling is undesirable).
+   - Enforce authenticated profile source and subject binding (`sender_service_id` + bounded payload).
+   - Lifecycle rule for TASK-0019: boot-time fetch/apply only; runtime mode switches and hot reload are follow-up (`TASK-0028`).
 
-4. **Audit**
+5. **Phase E — audit**
    - Denies emit audit events via logd (TASK-0006).
    - Allows are sampled or counted, not line-by-line spam.
 
-5. **Selftest**
+6. **Phase F — selftest + marker closure**
    - Denied: `statefs.put("/state/forbidden", ...)` (or another clearly forbidden op).
    - Allowed: `statefs.put("/state/app/selftest/token", ...)` (or allowed prefix).
    - Denied: net bind without permission.
    - Emit markers listed in Stop conditions.
+
+## Policy lifecycle boundary (TASK-0019 vs follow-up)
+
+- TASK-0019 lifecycle is intentionally conservative:
+  - profile is fetched/applied at startup (or boot-time deterministic initialization),
+  - no runtime `learn/enforce` mode switching,
+  - no hot reload loops in this task.
+- Runtime lifecycle evolution (`learn`, mode switches, controlled reload epochs) is follow-up scope in `TASK-0028`.
 
 ## Acceptance criteria (behavioral)
 
 - Profiles are deny-by-default, deterministic, and bounded.
 - Denied calls return stable errors and are audited.
 - Documentation clearly states this is not a sandbox without kernel enforcement.
+- Rollout proof is phase-based and explicit; "all shipped OS components" is only claimed after final rollout phase evidence.
 
 ## Future direction (not in v2): kernel-level seccomp (v3)
 

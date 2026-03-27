@@ -1,6 +1,6 @@
 ---
 title: TASK-0018 Crashdumps & Symbolization v1 (OS): deterministic in-process minidumps + host symbolization + /state export
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 links:

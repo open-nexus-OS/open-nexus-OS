@@ -1,6 +1,6 @@
 # RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths
 
-- Status: In Review
+- Status: Complete
 - Owners: @runtime @kernel-team
 - Created: 2026-02-16
 - Last Updated: 2026-02-12

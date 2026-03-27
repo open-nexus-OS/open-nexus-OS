@@ -81,6 +81,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0026: IPC performance optimization v1 (deterministic control-plane reuse + zero-copy-aligned data paths)
 - RFC-0030: DSoftBus remote statefs RW v1 (authenticated RW + ACL + audit contract)
 - RFC-0031: Crashdumps v1 (bounded artifacts + fail-closed crash metadata publish contract)
+- RFC-0032: ABI syscall guardrails v2 (userland guardrail + authenticated profile distribution boundary)
 
 ## Index
 
@@ -126,23 +127,25 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
 - RFC-0021: Kernel SMP v1 contract — per-CPU runqueues + IPI resched (Complete)
   - docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
-- RFC-0022: Kernel SMP v1b hardening contract — bounded scheduler queues + trap/IPI hardening + CPU-ID fast-path/fallback (Done)
+- RFC-0022: Kernel SMP v1b hardening contract — bounded scheduler queues + trap/IPI hardening + CPU-ID fast-path/fallback (Complete)
   - docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
-- RFC-0023: QoS ABI + timed coalescing contract v1 (In Progress, Phase 0 execution active)
+- RFC-0023: QoS ABI + timed coalescing contract v1 (Complete)
   - docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md
-- RFC-0024: Observability v2 local contract - metricsd + tracing export via logd (Draft)
+- RFC-0024: Observability v2 local contract - metricsd + tracing export via logd (Complete)
   - docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md
-- RFC-0025: IPC liveness hardening v1 - bounded retry/correlation + deterministic timeout contract (In Review)
+- RFC-0025: IPC liveness hardening v1 - bounded retry/correlation + deterministic timeout contract (Complete)
   - docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md
-- RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths (In Review)
+- RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths (Complete)
   - docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
-- RFC-0027: DSoftBusd modular daemon structure v1 (Completed)
+- RFC-0027: DSoftBusd modular daemon structure v1 (Complete)
   - docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-- RFC-0028: DSoftBus remote packagefs RO v1 (Completed)
+- RFC-0028: DSoftBus remote packagefs RO v1 (Complete)
   - docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md
-- RFC-0029: Netstackd modular daemon structure v1 (Completed)
+- RFC-0029: Netstackd modular daemon structure v1 (Complete)
   - docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
 - RFC-0030: DSoftBus remote statefs RW v1 (Complete)
   - docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md
-- RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization (In Review)
+- RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization (Complete)
   - docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
+- RFC-0032: ABI syscall guardrails v2 - userland guardrail with phased rollout (In Progress)
+  - docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md

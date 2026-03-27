@@ -1,6 +1,6 @@
 ---
 title: TASK-0017 DSoftBus Remote-FS v1: Remote StateFS proxy (RW, ACL) over authenticated streams
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 links:

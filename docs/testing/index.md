@@ -8,7 +8,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0015**: Policy Authority & Audit Baseline v1 — policy engine + audit trail (Complete)
 - **RFC-0017**: Device MMIO access model v1 — capability-gated MMIO mapping + init/policy distribution (Done)
 - **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
-- **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (In Review)
+- **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (Complete)
 
 ## Philosophy
 

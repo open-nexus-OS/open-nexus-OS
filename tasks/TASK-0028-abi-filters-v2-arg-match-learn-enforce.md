@@ -22,6 +22,12 @@ system with:
 - an **enforce** mode to deny calls that don’t match,
 - a small generator tool to produce conservative TOML policies from learn logs.
 
+Lifecycle handoff from `TASK-0019`:
+
+- `TASK-0019` closes with boot-time/static profile lifecycle only.
+- This task is the first allowed scope to add controlled runtime lifecycle transitions
+  (`learn`/`enforce`, authenticated mode switching, bounded reload semantics).
+
 ## Goal
 
 Prove deterministically:
@@ -42,6 +48,10 @@ Prove deterministically:
 - Bounded memory / bounded log emission:
   - learn logs must be rate-limited or sampled (avoid log spam),
   - generator must dedupe and cap rule explosion.
+- Lifecycle transitions must be authenticated and bounded:
+  - mode switches require policy-authority authentication (`sender_service_id` bound),
+  - reload paths require monotonic epoch/version checks,
+  - stale or unauthenticated lifecycle transitions are rejected fail-closed.
 
 ## Red flags / decision points
 
@@ -55,6 +65,9 @@ Prove deterministically:
   - Do not ship two competing profile trees.
 - **YELLOW (regex determinism)**:
   - Use a deterministic regex engine and keep patterns bounded. Prefer prefix rules over regex.
+- **YELLOW (lifecycle drift)**:
+  - Keep TASK-0019 boundary intact: no implicit transition from static lifecycle to runtime lifecycle.
+  - Startup behavior remains deterministic enforce/static unless an explicit authenticated transition occurs.
 
 ## Security considerations
 
@@ -73,6 +86,8 @@ Prove deterministically:
 - Regex patterns MUST be bounded and deterministic
 - Argument matching MUST use longest-prefix-wins precedence
 - Size/deadline bounds MUST be enforced before parsing
+- Runtime mode changes MUST be authenticated and audit-visible (who changed mode, old->new, epoch)
+- Stale profile epochs MUST be rejected deterministically
 
 ### DON'T DO
 
@@ -81,6 +96,8 @@ Prove deterministically:
 - DON'T use unbounded regex patterns
 - DON'T trust argument values from untrusted sources
 - DON'T skip size bounds on learned operations
+- DON'T allow unauthenticated runtime mode transitions
+- DON'T accept stale profile/reload epochs
 
 ### Attack surface impact
 
@@ -95,6 +112,7 @@ Prove deterministically:
 - Regex engine is deterministic with bounded backtracking
 - Longest-prefix-wins precedence prevents bypass via path traversal
 - All generated policies require human review before enforcement
+- Runtime transitions are authenticated + epoch-guarded with deterministic reject behavior
 
 ### Security proof
 
@@ -106,6 +124,8 @@ Prove deterministically:
   - `test_reject_regex_dos` — exponential pattern → rejected
   - `test_reject_argument_injection` — path traversal → denied
   - `test_learn_roundtrip` — learn→generate→enforce deterministic
+  - `test_reject_unauthenticated_mode_switch` — unauthorized lifecycle transition rejected
+  - `test_reject_stale_profile_epoch` — stale epoch rejected deterministically
 
 #### Hardening markers (QEMU)
 
@@ -136,15 +156,20 @@ Add deterministic host tests:
 - learn→generate→enforce roundtrip:
   - produce TOML v2 from learn events
   - enforce against same trace yields allow (and a known forbidden op yields deny)
+- lifecycle transitions:
+  - authenticated mode switch works and is audited with stable fields
+  - unauthenticated/stale-epoch transitions are rejected fail-closed
 
 ### Proof (OS / QEMU) — after TASK-0019 + TASK-0006
 
 Extend `scripts/qemu-test.sh` (order tolerant):
 
-- `abi-filterd: ready` (or `policyd: abi profiles ready` if policyd is the server)
+- `abi-profile: ready (server=policyd|abi-filterd)`
 - `SELFTEST: abi learn collected ok`
 - `SELFTEST: abi enforce allow ok`
 - `SELFTEST: abi enforce deny ok`
+- `SELFTEST: abi mode switch auth ok`
+- `SELFTEST: abi stale epoch reject ok`
 
 Notes:
 

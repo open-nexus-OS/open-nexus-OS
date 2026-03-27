@@ -1,122 +1,141 @@
-# Status Board: Task Progress View
+# Status Board: Task and Track Overview
 
-This file provides a **Kanban-style status view** over tasks.
+This board stays intentionally simple:
 
-**Source of truth**: Each `tasks/TASK-*.md` file (status field in YAML header).
+- one **ongoing Done list** (not capped to a fixed range),
+- one **complete TRACK index**.
 
-For sequential execution order, see: `tasks/IMPLEMENTATION-ORDER.md`.
-
----
-
-## How to Read This Board
-
-- **Status** comes from the task's YAML header (`status:` field)
-- **Tasks execute in numerical order** (TASK-0001, TASK-0002, ...)
-- **TRACKs** are vision documents that spawn tasks — they don't have status themselves
+Source of truth for task status remains each `tasks/TASK-*.md` header.
+Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 
 ---
 
-## Done (TASK-0001 through TASK-0014)
+## Done (Ongoing, Cumulative)
 
-| Task | Title | RFC | Completed | Notes |
-|------|-------|-----|-----------|-------|
-| ✅ TASK-0001 | Runtime roles & boundaries | — | 2025-12 | Single-authority model locked |
-| ✅ TASK-0002 | Userspace VFS proof | — | 2025-12 | Marker-gated proof in QEMU |
-| ✅ TASK-0003 | Networking: virtio-net + smoltcp + dsoftbusd | RFC-0006, RFC-0007 | 2026-01-07 | OS transport complete |
-| ✅ TASK-0003B | DSoftBus Noise XK OS | RFC-0008 | 2026-01-07 | Handshake + identity binding |
-| ✅ TASK-0003C | DSoftBus UDP discovery OS | RFC-0007 | 2026-01-07 | Loopback discovery |
-| ✅ TASK-0004 | Networking: dual-node + identity binding | RFC-0007, RFC-0008 | 2026-01-10 | Identity enforcement |
-| ✅ TASK-0005 | Cross-VM DSoftBus + remote proxy | RFC-0010 | 2026-01-13 | 2-VM harness (opt-in) |
-| ✅ TASK-0006 | Observability v1: logd + crash reports | RFC-0011 | 2026-01-14 | Journal + nexus-log sink |
-| ✅ TASK-0007 | Updates & Packaging v1.0 | RFC-0012 | 2026-01-20 | A/B skeleton + markers |
-| ✅ TASK-0008 | Security hardening v1: policy + audit | RFC-0015 | 2026-01-25 | Policy engine + audit trail |
-| ✅ TASK-0008B | Device identity keys v1 | — | — | Completed |
-| ✅ TASK-0009 | Persistence v1: virtio-blk + statefs | — | — | Completed |
-| ✅ TASK-0010 | Device MMIO access model | — | — | Completed |
-| ✅ TASK-0011 | Kernel simplification phase A | RFC-0001 | — | Completed |
-| ✅ TASK-0011B | Kernel Rust idioms pre-SMP | — | — | Completed |
-| ✅ TASK-0012 | Kernel SMP v1 | — | — | Baseline complete |
-| ✅ TASK-0012B | Kernel SMP v1b hardening bridge | — | — | Hardening complete |
-| ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | — | — | Completed |
-| ✅ TASK-0013B | IPC liveness hardening v1 (bounded retry/correlation) | RFC-0025, RFC-0026 | — | Closed with review package + sequential proof discipline documented |
-| ✅ TASK-0014 | Observability v2: metrics + tracing | — | — | Completed |
+| Task | Title | Status | Notes |
+|------|-------|--------|-------|
+| ✅ TASK-0001 | Runtime roles & boundaries | Done | Single-authority model locked |
+| ✅ TASK-0002 | Userspace VFS proof | Done | Marker-gated proof in QEMU |
+| ✅ TASK-0003 | Networking: virtio-net + smoltcp + dsoftbusd | Done | OS transport complete |
+| ✅ TASK-0003B | DSoftBus Noise XK OS | Done | Handshake + identity binding |
+| ✅ TASK-0003C | DSoftBus UDP discovery OS | Done | Loopback discovery |
+| ✅ TASK-0004 | Networking: dual-node + identity binding | Done | Identity enforcement |
+| ✅ TASK-0005 | Cross-VM DSoftBus + remote proxy | Done | 2-VM harness established |
+| ✅ TASK-0006 | Observability v1: logd + crash reports | Done | Journal + nexus-log sink |
+| ✅ TASK-0007 | Updates & Packaging v1.0 | Done | A/B skeleton + markers |
+| ✅ TASK-0008 | Security hardening v1: policy + audit | Done | Policy engine + audit trail |
+| ✅ TASK-0008B | Device identity keys v1 | Done | Keygen flow complete |
+| ✅ TASK-0009 | Persistence v1: virtio-blk + statefs | Done | State persistence baseline complete |
+| ✅ TASK-0010 | Device MMIO access model | Done | Capability-gated device access complete |
+| ✅ TASK-0011 | Kernel simplification phase A | Done | Simplification baseline complete |
+| ✅ TASK-0011B | Kernel Rust idioms pre-SMP | Done | Idiom cleanup complete |
+| ✅ TASK-0012 | Kernel SMP v1 | Done | Baseline complete |
+| ✅ TASK-0012B | Kernel SMP v1b hardening bridge | Done | Hardening complete |
+| ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | Done | QoS/timing contract complete |
+| ✅ TASK-0013B | IPC liveness hardening v1 | Done | Bounded retry/correlation proof complete |
+| ✅ TASK-0014 | Observability v2: metrics + tracing | Done | Local observability v2 complete |
+| ✅ TASK-0015 | DSoftBusd refactor v1: modular OS daemon structure | Done | Modular daemon baseline complete |
+| ✅ TASK-0016 | DSoftBus Remote-FS v1: Remote PackageFS proxy | Done | RFC-0028 gates complete |
+| ✅ TASK-0016B | Netstackd refactor v1: modular structure + loop hardening | Done | Seam and governance sync complete |
+| ✅ TASK-0017 | DSoftBus Remote-StateFS v1 | Done | Deterministic ACL/audit + 1-VM/2-VM proof complete |
+| ✅ TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | Done | Final hardening + drift lock complete |
 
----
-
-## Next
-
-| Task | Title | Status | Blocked by | Next action |
-|------|-------|--------|------------|-------------|
-| **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure | Done | — | Closed: modular daemon baseline + proof package complete |
-| **TASK-0016** | DSoftBus Remote-FS v1: Remote PackageFS proxy | Done | — | Closed: RFC-0028 contract and proof gates completed |
-| **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | Done | TASK-0003, TASK-0010 | Closed: modular seam + address-governance sync completed and re-proven |
-| TASK-0017 | DSoftBus Remote-StateFS v1 | In Review | TASK-0005 | Keep closure evidence and follow-up boundaries synchronized |
-| TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | In Review | TASK-0006, TASK-0009 | Final hardening slice complete; maintain no-drift boundaries to TASK-0048/0049/0141/0142/0227 |
-| TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | Draft | TASK-0005 | Host-first mux work after refactor groundwork |
-| TASK-0021 | DSoftBus QUIC v1 | Draft | TASK-0003, TASK-0005, TASK-0020 | Keep OS fallback path gated |
-| TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | Draft | — | Reuse the seams prepared by TASK-0015 |
+Current queue head (in progress): `TASK-0019`.
 
 ---
 
-## RFCs Status
+## RFC Done (Ongoing, Cumulative)
 
-| RFC | Title | Status | Task |
-|-----|-------|--------|------|
-| ✅ RFC-0001 | Kernel Simplification | Complete | TASK-0011 |
-| ✅ RFC-0002 | Process-Per-Service | Complete | — |
-| ✅ RFC-0003 | Unified Logging | Complete | TASK-0006 |
-| ✅ RFC-0004 | Loader Safety & Guards | Complete | — |
-| ✅ RFC-0005 | Kernel IPC & Capability Model | Complete | — |
-| ✅ RFC-0006 | Userspace Networking v1 | Complete | TASK-0003 |
-| ✅ RFC-0007 | DSoftBus OS Transport v1 | Complete | TASK-0003, TASK-0004 |
-| ✅ RFC-0008 | DSoftBus Noise XK v1 | Complete | TASK-0003B |
-| ✅ RFC-0009 | no_std Dependency Hygiene v1 | Complete | — |
-| ✅ RFC-0010 | DSoftBus Cross-VM Harness v1 | Complete | TASK-0005 |
-| ✅ RFC-0011 | logd journal + crash reports v1 | Complete | TASK-0006 |
-| ✅ RFC-0012 | Updates & Packaging v1.0 | Complete | TASK-0007 |
-| ✅ RFC-0013 | Boot gates v1 | Complete | — |
-| ✅ RFC-0014 | Testing contracts v1 | Complete | — |
-| ✅ RFC-0015 | Policy Authority & Audit v1 | Complete | TASK-0008 |
-| 🟨 RFC-0025 | IPC liveness hardening v1 | In Review | TASK-0013B |
-| 🟨 RFC-0026 | IPC performance optimization v1 | In Review | TASK-0013B |
-| ✅ RFC-0027 | DSoftBusd modular daemon structure v1 | Completed | TASK-0015 |
-| ✅ RFC-0028 | DSoftBus remote packagefs RO v1 | Completed | TASK-0016 |
-| ✅ RFC-0030 | DSoftBus remote statefs RW v1 | Complete | TASK-0017 |
-| 🟨 RFC-0031 | Crashdumps v1: deterministic minidump + host symbolization | In Review | TASK-0018 |
+| RFC | Description | File |
+|-----|-------------|------|
+| ✅ RFC-0001 | Kernel Simplification | `docs/rfcs/RFC-0001-kernel-simplification.md` |
+| ✅ RFC-0002 | Process-Per-Service Architecture | `docs/rfcs/RFC-0002-process-per-service-architecture.md` |
+| ✅ RFC-0003 | Unified Logging Infrastructure | `docs/rfcs/RFC-0003-unified-logging.md` |
+| ✅ RFC-0004 | Loader Safety & Shared-Page Guards | `docs/rfcs/RFC-0004-safe-loader-guards.md` |
+| ✅ RFC-0005 | Kernel IPC & Capability Model | `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` |
+| ✅ RFC-0006 | Userspace Networking v1 | `docs/rfcs/RFC-0006-userspace-networking-v1.md` |
+| ✅ RFC-0007 | DSoftBus OS Transport v1 | `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md` |
+| ✅ RFC-0008 | DSoftBus Noise XK v1 | `docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md` |
+| ✅ RFC-0009 | no_std Dependency Hygiene v1 | `docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md` |
+| ✅ RFC-0010 | DSoftBus Cross-VM Harness v1 | `docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md` |
+| ✅ RFC-0011 | logd journal + crash reports v1 | `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` |
+| ✅ RFC-0012 | Updates & Packaging v1.0 (A/B skeleton) | `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` |
+| ✅ RFC-0013 | Boot gates v1 | `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` |
+| ✅ RFC-0014 | Testing contracts v1 | `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` |
+| ✅ RFC-0015 | Policy Authority & Audit Baseline v1 | `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` |
+| ✅ RFC-0016 | Device Identity Keys v1 | `docs/rfcs/RFC-0016-device-identity-keys-v1.md` |
+| ✅ RFC-0017 | Device MMIO Access Model v1 | `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` |
+| ✅ RFC-0018 | StateFS Journal Format v1 | `docs/rfcs/RFC-0018-statefs-journal-format-v1.md` |
+| ✅ RFC-0019 | IPC Request/Reply Correlation v1 | `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` |
+| ✅ RFC-0020 | Kernel ownership + Rust idioms pre-SMP v1 | `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` |
+| ✅ RFC-0021 | Kernel SMP v1 contract | `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` |
+| ✅ RFC-0022 | Kernel SMP v1b hardening contract | `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md` |
+| ✅ RFC-0023 | QoS ABI + timed coalescing contract v1 | `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md` |
+| ✅ RFC-0024 | Observability v2 local contract | `docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md` |
+| ✅ RFC-0025 | IPC liveness hardening v1 | `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md` |
+| ✅ RFC-0026 | IPC performance optimization v1 | `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` |
+| ✅ RFC-0027 | DSoftBusd modular daemon structure v1 | `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md` |
+| ✅ RFC-0028 | DSoftBus remote packagefs RO v1 | `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md` |
+| ✅ RFC-0029 | Netstackd modular daemon structure v1 | `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md` |
+| ✅ RFC-0030 | DSoftBus remote statefs RW v1 | `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md` |
+| ✅ RFC-0031 | Crashdumps v1 + host symbolization | `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` |
 
----
-
-## TRACKs (Vision Documents)
-
-TRACKs define feature areas but don't execute directly. They spawn tasks when gates clear.
-
-| Track | Purpose | Gates (blocked by) |
-|-------|---------|-------------------|
-| TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU | TASK-0010, TASK-0031, TASK-0012B |
-| TRACK-NETWORKING-DRIVERS | NIC drivers | TASK-0010, TASK-0012B |
-| TRACK-NEXUSGFX-SDK | Graphics SDK | UI tasks |
-| TRACK-NEXUSMEDIA-SDK | Media SDK | UI + codec tasks |
-| TRACK-ZEROCOPY-APP-PLATFORM | App platform | TASK-0031, clipboard |
-| TRACK-APP-STORE | Distribution | Packaging tasks |
-| TRACK-DEVSTUDIO-IDE | Developer IDE | DSL tasks |
-| TRACK-OFFICE-SUITE | Office apps | UI + OpLog |
-| TRACK-PIM-SUITE | PIM apps (calendar, contacts) | UI + sync |
-| TRACK-MEDIA-APPS | Media apps (photos, music, video) | Media SDK |
+Current RFC queue head (in progress): `RFC-0032`.
 
 ---
 
-## Workflow
+## TRACK Index (Complete List)
 
-1. **Execute tasks in numerical order** (TASK-0001, TASK-0002, ...)
-2. If a task is blocked, skip to the next unblocked task
-3. TRACKs spawn new tasks when their gates clear
-4. New tasks get the next available number
-5. Mark task `Done` only when all stop conditions are met
+| Track | File |
+|-------|------|
+| TRACK-ADS-SAFETY-FAMILYMODE | `tasks/TRACK-ADS-SAFETY-FAMILYMODE.md` |
+| TRACK-APP-STORE | `tasks/TRACK-APP-STORE.md` |
+| TRACK-ARCADE-APP | `tasks/TRACK-ARCADE-APP.md` |
+| TRACK-AUTHORITY-NAMING | `tasks/TRACK-AUTHORITY-NAMING.md` |
+| TRACK-CORE-UTILITIES | `tasks/TRACK-CORE-UTILITIES.md` |
+| TRACK-CREATIVE-APPS | `tasks/TRACK-CREATIVE-APPS.md` |
+| TRACK-DAW-APP | `tasks/TRACK-DAW-APP.md` |
+| TRACK-DEVSTUDIO-IDE | `tasks/TRACK-DEVSTUDIO-IDE.md` |
+| TRACK-DRIVERS-ACCELERATORS | `tasks/TRACK-DRIVERS-ACCELERATORS.md` |
+| TRACK-DSL-V1-DEVX | `tasks/TRACK-DSL-V1-DEVX.md` |
+| TRACK-FEEDS-APP | `tasks/TRACK-FEEDS-APP.md` |
+| TRACK-KEYSTONE-GATES | `tasks/TRACK-KEYSTONE-GATES.md` |
+| TRACK-LIVE-STUDIO-APP | `tasks/TRACK-LIVE-STUDIO-APP.md` |
+| TRACK-LOCATION-STACK | `tasks/TRACK-LOCATION-STACK.md` |
+| TRACK-MAIL-APP | `tasks/TRACK-MAIL-APP.md` |
+| TRACK-MAPS-APP | `tasks/TRACK-MAPS-APP.md` |
+| TRACK-MEDIA-APPS | `tasks/TRACK-MEDIA-APPS.md` |
+| TRACK-NETWORKING-DRIVERS | `tasks/TRACK-NETWORKING-DRIVERS.md` |
+| TRACK-NEXUSACCOUNT | `tasks/TRACK-NEXUSACCOUNT.md` |
+| TRACK-NEXUSFRAME | `tasks/TRACK-NEXUSFRAME.md` |
+| TRACK-NEXUSGAME-SDK | `tasks/TRACK-NEXUSGAME-SDK.md` |
+| TRACK-NEXUSGFX-SDK | `tasks/TRACK-NEXUSGFX-SDK.md` |
+| TRACK-NEXUSMEDIA-SDK | `tasks/TRACK-NEXUSMEDIA-SDK.md` |
+| TRACK-NEXUSNET-SDK | `tasks/TRACK-NEXUSNET-SDK.md` |
+| TRACK-NEXUSSOCIAL | `tasks/TRACK-NEXUSSOCIAL.md` |
+| TRACK-NEXUSVIDEO | `tasks/TRACK-NEXUSVIDEO.md` |
+| TRACK-NOTES-APP | `tasks/TRACK-NOTES-APP.md` |
+| TRACK-OFFICE-SUITE | `tasks/TRACK-OFFICE-SUITE.md` |
+| TRACK-PASSWORD-MANAGER | `tasks/TRACK-PASSWORD-MANAGER.md` |
+| TRACK-PIM-SUITE | `tasks/TRACK-PIM-SUITE.md` |
+| TRACK-PINBALL-APP | `tasks/TRACK-PINBALL-APP.md` |
+| TRACK-PODCASTS-APP | `tasks/TRACK-PODCASTS-APP.md` |
+| TRACK-PUZZLE-APP | `tasks/TRACK-PUZZLE-APP.md` |
+| TRACK-RECIPES-APP | `tasks/TRACK-RECIPES-APP.md` |
+| TRACK-REFERENCE-GAMES | `tasks/TRACK-REFERENCE-GAMES.md` |
+| TRACK-REMOVABLE-STORAGE | `tasks/TRACK-REMOVABLE-STORAGE.md` |
+| TRACK-SCORE-APP | `tasks/TRACK-SCORE-APP.md` |
+| TRACK-SYSTEM-DELEGATION | `tasks/TRACK-SYSTEM-DELEGATION.md` |
+| TRACK-TELEPROMPTER-APP | `tasks/TRACK-TELEPROMPTER-APP.md` |
+| TRACK-TERMINAL-APP | `tasks/TRACK-TERMINAL-APP.md` |
+| TRACK-VIDEO-EDITOR-APP | `tasks/TRACK-VIDEO-EDITOR-APP.md` |
+| TRACK-WEATHER-APP | `tasks/TRACK-WEATHER-APP.md` |
+| TRACK-ZEROCOPY-APP-PLATFORM | `tasks/TRACK-ZEROCOPY-APP-PLATFORM.md` |
 
 ---
 
 ## Related
 
-- **Sequential order**: `tasks/IMPLEMENTATION-ORDER.md`
-- **Task workflow rules**: `tasks/README.md`
-- **RFC process**: `docs/rfcs/README.md`
+- Sequential execution order: `tasks/IMPLEMENTATION-ORDER.md`
+- Task workflow rules: `tasks/README.md`
+- RFC process: `docs/rfcs/README.md`

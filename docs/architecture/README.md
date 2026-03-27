@@ -84,7 +84,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **Logging guide**: `docs/observability/logging.md` — logd v1 usage + crash reports
 - **RFC-0003**: Unified logging facade (`nexus-log`)
 - **RFC-0011**: logd journal + crash reports v1 (Complete)
-- **RFC-0031**: crashdump v1 deterministic minidumps + host symbolization (In Review)
+- **RFC-0031**: crashdump v1 deterministic minidumps + host symbolization (Complete)
 
 **Current Status (2026-01-14)**:
 - TASK-0006: ✅ Done (logd RAM journal, nexus-log sink, execd crash reports, core service wiring)

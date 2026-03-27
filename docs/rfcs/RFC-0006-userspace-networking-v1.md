@@ -1,6 +1,6 @@
 # RFC-0006: Userspace Networking v1 (virtio-net + smoltcp + sockets facade)
 
-- Status: Draft (seed)
+- Status: Complete
 - Owners: @runtime
 - Created: 2026-01-01
 - Last Updated: 2026-01-02

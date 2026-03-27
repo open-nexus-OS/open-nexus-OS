@@ -1,6 +1,6 @@
 # RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization
 
-- Status: In Review
+- Status: Complete
 - Owners: @runtime @reliability @tools-team
 - Created: 2026-03-26
 - Last Updated: 2026-03-26

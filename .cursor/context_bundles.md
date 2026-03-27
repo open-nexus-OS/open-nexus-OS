@@ -236,6 +236,29 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/observability/**`
 - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
 
+### @task_0019_context
+- `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
+- `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`
+- `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
+- `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
+- `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
+- `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
+- `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+- `tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md`
+- `tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+
+### @task_0019_touched
+- `source/libs/nexus-abi/**`
+- `source/services/policyd/**`
+- `recipes/policy/**`
+- `source/apps/selftest-client/**`
+- `scripts/qemu-test.sh`
+- `docs/security/abi-filters.md`
+- `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`
+- `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -297,6 +320,9 @@ Kontext strikt: @core_context @task_0017_context @quality_gates @task_0017_touch
 
 ## Standard instruction line (TASK-0018)
 Kontext strikt: @core_context @task_0018_context @quality_gates @task_0018_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0019)
+Kontext strikt: @core_context @task_0019_context @quality_gates @task_0019_touched. Kein @codebase Scan.
 
 ## Standard instruction line (TASK-0016B)
 Kontext strikt: @core_context @task_0016b_context @quality_gates @task_0016b_touched. Kein @codebase Scan.
