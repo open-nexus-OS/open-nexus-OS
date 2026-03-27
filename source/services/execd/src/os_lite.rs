@@ -449,14 +449,13 @@ fn verify_reported_minidump(
         Err(_) => return false,
     };
     if !crate::reported_minidump_frame_matches_expected(
-        frame.pid,
-        frame.code,
-        frame.name.as_str(),
-        frame.build_id.as_str(),
-        pid,
-        code,
-        name,
-        build_id,
+        crate::MinidumpFrameMetadata {
+            pid: frame.pid,
+            code: frame.code,
+            name: frame.name.as_str(),
+            build_id: frame.build_id.as_str(),
+        },
+        crate::MinidumpFrameMetadata { pid, code, name, build_id },
     ) {
         return false;
     }

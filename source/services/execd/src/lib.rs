@@ -77,23 +77,27 @@ pub(crate) fn reported_minidump_path_matches_name(path: &str, name: &str) -> boo
 
 /// Validates decoded minidump fields against expected crash metadata.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+#[derive(Clone, Copy)]
+pub(crate) struct MinidumpFrameMetadata<'a> {
+    pub pid: u32,
+    pub code: i32,
+    pub name: &'a str,
+    pub build_id: &'a str,
+}
+
+/// Validates decoded minidump fields against expected crash metadata.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 #[must_use]
 pub(crate) fn reported_minidump_frame_matches_expected(
-    frame_pid: u32,
-    frame_code: i32,
-    frame_name: &str,
-    frame_build_id: &str,
-    expected_pid: u32,
-    expected_code: i32,
-    expected_name: &str,
-    expected_build_id: &str,
+    frame: MinidumpFrameMetadata<'_>,
+    expected: MinidumpFrameMetadata<'_>,
 ) -> bool {
     let pid_matches =
-        frame_pid == expected_pid || (expected_name == DEMO_MINIDUMP_NAME && frame_pid == 0);
+        frame.pid == expected.pid || (expected.name == DEMO_MINIDUMP_NAME && frame.pid == 0);
     pid_matches
-        && frame_code == expected_code
-        && frame_name == expected_name
-        && frame_build_id == expected_build_id
+        && frame.code == expected.code
+        && frame.name == expected.name
+        && frame.build_id == expected.build_id
 }
 
 #[cfg(test)]
@@ -101,6 +105,7 @@ mod tests {
     use super::{
         crash_event_publish_allowed, decode_exec_policy_decision,
         reported_minidump_frame_matches_expected, reported_minidump_path_matches_name,
+        MinidumpFrameMetadata,
     };
 
     #[test]
@@ -165,64 +170,28 @@ mod tests {
     #[test]
     fn test_reported_minidump_frame_matches_expected_rejects_any_mismatch() {
         assert!(reported_minidump_frame_matches_expected(
-            7,
-            42,
-            "demo.minidump",
-            "b123",
-            7,
-            42,
-            "demo.minidump",
-            "b123"
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(reported_minidump_frame_matches_expected(
-            0,
-            42,
-            "demo.minidump",
-            "b123",
-            7,
-            42,
-            "demo.minidump",
-            "b123"
+            MinidumpFrameMetadata { pid: 0, code: 42, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            8,
-            42,
-            "demo.minidump",
-            "b123",
-            7,
-            42,
-            "demo.minidump",
-            "b123"
+            MinidumpFrameMetadata { pid: 8, code: 42, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            7,
-            43,
-            "demo.minidump",
-            "b123",
-            7,
-            42,
-            "demo.minidump",
-            "b123"
+            MinidumpFrameMetadata { pid: 7, code: 43, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            7,
-            42,
-            "demo.other",
-            "b123",
-            7,
-            42,
-            "demo.minidump",
-            "b123"
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.other", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            7,
-            42,
-            "demo.minidump",
-            "b999",
-            7,
-            42,
-            "demo.minidump",
-            "b123"
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b999" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
     }
 }
