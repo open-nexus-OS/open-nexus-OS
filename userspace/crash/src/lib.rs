@@ -185,11 +185,11 @@ impl MinidumpFrame {
         }
 
         let mut off = HEADER_LEN;
-        let build_id =
-            core::str::from_utf8(&frame[off..off + build_id_len]).map_err(|_| CrashError::MalformedHeader)?;
+        let build_id = core::str::from_utf8(&frame[off..off + build_id_len])
+            .map_err(|_| CrashError::MalformedHeader)?;
         off += build_id_len;
-        let name =
-            core::str::from_utf8(&frame[off..off + name_len]).map_err(|_| CrashError::MalformedHeader)?;
+        let name = core::str::from_utf8(&frame[off..off + name_len])
+            .map_err(|_| CrashError::MalformedHeader)?;
         off += name_len;
 
         let mut pcs = Vec::with_capacity(pc_count);
@@ -238,8 +238,12 @@ pub fn deterministic_build_id(name: &str) -> String {
     out
 }
 
-#[must_use]
-pub fn normalize_dump_path(timestamp_nsec: u64, pid: u32, name: &str) -> Result<String, CrashError> {
+#[must_use = "normalized dump path must be consumed or handled"]
+pub fn normalize_dump_path(
+    timestamp_nsec: u64,
+    pid: u32,
+    name: &str,
+) -> Result<String, CrashError> {
     let mut sanitized = String::with_capacity(name.len());
     for b in name.bytes() {
         let keep = matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_');
@@ -259,7 +263,7 @@ pub fn normalize_dump_path(timestamp_nsec: u64, pid: u32, name: &str) -> Result<
     Ok(out)
 }
 
-#[must_use]
+#[must_use = "path validation errors must be handled explicitly"]
 pub fn validate_dump_path(path: &str) -> Result<(), CrashError> {
     if !path.starts_with("/state/crash/") {
         return Err(CrashError::PathOutOfScope);
@@ -278,7 +282,8 @@ pub fn validate_dump_path(path: &str) -> Result<(), CrashError> {
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub fn write_dump_to_statefs(path: &str, bytes: &[u8]) -> Result<(), CrashError> {
     validate_dump_path(path)?;
-    let client = statefs::client::StatefsClient::new().map_err(|_| CrashError::StatefsWriteFailed)?;
+    let client =
+        statefs::client::StatefsClient::new().map_err(|_| CrashError::StatefsWriteFailed)?;
     client.put(path, bytes).map_err(|_| CrashError::StatefsWriteFailed)?;
     client.sync().map_err(|_| CrashError::StatefsWriteFailed)?;
     Ok(())
@@ -287,7 +292,8 @@ pub fn write_dump_to_statefs(path: &str, bytes: &[u8]) -> Result<(), CrashError>
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub fn read_dump_from_statefs(path: &str) -> Result<Vec<u8>, CrashError> {
     validate_dump_path(path)?;
-    let client = statefs::client::StatefsClient::new().map_err(|_| CrashError::StatefsReadFailed)?;
+    let client =
+        statefs::client::StatefsClient::new().map_err(|_| CrashError::StatefsReadFailed)?;
     client.get(path).map_err(|_| CrashError::StatefsReadFailed)
 }
 

@@ -18,7 +18,8 @@ use nexus_metrics::client::MetricsClient;
 use nexus_metrics::{DeterministicIdSource, SpanId};
 
 use crash::{
-    deterministic_build_id, normalize_dump_path, validate_dump_path, write_dump_to_statefs, MinidumpFrame,
+    deterministic_build_id, normalize_dump_path, validate_dump_path, write_dump_to_statefs,
+    MinidumpFrame,
 };
 use demo_exit0::{DEMO_EXIT0_ELF, DEMO_MINIDUMP_ELF};
 use exec_payloads::HELLO_ELF;
@@ -583,7 +584,9 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         if let Some(img) = image_id {
             if code != 0 {
                 let name = State::child_name(img);
-                let (build_id, dump_path) = if let Some((build_id, dump_path, dump_bytes)) = reported_meta {
+                let (build_id, dump_path) = if let Some((build_id, dump_path, dump_bytes)) =
+                    reported_meta
+                {
                     if !verify_reported_minidump(dump_path, pid, code, name, build_id, dump_bytes) {
                         return rsp(op, STATUS_FAILED, pid).to_vec();
                     }

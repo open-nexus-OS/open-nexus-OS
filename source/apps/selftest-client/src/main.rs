@@ -75,6 +75,7 @@ mod os_lite {
     use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
     use core::time::Duration;
 
+    use crash::{deterministic_build_id, MinidumpFrame};
     use exec_payloads::HELLO_ELF;
     use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
     use nexus_abi::{
@@ -99,7 +100,6 @@ mod os_lite {
     use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address};
     use statefs::protocol as statefs_proto;
     use statefs::StatefsError;
-    use crash::{deterministic_build_id, MinidumpFrame};
 
     use crate::markers;
     use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_i64, emit_u64};
@@ -1150,10 +1150,16 @@ mod os_lite {
         req.extend_from_slice(dump_bytes);
 
         let clock = nexus_ipc::budget::OsClock;
-        nexus_ipc::budget::send_budgeted(&clock, execd, &req, core::time::Duration::from_millis(500))
-            .map_err(|_| ())?;
-        let rsp = nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
-            .map_err(|_| ())?;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            execd,
+            &req,
+            core::time::Duration::from_millis(500),
+        )
+        .map_err(|_| ())?;
+        let rsp =
+            nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
+                .map_err(|_| ())?;
         if rsp.len() != 9 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
             return Err(());
         }
@@ -1174,7 +1180,11 @@ mod os_lite {
         const MAGIC1: u8 = b'X';
         const VERSION: u8 = 1;
         const OP_REPORT_EXIT: u8 = 2;
-        if build_id.is_empty() || build_id.len() > 64 || dump_path.is_empty() || dump_path.len() > 255 {
+        if build_id.is_empty()
+            || build_id.len() > 64
+            || dump_path.is_empty()
+            || dump_path.len() > 255
+        {
             return Err(());
         }
         let mut req = Vec::with_capacity(15 + build_id.len() + dump_path.len());
@@ -1190,10 +1200,16 @@ mod os_lite {
         req.extend_from_slice(dump_path.as_bytes());
 
         let clock = nexus_ipc::budget::OsClock;
-        nexus_ipc::budget::send_budgeted(&clock, execd, &req, core::time::Duration::from_millis(500))
-            .map_err(|_| ())?;
-        let rsp = nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
-            .map_err(|_| ())?;
+        nexus_ipc::budget::send_budgeted(
+            &clock,
+            execd,
+            &req,
+            core::time::Duration::from_millis(500),
+        )
+        .map_err(|_| ())?;
+        let rsp =
+            nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
+                .map_err(|_| ())?;
         if rsp.len() != 9 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
             return Err(());
         }
@@ -2272,13 +2288,16 @@ mod os_lite {
 
     fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Result<bool, ()> {
         const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
-        let get =
-            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH).map_err(|_| ())?;
+        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH)
+            .map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &get)?;
         Ok(statefs_proto::decode_get_response(&rsp).is_ok())
     }
 
-    fn grant_statefs_caps_to_child(statefs: &KernelClient, child_pid: Pid) -> core::result::Result<(), ()> {
+    fn grant_statefs_caps_to_child(
+        statefs: &KernelClient,
+        child_pid: Pid,
+    ) -> core::result::Result<(), ()> {
         const CHILD_STATEFS_SEND_SLOT: u32 = 7;
         const CHILD_STATEFS_RECV_SLOT: u32 = 8;
         let (send_slot, recv_slot) = statefs.slots();
@@ -2309,8 +2328,8 @@ mod os_lite {
     ) -> core::result::Result<(String, String, Vec<u8>), ()> {
         const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
         let expected_build_id = deterministic_build_id(name);
-        let get =
-            statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH).map_err(|_| ())?;
+        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH)
+            .map_err(|_| ())?;
         let rsp = statefs_send_recv(client, &get)?;
         let dump_bytes = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
         let decoded = MinidumpFrame::decode(dump_bytes.as_slice()).map_err(|_| ())?;
@@ -2995,7 +3014,8 @@ mod os_lite {
         }
         let saw_crash = logd_query_contains_since_paged(&logd, 0, b"crash").unwrap_or(false);
         let saw_name = logd_query_contains_since_paged(&logd, 0, b"demo.minidump").unwrap_or(false);
-        let saw_event = logd_query_contains_since_paged(&logd, 0, b"event=crash.v1").unwrap_or(false);
+        let saw_event =
+            logd_query_contains_since_paged(&logd, 0, b"event=crash.v1").unwrap_or(false);
         let saw_build_id = logd_query_contains_since_paged(&logd, 0, b"build_id=").unwrap_or(false);
         let saw_dump_path =
             logd_query_contains_since_paged(&logd, 0, b"dump_path=/state/crash/").unwrap_or(false);

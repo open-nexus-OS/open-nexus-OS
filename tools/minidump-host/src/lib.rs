@@ -24,7 +24,7 @@ pub enum SymbolizeError {
     LoaderOpen,
 }
 
-#[must_use]
+#[must_use = "symbolization result must be handled by caller"]
 pub fn symbolize_minidump_with_elf(
     elf_path: &Path,
     dump_bytes: &[u8],

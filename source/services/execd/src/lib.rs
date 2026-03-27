@@ -88,8 +88,8 @@ pub(crate) fn reported_minidump_frame_matches_expected(
     expected_name: &str,
     expected_build_id: &str,
 ) -> bool {
-    let pid_matches = frame_pid == expected_pid
-        || (expected_name == DEMO_MINIDUMP_NAME && frame_pid == 0);
+    let pid_matches =
+        frame_pid == expected_pid || (expected_name == DEMO_MINIDUMP_NAME && frame_pid == 0);
     pid_matches
         && frame_code == expected_code
         && frame_name == expected_name
@@ -165,22 +165,64 @@ mod tests {
     #[test]
     fn test_reported_minidump_frame_matches_expected_rejects_any_mismatch() {
         assert!(reported_minidump_frame_matches_expected(
-            7, 42, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+            7,
+            42,
+            "demo.minidump",
+            "b123",
+            7,
+            42,
+            "demo.minidump",
+            "b123"
         ));
         assert!(reported_minidump_frame_matches_expected(
-            0, 42, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+            0,
+            42,
+            "demo.minidump",
+            "b123",
+            7,
+            42,
+            "demo.minidump",
+            "b123"
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            8, 42, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+            8,
+            42,
+            "demo.minidump",
+            "b123",
+            7,
+            42,
+            "demo.minidump",
+            "b123"
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            7, 43, "demo.minidump", "b123", 7, 42, "demo.minidump", "b123"
+            7,
+            43,
+            "demo.minidump",
+            "b123",
+            7,
+            42,
+            "demo.minidump",
+            "b123"
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            7, 42, "demo.other", "b123", 7, 42, "demo.minidump", "b123"
+            7,
+            42,
+            "demo.other",
+            "b123",
+            7,
+            42,
+            "demo.minidump",
+            "b123"
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            7, 42, "demo.minidump", "b999", 7, 42, "demo.minidump", "b123"
+            7,
+            42,
+            "demo.minidump",
+            "b999",
+            7,
+            42,
+            "demo.minidump",
+            "b123"
         ));
     }
 }
