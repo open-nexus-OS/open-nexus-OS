@@ -38,9 +38,9 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - `SECURITY-CONSISTENCY-CHECK.md` — Decision points and drift prevention across SMP/QoS/parallelism tasks
 - `RUST-ADVANTAGES.md` — Why Rust is optimal for a consumer-facing OS (comparison with C/C++)
 
-**Current Status (2026-02-10)**:
-- TASK-0012: implementation complete, status **In Review** (deterministic anti-fake SMP proofs green)
-- RFC-0021: **Complete** (contract + proof checklist aligned with `REQUIRE_SMP=1` SMP marker gating)
+**Current snapshot**:
+- SMP/per-CPU kernel behavior is treated as stable baseline and validated through deterministic proof gates.
+- Kernel-focused architecture pages in this directory are maintained as long-lived references; volatile proof details stay in task/RFC execution docs.
 
 ## Testing + CI
 
@@ -60,10 +60,9 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **RFC-0027**: DSoftBusd modular daemon structure v1 (Completed)
 - **ADR-0026**: Network address profiles + validation semantics
 
-**Current Status (2026-03-12)**:
-- TASK-0003/0003B/0003C: ✅ Done (OS transport + Noise XK + UDP discovery)
-- TASK-0004/TASK-0005: ✅ Done (dual-node identity binding + cross-VM harness/proxy)
-- TASK-0015: 🟨 In Review (daemon modularization complete; `dsoftbusd` `main.rs` is now a thin entry/wiring layer)
+**Current snapshot**:
+- Core networking transport, authenticated session flow, and dual-node harness behavior are established.
+- Networking docs here focus on authority boundaries and invariants; rollout/proof state remains task-owned.
 
 ## Services and contracts
 
@@ -86,10 +85,9 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **RFC-0011**: logd journal + crash reports v1 (Complete)
 - **RFC-0031**: crashdump v1 deterministic minidumps + host symbolization (Complete)
 
-**Current Status (2026-01-14)**:
-- TASK-0006: ✅ Done (logd RAM journal, nexus-log sink, execd crash reports, core service wiring)
-- TASK-0014: Done (metrics/tracing exports via logd implemented and closure accepted)
-- TASK-0018: 🟨 In Review (crashdump v1 final hardening complete, deterministic marker + reject-path proofs green)
+**Current snapshot**:
+- Logging, metrics/tracing export, and crash-report flows are active and validated through deterministic tests.
+- Security-hardening specifics and reject-path evidence are tracked in dedicated execution documents.
 
 ## Policy Authority + Audit
 
@@ -97,9 +95,9 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **RFC-0015**: Policy Authority & Audit Baseline v1 (Complete)
 - **Security docs**: `docs/security/signing-and-policy.md`
 
-**Current Status (2026-01-25)**:
-- TASK-0008: ✅ Done (policy engine, audit trail, policy-gated operations)
-- TASK-0008B: ✅ Done (device identity keys via virtio-rng + rngd authority + keystored keygen)
+**Current snapshot**:
+- Policy authority remains single-source and deny-by-default, with audit evidence as a first-class proof surface.
+- Device identity and keystore flows are integrated into the same authority model without introducing parallel policy sources.
 
 Related:
 

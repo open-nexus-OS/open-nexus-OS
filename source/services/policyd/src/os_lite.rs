@@ -1,3 +1,13 @@
+//! CONTEXT: policyd OS-lite runtime loop with deterministic IPC handling and audit emission.
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder plus host-tested protocol core (`lite_protocol`).
+//! INVARIANTS:
+//! - identity remains kernel-derived (`sender_service_id`) on non-privileged paths
+//! - emit `ready/ok` markers only after real behavior is established
+//! - all nonblocking loops stay bounded per-iteration and deterministic
+
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
 extern crate alloc;
@@ -78,6 +88,7 @@ const OP_LOG_PROBE: u8 = 0x7f;
 const AUDIT_SCOPE: &str = "policyd.audit";
 const AUDIT_EMIT_LIMIT: usize = 128;
 static AUDIT_EMIT_COUNT: AtomicUsize = AtomicUsize::new(0);
+const MAX_FRAME_BYTES: usize = 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES;
 
 #[derive(Clone, Copy, Debug)]
 enum AuditReason {
@@ -101,6 +112,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let server_send_slot = 4;
     notifier.notify();
     emit_line("policyd: ready");
+    emit_line("abi-profile: ready (server=policyd|abi-filterd)");
     // Private init-lite -> policyd control channels.
     // Slot layout for policyd child (deterministic under current init-lite bring-up):
     // - slot 1/2: init-lite routing control REQ/RSP
@@ -194,8 +206,9 @@ fn send_reply_nonblock(
     Ok(())
 }
 
+#[must_use = "runtime frame outputs must be forwarded to callers"]
 struct FrameOut {
-    buf: [u8; 10],
+    buf: [u8; MAX_FRAME_BYTES],
     len: usize,
 }
 
@@ -763,7 +776,7 @@ match (ver, op) {
 */
 
 fn rsp_v1(op: u8, status: u8) -> FrameOut {
-    let mut buf = [0u8; 10];
+    let mut buf = [0u8; MAX_FRAME_BYTES];
     buf[..6].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, op | 0x80, status, 0]);
     FrameOut { buf, len: 6 }
 }

@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+//! CONTEXT: Build-time policy table generator for policyd OS-lite runtime.
+//! OWNERS: @runtime @security
+//! STATUS: Experimental
+//! TEST_COVERAGE: Indirectly covered by policyd host/unit tests and OS build gates.
+//! INVARIANTS:
+//! - policy file parsing remains bounded and deterministic
+//! - generated entries preserve single policy authority source (`recipes/policy/*`)
+//! - ABI profile defaults remain deny-by-default for subjects without explicit profile rows
+
 // Build scripts are allowed to panic on misconfiguration.
 #![allow(clippy::expect_used)]
 
@@ -12,6 +24,16 @@ use serde::Deserialize;
 struct RawPolicy {
     #[serde(default)]
     allow: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    abi_profile: BTreeMap<String, RawAbiProfile>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+struct RawAbiProfile {
+    #[serde(default)]
+    statefs_put_allow_prefix: Option<String>,
+    #[serde(default)]
+    net_bind_min_port: Option<u16>,
 }
 
 fn main() {
@@ -23,11 +45,11 @@ fn main() {
         .canonicalize()
         .expect("failed to resolve recipes/policy");
 
-    let policy = load_policy_dir(&policy_dir);
-    emit_policy_table(&policy);
+    let (policy, abi_profiles) = load_policy_dir(&policy_dir);
+    emit_policy_table(&policy, &abi_profiles);
 }
 
-fn load_policy_dir(dir: &Path) -> BTreeMap<String, BTreeSet<String>> {
+fn load_policy_dir(dir: &Path) -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<String, RawAbiProfile>) {
     let mut files = Vec::new();
     let entries = fs::read_dir(dir).expect("failed to read recipes/policy");
     for entry in entries {
@@ -44,6 +66,7 @@ fn load_policy_dir(dir: &Path) -> BTreeMap<String, BTreeSet<String>> {
     }
 
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut abi_profiles: BTreeMap<String, RawAbiProfile> = BTreeMap::new();
     for path in files {
         let data = fs::read_to_string(&path).expect("failed to read policy file");
         let parsed: RawPolicy =
@@ -56,11 +79,24 @@ fn load_policy_dir(dir: &Path) -> BTreeMap<String, BTreeSet<String>> {
             }
             merged.insert(service_key, set);
         }
+        for (service, mut profile) in parsed.abi_profile {
+            let service_key = canonical(&service);
+            profile.statefs_put_allow_prefix = profile
+                .statefs_put_allow_prefix
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(|v| v.to_string());
+            abi_profiles.insert(service_key, profile);
+        }
     }
-    merged
+    (merged, abi_profiles)
 }
 
-fn emit_policy_table(policy: &BTreeMap<String, BTreeSet<String>>) {
+fn emit_policy_table(
+    policy: &BTreeMap<String, BTreeSet<String>>,
+    abi_profiles: &BTreeMap<String, RawAbiProfile>,
+) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR missing"));
     let dest = out_dir.join("policy_table.rs");
     let mut out = String::new();
@@ -83,6 +119,21 @@ fn emit_policy_table(policy: &BTreeMap<String, BTreeSet<String>>) {
             out.push('"');
         }
         out.push_str("] },\n");
+    }
+    out.push_str("];\n");
+    out.push('\n');
+    out.push_str("pub const ABI_PROFILE_ENTRIES: &[(u64, Option<&str>, Option<u16>)] = &[\n");
+    for (service, profile) in abi_profiles {
+        let service_id = service_id_from_name(service.as_bytes());
+        let prefix = match profile.statefs_put_allow_prefix.as_deref() {
+            Some(v) => format!("Some(\"{}\")", v.escape_default()),
+            None => "None".to_string(),
+        };
+        let net_bind = match profile.net_bind_min_port {
+            Some(v) => format!("Some({v}u16)"),
+            None => "None".to_string(),
+        };
+        out.push_str(&format!("    (0x{service_id:016x}u64, {prefix}, {net_bind}),\n"));
     }
     out.push_str("];\n");
     fs::write(&dest, out).expect("failed to write policy_table.rs");

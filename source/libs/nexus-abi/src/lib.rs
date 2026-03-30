@@ -892,6 +892,8 @@ pub mod policyd {
     pub const OP_EXEC: u8 = 3;
     /// Capability check opcode (bring-up, service-id bound).
     pub const OP_CHECK_CAP: u8 = 4;
+    /// ABI syscall profile fetch opcode (nonce-correlated, v2).
+    pub const OP_ABI_PROFILE_GET: u8 = 6;
 
     /// Status: allowed.
     pub const STATUS_ALLOW: u8 = 0;
@@ -1079,6 +1081,89 @@ pub mod policyd {
         Some((nonce, requester_id, image_id))
     }
 
+    /// Encodes a v2 ABI profile fetch request:
+    /// [P,O,ver=2,OP_ABI_PROFILE_GET, nonce:u32le, subject_id:u64le]
+    #[must_use = "encoded request length must be checked before send"]
+    pub fn encode_abi_profile_get_v2(
+        nonce: Nonce,
+        subject_id: u64,
+        out: &mut [u8],
+    ) -> Option<usize> {
+        if out.len() < 16 {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION_V2;
+        out[3] = OP_ABI_PROFILE_GET;
+        out[4..8].copy_from_slice(&nonce.to_le_bytes());
+        out[8..16].copy_from_slice(&subject_id.to_le_bytes());
+        Some(16)
+    }
+
+    /// Decodes a v2 ABI profile fetch request.
+    #[must_use = "decoded request must be validated before policy handling"]
+    pub fn decode_abi_profile_get_v2(frame: &[u8]) -> Option<(Nonce, u64)> {
+        if frame.len() != 16 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION_V2
+        {
+            return None;
+        }
+        if frame[3] != OP_ABI_PROFILE_GET {
+            return None;
+        }
+        let nonce = Nonce::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+        let subject_id = u64::from_le_bytes([
+            frame[8], frame[9], frame[10], frame[11], frame[12], frame[13], frame[14], frame[15],
+        ]);
+        Some((nonce, subject_id))
+    }
+
+    /// Encodes a v2 ABI profile fetch response:
+    /// [P,O,ver=2,OP_ABI_PROFILE_GET|0x80,nonce:u32le,status:u8,_reserved:u8,profile_len:u16le,profile...]
+    #[must_use = "encoded response length must be checked before reply send"]
+    pub fn encode_abi_profile_rsp_v2(
+        nonce: Nonce,
+        status: u8,
+        profile: &[u8],
+        out: &mut [u8],
+    ) -> Option<usize> {
+        if profile.len() > crate::abi_filter::MAX_PROFILE_BYTES || profile.len() > u16::MAX as usize {
+            return None;
+        }
+        let total = 12 + profile.len();
+        if out.len() < total {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION_V2;
+        out[3] = OP_ABI_PROFILE_GET | 0x80;
+        out[4..8].copy_from_slice(&nonce.to_le_bytes());
+        out[8] = status;
+        out[9] = 0;
+        out[10..12].copy_from_slice(&(profile.len() as u16).to_le_bytes());
+        out[12..12 + profile.len()].copy_from_slice(profile);
+        Some(total)
+    }
+
+    /// Decodes a v2 ABI profile fetch response and returns (nonce, status, profile_bytes).
+    #[must_use = "decoded response status/profile must be consumed by caller"]
+    pub fn decode_abi_profile_rsp_v2(frame: &[u8]) -> Option<(Nonce, u8, &[u8])> {
+        if frame.len() < 12 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION_V2 {
+            return None;
+        }
+        if frame[3] != (OP_ABI_PROFILE_GET | 0x80) {
+            return None;
+        }
+        let nonce = Nonce::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+        let status = frame[8];
+        let profile_len = u16::from_le_bytes([frame[10], frame[11]]) as usize;
+        if profile_len > crate::abi_filter::MAX_PROFILE_BYTES || frame.len() != 12 + profile_len {
+            return None;
+        }
+        Some((nonce, status, &frame[12..]))
+    }
+
     /// Encodes a v2 response:
     /// [P,O,ver=2,op|0x80, nonce:u32le, status:u8, _reserved:u8]
     pub fn encode_rsp_v2(op: u8, nonce: Nonce, status: u8) -> [u8; 10] {
@@ -1232,6 +1317,23 @@ pub mod policyd {
             assert_eq!(op, OP_ROUTE);
             assert_eq!(nonce, 0xAABBCCDD);
             assert_eq!(status, STATUS_DENY);
+        }
+
+        #[test]
+        fn abi_profile_v2_roundtrip() {
+            let mut req = [0u8; 32];
+            let n = encode_abi_profile_get_v2(0x0102_0304, 0x1122_3344_5566_7788, &mut req).unwrap();
+            let (nonce, subject_id) = decode_abi_profile_get_v2(&req[..n]).unwrap();
+            assert_eq!(nonce, 0x0102_0304);
+            assert_eq!(subject_id, 0x1122_3344_5566_7788);
+
+            let profile = [1u8, 2, 3, 4];
+            let mut rsp = [0u8; 64];
+            let m = encode_abi_profile_rsp_v2(0x1122_3344, STATUS_ALLOW, &profile, &mut rsp).unwrap();
+            let (rsp_nonce, status, got_profile) = decode_abi_profile_rsp_v2(&rsp[..m]).unwrap();
+            assert_eq!(rsp_nonce, 0x1122_3344);
+            assert_eq!(status, STATUS_ALLOW);
+            assert_eq!(got_profile, &profile);
         }
     }
 }
@@ -2575,6 +2677,9 @@ unsafe fn ecall6(
 // Fast capability slot probing for early boot validation (OS only).
 #[cfg(nexus_env = "os")]
 pub mod slot_probe;
+
+/// Deterministic userspace ABI syscall filter profile helpers.
+pub mod abi_filter;
 
 #[cfg(test)]
 mod tests {

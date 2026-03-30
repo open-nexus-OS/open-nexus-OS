@@ -16,3 +16,7 @@ virtioblkd = ["device.mmio.blk", "ipc.core"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 "selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "statefs.read", "statefs.write", "statefs.boot"]
 "demo.testsvc" = []
+
+[abi_profile."selftest-client"]
+statefs_put_allow_prefix = "/state/app/selftest/"
+net_bind_min_port = 1024

@@ -1,9 +1,9 @@
 # RFC-0032: ABI syscall guardrails v2 (userland, kernel-untouched)
 
-- Status: In Progress
+- Status: Complete
 - Owners: @runtime @security
 - Created: 2026-03-26
-- Last Updated: 2026-03-26
+- Last Updated: 2026-03-27
 - Links:
   - Tasks: `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (execution + proof)
   - Follow-on tasks:
@@ -16,10 +16,10 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract freeze + phased rollout plan)**: 🟨
-- **Phase 1 (bounded filter chain + deterministic deny/audit)**: ⬜
-- **Phase 2 (authenticated profile distribution)**: ⬜
-- **Phase 3 (QEMU markers + rollout closure)**: ⬜
+- **Phase 0 (contract freeze + phased rollout plan)**: ✅
+- **Phase 1 (bounded filter chain + deterministic deny/audit)**: ✅
+- **Phase 2 (authenticated profile distribution)**: ✅
+- **Phase 3 (QEMU markers + rollout closure)**: ✅
 
 Definition:
 
@@ -121,10 +121,11 @@ Open Nexus OS needs seccomp-like syscall hygiene before kernel sysfilter enforce
   - don't add runtime lifecycle transitions in this slice.
 - **Proof strategy**:
   - required negative tests for unbounded profile, unauthenticated profile path, spoofed subject, rule overflow,
+  - additional deterministic hardening tests for precedence/fail-closed frame handling and typed identity binding,
   - deterministic marker ladder in QEMU for deny/allow/netbind deny.
 - **Open risks**:
   - partial rollout phases can temporarily leave non-migrated call paths outside guardrail coverage,
-  - final server choice (`policyd` vs `abi-filterd`) must be locked before marker contract freeze.
+  - rollout coverage must stay explicitly documented phase-by-phase until final closeout.
 
 ## Failure model (normative)
 
@@ -160,10 +161,28 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/q
 - **Single big-bang migration for all OS components**: rejected; too risky and hard to prove deterministically in one slice.
 - **`abi-filterd` as mandatory new service**: rejected for now; `policyd` remains preferred authority unless coupling proves untenable.
 
-## Open questions
+## Follow-on notes
 
 - Should the first rollout phase include only statefs + net-bind classes, or one additional syscall class for earlier migration coverage?
-- Do we require `policyd`-only in v1, or keep `abi-filterd` as equally supported fallback in the final contract text?
+- `policyd`-only was selected and implemented for TASK-0019; `abi-filterd` remains follow-on/deferred.
+
+## Latest implementation evidence (2026-03-27)
+
+- Host proof:
+  - `cargo test -p nexus-abi -- reject --nocapture` ✅
+  - required `test_reject_*` set green ✅
+  - additional deterministic hardening tests green (precedence/fail-closed/typed identity binding) ✅
+  - `cargo test -p policyd abi_profile_get_v2 -- --nocapture` ✅ (distribution frame semantics + subject binding)
+- OS proof:
+  - `just dep-gate` ✅
+  - `just diag-os` ✅
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` ✅
+- Marker closure:
+  - `abi-profile: ready (server=policyd|abi-filterd)` ✅
+  - `abi-filter: deny (subject=<svc> syscall=<op>)` ✅
+  - `SELFTEST: abi filter deny ok` ✅
+  - `SELFTEST: abi filter allow ok` ✅
+  - `SELFTEST: abi netbind deny ok` ✅
 
 ## RFC Quality Guidelines (for authors)
 
@@ -180,10 +199,10 @@ When updating this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: Contract freeze + phased rollout boundaries — proof: task/header + RFC sync complete.
-- [ ] **Phase 1**: Bounded filter chain + deterministic deny/audit path — proof: `cargo test -p nexus-abi -- reject --nocapture`
-- [ ] **Phase 2**: Authenticated profile distribution + subject-binding rejects — proof: required `test_reject_*` coverage green.
-- [ ] **Phase 3**: QEMU marker closure and rollout evidence — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: Contract freeze + phased rollout boundaries — proof: task/header + RFC sync complete.
+- [x] **Phase 1**: Bounded filter chain + deterministic deny/audit path — proof: `cargo test -p nexus-abi -- reject --nocapture`
+- [x] **Phase 2**: Authenticated profile distribution + subject-binding rejects — proof: required `test_reject_*` coverage green.
+- [x] **Phase 3**: QEMU marker closure and rollout evidence — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

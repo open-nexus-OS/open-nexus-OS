@@ -20,6 +20,10 @@
 
 use nexus_sel::Policy;
 
+mod policy_table {
+    include!(concat!(env!("OUT_DIR"), "/policy_table.rs"));
+}
+
 const MAGIC0: u8 = b'P';
 const MAGIC1: u8 = b'O';
 const VERSION: u8 = 1;
@@ -29,6 +33,7 @@ const OP_ROUTE: u8 = 2;
 const OP_EXEC: u8 = 3;
 const OP_CHECK_CAP: u8 = 4;
 const OP_CHECK_CAP_DELEGATED: u8 = 5;
+const OP_ABI_PROFILE_GET: u8 = nexus_abi::policyd::OP_ABI_PROFILE_GET;
 
 const STATUS_ALLOW: u8 = 0;
 const STATUS_DENY: u8 = 1;
@@ -38,6 +43,7 @@ const STATUS_UNSUPPORTED: u8 = 3;
 const CAP_CHECK: &str = "ipc.core";
 const CAP_ROUTE: &str = "ipc.core";
 const CAP_EXEC: &str = "proc.spawn";
+const MAX_FRAME_BYTES: usize = 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES;
 
 fn normalize_subject_id(subject_id: u64) -> u64 {
     // Bring-up alias: kernel may report this alternate SID for selftest-client in current mmio boots.
@@ -76,13 +82,29 @@ fn normalize_delegate_sender_id(sender_id: u64, cap: &str) -> u64 {
     }
 }
 
+fn encode_subject_profile_v1(subject_id: u64, out: &mut [u8]) -> Option<usize> {
+    let mut i = 0usize;
+    while i < policy_table::ABI_PROFILE_ENTRIES.len() {
+        let entry = &policy_table::ABI_PROFILE_ENTRIES[i];
+        if entry.0 == subject_id {
+            let prefix = entry.1.map(|v| v.as_bytes());
+            return nexus_abi::abi_filter::encode_profile_v1(subject_id, prefix, entry.2, out).ok();
+        }
+        i += 1;
+    }
+    // Default profile for non-migrated subjects is empty deny-by-default.
+    nexus_abi::abi_filter::encode_profile_v1(subject_id, None, None, out).ok()
+}
+
+#[must_use = "frame outputs must be inspected and sent to preserve fail-closed behavior"]
 #[derive(Clone, Copy, Debug)]
 pub struct FrameOut {
-    pub buf: [u8; 10],
+    pub buf: [u8; MAX_FRAME_BYTES],
     pub len: usize,
 }
 
 impl FrameOut {
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         &self.buf[..core::cmp::min(self.len, self.buf.len())]
     }
@@ -191,6 +213,72 @@ pub fn handle_frame(
             let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v2(op, nonce, status)
         }
+        (nexus_abi::policyd::VERSION_V2, OP_ABI_PROFILE_GET) => {
+            let (nonce, requested_subject_id) = match nexus_abi::policyd::decode_abi_profile_get_v2(frame)
+            {
+                Some(v) => v,
+                None => return rsp_v2(OP_ABI_PROFILE_GET, 0, STATUS_MALFORMED),
+            };
+            let requested_subject_id = normalize_subject_id(requested_subject_id);
+            let caller_subject_id = normalize_subject_id(sender_service_id);
+            if !privileged_proxy && requested_subject_id != caller_subject_id {
+                let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+                let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+                    nonce,
+                    STATUS_DENY,
+                    &[],
+                    &mut out.buf,
+                ) {
+                    Some(n) => n,
+                    None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
+                };
+                out.len = rsp_len;
+                return out;
+            }
+            let mut profile = [0u8; nexus_abi::abi_filter::MAX_PROFILE_BYTES];
+            let profile_len = match encode_subject_profile_v1(requested_subject_id, &mut profile) {
+                Some(n) => n,
+                None => {
+                    let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+                    let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+                        nonce,
+                        STATUS_UNSUPPORTED,
+                        &[],
+                        &mut out.buf,
+                    ) {
+                        Some(v) => v,
+                        None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
+                    };
+                    out.len = rsp_len;
+                    return out;
+                }
+            };
+            let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+            let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+                nonce,
+                STATUS_ALLOW,
+                &profile[..profile_len],
+                &mut out.buf,
+            ) {
+                Some(n) => n,
+                None => {
+                    let mut fallback = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+                    let fallback_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+                        nonce,
+                        STATUS_UNSUPPORTED,
+                        &[],
+                        &mut fallback.buf,
+                    ) {
+                        Some(v) => v,
+                        None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
+                    };
+                    fallback.len = fallback_len;
+                    return fallback;
+                }
+            };
+            out.len = rsp_len;
+            out
+        }
         (VERSION, OP_ROUTE) => {
             // [P,O,ver,OP, req_len:u8, req..., tgt_len:u8, tgt...]
             if frame.len() < 6 {
@@ -272,22 +360,10 @@ pub fn handle_frame(
             let (nonce, requester_id, target_id) =
                 match nexus_abi::policyd::decode_route_v3_id(frame) {
                     Some(v) => v,
-                    None => {
-                        let buf = nexus_abi::policyd::encode_rsp_v3(
-                            nexus_abi::policyd::OP_ROUTE,
-                            0,
-                            STATUS_MALFORMED,
-                        );
-                        return FrameOut { buf, len: 10 };
-                    }
+                    None => return rsp_v3(nexus_abi::policyd::OP_ROUTE, 0, STATUS_MALFORMED),
                 };
             if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
-                let buf = nexus_abi::policyd::encode_rsp_v3(
-                    nexus_abi::policyd::OP_ROUTE,
-                    nonce,
-                    STATUS_DENY,
-                );
-                return FrameOut { buf, len: 10 };
+                return rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, STATUS_DENY);
             }
             let bundle_id = nexus_abi::service_id_from_name(b"bundlemgrd");
             let execd_id = nexus_abi::service_id_from_name(b"execd");
@@ -302,9 +378,7 @@ pub fn handle_frame(
             } else {
                 STATUS_DENY
             };
-            let buf =
-                nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, status);
-            FrameOut { buf, len: 10 }
+            rsp_v3(nexus_abi::policyd::OP_ROUTE, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V2, nexus_abi::policyd::OP_EXEC) => {
             let (nonce, requester, _image_id) = match nexus_abi::policyd::decode_exec_v2(frame) {
@@ -323,40 +397,36 @@ pub fn handle_frame(
             let (nonce, requester_id, _image_id) =
                 match nexus_abi::policyd::decode_exec_v3_id(frame) {
                     Some(v) => v,
-                    None => {
-                        let buf = nexus_abi::policyd::encode_rsp_v3(
-                            nexus_abi::policyd::OP_EXEC,
-                            0,
-                            STATUS_MALFORMED,
-                        );
-                        return FrameOut { buf, len: 10 };
-                    }
+                    None => return rsp_v3(nexus_abi::policyd::OP_EXEC, 0, STATUS_MALFORMED),
                 };
             if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
-                let buf = nexus_abi::policyd::encode_rsp_v3(
-                    nexus_abi::policyd::OP_EXEC,
-                    nonce,
-                    STATUS_DENY,
-                );
-                return FrameOut { buf, len: 10 };
+                return rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
             let status =
                 if policy.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
-            let buf = nexus_abi::policyd::encode_rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, status);
-            FrameOut { buf, len: 10 }
+            rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, status)
         }
         _ => rsp_v1(op, STATUS_UNSUPPORTED),
     }
 }
 
 fn rsp_v1(op: u8, status: u8) -> FrameOut {
-    let mut buf = [0u8; 10];
+    let mut buf = [0u8; MAX_FRAME_BYTES];
     buf[..6].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, op | 0x80, status, 0]);
     FrameOut { buf, len: 6 }
 }
 
 fn rsp_v2(op: u8, nonce: nexus_abi::policyd::Nonce, status: u8) -> FrameOut {
-    let buf = nexus_abi::policyd::encode_rsp_v2(op, nonce, status);
+    let mut buf = [0u8; MAX_FRAME_BYTES];
+    let rsp = nexus_abi::policyd::encode_rsp_v2(op, nonce, status);
+    buf[..10].copy_from_slice(&rsp);
+    FrameOut { buf, len: 10 }
+}
+
+fn rsp_v3(op: u8, nonce: nexus_abi::policyd::Nonce, status: u8) -> FrameOut {
+    let mut buf = [0u8; MAX_FRAME_BYTES];
+    let rsp = nexus_abi::policyd::encode_rsp_v3(op, nonce, status);
+    buf[..10].copy_from_slice(&rsp);
     FrameOut { buf, len: 10 }
 }
 
@@ -571,5 +641,81 @@ mod tests {
         assert_eq!(out.buf[2], nexus_abi::policyd::VERSION_V3);
         assert_eq!(out.buf[3], nexus_abi::policyd::OP_ROUTE | 0x80);
         assert_eq!(out.buf[8], STATUS_DENY);
+    }
+
+    #[test]
+    fn test_abi_profile_get_v2_binds_subject_to_sender() {
+        let selftest = nexus_abi::service_id_from_name(b"selftest-client");
+        let spoofed = nexus_abi::service_id_from_name(b"demo.testsvc");
+        let policy = Policy::new(&[]);
+        let mut req = [0u8; 32];
+        let n =
+            nexus_abi::policyd::encode_abi_profile_get_v2(0x0102_0304, spoofed, &mut req).unwrap();
+        let out = handle_frame(&policy, &req[..n], selftest, false);
+        let (nonce, status, _profile) =
+            nexus_abi::policyd::decode_abi_profile_rsp_v2(out.as_slice()).unwrap();
+        assert_eq!(nonce, 0x0102_0304);
+        assert_eq!(status, STATUS_DENY);
+    }
+
+    #[test]
+    fn test_abi_profile_get_v2_selftest_profile_roundtrip() {
+        let selftest = nexus_abi::service_id_from_name(b"selftest-client");
+        let policy = Policy::new(&[]);
+        let mut req = [0u8; 32];
+        let n =
+            nexus_abi::policyd::encode_abi_profile_get_v2(0xAABB_CCDD, selftest, &mut req).unwrap();
+        let out = handle_frame(&policy, &req[..n], selftest, false);
+        let (nonce, status, profile_bytes) =
+            nexus_abi::policyd::decode_abi_profile_rsp_v2(out.as_slice()).unwrap();
+        assert_eq!(nonce, 0xAABB_CCDD);
+        assert_eq!(status, STATUS_ALLOW);
+        let profile = nexus_abi::abi_filter::decode_profile_v1(profile_bytes).unwrap();
+        assert_eq!(profile.subject_service_id(), selftest);
+        assert_eq!(
+            profile.check_statefs_put(b"/state/app/selftest/token", 4),
+            nexus_abi::abi_filter::RuleAction::Allow
+        );
+        assert_eq!(
+            profile.check_statefs_put(b"/state/forbidden/token", 4),
+            nexus_abi::abi_filter::RuleAction::Deny
+        );
+        assert_eq!(profile.check_net_bind(80), nexus_abi::abi_filter::RuleAction::Deny);
+    }
+
+    #[test]
+    fn test_abi_profile_get_v2_malformed_frame_is_fail_closed() {
+        let policy = Policy::new(&[]);
+        let malformed = [
+            MAGIC0,
+            MAGIC1,
+            nexus_abi::policyd::VERSION_V2,
+            OP_ABI_PROFILE_GET,
+            0xaa,
+            0xbb,
+        ];
+        let out = handle_frame(&policy, &malformed, 0, false);
+        let (op, nonce, status) = nexus_abi::policyd::decode_rsp_v2(out.as_slice()).unwrap();
+        assert_eq!(op, OP_ABI_PROFILE_GET);
+        assert_eq!(nonce, 0);
+        assert_eq!(status, STATUS_MALFORMED);
+    }
+
+    #[test]
+    fn test_abi_profile_get_v2_allows_privileged_proxy_subject_mismatch() {
+        let init_lite = nexus_abi::service_id_from_name(b"init-lite");
+        let selftest = nexus_abi::service_id_from_name(b"selftest-client");
+        let policy = Policy::new(&[]);
+        let mut req = [0u8; 32];
+        let n =
+            nexus_abi::policyd::encode_abi_profile_get_v2(0x1122_3344, selftest, &mut req).unwrap();
+        // Privileged proxy may fetch on behalf of another subject.
+        let out = handle_frame(&policy, &req[..n], init_lite, true);
+        let (nonce, status, profile_bytes) =
+            nexus_abi::policyd::decode_abi_profile_rsp_v2(out.as_slice()).unwrap();
+        assert_eq!(nonce, 0x1122_3344);
+        assert_eq!(status, STATUS_ALLOW);
+        let profile = nexus_abi::abi_filter::decode_profile_v1(profile_bytes).unwrap();
+        assert_eq!(profile.subject_service_id(), selftest);
     }
 }

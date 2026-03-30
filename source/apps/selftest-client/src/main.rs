@@ -1422,6 +1422,89 @@ mod os_lite {
         }
     }
 
+    fn policyd_fetch_abi_profile(
+        policyd: &KernelClient,
+        expected_subject_id: u64,
+    ) -> core::result::Result<nexus_abi::abi_filter::AbiProfile, ()> {
+        let (send_slot, recv_slot) = policyd.slots();
+        let mut req = [0u8; 32];
+        let nonce: nexus_abi::policyd::Nonce = 0xB17E_0019;
+        let req_len =
+            nexus_abi::policyd::encode_abi_profile_get_v2(nonce, expected_subject_id, &mut req)
+                .ok_or(())?;
+        let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
+        let start = nexus_abi::nsec().map_err(|_| ())?;
+        let deadline = start.saturating_add(2_000_000_000);
+        let mut send_tries = 0usize;
+        loop {
+            match nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..req_len], nexus_abi::IPC_SYS_NONBLOCK, 0)
+            {
+                Ok(_) => break,
+                Err(nexus_abi::IpcError::QueueFull) => {
+                    if (send_tries & 0x7f) == 0 {
+                        let now = nexus_abi::nsec().map_err(|_| ())?;
+                        if now >= deadline {
+                            return Err(());
+                        }
+                    }
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+            send_tries = send_tries.wrapping_add(1);
+        }
+
+        let authority_id = nexus_abi::service_id_from_name(b"policyd");
+        let mut recv_tries = 0usize;
+        let mut recv_hdr = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut sender_service_id = 0u64;
+        let mut rsp_buf = [0u8; 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES];
+        loop {
+            if (recv_tries & 0x7f) == 0 {
+                let now = nexus_abi::nsec().map_err(|_| ())?;
+                if now >= deadline {
+                    return Err(());
+                }
+            }
+            match nexus_abi::ipc_recv_v2(
+                recv_slot,
+                &mut recv_hdr,
+                &mut rsp_buf,
+                &mut sender_service_id,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) {
+                Ok(n) => {
+                    let n = core::cmp::min(n as usize, rsp_buf.len());
+                    let rsp = &rsp_buf[..n];
+                    let (rsp_nonce, status, profile_bytes) =
+                        match nexus_abi::policyd::decode_abi_profile_rsp_v2(rsp) {
+                            Some(v) => v,
+                            None => continue,
+                        };
+                    if rsp_nonce != nonce {
+                        continue;
+                    }
+                    if status != nexus_abi::policyd::STATUS_ALLOW {
+                        return Err(());
+                    }
+                    return nexus_abi::abi_filter::ingest_distributed_profile_v1_typed(
+                        profile_bytes,
+                        nexus_abi::abi_filter::SenderServiceId::new(sender_service_id),
+                        nexus_abi::abi_filter::AuthorityServiceId::new(authority_id),
+                        nexus_abi::abi_filter::SubjectServiceId::new(expected_subject_id),
+                    )
+                    .map_err(|_| ());
+                }
+                Err(nexus_abi::IpcError::QueueEmpty) => {
+                    let _ = yield_();
+                }
+                Err(_) => return Err(()),
+            }
+            recv_tries = recv_tries.wrapping_add(1);
+        }
+    }
+
     fn logd_append_status_v2(
         logd: &KernelClient,
         scope: &[u8],
@@ -2876,6 +2959,47 @@ mod os_lite {
             emit_line("SELFTEST: mmio policy deny ok");
         } else {
             emit_line("SELFTEST: mmio policy deny FAIL");
+        }
+
+        // TASK-0019: ABI syscall guardrail profile distribution + deny/allow proofs.
+        let selftest_sid = nexus_abi::service_id_from_name(b"selftest-client");
+        match policyd_fetch_abi_profile(&policyd, selftest_sid) {
+            Ok(profile) => {
+                if profile.subject_service_id() != selftest_sid {
+                    emit_line("SELFTEST: abi filter deny FAIL");
+                    emit_line("SELFTEST: abi filter allow FAIL");
+                    emit_line("SELFTEST: abi netbind deny FAIL");
+                } else {
+                    if profile.check_statefs_put(b"/state/forbidden", 16)
+                        == nexus_abi::abi_filter::RuleAction::Deny
+                    {
+                        emit_line("abi-filter: deny (subject=selftest-client syscall=statefs.put)");
+                        emit_line("SELFTEST: abi filter deny ok");
+                    } else {
+                        emit_line("SELFTEST: abi filter deny FAIL");
+                    }
+
+                    if profile.check_statefs_put(b"/state/app/selftest/token", 16)
+                        == nexus_abi::abi_filter::RuleAction::Allow
+                    {
+                        emit_line("SELFTEST: abi filter allow ok");
+                    } else {
+                        emit_line("SELFTEST: abi filter allow FAIL");
+                    }
+
+                    if profile.check_net_bind(80) == nexus_abi::abi_filter::RuleAction::Deny {
+                        emit_line("abi-filter: deny (subject=selftest-client syscall=net.bind)");
+                        emit_line("SELFTEST: abi netbind deny ok");
+                    } else {
+                        emit_line("SELFTEST: abi netbind deny FAIL");
+                    }
+                }
+            }
+            Err(_) => {
+                emit_line("SELFTEST: abi filter deny FAIL");
+                emit_line("SELFTEST: abi filter allow FAIL");
+                emit_line("SELFTEST: abi netbind deny FAIL");
+            }
         }
 
         let logd = route_with_retry("logd")?;
