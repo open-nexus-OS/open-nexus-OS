@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Audio focus policy (future): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Persistence (optional capture ring): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Audio Mixer DSL UI follow-up: tasks/TASK-0100B-ui-v16b-audio-mixer-dsl-app-systemui-surface.md
 ---
 
 ## Context
@@ -44,6 +45,7 @@ Deliver:
 - Kernel changes.
 - Real ALSA/JACK output.
 - I²S/codec device layer stubs or mediasessiond hooks (handled by `TASK-0254`/`TASK-0255` as an extension; this task focuses on per-app stream mixer).
+- The visible mixer app/SystemUI UI (handled by `TASK-0100B`; this task focuses on the service contract and test sink).
 
 ## Constraints / invariants
 

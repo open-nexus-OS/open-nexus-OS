@@ -69,6 +69,22 @@ We want an OS-native delegation mechanism that is **explicit**, **auditable**, a
 - The chooser and confirmation UI lives in **SystemUI** (user-mediated).
 - Identity must be channel-bound (`sender_service_id`); never trust caller-provided app IDs.
 
+## UI rendering stance (DSL-first system surfaces)
+
+System delegation surfaces should not become a second UI universe.
+They should converge on the same visible stack as the rest of the system:
+
+- SystemUI-hosted chooser/confirmation/compose/picker surfaces are authored in the DSL
+- the DSL renders canonical UI; providers and target apps provide **typed data/state**, not UI code
+- if a surface needs a specialized preview (e.g. bounded content preview), it must use a **blessed bounded primitive**
+  rather than an embedded web/runtime path
+
+This keeps delegation aligned with:
+
+- `TASK-0075` DSL project layout and `Store`/`Event`/`reduce`/`@effect` structure
+- `TRACK-DSL-V1-DEVX` for reusable surface capabilities
+- the anti-mini-app rule already stated in this track
+
 ## Eligibility rules (anti-monopoly guardrails)
 
 Some system defaults are powerful. To avoid “a third-party app sets itself as default and monopolizes the user’s graph”
@@ -138,6 +154,11 @@ Deliverables:
   - `SELFTEST: delegation v1 contacts.pick ok`
   - `SELFTEST: delegation v1 chat.compose ok`
 
+UI note:
+
+- these first real system surfaces should be built as canonical DSL pages/overlays in SystemUI or the receiving app
+- no target may inject arbitrary HTML/JS/UI markup into the chooser/chat/compose surface
+
 ### Phase 2.5 — External message ingress (SMS/MMS and similar)
 
 Design stance:
@@ -188,6 +209,11 @@ Design stance:
   instead of constantly opening other apps.
 - Providers supply **data only**; the chat app renders canonical UI (no embedded web/JS/runtime).
 
+DSL note:
+
+- inline action cards should be modeled as reusable DSL/chat-surface components driven by typed provider data
+- card rendering belongs to the chat surface and SystemUI-style shell code, not to providers
+
 Chosen UX semantics:
 - Cards persist as **snapshots** in the chat log.
 - Refresh is explicit (user taps “Refresh”), not background polling.
@@ -218,3 +244,4 @@ For any new delegation action:
 
 - System Delegation v1b: SystemUI confirmation patterns + anti-phishing indicators (app identity badge).
 - Delegation targets: NexusChat/NexusSocial/Contacts/Maps registrations + minimal result contracts.
+- DSL system surfaces v1: canonical chooser/compose/confirm/chat-card components + host snapshots.

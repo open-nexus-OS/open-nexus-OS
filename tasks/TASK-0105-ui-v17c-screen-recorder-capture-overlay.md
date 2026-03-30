@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - Perms/privacy substrate: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
   - Screen capture substrate: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
   - Mic input: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
@@ -47,6 +49,8 @@ Deliver:
      - `record: start (audio=bool)`
      - `record: stop (uri=..., bytes=...)`
 2. SystemUI capture overlay:
+   - visible overlay UI is authored in the DSL and mounted as a SystemUI surface
+   - capture preview/countdown/privacy chips may use blessed media/preview surfaces where needed, but state/chrome/actions remain in DSL
    - start/stop recording, audio toggle, countdown stub
    - privacy chips from `privacyd` stream
    - post-stop share sheet entry for the capture URI

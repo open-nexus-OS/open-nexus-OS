@@ -24,6 +24,8 @@ links:
   - Rust standards: docs/standards/RUST_STANDARDS.md
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (zero-copy DMA buffers for GPU/NPU/VPU/Audio/Camera/ISP)
   - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (zero-copy packet buffers)
+  - Early UI/kernel perf consumer follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - UI/MM perf consumer follow-up: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
 
 follow-up-tasks:
   - TASK-0031-v2: Kernel-enforced RO sealing (`Rights::SEAL`) and write-map denial proofs (to be created; gate on kernel support)
@@ -53,6 +55,12 @@ Keystone note (avoid drift):
 
 Track alignment: this is a cross-cutting foundation for “device-class” services (GPU/NPU/Audio/Video) and future
 networking zero-copy paths (see `tasks/TRACK-DRIVERS-ACCELERATORS.md` and `tasks/TRACK-NETWORKING-DRIVERS.md`).
+
+UI/perf note:
+
+- Early renderer/compositor bring-up may be host-first, but fluid QEMU UI, glass, animation, and media surfaces
+  should treat this task as the canonical bulk-buffer floor.
+- Follow-up consumers `TASK-0054B` / `TASK-0054D` pull that stance forward explicitly for UI-shaped workloads.
 
 ## Goal
 

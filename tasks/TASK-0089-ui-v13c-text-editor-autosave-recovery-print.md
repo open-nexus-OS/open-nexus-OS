@@ -6,6 +6,9 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - Grants (cross-app open): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
@@ -27,6 +30,12 @@ This task focuses on the Text Editor app only, reusing:
 Deliver:
 
 1. `userspace/apps/text`:
+   - visible UI is authored directly in the DSL:
+     - `ui/pages/TextEditorPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx` for pure editor state/find/replace/tab logic
+     - `ui/services/**.service.nx` for picker/clipboard/print/autosave effect adapters
+   - `TextEditorPage.nx` may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the feature set is still small
    - open/save via picker (`content://` URIs, streams)
    - tabs
    - find/replace (plain; regex optional)
@@ -46,7 +55,7 @@ Deliver:
 4. Print integration:
    - “Print…” opens print preview overlay and calls `printd.renderView` for the editor view
    - marker: `text: print ok`
-5. Host tests for autosave/recovery and print invocation (mocked printd).
+5. Host tests for autosave/recovery, print invocation, and DSL UI behavior (mocked printd).
 
 ## Non-Goals
 
@@ -68,6 +77,7 @@ Deliver:
 - autosave file written and newer than base
 - simulated crash then restore picks autosave and emits marker
 - print invocation produces expected call to printd (mocked)
+- Text Editor DSL UI snapshots/interactions are deterministic under host fixtures
 
 ### Proof (OS/QEMU) — gated
 
@@ -81,6 +91,7 @@ UART markers:
 ## Touched paths (allowlist)
 
 - `userspace/apps/text/` (new)
+- `userspace/apps/text/ui/` (DSL pages/components/composables/services)
 - `tests/ui_v13c_host/`
 - `docs/dev/ui/text-editor.md` (new)
 

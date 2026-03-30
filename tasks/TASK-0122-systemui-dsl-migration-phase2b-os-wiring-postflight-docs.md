@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Phase 2a pages/tests: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - Launcher bootstrap + early visible shell: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
   - DSL CLI/tooling: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - DSL interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
   - Prefs store (feature flags): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
@@ -24,12 +25,19 @@ Phase 2b wires them into the OS:
 - postflight delegates to canonical host tests + QEMU marker run,
 - docs updated with Phase 2 scope and parity rules.
 
+Sequencing note:
+
+- by the time this task lands, Launcher is expected to already be visible through the earlier bootstrap/Phase 1 path
+- this task extends the existing visible SystemUI DSL shell; it must not introduce a second routing surface for Settings/Notifications
+- this OS wiring also becomes the anchor for later Settings specializations (`Accessibility`, `Security & Privacy`, `Updates`, `Language & Region`) and later notification upgrades
+
 ## Goal
 
 Deliver:
 
 1. SystemUI mount + routing:
    - mount DSL Settings and DSL Notifications Center when `prefsd.systemui.dsl=true` (default true)
+   - keep the canonical page roots mounted under the same SystemUI DSL shell established by Phase 1
    - keep legacy behind features:
      - `legacy_systemui_settings`
      - `legacy_systemui_notifications`
@@ -53,7 +61,8 @@ Deliver:
 5. Docs:
    - extend `docs/systemui/dsl-migration.md` with Phase 2
    - add `docs/systemui/settings.md` and `docs/systemui/notifications.md`
-  - update `docs/dev/dsl/cli.md` for `--systemui` targets
+   - update `docs/dev/dsl/cli.md` for `--systemui` targets
+   - document the canonical extension rule: later Settings/Notifications tasks extend this tree in-place
 
 ## Non-Goals
 

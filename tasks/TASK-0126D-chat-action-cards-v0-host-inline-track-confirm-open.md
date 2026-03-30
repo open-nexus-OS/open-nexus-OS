@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - System Delegation track: tasks/TRACK-SYSTEM-DELEGATION.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - Action-based intents baseline: tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
   - Chooser/defaults pattern: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
   - Policy v1 (intents caps, audit): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
@@ -38,6 +39,7 @@ Deliver (host-first):
 2. Provider registry model (no UI code from providers):
    - providers register supported actions + constraints (bounds, offline/online capability)
    - providers produce **data/state** for cards; the chat app renders a canonical UI
+   - the canonical UI should be authored through DSL/chat surface components, not provider-specific rendering code
 3. Snapshot persistence model (chosen UX):
    - cards persist as **snapshots** in the chat log (stable content, deterministic)
    - refresh is explicit (user taps “Refresh”), not automatic polling

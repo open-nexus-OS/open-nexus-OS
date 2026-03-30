@@ -6,6 +6,7 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - UI v6b app launching (app hits): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - UI v8b shortcuts/overlays baseline (palette UI): tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
   - Config broker (search knobs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
@@ -39,6 +40,7 @@ Deliver:
    - deterministic trigram + BM25-lite ranking
    - IDL for `query/suggest/upsertApp/upsertSetting/upsertFile`
 2. SystemUI command palette + global search UI:
+   - visible palette/search UI should converge to a DSL-authored overlay, not a permanent bespoke SystemUI plugin
    - overlay toggled by shortcut
    - keyboard navigation + activate
 3. Registration:

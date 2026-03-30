@@ -25,6 +25,12 @@ We are continuing the SystemUI → DSL migration. Phase 2 targets:
 This task is **host-first**: it delivers the DSL pages and deterministic host tests.
 OS wiring and postflight markers are handled in Phase 2b (`TASK-0122`).
 
+Settings-tree note:
+
+- `TASK-0121` establishes the canonical SystemUI DSL Settings tree under `userspace/systemui/dsl/pages/settings/`
+- later specialized Settings tasks (Accessibility, Security & Privacy, Updates, Language & Region, Notifications/DND extensions)
+  must extend this same tree and the same `userspace/systemui/dsl_bridge/` adapters rather than creating separate settings roots
+
 ## Goal
 
 Deliver:
@@ -40,6 +46,14 @@ Deliver:
 2. Settings DSL pages under `userspace/systemui/dsl/pages/settings/`:
    - `Settings.nx` index + sidebar navigation
    - `Display.nx`, `Sound.nx`, `Privacy.nx`, `Accessibility.nx`, `System.nx`
+   - this is the canonical Settings page tree that later tasks extend in-place
+   - known follow-on specializations should plug into this tree rather than creating parallel settings roots:
+     - Accessibility (`TASK-0118`)
+     - Security & Privacy (`TASK-0137`)
+     - Updates (`TASK-0140`)
+     - Language & Region (`TASK-0175`)
+   - related page-local `Store`/`Event`/`reduce`/`@effect` blocks may be colocated in each page file while the feature is small
+   - shared pure logic belongs under `userspace/systemui/dsl/composables/`; service adapters belong under `userspace/systemui/dsl/services/`
    - bind controls to bridge calls; show immediate state echo
    - a11y: role/name for all actionable controls; stable focus order
    - markers:
@@ -47,6 +61,7 @@ Deliver:
      - `settings:dsl page <name> on`
 3. Notifications Center DSL page (read-only):
    - `userspace/systemui/dsl/pages/notifications/NotifCenter.nx`
+   - canonical DSL structure from `TASK-0075` applies here too (`Store`/`Event`/`reduce`/`@effect`/`Page`)
    - virtualized list rows; filters by app/channel
    - actions disabled (v1 read-only enforced)
    - live updates via subscribe
@@ -54,6 +69,9 @@ Deliver:
    - markers:
      - `systemui:dsl notifs on`
      - `notifs:dsl listed n=<count>`
+   - this page is the canonical Notification Center DSL root that later notification tasks extend (actions, history, DND, badging)
+   - known follow-on extensions:
+     - Notifications v2d heads-up/history/badging/settings (`TASK-0125`)
 4. Deterministic host tests:
    - snapshots (light/dark/high-contrast) for settings pages
    - prefs roundtrip asserts bridge writes and UI reads

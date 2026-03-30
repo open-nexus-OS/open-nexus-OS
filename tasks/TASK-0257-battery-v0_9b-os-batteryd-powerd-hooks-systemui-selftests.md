@@ -6,6 +6,7 @@ created: 2025-12-29
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Battery core (host-first): tasks/TASK-0256-battery-v0_9a-host-fuel-gauge-model-charger-deterministic.md
   - Power/idle baseline: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
@@ -52,6 +53,7 @@ On OS/QEMU:
    - on `plugged in`: restore previous mode
    - markers: `powerd: battery low → frugal`, `powerd: battery critical → sleep`, `powerd: battery shutdown requested`
 5. **SystemUI battery indicator & detail**:
+   - visible battery detail UI should converge to DSL-authored SystemUI surfaces (indicator/detail sheet), not a separate imperative status UI path
    - status icon (charging bolt/plug/full/unplugged) with percentage text
    - toast on low/critical
    - detail sheet shows: SoC%, state, voltage, current, temperature, cycles; last 30 min sparkline (residency-style reuse); actions: "Battery saver" (toggle frugal), "Screen off now"

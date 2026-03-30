@@ -37,11 +37,35 @@ read-only device environment. Host tests provide fixtures; OS wiring provides re
 
 Expose (read-only):
 
-- `device.profile`: enum `{ phone, tablet, desktop, tv, auto, foldable }`
+- `device.profile`: validated profile ID string
 - `device.posture`: enum `{ flat, half_fold, tent, book }` (optional; only valid when `profile==foldable`)
+- `device.orientation`: enum `{ portrait, landscape }`
+- `device.shellMode`: validated shell ID string
 - `device.sizeClass`: enum `{ compact, regular, wide }`
 - `device.dpiClass`: enum `{ low, normal, high }`
 - `device.input`: flags `{ touch, mouse, kbd, remote, rotary }`
+
+Baseline built-in IDs shipped by upstream:
+
+- profile IDs include at least `{ phone, tablet, desktop, tv, auto, foldable, convertible }`
+- shell IDs include at least `{ phone, tablet, desktop, tv, auto }`
+- forks/product trees may add more IDs via declarative manifests without changing the core runtime contract
+
+## Declarative profile/shell registry
+
+Tooling/runtime should prefer a manifest-backed registry over scattered hardcoded lists:
+
+- `ui/profiles/<id>/profile.toml`
+- `ui/shells/<id>/shell.toml`
+- optional `ui/products/<id>/product.toml`
+
+Contract:
+
+- TOML is the authoring format
+- manifests are schema-validated before runtime use
+- runtime sees resolved IDs + derived device environment values
+- unknown IDs or incompatible profile/shell pairings reject deterministically
+- later compiled/canonical artifacts are allowed, but should preserve the TOML authoring story
 
 ## Profile overrides (path-based; no auto-import)
 
@@ -59,6 +83,23 @@ Override resolution must be:
 
 Inline branching (`@when device.profile==... { ... }`) is allowed, but must lower to deterministic IR with bounded
 branch evaluation (no hidden time-based switching).
+
+Profile/orientation posture:
+
+- `device.profile` is the primary cross-device hardware/profile key.
+- `device.orientation` may refine responsive behavior within the same profile (for example phone/tablet portrait vs landscape)
+  without forcing separate “phone-portrait” and “phone-landscape” profile names into the DSL.
+- `device.shellMode` is the active shell posture for surfaces that care about system shell shape
+  (for example `convertible` switching between `desktop` and `tablet`, or future dock/TV shells).
+- Path-based overrides remain **profile-based** by default; orientation-sensitive layout differences should normally use
+  deterministic conditional branching unless a later task explicitly introduces a second override axis.
+
+Shell-mode posture:
+
+- apps and shared components should usually branch on responsive layout + `device.profile` first,
+- SystemUI and shell-owned surfaces may additionally branch on `device.shellMode`,
+- `device.shellMode` must not be a hidden substitute for hardware identity; it is an explicit operating mode.
+- DSL code must not assume the upstream built-in IDs are the only valid IDs; forks may provide additional validated IDs.
 
 ### Canonical conditional form (v0.x)
 
@@ -105,6 +146,14 @@ Deliver:
      - authoring packs may be JSON for human editing
      - runtime prefers compiled, compact binary catalogs when available (see `TASK-0240/0241`)
    - device env runtime: fixture-backed on host; plumbed from OS later
+     - host/QEMU fixtures must be able to force at least:
+       - `phone + portrait`
+       - `phone + landscape`
+       - `tablet + portrait`
+       - `tablet + landscape`
+       - `desktop + landscape`
+       - `convertible + desktop shell`
+       - `convertible + tablet shell`
    - markers:
      - `dsl: store runtime on`
      - `dsl: nav runtime on`

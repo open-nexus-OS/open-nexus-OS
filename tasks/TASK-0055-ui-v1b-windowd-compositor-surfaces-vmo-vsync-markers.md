@@ -10,6 +10,7 @@ links:
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
   - Config broker (ui profile): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - Dev display/profile presets follow-up: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
   - Policy as Code (permissions): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Logging/audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - UI v1a renderer: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
@@ -140,6 +141,12 @@ UART markers (order tolerant):
    - config schema for `ui.profile` and display dimensions (host-first, OS-gated)
    - policy permissions for reading assets and spawning plugins (minimal)
 
-5. **Proof**
+Sequencing note:
+
+- `TASK-0055` establishes the first `ui.profile` + display-dimension hooks.
+- Deterministic QEMU developer presets (phone/tablet/laptop, orientation, Hz) are tracked separately in `TASK-0055D`
+  so the base compositor task stays focused on the present/composition contract.
+
+1. **Proof**
    - host tests for composition snapshots
    - OS selftest markers and postflight-ui

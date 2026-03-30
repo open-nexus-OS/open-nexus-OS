@@ -40,7 +40,34 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 | ✅ TASK-0017 | DSoftBus Remote-StateFS v1 | Done | Deterministic ACL/audit + 1-VM/2-VM proof complete |
 | ✅ TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | Done | Final hardening + drift lock complete |
 
-Current queue head (in progress): `TASK-0019`.
+Current queue head (in review): `TASK-0019`.
+
+---
+
+## Planned UI/DSL Insertions
+
+These draft tasks intentionally create an earlier visible UI/DSL path so app and SystemUI work can be tested in a real
+QEMU window before the later display/system migration tasks fully land.
+
+| Task | Purpose |
+|------|---------|
+| TASK-0054B | kernel/UI perf floor (zero-copy + trusted scheduling + SMP hardening carry-ins) |
+| TASK-0054C | kernel IPC fastpath v1 for short control messages |
+| TASK-0054D | kernel MM perf floor for VMO/surface reuse |
+| TASK-0055B | visible QEMU scanout bootstrap |
+| TASK-0055C | `windowd` visible present + SystemUI first frame |
+| TASK-0055D | deterministic QEMU dev display/profile presets (`phone/tablet/laptop/laptop-pro/convertible` + orientation + shell mode + Hz) |
+| TASK-0056B | visible input v0 (cursor/focus/click) |
+| TASK-0056C | present/input perf polish (latency + coalescing + skip paths) |
+| TASK-0060B | glass materials + backdrop cache + deterministic degrade |
+| TASK-0062B | animation frame-budget discipline + canonical perf scenes |
+| TASK-0067B | clipboard history DSL overlay/app |
+| TASK-0076B | visible DSL OS mount + first DSL frame |
+| TASK-0080B | bootstrap SystemUI DSL shell (host-first) |
+| TASK-0080C | bootstrap SystemUI DSL shell (OS/QEMU) |
+| TASK-0100B | Audio Mixer DSL app/SystemUI surface |
+| TASK-0122B | shared DSL app platform |
+| TASK-0122C | shared DSL app integration kit |
 
 ---
 
@@ -79,8 +106,9 @@ Current queue head (in progress): `TASK-0019`.
 | ✅ RFC-0029 | Netstackd modular daemon structure v1 | `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md` |
 | ✅ RFC-0030 | DSoftBus remote statefs RW v1 | `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md` |
 | ✅ RFC-0031 | Crashdumps v1 + host symbolization | `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` |
+| ✅ RFC-0032 | ABI syscall guardrails v2 (userland, kernel-untouched) | `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md` |
 
-Current RFC queue head (in progress): `RFC-0032`.
+Current RFC queue head (in progress): none (RFC-0032 complete).
 
 ---
 

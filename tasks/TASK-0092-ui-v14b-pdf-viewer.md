@@ -6,6 +6,10 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Document access (picker/open-with): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - MIME/content foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Thumbnailer (page thumbs cache): tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
@@ -26,6 +30,17 @@ Markdown viewer/export is in `TASK-0093`.
 Deliver:
 
 1. `userspace/apps/pdf`:
+   - visible app chrome is authored directly in the DSL:
+     - `ui/pages/PdfViewerPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx` for pure viewer/find/navigation state
+     - `ui/services/**.service.nx` for picker/open-with/share/print effect adapters
+   - the page may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the app remains small
+   - the PDF page viewport itself may use a **blessed** document canvas / `NativeWidget` path for:
+     - large page raster viewport
+     - pan/zoom surface
+     - highlight overlay composition
+   - this task must feed requirements back into `TRACK-DSL-V1-DEVX` rather than inventing a one-off canvas API
    - open `application/pdf` via picker or Open With arg (`openUri`)
    - page thumbnails strip and main page canvas
    - zoom (fit/actual/step), pan, page navigation (prev/next/jump), rotate 90° steps
@@ -42,7 +57,7 @@ Deliver:
 2. MIME/Open With integration:
    - register `apps/pdf` for `application/pdf`
    - launcher tile for PDF Viewer
-3. Host tests for find behavior and preview integration (fixture PDF).
+3. Host tests for find behavior, preview integration, and DSL UI behavior (fixture PDF).
 
 ## Non-Goals
 
@@ -65,6 +80,7 @@ Deliver:
 - open fixture PDF (or a stubbed printd that returns deterministic pages)
 - find term produces deterministic hit count and highlight rects
 - export page PNG checksum matches golden
+- PDF Viewer DSL chrome snapshots/interactions are deterministic under host fixtures
 
 ### Proof (OS/QEMU) — gated
 
@@ -77,6 +93,7 @@ UART markers:
 ## Touched paths (allowlist)
 
 - `userspace/apps/pdf/` (new)
+- `userspace/apps/pdf/ui/` (DSL pages/components/composables/services)
 - `services/mimed` registration + launcher tiles (if not already wired)
 - `tests/ui_v14b_host/`
 - `docs/apps/pdf-viewer.md` (new)
@@ -86,4 +103,3 @@ UART markers:
 1. pdf app skeleton + open + page nav + markers
 2. find/highlight via text-map helper + host tests
 3. export/share + Open With wiring + docs
-

@@ -6,6 +6,9 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - SystemUI bootstrap shell: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Identity sessions: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
   - Keychain session scoping: tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
   - Notifications baseline: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
@@ -38,6 +41,10 @@ Deliver:
      - `lock: now`
      - `lock: unlocked`
 2. SystemUI lockscreen overlay:
+   - visible lockscreen UI is authored in the DSL and mounted as a SystemUI shell state
+   - canonical placement may live under `userspace/systemui/dsl/pages/LockScreen.nx` with supporting `components/`, `composables/`, and `services/`
+   - `LockScreen.nx` may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the shell remains small
+   - an early autologin/bootstrap shell may reuse the same visual lockscreen shell state before full account wiring lands
    - shows time/date, redacted notifications
    - unlock affordances (PIN pad + password field)
    - markers:

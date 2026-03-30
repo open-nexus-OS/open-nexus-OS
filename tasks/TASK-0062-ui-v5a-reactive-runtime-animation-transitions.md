@@ -9,6 +9,8 @@ links:
   - UI v2a present scheduler baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - UI v3a layout baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - UI v4a pacing/metrics baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - Glass compositor consumer: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
+  - Animation perf follow-up: tasks/TASK-0062B-ui-v5a-animation-frame-budget-perf-scenes.md
   - Config broker (motion knobs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Testing contract: scripts/qemu-test.sh
 ---
@@ -24,6 +26,12 @@ UI v5 introduces a retained, reactive runtime on top:
 - implicit transitions on common layer property changes.
 
 This is v5a (runtime + animation + transitions). Virtualized list and theme tokens are v5b (`TASK-0063`).
+
+Sequencing note:
+
+- v5a establishes functional runtime/timeline semantics.
+- If we want canonical “fluid in QEMU” animation scenes and explicit frame-budget gates, use `TASK-0062B`
+  as the performance/regression follow-up rather than overloading the baseline runtime task.
 
 ## Goal
 

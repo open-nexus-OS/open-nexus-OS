@@ -6,6 +6,9 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Document Access foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Thumbnailer/recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
   - Document picker/open-with: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
@@ -26,6 +29,12 @@ This task is user-facing and includes end-to-end OS/QEMU markers.
 Deliver:
 
 1. Files app (`userspace/apps/files`):
+   - visible UI is authored directly in the DSL:
+     - `ui/pages/FilesPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx` for pure state/search/selection logic
+     - `ui/services/**.service.nx` for effect-side adapters to content/fileops/grants/share
+   - `FilesPage.nx` may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the app is still small
    - provider sidebar (state/pkg/mem/demo-cloud)
    - breadcrumbs and search (delegates to `contentd.query`)
    - grid/list view with thumbnails via `thumbd`
@@ -40,7 +49,7 @@ Deliver:
 4. DnD + Share integration:
    - DnD from Files to apps emits `text/uri-list` plus grant token bundle (v1)
    - Share sheet can share selected URIs (v1 broker in `TASK-0068`), and can later be upgraded to Share v2 intents (`TASK-0126`/`TASK-0127`/`TASK-0128`)
-5. Host tests (model-level) and OS selftests + postflight.
+5. Host tests (model-level + DSL UI) and OS selftests + postflight.
 
 ## Non-Goals
 
@@ -63,6 +72,7 @@ Deliver:
 
 - Files model can list providers, filter/search, and start operations with progress rows (mocked services)
 - DnD offer includes URI list and a grant token when crossing subjects (mocked grantsd)
+- Files DSL UI snapshots/interactions are deterministic under host fixtures
 
 ### Proof (OS/QEMU) — gated
 
@@ -79,6 +89,7 @@ UART markers:
 ## Touched paths (allowlist)
 
 - `userspace/apps/files/` (new)
+- `userspace/apps/files/ui/` (DSL pages/components/composables/services)
 - SystemUI launcher/settings integration (add Files tile; default apps UI if needed)
 - `tests/ui_v12c_host/`
 - `source/apps/selftest-client/`

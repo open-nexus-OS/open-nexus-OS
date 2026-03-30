@@ -6,6 +6,7 @@ created: 2025-12-25
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Notifications v2 minimal: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
   - notifd persistence/unread: tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
   - dndd policy: tasks/TASK-0124-notifications-v2c-dndd-modes-schedules-policy.md
@@ -32,11 +33,13 @@ Service-side semantics are delivered by `TASK-0123` and `TASK-0124`.
 Deliver:
 
 1. Heads-up banners:
+   - visible heads-up UI should converge to DSL-authored SystemUI surfaces, not a separate notification rendering stack
    - show for `Priority.high|urgent` unless suppressed by DND
    - auto-dismiss timeout (configurable)
    - swipe-to-dismiss and action buttons
    - marker: `notifs: headsup show id=...`
 2. Notification Center (DSL) v2:
+   - extends the canonical Notification Center DSL root from `TASK-0121` instead of introducing a separate notification center implementation
    - enable dismiss and clear-all
    - grouping (app/channel) and history view
    - inline reply UI row that calls `ackAction(...,"reply",payload)` (payload delivery may be stub)
@@ -55,6 +58,8 @@ Deliver:
    - enforce `showBadge=true` on channel
    - marker: `launcher: badge app=... n=...`
 5. Settings pages (DSL):
+   - pages follow the canonical DSL `Store` + `Event` + `reduce` + `@effect` + `Page` structure where practical
+   - pages extend the canonical Settings DSL tree from `TASK-0121`/`TASK-0122`
    - Notifications: per-app channel settings (importance, badge allowed, bypass DND)
    - DND: mode selector + schedule editor + allow repeat callers
    - markers:
@@ -114,4 +119,3 @@ UART includes:
 3. lock-screen redaction wiring + markers
 4. launcher badging + settings pages for notifs/dnd
 5. tests + selftests + postflight + docs
-

@@ -5,6 +5,11 @@
 
 UI testing is **host-first** with deterministic goldens. QEMU tests are bounded smoke checks.
 
+Performance note:
+
+- UI scenes with glass, overlays, transitions, and animation are valid bounded performance gates.
+- Follow `docs/dev/ui/performance-philosophy.md` when deciding what should be cached, refreshed, or degraded.
+
 ## Golden snapshots
 
 Use headless rendering + deterministic fixtures.

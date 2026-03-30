@@ -34,6 +34,10 @@ Scope note:
 Deliver:
 
 1. Settings → Security & Privacy (DSL) page:
+   - page follows the canonical DSL structure from `TASK-0075`:
+     - page-local `Store`, `Event`, `reduce`, `@effect`, and `Page` may be colocated while still small
+     - shared pure logic belongs in `composables/`, bridge/policy adapters in `services/`
+   - placement is inside the canonical Settings DSL tree from `TASK-0121`/`TASK-0122`, reusing the shared Settings shell/sidebar/navigation
    - Permissions tab:
      - per-app list of granted capabilities with toggles
      - badges for “foreground-only” caps (informational)

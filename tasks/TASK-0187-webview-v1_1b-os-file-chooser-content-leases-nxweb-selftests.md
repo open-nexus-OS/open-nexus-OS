@@ -6,6 +6,8 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - WebView v1.1 host core: tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
   - WebView Net v1 OS slice (sample app + nx-web): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
   - Content providers (content:// streams): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
@@ -35,6 +37,7 @@ Deliver:
 1. File chooser integration for `<input type="file">`:
    - sanitizer allows `input[type=file]` as a safe control (no JS)
    - WebView control intercepts activation and calls the picker helper (`userspace/ui/picker`) if available
+   - the visible chooser path should therefore stay aligned with the shared DSL picker/chooser surfaces rather than creating a browser-only picker UI
    - returns **`content://...`** URIs to the WebView sample app via an event (`onFileChosen(uris)`)
    - filters derived from the `accept=` attribute deterministically (extension allowlist)
    - markers:
@@ -120,4 +123,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, WebView proves history/find/CSP strict and file chooser returns resolvable content:// URIs deterministically.
-

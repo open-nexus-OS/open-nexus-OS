@@ -6,6 +6,8 @@ created: 2025-12-29
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - Content providers (contentd): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Document picker (open/save/open-with): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - Scoped grants (persistable): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
@@ -43,8 +45,10 @@ On OS/QEMU, deliver deterministic, proven UX flows:
   - Open, Save As, Select Folder
   - MIME filter + search + breadcrumb navigation
   - “Remember access” checkbox → persistable grant (through `grantsd`, not contentd)
+  - visible picker UI remains the canonical DSL-authored picker surface, extended for SAF/folder flows rather than split into a second picker implementation
 - **Files app polish**:
   - curated roots (Home/Recent/Downloads/Pictures/App Data/Trash) as views over existing providers
+  - polish stays on the DSL-authored Files app surface rather than creating a separate SAF-only file manager UI
   - deterministic bulk operations progress
   - info pane includes: URI, MIME, size, modified, and active grants (bounded)
 - **Privacy/files gate**:

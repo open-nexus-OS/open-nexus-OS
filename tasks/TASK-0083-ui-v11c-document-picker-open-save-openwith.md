@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - MIME + content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Thumbnailer + recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
   - WM/modal overlays baseline: tasks/TASK-0074-ui-v10b-app-shell-adoption-modals.md
@@ -28,6 +30,11 @@ With MIME/content providers (v11a) and thumb/recents (v11b), we can ship the use
 Deliver:
 
 1. SystemUI Document Picker overlay:
+   - visible picker UI is authored in the DSL and mounted as a SystemUI overlay
+   - canonical placement may be either:
+     - `userspace/systemui/dsl/pages/DocumentPicker.nx`, or
+     - a shared picker package with `ui/pages/DocumentPickerPage.nx`
+   - page files follow the canonical `Store` + `Event` + `reduce` + `@effect` + `Page` structure from `TASK-0075`
    - Open dialog (providers, breadcrumb, grid/list with thumbnails, MIME filter, search via `contentd.query`)
    - Save dialog (filename field, MIME selector, create via `contentd.create` then write to stream)
    - Folder dialog (select folder) for “pick destination folder” flows (returns a folder URI)
@@ -51,6 +58,7 @@ Deliver:
      - `notes: open uri=...`
      - `notes: saved uri=...`
 5. Host tests and OS selftests + postflight.
+   - host tests include DSL picker snapshots/interactions in addition to picker model tests
 
 ## Non-Goals
 
@@ -78,6 +86,7 @@ Deliver:
   - setDefault affects UI selection deterministically
 - recents integration:
   - successful open/save adds entries
+- picker DSL UI snapshots/interactions are deterministic under host fixtures
 
 ### Proof (OS/QEMU) — gated
 
@@ -97,6 +106,7 @@ UART markers:
 
 - SystemUI plugins (docpicker overlay)
 - `userspace/ui/picker/` (new)
+- `userspace/ui/picker/ui/` (DSL pages/components/composables/services)
 - `userspace/apps/notes/` + `userspace/apps/launcher/` (integration)
 - `tests/ui_v11_host/`
 - `source/apps/selftest-client/`

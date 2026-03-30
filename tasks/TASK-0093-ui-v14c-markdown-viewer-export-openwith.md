@@ -7,6 +7,10 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - System Delegation / System Surfaces (Open With + export/share): tasks/TRACK-SYSTEM-DELEGATION.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - MIME/content foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Print pipeline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
@@ -29,6 +33,13 @@ PDF viewer is in `TASK-0092`.
 Deliver:
 
 1. `userspace/apps/markdown`:
+   - visible UI is authored directly in the DSL:
+     - `ui/pages/MarkdownViewerPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx` for pure document/find/view state
+     - `ui/services/**.service.nx` for picker/open-with/export/share/search effect adapters
+   - `MarkdownViewerPage.nx` may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the app is still small
+   - this task should strengthen the pure DSL document/article path (mixed block rendering, code blocks, link styling, find highlights) rather than defaulting to `NativeWidget`
    - open `text/markdown` via picker or Open With (`openUri`)
    - parse Markdown subset into a render tree (headings/lists/links/images/code)
    - find-in-page (simple substring match) with highlights
@@ -42,7 +53,7 @@ Deliver:
 3. CLI helper `nx md export` (host-first):
    - headless render markdown from a URI (or host path for tests) and export PDF
    - marker: `nx: md export ok (bytes=...)`
-4. Host tests for markdown rendering snapshots and export determinism.
+4. Host tests for markdown rendering snapshots, export determinism, and DSL UI behavior.
 
 ## Non-Goals
 
@@ -65,6 +76,7 @@ Deliver:
 
 - render fixed markdown document (light/dark) snapshots match goldens (SSIM threshold if needed)
 - `nx md export` produces a deterministic PDF (within documented metadata tolerance)
+- Markdown Viewer DSL snapshots/interactions are deterministic under host fixtures
 
 ### Proof (OS/QEMU) — gated
 
@@ -77,6 +89,7 @@ UART markers:
 ## Touched paths (allowlist)
 
 - `userspace/apps/markdown/` (new)
+- `userspace/apps/markdown/ui/` (DSL pages/components/composables/services)
 - `tools/nx-md/` (new)
 - `services/mimed` registration + launcher tiles
 - `tests/ui_v14c_host/`

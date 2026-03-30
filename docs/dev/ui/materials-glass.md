@@ -5,6 +5,11 @@
 
 This page defines the recommended **translucent (“glass”) material system** for Open Nexus OS UI.
 
+Performance baseline:
+
+- Follow `docs/dev/ui/performance-philosophy.md` for the default rules around damage, caching, bounded degrade,
+  and "idle should be cheap".
+
 Goal: achieve a modern layered look (floating sidebars, control center, sheets) without requiring
 expensive “real glass” rendering.
 
@@ -121,6 +126,7 @@ This setting should also be used as a low-power fallback path.
 
 ## Related
 
+- UI performance philosophy: `docs/dev/ui/performance-philosophy.md`
 - Colors/tokens: `docs/dev/ui/colors.md`, `docs/dev/ui/theme.md`
 - App shell zones (sidebar/control center surfaces): `docs/dev/ui/app-shell-patterns.md`
 - Compositor concepts: `docs/dev/ui/compositor.md`

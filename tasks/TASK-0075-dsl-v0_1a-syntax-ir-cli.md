@@ -42,6 +42,29 @@ Recommended layout (apps and SystemUI can both follow this shape):
 - `ui/tests/**` — host fixtures / goldens / interaction scripts
   - keep v0.1 minimal; v0.2 introduces optional sub-layout via generators (see below)
 
+### Canonical page/module shape (v0.x)
+
+The canonical DSL authoring shape for a user-facing page is:
+
+- `Store` — durable UI state for that page/flow
+- `Event` — the bounded set of things that can happen
+- `reduce <Event>` — pure state transitions only
+- `@effect on <Event>` — service calls / side effects only
+- `Page` — declarative UI that reads `$state` and emits events
+
+Recommended posture:
+
+- small pages may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` in `ui/pages/<Page>.nx`
+- once a page grows, extract pure store logic to `ui/composables/**.store.nx`
+- extract effect-side adapters to `ui/services/**.service.nx`
+- reducers stay pure; `svc.*` calls are only legal from effects
+
+This means code shaped like:
+
+- `ui/pages/UserListPage.nx` containing `Store UserListStore`, `Event UserListEvent`, `reduce UserListEvent`, `@effect on LoadUsers`, and `Page UserListPage`
+
+is canonical and should be supported directly by the syntax/AST/lowering path.
+
 ### Layout posture: minimal by default; expanded by generators
 
 We intentionally do **not** force a heavy scaffold (lots of empty folders/files) in v0.1.
@@ -68,7 +91,7 @@ Deliver:
    - (lowering lives in either `nx_syntax` or a dedicated crate; keep boundaries clean)
    - CLI `tools/nx-dsl` (fmt/lint/build)
 2. Minimal DSL grammar (v0.1 subset):
-   - Page/Component/State/Prop/Import/@computed
+   - Page/Component/Store/Event/reduce/@effect/State/Prop/Import/@computed
    - view expressions (Stack/Text/Image/Icon/Button/Card/TextField/List/Spacer)
      - optional escape hatch: `NativeWidget(handle, props)` for rare custom widgets
        - deterministic given inputs; bounded CPU/memory
@@ -80,6 +103,11 @@ Deliver:
      - deterministic conflict posture: duplicate setters are rejected by lint (preferred) or deterministically resolved (documented)
      - initial set (v0.1): padding/margin/size/opacity/cornerRadius/color(role)
    - bindings ($state read/write) and events (on Tap → set/emit/navigate)
+   - canonical state/update flow:
+     - `Store` declares state
+     - `Event` declares actions
+     - `reduce <Event>` performs pure updates
+     - `@effect on <Event>` performs side effects and dispatches follow-up events
 3. Deterministic Scene-IR:
    - stable ordering, stable subtree hashes
    - **canonical on-disk format**: Cap'n Proto binary (`.nxir`) for determinism + bounded parsing + future OS use

@@ -6,10 +6,12 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Bootstrap shell visible launcher mount: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
   - Phase 1a pages/tests: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
   - DSL CLI/tooling: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - DSL interpreter/snapshots: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
   - AOT codegen (optional): tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
+  - Dev display/profile presets for QEMU: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
   - Prefs store (feature flag): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
   - Testing contract: scripts/qemu-test.sh
 ---
@@ -22,6 +24,12 @@ Phase 1a proves the DSL pages on host. Phase 1b wires them into the OS:
 - OS selftests assert DSL pages are live and functional,
 - a postflight delegates to canonical host tests and QEMU run.
 
+Migration posture:
+
+- if `TASK-0080C` already mounts the bootstrap launcher in OS, this task must converge that mount point to the canonical DSL Launcher from `TASK-0119`
+- keep one launcher path in SystemUI; do not keep a permanent "bootstrap launcher" parallel to the real launcher
+- Phase 1b is also where the canonical visible SystemUI DSL shell becomes the single OS-mounted shell root that later Settings/Notifications phases extend
+
 ## Goal
 
 Deliver:
@@ -29,6 +37,13 @@ Deliver:
 1. SystemUI runtime selection:
    - mount DSL Launcher and DSL Quick Settings when `prefsd.systemui.dsl=true`
    - keep legacy implementation behind a feature flag (fallback and troubleshooting)
+   - profile-aware by default:
+      - SystemUI chooses the shell variant from the same stable device/profile environment used by DSL runtime overrides
+      - do not treat desktop as the implicit permanent default shell shape
+      - if the active device supports multiple shell postures (for example `convertible`), SystemUI selects from
+        explicit `device.shellMode` values rather than pretending the device changed profile
+      - profile/shell selection should resolve from validated TOML manifests or preset/product manifests, not from
+        scattered hardcoded switches
    - markers:
      - `systemui:dsl launcher on`
      - `systemui:dsl qs on`
@@ -37,8 +52,11 @@ Deliver:
    - `nx dsl watch --systemui`
    - optional `--aot` wiring once codegen is present
    - profile wiring:
-     - SystemUI passes a stable `device.profile` into the DSL runtime (from platform detection; deterministic in QEMU fixtures)
-     - host tests and QEMU selftests may force `profile=desktop|tv` via fixtures to keep proofs deterministic
+     - SystemUI passes a stable `device.profile` into the DSL runtime (from validated platform/product manifest or deterministic QEMU fixture)
+     - SystemUI passes stable `device.shellMode` into the DSL runtime when shell posture differs from hardware profile
+     - SystemUI also passes stable orientation / size-class-affecting display context derived from the selected preset or platform
+     - host tests and QEMU selftests may force deterministic presets/fixtures (desktop, phone/tablet portrait/landscape,
+       tv, convertible desktop/tablet shell) to keep proofs deterministic
 3. OS selftests:
    - wait for mount markers
    - open an app from DSL Launcher and confirm app launch marker
@@ -62,6 +80,7 @@ Deliver:
 
 - No fake success: OS markers must reflect real mount and real interactions.
 - Deterministic markers and bounded selftest timeouts.
+- Unknown or invalid manifest-selected profile/shell IDs must reject deterministically before mount.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)

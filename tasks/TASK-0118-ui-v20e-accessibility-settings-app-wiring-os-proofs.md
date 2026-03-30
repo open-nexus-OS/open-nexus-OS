@@ -6,6 +6,10 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - Canonical Settings DSL tree: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - Canonical Settings OS mount: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
   - A11y daemon + focus: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
   - Screen reader: tasks/TASK-0115-ui-v20b-screen-reader-ttsd-earcons.md
   - Magnifier/filters/HC: tasks/TASK-0116-ui-v20c-magnifier-colorfilters-highcontrast.md
@@ -27,6 +31,8 @@ v20a–v20d deliver the pieces. v20e wires them into a coherent user-facing suit
 Deliver:
 
 1. Settings → Accessibility section:
+   - visible pages are authored in the DSL and extend the canonical Settings DSL surface rather than creating a parallel accessibility app UI
+   - placement is inside the shared `userspace/systemui/dsl/pages/settings/` tree and reuses the shared Settings sidebar/navigation shell
    - Screen Reader: enabled, rate/pitch/volume, verbosity
    - Display: color filter preset, high contrast toggle
    - Magnifier: mode/zoom
@@ -34,7 +40,7 @@ Deliver:
    - Keyboard: tab order preview (stub)
    - marker: `settings:a11y apply (k=...,v=...)`
 2. App wiring hardening:
-   - ensure SystemUI, Launcher, Files, Settings, Text, Browser export roles/names and respond to `doAction`
+   - ensure SystemUI, Launcher, Files, Settings, Text, Browser and later DSL app shells export roles/names and respond to `doAction`
    - focus changes emit a11y focus events and earcons when reader enabled
 3. OS selftests:
    - focus across controls emits `a11y: focus` events → `SELFTEST: ui v20 focus ok`

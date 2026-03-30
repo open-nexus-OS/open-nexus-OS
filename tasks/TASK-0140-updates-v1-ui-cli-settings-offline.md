@@ -6,6 +6,8 @@ created: 2025-12-25
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - Updates & Packaging v1.1 skeleton (updated + bootctl): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - OTA A/B v2 state machine (health/rollback semantics): tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
   - Boot control service stub (bootctld): tasks/TASK-0178-bootctld-v1-boot-control-stub-service.md
@@ -36,6 +38,9 @@ Update payloads must use the repo’s chosen system-set direction (e.g. `.nxs`/s
 Deliver:
 
 1. Settings → Updates (DSL) page:
+   - page follows the canonical DSL `Store` + `Event` + `reduce` + `@effect` + `Page` structure
+   - picker/save flows should reuse the shared DSL integration kit rather than app-local helper code
+   - placement is inside the canonical Settings DSL tree from `TASK-0121`/`TASK-0122`, reusing the shared Settings shell/sidebar/navigation
    - shows:
      - active slot (A/B), pending/trial state, triesLeft, current version (as reported by updated/bootctl)
    - actions (offline/local only):

@@ -6,6 +6,9 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - Media apps product track (quick viewers vs library apps): tasks/TRACK-MEDIA-APPS.md
@@ -30,6 +33,12 @@ We need a basic image consumer tool that integrates with:
 Deliver:
 
 1. `userspace/apps/images`:
+   - visible UI is authored directly in the DSL:
+     - `ui/pages/ImageViewerPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx` for pure viewport/selection/export state
+     - `ui/services/**.service.nx` for picker/content/clipboard/print effect adapters
+   - `ImageViewerPage.nx` may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the feature set is still small
    - open via picker or Open With arg (`openUri`)
    - decode PNG/JPEG/WebP (AVIF optional follow-up) and render SVG via existing safe subset pipeline
    - zoom (fit/actual), pan, rotate 90° steps, flip (optional)
@@ -42,7 +51,7 @@ Deliver:
 3. Print integration:
    - “Print…” opens print preview overlay and calls `printd.renderView` for the viewer view
    - marker: `images: print ok`
-4. Host tests for rotate/export and clipboard write (deterministic fixtures).
+4. Host tests for rotate/export, clipboard write, and DSL UI behavior (deterministic fixtures).
 
 ## Non-Goals
 
@@ -63,6 +72,7 @@ Deliver:
 
 - open fixture image; rotate; export; exported PNG checksum matches golden
 - copy to clipboard writes `image/png` and respects budgets
+- Image Viewer DSL UI snapshots/interactions are deterministic under host fixtures
 
 ### Proof (OS/QEMU) — gated
 
@@ -76,6 +86,7 @@ UART markers:
 ## Touched paths (allowlist)
 
 - `userspace/apps/images/` (new)
+- `userspace/apps/images/ui/` (DSL pages/components/composables/services)
 - `tests/ui_v13d_host/`
 - `docs/dev/ui/image-viewer.md` (new)
 

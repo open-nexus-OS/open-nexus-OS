@@ -9,6 +9,9 @@ links:
   - UI consumer of buffer/sync contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (future vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - Kernel/UI perf floor follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - Kernel IPC fastpath follow-up: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
+  - Kernel MM perf floor follow-up: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
 ---
 
@@ -22,6 +25,12 @@ without kernel/display drivers is:
 - explicit damage tracking that later feeds a compositor.
 
 This task is **host-first**. The OS compositor + surface IPC + VMO buffer sharing are in `TASK-0055`.
+
+Sequencing note:
+
+- `TASK-0054` stays intentionally kernel-free.
+- If early QEMU fluidity and later blur/glass/animation work need a stronger kernel/perf floor, use the
+  explicit follow-up slices `TASK-0054B` / `TASK-0054C` / `TASK-0054D` rather than stretching v1a itself.
 
 Scope note:
 

@@ -37,6 +37,7 @@ Deliver:
 2. Integration with `textedit_core`/TextField:
    - underline misspellings
    - context menu suggestions and apply replacement
+   - visible suggestion UI and underline presentation should flow through DSL/kit text surfaces rather than app-local one-offs
 3. Host tests for miss detection and deterministic suggestions.
 
 ## Non-Goals

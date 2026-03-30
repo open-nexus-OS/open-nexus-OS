@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
   - TextField core: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
   - Policy as Code (focus guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -44,9 +46,11 @@ Deliver:
      - `ime: comp show`
      - `ime: commit "<text>"`
 2. Candidate UI overlay (SystemUI):
+   - visible candidate UI is authored in the DSL and mounted as a SystemUI overlay
    - list of candidates near caret
    - navigation and selection via arrows/Enter or numeric shortcuts
 3. OSK plugin:
+   - visible OSK shell/chrome is authored in the DSL; key emission still flows through the real IME/input path
    - TOML-defined layouts
    - desktop (floating) + mobile (dock) modes
    - show/hide rules: show when touch focuses editable; tray toggle

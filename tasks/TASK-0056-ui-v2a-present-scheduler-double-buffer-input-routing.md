@@ -11,6 +11,7 @@ links:
   - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - Present/input perf follow-up: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - Config broker (ui knobs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy as Code (permissions): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Testing contract: scripts/qemu-test.sh
@@ -33,6 +34,8 @@ This task is deliberately **render-backend agnostic**:
 Scope note:
 
 - A focused “Windowing/Compositor v2” integration slice (damage regions, input regions hit-testing, deterministic screencaps/thumbs, WM-lite + alt-tab) is tracked separately as `TASK-0199`/`TASK-0200` to avoid stretching v2a into WM/screencap territory.
+- If early QEMU fluidity work needs tighter click-to-frame latency, event coalescing, and no-damage short-circuit rules,
+  use `TASK-0056C` rather than expanding the v2a functional baseline indefinitely.
 
 ## Goal
 

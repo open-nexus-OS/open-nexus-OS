@@ -6,6 +6,7 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Search backend (searchd v9a): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
   - Search v2 backend (real engine): tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
   - Shortcuts/overlays baseline: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
@@ -36,6 +37,8 @@ Backend note:
 Deliver:
 
 1. SystemUI overlay: Search command palette
+   - visible overlay should converge to a DSL-authored SystemUI surface
+   - page/overlay-local state may follow the canonical `Store` + `Event` + `reduce` + `@effect` + `Page` shape even if mounted as an overlay rather than a full app page
    - omnibox with debounce (deterministic)
    - IME-aware text input:
      - queries run on **committed** text only (never on preedit)

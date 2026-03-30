@@ -6,6 +6,9 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Content provider API: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Text stack (find semantics): tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
@@ -25,6 +28,11 @@ We want a WebView that is **strictly offline** in v1:
 Servo integration is a future path; v19a defines a stable service interface and implements a constrained renderer now.
 
 Browser UX, downloads shelf, and Open With wiring are separate tasks (v19b/v19c).
+
+UI posture:
+
+- `webviewd` owns the sandboxed offscreen engine and frame/text APIs
+- any visible browser/web container UI should still be authored in the DSL and host the web content through a **blessed embedded surface** / `NativeWidget` path
 
 Scope note (fixtures-only “HTTP”):
 
@@ -53,6 +61,7 @@ Deliver:
    - `policy: webview sandbox on`
    - `policy: webview block http`
 5. Host tests for URL policy, rendering snapshot stability, and find behavior.
+   - later browser/web surfaces should use this service through DSL shell pages rather than bypassing the DSL
 
 ## Non-Goals
 

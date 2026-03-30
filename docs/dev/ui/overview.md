@@ -21,6 +21,7 @@ Entry points:
 - Icon design guidelines: `docs/dev/ui/icon-guidelines.md`
 - Display scaling: `docs/dev/ui/display-scaling.md`
 - App shell patterns: `docs/dev/ui/app-shell-patterns.md`
+- Performance philosophy: `docs/dev/ui/performance-philosophy.md`
 - Glass materials: `docs/dev/ui/materials-glass.md`
 - Testing & goldens: `docs/dev/ui/testing.md`, `docs/dev/ui/goldens.md`
 - Input & a11y: `docs/dev/ui/input.md`, `docs/accessibility/semantics.md`

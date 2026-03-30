@@ -6,6 +6,9 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Identity: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
   - Keychain: tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
   - Lock screen: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
@@ -30,15 +33,27 @@ This task owns the end-to-end OS selftests and postflight for UI v18.
 Deliver:
 
 1. OOBE app (`userspace/apps/oobe`):
+   - visible UI is authored directly in the DSL:
+     - `ui/pages/OobePage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx`
+     - `ui/services/**.service.nx` for identity/session effect adapters
    - minimal wizard to create first user (fast-path for selftests)
    - marker: `oobe: complete (user=uX)`
 2. Greeter/Login app (`userspace/apps/login`):
+   - visible UI is authored directly in the DSL:
+     - `ui/pages/GreeterPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx`
+     - `ui/services/**.service.nx` for identity/keymint/session effect adapters
+   - Greeter/Login should share shell-state conventions with the lockscreen rather than becoming a second auth shell
    - list users
    - password/PIN login
    - starts session via identityd
    - requests keymint unseal for the session
    - marker: `greeter: open`, `greeter: login ok (user=uX sid=...)`
 3. Accounts app (`userspace/apps/accounts`):
+   - visible UI is authored directly in the DSL using the shared app platform conventions
    - change pass/pin
    - keychain list/delete per app namespace (minimal)
    - markers:
@@ -89,6 +104,7 @@ UART markers:
 - `userspace/apps/oobe/` (new)
 - `userspace/apps/login/` (new)
 - `userspace/apps/accounts/` (new)
+- `userspace/apps/oobe/ui/` + `userspace/apps/login/ui/` + `userspace/apps/accounts/ui/` (DSL pages/components/composables/services)
 - SystemUI bootstrap/wiring for sessions/lock
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v18.sh` (delegates)

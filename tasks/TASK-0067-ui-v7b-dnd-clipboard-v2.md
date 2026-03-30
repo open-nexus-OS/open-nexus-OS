@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v2a input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - UI v6b app lifecycle baseline (focus): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - Clipboard History DSL follow-up: tasks/TASK-0067B-ui-v7b-clipboard-history-dsl-overlay.md
   - Policy as Code (clipboard guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config broker (clipboard budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Testing contract: scripts/qemu-test.sh
@@ -39,6 +40,7 @@ Deliver:
    - policy gating: focused/foreground subjects
 3. SystemUI integration hooks (minimal):
    - clipboard history popup stub (optional for v7b)
+   - full visible DSL clipboard history UI is a follow-up in `TASK-0067B`
 4. Host tests + OS markers.
 
 ## Non-Goals

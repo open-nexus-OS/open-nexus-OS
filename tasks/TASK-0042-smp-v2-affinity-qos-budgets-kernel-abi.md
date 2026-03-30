@@ -10,6 +10,8 @@ links:
   - QoS baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
   - Follow-up (RISC-V SMP runtime hardening): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
   - Drivers track (alignment): tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - Early UI/kernel perf floor follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - Present/input perf consumer follow-up: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - Testing contract: scripts/qemu-test.sh
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (QoS-aware driver scheduling, CPU affinity for latency-sensitive devices)
 ---
@@ -21,6 +23,12 @@ but today the kernel ABI does not expose any scheduler syscalls beyond basic yie
 `nexus_abi::sched::*` surface yet.
 
 So this work **requires kernel changes** (new syscalls + per-task metadata) plus userspace wiring in `execd`.
+
+Sequencing note:
+
+- The full task remains the canonical SMP v2 policy/control slice.
+- If early UI bring-up needs only a small trusted-service subset (for `windowd` / input / audio latency shaping),
+  `TASK-0054B` may pull forward a **minimal, bounded** slice rather than waiting for the whole task.
 
 ## Goal
 

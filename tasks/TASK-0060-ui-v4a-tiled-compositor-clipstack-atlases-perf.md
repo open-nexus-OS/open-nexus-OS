@@ -9,6 +9,8 @@ links:
   - UI v3b baseline (clip/scroll/effects): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v2a baseline (present scheduler): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - UI v2b baseline (shaping/svg): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - Glass material guidance: docs/dev/ui/materials-glass.md
+  - Glass compositor follow-up: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
   - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Config broker (budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy as Code (limits): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -28,6 +30,12 @@ The core is compositor-side work reduction:
 - present pacing + basic perf markers (jank/idle mode switches).
 
 This is v4a: compositor perf foundation. Gestures and accessibility semantics live in v4b (`TASK-0061`).
+
+Sequencing note:
+
+- v4a owns the compositor perf foundation (damage, tiling, pacing, caches).
+- Glass/backdrop materials build on top of that foundation and are tracked separately in `TASK-0060B` so the
+  baseline perf slice stays focused.
 
 Parallelism note (non-ideological):
 
@@ -62,7 +70,7 @@ Follow-ups for a full perf tracing + HUD + regression gates pipeline:
 - `TASK-0143` (perfd tracer + Chrome Trace export)
 - `TASK-0144` (instrumentation hooks + Perf HUD + nx-perf)
 - `TASK-0145` (deterministic perf gates for key scenes)
-6. Deterministic host tests and OS/QEMU markers.
+1. Deterministic host tests and OS/QEMU markers.
 
 ## Non-Goals
 

@@ -6,6 +6,10 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Media apps product track (Photos vs TV hub): tasks/TRACK-MEDIA-APPS.md
   - Perms/privacy substrate: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
   - Camera/mic devices: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
@@ -30,6 +34,12 @@ This task owns OS/QEMU selftests and postflight markers for UI v17.
 Deliver:
 
 1. `userspace/apps/camera`:
+   - visible shell/chrome is authored directly in the DSL:
+     - `ui/pages/CameraPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx`
+     - `ui/services/**.service.nx` for perms/camera/mic/gallery/share effect adapters
+   - the live camera preview is a **blessed media preview surface** / `NativeWidget` path hosted by the DSL shell
    - photo mode: capture BGRA frame from camerad and save PNG under `state:/pictures/Camera/`
    - video mode: record camera frames to MJPEG (audio optional via micd)
    - requests permissions via `permsd.request`
@@ -37,6 +47,12 @@ Deliver:
      - `camera: photo saved uri=...`
      - `camera: video saved uri=...`
 2. `userspace/apps/gallery` (or extend existing):
+   - visible UI is authored directly in the DSL:
+     - `ui/pages/GalleryPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx`
+     - `ui/services/**.service.nx` for content/thumb/share/file actions
+   - this task should strengthen DSL list/grid/gallery patterns (timeline, albums-lite, selection mode), not just app-local code
    - **Photos-style browse** of `state:/pictures/` and `state:/captures/` (timeline + albums-lite)
    - thumbnails via `thumbd`
    - opens capture items and supports share/delete/rename (minimal)
@@ -45,6 +61,7 @@ Deliver:
      - `gallery: index n=...`
      - `gallery: open uri=...`
 3. Settings privacy page:
+   - visible page is authored in the DSL and should converge with the broader Settings DSL work rather than becoming a one-off privacy page
    - lists per-app grants (camera/mic/screen)
    - revoke buttons and global block toggles (if supported)
    - marker:
@@ -90,6 +107,7 @@ UART markers:
 - `userspace/apps/camera/` (new)
 - `userspace/apps/gallery/` (new or extend)
 - `userspace/apps/settings/` (privacy page extension)
+- `userspace/apps/camera/ui/` + `userspace/apps/gallery/ui/` (DSL pages/components/composables/services)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v17.sh` (delegates)
 - `docs/apps/camera.md` + `docs/apps/gallery.md` + `docs/privacy/overview.md` (extend) + `docs/dev/ui/testing.md` (extend)

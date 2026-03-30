@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - System Delegation / System Surfaces (messaging reply routing): tasks/TRACK-SYSTEM-DELEGATION.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - UI v6b notifications baseline: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - UI v3b IME/text-input baseline (inline reply widget): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - Policy as Code (notif quotas): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -44,6 +45,7 @@ Deliver:
    - `{system, default, messaging}` initially
    - per-channel importance and per `appId+channel` token-bucket rate limiting
 3. SystemUI rendering:
+   - visible notification/action/reply UI should converge to DSL-authored SystemUI surfaces rather than permanent plugin-specific imperative rendering
    - banner/toast supports action buttons
    - inline reply text field (Enter to submit)
    - notification center shade stub groups by channel

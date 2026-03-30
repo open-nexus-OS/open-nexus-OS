@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - Shaping/SVG baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - Doc picker/save destination: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - Persistence (/state spool): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
@@ -39,6 +41,8 @@ Deliver:
      - `printd: ready`
      - `print: job (pages=.. bytes=..)`
 3. SystemUI print preview/dialog overlay (minimal):
+   - visible overlay UI is authored in the DSL and becomes the canonical print surface reused by apps
+   - preview pages may use a blessed preview/document surface where needed, but dialog/chrome/state stay in DSL
    - fixed printer “Print to PDF”
    - calls preview and render; then uses doc picker Save As destination (gated)
    - markers:

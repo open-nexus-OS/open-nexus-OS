@@ -12,4 +12,5 @@ This doc covers compositor concepts:
 
 Related:
 
+- UI performance philosophy: `docs/dev/ui/performance-philosophy.md`
 - “Glass” materials and backdrop caching/update policy: `docs/dev/ui/materials-glass.md`

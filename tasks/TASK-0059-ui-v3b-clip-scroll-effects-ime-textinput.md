@@ -10,6 +10,8 @@ links:
   - UI v2a present/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - UI v2b shaping/svg baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - UI v1b windowd baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - Glass material guidance: docs/dev/ui/materials-glass.md
+  - Glass compositor follow-up: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
   - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Config broker (budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy as Code (IME focus guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -25,6 +27,12 @@ With layout/wrapping available (v3a), v3b adds:
 - a minimal IME/text-input stub path (composition/commit, caret/selection).
 
 This task is QEMU-tolerant but has more moving parts, so it is gated on prior UI v1/v2 tasks.
+
+Sequencing note:
+
+- v3b owns the **effect primitives** (blur/shadow + budgets).
+- Explicit backdrop-driven “glass” materials are a later compositor consumer of those primitives and are tracked in
+  `TASK-0060B`.
 
 ## Goal
 

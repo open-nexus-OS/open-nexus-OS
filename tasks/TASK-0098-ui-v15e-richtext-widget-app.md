@@ -7,6 +7,10 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Zero-Copy App Platform (RichContent + paste mapping + audit/autosave): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Office Suite (Word baseline): tasks/TRACK-OFFICE-SUITE.md
   - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
   - Selection/TextField core: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
@@ -40,6 +44,8 @@ Brand stance:
 Deliver:
 
 1. `ui/kit/richtext` widget:
+   - this is a **blessed DSL primitive**, not an ad-hoc app-specific widget
+   - it expands the DSL toward the `TRACK-DSL-V1-DEVX` "pro surfaces" path
    - attributed run model (inline + paragraph)
    - commands (toggle bold/italic/underline/code, lists, links)
    - undo/redo stack (bounded)
@@ -49,6 +55,13 @@ Deliver:
      - image/png → insert attachment placeholder (URI-based, stub allowed but explicit)
    - a11y semantics (caret/selection and format announcements)
 2. `userspace/apps/notes`:
+   - visible app shell/chrome is authored directly in the DSL:
+     - `ui/pages/NotesPage.nx`
+     - `ui/components/**.nx`
+     - `ui/composables/**.store.nx` for pure note state/export/autosave indicators
+     - `ui/services/**.service.nx` for picker/clipboard/share/print/autosave effect adapters
+   - the Notes page may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the app is still small
+   - the rich text editor surface is mounted through the blessed `ui/kit/richtext` primitive rather than bypassing DSL layout/state/effects
    - toolbar + status bar (words/chars/lang)
    - autosave to `state:/notes/.autosave/...` (reuse patterns)
    - export:
@@ -58,7 +71,7 @@ Deliver:
      - `notes: open uri=...`
      - `notes: export html ok`
      - `notes: export pdf ok`
-3. Host tests for HTML paste mapping, undo/redo, and export hooks (mocked printd).
+3. Host tests for HTML paste mapping, undo/redo, export hooks, and Notes DSL shell behavior (mocked printd).
 
 ## Non-Goals
 
@@ -84,6 +97,7 @@ Deliver:
 - undo/redo produces deterministic document states
 - export html stable for fixture doc
 - export pdf triggers printd render call (mocked)
+- Notes DSL shell snapshots/interactions are deterministic under host fixtures
 
 ### Proof (OS/QEMU) — gated
 
@@ -95,6 +109,7 @@ UART markers:
 
 - `userspace/ui/kit/richtext/` (new)
 - `userspace/apps/notes/` (new)
+- `userspace/apps/notes/ui/` (DSL pages/components/composables/services)
 - `tests/ui_v15e_host/`
 - `docs/dev/ui/richtext.md` (new)
 

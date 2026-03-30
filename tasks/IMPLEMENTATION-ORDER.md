@@ -71,7 +71,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ## Current: TASK-0019 and onward
 
-Execute in numerical order. Current queue head is **TASK-0019 (In Progress)**.
+Execute in numerical order. Current queue head is **TASK-0019 (In Review)**.
 Latest completed closure slices before this queue head: **TASK-0017 (Done)** and **TASK-0018 (Done)**.
 
 | Task | Title | Prereqs | Status |
@@ -81,7 +81,7 @@ Latest completed closure slices before this queue head: **TASK-0017 (Done)** and
 | **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | TASK-0003, TASK-0010 | Done |
 | TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Done |
 | TASK-0018 | Crashdumps v1: minidump + host symbolization | TASK-0006, TASK-0009 | Done |
-| TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | TASK-0006, TASK-0008, TASK-0009 | In Progress |
+| TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | TASK-0006, TASK-0008, TASK-0009 | In Review |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Draft |
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Draft |
@@ -95,13 +95,19 @@ Continue in numerical order after TASK-0014.
 Notable upcoming tasks:
 - **TASK-0019–0024**: Security and DSoftBus follow-ons (ABI guardrails, streams/QUIC, tightening)
 - **TASK-0018**: crashdump v1 closed with final hardening (identity/report fail-closed checks, deterministic marker proofs)
-- **TASK-0019**: ABI syscall guardrails v2 in progress (`nexus-abi` filter chain, profile authority/audit binding)
+- **TASK-0019**: ABI syscall guardrails v2 in review (proof gates green; pending review/commit)
 - **TASK-0016B**: completed networking-structure closure slice for `netstackd` (supports follow-on networking tasks)
 - **TASK-0025–0028**: StateFS hardening + ABI filters v2
 - **TASK-0029**: Supply chain v1 (SBOM + signing policy)
 - **TASK-0031**: Zero-copy VMOs v1 (enables driver + graphics tracks)
 - **TASK-0039**: Sandboxing v1
 - **TASK-0054+**: UI stack
+- **TASK-0054B / 0054C / 0054D**: early kernel/UI perf floor (zero-copy bulk stance + IPC fastpath + MM reuse)
+- **TASK-0055B / 0055C / 0055D / 0056B / 0076B**: early visible UI path (scanout -> visible present -> dev presets/shell modes -> visible input -> visible DSL mount)
+- **TASK-0056C**: present/input perf polish (click-to-frame latency + coalescing + skip paths)
+- **TASK-0060B / 0062B**: glass compositor + animation perf scenes / fluidity gates
+- **TASK-0080B / 0080C**: bootstrap SystemUI DSL shell + real launcher before the broader SystemUI migration
+- **TASK-0067B / 0100B / 0122B / 0122C**: visible clipboard/audio surfaces + shared DSL app platform/integration kit
 
 ---
 

@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - System Delegation / System Surfaces (track): tasks/TRACK-SYSTEM-DELEGATION.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Share v2a intentsd/policy: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
   - Follow-up (action-based system delegation): tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
   - Chat transfer (default chat eligibility): tasks/TASK-0126C-chat-transfer-v1a-host-export-import-eligibility.md
@@ -39,6 +40,7 @@ Default eligibility note (directional):
 Deliver:
 
 1. SystemUI chooser overlay:
+   - visible chooser UI is authored in the DSL and becomes the canonical chooser/default-selection surface reused by System Delegation
    - queries `intentsd.queryTargets(mime)`
    - displays icon+label grid, search filter, and an “Always use for this type” toggle
    - if “Always use” set, call `mimed.setDefault(mime, appId)`; otherwise update MRU via `intentsd.bumpRank`

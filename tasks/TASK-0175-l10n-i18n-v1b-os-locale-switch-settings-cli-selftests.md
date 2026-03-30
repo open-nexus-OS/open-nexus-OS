@@ -45,6 +45,9 @@ Deliver:
      - root direction switch when locale is RTL or dev override is enabled
      - caret movement and bidi hit-testing remains gated on text stack tasks; v1b only wires the direction flag
 3. Settings page: Language & Region:
+   - visible page is authored in the DSL and extends the canonical Settings DSL surface
+   - page-local state/effects should follow the `TASK-0075` structure rather than bespoke settings glue
+   - placement is inside the canonical Settings DSL tree from `TASK-0121`/`TASK-0122`, reusing the shared Settings shell/sidebar/navigation
    - select language/region from an allowlist
    - dev-only pseudo-locale (`xqps`)
    - previews for number/date/plural formatting

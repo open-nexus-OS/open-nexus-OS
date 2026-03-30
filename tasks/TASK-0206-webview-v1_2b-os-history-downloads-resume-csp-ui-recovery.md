@@ -6,6 +6,8 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - WebView v1.2 host substrate: tasks/TASK-0205-webview-v1_2a-host-history-session-csp-cookies.md
   - WebView v1.1 OS wiring (file chooser/leases): tasks/TASK-0187-webview-v1_1b-os-file-chooser-content-leases-nxweb-selftests.md
@@ -44,6 +46,7 @@ Deliver:
    - persist `state:/web/session.nxs` (Cap'n Proto snapshot; canonical) bounded
      - optional derived/debug view: `nx web session export --json` emits deterministic JSON
    - restore prompt on startup (WebView sample or browser shell)
+   - any visible browser shell/restore prompt remains DSL-authored, hosting web content through the blessed embedded web surface
    - markers:
      - `webview: session save tabs=<n>`
      - `webview: session restore`
@@ -62,6 +65,7 @@ Deliver:
 4. CSP report persistence + viewer:
    - write CSP violation events to `state:/csp/reports.jsonl` (gated on `/state`)
    - Settings page to view/filter/export/clear
+   - visible CSP viewer/filter UI should be DSL-authored and converge with the canonical Settings/browser shell surfaces
    - export path under `state:/exports/`
    - markers:
      - `ui: csp reports open`
@@ -73,6 +77,7 @@ Deliver:
 6. **Servo experimental browser app (opt-in, parallel to simple browser)**:
    - new app: `source/apps/browser_servo/` (only built when `EXPERIMENTAL_SERVO=1` or via `just build-servo`)
    - SystemUI launcher entry: "Browser (Servo, Experimental)" with ⚠️ badge
+   - browser shell/chrome should still be DSL-authored; Servo is the embedded rendering engine, not a parallel UI framework
    - first-launch warning: "This browser is experimental and may crash. Use at your own risk."
    - **Crash isolation proofs (critical)**:
      - Servo crash → SystemUI remains responsive (no freeze/hang)

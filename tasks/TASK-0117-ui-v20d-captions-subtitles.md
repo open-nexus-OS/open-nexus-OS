@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Video app baseline: tasks/TASK-0102-ui-v16d-music-video-apps-os-proofs.md
   - Text shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - Prefs store: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
@@ -25,6 +27,8 @@ Deliver:
    - parse SRT and minimal WebVTT into time-aligned cues
    - deterministic parsing and cue ordering
 2. Video app integration:
+   - visible video-player chrome is authored in the DSL and hosts caption toggles/settings there
+   - timed caption rendering itself may use a blessed media/video surface layered under or with the video viewport
    - load sidecar captions alongside content URI (`.srt/.vtt`)
    - render captions with outline and configurable size/background
    - toggle CC via toolbar (persist via prefs)
@@ -32,6 +36,7 @@ Deliver:
      - `subtitles: loaded (cues=...)`
      - `video: cc on`
 3. SystemUI CC toggle:
+   - visible toggle should converge to DSL-authored SystemUI controls rather than one-off imperative media UI
    - global CC toggle (v1 can just set prefs; optional forward to active video session)
 4. Host tests:
    - parse fixtures and verify cue counts and timestamps
@@ -77,4 +82,3 @@ UART markers:
 1. subtitles parser crate + tests
 2. video caption renderer + toggle + markers
 3. SystemUI CC toggle + docs
-
