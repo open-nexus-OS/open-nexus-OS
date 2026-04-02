@@ -25,7 +25,7 @@ monitor_init() {
 
 set +e
 timeout --foreground "$RUN_TIMEOUT" \
-  stdbuf -oL env RUSTFLAGS='--cfg nexus_env="host"' \
+  stdbuf -oL env RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"' \
   cargo run -q -p nexus-init \
   | tee >(monitor_init) \
   | tee "$INIT_LOG"

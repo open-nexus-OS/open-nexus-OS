@@ -7,9 +7,9 @@ Update during wrap-up so a new session can start without drift.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
+- **task**: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (`Draft`)
 - **handoff_target**: `.cursor/handoff/current.md`
-- **handoff_archive**: `.cursor/handoff/archive/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
+- **handoff_archive**: `.cursor/handoff/archive/TASK-0019-security-v2-userland-abi-syscall-filters.md`
 - **linked_contracts**:
   - `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
   - `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`
@@ -22,32 +22,30 @@ Update during wrap-up so a new session can start without drift.
   - `tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md` (kernel follow-on boundary)
   - `docs/testing/index.md`
   - `scripts/qemu-test.sh`
-- **first_action**: execute TASK-0019 Phase A (bounded filter chain + deterministic deny/audit), then follow explicit phased rollout through distribution and marker closure.
+- **first_action**: seed TASK-0020 execution plan in sequential order without reopening TASK-0019 scope.
 
 ## Start slice (now)
-- **slice_name**: TASK-0019 phased kickoff (A-F rollout + lifecycle boundary lock)
-- **target_file**: `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
+- **slice_name**: TASK-0020 kickoff prep (streams v2 planning + contract sync)
+- **target_file**: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
 - **must_cover**:
-  - kernel-unchanged userland ABI syscall guardrail architecture
-  - deterministic deny-by-default profile parsing + bounded matching
-  - authenticated profile distribution (`sender_service_id`) + subject binding
-  - stable deny errors + audit evidence path
-  - selftest marker ladder (`abi filter deny/allow`, `abi netbind deny`)
-  - explicit non-goal boundary (no malicious-code sandbox claim)
+  - keep TASK-0019 closed as done baseline,
+  - preserve deterministic proof and marker contracts from completed slices,
+  - keep TASK-0028 and TASK-0188 as ABI follow-on boundaries,
+  - define bounded deterministic plan for TASK-0020 without cross-scope drift.
 
 ## Execution order
 1. **TASK-0017**: remote statefs RW (Done)
 2. **TASK-0018**: crashdumps v1 (Done, archived handoff)
-3. **TASK-0019**: ABI syscall guardrails v2 (next active prep/implementation slice)
+3. **TASK-0019**: ABI syscall guardrails v2 (Done)
 4. **TASK-0020+**: networking/state follow-ons (out of current slice)
 
 ## Drift-free check (must be YES to proceed)
 - **aligns_with_current_state**: YES
-  - SSOT and handoff now point to TASK-0019 prep.
+  - SSOT and handoff now point to TASK-0019 done state.
 - **best_system_solution**: YES
-  - guardrail-first approach fits kernel-unchanged constraints.
+  - guardrail-first/policyd-only approach fits kernel-unchanged constraints.
 - **scope_clear**: YES
-  - scope is v2 ABI guardrails only (not TASK-0028 learn/generator, not TASK-0188 kernel seccomp).
+  - scope remains v2 ABI guardrails only (not TASK-0028 learn/generator, not TASK-0188 kernel seccomp).
 - **touched_paths_allowlist_present**: YES
   - TASK-0019 includes explicit allowlist for ABI/policy/selftest/docs/harness paths.
 
@@ -58,16 +56,15 @@ Update during wrap-up so a new session can start without drift.
   - threat model, invariants, DON'T DO, and required negative tests include auth/spoofing/overflow rejects.
 
 ## Dependencies & blockers
-- **blocked_by**: none for kickoff/prep
+- **blocked_by**: none (proof gates are green)
 - **prereqs_ready**: YES
   - `TASK-0006`, `TASK-0008`, and `TASK-0009` are complete and referenced.
-  - canonical QEMU harness contract exists in `scripts/qemu-test.sh`.
+  - canonical QEMU harness contract and ABI markers are green in `scripts/qemu-test.sh` proof run.
 
 ## Decision
-- **status**: READY (TASK-0019 implementation planning/execution)
+- **status**: READY FOR NEXT TASK (TASK-0019 done; TASK-0020 is next queue head)
 - **notes**:
-  - prefer `policyd` as single policy authority; justify `abi-filterd` only if unavoidable.
-  - keep marker/server wording stable via unified readiness marker (`abi-profile: ready (server=...)`).
-  - lifecycle stop-condition for TASK-0019 is static boot/apply only; runtime transitions belong to TASK-0028.
-  - keep deny/audit semantics deterministic and bounded (no unbounded audit spam).
-  - keep kernel-seccomp claims strictly out of TASK-0019 scope.
+  - `policyd` remains explicit authority for TASK-0019 profile distribution.
+  - marker/server wording is stable and proven by QEMU run.
+  - `RFC-0032` contract remains complete; follow-on lifecycle scope remains TASK-0028.
+  - keep kernel-seccomp claims out of TASK-0019 scope; continue in TASK-0188 only.

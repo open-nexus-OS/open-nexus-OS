@@ -196,7 +196,7 @@ impl AbiRule {
         if prefix_len == 0 || prefix_len > path.len() {
             return false;
         }
-        &self.path_prefix[..prefix_len] == &path[..prefix_len]
+        self.path_prefix[..prefix_len] == path[..prefix_len]
     }
 
     fn matches_net_bind(&self, port: u16) -> bool {
@@ -233,7 +233,11 @@ impl AbiProfile {
 
     /// Returns the rule at `index`, if present.
     pub fn rule(&self, index: usize) -> Option<&AbiRule> {
-        if index < self.rule_count as usize { Some(&self.rules[index]) } else { None }
+        if index < self.rule_count as usize {
+            Some(&self.rules[index])
+        } else {
+            None
+        }
     }
 
     /// Evaluates a statefs put operation against this profile.
@@ -380,8 +384,8 @@ pub fn decode_profile_v1(profile_bytes: &[u8]) -> core::result::Result<AbiProfil
         if off + 8 > profile_bytes.len() {
             return Err(AbiFilterError::MalformedProfile);
         }
-        let syscall = SyscallClass::from_u8(profile_bytes[off])
-            .ok_or(AbiFilterError::InvalidSyscallClass)?;
+        let syscall =
+            SyscallClass::from_u8(profile_bytes[off]).ok_or(AbiFilterError::InvalidSyscallClass)?;
         let action =
             RuleAction::from_u8(profile_bytes[off + 1]).ok_or(AbiFilterError::InvalidRuleAction)?;
         let prefix_len = profile_bytes[off + 2] as usize;

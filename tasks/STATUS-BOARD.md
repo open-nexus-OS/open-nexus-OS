@@ -39,8 +39,9 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 | ✅ TASK-0016B | Netstackd refactor v1: modular structure + loop hardening | Done | Seam and governance sync complete |
 | ✅ TASK-0017 | DSoftBus Remote-StateFS v1 | Done | Deterministic ACL/audit + 1-VM/2-VM proof complete |
 | ✅ TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | Done | Final hardening + drift lock complete |
+| ✅ TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | Done | Kernel-untouched guardrail closure with authenticated profile distribution and deterministic proofs complete |
 
-Current queue head (in review): `TASK-0019`.
+Current queue head (next): `TASK-0020`.
 
 ---
 

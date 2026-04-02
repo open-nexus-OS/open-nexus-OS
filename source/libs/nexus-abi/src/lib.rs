@@ -1104,8 +1104,7 @@ pub mod policyd {
     /// Decodes a v2 ABI profile fetch request.
     #[must_use = "decoded request must be validated before policy handling"]
     pub fn decode_abi_profile_get_v2(frame: &[u8]) -> Option<(Nonce, u64)> {
-        if frame.len() != 16 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION_V2
-        {
+        if frame.len() != 16 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION_V2 {
             return None;
         }
         if frame[3] != OP_ABI_PROFILE_GET {
@@ -1127,7 +1126,8 @@ pub mod policyd {
         profile: &[u8],
         out: &mut [u8],
     ) -> Option<usize> {
-        if profile.len() > crate::abi_filter::MAX_PROFILE_BYTES || profile.len() > u16::MAX as usize {
+        if profile.len() > crate::abi_filter::MAX_PROFILE_BYTES || profile.len() > u16::MAX as usize
+        {
             return None;
         }
         let total = 12 + profile.len();
@@ -1322,14 +1322,16 @@ pub mod policyd {
         #[test]
         fn abi_profile_v2_roundtrip() {
             let mut req = [0u8; 32];
-            let n = encode_abi_profile_get_v2(0x0102_0304, 0x1122_3344_5566_7788, &mut req).unwrap();
+            let n =
+                encode_abi_profile_get_v2(0x0102_0304, 0x1122_3344_5566_7788, &mut req).unwrap();
             let (nonce, subject_id) = decode_abi_profile_get_v2(&req[..n]).unwrap();
             assert_eq!(nonce, 0x0102_0304);
             assert_eq!(subject_id, 0x1122_3344_5566_7788);
 
             let profile = [1u8, 2, 3, 4];
             let mut rsp = [0u8; 64];
-            let m = encode_abi_profile_rsp_v2(0x1122_3344, STATUS_ALLOW, &profile, &mut rsp).unwrap();
+            let m =
+                encode_abi_profile_rsp_v2(0x1122_3344, STATUS_ALLOW, &profile, &mut rsp).unwrap();
             let (rsp_nonce, status, got_profile) = decode_abi_profile_rsp_v2(&rsp[..m]).unwrap();
             assert_eq!(rsp_nonce, 0x1122_3344);
             assert_eq!(status, STATUS_ALLOW);

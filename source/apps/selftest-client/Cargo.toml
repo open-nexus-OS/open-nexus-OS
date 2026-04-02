@@ -86,5 +86,5 @@ capnp = "0.24"
 ed25519-dalek = "2"
 exec-payloads = { path = "../../../userspace/exec-payloads" }
 sha2 = "0.10"
-tar = "0.4"
+tar = { version = "0.4", default-features = false }
 updates = { path = "../../../userspace/updates" }

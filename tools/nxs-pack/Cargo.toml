@@ -12,7 +12,7 @@ ed25519-dalek = "2"
 hex = "0.4"
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
 sha2 = "0.10"
-tar = "0.4"
+tar = { version = "0.4", default-features = false }
 toml = "0.8"
 
 [build-dependencies]

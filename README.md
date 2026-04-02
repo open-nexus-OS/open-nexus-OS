@@ -64,7 +64,8 @@ Test entrypoints:
 ## Current engineering focus
 
 - Kernel baseline behavior is stabilized and continuously regression-tested with deterministic QEMU marker gates.
-- Current closeout focus is userspace syscall guardrail hardening with authenticated profile distribution and fail-closed behavior proofs.
+- Userspace syscall guardrail hardening (`TASK-0019` / `RFC-0032`) is closed as done with authenticated profile distribution and fail-closed behavior proofs.
+- Next sequential queue head is `TASK-0020` (DSoftBus streams v2 planning/implementation).
 - Canonical security proof ladder:
   - `cargo test -p nexus-abi -- reject --nocapture`
   - `just dep-gate`

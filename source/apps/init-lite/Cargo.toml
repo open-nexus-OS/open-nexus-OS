@@ -12,4 +12,4 @@ nexus-log = { path = "../../libs/nexus-log", features = ["sink-userspace"] }
 nexus-init = { path = "../../init/nexus-init", features = ["os-payload"], default-features = false }
 
 [build-dependencies]
-object = "0.32"
+object = "0.36"

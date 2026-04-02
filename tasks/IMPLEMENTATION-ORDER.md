@@ -69,10 +69,10 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0019 and onward
+## Current: TASK-0020 and onward
 
-Execute in numerical order. Current queue head is **TASK-0019 (In Review)**.
-Latest completed closure slices before this queue head: **TASK-0017 (Done)** and **TASK-0018 (Done)**.
+Execute in numerical order. Current queue head is **TASK-0020 (Draft)**.
+Latest completed closure slices before this queue head: **TASK-0017 (Done)**, **TASK-0018 (Done)**, and **TASK-0019 (Done)**.
 
 | Task | Title | Prereqs | Status |
 |------|-------|---------|--------|
@@ -81,7 +81,7 @@ Latest completed closure slices before this queue head: **TASK-0017 (Done)** and
 | **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | TASK-0003, TASK-0010 | Done |
 | TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Done |
 | TASK-0018 | Crashdumps v1: minidump + host symbolization | TASK-0006, TASK-0009 | Done |
-| TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | TASK-0006, TASK-0008, TASK-0009 | In Review |
+| TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | TASK-0006, TASK-0008, TASK-0009 | Done |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Draft |
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Draft |
@@ -95,7 +95,7 @@ Continue in numerical order after TASK-0014.
 Notable upcoming tasks:
 - **TASK-0019–0024**: Security and DSoftBus follow-ons (ABI guardrails, streams/QUIC, tightening)
 - **TASK-0018**: crashdump v1 closed with final hardening (identity/report fail-closed checks, deterministic marker proofs)
-- **TASK-0019**: ABI syscall guardrails v2 in review (proof gates green; pending review/commit)
+- **TASK-0019**: ABI syscall guardrails v2 completed (proof gates green; closed as done)
 - **TASK-0016B**: completed networking-structure closure slice for `netstackd` (supports follow-on networking tasks)
 - **TASK-0025–0028**: StateFS hardening + ABI filters v2
 - **TASK-0029**: Supply chain v1 (SBOM + signing policy)

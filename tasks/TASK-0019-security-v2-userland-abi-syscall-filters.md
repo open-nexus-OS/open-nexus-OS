@@ -1,6 +1,6 @@
 ---
 title: TASK-0019 Security v2 (OS): userland ABI syscall guardrails (filter chain + profiles + audit)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 links:
@@ -41,6 +41,7 @@ In QEMU, prove:
 
 ## Status at a Glance (2026-03-27)
 
+- ✅ Task status advanced to `Done` after green host/OS/QEMU proof closure.
 - ✅ Phase A: bounded filter profile + matcher implemented in `nexus-abi` (`deny-by-default`, `first-match-wins`).
 - ✅ Phase B/C: authenticated profile distribution implemented in `policyd` (`sender_service_id` authority + subject binding).
 - ✅ Phase D/F: QEMU markers integrated and green (`abi-profile`, `abi-filter deny`, `SELFTEST: abi * ok`).

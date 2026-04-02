@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-03-27
+
+#### ABI syscall guardrails v2 closeout (`TASK-0019`, `RFC-0032`)
+
+- `TASK-0019` status advanced from `In Review` to `Done` after closing host/OS/QEMU proof gates.
+- Workspace/task status sources were synchronized for drift-free closure:
+  - `.cursor/current_state.md`
+  - `.cursor/handoff/current.md`
+  - `.cursor/next_task_prep.md`
+  - `.cursor/pre_flight.md`
+  - `.cursor/stop_conditions.md`
+  - `tasks/IMPLEMENTATION-ORDER.md`
+  - `tasks/STATUS-BOARD.md`
+  - `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
+- Root documentation now reflects closure and queue progression:
+  - `README.md` (TASK-0019 done, next queue head TASK-0020)
+- Additional green gate verification for this closeout:
+  - `make build MODE=host`
+  - `make test MODE=host`
+  - `make run MODE=host RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s`
+
 ### Changed - 2026-03-26
 
 #### Crashdump v1 final hardening closure sync (`TASK-0018`, `RFC-0031`)

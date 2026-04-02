@@ -1124,7 +1124,6 @@ mod os_lite {
         const MAGIC1: u8 = b'X';
         const VERSION: u8 = 1;
         const OP_REPORT_EXIT: u8 = 2;
-        const STATUS_OK: u8 = 0;
         if build_id.is_empty()
             || build_id.len() > 64
             || dump_path.is_empty()
@@ -1437,8 +1436,13 @@ mod os_lite {
         let deadline = start.saturating_add(2_000_000_000);
         let mut send_tries = 0usize;
         loop {
-            match nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..req_len], nexus_abi::IPC_SYS_NONBLOCK, 0)
-            {
+            match nexus_abi::ipc_send_v1(
+                send_slot,
+                &hdr,
+                &req[..req_len],
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            ) {
                 Ok(_) => break,
                 Err(nexus_abi::IpcError::QueueFull) => {
                     if (send_tries & 0x7f) == 0 {

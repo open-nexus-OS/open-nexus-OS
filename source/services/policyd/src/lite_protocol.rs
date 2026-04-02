@@ -214,11 +214,11 @@ pub fn handle_frame(
             rsp_v2(op, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V2, OP_ABI_PROFILE_GET) => {
-            let (nonce, requested_subject_id) = match nexus_abi::policyd::decode_abi_profile_get_v2(frame)
-            {
-                Some(v) => v,
-                None => return rsp_v2(OP_ABI_PROFILE_GET, 0, STATUS_MALFORMED),
-            };
+            let (nonce, requested_subject_id) =
+                match nexus_abi::policyd::decode_abi_profile_get_v2(frame) {
+                    Some(v) => v,
+                    None => return rsp_v2(OP_ABI_PROFILE_GET, 0, STATUS_MALFORMED),
+                };
             let requested_subject_id = normalize_subject_id(requested_subject_id);
             let caller_subject_id = normalize_subject_id(sender_service_id);
             if !privileged_proxy && requested_subject_id != caller_subject_id {
@@ -686,14 +686,8 @@ mod tests {
     #[test]
     fn test_abi_profile_get_v2_malformed_frame_is_fail_closed() {
         let policy = Policy::new(&[]);
-        let malformed = [
-            MAGIC0,
-            MAGIC1,
-            nexus_abi::policyd::VERSION_V2,
-            OP_ABI_PROFILE_GET,
-            0xaa,
-            0xbb,
-        ];
+        let malformed =
+            [MAGIC0, MAGIC1, nexus_abi::policyd::VERSION_V2, OP_ABI_PROFILE_GET, 0xaa, 0xbb];
         let out = handle_frame(&policy, &malformed, 0, false);
         let (op, nonce, status) = nexus_abi::policyd::decode_rsp_v2(out.as_slice()).unwrap();
         assert_eq!(op, OP_ABI_PROFILE_GET);
