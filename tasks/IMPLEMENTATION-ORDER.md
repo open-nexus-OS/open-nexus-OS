@@ -71,7 +71,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ## Current: TASK-0020 and onward
 
-Execute in numerical order. Current queue head is **TASK-0020 (Draft)**.
+Execute in numerical order. Current queue head is **TASK-0020 (In Progress)**.
 Latest completed closure slices before this queue head: **TASK-0017 (Done)**, **TASK-0018 (Done)**, and **TASK-0019 (Done)**.
 
 | Task | Title | Prereqs | Status |
@@ -82,7 +82,7 @@ Latest completed closure slices before this queue head: **TASK-0017 (Done)**, **
 | TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Done |
 | TASK-0018 | Crashdumps v1: minidump + host symbolization | TASK-0006, TASK-0009 | Done |
 | TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | TASK-0006, TASK-0008, TASK-0009 | Done |
-| TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Draft |
+| TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | In Progress |
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Draft |
 

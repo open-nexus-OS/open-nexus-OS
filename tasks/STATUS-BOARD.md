@@ -41,7 +41,7 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 | ✅ TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | Done | Final hardening + drift lock complete |
 | ✅ TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | Done | Kernel-untouched guardrail closure with authenticated profile distribution and deterministic proofs complete |
 
-Current queue head (next): `TASK-0020`.
+Current queue head (in progress): `TASK-0020`.
 
 ---
 

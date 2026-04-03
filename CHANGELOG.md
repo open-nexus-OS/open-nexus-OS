@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-03-27
 
+#### DSoftBus mux v2 kickoff (`TASK-0020`, `RFC-0033`)
+
+- Verified `TASK-0019` closeout remains documented as `Done` across task status, board views, and changelog evidence.
+- Moved `TASK-0020` to `In Progress` as the active sequential queue head.
+- Moved `RFC-0033` to `In Progress` with `TASK-0020` as execution SSOT.
+- Synced working-state artifacts for active execution context:
+  - `.cursor/current_state.md`
+  - `.cursor/handoff/current.md`
+  - `.cursor/next_task_prep.md`
+  - `.cursor/pre_flight.md`
+  - `.cursor/stop_conditions.md`
+  - `.cursor/context_bundles.md`
+
+### Changed - 2026-03-27
+
 #### ABI syscall guardrails v2 closeout (`TASK-0019`, `RFC-0032`)
 
 - `TASK-0019` status advanced from `In Review` to `Done` after closing host/OS/QEMU proof gates.

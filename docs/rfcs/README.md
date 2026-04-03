@@ -82,6 +82,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0030: DSoftBus remote statefs RW v1 (authenticated RW + ACL + audit contract)
 - RFC-0031: Crashdumps v1 (bounded artifacts + fail-closed crash metadata publish contract)
 - RFC-0032: ABI syscall guardrails v2 (userland guardrail + authenticated profile distribution boundary)
+- RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive (authenticated mux + bounded credits/state transitions)
 
 ## Index
 
@@ -149,3 +150,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
 - RFC-0032: ABI syscall guardrails v2 - userland guardrail (Complete; policyd-only profile authority with deterministic proof closure)
   - docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md
+- RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive - host-first contract seed (In Progress; TASK-0020 is SSOT)
+  - docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md

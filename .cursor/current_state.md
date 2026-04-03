@@ -7,75 +7,72 @@ Keep it compact, explicit, and contract-oriented.
 -->
 
 ## Current architecture state
-- **last_decision**: close `TASK-0019` as `Done` after green host/OS/QEMU proofs while keeping `RFC-0032` complete.
+- **last_decision**: move `TASK-0020` and `RFC-0033` from draft setup into active in-progress execution with task-as-SSOT.
 - **rationale**:
-  - maintain kernel-unchanged boundary while adding deterministic userspace guardrails,
-  - keep policy authority single-source (`policyd` + `recipes/policy`),
-  - prove stop-condition markers and required `test_reject_*` set before review.
+  - preserve low-drift sequencing after `TASK-0019` closeout,
+  - lock mux/flow-control contract boundaries before implementation growth,
+  - keep host-first execution while OS backend remains explicitly gated.
 - **active_constraints**:
   - kernel untouched in this slice,
-  - not a hard boundary against raw `ecall` bypasses,
-  - profile parsing/matching bounded and deterministic,
-  - deny decisions fail-closed and auditable,
-  - subject identity is kernel-derived (`service_id` / `sender_service_id`), never payload text.
+  - no scope absorption from `TASK-0021` (QUIC) or `TASK-0022` (core/no_std split),
+  - bounded stream/window/credit behavior with deterministic reject paths,
+  - explicit ownership + Rust API hygiene (`newtype`, `#[must_use]`, no unsafe `Send`/`Sync` shortcuts),
+  - OS proofs only via canonical harnesses with modern virtio-mmio defaults.
 
 ## Current focus (execution)
-- **active_task**: `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (Done)
+- **active_task**: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (In Progress, phase-0 contract/determinism lock)
 - **seed_contract**:
-  - `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
-  - `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`
-  - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
-  - `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
-  - `tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md` (follow-on boundary)
+  - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
+  - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+  - `docs/adr/0005-dsoftbus-architecture.md`
 - **contract_dependencies**:
-  - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
-  - `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md`
-  - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
+  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
+  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+  - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
+  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
   - `scripts/qemu-test.sh`
   - `docs/testing/index.md`
-- **phase_now**: TASK-0019 closeout complete and marked Done; next queue head is TASK-0020.
-- **baseline_commit**: `2c76971` (user-declared baseline before this implementation slice)
+- **phase_now**: `TASK-0020` and `RFC-0033` are In Progress; active work is phase-0 lock and host-first proof implementation.
+- **baseline_commit**: `74c50a6` (TASK-0019 done closeout commit)
 - **next_task_slice**:
-  - start TASK-0020 planning in strict sequential order,
-  - preserve lifecycle/runtime follow-on scope in TASK-0028 and kernel boundary in TASK-0188,
-  - keep TASK-0019/RFC-0032 artifacts stable as completed baseline.
+  - keep `TASK-0020` host-first and OS-gated while `userspace/dsoftbus` OS backend remains placeholder,
+  - execute phase 0 contract/determinism lock before mux feature growth,
+  - keep transport evolution/core extraction scope in `TASK-0021`/`TASK-0022`.
 
 ## Last completed
+- `TASK-0019` archived and done:
+  - archive: `.cursor/handoff/archive/TASK-0019-security-v2-userland-abi-syscall-filters.md`
+  - status: done with green host/OS/QEMU proofs.
 - `TASK-0018` handoff remains archived:
   - archive: `.cursor/handoff/archive/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
   - status: done with completed proofs and closeout commits.
 - `TASK-0017` remains `Done`.
 
 ## Proof baseline currently green
-- `TASK-0017` closure baseline remains green.
-- `TASK-0018` closure baseline remains green.
-- `TASK-0019` closure proofs green:
-  - `cargo test -p nexus-abi -- reject --nocapture`
-  - `cargo test -p policyd abi_profile_get_v2 -- --nocapture`
-  - `just dep-gate`
-  - `just diag-os`
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-  - markers observed: `abi-profile: ready (server=policyd|abi-filterd)`, `abi-filter: deny (subject=selftest-client syscall=statefs.put)`, `SELFTEST: abi filter deny ok`, `SELFTEST: abi filter allow ok`, `abi-filter: deny (subject=selftest-client syscall=net.bind)`, `SELFTEST: abi netbind deny ok`.
+- `TASK-0017`/`TASK-0018`/`TASK-0019` closure baselines remain green.
+- `TASK-0020` proofs are pending while implementation is in progress (no completion claims yet).
 
 ## Active invariants (must hold)
 - **security**
-  - deny-by-default profiles for compliant binaries,
-  - authenticated distribution + deterministic reject paths,
-  - explicit non-sandbox messaging for raw `ecall`.
+  - mux runs only on authenticated session context,
+  - deterministic fail-closed stream/window/credit validation,
+  - no hidden unbounded buffering paths.
 - **determinism**
-  - stable deny/error labels and bounded parser/matcher cost,
-  - bounded marker/audit emission.
+  - stable reject labels and bounded retry budgets,
+  - canonical marker/harness discipline only.
 - **scope hygiene**
-  - keep TASK-0019 separate from TASK-0028 and TASK-0188,
-  - keep TASK-0019 lifecycle static (boot/startup apply only).
+  - keep `TASK-0020` separate from `TASK-0021` and `TASK-0022`,
+  - do not claim OS mux closure before OS backend gate is actually met.
 
 ## Open threads / follow-ups
 - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-- `tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md`
-- `tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md`
+- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
 
 ## DON'T DO (session-local)
-- DON'T claim ABI filter v2 is a hard sandbox against malicious raw `ecall`.
-- DON'T accept profile authority/subject identity from payload strings.
-- DON'T add unbounded matcher semantics or unbounded audit output paths.
-- DON'T silently expand into `TASK-0028` or `TASK-0188` scope.
+- DON'T silently absorb QUIC (`TASK-0021`) or core/no_std extraction (`TASK-0022`) scope.
+- DON'T add unbounded stream/window/credit behavior.
+- DON'T emit mux success markers before real multiplexed roundtrip proof.
+- DON'T introduce unsafe `Send`/`Sync` shortcuts for mux/session state.

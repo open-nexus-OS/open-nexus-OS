@@ -259,6 +259,32 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`
 - `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md`
 
+### @task_0020_context
+- `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
+- `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+- `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+- `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
+- `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
+- `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
+- `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
+- `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
+- `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
+- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+- `tools/os2vm.sh`
+
+### @task_0020_touched
+- `userspace/dsoftbus/**`
+- `source/services/dsoftbusd/**` (OS-gated integration only)
+- `source/apps/selftest-client/**` (OS-gated markers only)
+- `tests/**` (mux host tests)
+- `docs/distributed/**`
+- `scripts/qemu-test.sh` (only when OS backend gate is met)
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -323,6 +349,9 @@ Kontext strikt: @core_context @task_0018_context @quality_gates @task_0018_touch
 
 ## Standard instruction line (TASK-0019)
 Kontext strikt: @core_context @task_0019_context @quality_gates @task_0019_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0020)
+Kontext strikt: @core_context @task_0020_context @quality_gates @task_0020_touched. Kein @codebase Scan.
 
 ## Standard instruction line (TASK-0016B)
 Kontext strikt: @core_context @task_0016b_context @quality_gates @task_0016b_touched. Kein @codebase Scan.
