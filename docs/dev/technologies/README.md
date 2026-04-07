@@ -20,6 +20,9 @@ Do not use this section for:
 
 Current entry points:
 
+- `docs/dev/technologies/dev-mode.md`
+- `docs/dev/technologies/family-mode.md`
+- `docs/dev/technologies/managed-devices.md`
 - `docs/dev/technologies/nexusnet-sdk.md`
 - `docs/dev/technologies/nexus-account.md`
 - `docs/dev/technologies/message-delegation.md`
@@ -32,6 +35,8 @@ Current entry points:
 
 Suggested mental model:
 
+- **Developer machine posture**: `dev-mode.md`
+- **Household and managed device posture**: `family-mode.md`, `managed-devices.md`
 - **Identity & trust**: `nexus-account.md`, `safe-ads-and-family-mode.md`
 - **Networking & delegated communication**: `nexusnet-sdk.md`, `message-delegation.md`
 - **Data and app surfaces**: `queryspec.md`, `zero-copy-data-plane.md`
