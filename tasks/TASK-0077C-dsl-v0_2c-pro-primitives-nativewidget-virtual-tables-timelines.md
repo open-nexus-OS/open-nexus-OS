@@ -9,6 +9,7 @@ links:
   - DSL v0.2a core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
   - DSL v0.2b stubs/CLI: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Zero-copy app platform (hard apps): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Zero-copy VMOs (data plane gate): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - UI virtual list/tokens baseline: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
@@ -39,6 +40,7 @@ Deliver v1-ready pro UI building blocks that keep apps “first-party” and per
    - recommended widgets (timeline canvas, waveform/meters, video preview surface)
    - strict constraints: deterministic, bounded per frame, no direct IO (svc.* in effects only)
    - snapshot/golden strategy for these widgets (host-first)
+   - DSL shell around the widget still follows the shared text/measure/place invalidation contract
 
 ## Non-Goals
 

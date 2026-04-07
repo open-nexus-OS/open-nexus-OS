@@ -68,7 +68,7 @@ Deliver:
 - app platform docs
 - `tests/dsl_app_platform_host/` (new)
 - `docs/dev/dsl/overview.md`
-- `docs/dev/ui/app-shell.md`
+- `docs/dev/ui/patterns/app-shell.md`
 
 ## Plan (small PRs)
 

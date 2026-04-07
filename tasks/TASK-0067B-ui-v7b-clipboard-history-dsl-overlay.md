@@ -58,7 +58,7 @@ Deliver:
 - SystemUI/launcher integration points
 - clipboard DSL UI package(s)
 - `tests/ui_v7b_clipboard_history_host/` (new)
-- `docs/dev/ui/clipboard.md`
+- `docs/dev/ui/patterns/transfer-sharing/clipboard.md`
 
 ## Plan (small PRs)
 

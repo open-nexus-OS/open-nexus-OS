@@ -94,7 +94,7 @@ UART markers:
 - `tests/ui_v7b_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v7b.sh` (delegates)
-- `docs/dev/ui/dnd.md` + `docs/dev/ui/clipboard.md`
+- `docs/dev/ui/patterns/transfer-sharing/drag-and-drop.md` + `docs/dev/ui/patterns/transfer-sharing/clipboard.md`
 
 ## Plan (small PRs)
 

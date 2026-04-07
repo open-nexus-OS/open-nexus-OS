@@ -105,7 +105,7 @@ Deliver:
 - `tools/nx-win/` (extend)
 - `schemas/compositor_v2_2.schema.json`
 - `source/apps/selftest-client/`
-- `docs/compositor/` + `docs/tools/nx-win.md` + `docs/dev/ui/testing.md`
+- `docs/compositor/` + `docs/tools/nx-win.md` + `docs/dev/ui/foundations/quality/testing.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

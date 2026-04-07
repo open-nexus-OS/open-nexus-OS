@@ -76,7 +76,7 @@ Visual proof:
 - display bootstrap service integration
 - `source/apps/selftest-client/`
 - `docs/dev/ui/overview.md`
-- `docs/dev/ui/testing.md`
+- `docs/dev/ui/foundations/quality/testing.md`
 
 ## Plan (small PRs)
 

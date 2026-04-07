@@ -86,7 +86,7 @@ Visual proof:
 - `source/services/windowd/` (only as needed to target the visible buffer)
 - `source/apps/selftest-client/`
 - `docs/display/simplefb_v1_0.md` or an earlier bootstrap display doc
-- `docs/dev/ui/testing.md`
+- `docs/dev/ui/foundations/quality/testing.md`
 
 ## Plan (small PRs)
 

@@ -105,7 +105,7 @@ UART markers:
 - `source/services/webviewd/` (new)
 - `source/services/webviewd/idl/webview.capnp` (new)
 - `tests/ui_v19a_host/`
-- `docs/dev/ui/webview.md` (new)
+- `docs/dev/ui/blessed-surfaces/webview.md` (new)
 
 ## Plan (small PRs)
 

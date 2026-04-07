@@ -86,7 +86,7 @@ Deliver:
 - `userspace/ui/shape/`
 - `tests/ui_v15a_host/` (fixtures additions)
 - `tests/ui_v2b_host/` (fixtures additions)
-- `docs/dev/ui/text-stack.md` (canonical text-stack umbrella doc for UI + DSL consumers)
+- `docs/dev/ui/foundations/rendering/text-stack.md` (canonical text-stack umbrella doc for UI + DSL consumers)
 
 ## Plan (small PRs)
 

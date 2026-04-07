@@ -110,7 +110,7 @@ UART markers:
 - `userspace/apps/camera/ui/` + `userspace/apps/gallery/ui/` (DSL pages/components/composables/services)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v17.sh` (delegates)
-- `docs/apps/camera.md` + `docs/apps/gallery.md` + `docs/privacy/overview.md` (extend) + `docs/dev/ui/testing.md` (extend)
+- `docs/apps/camera.md` + `docs/apps/gallery.md` + `docs/privacy/overview.md` (extend) + `docs/dev/ui/foundations/quality/testing.md` (extend)
 
 ## Plan (small PRs)
 

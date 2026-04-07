@@ -90,7 +90,7 @@ UART markers:
 - `tests/ui_v7c_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v7c.sh` (delegates)
-- `docs/dev/ui/screencap-share.md`
+- `docs/dev/ui/system-experiences/capture-and-share/screencap-share.md`
 
 ## Plan (small PRs)
 

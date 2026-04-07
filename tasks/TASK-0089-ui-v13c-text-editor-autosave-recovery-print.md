@@ -93,7 +93,7 @@ UART markers:
 - `userspace/apps/text/` (new)
 - `userspace/apps/text/ui/` (DSL pages/components/composables/services)
 - `tests/ui_v13c_host/`
-- `docs/dev/ui/text-editor.md` (new)
+- `docs/dev/ui/components/media-and-content/text-editor.md` (new)
 
 ## Plan (small PRs)
 

@@ -93,7 +93,7 @@ UART markers:
 - `source/services/lockd/` (new)
 - SystemUI lockscreen overlay
 - `tests/ui_v18c_host/`
-- `docs/dev/ui/oobe-greeter-lock.md` (new/extend)
+- `docs/dev/ui/patterns/identity-and-trust/oobe-greeter-lock.md` (new/extend)
 
 ## Plan (small PRs)
 

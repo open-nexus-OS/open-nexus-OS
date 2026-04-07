@@ -97,7 +97,7 @@ UART markers (order tolerant):
 - `userspace/apps/notes/` (demo app, minimal)
 - `tests/ui_v6b_host/` (new)
 - `tools/postflight-ui-v6b.sh` (delegates)
-- `docs/dev/ui/lifecycle.md` + `docs/dev/ui/notifications.md` (new)
+- `docs/dev/ui/patterns/app-structure/lifecycle.md` + `docs/dev/ui/status/notifications.md` (new)
 
 ## Plan (small PRs)
 

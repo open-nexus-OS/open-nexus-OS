@@ -105,7 +105,7 @@ UART markers (order tolerant):
 - `tests/ui_v5a_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v5a.sh` (delegates)
-- `docs/dev/ui/runtime.md` + `docs/dev/ui/animation.md` (new)
+- `docs/dev/ui/foundations/rendering/runtime.md` + `docs/dev/ui/foundations/animation.md` (new)
 
 ## Plan (small PRs)
 

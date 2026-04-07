@@ -121,7 +121,7 @@ Deliver:
 - `scripts/qemu-test.sh` (marker contract update)
 - `tools/postflight-backup-v1.sh` (delegates)
 - `docs/backup/` (new)
-- `docs/dev/ui/testing.md` (link)
+- `docs/dev/ui/foundations/quality/testing.md` (link)
 
 ## Plan (small PRs)
 

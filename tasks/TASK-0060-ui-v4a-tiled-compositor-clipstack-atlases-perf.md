@@ -9,7 +9,7 @@ links:
   - UI v3b baseline (clip/scroll/effects): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v2a baseline (present scheduler): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - UI v2b baseline (shaping/svg): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Glass material guidance: docs/dev/ui/materials-glass.md
+  - Glass material guidance: docs/dev/ui/foundations/visual/materials.md
   - Glass compositor follow-up: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
   - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Config broker (budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
@@ -119,7 +119,7 @@ UART markers (order tolerant):
 - `tests/ui_v4a_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v4a.sh` (delegates)
-- `docs/dev/ui/compositor.md` + `docs/dev/ui/atlas.md` (new)
+- `docs/dev/ui/foundations/rendering/compositor.md` + `docs/dev/ui/foundations/rendering/atlas.md` (new)
 
 ## Plan (small PRs)
 

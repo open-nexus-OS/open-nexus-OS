@@ -100,7 +100,7 @@ UART markers (order tolerant):
 - `tests/ui_v9b_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v9b.sh` (delegates)
-- `docs/platform/prefs.md` + `docs/dev/ui/settings.md`
+- `docs/platform/prefs.md` + `docs/dev/ui/patterns/app-structure/settings.md`
 
 ## Plan (small PRs)
 

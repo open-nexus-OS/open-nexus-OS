@@ -93,7 +93,7 @@ UART markers (order tolerant):
 - `tests/ui_v8b_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v8b.sh` (delegates)
-- `docs/dev/ui/wm-resize-move.md` + `docs/dev/ui/shortcuts.md`
+- `docs/dev/ui/patterns/wm-resize-move.md` + `docs/dev/ui/input/shortcuts.md`
 
 ## Plan (small PRs)
 

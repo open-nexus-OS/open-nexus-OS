@@ -13,7 +13,7 @@ links:
   - SystemUI DSL OS wiring baseline: tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
   - Config/schema broker: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Settings/config bridge note: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - UI profiles guidance: docs/dev/ui/profiles.md
+  - UI profiles guidance: docs/dev/ui/foundations/layout/profiles.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -120,8 +120,8 @@ UART markers (order tolerant):
 - `source/apps/selftest-client/`
 - `ui/profiles/` / `ui/shells/` / `ui/products/` or equivalent manifest directories
 - `schemas/` (preset/profile/shell manifest schema, if adopted under config/schema infra)
-- `docs/dev/ui/profiles.md`
-- `docs/dev/ui/testing.md`
+- `docs/dev/ui/foundations/layout/profiles.md`
+- `docs/dev/ui/foundations/quality/testing.md`
 - `docs/systemui/dsl-migration.md`
 
 ## Plan (small PRs)

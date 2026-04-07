@@ -66,7 +66,7 @@ Deliver:
 
 - `userspace/text/` (new/extend)
 - `tests/ui_v15a_host/`
-- `docs/dev/ui/text-stack.md` (new; v15 umbrella doc, but started here)
+- `docs/dev/ui/foundations/rendering/text-stack.md` (new; v15 umbrella doc, but started here)
 
 ## Plan (small PRs)
 

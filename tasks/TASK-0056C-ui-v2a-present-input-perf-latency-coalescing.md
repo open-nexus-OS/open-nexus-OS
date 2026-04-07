@@ -83,9 +83,9 @@ UART markers (order tolerant):
 - `userspace/apps/launcher/` (or other small proof surface)
 - `tests/ui_v2c_host/` (new)
 - `source/apps/selftest-client/`
-- `docs/dev/ui/input.md`
-- `docs/dev/ui/renderer.md`
-- `docs/dev/ui/testing.md`
+- `docs/dev/ui/input/input.md`
+- `docs/dev/ui/foundations/rendering/renderer.md`
+- `docs/dev/ui/foundations/quality/testing.md`
 
 ## Plan (small PRs)
 

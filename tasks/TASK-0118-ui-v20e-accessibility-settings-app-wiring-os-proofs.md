@@ -79,7 +79,7 @@ UART markers:
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v20.sh` (delegates)
 - `docs/a11y/overview.md` + `docs/a11y/vision.md` + `docs/a11y/screen-reader.md` (extend)
-- `docs/dev/ui/testing.md` (extend)
+- `docs/dev/ui/foundations/quality/testing.md` (extend)
 
 ## Plan (small PRs)
 

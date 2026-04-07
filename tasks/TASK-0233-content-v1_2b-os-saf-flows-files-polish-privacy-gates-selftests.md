@@ -109,7 +109,7 @@ On OS/QEMU, deliver deterministic, proven UX flows:
 - SystemUI doc picker overlay (`TASK-0083`) (extend: folder mode + remember access UX)
 - `source/apps/selftest-client/` (new markers)
 - `userspace/apps/files/` (polish items; still uses providers/grants/fileops)
-- `docs/dev/ui/doc-picker.md` + `docs/dev/ui/files.md` (extend with SAF terminology + privacy gate explanation)
+- `docs/dev/ui/system-experiences/doc-picker.md` + `docs/dev/ui/collections/files.md` (extend with SAF terminology + privacy gate explanation)
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

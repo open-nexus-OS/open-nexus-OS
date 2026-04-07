@@ -64,7 +64,7 @@ Deliver:
 - `source/services/printd/` (extend preview)
 - `userspace/ui/preview_textmap/` (new)
 - `tests/ui_v14a_host/`
-- `docs/dev/ui/print-preview.md` (extend with text-map)
+- `docs/dev/ui/system-experiences/capture-and-share/print-preview.md` (extend with text-map)
 
 ## Plan (small PRs)
 

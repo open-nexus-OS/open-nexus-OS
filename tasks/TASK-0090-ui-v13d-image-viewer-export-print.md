@@ -88,7 +88,7 @@ UART markers:
 - `userspace/apps/images/` (new)
 - `userspace/apps/images/ui/` (DSL pages/components/composables/services)
 - `tests/ui_v13d_host/`
-- `docs/dev/ui/image-viewer.md` (new)
+- `docs/dev/ui/components/media-and-content/image-viewer.md` (new)
 
 ## Plan (small PRs)
 

@@ -74,7 +74,7 @@ UART markers:
 - `userspace/ui/textedit_core/` (new)
 - `userspace/ui/kit/` TextField (rebase)
 - `tests/ui_v15b_host/`
-- `docs/dev/ui/text-stack.md` (extend)
+- `docs/dev/ui/foundations/rendering/text-stack.md` (extend)
 
 ## Plan (small PRs)
 

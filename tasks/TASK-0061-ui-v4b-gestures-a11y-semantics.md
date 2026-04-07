@@ -86,7 +86,7 @@ UART markers (order tolerant):
 - `tests/ui_v4b_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v4b.sh` (delegates)
-- `docs/dev/ui/gestures.md` + `docs/accessibility/semantics.md` (new)
+- `docs/dev/ui/input/gestures.md` + `docs/accessibility/semantics.md` (new)
 
 ## Plan (small PRs)
 

@@ -9,6 +9,7 @@ links:
   - UI v5a runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
   - UI v3b scroll/clip baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v4a tiling baseline (perf): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Lazy loading contract (virtual list ↔ paging): tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
   - Config broker (theme overrides): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy as Code (audit theme changes): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -35,6 +36,7 @@ Deliver:
    - stable visible-range computation
    - recycling pool for item surfaces
    - bounded cache sizes and deterministic reuse
+   - stable anchor-by-key behavior and bounded mixed-height measurement caches
 2. `userspace/ui/theme`:
    - roles/tokens schema and loader
    - light/dark modes and overrides
@@ -55,6 +57,9 @@ Deliver:
 - Bounded memory:
   - cap pool size and cached surfaces
   - cap theme token sizes and parsed tree depth
+- Invalidation posture:
+  - scroll should normally be placement-only work,
+  - width-bucket changes may remeasure visible rows but must not destabilize anchors.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points
@@ -71,6 +76,7 @@ Deliver:
 - virtual list:
   - 1000 items + small viewport → stable visible range
   - scrolling by N viewports triggers bounded recycle events
+  - prepend/append and width-bucket changes preserve deterministic anchor behavior
 - theme:
   - load tokens (default + override)
   - role-to-RGBA mapping stable
@@ -96,7 +102,7 @@ UART markers (order tolerant):
 - `tests/ui_v5b_host/` (new)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v5b.sh` (delegates)
-- `docs/dev/ui/widgets/virtual-list.md` + `docs/dev/ui/theme.md` (new)
+- `docs/dev/ui/collections/widgets/virtual-list.md` + `docs/dev/ui/foundations/visual/theme.md` + `docs/dev/ui/foundations/layout/layout-pipeline.md`
 
 ## Plan (small PRs)
 

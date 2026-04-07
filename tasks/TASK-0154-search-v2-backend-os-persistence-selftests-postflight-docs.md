@@ -114,7 +114,7 @@ Deliver:
 - `scripts/qemu-test.sh` (marker contract update)
 - `tools/postflight-search-v2.sh` (delegates)
 - `docs/search/overview.md` + `docs/search/sources.md` + `docs/search/testing.md`
-- `docs/dev/ui/testing.md` (link)
+- `docs/dev/ui/foundations/quality/testing.md` (link)
 
 ## Plan (small PRs)
 

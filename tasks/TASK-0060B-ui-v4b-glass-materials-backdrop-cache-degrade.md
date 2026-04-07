@@ -6,7 +6,7 @@ created: 2026-03-29
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - Glass material guidance: docs/dev/ui/materials-glass.md
+  - Glass material guidance: docs/dev/ui/foundations/visual/materials.md
   - UI v3b effects baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v4a compositor perf baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - UI v5a animation baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
@@ -15,7 +15,7 @@ links:
 
 ## Context
 
-Open Nexus OS already documents a resource-conscious “glass” material recipe in `docs/dev/ui/materials-glass.md`:
+Open Nexus OS already documents a resource-conscious “glass” material recipe in `docs/dev/ui/foundations/visual/materials.md`:
 
 - backdrop snapshot,
 - downsample + separable blur,
@@ -94,9 +94,9 @@ UART markers (order tolerant):
 - `userspace/ui/renderer/`
 - `tests/ui_v4b_glass_host/` (new)
 - `source/apps/selftest-client/`
-- `docs/dev/ui/materials-glass.md`
-- `docs/dev/ui/compositor.md`
-- `docs/dev/ui/testing.md`
+- `docs/dev/ui/foundations/visual/materials.md`
+- `docs/dev/ui/foundations/rendering/compositor.md`
+- `docs/dev/ui/foundations/quality/testing.md`
 
 ## Plan (small PRs)
 

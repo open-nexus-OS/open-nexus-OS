@@ -93,8 +93,8 @@ UART markers (order tolerant):
 - `source/services/windowd/`
 - `tests/ui_v5b_perf_host/` (new)
 - `source/apps/selftest-client/`
-- `docs/dev/ui/animation.md`
-- `docs/dev/ui/testing.md`
+- `docs/dev/ui/foundations/animation.md`
+- `docs/dev/ui/foundations/quality/testing.md`
 
 ## Plan (small PRs)
 

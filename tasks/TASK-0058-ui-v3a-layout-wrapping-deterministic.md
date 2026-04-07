@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v2b shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - UI v2a present/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Drivers/Accelerators contracts (buffers/sync/QoS): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Testing contract: scripts/qemu-test.sh
 ---
@@ -30,6 +31,7 @@ Deliver:
    - deterministic numeric rules (integer or fixed-point)
 2. Text measurement bridge:
    - `MeasureText` callback that integrates with the shaper/wrapper
+   - explicit text-prep/measure/placement split as documented in `docs/dev/ui/foundations/layout/layout-pipeline.md`
 3. Wrapping helpers in `userspace/ui/shape`:
    - Unicode line breaking (minimal UAX#14 subset)
    - ellipsis and max-lines truncation
@@ -54,6 +56,10 @@ Deliver:
 - Bounded compute:
   - cap node count per layout call,
   - cap recursion depth.
+- Invalidation/caching posture:
+  - scroll and pure offset changes should not force text reshaping,
+  - measurement and placement must be testable as separate concerns,
+  - cache keys and rounding rules must be documented deterministically.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points
@@ -72,9 +78,11 @@ Deliver:
   - style trees → stable box outputs (JSON goldens)
   - flex grow/shrink edge cases
   - grid fraction sizing and gaps
+  - place-only updates do not require full remeasure for unchanged subtrees
 - wrapping:
   - multilingual samples produce stable line break points and advance sums (JSON goldens)
   - ellipsis and max-lines truncation rules verified
+  - paragraph prep reused across multiple width-bucket measurements
 
 ### Proof (OS/QEMU) — optional/gated
 
@@ -90,7 +98,7 @@ Once windowd/plugins consume layout:
 - `userspace/ui/shape/` (extend: wrapping)
 - `userspace/ui/renderer/` (optional: draw_wrapped_text helper)
 - `tests/ui_v3a_host/` (new)
-- `docs/dev/ui/layout.md` + `docs/dev/ui/wrapping.md` (new)
+- `docs/dev/ui/foundations/layout/layout.md` + `docs/dev/ui/foundations/layout/wrapping.md` + `docs/dev/ui/foundations/layout/layout-pipeline.md`
 
 ## Plan (small PRs)
 

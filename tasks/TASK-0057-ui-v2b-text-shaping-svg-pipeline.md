@@ -99,7 +99,7 @@ Deliver:
 - `userspace/ui/svg/` (new)
 - `userspace/ui/renderer/` (extend: draw_glyph_run + glyph cache)
 - `tests/ui_v2b_host/` (new)
-- `docs/dev/ui/text.md` + `docs/dev/ui/svg.md` (new)
+- `docs/dev/ui/foundations/layout/text.md` + `docs/dev/ui/foundations/rendering/svg.md` (new)
 
 ## Plan (small PRs)
 

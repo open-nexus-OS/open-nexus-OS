@@ -83,7 +83,7 @@ Deliver:
 - `source/services/thumbd/` (new)
 - `source/services/recentsd/` (new)
 - `tests/ui_v11b_host/`
-- `docs/platform/thumbnailer.md` + `docs/dev/ui/recents.md` (new)
+- `docs/platform/thumbnailer.md` + `docs/dev/ui/navigation/recents.md` (new)
 
 ## Plan (small PRs)
 

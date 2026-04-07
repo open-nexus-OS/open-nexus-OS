@@ -99,7 +99,7 @@ Deliver:
 - `userspace/ui/renderer/` (new crate)
 - `userspace/ui/fonts/` (embedded fallback font data)
 - `tests/ui_host_snap/` (new)
-- `docs/dev/ui/testing.md` (new)
+- `docs/dev/ui/foundations/quality/testing.md` (new)
 
 ## Plan (small PRs)
 

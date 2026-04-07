@@ -108,7 +108,7 @@ UART markers:
 - SystemUI bootstrap/wiring for sessions/lock
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v18.sh` (delegates)
-- `docs/dev/ui/oobe-greeter-lock.md` + `docs/identity/overview.md` + `docs/security/keymint-keychain.md` (extend)
+- `docs/dev/ui/patterns/identity-and-trust/oobe-greeter-lock.md` + `docs/identity/overview.md` + `docs/security/keymint-keychain.md` (extend)
 
 ## Plan (small PRs)
 

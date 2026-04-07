@@ -111,7 +111,7 @@ UART markers:
 - `userspace/apps/notes/` (new)
 - `userspace/apps/notes/ui/` (DSL pages/components/composables/services)
 - `tests/ui_v15e_host/`
-- `docs/dev/ui/richtext.md` (new)
+- `docs/dev/ui/components/media-and-content/richtext.md` (new)
 
 ## Plan (small PRs)
 

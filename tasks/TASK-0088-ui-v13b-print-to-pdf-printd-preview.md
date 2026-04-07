@@ -78,7 +78,7 @@ Deliver:
 - `source/services/printd/` (new)
 - SystemUI print preview overlay (new)
 - `tests/ui_v13b_host/`
-- `docs/dev/ui/print.md` (new)
+- `docs/dev/ui/system-experiences/capture-and-share/print.md` (new)
 
 ## Plan (small PRs)
 

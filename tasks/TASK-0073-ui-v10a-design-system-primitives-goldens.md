@@ -76,7 +76,7 @@ Deliver:
 - `userspace/ui/kit/` (new)
 - `tests/ui_v10_goldens/` (new)
 - `tools/gen-goldens.sh` (new helper, optional)
-- `docs/dev/ui/design-system.md` + `docs/dev/ui/goldens.md` (new)
+- `docs/dev/ui/components/design-system.md` + `docs/dev/ui/foundations/quality/goldens.md` (new)
 
 ## Plan (small PRs)
 

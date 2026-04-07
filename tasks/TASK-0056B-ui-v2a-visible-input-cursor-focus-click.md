@@ -75,8 +75,8 @@ Visual proof:
 - `source/services/windowd/` + input routing extensions
 - SystemUI or launcher proof surface
 - `source/apps/selftest-client/`
-- `docs/dev/ui/input.md`
-- `docs/dev/ui/testing.md`
+- `docs/dev/ui/input/input.md`
+- `docs/dev/ui/foundations/quality/testing.md`
 
 ## Plan (small PRs)
 

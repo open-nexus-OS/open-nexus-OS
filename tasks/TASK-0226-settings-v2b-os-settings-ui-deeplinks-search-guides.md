@@ -77,7 +77,7 @@ Deliver:
    - `docs/settings/overview.md` (scopes/types/providers)
    - `docs/settings/deeplinks.md` (setting:// canonical)
    - `docs/settings/search.md` (settings source integration)
-   - update `docs/dev/ui/testing.md`
+   - update `docs/dev/ui/foundations/quality/testing.md`
 
 ## Non-Goals
 
