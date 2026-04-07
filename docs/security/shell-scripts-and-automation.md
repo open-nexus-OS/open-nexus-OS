@@ -117,6 +117,6 @@ Developer automation is closely tied to packaging:
 
 - `docs/security/capabilities.md`
 - `docs/dev/technologies/dev-mode.md`
-- `docs/dev/foundations/development/console.md`
-- `docs/dev/foundations/development/package-manager.md`
+- `docs/dev/ui/foundations/development/console.md`
+- `docs/dev/ui/foundations/development/package-manager.md`
 - `docs/packaging/artifact-kinds.md`

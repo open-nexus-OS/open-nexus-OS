@@ -97,7 +97,7 @@ The Package Manager should work naturally with:
 ## Related docs
 
 - `docs/dev/technologies/dev-mode.md`
-- `docs/dev/foundations/development/console.md`
-- `docs/dev/foundations/development/dev-studio.md`
+- `docs/dev/ui/foundations/development/console.md`
+- `docs/dev/ui/foundations/development/dev-studio.md`
 - `docs/packaging/artifact-kinds.md`
 - `docs/security/shell-scripts-and-automation.md`

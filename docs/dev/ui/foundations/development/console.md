@@ -79,6 +79,6 @@ Console should work naturally alongside:
 ## Related docs
 
 - `docs/dev/technologies/dev-mode.md`
-- `docs/dev/foundations/development/package-manager.md`
-- `docs/dev/foundations/development/dev-studio.md`
+- `docs/dev/ui/foundations/development/package-manager.md`
+- `docs/dev/ui/foundations/development/dev-studio.md`
 - `docs/security/shell-scripts-and-automation.md`

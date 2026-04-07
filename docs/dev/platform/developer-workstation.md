@@ -90,7 +90,7 @@ Open Nexus OS should still preserve:
 ## Related docs
 
 - `docs/dev/technologies/dev-mode.md`
-- `docs/dev/foundations/development/README.md`
+- `docs/dev/ui/foundations/development/README.md`
 - `docs/security/capabilities.md`
 - `docs/security/shell-scripts-and-automation.md`
 - `docs/packaging/artifact-kinds.md`

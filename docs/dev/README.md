@@ -8,9 +8,9 @@ This section is the **developer-facing** documentation for Open Nexus OS.
 The structure is intentionally split by **kind of decision**:
 
 - `docs/dev/dsl/` explains the language, IR, runtime, QuerySpec, and service-facing DSL contracts.
-- `docs/dev/foundations/` explains cross-cutting developer foundations such as local development posture, Console,
-  package-management, and Dev Studio expectations.
 - `docs/dev/ui/` explains visible UI behavior, system surfaces, components, collections, and cross-device UX rules.
+- `docs/dev/ui/foundations/development/` explains development-facing foundations for visible surfaces such as Console,
+  Package Manager, and Dev Studio.
 - `docs/dev/technologies/` explains platform technologies from the usage/integration side rather than from daemon internals.
 - `docs/dev/platform/` covers platform maps and keystone-style cross-subsystem reference material.
 
@@ -24,15 +24,15 @@ Goals:
 ## Start Here
 
 - DSL: `docs/dev/dsl/overview.md`
-- Foundations: `docs/dev/foundations/README.md`
 - UI: `docs/dev/ui/overview.md`
+- UI foundations: `docs/dev/ui/foundations/README.md`
 - Technologies: `docs/dev/technologies/README.md`
 - Platform maps: `docs/dev/platform/README.md`
 
 ## Common Paths
 
 - UI foundations and system-wide contracts: `docs/dev/ui/foundations/README.md`
-- Development foundations: `docs/dev/foundations/development/README.md`
+- Development foundations: `docs/dev/ui/foundations/development/README.md`
 - UI patterns and shared shell structures: `docs/dev/ui/patterns/README.md`
 - System surfaces and delegated flows: `docs/dev/ui/system-experiences/README.md`
 - Query-driven data surfaces: `docs/dev/ui/collections/README.md`
@@ -47,5 +47,5 @@ Goals:
 - If the question is about **how UI should look or behave**, start in `docs/dev/ui/`.
 - If the question is about **how the DSL models something**, start in `docs/dev/dsl/`.
 - If the question is about **how local development on Nexus is meant to work across surfaces**, start in
-  `docs/dev/foundations/`.
+  `docs/dev/ui/foundations/development/`.
 - If the question is about **when to depend on a platform capability or substrate**, start in `docs/dev/technologies/`.

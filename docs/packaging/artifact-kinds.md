@@ -133,6 +133,6 @@ Artifact kinds help explain workflows such as:
 ## Related docs
 
 - `docs/packaging/nxb.md`
-- `docs/dev/foundations/development/package-manager.md`
+- `docs/dev/ui/foundations/development/package-manager.md`
 - `docs/dev/platform/developer-workstation.md`
 - `docs/security/capabilities.md`

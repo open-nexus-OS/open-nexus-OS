@@ -18,6 +18,7 @@ Use this category for:
 
 Current entry points:
 
+- `docs/dev/ui/foundations/development/README.md`
 - `docs/dev/ui/foundations/accessibility/README.md`
 - `docs/dev/ui/foundations/visual/README.md`
 - `docs/dev/ui/foundations/motion/README.md`
@@ -47,3 +48,5 @@ Rule of thumb:
 
 - if a rule should apply to Files, Browser, Settings, SystemUI, and third-party apps alike, it probably belongs in
   Foundations.
+- if a rule explains how visible developer surfaces like Console, Package Manager, or Dev Studio should behave together,
+  it belongs in `docs/dev/ui/foundations/development/`.

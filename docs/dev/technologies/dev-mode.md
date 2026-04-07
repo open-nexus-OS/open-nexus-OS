@@ -83,8 +83,8 @@ With Dev Mode, a developer should be able to:
 
 ## Related docs
 
-- `docs/dev/foundations/development/README.md`
-- `docs/dev/foundations/development/console.md`
-- `docs/dev/foundations/development/package-manager.md`
-- `docs/dev/foundations/development/dev-studio.md`
+- `docs/dev/ui/foundations/development/README.md`
+- `docs/dev/ui/foundations/development/console.md`
+- `docs/dev/ui/foundations/development/package-manager.md`
+- `docs/dev/ui/foundations/development/dev-studio.md`
 - `docs/dev/platform/developer-workstation.md`
