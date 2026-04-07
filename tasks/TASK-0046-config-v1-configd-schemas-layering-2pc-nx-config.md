@@ -34,6 +34,10 @@ Repo reality today:
 
 - Many target services are still planned tasks (metricsd/traced/etc.).
 - `/state` persistence is planned (TASK-0009), so OS proofs must be gated.
+- Future management note:
+  - `configd` is also the natural config/profile distribution consumer for later family / school / enterprise / fleet
+    management work. Managed settings should arrive through the same typed, schema-validated config path rather than a
+    second ad-hoc management config surface.
 
 This task is **host-first** and **OS-gated**.
 

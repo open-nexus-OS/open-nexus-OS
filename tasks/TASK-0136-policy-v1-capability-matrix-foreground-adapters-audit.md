@@ -42,6 +42,9 @@ Scope note:
 
 - Policy v1.1 (scoped grants + expiry + enumerate/revoke) is tracked as `TASK-0167` (host-first semantics)
   and `TASK-0168` (OS runtime prompts + Privacy Dashboard + CLI).
+- Family / organization management note:
+  - future family, school, enterprise, fleet, and kiosk management should consume this same capability matrix through
+    policy/config layers rather than introducing a parallel restriction system.
 
 ## Goal
 

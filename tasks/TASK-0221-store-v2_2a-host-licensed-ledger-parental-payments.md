@@ -27,6 +27,12 @@ all without network access and with deterministic host proofs.
 
 This task is host-first (formats + core logic + tests). OS/UI wiring is v2.2b.
 
+Future family-management note:
+
+- the purchase ledger, revocation model, parental controls, and household-safe defaults here should later be reusable by
+  a Family Mode settings surface and by broader group/device management work, rather than being trapped inside a
+  store-only UX.
+
 ## Goal
 
 Deliver:

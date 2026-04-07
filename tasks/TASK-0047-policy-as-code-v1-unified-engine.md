@@ -40,6 +40,9 @@ Repo reality today:
 
 - A `policyd` service already exists (host and os-lite paths). We must **extend** it, not introduce a second “policy authority”.
 - Hot reload and versioning should be driven by `configd` (TASK-0046) once it exists.
+- Future management note:
+  - the same unified policy tree should later be able to serve household, school, enterprise, fleet, kiosk, and
+    smart-device management inputs, with local enforcement still remaining in `policyd` and related authorities.
 
 This task is **host-first** and **OS-gated**.
 
@@ -143,7 +146,7 @@ Notes:
 - `tools/policy-gen/` (optional generator)
 - `tests/`
 - `docs/security/policy-as-code.md`
- - Policy snapshot artifacts (stable JSON + compact binary) are a follow-up tracked in `TASK-0229`.
+- Policy snapshot artifacts (stable JSON + compact binary) are a follow-up tracked in `TASK-0229`.
 
 ## Plan (small PRs)
 

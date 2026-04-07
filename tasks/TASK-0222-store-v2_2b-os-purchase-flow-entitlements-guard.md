@@ -27,6 +27,11 @@ This task wires it into OS/QEMU:
 
 Everything is offline and deterministic; no network.
 
+Future family-management note:
+
+- the family-facing purchase approval, shared entitlement, and parental restriction UX should later reuse these services
+  and checks rather than inventing a parallel approval path outside the Store/Settings/system policy model.
+
 ## Goal
 
 Deliver:

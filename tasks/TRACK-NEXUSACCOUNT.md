@@ -47,6 +47,11 @@ We want “US-app easy” onboarding without forcing centralization:
 - Advanced: allow adding other account providers (future) via the NexusNet provider model.
 - Always: users can use the OS fully without NexusAccount (offline-first).
 
+Family/group bootstrap note:
+
+- NexusAccount is also a strong candidate for the no-server onboarding path for household membership, guardian invites,
+  and multi-device family linking, while still keeping local login and local policy enforcement separate.
+
 ## Architecture stance (OS-aligned)
 
 ### Authorities

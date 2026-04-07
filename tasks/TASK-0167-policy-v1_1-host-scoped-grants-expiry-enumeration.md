@@ -30,6 +30,9 @@ Audit direction:
 
 - `TASK-0136` explicitly avoids introducing a new `auditd` authority; audit sink should align with `logd` when available,
   with a deterministic UART-marker fallback during bring-up.
+- Future management note:
+  - scoped grants, revocation, and expiry are also natural building blocks for later guardian approvals, delegated
+    household administration, and school/enterprise/fleet overrides.
 
 ## Goal
 
