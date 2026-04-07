@@ -24,11 +24,21 @@ life**. On desktop-class machines it must additionally support **professional pe
 when it is appropriate (e.g., rendering / graphics / heavy compute), without turning the default
 experience into a power-hungry system.
 
+It should also be a **real local computing platform**, not merely a locked-down endpoint:
+
+- capable of local development workflows when explicitly enabled,
+- capable of family / school / enterprise / fleet-style managed device postures,
+- and able to scale those experiences across multiple device classes without requiring a different
+  authority model for each product surface.
+
 ## Principles (decision lens)
 
 When choosing between designs, prefer solutions that:
 
 - **Preserve security boundaries**: capability-based authority, least privilege, no ambient authority.
+- **Prefer one coherent model over feature sprawl**: do not chase “everything for everyone”.
+  Extend the same security, policy, config, identity, and multi-device architecture across
+  product surfaces instead of building separate special-case stacks.
 - **Aim for microkernel-hard security**: architecture-first security that is as close as practical to
   “military-grade” while remaining maintainable for a consumer OS (updates, developer velocity, and
   performance still matter).
@@ -38,6 +48,9 @@ When choosing between designs, prefer solutions that:
 - **Keep kernel minimal**: push complexity (IDL parsing, policy, crypto, distributed routing) to userland services.
 - **Remain testable**: host-first tests + minimal authoritative QEMU E2E; no “success logs” without behavior.
 - **Avoid lock-in**: designs should not hardcode “desktop only” or “IoT only”; keep a common core.
+- **Stay locally sovereign**: avoid forcing vendor cloud lock-in for development, management, or
+  device relationships when the same capability can be delivered through local or self-hostable
+  paths.
 - **Do not copy seL4 (or any reference OS) 1:1**: take only what fits our constraints. If an idea
   forces Rust into unnatural contortions (endless cfg/feature flag matrices, unsafe glue, or “API
   gymnastics”), prefer a simpler Rust-idiomatic alternative.
