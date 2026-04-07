@@ -70,7 +70,45 @@ Determinism rules:
 
 - duplicate setters should be rejected by lint (preferred), or must follow a documented deterministic rule (e.g. last-wins)
 - modifiers must be pure (no IO, no `svc.*`)
-- prefer **semantic tokens** for styling (e.g. `bg(accent)`) rather than arbitrary colors; theme authoring is where raw values belong (see `docs/dev/ui/colors.md`)
+- prefer **semantic tokens** for styling (e.g. `bg(accent)`) rather than arbitrary colors; theme authoring is where raw values belong (see `docs/dev/ui/foundations/visual/colors.md`)
+
+### Motion modifiers
+
+Animation should use **semantic motion tokens** with explicit categories rather than a CSS-style free-form animation
+language.
+
+Recommended surface:
+
+```nx
+Button { label: "Continue" }
+  .animate(snappy, value: $state.enabled)
+  .transition(fadeScale)
+  .effect(wiggle, trigger: $state.nudgeTick)
+```
+
+Meaning:
+
+- `.animate(token, value: expr)`
+  - animate value/state-driven property changes
+- `.transition(token)`
+  - define insert/remove/open/close lifecycle motion
+- `.effect(token, trigger: expr)`
+  - run a bounded attention effect when the trigger changes
+
+Recommended posture:
+
+- keep the token set curated and semantic (`snappy`, `smooth`, `fadeScale`, `wiggle`, ...)
+- reduced-motion behavior is part of the token contract
+- prefer trigger-based effects over permanent/infinite motion
+- keep motion lowering backend-neutral (DOM/Canvas/SVG/NativeWidget shell)
+
+Avoid as the default DSL model:
+
+- CSS-like global `@keyframes`,
+- free-form `--animate-*` custom variables,
+- or many single-purpose magic utility modifiers such as `.wiggle`, `.shake`, `.bounce` as the primary syntax.
+
+Those may inspire ergonomics, but the core contract should stay tokenized, typed, and deterministic.
 
 ## Escape hatch: `NativeWidget` (custom widgets)
 

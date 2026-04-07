@@ -6,9 +6,14 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL query posture: docs/dev/dsl/db-queries.md
+  - DSL state tiers: docs/dev/dsl/state.md
+  - WebView usage posture: docs/dev/ui/blessed-surfaces/webview.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - WebView v1.1 core (history/find/storage/CSP strict): tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
   - WebView Net v1 OS services (fetchd/downloadd fixtures-only): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - Devnet TLS fetch path (real HTTP(S), host-first): tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
 ---
@@ -27,6 +32,14 @@ WebView v1.2 adds:
 
 This task is host-first and defines the data formats, determinism rules, and tests.
 
+Storage posture:
+
+- browser data surfaces such as history, recent searches, and later bookmarks should have a **queryable storage abstraction**
+  so DSL/browser shells can filter/order/page them deterministically,
+- but this does **not** require a mandatory relational DB engine,
+- a deterministic snapshot/log backend is the default posture, with optional libSQL or similar backends remaining an
+  implementation choice behind the same contract.
+
 ## Goal
 
 Deliver:
@@ -35,6 +48,8 @@ Deliver:
    - record visits, update scroll, recent/search, export NDJSON, clear
    - deterministic ordering and search folding rules (explicit)
    - injected clock interface for tests (no wallclock dependency)
+   - history storage/query API should be able to back QuerySpec-shaped browser shells for recent/search views and future
+     bookmark/favorite surfaces without exposing the storage engine directly to UI code
    - storage backends:
      - default backend: file-based **Cap'n Proto snapshot** (canonical, `.nxs`) with deterministic encoding
        - derived/debug exports may use NDJSON/JSONL (deterministic)
@@ -90,6 +105,7 @@ Deliver:
 - **YELLOW (libSQL vs pure-Rust)**:
   - The prompt requests libSQL for history. We can support libSQL as an optional backend, but we must keep a deterministic
     fallback backend and avoid making OS viability depend on libSQL unless explicitly decided.
+  - Decision posture: browser history/bookmarks need queryable persistence semantics, not a mandatory SQL engine.
 
 - **GREEN → YELLOW (Servo experimental integration strategy)**:
   - **Context**: The "simple text+CSS renderer" approach is too conservative for 2026. Modern websites (React/Vue/GitHub/YouTube)

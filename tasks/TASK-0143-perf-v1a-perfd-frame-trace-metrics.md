@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Metrics/tracing foundations: tasks/TASK-0014-observability-v2-metrics-tracing.md
+  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - Persistence (/state for trace export): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Storage error semantics (for file export errors): tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
 ---
@@ -36,6 +37,15 @@ Deliver:
    - records paired marks (begin/end) and per-frame ticks
    - computes metrics:
      - fps, avg, p95, p99, longFrames, dropped, frames, budgetMs
+     - plus bounded counters for early hot-path contracts:
+       - wakeups per interaction,
+       - queue transitions per interaction,
+       - queue residence time by QoS class,
+       - recompute fanout per state mutation,
+       - observer count per commit,
+       - useful vs wasted recompute counts,
+       - cross-core hops per user action,
+       - and copy fallback / control-plane-vs-data-plane bytes for bulk-shaped paths where instrumentation exists
    - exports last session in Chrome Trace JSON (`traceEvents`) form
 2. API (Cap’n Proto schema):
    - `tools/nexus-idl/schemas/perf.capnp` defining start/stop/markBegin/markEnd/frameTick/exportLast
@@ -58,6 +68,8 @@ Deliver:
 
 - Bounded memory and bounded export size.
 - Deterministic metric computation given a deterministic stream of inputs.
+- Metrics may start coarse, but names/semantics must be stable so later HUD/gates reuse the same vocabulary rather than
+  inventing a second metric set.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)
@@ -69,6 +81,7 @@ New deterministic host tests (suggested: `tests/perf_v1_host/`):
 - feed a fixed sequence of `frameTick` events → metrics are deterministic
 - begin/end spans serialize into a stable Chrome Trace JSON ordering (golden hash)
 - export size bounded and ring truncation deterministic
+- synthetic hot-path event streams produce stable derived counters for the added metrics above
 
 ### Proof (OS/QEMU) — gated
 
@@ -89,3 +102,14 @@ Once `/state` is available and perfd is wired:
 1. perfd core ring + metric computation + markers
 2. chrome trace export (host-first), `/state` export once available
 3. host tests
+
+## Phase plan
+
+### Phase A — Frame timing floor
+
+- land frame-centric timings and bounded trace export.
+
+### Phase B — Hot-path contract metrics
+
+- extend the same tracer vocabulary with wakeup/queue/recompute/copy counters,
+- keep the semantics deterministic and reusable by `TASK-0144` and `TASK-0145`.

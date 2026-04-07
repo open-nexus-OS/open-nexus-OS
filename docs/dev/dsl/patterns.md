@@ -62,6 +62,9 @@ This pattern is ideal for queries, filters, layout specs, and other structured â
 - DSL builds a **spec** using pure operations
 - effects/services **execute** the spec (IO)
 
+For QuerySpec specifically, treat `docs/dev/dsl/db-queries.md` as the concrete contract and this section as the more
+general DSL pattern.
+
 ### Use when
 
 - you need a structured, typed object (query spec, filter spec, paging spec)

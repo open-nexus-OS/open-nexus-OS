@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - perfd tracer: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
   - Perf instrumentation/HUD: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
+  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - SystemUI DSL pages (scenes): tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
   - Notifications center DSL: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
 ---
@@ -39,6 +40,11 @@ Deliver:
 2. Gate thresholds:
    - stored as a config/recipe file (do not depend on `configd` being present)
    - stable fail markers and stable reason output
+   - support threshold groups for:
+     - frame timing,
+     - hot-path budgets (wakeups / queue residence / service hops / cross-core hops),
+     - UI runtime budgets (recompute fanout / observer count / wasted recomputes),
+     - and zero-copy honesty (copy fallback / control-plane bytes where the scene uses bulk payloads)
 3. Markers:
    - `perf: gate pass <name> avg=... p95=... long=...`
    - `perf: gate fail <name> ...`
@@ -53,6 +59,7 @@ Deliver:
 ## Constraints / invariants (hard requirements)
 
 - Deterministic inputs and deterministic metric calculations.
+- Gates should prefer architecture-health budgets over fragile micro-timing when the latter is not stable in QEMU.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)
@@ -80,3 +87,14 @@ Deliver:
 1. Implement host gate runner + fixture scenes + baseline thresholds
 2. Add artifact export and docs
 3. Add OS markers only if stable
+
+## Phase plan
+
+### Phase A — Timing gates
+
+- keep the original frame-timing scenes and thresholds.
+
+### Phase B — Architecture-health gates
+
+- add deterministic thresholds for wakeups, queue residence, recompute fanout, observer count, and zero-copy fallback
+  behavior on the same named scenes.

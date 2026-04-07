@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v1a host renderer baseline: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - SMP v2 controls baseline: tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md
   - SMP/parallelism policy: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
   - Per-CPU ownership wrapper: tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md
@@ -44,6 +45,13 @@ future `windowd`, input, audio, and media paths:
    - adopt `PerCpu<T>` or equivalent ownership hardening where it reduces cross-CPU scheduler/IPI drift.
 4. **Proof scenes and measurement hooks**:
    - establish deterministic microbench / selftest evidence that later UI tasks can rely on.
+5. **Hot-path budget floor**:
+   - define early metrics for UI-shaped actions:
+     - service hops per user action,
+     - cross-core hops per user action,
+     - queue transitions / queue residence time by QoS,
+     - wakeups per interaction,
+     - and control-plane-vs-data-plane bytes for large UI/media payloads.
 
 ## Non-Goals
 
@@ -62,6 +70,10 @@ future `windowd`, input, audio, and media paths:
   - no heap growth,
   - explicit lock ordering,
   - no unbounded per-frame kernel work.
+- The floor must reduce hidden hot-path complexity:
+  - avoid accidental cross-core ping-pong,
+  - avoid unnecessary wakeups,
+  - and keep global synchronization points minimal and explainable.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Security considerations
@@ -97,6 +109,7 @@ This task touches kernel scheduling and bulk buffer handling, so it is security-
   - trusted scheduling profiles clamp/validate as documented,
   - per-CPU ownership wrapper adoption does not regress existing scheduler invariants,
   - UI/media bulk-path helpers choose VMO/filebuffer for large buffers.
+  - deterministic counters exist for wakeups, QoS queue residence, and bulk-path copy fallback on fixed fixtures.
 
 ### Proof (OS/QEMU) — gated
 
@@ -132,3 +145,15 @@ Notes:
 3. Adopt `PerCpu<T>` / ownership hardening in the smallest high-value scheduler/IPI sites.
 4. Strengthen `TASK-0031` consumer wording and proofs for UI/media bulk buffers.
 5. Add deterministic host/QEMU evidence that later `windowd` tasks can cite.
+
+## Phase plan
+
+### Phase A — Early hot-path observability
+
+- define the minimal metric surface for UI-shaped actions,
+- ensure kernel/SMP/QoS carry-ins can report bounded, deterministic counters without becoming a second tracing stack.
+
+### Phase B — Trusted-service floor
+
+- apply the hot-path budget floor to `windowd` / input / audio-adjacent trusted services,
+- prove that reduced copy cost is not offset by hidden wakeup, queue, or cross-core regressions.

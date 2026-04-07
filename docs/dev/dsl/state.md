@@ -46,7 +46,14 @@ Recommended tiering:
 
 1. **Session state** (default): in-memory store state per app instance/window.
 2. **Durable small**: typed snapshots (`.nxs`) via settings/app-state substrate.
-3. **Durable large/queryable**: DB only when required (indexing/query/history).
+3. **Durable large/queryable**: queryable storage only when required (indexing/query/history).
+
+Notes:
+
+- “queryable” does not automatically mean “SQL database”.
+- Prefer a typed snapshot/log substrate first when it can satisfy the query/history/index contract deterministically.
+- Add a DB/libSQL-style backend only when it materially improves the storage/query story and still sits behind the same
+  service/query contract.
 
 ## Lint rules summary (v0.x)
 

@@ -7,8 +7,10 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - System Delegation / System Surfaces (share to Notes, open in Browser): tasks/TRACK-SYSTEM-DELEGATION.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - NexusNet SDK (HTTP/providers): tasks/TRACK-NEXUSNET-SDK.md
   - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - DSL query objects (cache/list views): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - Notes (share target): tasks/TRACK-NOTES-APP.md
   - Share v2 / Intents (registry + dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
 ---
@@ -33,6 +35,9 @@ Deliver a first-party **Feeds** app that proves:
 - list view (new/unread, folders optional)
 - reader view (sanitized HTML subset; images opt-in)
 - offline cache (bounded)
+- list/reader shells should follow the retained layout pipeline so scroll, resize, and article-card measurement remain deterministic
+- local/cache-backed article lists should prefer QuerySpec for folder/source/unread filters, stable ordering, and paging;
+  network fetch and feed parsing remain dedicated service/domain logic rather than generic query execution
 - share:
   - “Share to Notes” (rich content excerpt)
   - “Open in Browser”

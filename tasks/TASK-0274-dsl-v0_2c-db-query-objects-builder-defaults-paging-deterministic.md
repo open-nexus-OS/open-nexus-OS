@@ -1,11 +1,14 @@
 ---
-title: TASK-0274 DSL v0.2c (host-first): db query objects (builder) + safe defaults + paging tokens + deterministic tests
+title: TASK-0274 DSL v0.2c QuerySpec v2 (host-first): builder/defaults/hardening + paging refinement + deterministic tests
 status: Draft
 owner: @ui
 created: 2025-12-30
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL query posture: docs/dev/dsl/db-queries.md
+  - DSL services/effects posture: docs/dev/dsl/services.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
   - Zero-Copy App Platform (query IR + connectors): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Office Suite (Sheets/BI query bindings): tasks/TRACK-OFFICE-SUITE.md
   - DSL v0.2a core (stores/effects/routes/i18n): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
@@ -16,12 +19,13 @@ links:
 
 ## Context
 
-We want ergonomic, Nuxt-like “data objects” in UI code (composables/effects), but without turning the UI into a
-database authority or creating injection risks.
+`TASK-0078B` establishes the first usable QuerySpec foundation in the DSL/runtime/stub layer.
 
-This task introduces **db query objects** as a **typed, structured QuerySpec** created in DSL code via a builder:
-`db.users.where_id(id)` style. Execution remains **service-gated** (typed stubs), and results remain bounded and
-deterministic.
+This task is the **v2 hardening + ergonomics layer**: we want ergonomic, Nuxt-like “data objects” in UI code
+(composables/effects), but without turning the UI into a database authority or creating injection risks.
+
+It expands the QuerySpec surface into a builder (`db.users.where_id(id)` style), strengthens defaults and lint posture,
+and tightens deterministic paging behavior while keeping execution service-gated and bounded.
 
 Important: the result of `db.users.where_id(id)` is a **first-class query object** (not “executed data”). It can be
 stored in variables and **further manipulated/chained** (e.g. add `orderby`, `take`, `page`) before it is executed via a
@@ -31,11 +35,12 @@ Builder calls are **pure/immutable**: each operation returns a new query object;
 
 ## Goal
 
-Deliver host-first support for:
+Deliver host-first support for the hardened v2 layer:
 
-1. **QuerySpec IR node**:
-   - `IrQuerySpec` (table, select, predicates, order, paging, limits, schema version)
-   - stable canonicalization and hashing
+1. **Hardened QuerySpec contract**:
+   - build on the v1 QuerySpec foundation from `TASK-0078B`
+   - `IrQuerySpec` includes table, select, predicates, order, paging, limits, and schema version
+   - canonicalization and hashing are strengthened and treated as part of the stable contract
 2. **DSL surface (builder style; no stringly SQL)**:
    - `db.<table>` root
    - builder operations (v0.2c minimal):
@@ -52,7 +57,7 @@ Deliver host-first support for:
      - if no primary key is declared, this is a compile-time error (query is not valid)
    - If no `take(n)` specified:
      - `all()` is assumed, but still bounded by policy caps (`max_rows_default`, `max_rows_hard`, `max_bytes_hard`)
-4. **Paging token contract (cursor/continuation)**:
+4. **Paging token contract refinement (cursor/continuation)**:
    - `PageToken` is opaque bytes/text, produced by the service, consumed by the client
    - token semantics are tied to `{orderby, last_key}` style (not ad-hoc offsets)
    - token is deterministic given the same snapshot + inputs
@@ -68,6 +73,7 @@ Deliver host-first support for:
 - Literals embedded in identifiers (no `...where-id-1...` pattern).
 - Joins, OR, ranges, full text search (can be follow-ups once the base contract is proven).
 - A new daemon named `datad`/`dbd` as a parallel “database authority”.
+- Re-introducing the QuerySpec foundation already established in `TASK-0078B`.
 
 ## Constraints / invariants (hard requirements)
 

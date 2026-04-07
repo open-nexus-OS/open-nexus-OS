@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - UI runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
   - UI layout baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
@@ -110,6 +111,7 @@ Deliver:
      - `@effect on <Event>` performs side effects and dispatches follow-up events
 3. Deterministic Scene-IR:
    - stable ordering, stable subtree hashes
+   - preserve stable node identity/keys needed by retained measurement and placement caches
    - **canonical on-disk format**: Cap'n Proto binary (`.nxir`) for determinism + bounded parsing + future OS use
    - **derived view**: stable canonical JSON (`.nxir.json`) for host goldens, diffs, and debugging
 4. Host tests:

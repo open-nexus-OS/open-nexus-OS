@@ -9,6 +9,7 @@ links:
   - Phase 1a (Launcher+QS DSL pages): tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
   - Phase 1b (OS wiring): tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
   - DSL interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Settings substrate (typed prefs): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
   - Notifications v2 baseline: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
   - A11y suite baseline: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
@@ -65,6 +66,7 @@ Deliver:
    - virtualized list rows; filters by app/channel
    - actions disabled (v1 read-only enforced)
    - live updates via subscribe
+   - stable anchor-by-key and bounded mixed-height measurement caches for notification rows
    - a11y list/listItem roles and polite announce for new notifications (when focused inside)
    - markers:
      - `systemui:dsl notifs on`
@@ -76,6 +78,7 @@ Deliver:
    - snapshots (light/dark/high-contrast) for settings pages
    - prefs roundtrip asserts bridge writes and UI reads
    - notif list/filtering deterministic
+   - settings deep-link/focus targets and notification scroll anchors remain stable across resize/filter changes
    - a11y audit: every actionable node has non-empty role/name; tab order matches expected vector
 
 ## Non-Goals

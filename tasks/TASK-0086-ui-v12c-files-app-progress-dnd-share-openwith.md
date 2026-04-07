@@ -6,9 +6,15 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL query posture: docs/dev/dsl/db-queries.md
+  - Files usage posture: docs/dev/ui/collections/files.md
+  - UI lazy loading posture: docs/dev/ui/collections/lazy-loading.md
   - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
   - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - DSL query objects: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Document Access foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Thumbnailer/recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
   - Document picker/open-with: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
@@ -37,7 +43,11 @@ Deliver:
    - `FilesPage.nx` may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` while the app is still small
    - provider sidebar (state/pkg/mem/demo-cloud)
    - breadcrumbs and search (delegates to `contentd.query`)
+   - provider listings, folder listings, search/filter state, and curated views (Recent/Downloads/Pictures/Trash) should
+     prefer typed QuerySpec builders in DSL/composable code, then execute them only via `contentd.query(...)` or the
+     owning domain service
    - grid/list view with thumbnails via `thumbd`
+   - list/grid shells should reuse deterministic width-bucket measurement and stable item anchors across resize/filter changes
    - multi-select and actions toolbar (new folder, rename, delete→trash, restore, open-with, share)
    - polish views (v1.2):
      - Home (curated roots), Recent (from `recentsd`), Downloads/Pictures (provider-backed folders), Trash (from `trashd`)
@@ -63,6 +73,8 @@ Deliver:
 - Bounded operations and UI lists:
   - cap visible item count per view,
   - cap concurrent file operations.
+- QuerySpec is the preferred contract for Files data views that need filtering, ordering, or paging; command flows such
+  as open/share/delete/restore remain domain service actions rather than generic queries.
 
 ## Stop conditions (Definition of Done)
 
@@ -94,7 +106,7 @@ UART markers:
 - `tests/ui_v12c_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v12.sh` (delegates)
-- `docs/dev/ui/files.md` (new)
+- `docs/dev/ui/collections/files.md` (new)
 
 ## Plan (small PRs)
 

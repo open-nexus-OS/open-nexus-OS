@@ -6,9 +6,11 @@ created: 2026-01-19
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - System Delegation / System Surfaces (avoid per-app chat/compose reimplementation): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusNet SDK (network/OAuth surfaces): tasks/TRACK-NEXUSNET-SDK.md
   - Zero-Copy App Platform (UI primitives/caching patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - DSL query objects (timeline/cache views): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Video Editor app (shared editor offer): tasks/TRACK-VIDEO-EDITOR-APP.md
   - NexusVideo (PeerTube client; long-form + creator economy): tasks/TRACK-NEXUSVIDEO.md
@@ -102,6 +104,8 @@ Where any Fediverse app uses OAuth (Fediverse instance OAuth or NexusAccount OAu
 - **Protocol client**: strict bounds, stable error model, deterministic pagination ordering.
 - **Domain layer**: timeline/threads/notifications models, cache policy, merge rules.
 - **UI layer**: rendering + interaction; no direct HTTP/OAuth calls from widgets.
+- **Query posture**: local cache/index-backed feeds, threads, notifications, and discovery results should prefer typed
+  QuerySpec builders for filter/order/page state; compose/send/follow actions remain domain service APIs.
 
 ---
 
@@ -131,6 +135,9 @@ Where any Fediverse app uses OAuth (Fediverse instance OAuth or NexusAccount OAu
 - Thread view: context + replies + reply action.
 - Profiles: view profile + posts, follow/unfollow (policy-gated if desired).
 - Notifications: mentions/replies/boosts/follows; deterministic grouping rules.
+- Timeline/feed shells should use the shared retained layout pipeline so mixed-height cards, scroll anchors, and resize behavior stay deterministic.
+- timeline, profile-post, thread, and notification views should prefer QuerySpec over ad-hoc list filters whenever they
+  are backed by a local cache or indexed snapshot
 
 #### Non-goals (v1 - NexusSocial)
 - DMs (use NexusChat instead).
@@ -159,6 +166,8 @@ Where any Fediverse app uses OAuth (Fediverse instance OAuth or NexusAccount OAu
 - **Stories** (optional v1.1): 24-hour ephemeral posts (if Pixelfed instance supports).
 - **Likes + Comments**: interact with posts.
 - **Explore**: discover via hashtags (bounded, policy-gated).
+- feed/grid/explore surfaces should use QuerySpec for local cache filters, hashtag/profile result ordering, and paging;
+  upload/post interactions remain explicit domain actions
 
 #### Media handling
 - Image upload: JPEG/PNG/HEIC, max 10MB per image (configurable).
@@ -226,6 +235,9 @@ NexusMoments supports **short-form video posts** (Instagram “Reels”-class *i
 - **Message types**: text, emoji reactions, read receipts.
 - **Media sharing**: images, videos, files (bounded sizes).
 - **Notifications**: new message alerts (policy-gated).
+- **Scroll/render posture**: the chat transcript should use stable message keys, mixed-height caches, and anchor-by-key scrolling per `docs/dev/ui/foundations/layout/layout-pipeline.md`.
+- room list, transcript paging/search slices, and media/document subviews are good QuerySpec candidates when backed by
+  local snapshots; send/typing/presence/E2EE flows stay on dedicated Matrix domain services
 
 #### System Delegation stance (avoid per-app chat stacks)
 
@@ -283,6 +295,8 @@ To keep “WeChat-like convenience” while preserving OS security:
 - **Post**: create text posts, link posts, image posts.
 - **Comments**: threaded comments with upvote/downvote.
 - **Moderation**: report posts/comments (basic).
+- community discovery, feed sorting, and comment/thread cache views should prefer QuerySpec for deterministic filters and
+  paging across local snapshots
 
 #### Voting + sorting
 - **Upvote/downvote**: Reddit-style voting.

@@ -9,6 +9,7 @@ links:
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - System Delegation track: tasks/TRACK-SYSTEM-DELEGATION.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Action-based intents baseline: tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
   - Chooser/defaults pattern: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
   - Policy v1 (intents caps, audit): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
@@ -43,6 +44,7 @@ Deliver (host-first):
 3. Snapshot persistence model (chosen UX):
    - cards persist as **snapshots** in the chat log (stable content, deterministic)
    - refresh is explicit (user taps “Refresh”), not automatic polling
+   - snapshot identity should be stable enough for transcript measurement caches and anchor-by-key scrolling
 4. Deterministic routing semantics:
    - action targets are selected deterministically (default + MRU + stable tie-breakers)
    - no “free URL” actions; no arbitrary http(s) navigation via chat cards
@@ -78,6 +80,7 @@ Notes:
   - Use “manual refresh” + “hold to confirm” patterns instead of dialogs where possible.
 - **No free URLs**: `open.inline` is limited to safe schemes; anything risky must go through the browser surface with policy.
 - **Deterministic + bounded**: strict size caps for card payloads and provider outputs.
+- Inline cards must fit the shared text/measure/place invalidation contract so refresh and resize do not force full transcript relayout.
 
 ## v0 UX contract (chosen)
 

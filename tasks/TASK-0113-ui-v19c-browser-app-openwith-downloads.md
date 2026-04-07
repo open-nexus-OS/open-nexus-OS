@@ -6,10 +6,12 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - WebView usage posture: docs/dev/ui/blessed-surfaces/webview.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - System Delegation / System Surfaces (default handlers/Open With): tasks/TRACK-SYSTEM-DELEGATION.md
   - WebView daemon: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
   - Content saveAs helper: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
   - MIME registry/Open With: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Document picker filters: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - Files app integration: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
@@ -25,6 +27,10 @@ With `webviewd` available (v19a) and a simple `contentd.saveAs` helper (v19b), w
 - find-in-page,
 - downloads shelf for saving `data:` and `content://` items into `state:/Downloads/`,
 - Open With wiring for `text/html` (and optionally `image/svg+xml`).
+
+Persistent/queryable browser data surfaces (history, bookmarks, session restore) are intentionally tracked later in
+`TASK-0205`/`TASK-0206`; they should build on the shared QuerySpec foundation rather than inventing browser-only ad-hoc
+list/filter contracts.
 
 ## Goal
 

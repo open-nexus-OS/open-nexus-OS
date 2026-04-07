@@ -106,6 +106,8 @@ Required behavior:
 
 - Prefer structured query objects (builder/IR) for safety and policy enforcement.
 - A text editor may exist, but must compile to a bounded query IR (no raw unbounded SQL everywhere).
+- QuerySpec should be the default contract for connector-backed tables, cached result sets, dashboard panels, and refresh
+  state; formulas, document edits, and command actions remain app/domain operations rather than generic queries.
 
 ### Formulas and “simple scripting”
 
@@ -170,6 +172,7 @@ Realtime co-edit is an additive layer but must preserve boundedness and determin
 
 - **Phase 1 (dashboards + charts + connectors)**
   - connector picker + query builder + bounded refresh policies.
+  - connector-backed table/list/chart views use QuerySpec-backed cache snapshots with explicit ordering/paging contracts.
   - animated charts + dashboard layout constraints.
 
 - **Phase 2 (slides motion + collaboration hardening)**

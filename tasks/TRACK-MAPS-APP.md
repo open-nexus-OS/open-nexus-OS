@@ -7,11 +7,13 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - System Delegation / System Surfaces (pick-location + navigation intents): tasks/TRACK-SYSTEM-DELEGATION.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
   - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - NexusNet SDK (bounded networking): tasks/TRACK-NEXUSNET-SDK.md
+  - DSL query objects (offline search/result views): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - Content/URIs (pathless) + picker + grants: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - Content quotas/versions (offline packs): tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
   - Packages / signed bundles (offline regions): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md, tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
@@ -30,6 +32,13 @@ Deliver a first-party **Maps** app comparable to Organic Maps:
 - **turn-by-turn navigation** (voice optional; phase-gated),
 - **3D navigation (final phase)**: 3D camera + extruded buildings/terrain-style cues where available,
 - capability-first security and deterministic proofs (host-first; OS/QEMU markers only after real behavior).
+
+UI posture:
+
+- list/sheet/search/result chrome around the map should use the shared retained layout pipeline (`docs/dev/ui/foundations/layout/layout-pipeline.md`),
+- the map canvas itself remains a specialized rendering surface rather than being forced through generic DSL node layout.
+- offline search results, bookmarks, history, and region-pack/browser lists are good QuerySpec surfaces; map rendering,
+  routing, and navigation control remain domain-specific services rather than generic queries.
 
 Data source stance:
 
@@ -118,6 +127,8 @@ Goal: ship a responsive map quickly, without blocking on offline routing.
 - downloadable regions as signed packs (bundle/content artifacts)
 - offline search index for POI/place names within installed regions
 - quota-aware cache + deterministic eviction rules
+- result/bookmark/history views in this phase should prefer QuerySpec so filtering, ordering, and paging stay explicit and
+  deterministic across host tests and virtualized sheets
 
 ### Phase 2 — Routing v1 (offline + online fallback)
 

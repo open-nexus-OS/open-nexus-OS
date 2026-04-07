@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Service architecture (hybrid control/data plane): docs/adr/0017-service-architecture.md
   - IPC runtime architecture: docs/adr/0003-ipc-runtime-architecture.md
+  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - Zero-copy VMOs plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - DSL service stubs (svc.*): tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
   - Clipboard v3 (budgets + negotiation): tasks/TASK-0087-ui-v13a-clipboard-v3.md
@@ -81,6 +82,17 @@ Collaboration is built on **syncing operation streams** (not whole-file overwrit
 - Provide a stable “bulk payload handle” story for apps and services.
 - Align with `TASK-0031` for VMO handle transfer and RO mapping rules.
 
+Performance posture:
+
+- “zero-copy” claims are only valid when the bulk path avoids oversized control-plane payloads in real consumer flows.
+- Reuse matters as much as copy avoidance: repeated map/unmap churn, control-plane bounce, and copy fallbacks are all
+  regressions even when a VMO type exists on paper.
+- Early consumers should expose bounded metrics for:
+  - control-plane bytes vs data-plane bytes,
+  - copy fallback count,
+  - mapping reuse hit rate,
+  - and queue/wakeup overhead on bulk-shaped actions.
+
 ### 2) RichContent AST v1 (canonical)
 
 Minimal, composable node set that supports:
@@ -134,10 +146,17 @@ Reusable widgets that make third-party apps “feel first-party”:
 - Timeline widget (tracks/keyframes/triggers) for creative apps,
 - Clipboard integration (RichContent).
 
+Hot-path posture:
+
+- primitives should stay explainable with bounded service hops, queue transitions, recompute fanout, and wakeups,
+- and large tables/charts/timelines should prefer bulk/data-plane handles for attachments, snapshots, and large payload
+  exchange where the payload size justifies it.
+
 ## Gates (RED / YELLOW / GREEN)
 
 - **RED (blocking)**:
   - VMO/filebuffer contract (`TASK-0031`) must exist to claim “zero-copy bulk”.
+  - a measurable copy-fallback / reuse story must exist before claiming “zero-copy fast path” for app/platform surfaces.
   - OpLog must be crash-safe and bounded (no fake durability).
 - **YELLOW (risky / drift-prone)**:
   - “Full scripting language” scope creep; must be budgeted/sandboxed or deferred.
@@ -154,6 +173,11 @@ Reusable widgets that make third-party apps “feel first-party”:
   - Autosave/recovery harness (crash simulation on host).
   - Clipboard v3 integration (negotiation + budgets; canonical RichContent payload where applicable).
   - Minimal connector interface (REST/GraphQL via NexusNet shapes).
+
+- **Phase 0.5 (hot-path metrics + zero-copy honesty)**
+  - define and expose copy-fallback, mapping-reuse, control-plane-vs-data-plane, and wakeup/queue metrics for the first
+    platform consumers,
+  - prove that “bulk handle exists” and “bulk path is actually used” are not conflated.
 
 - **Phase 1 (platform UI + OS wiring where feasible)**
   - UI primitives pack v1 (picker/query/table/chart/timeline skeletons).

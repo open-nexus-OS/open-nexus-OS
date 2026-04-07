@@ -10,6 +10,7 @@ links:
   - Bootstrap shell visible OS mount: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
   - DSL v0.1 interpreter: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
   - DSL v0.2 app mechanics (optional): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Design kit (primitives): tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - SystemUI overlays baseline: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
   - Search/prefs/media dependencies (bridged): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
@@ -75,6 +76,7 @@ Deliver:
      - toggles write prefs and roundtrip to initial state
      - volume slider calls audiod stub
      - media tile reflects mediasessd mock
+   - launcher grid and QS tiles should use width-bucket-aware measurement so resize/profile changes do not force avoidable relayout cascades
 
 ## Non-Goals
 

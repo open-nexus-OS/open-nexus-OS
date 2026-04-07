@@ -6,8 +6,12 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL query posture: docs/dev/dsl/db-queries.md
+  - Document picker usage posture: docs/dev/ui/system-experiences/doc-picker.md
   - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - DSL query objects: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - MIME + content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Thumbnailer + recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
   - WM/modal overlays baseline: tasks/TASK-0074-ui-v10b-app-shell-adoption-modals.md
@@ -36,6 +40,8 @@ Deliver:
      - a shared picker package with `ui/pages/DocumentPickerPage.nx`
    - page files follow the canonical `Store` + `Event` + `reduce` + `@effect` + `Page` structure from `TASK-0075`
    - Open dialog (providers, breadcrumb, grid/list with thumbnails, MIME filter, search via `contentd.query`)
+   - picker search/filter/order state should build a typed QuerySpec in DSL/composable code and execute it only through
+     `contentd.query(...)`, so provider-backed views keep deterministic ordering, paging, and virtual-list friendliness
    - Save dialog (filename field, MIME selector, create via `contentd.create` then write to stream)
    - Folder dialog (select folder) for “pick destination folder” flows (returns a folder URI)
    - “Remember access” UX (gated on `/state`):
@@ -70,6 +76,8 @@ Deliver:
 
 - Stream handles only (no path access in app APIs).
 - Deterministic picker behavior for tests (demo-cloud provider is deterministic).
+- picker query state should remain a pure QuerySpec value; execution stays service-gated and must not become direct DB/file
+  access from UI code
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)
@@ -111,7 +119,7 @@ UART markers:
 - `tests/ui_v11_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v11.sh` (delegates)
-- `docs/dev/ui/doc-picker.md` (new)
+- `docs/dev/ui/system-experiences/doc-picker.md` (new)
 
 ## Plan (small PRs)
 

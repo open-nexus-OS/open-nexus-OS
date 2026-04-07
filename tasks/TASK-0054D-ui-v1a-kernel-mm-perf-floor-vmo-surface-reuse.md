@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Address-space and mapping security floor: docs/rfcs/RFC-0004-safe-loader-guards.md
   - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - UI perf floor baseline: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
   - UI present/input consumer baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - Testing contract: scripts/qemu-test.sh
@@ -41,6 +42,9 @@ Deliver a kernel MM/UI floor focused on **surface and bulk-buffer reuse**, not a
    - keep address-space ownership and W^X invariants intact.
 4. **Explicit bounds for UI-sized buffers**:
    - alignment, size, and arena-use rules are documented and tested for surface/backbuffer consumers.
+5. **Reuse instrumentation floor**:
+   - expose deterministic counters for repeated-use vs fresh-map paths,
+   - and make activate/switch churn visible for UI-shaped flows.
 
 ## Non-Goals
 
@@ -55,6 +59,11 @@ Deliver a kernel MM/UI floor focused on **surface and bulk-buffer reuse**, not a
 - No executable mappings for UI/media bulk buffers.
 - Keep kernel MM ownership rules explicit and auditable.
 - Optimize reuse and unchanged-state cases first; do not add speculative complexity.
+- Reuse work must remain explainable in hot-path terms:
+  - mapping reuse hit rate,
+  - map/unmap churn,
+  - activate churn,
+  - and copy fallback when a caller misses the reuse-oriented path.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Security considerations
@@ -90,6 +99,7 @@ This task changes kernel MM hot paths and therefore is security-relevant.
   - repeated mapping/reuse paths keep bounds and permissions correct,
   - unchanged-state cases avoid redundant work where intended,
   - surface-sized buffer alignment/size rules are deterministic.
+  - deterministic counters differentiate reused mappings from fresh mappings on fixed fixtures.
 
 ### Proof (OS/QEMU) — gated
 
@@ -120,3 +130,15 @@ Notes:
 2. Tighten unchanged-state/common-case MM paths before adding new complexity.
 3. Add host/QEMU evidence for reuse, bounds, and activate-path sanity.
 4. Sync docs so later UI tasks can rely on the MM floor explicitly.
+
+## Phase plan
+
+### Phase A — Reuse contract
+
+- define what counts as a reused mapping vs a fresh mapping,
+- add deterministic counters for map/unmap churn and activate churn.
+
+### Phase B — Cheap repeated-use path
+
+- optimize the unchanged-state path,
+- prove that the reused path is measurably cheaper and stable enough for later `windowd`/media consumers to assume.

@@ -6,10 +6,16 @@ created: 2025-12-27
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL query posture: docs/dev/dsl/db-queries.md
+  - DSL state tiers: docs/dev/dsl/state.md
+  - UI lazy loading posture: docs/dev/ui/collections/lazy-loading.md
+  - WebView usage posture: docs/dev/ui/blessed-surfaces/webview.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - WebView v1.2 host substrate: tasks/TASK-0205-webview-v1_2a-host-history-session-csp-cookies.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - WebView v1.1 OS wiring (file chooser/leases): tasks/TASK-0187-webview-v1_1b-os-file-chooser-content-leases-nxweb-selftests.md
   - WebView Net v1 OS services (httpstubd/fetchd/downloadd): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
   - Devnet real HTTP(S) (OS-gated): tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md
@@ -28,6 +34,13 @@ This task wires them into OS/QEMU with strict gating:
 - download resume requires a real HTTP(S) backend, which is **devnet-gated** (see `TASK-0194`),
 - fixture-only downloads remain available via `TASK-0177` but do not need Range/resume.
 
+Browser data posture:
+
+- visible browser history/session/CSP viewer surfaces remain DSL-authored,
+- history recent/search and later bookmark-like lists should consume a shared queryable history storage contract rather than
+  ad-hoc per-screen filtering,
+- but the storage backend itself stays replaceable (snapshot/log default, optional DB backend later if justified).
+
 ## Goal
 
 Deliver:
@@ -39,6 +52,8 @@ Deliver:
      - update scroll with bounded debounce
    - support:
      - recent/search/clear/export
+   - browser shell history views should prefer QuerySpec-style filtering/ordering/paging over the shared history storage
+     contract; future bookmark/favorite views should reuse the same posture rather than inventing a parallel list model
    - markers:
      - `webhistory: record url=<...> id=<n>`
      - `webhistory: export bytes=<n>`

@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - DSL services/effects posture: docs/dev/dsl/services.md
+  - DSL state tiers: docs/dev/dsl/state.md
   - Zero-Copy App Platform (svc.* consumers): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Office Suite (reference apps): tasks/TRACK-OFFICE-SUITE.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
@@ -17,7 +19,8 @@ links:
   - Search service (example stub target): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
   - App lifecycle launch (demo integration): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - Virtualized list (demo uses it if present): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - DSL query objects (optional data ergonomics): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - Testing contract: scripts/qemu-test.sh
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
@@ -67,7 +70,7 @@ Deliver:
 - Kernel changes.
 - Full codegen and schema-driven stub generation (manual stubs only in v0.2b).
 - Full service coverage.
-- DB query objects / paging tokens / lazy loading contract (tracked in `TASK-0274`/`TASK-0275`).
+- QuerySpec v1 foundation and lazy-data follow-ups are split into `TASK-0078B`, `TASK-0274`, and `TASK-0275`.
 
 ## Constraints / invariants (hard requirements)
 
@@ -82,6 +85,8 @@ This task is the “apps feel real” bridge:
 
 - `svc.*` calls must be bounded (timeouts/bytes/rows) and return stable error codes (no stringly failures).
 - The “build spec (pure) / execute in effect (IO)” pattern is the default for queries/connectors (no raw unbounded GraphQL/SQL everywhere).
+- QuerySpec itself is intentionally split: `TASK-0078B` establishes the v1 foundation, `TASK-0274` hardens the surface,
+  and `TASK-0275` adds lazy-data/virtual-list consumption contracts.
 - Demo apps should model first-party patterns (search-first surfaces, master-detail, i18n) to teach developers the right mental model.
 
 Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.

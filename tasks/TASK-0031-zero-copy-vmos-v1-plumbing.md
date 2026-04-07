@@ -8,6 +8,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Zero-Copy App Platform (consumer track): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - Office Suite (consumer): tasks/TRACK-OFFICE-SUITE.md
   - DAW (consumer): tasks/TRACK-DAW-APP.md
   - Live Studio (consumer): tasks/TRACK-LIVE-STUDIO-APP.md
@@ -71,6 +72,12 @@ Provide a userspace “VMO handle” abstraction that:
 - can be transferred to another process **if the kernel capability model supports it**,
 - is bounded and testable on host and OS.
 
+This task also establishes the early **zero-copy honesty contract**:
+
+- distinguish “VMO/filebuffer capable” from “VMO/filebuffer actually used on the hot path”,
+- expose bounded evidence for copy fallback and mapping reuse,
+- and give later UI/media/platform tasks a measurable bulk-path baseline rather than a slogan.
+
 ## Non-Goals
 
 - Full “VFS splice → VMO” (requires writable VFS + provider hooks; separate task once VFS/statefs exist).
@@ -82,6 +89,9 @@ Provide a userspace “VMO handle” abstraction that:
 - Kernel untouched.
 - No fake success: “zero-copy” markers only after verifying a consumer mapped/consumed the shared VMO.
 - Bounded memory: cap max VMO length per operation; cap number of live VMOs in registries.
+- Measurement posture:
+  - bulk helpers must be able to report copy fallback count and bytes moved via control plane vs data plane,
+  - repeated use should surface mapping reuse vs fresh map/unmap churn deterministically in host proofs.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points
@@ -184,6 +194,10 @@ Deterministic host tests:
 
 - `Vmo` can wrap bytes/file-range and provide slices without copying.
 - A “transfer” simulation proves API shape (even if OS transfer is gated).
+- Fixed fixtures prove stable counters for:
+  - copy fallback count,
+  - control-plane bytes vs bulk bytes,
+  - and mapping reuse hit/miss behavior.
 
 ### Proof (OS / QEMU) — required if transfer is feasible today
 
@@ -242,6 +256,20 @@ Notes:
 
 4. **Docs**
    - `docs/storage/vmo.md`: what a VMO is in this system, RO sealing semantics, limits, how to test.
+
+## Phase plan (early architecture/perf posture)
+
+### Phase A — Honest bulk contract floor
+
+- land VMO abstraction + transfer/map proof,
+- define deterministic copy-fallback and data-plane/control-plane counters,
+- document what counts as a real zero-copy consumer.
+
+### Phase B — Reuse-oriented bulk path
+
+- expose mapping-reuse signals for repeated-use consumers,
+- make host proofs detect map/unmap churn regressions,
+- feed later UI/media/platform tasks with a measurable baseline rather than re-defining zero-copy ad hoc.
 
 ## Follow-ups (separate tasks)
 

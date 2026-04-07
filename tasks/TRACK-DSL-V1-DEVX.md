@@ -7,10 +7,14 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Keystone map (SDK + hard apps): docs/dev/platform/keystone-map.md
+  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - DSL v0.1a foundations: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - DSL v0.1b interpreter + snapshots: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
   - DSL v0.2a stores/nav/i18n core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
   - DSL v0.2b svc.* stubs + demo: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - QuerySpec v3 lazy data surfaces: tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
   - DSL v0.3a AOT/codegen: tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
   - UI design system primitives: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - Zero-copy app platform (pro workloads): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
@@ -74,6 +78,7 @@ Provide a standard, intuitive pattern for:
 - virtualization is the default path for large collections,
 - stable keys are required,
 - paging tokens are deterministic.
+- retained measure/place invalidation and mixed-height caches are explicit, not incidental.
 
 ### Gate F — Animation/transitions are consistent and deterministic
 
@@ -96,6 +101,7 @@ For hard apps, assume pro surfaces exist as native widgets:
 - timeline canvas, waveform/meters, video preview surface, virtualized table.
 
 The DSL remains the shell: layout, inspectors/toolbars, routing, state, effects.
+The shell still follows the shared text-prep/measure/place contract even when a heavy native surface is embedded.
 
 ## Mapping to tasks (anti-drift)
 
@@ -103,6 +109,9 @@ The DSL remains the shell: layout, inspectors/toolbars, routing, state, effects.
 - interpreter + snapshots: `TASK-0076`
 - stores/nav/i18n core: `TASK-0077`
 - svc.* + stubs + demo: `TASK-0078`
+- QuerySpec v1 foundation: `TASK-0078B`
+- QuerySpec v2 hardening: `TASK-0274`
+- QuerySpec v3 lazy data surfaces: `TASK-0275`
 - AOT/codegen: `TASK-0079`
 
 ## App-driven capability expansion map
