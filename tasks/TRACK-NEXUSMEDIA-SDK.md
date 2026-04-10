@@ -10,6 +10,7 @@ links:
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Media apps product track (Photos/Music/TV): tasks/TRACK-MEDIA-APPS.md
   - Drivers & accelerators foundations (GPU/VPU/Audio/Camera): tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - NexusInfer SDK (on-device ML classifiers/enhancement; shared runtime): tasks/TRACK-NEXUSINFER-SDK.md
   - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (soft real-time spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
   - Deterministic parallelism policy: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md

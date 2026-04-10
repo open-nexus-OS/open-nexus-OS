@@ -118,6 +118,7 @@ Notable upcoming tasks:
 | TRACK-DRIVERS-ACCELERATORS | GPU/NPU/VPU device-class services | TASK-0010, TASK-0031, TASK-0012B |
 | TRACK-NETWORKING-DRIVERS | NIC drivers, offload, netdevd | TASK-0003, TASK-0010, TASK-0012B |
 | TRACK-NEXUSGFX-SDK | Graphics SDK for apps | UI tasks (0054+) |
+| TRACK-NEXUSINFER-SDK | On-device ML runtime (CPU ref + future NPU), hybrid IPC | TASK-0031, TASK-0010, TASK-0280 |
 | TRACK-NEXUSMEDIA-SDK | Audio/video/image SDK | UI tasks, codec tasks |
 | TRACK-ZEROCOPY-APP-PLATFORM | RichContent + OpLog + connectors | TASK-0031, TASK-0087 |
 | TRACK-APP-STORE | Distribution + publishing | Packaging tasks |

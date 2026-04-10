@@ -6,10 +6,22 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Extracted (NexusGfx v1b resource/fence core): tasks/TASK-0169B-nexusgfx-v1b-resource-fence-core-cpu-mock-submit.md
+  - Extracted (NexusGfx v1c windowd handoff): tasks/TASK-0170B-nexusgfx-v1c-windowd-handoff-minimal-pass-planning.md
+  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
+  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
+  - Gfx command/pass model: docs/architecture/nexusgfx-command-and-pass-model.md
+  - Gfx compute kernel model: docs/architecture/nexusgfx-compute-kernel-model.md
+  - Gfx tile-aware design: docs/architecture/nexusgfx-tile-aware-design.md
+  - Gfx text pipeline integration: docs/architecture/nexusgfx-text-pipeline.md
+  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
+  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusGame SDK track (games): tasks/TRACK-NEXUSGAME-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - NexusInfer SDK (optional ML compute interop; same VMO/fence vocabulary): tasks/TRACK-NEXUSINFER-SDK.md
   - NexusFrame (Pixelmator-class editor; reference workload): tasks/TRACK-NEXUSFRAME.md
   - Device/MMIO access model (gate): tasks/TASK-0010-device-mmio-access-model.md
   - Zero-copy VMOs (gate): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
@@ -57,11 +69,28 @@ These are cross-cutting and must remain stable as the SDK evolves:
   Sources: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`, `tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md`
 - **Perf gates**: regression gates must be deterministic and enforced via host tests first.  
   Sources: `tasks/TASK-0143`/`0144`/`0145`
+- **Hardware abstraction**: capability-driven lowering and executor selection; no CUDA/Tensor-Core assumptions in the portable contract.  
+  Sources: `docs/architecture/nexusgfx-compute-and-executor-model.md`, `docs/architecture/nexusgfx-capability-matrix.md`
+
+## Architecture surfaces (canonical docs)
+
+Detailed design work for later task/RFC extraction lives in:
+
+- `docs/architecture/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/nexusgfx-resource-model.md`
+- `docs/architecture/nexusgfx-sync-and-lifetime.md`
+- `docs/architecture/nexusgfx-command-and-pass-model.md`
+- `docs/architecture/nexusgfx-compute-kernel-model.md`
+- `docs/architecture/nexusgfx-tile-aware-design.md`
+- `docs/architecture/nexusgfx-text-pipeline.md`
+- `docs/architecture/nexusgfx-artifact-pipeline.md`
+- `docs/architecture/nexusgfx-capability-matrix.md`
 
 ## Related tracks (intentional split, shared primitives)
 
 - **Media/audio/video/images**: `tasks/TRACK-NEXUSMEDIA-SDK.md`
 - **Games** (input/timing glue on top of NexusGfx + NexusMedia): `tasks/TRACK-NEXUSGAME-SDK.md`
+- **On-device ML** (CPU reference + future NPU; shared buffers/fences): `tasks/TRACK-NEXUSINFER-SDK.md`
 
 ## Gates (RED / YELLOW / GREEN)
 
@@ -74,6 +103,14 @@ These are cross-cutting and must remain stable as the SDK evolves:
   - **Timing stability**: QEMU timing is not a stable perf oracle; CI gates must be host-first.
 - **GREEN (confirmed direction)**:
   - Explicit sync + explicit resource lifetime fits the OS security model and service isolation.
+
+## Mobile / tile-aware stance
+
+The likely real-device posture is **mobile/tile-aware**, not desktop-immediate-mode by default:
+
+- preserve pass locality and transient attachments in the portable API/artifact model,
+- optimize for **bandwidth-first** execution rather than brute-force memory traffic,
+- and keep the architecture compatible with likely Imagination-style GPU behavior without hard-coding vendor APIs.
 
 ## Phase map (what “done” means by phase)
 
@@ -101,10 +138,12 @@ These are cross-cutting and must remain stable as the SDK evolves:
 - **CAND-GFX-000: NexusGfx API v0 (types + errors + device/queue model)**  
   - explicit `Device`, `Queue`, `CommandBuffer`, `Fence`, `Buffer`, `Image`, `Sampler`, `Pipeline`  
   - deterministic error model (no stringly-typed failures)
+  - **Status**: extracted in parts → `TASK-0169B` (resource/fence core) and follow-up `TASK-0170B` for OS handoff alignment
 
 - **CAND-GFX-001: Validation layer v0 (bounded, deterministic)**  
   - validate command buffers and resource states before submit  
   - deterministic “why denied” diagnostics (bounded)
+  - **Status**: partially extracted → `TASK-0169B`
 
 - **CAND-GFX-002: Shader/IR toolchain v0 (offline-first, signed artifacts)**  
   - deterministic compilation outputs, stable IDs, signed shader blobs  
@@ -122,12 +161,26 @@ These are cross-cutting and must remain stable as the SDK evolves:
 
 - **CAND-GFX-030: windowd present integration (fences + pacing)**  
   - integrate perfd frame ticks, dropped frame accounting, and budget lines
+  - **Status**: first extraction → `TASK-0170B`
 
 ### Pro workloads
 
 - **CAND-GFX-040: CAD v1 primitives (instancing, large meshes, selection buffers)** (host-first proofs)
 - **CAND-GFX-050: Video editing substrate (timelines, decode/compose hooks)** (ties to VPU track)
 - **CAND-GFX-060: Audio DAW UI substrate (low jitter UI + audio sync points)** (ties to audio track)
+
+## First extraction preference
+
+When this track first becomes a real `TASK-XXXX`, prefer the **smallest CPU-reference slice** that locks:
+
+- the resource model,
+- queue/fence/sync semantics,
+- command/pass structure,
+- offline-first artifact posture,
+- and a minimal 2D + basic compute-capable execution shape.
+
+The first extracted task should **not** require a real GPU. It should prove the portable contract so later Imagination-
+style GPU, future compute, and `NexusInfer` interop plug into the same design.
 
 ## Notes: CAD (CPU vs GPU) — how we stay “state of the art” without breaking determinism
 
@@ -154,6 +207,17 @@ Why this split matches NexusGfx:
 
 Phase 2+ can add optional GPU compute accelerations (meshing, acceleration structures) behind explicit
 feature flags and deterministic test rules.
+
+## Not in v1
+
+The first `NexusGfx` task/RFC should explicitly avoid:
+
+- Vulkan/OpenGL compatibility as a design driver,
+- CUDA-specific compute semantics,
+- mandatory runtime shader JIT,
+- mandatory real GPU hardware in the first extraction,
+- unbounded pipeline/artifact caches,
+- and forcing the existing UI text/layout contracts to be rewritten under `NexusGfx`.
 
 ## Extraction rules (how candidates become real tasks)
 

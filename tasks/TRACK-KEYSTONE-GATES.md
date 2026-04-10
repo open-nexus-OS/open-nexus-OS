@@ -7,6 +7,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
+  - NexusInfer SDK (hybrid IPC + VMO data plane for future ML): tasks/TRACK-NEXUSINFER-SDK.md
 ---
 
 ## Purpose

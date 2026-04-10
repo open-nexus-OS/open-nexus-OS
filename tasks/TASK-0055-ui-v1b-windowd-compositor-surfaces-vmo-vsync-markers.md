@@ -6,6 +6,9 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
+  - Gfx command/pass model: docs/architecture/nexusgfx-command-and-pass-model.md
   - UI track dependencies: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
@@ -77,6 +80,15 @@ Deliver:
 - Parallelism (optional):
   - `windowd` may later parallelize composition/raster work (e.g. tiles), but must follow `TASK-0276`
     (fixed workers, deterministic partitioning, canonical merge order, bounded queues, proof parity workers=1 vs N).
+
+## Anti-drift posture for future `NexusGfx` wiring
+
+- `windowd` is the first bounded present/composition spine, but it must **not** become a separate graphics contract that
+  later competes with `TRACK-NEXUSGFX-SDK`.
+- Surface buffers, queue/submit flow, damage, and minimal present fences should stay compatible with the resource/sync
+  posture documented in the `nexusgfx-*` architecture docs above.
+- If a GPU backend arrives later, `windowd` should swap executors/backends behind the same surface/composition contract
+  instead of redefining IPC or buffer ownership.
 
 ## Red flags / decision points
 

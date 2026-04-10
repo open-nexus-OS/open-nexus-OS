@@ -6,6 +6,8 @@ created: 2025-12-23
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
+  - Gfx text pipeline integration: docs/architecture/nexusgfx-text-pipeline.md
   - UI consumer of buffer/sync contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (future vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
@@ -74,6 +76,14 @@ Deliver:
 - **Buffers**: treat “framebuffers” as VMO/filebuffer-backed memory (even on host we can emulate VMO maps).
 - **Sync**: do not invent new fence semantics in v1a; renderer is pure compute.
 - **Budgets**: enforce hard bounds on image sizes and allocations.
+
+## Alignment with `NexusGfx` architecture docs
+
+- This task should be treated as an **early structural slice** of the future `NexusGfx` CPU reference path, not as a
+  parallel long-term renderer architecture.
+- Text rendering/materialization must align with `docs/architecture/nexusgfx-text-pipeline.md` and the canonical UI
+  layout/text contracts it references.
+- Resource and executor assumptions should remain portable to later `TASK-0169` / `TRACK-NEXUSGFX-SDK` work.
 
 ## Stop conditions (Definition of Done)
 

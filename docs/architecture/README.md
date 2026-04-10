@@ -78,6 +78,32 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - `14-samgrd-service-manager.md` — `samgrd` (OS service registry authority)
 - `15-bundlemgrd.md` — `bundlemgrd` (OS bundle/package authority)
 
+## On-device inference
+
+- `nexusinfer-techniques.md` — catalog of confirmed upstream and candidate local-inference techniques (PLE, effective parameters, KV policies, TurboQuant-like compression)
+- `nexusinfer-runtime-profiles.md` — hardware-agnostic runtime/profile vocabulary for CPU/NPU/future compute executors
+- `nexusinfer-rust-design.md` — Rust ownership, newtypes, `Send`/`Sync`, and zero-copy guidance for NexusInfer
+
+**Current snapshot**:
+- NexusInfer is tracked as a hardware-agnostic, local-first stack with CPU reference execution first.
+- Documentation here intentionally avoids CUDA/Tensor-Core assumptions so future Imagination/NexusGfx or NPU paths can fit behind the same contracts.
+
+## Graphics and compute
+
+- `nexusgfx-compute-and-executor-model.md` — layer model for `NexusGfx`, compute executors, shared primitives, and `NexusInfer` relationship
+- `nexusgfx-resource-model.md` — buffers/images/transient resources/import-export posture
+- `nexusgfx-sync-and-lifetime.md` — fences, waits, ownership return, present pacing, reset posture
+- `nexusgfx-command-and-pass-model.md` — command buffers, render/compute/copy passes, and pass-locality rules
+- `nexusgfx-compute-kernel-model.md` — portable compute-kernel and dispatch model for graphics-adjacent and scientific workloads
+- `nexusgfx-tile-aware-design.md` — bandwidth-first/mobile/tile-aware design stance for likely Imagination-style GPUs
+- `nexusgfx-text-pipeline.md` — renderer-facing text acceleration posture aligned to existing UI layout/text contracts
+- `nexusgfx-artifact-pipeline.md` — offline-first, deterministic, signed artifact strategy for shaders/kernels/pipelines
+- `nexusgfx-capability-matrix.md` — backend capability vocabulary instead of vendor-first design
+
+**Current snapshot**:
+- `NexusGfx` is documented as an explicit, hardware-agnostic acceleration stack with CPU reference execution first.
+- The graphics/compute docs intentionally assume probable mobile/tile-aware hardware and avoid CUDA-first or legacy-compatibility-first design.
+
 ## Observability
 
 - **Logging guide**: `docs/observability/logging.md` — logd v1 usage + crash reports

@@ -11,6 +11,9 @@ links:
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - Drivers & accelerators (GPU/NPU/VPU contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - NexusGfx SDK (Metal-like, CAD-ready): tasks/TRACK-NEXUSGFX-SDK.md
+  - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
+  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
+  - Gfx compute kernel model: docs/architecture/nexusgfx-compute-kernel-model.md
   - NexusGame SDK (realtime loop/input replay): tasks/TRACK-NEXUSGAME-SDK.md
   - Zero-Copy App Platform (OpLog/autosave/connectors/UI primitives): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Media stack (image/video/audio decoders + sessions): tasks/TRACK-MEDIA-APPS.md
@@ -206,6 +209,18 @@ This is the longest pole. GPU unblocks the viewport, but CAD also needs:
 - selection + snapping inference engine (bounded; deterministic).
 
 GPU is **necessary but not sufficient** for Shapr3D-class functionality.
+
+Inference here means bounded assistive computation such as snapping/ranking/selection hints, not replacing the
+authoritative geometry kernel with opaque model output.
+
+## Anti-drift posture across creative workloads
+
+- 2D painting, 3D modeling, and CAD-direction work should share the same `NexusGfx` capability/resource/compute language
+  so app tracks do not drift into incompatible per-app graphics stacks.
+- If ML-assisted tools appear in creative apps, they must align with `TRACK-NEXUSINFER-SDK` and remain advisory/bounded
+  unless an app track explicitly promotes them to authoritative semantics.
+- Early work should prefer small CPU-reference slices that lock interfaces first; large GPU/CAD bodies belong in later
+  extracted tasks, not in the first structural milestone.
 
 ## Candidate subtasks (to be extracted into TASK-XXXX)
 

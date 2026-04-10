@@ -14,9 +14,12 @@ links:
   - UI consumer (renderer abstraction): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - UI consumer (windowd wiring): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - NexusGfx SDK track (consumer + future GPU backend): tasks/TRACK-NEXUSGFX-SDK.md
+  - NexusInfer SDK track (on-device ML; CPU ref + future NPU executor): tasks/TRACK-NEXUSINFER-SDK.md
   - ADR (DriverKit ABI policy): docs/adr/0018-driverkit-abi-versioning-and-stability.md
   - Extracted (DriverKit core v1): tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
+  - Extracted (NexusInfer interop/profile binding): tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
   - Extracted (DMA buffer ownership prototype): tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
+  - Extracted (NexusInfer ownership + CPU executor): tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
 ---
 
 ## Goal (track-level)
@@ -114,7 +117,8 @@ These are *not* tasks yet; they become real `TASK-XXXX` items only when they can
   - **What**: NPU inference contract (model VMO, tensor I/O buffers, fence completion, power/thermal hints)  
   - **Depends on**: `TASK-0010`, `TASK-0031`, `CAND-DRV-000`  
   - **Proof idea**: host tests (model validation, tensor shape checks), QEMU markers for "inference submitted/completed" (deterministic fixture)  
-  - **Status**: candidate (low priority, future hardware)
+  - **Status**: candidate (low priority, future hardware)  
+  - **Consumer alignment**: runtime/session API direction lives in `tasks/TRACK-NEXUSINFER-SDK.md` and the extracted tasks `TASK-0280B` / `TASK-0284B` (CPU reference path first; NPU as executor behind the same surface).
 
 - **CAND-DRV-090: Track integration list (consumers)**  
   - **What**: keep a short list of major consumers that must remain compatible with DriverKit contracts  

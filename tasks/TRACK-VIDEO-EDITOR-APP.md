@@ -11,7 +11,11 @@ links:
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - NexusMedia SDK (audio/video/image contracts): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
+  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
+  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
   - Drivers & accelerators (GPU/VPU/audio/camera contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
   - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - windowd present spine (OS/QEMU): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - Renderer abstraction (host + OS wiring): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
@@ -40,7 +44,17 @@ This app is a **reference workload** for:
 
 - `tasks/TRACK-NEXUSMEDIA-SDK.md` (decode/encode + timeline substrate),
 - `tasks/TRACK-NEXUSGFX-SDK.md` (real-time preview composition),
-- `tasks/TRACK-DRIVERS-ACCELERATORS.md` (VPU/GPU path behind stable contracts).
+- `tasks/TRACK-DRIVERS-ACCELERATORS.md` (VPU/GPU path behind stable contracts),
+- `tasks/TRACK-NEXUSINFER-SDK.md` (optional bounded ML helpers like segmentation/upscale later, without a parallel app-local inference stack).
+
+## Anti-drift posture with `NexusGfx` / `NexusInfer`
+
+- Preview composition, transitions, overlays, and export-adjacent image processing must stay inside the shared
+  `NexusMedia` + `NexusGfx` substrate rather than introducing an editor-local render graph contract.
+- Any future ML-assisted edit features (auto cutout, tracking, upscale, speech captions) must consume `NexusInfer`
+  sessions/buffers/fences using the same zero-copy posture as media/gfx interop.
+- The earliest real implementation slices should still be CPU-first and bounded so the product structure starts early
+  without pretending that realtime acceleration already exists.
 
 ## Non-goals (avoid drift)
 

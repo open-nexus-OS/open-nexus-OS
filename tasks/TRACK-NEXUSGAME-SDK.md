@@ -8,9 +8,13 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - System Delegation / System Surfaces (game invites/joins via intents, not ad-hoc UI): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusGfx SDK track (render/compute): tasks/TRACK-NEXUSGFX-SDK.md
+  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
+  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
+  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - NexusInfer SDK (on-device ML; shared runtime, CPU ref + future NPU): tasks/TRACK-NEXUSINFER-SDK.md
   - Reference Games umbrella (Arcade + Pinball + Puzzle): tasks/TRACK-REFERENCE-GAMES.md
   - Arcade (reference microgames: Breakout/Asteroids/Snake): tasks/TRACK-ARCADE-APP.md
   - Pinball (physics + pacing): tasks/TRACK-PINBALL-APP.md
@@ -52,6 +56,9 @@ The game SDK is primarily a composition of shared primitives:
 - **Input**: stable event model (bounded queues, deterministic ordering) with OS owners/services.
 - **Timing**: frame clock + deadlines; no reliance on wall-clock jitter for correctness.
 - **Assets**: content-addressed or hash-checked bundles, with bounded decode and deterministic loaders.
+
+The earliest credible game/tool slices should start on the same CPU-reference renderer/compute posture as the rest of the
+stack, so the SDK can begin small and structurally correct before real GPU acceleration lands.
 
 ## System Delegation integration (multiplayer/social without per-game stacks)
 
@@ -102,6 +109,12 @@ These are good “API-shape” inspirations:
 
 - **CAND-GAME-020: Optional ECS v0**
   - inspiration: Bevy-style ergonomics; keep minimal and deterministic
+
+- **CAND-GAME-030: ML-assisted realtime features v0 (optional; future)**  
+  - **What**: composition hooks for **segmentation**, **AI upscaling**, **object/box tracking** using **NexusInfer** (same tensor/VMO/fence model as media; no parallel inference stack in games).  
+  - **Depends on**: `TRACK-NEXUSINFER-SDK` extracted tasks + bounded frame deadlines (`TASK-0013`).  
+  - **Proof idea**: host-first deterministic fixtures; QEMU markers only for real pipeline behavior (no fake “ML ready”).  
+  - **Status**: candidate (not v0)
 
 ## Extraction rules
 

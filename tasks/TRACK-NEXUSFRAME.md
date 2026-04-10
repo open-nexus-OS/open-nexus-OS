@@ -11,7 +11,11 @@ links:
   - Creative apps foundation (gates mindset): tasks/TRACK-CREATIVE-APPS.md
   - Zero-Copy App Platform (autosave/recovery patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
+  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
+  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
+  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
   - Drivers & accelerators (GPU/device-class direction): tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
   - Zero-copy VMOs (bulk buffers): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - windowd compositor/present spine: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - Renderer abstraction (host-first): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
@@ -116,6 +120,14 @@ Frame’s core model should be deterministic and bounded:
 - edits:
   - command log for semantic operations (transform, adjust params)
   - bounded caches for previews
+
+### Shared acceleration posture
+
+- Frame must not create its own graphics or inference substrate for tiles, filters, previews, or export helpers.
+- Raster/image resources should stay compatible with the shared `NexusGfx` resource/sync vocabulary so CPU-first work can
+  later gain GPU acceleration without changing the document model.
+- Optional ML features such as subject selection, object removal assists, upscale, OCR, or caption extraction must route
+  through `TRACK-NEXUSINFER-SDK` rather than app-local model loading logic.
 
 ### Undo/redo stance (raster-friendly, bounded)
 

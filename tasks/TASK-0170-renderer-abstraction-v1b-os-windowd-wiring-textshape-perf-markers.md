@@ -6,6 +6,9 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusGfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
+  - NexusGfx command/pass model: docs/architecture/nexusgfx-command-and-pass-model.md
+  - NexusGfx tile-aware design: docs/architecture/nexusgfx-tile-aware-design.md
   - Driver/accelerator contracts (CPU now, GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Renderer abstraction host slice: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - UI v1b windowd baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
@@ -65,6 +68,15 @@ Deliver:
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - No fake success:
   - perf marker must be skipped or explicit placeholder until perf stack exists
+
+## Anti-drift posture for OS present integration
+
+- `TASK-0170` is where the renderer abstraction becomes the first real OS-facing `windowd` execution path, so it should
+  remain the handoff point between UI composition and future `NexusGfx` backends.
+- Keep pass ordering, completion semantics, and present reporting compatible with the `nexusgfx-*` sync/command docs so a
+  later GPU path does not require a second compositor contract.
+- Tile-aware or device-specific optimizations may arrive later, but this task should lock the portable sequencing model
+  first with the CPU2D backend.
 
 ## Red flags / decision points (track explicitly)
 

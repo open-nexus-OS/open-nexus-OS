@@ -6,6 +6,10 @@ created: 2025-12-26
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - NexusGfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
+  - NexusGfx resource model: docs/architecture/nexusgfx-resource-model.md
+  - NexusGfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
+  - NexusGfx text pipeline: docs/architecture/nexusgfx-text-pipeline.md
   - Driver/accelerator contracts (CPU now, GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - UI v1a renderer baseline (to be refactored into this): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - Text shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
@@ -98,6 +102,15 @@ Font fallback note:
 - **Buffers**: renderer output is a “surface buffer” abstraction that can later be backed by VMO/filebuffer (no CPU-only assumptions).
 - **Sync**: `PresentInfo` and future present fences must map cleanly to timeline fences (no ad-hoc events).
 - **Budgets**: caches enforce hard caps and expose stats suitable for perf/power budgeting.
+
+## Anti-drift posture for `NexusGfx`
+
+- `TASK-0169` is the preferred **early start** for `NexusGfx` structure because it can stay CPU-first while locking the
+  portable scene/backend/resource vocabulary.
+- Do **not** grow this task into a backend-specific API surface; backend specialization belongs behind the trait/capability
+  model, not in scene authoring contracts.
+- Any future compute/GPU executor should plug into the architecture docs above without changing Scene-IR semantics or the
+  canonical UI/text pipeline.
 
 ## Stop conditions (Definition of Done)
 

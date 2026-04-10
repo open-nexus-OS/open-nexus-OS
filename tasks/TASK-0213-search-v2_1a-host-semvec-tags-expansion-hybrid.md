@@ -9,6 +9,7 @@ links:
   - Search v2 backend baseline: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
   - Search v2 OS persistence + selftests: tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
   - Search v2 UI surface: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
+  - Future optional on-device semantic ML (out of scope for v2.1; do not conflate): tasks/TRACK-NEXUSINFER-SDK.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
