@@ -103,4 +103,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove devnet gating, TLS verification/pinning, redirect policy, and size caps.
-

@@ -69,7 +69,7 @@ use alloc::string::String;
 ```
 
 This is different from `std` builds where `alloc` is re-exported automatically. Forgetting this causes:
-```
+```text
 error[E0433]: failed to resolve: use of undeclared crate or module `alloc`
 ```
 
@@ -237,7 +237,7 @@ my-dep = { path = "../my-dep", optional = true, default-features = false }
 **Without `default-features = false`**, Cargo builds the dependency with its default features, causing `std` dependencies to leak into `os-lite` builds!
 
 Example failure mode:
-```
+```text
 # nexus-init depends on samgrd
 samgrd = { path = "../../services/samgrd", optional = true }  # ❌ WRONG
 

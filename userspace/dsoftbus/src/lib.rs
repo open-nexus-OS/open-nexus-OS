@@ -26,8 +26,7 @@
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
 
-#[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
-compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or '...\"os\"'");
+// Host is the default environment when no explicit nexus_env cfg is provided.
 
 use std::net::SocketAddr;
 
@@ -236,28 +235,28 @@ fn derive_noise_keys(identity: &Identity) -> ([u8; 32], [u8; 32]) {
     (secret.to_bytes(), public.to_bytes())
 }
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 mod host;
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 pub use host::{HostAuthenticator, HostDiscovery, HostSession, HostStream};
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 mod inproc;
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 pub use inproc::{InProcAuthenticator, InProcSession, InProcStream};
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 mod net_facade;
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 pub use net_facade::{FacadeAuthenticator, FacadeSession, FacadeStream};
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 mod facade_discovery;
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 pub use facade_discovery::{FacadeAnnouncementStream, FacadeDiscovery};
 
 pub mod discovery_packet;
@@ -265,6 +264,7 @@ pub mod discovery_packet;
 pub mod remote_proxy_policy;
 
 pub mod mux_v2;
+pub use mux_v2::*;
 
 #[cfg(nexus_env = "os")]
 mod os;
@@ -278,14 +278,14 @@ pub use os::{OsAuthenticator, OsDiscovery, OsSession, OsStream};
 /// registry, then accept authenticated sessions and drain their streams. The
 /// OS backend is a placeholder until the kernel transport is available.
 pub fn run() {
-    #[cfg(nexus_env = "host")]
+    #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
     host_run();
 
     #[cfg(nexus_env = "os")]
     os_run();
 }
 
-#[cfg(nexus_env = "host")]
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 fn host_run() {
     use std::env;
     use std::thread;

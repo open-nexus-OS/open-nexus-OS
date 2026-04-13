@@ -98,4 +98,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove usage ingest, aggregation, and export stability.
-

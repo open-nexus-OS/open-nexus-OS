@@ -116,9 +116,9 @@ This unblocks TASK-0004 (dual-node) and TASK-0005 (cross-VM).
     - `SELFTEST: dsoftbus ping ok` ✅ (ping/pong works — loopback)
 
 - **Deferred to TASK-0004** (requires dual-node for meaningful validation):
-    - `dsoftbusd: session connect peer=<id>` (discovery-driven TCP connect, not hardcoded loopback)
-    - Identity binding enforcement (`device_id <-> noise_static_pub` verification)
-    - Session rejection on identity mismatch
+  - `dsoftbusd: session connect peer=<id>` (discovery-driven TCP connect, not hardcoded loopback)
+  - Identity binding enforcement (`device_id <-> noise_static_pub` verification)
+  - Session rejection on identity mismatch
 
 - Proof (tests):
   - Host tests for discovery packet parsing/validation ✅ (already exist in `userspace/dsoftbus/tests/discovery_packet.rs`)

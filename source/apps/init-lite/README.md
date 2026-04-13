@@ -8,5 +8,3 @@ until removal after the os-lite backend reaches parity.
 
 - See ADR: `docs/adr/0001-runtime-roles-and-boundaries.md`
 - Invariants: UART markers remain unchanged; host path is byte-compatible.
-
-

@@ -38,7 +38,7 @@ Once statefs exists in OS (TASK-0009), add QEMU proof markers.
 - Encryption-at-rest (separate task, see TASK-0027).
 - Full filesystem semantics.
 - Kernel changes.
- - Named snapshots and read-only snapshot mounts (follow-up `TASK-0134`).
+- Named snapshots and read-only snapshot mounts (follow-up `TASK-0134`).
 
 ## Constraints / invariants (hard requirements)
 

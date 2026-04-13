@@ -53,25 +53,25 @@ Deliver:
 Scope note (v2 follow-up):
 
 - Session handoff UX, session switcher expansion, and notification action wiring are tracked as Media UX v2 (`TASK-0184`/`TASK-0185`).
-4. Sample player app (deterministic, offline):
+1. Sample player app (deterministic, offline):
    - creates a session (`appId=com.example.media.sample`)
    - 3 seeded tracks from `pkg://media/sample/` metadata fixtures
    - simulated position ticking with injected clock (deterministic; bounded runtime)
    - markers:
      - `media-sample: play "<title>"`
      - `media-sample: pause`
-5. CLI `nx media`:
+2. CLI `nx media`:
    - list/active/play/pause/next/prev/seek/focus
    - stable output lines + markers like `nx: media play sid=<sid>`
-6. Policy caps:
+3. Policy caps:
    - `media.session.publish` required to create/update sessions
    - `media.session.control` required for SystemUI/lockscreen/CLI control of other sessions
-7. OS selftests (bounded, QEMU-safe):
+4. OS selftests (bounded, QEMU-safe):
    - `SELFTEST: media v1 playing ok`
    - `SELFTEST: media v1 pause ok`
    - `SELFTEST: media v1 seek ok`
    - `SELFTEST: media v1 focus ok`
-8. Docs + postflight:
+5. Docs + postflight:
    - docs: overview + SystemUI behavior + integration + `nx-media`
    - postflight delegates to canonical proofs (host tests + `scripts/qemu-test.sh`)
 

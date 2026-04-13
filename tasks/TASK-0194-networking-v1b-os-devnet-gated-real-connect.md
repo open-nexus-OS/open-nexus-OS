@@ -98,4 +98,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, devnet is denied by default and proven by selftest markers; enabling devnet only works when the OS network stack exists and is explicitly gated.
-

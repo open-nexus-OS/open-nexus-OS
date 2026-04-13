@@ -24,7 +24,7 @@ The userspace ABI exposes safe wrappers for both syscalls. `nexus_abi::exit` per
 non-returning call, and `nexus_abi::wait` returns a `(Pid, i32)` pair mirroring the kernel
 semantics while translating lifecycle errors into `AbiError` variants.
 
-# execd supervision loop
+## execd supervision loop
 
 `execd` maintains a registry of launched services keyed by bundle name. Each entry records
 its kernel PID, restart policy, and the `argv`/`env` vectors required to respawn the service.

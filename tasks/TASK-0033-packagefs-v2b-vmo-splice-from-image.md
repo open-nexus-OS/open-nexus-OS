@@ -74,4 +74,3 @@ Once VMO sharing is proven:
 - `source/apps/selftest-client/` (gated markers)
 - `docs/storage/packagefs.md` (splice semantics + budgets)
 - `scripts/qemu-test.sh`
-

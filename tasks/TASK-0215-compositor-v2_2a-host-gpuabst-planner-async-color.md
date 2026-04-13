@@ -87,4 +87,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove plane planning, async present drop policy, and sRGB/Linear conversions.
-

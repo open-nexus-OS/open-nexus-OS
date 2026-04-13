@@ -25,7 +25,7 @@
 
 #![cfg(nexus_env = "host")]
 
-use dsoftbus::mux_v2::{
+use dsoftbus::{
     FrameApplyOutcome, InboundFrame, KeepaliveVerdict, MuxSessionState, PriorityClass,
     SendBudgetOutcome, StreamId, StreamState, StreamTransition, WindowCredit,
     REJECT_FRAME_OVERSIZE, REJECT_INVALID_STREAM_STATE_TRANSITION,

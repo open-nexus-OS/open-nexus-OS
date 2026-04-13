@@ -81,8 +81,8 @@ Clarifications (to avoid drift):
   - SAF flows can browse removable provider and issue scoped grants (folder grants included).
   - FileOps can copy/move between `state://` and removable via streams.
   - Proof: host tests for provider invariants + grants + fileops (no fake success markers).
--  Notes:
-   - Until `TASK-0009` exists, persistable grants must be treated as **non-persistent** (memory-only) and labeled honestly
+- Notes:
+  - Until `TASK-0009` exists, persistable grants must be treated as **non-persistent** (memory-only) and labeled honestly
      (no “persist ok” markers).
 - **Phase 1 (FAT32 v1)**:
   - Userspace FAT32 filesystem authority behind the removable provider (read/write).

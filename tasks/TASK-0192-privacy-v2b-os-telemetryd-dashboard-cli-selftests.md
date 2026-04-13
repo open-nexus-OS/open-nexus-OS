@@ -129,4 +129,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU (when unblocked by logd + /state), privacy timeline/stats/revoke/export flows are proven via deterministic markers.
-

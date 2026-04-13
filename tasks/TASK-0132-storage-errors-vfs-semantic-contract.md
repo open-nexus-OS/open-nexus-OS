@@ -75,4 +75,3 @@ New deterministic tests (suggested: `tests/storage_errors_host/`):
 2. Wire mapping into `contentd` provider(s)
 3. Wire propagation into `fileopsd`/`trashd`/`grantsd`
 4. Add host tests + docs
-

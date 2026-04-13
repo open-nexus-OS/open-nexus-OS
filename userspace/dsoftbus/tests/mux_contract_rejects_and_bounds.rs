@@ -29,7 +29,7 @@
 
 #![cfg(nexus_env = "host")]
 
-use dsoftbus::mux_v2::{
+use dsoftbus::{
     apply_stream_transition, apply_window_delta, KeepaliveVerdict, MuxHostEndpoint,
     MuxSessionState, PriorityClass, PriorityScheduler, SendBudgetOutcome, StreamId, StreamName,
     StreamState, StreamTransition, WindowCredit, HIGH_PRIORITY_BURST_LIMIT,

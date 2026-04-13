@@ -80,4 +80,3 @@ Deliver:
 1. camerad core + sources + markers + tests
 2. micd core + sources + markers + tests
 3. docs
-

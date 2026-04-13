@@ -82,4 +82,3 @@ UART markers:
 1. ttsd stub + audiod stream writing + markers
 2. readerd focus subscription + speak/earcon rules + markers
 3. prefs wiring + tests + docs
-

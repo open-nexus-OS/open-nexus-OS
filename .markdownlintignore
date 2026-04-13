@@ -1,0 +1,4 @@
+vendor/**
+third-party/**
+tools/qemu-src/**
+tools/**/pyvenv/**

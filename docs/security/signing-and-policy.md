@@ -114,11 +114,11 @@ request is denied by default.
 
 ## Extending policies
 
-- Add a new `*.toml` file under `recipes/policy/` or update `base.toml`.
-- Use lowercase service and capability names; entries are normalised.
-- Later files override earlier ones. For temporary developer overrides, drop a
+* Add a new `*.toml` file under `recipes/policy/` or update `base.toml`.
+* Use lowercase service and capability names; entries are normalised.
+* Later files override earlier ones. For temporary developer overrides, drop a
   `local-*.toml` file so it sorts after the base policy.
-- Keep policy files in version control whenever possible so QEMU and postflight
+* Keep policy files in version control whenever possible so QEMU and postflight
   checks can enforce the correct allowlists.
 
 ## Local development workflow
@@ -265,10 +265,10 @@ runtime monitoring provide additional protection (see `docs/architecture/11-poli
 
 All policy decisions (allow/deny) are audit-logged:
 
-- **Sink**: logd (RFC-0011) is the primary sink; UART fallback if logd unavailable
-- **Record structure**: timestamp, subject_id, action, target, decision, reason
-- **Bounded fields**: action ≤ 32 bytes, target ≤ 64 bytes
-- **No secrets**: Audit records never contain key material or policy configuration details
+* **Sink**: logd (RFC-0011) is the primary sink; UART fallback if logd unavailable
+* **Record structure**: timestamp, subject_id, action, target, decision, reason
+* **Bounded fields**: action ≤ 32 bytes, target ≤ 64 bytes
+* **No secrets**: Audit records never contain key material or policy configuration details
 
 Every policy-gated operation (bundle install, process exec, keystore signing) produces an audit record.
 

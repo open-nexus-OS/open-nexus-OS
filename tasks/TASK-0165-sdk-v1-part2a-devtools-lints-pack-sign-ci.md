@@ -105,4 +105,3 @@ Deliver, host-first:
 
 - Developers can use `nx sdk` to scaffold, lint, and build/test apps/services deterministically.
 - Pack/sign is either functional and deterministic (when unblocked) or explicitly blocked (no fake success).
-

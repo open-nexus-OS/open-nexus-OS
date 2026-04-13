@@ -102,4 +102,3 @@ Deliver on host:
    - Build a fixture binary with known frames; index it; verify symbolization.
    - Create fixture dumps; exercise `nx crash`.
    - Budget/GC logic on a directory tree.
-

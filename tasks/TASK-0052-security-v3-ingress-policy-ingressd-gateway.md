@@ -122,4 +122,3 @@ UART markers (once networking + policy + config are present):
 
 5. **Tests + docs**
    - Host tests and docs for enforcement model and limitations.
-

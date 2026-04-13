@@ -81,4 +81,3 @@ UART markers:
 1. color filter pipeline + presets + tests
 2. magnifier overlay + prefs + tests
 3. high contrast toggle + docs
-

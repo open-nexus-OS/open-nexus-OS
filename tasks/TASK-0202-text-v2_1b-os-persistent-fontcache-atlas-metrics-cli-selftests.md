@@ -120,4 +120,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - In QEMU, cache warm/clear and hyphen wrap behavior are proven deterministically by selftest markers and counters.
-

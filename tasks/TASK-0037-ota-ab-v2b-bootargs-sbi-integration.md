@@ -28,4 +28,3 @@ Once unblocked, prove:
 ## Red flags / decision points
 
 - **RED**: blocked until boot chain integration exists (bootloader/OpenSBI/firmware handoff path).
-

@@ -22,7 +22,7 @@
 
 #![cfg(nexus_env = "host")]
 
-use dsoftbus::mux_v2::{
+use dsoftbus::{
     MuxHostEndpoint, MuxWireEvent, PriorityClass, SendBudgetOutcome, StreamId, StreamName,
     StreamState, WindowCredit, REJECT_DUPLICATE_STREAM_NAME,
     REJECT_INVALID_STREAM_STATE_TRANSITION, REJECT_UNAUTHENTICATED_SESSION,

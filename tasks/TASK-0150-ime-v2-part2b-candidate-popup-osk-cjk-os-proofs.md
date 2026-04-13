@@ -79,10 +79,10 @@ Deliver:
 - Bounded list sizes and bounded UI work per frame.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - No fake success markers: popup/osk markers only when UI actually opened/handled events.
- - Async composition is deterministic:
-   - a session has a stable ID,
-   - events are processed FIFO per session,
-   - focus change clears/isolates sessions deterministically.
+- Async composition is deterministic:
+  - a session has a stable ID,
+  - events are processed FIFO per session,
+  - focus change clears/isolates sessions deterministically.
 
 ## Stop conditions (Definition of Done)
 

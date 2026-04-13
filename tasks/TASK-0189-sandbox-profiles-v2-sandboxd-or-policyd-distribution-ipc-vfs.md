@@ -35,10 +35,10 @@ Deliver:
    - YAML under `pkg://sandbox/profiles/*.yaml` (seeded defaults)
    - optional overrides under `state:/sandbox/profiles/*.yaml` when `/state` exists
    - profile fields:
-     - sys: rules + optional rate buckets (v2 guardrail only unless kernel sysfilter exists)
-     - ipc: allowlist patterns (`service` and optional scope strings)
-    - vfs: read/write URI prefixes (`pkg://`, `state:/apps/<id>/...`)
-     - limits: rss/fds (audit-only until enforceable)
+     - `sys`: rules + optional rate buckets (v2 guardrail only unless kernel sysfilter exists)
+     - `ipc`: allowlist patterns (`service` and optional scope strings)
+     - `vfs`: read/write URI prefixes (`pkg://`, `state:/apps/<id>/...`)
+     - `limits`: rss/fds (audit-only until enforceable)
 2. Distribution service decision:
    - **Option A (preferred):** `policyd` serves sandbox profiles (avoid new service)
    - **Option B:** `sandboxd` serves profiles only if policyd coupling is undesirable; must be justified

@@ -76,7 +76,7 @@ Deliver:
 - Deterministic markers; bounded timeouts; no busy-wait.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - Focus guard correctness: only the focused editable receives commits.
- - Async IME events must not leak across focus changes.
+- Async IME events must not leak across focus changes.
 
 ## Red flags / decision points (track explicitly)
 

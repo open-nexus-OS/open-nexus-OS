@@ -110,4 +110,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove semantic-lite embedding determinism, hybrid ranking effects, tags/filtering, expansion, and explain stability.
-

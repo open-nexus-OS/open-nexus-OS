@@ -97,4 +97,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests prove stats/export determinism.
-

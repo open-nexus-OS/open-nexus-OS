@@ -26,7 +26,7 @@ These invariants MUST be maintained across all code. Violations are **security b
 
 ### 1. Secrets Management
 
-```
+```text
 ✅ DO:
 - Store secrets only in keystored
 - Use signing APIs (return signatures, not keys)
@@ -42,7 +42,7 @@ These invariants MUST be maintained across all code. Violations are **security b
 
 ### 2. Identity and Authentication
 
-```
+```text
 ✅ DO:
 - Use sender_service_id from kernel IPC (unforgeable)
 - Verify identity binding (device_id ↔ noise_static_pub)
@@ -58,7 +58,7 @@ These invariants MUST be maintained across all code. Violations are **security b
 
 ### 3. Input Validation
 
-```
+```text
 ✅ DO:
 - Bound all input sizes (max lengths enforced)
 - Validate format before parsing
@@ -100,7 +100,7 @@ This ensures the compiler **prevents accidental silent failures** in security-cr
 
 ### 4. Capability and Policy
 
-```
+```text
 ✅ DO:
 - Route all sensitive operations through policyd
 - Use deny-by-default policies
@@ -116,7 +116,7 @@ This ensures the compiler **prevents accidental silent failures** in security-cr
 
 ### 5. Memory and Mapping
 
-```
+```text
 ✅ DO:
 - Enforce W^X (never RWX mappings)
 - Bound MMIO mappings to device windows
@@ -193,7 +193,7 @@ fn test_reject_oversized_input() {
 
 Security behavior MUST be verifiable via QEMU markers:
 
-```
+```text
 # Successful security checks
 dsoftbusd: auth ok
 dsoftbusd: identity bound peer=<id>
