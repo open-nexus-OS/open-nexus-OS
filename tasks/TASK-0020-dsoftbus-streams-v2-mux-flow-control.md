@@ -1,6 +1,6 @@
 ---
 title: TASK-0020 DSoftBus Streams v2: multiplexing + flow control + keepalive (host-first, OS-gated)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 links:

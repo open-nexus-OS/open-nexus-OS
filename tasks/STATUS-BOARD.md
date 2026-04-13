@@ -40,9 +40,9 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 | ✅ TASK-0017 | DSoftBus Remote-StateFS v1 | Done | Deterministic ACL/audit + 1-VM/2-VM proof complete |
 | ✅ TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | Done | Final hardening + drift lock complete |
 | ✅ TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | Done | Kernel-untouched guardrail closure with authenticated profile distribution and deterministic proofs complete |
-| 🟨 TASK-0020 | DSoftBus Streams v2: mux + flow-control + keepalive | In Review | Legacy 0001..0020 production closure gates proven (host/OS/2-VM/perf/soak/release-evidence); review sync pending |
+| ✅ TASK-0020 | DSoftBus Streams v2: mux + flow-control + keepalive | Done | Legacy 0001..0020 production closure gates proven (host/OS/2-VM/perf/soak/release-evidence); closeout synced |
 
-Current queue head (in review): `TASK-0020` (closeout review before advancing to `TASK-0021`).
+Current queue head: `TASK-0021` (next in-order execution unit after TASK-0020 closeout).
 Production closure program note: `RFC-0034` is now done for legacy `TASK-0001..0020` production closure scope.
 
 ---
