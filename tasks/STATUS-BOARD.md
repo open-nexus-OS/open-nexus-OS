@@ -211,6 +211,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 Current queue head: `TASK-0021` (next in-order execution unit after TASK-0020 closeout).
 Production closure program note: `RFC-0034` is now done for legacy `TASK-0001..0020` production closure scope.
+Task contract seed note: `RFC-0035` is the `TASK-0021` host-first QUIC scaffold contract (strict fallback + no silent downgrade, with explicit `TASK-0022` boundary).
 
 ---
 

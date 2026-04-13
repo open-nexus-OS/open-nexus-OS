@@ -299,6 +299,27 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `scripts/qemu-test.sh` (only when OS backend gate is met)
 - `tools/os2vm.sh` (2-VM mux + perf + soak marker/budget/hardening gates + release-evidence bundle)
 
+### @task_0021_context
+- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
+- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+- `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `docs/distributed/dsoftbus-lite.md`
+- `docs/testing/index.md`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `scripts/qemu-test.sh`
+- `tools/os2vm.sh`
+
+### @task_0021_touched
+- `userspace/dsoftbus/**` (transport selection + host QUIC integration)
+- `source/services/dsoftbusd/**` (selection/fallback wiring only)
+- `source/apps/selftest-client/**` (fallback markers only)
+- `tests/**` (requirement-named host QUIC/downgrade tests)
+- `docs/distributed/**`
+- `scripts/qemu-test.sh` (marker-contract sync only if required)
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -366,6 +387,9 @@ Kontext strikt: @core_context @task_0019_context @quality_gates @task_0019_touch
 
 ## Standard instruction line (TASK-0020)
 Kontext strikt: @core_context @task_0020_context @quality_gates @task_0020_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0021)
+Kontext strikt: @core_context @task_0021_context @quality_gates @task_0021_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

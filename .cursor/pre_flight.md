@@ -8,7 +8,7 @@ This is the anti-fake-success gate.
 
 ## Automatic (must be green when applicable)
 - [ ] Host diagnostics compile (when host code touched): `just diag-host`
-- [ ] Narrow host/unit tests pass (task canonical command from active task doc; for TASK-0020: mux host/reject/fairness/backpressure/keepalive tests)
+- [ ] Narrow host/unit tests pass (task canonical command from active task doc; for TASK-0021: QUIC selection/reject/fallback requirement suites)
 - [ ] OS dependency gate (when OS code touched): `just dep-gate`
 - [ ] OS diagnostics compile (when OS code touched): `just diag-os`
 - [ ] Single-VM QEMU marker proof is green (only when OS backend gate is met): `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
@@ -31,65 +31,35 @@ This is the anti-fake-success gate.
 - [ ] Rust construct hygiene reviewed where relevant (`newtype` candidates, ownership boundaries, `#[must_use]` for critical return values)
 - [ ] `Send`/`Sync` discipline reviewed (no blanket/unsafe trait shortcuts in daemon/session state)
 
-## Task-0020 manual addendum (when applicable)
-- [ ] Scope stays kernel-unchanged and host-first while OS backend remains explicitly gated.
-- [ ] Bounded limits are explicit for stream count, payload size, buffered bytes, and window/credit deltas.
-- [ ] Mux operations are accepted only on authenticated session context.
-- [ ] Backpressure semantics are explicit (`WouldBlock`/credit exhaustion), not hidden by unbounded queues.
-- [ ] Keepalive cadence/timeout behavior is deterministic and bounded.
+## Task-0021 manual addendum (when applicable)
+- [ ] Behavior-first proof selection is explicit in task/RFC:
+  - [ ] target behavior is stated in 1-3 lines,
+  - [ ] main break point is explicit,
+  - [ ] primary proof closes the core risk, secondary proof only closes a real blind spot.
+- [ ] Scope stays kernel-unchanged and host-first while OS QUIC remains explicitly disabled by default.
+- [ ] Runtime transport selection semantics are explicit and deterministic (`auto|tcp|quic`).
+- [ ] `mode=quic` fails closed (no silent downgrade to TCP).
+- [ ] `mode=auto` downgrade to TCP is explicit and auditable via deterministic markers.
 - [ ] Required negative tests exist and are green:
-  - [ ] `test_reject_mux_frame_oversize`
-  - [ ] `test_reject_invalid_stream_state_transition`
-  - [ ] `test_reject_window_credit_overflow_or_underflow`
-  - [ ] `test_reject_unknown_stream_frame`
-- [ ] Rust/API hygiene is enforced:
-  - [ ] `newtype` wrappers for stream/window/credit/priority domains where appropriate,
-  - [ ] explicit ownership model for mutable mux session state,
-  - [ ] `#[must_use]` on critical transition/accounting outcomes,
-  - [ ] no `unsafe` `Send`/`Sync` shortcuts.
-- [ ] OS proof environment uses canonical harness defaults (modern virtio-mmio behavior; no legacy-only assumptions).
-- [ ] QEMU marker ladder is updated/proven only when OS backend gate is genuinely met:
-  - [ ] `dsoftbus:mux session up`
-  - [ ] `dsoftbus:mux data ok`
-  - [ ] `SELFTEST: mux pri control ok`
-  - [ ] `SELFTEST: mux bulk ok`
-  - [ ] `SELFTEST: mux backpressure ok`
-- [ ] Follow-on boundaries (`TASK-0021`, `TASK-0022`) are documented and not absorbed.
+  - [ ] `test_reject_quic_wrong_alpn`
+  - [ ] `test_reject_quic_invalid_or_untrusted_cert`
+  - [ ] `test_reject_quic_strict_mode_downgrade`
+  - [ ] `test_auto_mode_fallback_marker_emitted`
+- [ ] Transport-only success does not bypass DSoftBus authenticated session checks.
+- [ ] OS marker ladder is updated/proven only when fallback behavior is genuinely exercised:
+  - [ ] `dsoftbus: quic os disabled (fallback tcp)`
+  - [ ] `SELFTEST: quic fallback ok`
+  - [ ] `dsoftbusd: transport selected tcp` (or equivalent deterministic selector marker)
+- [ ] Follow-on boundary (`TASK-0022`) is documented and not absorbed.
 
-## Active progress snapshot (TASK-0020 requirement-based slices, 2026-04-11)
-- [x] Narrow host/unit tests pass (requirement-based host proof commands):
-  - [x] `cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture`
-  - [x] `cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture`
-  - [x] `cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture`
-  - [x] `cargo test -p dsoftbus -- --nocapture`
-- [x] Determinism floor respected in host tests (stable reject labels + bounded tick/credit semantics + deterministic lifecycle).
-- [x] Tests validate desired behavior (reject taxonomy, seeded sequence invariants, mixed-priority fairness pressure, naming rejects, integration propagation).
-- [x] Rust construct hygiene reviewed (`newtype` domains + `#[must_use]` outcomes in mux phase surfaces).
-- [x] `Send`/`Sync` discipline reviewed (no blanket/unsafe shortcuts introduced).
-- [x] Per-phase regression set executed:
-  - [x] `just test-e2e`
-  - [x] `just test-os-dhcp`
-- [x] Canonical OS harnesses executed and reviewed:
-  - [x] `RUN_UNTIL_MARKER=1 just test-os`
-  - [x] `just test-dsoftbus-2vm` (+ summary artifacts reviewed: `os2vm_1775990226`)
-- [x] Follow-on scope not absorbed (`TASK-0021`/`TASK-0022` unchanged).
-- [x] Mux-specific OS marker ladder proven with canonical gate:
-  - [x] `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh`
-  - [x] markers present: `dsoftbus:mux session up`, `dsoftbus:mux data ok`, `SELFTEST: mux pri control ok`, `SELFTEST: mux bulk ok`, `SELFTEST: mux backpressure ok`
-- [x] Distributed mux ladder proven with canonical 2-VM gate:
-  - [x] `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-  - [x] phase `mux` marker ladder present on both nodes (evidence: `os2vm_1775990226`)
-- [x] Distributed perf-budget gate proven with canonical 2-VM gate:
-  - [x] `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-  - [x] phase `perf` budget checks passed (evidence: `os2vm_1775990226`)
-- [x] Distributed soak hardening gate proven with canonical 2-VM gate:
-  - [x] `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-  - [x] phase `soak` checks passed (evidence: `os2vm_1775990226`, rounds: 2, fail/panic marker hits: 0)
-- [x] Release evidence bundle emitted and reviewed:
-  - [x] `artifacts/os2vm/runs/os2vm_1775990226/release-evidence.json`
-- [x] Legacy closure obligations from `RFC-0034` are fully proven under `TASK-0020` scope.
-- [x] Sequencing discipline was enforced during TASK-0020 closure (no proof-execution start for `TASK-0021+` before closeout).
-- [x] TASK-0020 closeout status aligned (`tasks/TASK-0020...` is now `Done`; linked RFC statuses synced).
+## Active progress snapshot (TASK-0021 kickoff, 2026-04-10)
+- [x] Queue/order sync complete (`TASK-0020` Done, queue head moved to `TASK-0021`).
+- [x] `TASK-0020` handoff archived and `current` switched to TASK-0021 baseline.
+- [x] Working context files retargeted to TASK-0021 (`current_state`, `context_bundles`, `next_task_prep`, `pre_flight`, `stop_conditions`).
+- [x] TASK-0021 status moved from `Draft` to `In Progress`.
+- [x] TASK-0021 phase-A contract lock review completed (`RFC-0035` seed created and linked).
+- [ ] TASK-0021 host requirement suites implemented and green.
+- [ ] TASK-0021 OS fallback markers proven in canonical QEMU harness.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).

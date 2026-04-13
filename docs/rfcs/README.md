@@ -84,6 +84,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0032: ABI syscall guardrails v2 (userland guardrail + authenticated profile distribution boundary)
 - RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive (authenticated mux + bounded credits/state transitions)
 - RFC-0034: DSoftBus production closure v1 (legacy `TASK-0001..0020` production gates + hardening mapping)
+- RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (transport selection + fail-closed downgrade semantics + deterministic fallback markers)
 
 ## Index
 
@@ -155,3 +156,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md
 - RFC-0034: DSoftBus production closure v1 - legacy `TASK-0001..0020` closure contract (Done; obligations extracted/proven under TASK-0020, no >0020 scope)
   - docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md
+- RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (In Progress; `TASK-0021` execution SSOT with explicit `TASK-0022` boundary)
+  - docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md

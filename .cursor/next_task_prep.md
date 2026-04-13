@@ -7,13 +7,14 @@ Update during wrap-up so a new session can start without drift.
 -->
 
 ## Candidate next task
-- **task**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Ready to start`)
+- **task**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`In Progress`)
 - **handoff_target**: `.cursor/handoff/current.md`
-- **handoff_archive**: `.cursor/handoff/archive/TASK-0019-security-v2-userland-abi-syscall-filters.md`
+- **handoff_archive**: `.cursor/handoff/archive/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
 - **linked_contracts**:
   - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (`Done`, legacy closure SSOT complete)
-  - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md` (`Complete`)
-  - `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md` (`Complete`, legacy `TASK-0001..0020` scope only)
+  - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md` (`In Progress`, TASK-0021 seed contract)
+  - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md` (`Done`)
+  - `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md` (`Done`, legacy `TASK-0001..0020` scope only)
   - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
   - `docs/adr/0005-dsoftbus-architecture.md`
   - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
@@ -25,10 +26,10 @@ Update during wrap-up so a new session can start without drift.
   - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md` (follow-on boundary)
   - `docs/testing/index.md`
   - `scripts/qemu-test.sh`
-- **first_action**: start `TASK-0021` host-first contract lock in strict order after `TASK-0020` closeout.
+- **first_action**: execute behavior-first phase-B host proofs under `TASK-0021` + `RFC-0035` (strict order, no `TASK-0022` absorption).
 
 ## Start slice (now)
-- **slice_name**: TASK-0021 phase-A contract lock (post TASK-0020 closure)
+- **slice_name**: TASK-0021 phase-B behavior-first host proof lock (post RFC-0035 seed)
 - **target_file**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
 - **must_cover**:
   - keep TASK-0019 closed as done baseline,
@@ -68,7 +69,7 @@ Update during wrap-up so a new session can start without drift.
   - canonical harness contracts remain stable for staged host-first -> OS-gated execution.
 
 ## Decision
-- **status**: READY (TASK-0020 closure complete; proceed with TASK-0021 in strict order)
+- **status**: ACTIVE (TASK-0021 started in strict order after TASK-0020 closeout)
 - **notes**:
-  - `TASK-0020` is `Done`, `RFC-0033` is `Complete`, and `RFC-0034` legacy-scope closure is `Complete`.
+  - `TASK-0020` is `Done`, `RFC-0033` is `Done`, and `RFC-0034` legacy-scope closure is `Done`.
   - next execution starts with `TASK-0021` only, keeping strict numerical order.

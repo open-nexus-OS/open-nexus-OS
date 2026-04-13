@@ -1,6 +1,6 @@
 ---
 title: TASK-0021 DSoftBus QUIC v1: host QUIC transport (quinn) + OS UDP scaffold (disabled) + TCP fallback
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -8,19 +8,20 @@ depends-on:
   - TASK-0005
   - TASK-0015
   - TASK-0020
+follow-up-tasks:
   - TASK-0022
-follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (seed contract): docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
   - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
   - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Depends-on (OS networking): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Depends-on (OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
   - Depends-on (mux over transport): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Depends-on (core split for OS backend): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
+  - Follow-on boundary (core split for OS backend): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
@@ -66,6 +67,12 @@ Prove:
 
 - Host: QUIC session works and carries TASK-0020 mux traffic, including negative cases.
 - OS/QEMU: default path remains green; OS reports deterministic “QUIC disabled → fallback TCP” markers.
+
+## Current state snapshot (Ist-Zustand)
+
+- Queue head is `TASK-0021`; `TASK-0020` closure remains done baseline.
+- `userspace/dsoftbus/src/os.rs` is still placeholder-only (`Unsupported` paths), so OS QUIC enablement remains out of scope for this task slice.
+- Security section + required `test_reject_*` naming is already present and remains mandatory.
 
 ## Target-state alignment (post TASK-0015 / RFC-0027)
 
@@ -135,9 +142,9 @@ Prove:
 ## Red flags / decision points
 
 - **RED**:
-  - `userspace/dsoftbus` OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`).
+  - `userspace/dsoftbus` OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`) and this is **not** yet entkräftbar.
     OS QUIC must remain off by default and must not claim support until a reusable OS backend exists
-    (TASK-0022) and UDP-sec/QUIC gating is in place.
+    (`TASK-0022`) and UDP-sec/QUIC gating is in place.
 - **YELLOW**:
   - Certificate/identity model: v1 can use ephemeral self-signed certs for host tests, but long-term should bind to device identity keys.
   - Async runtime: quinn is async; keep the host tests isolated and avoid pulling async into OS bring-up.

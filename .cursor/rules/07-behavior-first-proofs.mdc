@@ -1,0 +1,40 @@
+---
+description: Behavior-first proof selection — choose the smallest honest test set per task
+alwaysApply: true
+---
+
+# Behavior-First Proof Selection
+
+Pick the **smallest honest proof set** that demonstrates the task's intended behavior. Do not add every test type by default.
+
+## Before adding tests
+- State the **target behavior** in 1-3 lines: what must be true when the task is done.
+- Name the **main break point**: what failure would make the task dishonest or unsafe.
+- Choose a **primary proof** and only add secondary proofs that close a real blind spot.
+
+## Proof selection guide
+- **Unit**: pure logic, parsers, matchers, error mapping, quotas, budget rules, state machines.
+- **Integration**: authority boundaries, service-to-service contracts, error propagation across a few components.
+- **E2E / QEMU**: boot, lifecycle, IPC, device paths, updates/recovery, or system behavior that only counts on the real stack.
+- **Golden / vector**: layout, rendering, canonical serialization, manifests, traces, or deterministic exported artifacts.
+- **Fuzz / corpus / property**: untrusted input, protocol frames, parsers, codecs, or state-space drift risk.
+
+## Required shape
+- Prefer **host-first** proof for local logic, then add OS/QEMU proof only where the real boundary matters.
+- For security, IPC, storage, networking, policy, update, or recovery work: include meaningful **negative / reject-path** proof.
+- Markers are **supporting evidence only**. `*: ready` or `SELFTEST: * ok` must come after a real assertion or verified end condition.
+- If a path is still stub, placeholder, cooperative, or degraded, tests and markers must say so explicitly.
+
+## Anti-slop rules
+- Do **not** add unit + integration + E2E + golden + fuzz "for completeness" unless each closes a different risk.
+- Do **not** create meta test tasks like `test_task_X_phase2` when the proof belongs inside the real closure task.
+- Do **not** write tests that only mirror implementation steps without proving task behavior.
+- Do **not** use markers, log greps, or screenshots as the only proof when a real assertion is possible.
+
+## Good patterns
+- Policy/parser task: unit + reject tests, plus one integration proof if authority boundaries matter.
+- UI/layout/text task: golden tests first, then a small number of interaction/integration proofs.
+- Update/recovery task: integration/state-machine proof + QEMU/E2E closure; markers summarize, not replace, the proof.
+
+## Closure question
+- Before calling a task done, answer: **which test proves the intended behavior, and where would the break show up if it regressed?**

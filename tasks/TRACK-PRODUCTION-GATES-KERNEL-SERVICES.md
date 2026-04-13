@@ -204,6 +204,7 @@ Representative task spine:
 Closure definition:
 
 - legacy `TASK-0001`..`TASK-0020` closure remains green,
+- `TASK-0021` contract seed remains explicit in `RFC-0035` (host-first QUIC scaffold with fail-closed strict mode),
 - auth/discovery/session/routing follow-ons preserve bounded identity enforcement,
 - new media/busdir/QUIC work does not regress the earlier deterministic host/OS/2-VM story.
 
