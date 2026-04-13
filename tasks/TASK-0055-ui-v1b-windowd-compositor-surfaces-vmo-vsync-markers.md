@@ -3,6 +3,8 @@ title: TASK-0055 UI v1b (OS-gated): windowd compositor + surfaces/layers IPC + V
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0055C UI v1d: windowd visible present + SystemUI first frame in QEMU
 status: Draft
 owner: @ui
 created: 2026-03-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

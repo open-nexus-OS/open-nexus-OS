@@ -3,6 +3,8 @@ title: TASK-0221 Store v2.2a (host-first): offline licensing (NLT) + sandbox pay
 status: Draft
 owner: @platform
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

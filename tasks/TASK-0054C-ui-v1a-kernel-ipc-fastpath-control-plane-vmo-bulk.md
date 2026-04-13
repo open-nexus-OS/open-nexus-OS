@@ -3,6 +3,8 @@ title: TASK-0054C UI v1a extension: kernel IPC fastpath v1 (short control messag
 status: Draft
 owner: @kernel-team @runtime
 created: 2026-03-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

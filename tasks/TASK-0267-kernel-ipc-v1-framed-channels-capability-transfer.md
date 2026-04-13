@@ -3,6 +3,8 @@ title: TASK-0267 Kernel IPC v1: framed channels + capability transfer (QEMU-proo
 status: Draft
 owner: @kernel
 created: 2025-12-30
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

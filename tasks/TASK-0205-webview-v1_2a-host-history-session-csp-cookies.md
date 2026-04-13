@@ -3,6 +3,8 @@ title: TASK-0205 WebView v1.2a (host-first): persistent history model + session 
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0069 UI v8a: Notifications v2 (channels + actions + inline reply) + 
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

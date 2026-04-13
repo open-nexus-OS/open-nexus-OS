@@ -4,6 +4,8 @@ status: Done ✅ (Noise XK handshake complete; identity binding enforcement → 
 owner: @runtime
 created: 2026-01-01
 updated: 2026-01-07
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

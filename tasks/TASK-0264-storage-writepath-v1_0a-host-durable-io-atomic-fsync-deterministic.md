@@ -3,6 +3,8 @@ title: TASK-0264 Storage Write-Path v1.0a (host-first): durable I/O + atomic ope
 status: Draft
 owner: @platform
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0170 Renderer Abstraction v1b (OS/QEMU): windowd/compositor wiring t
 status: Draft
 owner: @ui
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

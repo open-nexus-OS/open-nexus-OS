@@ -3,6 +3,9 @@ title: TASK-0022 DSoftBus core refactor: no_std-compatible core + transport abst
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0015
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

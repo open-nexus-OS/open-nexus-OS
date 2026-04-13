@@ -3,6 +3,8 @@ title: TASK-0115 UI v20b: screen reader (readerd) + TTS stub (ttsd) + earcons vi
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,17 @@ title: TASK-0008B Device identity keys v1 (OS): virtio-rng entropy + rngd + keys
 status: Done
 owner: @runtime @security
 created: 2026-01-23
+depends-on:
+  - TASK-0006
+  - TASK-0008
+  - TASK-0009
+  - TASK-0010
+follow-up-tasks:
+  - TASK-0027
+  - TASK-0053
+  - TASK-0108
+  - TASK-0160
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -12,11 +23,6 @@ links:
   - Depends-on (MMIO mapping primitive): tasks/TASK-0010-device-mmio-access-model.md
   - Depends-on (persistence, optional): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
-follow-up-tasks:
-  - TASK-0027: StateFS encryption-at-rest (AEAD) via keystored
-  - TASK-0053: Signed recovery actions (.nxra)
-  - TASK-0108: keymintd + keychain vault
-  - TASK-0160: attestd + trust unification (OS)
 ---
 
 ## Context
@@ -74,6 +80,16 @@ In QEMU, prove:
 - Device private keys MUST NEVER be returned (signing happens inside keystored).
 - Calls MUST be authorized based on `sender_service_id` (channel identity).
 - All allow/deny decisions for entropy/keygen MUST be audit-logged.
+
+## Production-grade gate note
+
+This task closes the **real entropy and device-key generation floor** for OS builds, but it is still
+not the full release-grade identity/trust closure.
+
+- `TASK-0160` carries trust-store unification and attestd wiring.
+- `TASK-0289` is still needed so device trust participates in verified boot, rollback protection, and measured boot.
+
+Treat this task as the key-material foundation, not as the full device trust chain.
 
 ## Security proof
 

@@ -3,6 +3,8 @@ title: TASK-0284 Userspace driver optimization v1: ownership-based DMA buffer pr
 status: Draft
 owner: @runtime @drivers
 created: 2026-01-09
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Drivers/accelerators track: tasks/TRACK-DRIVERS-ACCELERATORS.md

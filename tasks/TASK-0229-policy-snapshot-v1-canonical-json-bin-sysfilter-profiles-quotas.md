@@ -3,6 +3,8 @@ title: TASK-0229 Policy snapshot v1 (host-first): canonical policy → stable JS
 status: Draft
 owner: @security @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

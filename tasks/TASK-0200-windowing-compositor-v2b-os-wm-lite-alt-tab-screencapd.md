@@ -3,6 +3,8 @@ title: TASK-0200 Windowing/Compositor v2b (OS/QEMU): layers+damage+input regions
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

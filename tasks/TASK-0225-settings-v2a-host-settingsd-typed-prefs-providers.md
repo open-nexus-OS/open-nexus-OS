@@ -3,6 +3,8 @@ title: TASK-0225 Settings v2a (host-first): settingsd typed preferences registry
 status: Draft
 owner: @ui
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

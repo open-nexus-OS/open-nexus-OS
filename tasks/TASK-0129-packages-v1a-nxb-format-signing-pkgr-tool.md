@@ -3,6 +3,11 @@ title: TASK-0129 Packages v1a: NXB v1 format alignment (manifest.nxb) + pkgr too
 status: Draft
 owner: @runtime
 created: 2025-12-25
+depends-on: []
+follow-up-tasks:
+  - TASK-0130
+  - TASK-0238
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -65,6 +70,15 @@ Deliver:
 - **Single source of truth**: `manifest.nxb` is canonical; JSON/TOML are derived views only.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - Avoid duplicating trust/policy semantics that belong to `bundlemgrd`/`keystored`/`policyd`.
+
+## Production-grade gate note
+
+This task closes the **canonical package format/tooling baseline**, but it is not yet a release-grade
+install or trust proof by itself.
+
+- `TASK-0130` closes the user-facing install/uninstall path.
+- `TASK-0238` closes host-side SemVer/migration/policy preflight.
+- `TASK-0289` is still needed for boot-chain-backed anti-rollback and measured trust closure.
 
 ## Stop conditions (Definition of Done)
 

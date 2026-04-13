@@ -3,6 +3,8 @@ title: TASK-0050 Recovery Mode v1a: boot target + minimal recovery service graph
 status: Draft
 owner: @reliability
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0196 DSoftBus v1.1b (devnet-gated): UDP discovery + loopback/udp mod
 status: Draft
 owner: @networking
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

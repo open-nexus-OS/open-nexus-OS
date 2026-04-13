@@ -3,6 +3,9 @@ title: TASK-0198 Supply-Chain hardening v2b (OS/QEMU): enforce sigchain/translog
 status: Draft
 owner: @security
 created: 2025-12-27
+depends-on: []
+follow-up-tasks:
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -79,6 +82,14 @@ Deliver:
 
 - **RED (anti-rollback vs boot-chain)**:
   - We can enforce anti-downgrade at install/apply time based on version/build counters, but we cannot prove “booted slot” rollback without boot-chain integration.
+
+## Production-grade gate note
+
+This task closes **install/apply-time** supply-chain enforcement, but its anti-downgrade story remains
+install-path scoped until the boot chain participates.
+
+- `TASK-0289` is the production-grade follow-up for verified boot anchors, rollback indices, and measured-boot handoff.
+- Do not cite this task alone as proof of full production-grade anti-rollback; it is only one half of that closure.
 
 ## Stop conditions (Definition of Done)
 

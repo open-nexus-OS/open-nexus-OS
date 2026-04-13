@@ -3,6 +3,10 @@ title: TASK-0016 DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over 
 status: Done
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0005
+  - TASK-0015
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

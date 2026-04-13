@@ -3,6 +3,8 @@ title: TASK-0245 Hardware Bring-up (RISC-V virt) v1.0b (OS/QEMU): kernel UART/PL
 status: Draft
 owner: @kernel
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

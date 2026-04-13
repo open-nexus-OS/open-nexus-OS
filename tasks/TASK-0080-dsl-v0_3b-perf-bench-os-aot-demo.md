@@ -3,6 +3,8 @@ title: TASK-0080 DSL v0.3b: perf benchmarks (AOT vs interp) + AOT demo integrati
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

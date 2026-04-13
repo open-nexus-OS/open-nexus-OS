@@ -3,6 +3,13 @@ title: TASK-0017 DSoftBus Remote-FS v1: Remote StateFS proxy (RW, ACL) over auth
 status: Done
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0005
+  - TASK-0006
+  - TASK-0008
+  - TASK-0009
+  - TASK-0015
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0137 Security & Privacy UI v1: permissions matrix editor + audit vie
 status: Draft
 owner: @ui
 created: 2025-12-25
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

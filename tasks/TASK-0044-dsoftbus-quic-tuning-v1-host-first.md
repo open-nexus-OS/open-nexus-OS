@@ -3,6 +3,8 @@ title: TASK-0044 DSoftBus QUIC tuning v1: pacing + congestion selection + mux WF
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - DSoftBus QUIC baseline: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md

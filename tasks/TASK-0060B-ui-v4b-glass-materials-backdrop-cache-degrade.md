@@ -3,6 +3,8 @@ title: TASK-0060B UI v4b: glass materials + backdrop snapshots + cached blur + d
 status: Draft
 owner: @ui
 created: 2026-03-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,10 @@ title: TASK-0132 Storage errors: strict cross-service error semantics contract (
 status: Draft
 owner: @platform
 created: 2025-12-25
+depends-on: []
+follow-up-tasks:
+  - TASK-0133
+  - TASK-0287
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -49,6 +53,14 @@ Deliver:
 
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - No fake success: tests must validate exact error codes, not log text.
+
+## Production-grade gate note
+
+This task closes the **error-language contract** for storage-facing services, but release-grade storage
+behavior still depends on real resource truth behind those errors.
+
+- `TASK-0133` gives `/state` deterministic quota enforcement.
+- `TASK-0287` closes the kernel pressure / hard-limit side so `ENOSPC`/quota-style failures are not detached from real memory/resource enforcement.
 
 ## Stop conditions (Definition of Done)
 

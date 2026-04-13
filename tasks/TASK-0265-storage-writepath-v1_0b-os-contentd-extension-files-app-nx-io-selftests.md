@@ -3,6 +3,8 @@ title: TASK-0265 Storage Write-Path v1.0b (OS/QEMU): contentd extension + Files 
 status: Draft
 owner: @platform
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

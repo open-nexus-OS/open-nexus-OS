@@ -3,6 +3,8 @@ title: TASK-0199 Windowing/Compositor v2a (host-first): damage regions + occlusi
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

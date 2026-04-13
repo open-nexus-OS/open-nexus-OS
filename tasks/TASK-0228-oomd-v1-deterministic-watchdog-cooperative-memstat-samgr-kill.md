@@ -3,6 +3,10 @@ title: TASK-0228 OOM watchdog v1 (OS): deterministic memory watchdog (`oomd`) wi
 status: Draft
 owner: @runtime @reliability
 created: 2025-12-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0286
+  - TASK-0287
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -115,6 +119,14 @@ On OS/QEMU:
 - Kernel tracks per-process RSS via page table accounting
 - `oomd` queries kernel for true memory usage (syscall or procfs-like interface)
 - Kernel-enforced memory limits (cgroup-like quotas)
+
+## Production-grade gate note
+
+This task is intentionally a **production-floor / bring-up** step, not the final kernel memory story.
+
+- `TASK-0286` closes the truth gap with kernel-owned memory accounting and trusted RSS/pressure queries.
+- `TASK-0287` closes the enforcement gap with kernel pressure watermarks, hard limits, and canonical OOM handoff.
+- Until those land, this task must keep calling itself **cooperative** and must not be cited as proof of production-grade kernel memory enforcement.
 
 ### Mitigations
 

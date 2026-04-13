@@ -3,6 +3,17 @@ title: TASK-0043 Security v2: sandbox quotas (tmp/state) + per-subject network e
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0003
+  - TASK-0006
+  - TASK-0008
+  - TASK-0028
+  - TASK-0039
+follow-up-tasks:
+  - TASK-0133
+  - TASK-0188
+  - TASK-0286
+  - TASK-0287
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -66,6 +77,17 @@ Once OS prerequisites exist, add QEMU selftest markers.
     - policyd/nexus-sel as the policy source of truth,
     - ABI filters as guardrails,
     - vfsd as the enforcement point for namespace+CapFd+quotas.
+
+## Production-grade gate note
+
+This task closes a strong **userspace sandboxing and quota floor**, but it is still not the full
+release-grade resource/security boundary.
+
+- `TASK-0133` tightens deterministic `/state` quota semantics.
+- `TASK-0188` is the kernel-side syscall boundary follow-up.
+- `TASK-0286` / `TASK-0287` add kernel-owned accounting truth and hard pressure enforcement.
+
+Until those land, this task should be described as a host-first / mediated enforcement layer, not as complete kernel-backed isolation.
 
 ## Contract sources (single source of truth)
 

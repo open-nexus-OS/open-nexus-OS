@@ -3,6 +3,14 @@ title: TASK-0019 Security v2 (OS): userland ABI syscall guardrails (filter chain
 status: Done
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0008
+  - TASK-0009
+follow-up-tasks:
+  - TASK-0028
+  - TASK-0188
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -14,9 +22,6 @@ links:
   - Depends-on (statefs contract for selftest paths): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
-follow-up-tasks:
-  - TASK-0028: ABI filters v2 (`learn`/`enforce`, argument matchers, generator)
-  - TASK-0188: kernel-level syscall enforcement boundary (seccomp v3)
 ---
 
 ## Context
@@ -181,6 +186,16 @@ In QEMU, prove:
 - Identity token: `source/kernel/neuron/src/bootstrap.rs` (`BootstrapInfo.service_id`)
 - Existing policy baseline: `recipes/policy/base.toml`
 - QEMU marker contract: `scripts/qemu-test.sh`
+
+## Production-grade gate note
+
+This task is an important **defense-in-depth guardrail**, but it is intentionally not the final
+production-grade syscall boundary.
+
+- `TASK-0188` is the kernel-side follow-up for a real syscall filter boundary.
+- `TASK-0289` is still needed so the policy/trust chain is anchored into verified boot and anti-rollback state.
+
+Do not present `TASK-0019` alone as proof of a tamper-resistant sandbox.
 
 ## Stop conditions (Definition of Done)
 

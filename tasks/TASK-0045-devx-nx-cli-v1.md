@@ -3,6 +3,8 @@ title: TASK-0045 DevX: nx CLI v1 (scaffold + idl helpers + inspect + postflight 
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

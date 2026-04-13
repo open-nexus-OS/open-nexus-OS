@@ -4,6 +4,25 @@ status: Done
 owner: @runtime
 created: 2025-12-22
 updated: 2026-02-06
+depends-on:
+  - TASK-0006
+  - TASK-0008B
+  - TASK-0010
+follow-up-tasks:
+  - TASK-0018
+  - TASK-0025
+  - TASK-0026
+  - TASK-0027
+  - TASK-0031
+  - TASK-0034
+  - TASK-0051
+  - TASK-0130
+  - TASK-0132
+  - TASK-0133
+  - TASK-0134
+  - TASK-0241
+  - TASK-0243
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -15,20 +34,6 @@ links:
 enables:
   - TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints)
   - TASK-0007 v1.1: Persistent A/B updates (moved to TASK-0034)
-follow-up-tasks:
-  - TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints)
-  - TASK-0025: StateFS write-path hardening (integrity envelopes + atomic commit + budgets + audit)
-  - TASK-0026: StateFS v2a (2PC crash-atomicity + bounded compaction + fsck tool)
-  - TASK-0130: Packages v1b (install into `/state/apps/...` with atomic commit)
-  - TASK-0018: Crashdumps v1 (store crash artifacts under `/state/crash/...`)
-  - TASK-0051: Recovery mode v1b (safe tools: fsck/slot/ota + recovery CLI + proofs)
-  - TASK-0241: L10n v1.0b OS (persist `ui.locale` / catalogs state)
-  - TASK-0243: Soak v1.0b OS (persist run summaries/exports under `/state/...`)
-  - TASK-0031: Zero-copy VMOs v1 plumbing (mentions persistence/statefs as prerequisite)
-  - TASK-0027: StateFS encryption-at-rest v2b (builds on statefs v1 substrate)
-  - TASK-0132: Storage errors vfs semantic contract (tighten error semantics)
-  - TASK-0133: StateFS quotas v1 (accounting/enforcement)
-  - TASK-0134: StateFS v3 (snapshots/compaction/mounts)
 ---
 
 ## Current Status (2026-02-06)
@@ -173,6 +178,14 @@ Notes:
     v9 should treat entropy as solved and focus on **storage confidentiality boundaries** (policy-gated `/state/keystore/*`, no secret logging).
 - **GREEN (confirmed assumptions)**:
   - We already have a stub virtio-blk crate (`source/drivers/storage/virtio-blk`) that can be reused as low-level scaffolding once access exists.
+
+## Production-grade gate note
+
+This task gives us the durable `/state` substrate and remains a keystone, but it is not the whole
+release-grade trust story.
+
+- `TASK-0289` closes the boot-chain side: verified boot anchors, anti-rollback, and measured-boot handoff.
+- Until that lands, `/state` can back install/update state honestly, but it must not be cited as sufficient proof of production-grade rollback protection by itself.
 
 ## Security considerations
 

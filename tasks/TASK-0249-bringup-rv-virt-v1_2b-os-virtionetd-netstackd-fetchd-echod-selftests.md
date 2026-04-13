@@ -3,6 +3,8 @@ title: TASK-0249 RISC-V Bring-up v1.2b (OS/QEMU): virtionetd + netstackd + fetch
 status: Draft
 owner: @kernel
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,10 @@ title: TASK-0054B UI v1a extension: kernel/UI perf floor (zero-copy bulk path + 
 status: Draft
 owner: @kernel-team @runtime @ui
 created: 2026-03-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0288
+  - TASK-0290
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -100,6 +104,16 @@ This task touches kernel scheduling and bulk buffer handling, so it is security-
 - DON'T route large surfaces through IPC payload copies just because it is easier in bring-up.
 - DON'T weaken `TASK-0012B` bounded queue / resched evidence rules.
 - DON'T make affinity/shares a general-purpose information leak about CPU layout.
+
+## Production-grade gate note
+
+This task establishes the early **UI/kernel performance floor**, but production-grade consumer claims
+still depend on two later closeout steps:
+
+- `TASK-0288` for deterministic runtime/SMP/timer/IPI stress closure,
+- `TASK-0290` for kernel-enforced zero-copy rights/sealing and reuse truth.
+
+Use this task to justify the early hot-path floor; use those follow-up tasks to justify a production-grade kernel/UI boundary.
 
 ## Stop conditions (Definition of Done)
 

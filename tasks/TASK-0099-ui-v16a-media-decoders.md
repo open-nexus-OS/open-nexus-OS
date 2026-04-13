@@ -3,6 +3,8 @@ title: TASK-0099 UI v16a: media decoders (WAV/Vorbis + GIF/APNG/MJPEG) for QEMU-
 status: Draft
 owner: @media
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0058 UI v3a: deterministic layout engine (flex/grid/stack) + text wr
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

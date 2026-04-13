@@ -3,6 +3,11 @@ title: TASK-0280 DriverKit v1 core contracts: queues, fences, buffers (cross-dev
 status: Draft
 owner: @runtime @drivers
 created: 2026-01-09
+depends-on:
+  - TASK-0010
+  - TASK-0013
+  - TASK-0031
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Drivers/accelerators track: tasks/TRACK-DRIVERS-ACCELERATORS.md

@@ -3,6 +3,8 @@ title: TASK-0259 Sensor-Bus v0.9b (OS/QEMU): i2cd/spid bus services + sensord ag
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

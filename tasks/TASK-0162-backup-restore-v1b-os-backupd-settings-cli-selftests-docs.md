@@ -3,6 +3,8 @@ title: TASK-0162 Backup/Restore v1b (OS/QEMU): backupd service + device-bound wr
 status: Draft
 owner: @runtime
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

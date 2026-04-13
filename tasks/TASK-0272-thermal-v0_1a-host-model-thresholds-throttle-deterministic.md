@@ -3,6 +3,8 @@ title: TASK-0272 Thermal v0.1a (host-first): deterministic thermal model + thres
 status: Draft
 owner: @platform
 created: 2025-12-30
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

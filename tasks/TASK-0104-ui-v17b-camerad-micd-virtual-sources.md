@@ -3,6 +3,8 @@ title: TASK-0104 UI v17b: virtual camerad + synthetic micd with permission enfor
 status: Draft
 owner: @media
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

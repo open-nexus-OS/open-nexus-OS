@@ -3,6 +3,8 @@ title: TASK-0266 Architecture v1: authority & naming contract (single source of 
 status: Draft
 owner: @runtime
 created: 2025-12-30
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

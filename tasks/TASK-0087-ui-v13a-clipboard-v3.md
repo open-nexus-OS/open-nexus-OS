@@ -3,6 +3,8 @@ title: TASK-0087 UI v13a: Clipboard v3 (html/rtf/image) + negotiation + budgets 
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

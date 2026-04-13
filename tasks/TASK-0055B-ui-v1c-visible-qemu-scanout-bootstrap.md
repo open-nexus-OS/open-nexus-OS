@@ -3,6 +3,8 @@ title: TASK-0055B UI v1c: visible QEMU scanout bootstrap (simplefb window + firs
 status: Draft
 owner: @ui @runtime
 created: 2026-03-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

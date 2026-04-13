@@ -3,6 +3,8 @@ title: TASK-0072 UI v9b: prefsd persistent store + Settings panels (stubs but fu
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

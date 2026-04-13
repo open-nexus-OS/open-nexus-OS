@@ -3,6 +3,8 @@ title: TASK-0208 Windowing/Compositor v2.1b (OS/QEMU): swapchain surfaces (VMO) 
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

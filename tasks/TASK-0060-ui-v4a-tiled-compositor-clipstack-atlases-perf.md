@@ -3,6 +3,8 @@ title: TASK-0060 UI v4a: tiled compositor + occlusion + clip stack + atlases/cac
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

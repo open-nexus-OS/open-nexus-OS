@@ -3,6 +3,9 @@ title: TASK-0054D UI v1a extension: kernel MM perf floor (VMO surface reuse + ma
 status: Draft
 owner: @kernel-mm-team @runtime @ui
 created: 2026-03-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0290
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -90,6 +93,13 @@ This task changes kernel MM hot paths and therefore is security-relevant.
 - DON'T assume “same VMO” means “same rights” without explicit checks.
 - DON'T expand the user VMO arena or reuse rules without documented bounds.
 - DON'T add UI-specific MM shortcuts that become a second mapping authority.
+
+## Production-grade gate note
+
+This task is the **UI/MM performance floor**, not the final kernel zero-copy closure.
+
+- `TASK-0290` closes the remaining production-grade kernel contract for VMO sealing rights, write-map denial, and reuse/copy-fallback truth.
+- Use this task to justify early UI smoothness work; use `TASK-0290` when the claim is "production-grade zero-copy/MM boundary".
 
 ## Stop conditions (Definition of Done)
 

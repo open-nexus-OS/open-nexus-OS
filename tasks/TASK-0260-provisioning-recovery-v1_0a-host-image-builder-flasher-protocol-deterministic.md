@@ -3,6 +3,9 @@ title: TASK-0260 Provisioning/Recovery v1.0a (host-first): deterministic image b
 status: Draft
 owner: @reliability
 created: 2025-12-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -68,6 +71,15 @@ Deliver on host:
   - Do not create parallel signature semantics. Image manifest signing should align with existing signing/verification primitives (e.g., `keystored`, `TASK-0029`).
 - **YELLOW (factory reset safety)**:
   - Factory reset must preserve trust & boot paths. Document preserved paths explicitly.
+
+## Production-grade gate note
+
+This task establishes the **host-first provisioning/recovery floor**, but production-grade device
+recovery still needs the boot trust chain to participate.
+
+- `TASK-0289` closes the verified-boot / anti-rollback / measured-boot side.
+
+Until then, provisioning and flash/recovery flows should be described as deterministic bring-up and service tooling, not as full release-grade secure recovery.
 
 ## Contract sources (single source of truth)
 

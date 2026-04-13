@@ -3,6 +3,10 @@ title: TASK-0016B Netstackd refactor v1: modular OS daemon structure + loop/idio
 status: Done
 owner: @runtime
 created: 2026-03-24
+depends-on:
+  - TASK-0003
+  - TASK-0010
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

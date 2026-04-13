@@ -3,6 +3,8 @@ title: TASK-0206 WebView v1.2b (OS/QEMU): persistent history + session restore +
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

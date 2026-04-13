@@ -3,6 +3,11 @@ title: TASK-0028 ABI filters v2: argument matchers + learn→enforce + policy ge
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0008
+  - TASK-0019
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

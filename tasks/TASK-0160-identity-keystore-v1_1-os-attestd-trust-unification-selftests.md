@@ -3,6 +3,11 @@ title: TASK-0160 Identity/Keystore v1.1 (OS/QEMU): attestd stub + trust store un
 status: Draft
 owner: @security
 created: 2025-12-26
+depends-on: []
+follow-up-tasks:
+  - TASK-0197
+  - TASK-0198
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -80,6 +85,15 @@ Deliver:
 - **RED (entropy / production readiness)**:
   - Without a real entropy source, OS key generation is not secure. Keep deterministic seeds strictly test-only.
   - Attestation is a stub: it proves plumbing, not hardware trust.
+
+## Production-grade gate note
+
+This task closes the **OS trust-store and keystore integration floor**, but it is still below the full
+production-grade supply-chain and boot-trust boundary.
+
+- `TASK-0197` adds host-side sigchain/transparency/provenance hardening.
+- `TASK-0198` carries OS enforcement across store, updater, and bundle paths.
+- `TASK-0289` closes verified-boot and anti-rollback integration so trust roots and measurements participate in device boot trust.
 
 ## Stop conditions (Definition of Done)
 

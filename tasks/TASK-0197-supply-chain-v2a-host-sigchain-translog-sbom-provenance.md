@@ -3,6 +3,10 @@ title: TASK-0197 Supply-Chain hardening v2a (host-first): sigchain envelope + tr
 status: Draft
 owner: @security
 created: 2025-12-27
+depends-on: []
+follow-up-tasks:
+  - TASK-0198
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -93,6 +97,14 @@ Deliver:
 - **YELLOW (transparency log meaning offline)**:
   - A local translog provides append-only evidence inside the device/fixture world, not global transparency.
   - Keep claims modest and document threat model.
+
+## Production-grade gate note
+
+This task closes the **host-side supply-chain hardening model**, but it still needs OS enforcement and
+boot-trust anchoring before it counts as release-grade protection.
+
+- `TASK-0198` is the OS enforcement follow-up across updater/store/bundle paths.
+- `TASK-0289` is needed so anti-rollback and measurement claims are rooted in the boot chain.
 
 ## Stop conditions (Definition of Done)
 

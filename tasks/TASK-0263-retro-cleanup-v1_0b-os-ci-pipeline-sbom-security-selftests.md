@@ -3,6 +3,8 @@ title: TASK-0263 Bring-up Retrospective & Cleanup v1.0b (OS/CI): CI pipeline + S
 status: Draft
 owner: @devx
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

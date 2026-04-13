@@ -3,6 +3,8 @@ title: TASK-0098 UI v15e: rich text editor widget + Notes app (v1) + clipboard v
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0048 Crashdump v2a (host-first): nxsym build-id index + .nxcd format
 status: Draft
 owner: @reliability
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

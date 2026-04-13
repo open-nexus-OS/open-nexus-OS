@@ -3,6 +3,8 @@ title: TASK-0175 L10n/i18n v1b (OS/QEMU): runtime locale switching + Settings La
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

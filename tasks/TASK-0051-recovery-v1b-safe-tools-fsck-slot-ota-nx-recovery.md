@@ -3,6 +3,8 @@ title: TASK-0051 Recovery Mode v1b: safe tools (fsck/slot/ota) + restricted stat
 status: Draft
 owner: @reliability
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

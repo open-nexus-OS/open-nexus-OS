@@ -5,6 +5,8 @@ status: Draft
 owner: @runtime
 created: 2025-12-22
 updated: 2026-01-15
+depends-on: []
+follow-up-tasks: []
 links:
 
   - Vision: docs/agents/VISION.md
@@ -17,7 +19,6 @@ links:
   - Testing contract: scripts/qemu-test.sh
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
-depends-on:
 
   - TASK-0007: Updates v1.0 (manifest.nxb unification, non-persistent A/B skeleton)
   - TASK-0009: Persistence v1 (statefs for bootctl + resume checkpoints)

@@ -3,6 +3,8 @@ title: TASK-0202 Text v2.1b (OS/QEMU): persistent font/glyph cache under /state 
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

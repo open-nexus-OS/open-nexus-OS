@@ -3,6 +3,8 @@ title: TASK-0055D UI v1e (dev-mode): deterministic display/profile presets for Q
 status: Draft
 owner: @ui @runtime
 created: 2026-03-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

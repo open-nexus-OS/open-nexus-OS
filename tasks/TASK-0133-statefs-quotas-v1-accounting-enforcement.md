@@ -3,6 +3,10 @@ title: TASK-0133 State quotas v1: per-subject accounting + deterministic enforce
 status: Draft
 owner: @runtime
 created: 2025-12-25
+depends-on: []
+follow-up-tasks:
+  - TASK-0286
+  - TASK-0287
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -50,6 +54,16 @@ Deliver:
 
 - Determinism and bounded counters/tables.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
+
+## Production-grade gate note
+
+This task gives `/state` a deterministic userspace quota floor, but it is still not the full
+production-grade resource-enforcement story.
+
+- `TASK-0286` adds kernel-owned memory/accounting truth.
+- `TASK-0287` adds kernel pressure watermarks and hard-limit enforcement.
+
+Until those land, quota enforcement here should be described as a storage-surface guardrail, not as the full kernel resource boundary.
 
 ## Stop conditions (Definition of Done)
 

@@ -3,6 +3,8 @@ title: TASK-0147 IME/Text v2 Part 1b (OS-gated): OSK overlay + focus routing + a
 status: Draft
 owner: @ui
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

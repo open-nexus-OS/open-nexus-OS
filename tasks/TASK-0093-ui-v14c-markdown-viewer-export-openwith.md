@@ -3,6 +3,8 @@ title: TASK-0093 UI v14c: Markdown viewer + find-in-page + export-to-PDF + nx md
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,9 @@ title: TASK-0003 Networking step 1 (OS): virtio-net + smoltcp + DSoftBus local T
 status: Done (Track A/B complete; Noise XK follow-up in TASK-0003B)
 owner: @runtime
 created: 2025-12-22
+depends-on: []
+follow-up-tasks:
+  - TASK-0003B
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

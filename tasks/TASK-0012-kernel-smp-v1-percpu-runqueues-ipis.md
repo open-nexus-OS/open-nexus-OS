@@ -3,6 +3,14 @@ title: TASK-0012 Performance & Power v1 (kernel): SMP bring-up + per-CPU runqueu
 status: Done
 owner: @kernel-team
 created: 2025-12-22
+depends-on:
+  - TASK-0011
+follow-up-tasks:
+  - TASK-0012B
+  - TASK-0013
+  - TASK-0042
+  - TASK-0247
+  - TASK-0283
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -25,12 +33,6 @@ enables:
   - TASK-0283: Per-CPU ownership wrapper adoption (`PerCpu<T>`) for additional compile-time hardening
   - TRACK-DRIVERS-ACCELERATORS: per-CPU driver scheduling baseline for device-class services
   - TRACK-NETWORKING-DRIVERS: per-CPU scheduler baseline for future NIC/offload work
-follow-up-tasks:
-  - TASK-0012B: harden scheduler/SMP internals (bounded queue behavior + trap/IPI contract + CPU-ID fast path) while preserving TASK-0012 markers/proofs
-  - TASK-0013: add userspace QoS/timer behavior on top of SMP v1 without introducing a second scheduler authority
-  - TASK-0042: extend SMP with affinity/shares while preserving TASK-0012 ownership and determinism invariants
-  - TASK-0247: extend RISC-V specifics (SBI HSM/IPI hardening + per-hart timers) on top of TASK-0012 baseline only
-  - TASK-0283: optionally introduce `PerCpu<T>` wrappers where they reduce cross-CPU mutation risk
 ---
 
 ## Context

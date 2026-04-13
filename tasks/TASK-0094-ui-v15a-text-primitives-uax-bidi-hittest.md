@@ -3,6 +3,8 @@ title: TASK-0094 UI v15a: text primitives upgrade (UAX#14/#29 + bidi UAX#9) + hi
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

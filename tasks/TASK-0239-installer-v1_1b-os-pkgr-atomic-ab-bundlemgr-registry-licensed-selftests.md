@@ -3,6 +3,9 @@ title: TASK-0239 Installer v1.1b (OS/QEMU): pkgr service (atomic A/B per app) + 
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -80,6 +83,15 @@ On OS/QEMU:
   - If `licensed` cannot provide entitlement verification, this task must first create that API (separate subtask or gate on `TASK-0222`).
 - **YELLOW (migration sandboxing)**:
   - Migration scripts run in a sandbox (timeout, resource limits). Document security caveats explicitly.
+
+## Production-grade gate note
+
+This task closes the **OS installer / per-app atomic activation** path, but production-grade rollback
+claims still require the boot-chain trust closure.
+
+- `TASK-0289` is the follow-up for verified-boot anchors, rollback indices, and measured-boot handoff.
+
+Without that task, installer rollback is real and useful, but it is not yet the full release-grade anti-rollback story.
 
 ## Contract sources (single source of truth)
 

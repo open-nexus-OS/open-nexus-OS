@@ -3,6 +3,10 @@ title: TASK-0222 Store v2.2b (OS/QEMU): licensed enforcement + purchase UX + tri
 status: Draft
 owner: @platform
 created: 2025-12-27
+depends-on: []
+follow-up-tasks:
+  - TASK-0239
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -91,6 +95,14 @@ Deliver:
 - `/state` gating: persistence is only real when `TASK-0009` exists.
 - No fake success markers.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
+
+## Production-grade gate note
+
+This task closes the **offline entitlement and purchase enforcement floor**, but it still relies on
+later installer and boot-trust closure for release-grade claims.
+
+- `TASK-0239` closes OS installer activation and entitlement guard integration.
+- `TASK-0289` closes the anti-rollback / verified-boot side so entitlement and install state are not detached from device trust.
 
 ## Stop conditions (Definition of Done)
 

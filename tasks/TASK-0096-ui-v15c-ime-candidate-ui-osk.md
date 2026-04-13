@@ -3,6 +3,8 @@ title: TASK-0096 UI v15c: IME service (latin+pinyin stub+emoji) + candidate UI +
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

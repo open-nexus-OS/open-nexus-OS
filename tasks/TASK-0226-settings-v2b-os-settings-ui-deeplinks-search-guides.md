@@ -3,6 +3,8 @@ title: TASK-0226 Settings v2b (OS/QEMU): Settings UI wiring (DSL) + setting:// d
 status: Draft
 owner: @ui
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

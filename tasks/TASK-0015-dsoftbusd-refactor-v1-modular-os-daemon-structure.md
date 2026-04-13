@@ -3,6 +3,13 @@ title: TASK-0015 DSoftBusd refactor v1: modular OS daemon structure without beha
 status: Done
 owner: @runtime
 created: 2026-03-12
+depends-on:
+  - TASK-0003
+  - TASK-0003B
+  - TASK-0003C
+  - TASK-0004
+  - TASK-0005
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

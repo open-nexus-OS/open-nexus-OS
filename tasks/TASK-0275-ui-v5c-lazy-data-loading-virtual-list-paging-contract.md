@@ -3,6 +3,8 @@ title: TASK-0275 UI v5c QuerySpec v3 (host-first): lazy data surfaces (virtual l
 status: Draft
 owner: @ui
 created: 2025-12-30
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -10,6 +10,173 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 
 ---
 
+## Task Groups
+
+This section adds a navigation layer over the full `TASK-*` set. Task files remain the execution truth; the groups below are for drift-free review, gate planning, and fast kernel/service scanning.
+
+| Group | Done / Total | Progress | Kernel-touch tasks | Notes |
+|------|---------------|----------|--------------------|-------|
+| Kernel Core & Runtime | 6 / 30 | 20% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
+| DSoftBus & Distributed | 6 / 26 | 23% | — | Distributed session, transport, mux, and remote-service stack. |
+| Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
+| Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
+| Accounts, Ability & Sessions | 0 / 8 | 0% | — | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
+| Security, Policy & Identity | 3 / 36 | 8% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
+| Storage, PackageFS & Content | 2 / 25 | 8% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. |
+| Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
+| Bringup, Hardware & Drivers | 0 / 12 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, input/display/audio, and driver-facing tracks. |
+| Windowing, UI & Graphics | 0 / 73 | 0% | — | Early renderer, windowing, compositor, and UI performance floor tasks. |
+| Text, IME, I18N & Accessibility | 0 / 9 | 0% | — | Text stack, input methods, locale, and accessibility foundations. |
+| Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
+| Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
+| DSL, App Platform & SDK | 0 / 14 | 0% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
+| DevX, Config & Tooling | 1 / 10 | 10% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
+
+---
+
+## Group Gate Targets
+
+Detailed closure contract: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
+
+### Gate Tier Meanings
+
+- `production-grade`: release-blocking. The area must have real enforcement, negative/reject-path proofs where relevant, bounded failure behavior, and enough recovery/security closure that kiosk/IoT and consumer claims would be dishonest without it.
+- `production-floor`: real, coherent, and test-backed. The area can still grow in breadth or optimization, but it must already behave predictably under normal and bounded-stress conditions and must not rely on fake-success markers.
+- `beta-floor`: real behavior with deterministic proofs, explicit limitations, and no hidden placeholder semantics. Good enough for hardware bringup or subsystem beta work, not good enough yet for release claims.
+
+| Group | Gate tier | Release target | Current closure focus |
+|------|-----------|----------------|-----------------------|
+| Kernel Core & Runtime | `production-grade` | consumer + kiosk/IoT | `TASK-0286` memory accounting truth, `TASK-0287` memory pressure + OOM enforcement, `TASK-0288` runtime latency/stress closure, `TASK-0290` zero-copy closure |
+| DSoftBus & Distributed | `production-floor` | consumer + distributed beta | preserve legacy `TASK-0001`..`TASK-0020` closure while finishing QUIC/authz/busdir/media-remote follow-ons |
+| Networking & Transport | `production-floor` | consumer + kiosk/IoT | netstack hardening, ingress bounds, real-connect proofs, virtio-net service closure |
+| Observability, Crash, Perf & Diagnostics | `production-floor` | consumer + hardware beta | deterministic crash retention, perf budgets, soak/flake gates, offline diagnostics |
+| Accounts, Ability & Sessions | `production-floor` | consumer | session lifecycle, greeter/home isolation, foreground/background enforcement, ability kill semantics |
+| Security, Policy & Identity | `production-grade` | consumer + kiosk/IoT | `TASK-0289` boot trust floor, plus `TASK-0286`/`TASK-0287` wherever quota/resource claims depend on kernel truth |
+| Storage, PackageFS & Content | `production-grade` | consumer + kiosk/IoT | `TASK-0290` zero-copy closure, plus `TASK-0286`/`TASK-0287` for honest quota/resource enforcement |
+| Updates, Packaging & Recovery | `production-grade` | consumer + kiosk/IoT | `TASK-0289` boot trust floor for verified boot, anti-rollback, measured boot, and trusted recovery/update closure |
+| Bringup, Hardware & Drivers | `beta-floor` | hardware bringup beta | RISC-V `virt` closure, display/input/audio/battery/thermal/sensor bringup, driver contract proofs |
+| Windowing, UI & Graphics | `production-floor` | consumer | first-frame/present/input smoothness, surface reuse, no-trail/no-mosaic floor, frame-budget evidence |
+| Text, IME, I18N & Accessibility | `beta-floor` | consumer beta | deterministic text shaping, IME routing, locale switch, accessibility service spine |
+| Media & Creative | `beta-floor` | consumer beta | audiod/media-session baseline, bounded decode/capture paths, deterministic UX proofs |
+| Messaging, Search, Store & Sharing | `beta-floor` | consumer beta | search/share/notification/store baseline without authority drift or unbounded background work |
+| DSL, App Platform & SDK | `beta-floor` | ecosystem beta | DSL/runtime contracts, app-platform proofs, SDK/codegen closure without hidden kernel asks |
+| DevX, Config & Tooling | `production-floor` | internal + hardware beta | single CLI convergence, schema/config discipline, deterministic harness and repo hygiene |
+
+### Current Production-Grade Closure Blockers
+
+The tasks below are the current explicit closure set for the remaining kernel/core-service
+`production-grade` gaps. If these are still open, release-grade claims for the affected groups stay
+incomplete even if broad bring-up or beta-floor functionality exists.
+
+- `TASK-0286` — kernel memory accounting truth: trusted RSS, mapped-bytes, fault/reclaim counters, and pressure snapshots for policy/diagnostic consumers.
+- `TASK-0287` — kernel memory pressure + hard-limit enforcement: canonical OOM handoff, pressure watermarks, and real resource-boundary closure.
+- `TASK-0288` — kernel runtime closure: latency-budget and stress proofs for SMP/timer/IPI/wakeup behavior under bounded load.
+- `TASK-0289` — boot trust floor: verified boot anchors, rollback indices, and measured-boot handoff for updates, recovery, trust store, and device identity claims.
+- `TASK-0290` — kernel zero-copy closure: VMO sealing rights, write-map denial, and truthful reuse/copy-fallback evidence for storage/UI hot paths.
+
+Primary group impact:
+
+- `Kernel Core & Runtime`: blocked primarily by `TASK-0286`, `TASK-0287`, `TASK-0288`, and `TASK-0290`.
+- `Security, Policy & Identity`: blocked primarily by `TASK-0289`, with `TASK-0286`/`TASK-0287` still required wherever quota/resource claims depend on kernel truth.
+- `Storage, PackageFS & Content`: blocked primarily by `TASK-0290`, with `TASK-0286`/`TASK-0287` still needed for honest quota/resource enforcement.
+- `Updates, Packaging & Recovery`: blocked primarily by `TASK-0289`.
+
+---
+
+## Task Group Details
+
+Use these groups to review a domain without opening every task file. `Kernel-touch` is derived from task touched paths that mention kernel- or ABI-level code.
+
+### Kernel Core & Runtime
+
+- Progress: `6 / 30` done (`20%`)
+- Kernel-touch tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290`
+- Tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0228`..`TASK-0230`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0267`, `TASK-0269`, `TASK-0276`..`TASK-0277`, `TASK-0281`..`TASK-0290`
+
+### DSoftBus & Distributed
+
+- Progress: `6 / 26` done (`23%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0003`, `TASK-0003B`, `TASK-0003C`, `TASK-0004`..`TASK-0005`, `TASK-0015`..`TASK-0017`, `TASK-0020`..`TASK-0024`, `TASK-0030`, `TASK-0038`, `TASK-0040`, `TASK-0044`, `TASK-0157`..`TASK-0158`, `TASK-0195`..`TASK-0196`, `TASK-0211`..`TASK-0212`, `TASK-0219`..`TASK-0220`, `TASK-0231`
+
+### Networking & Transport
+
+- Progress: `1 / 8` done (`12%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0016B`, `TASK-0052`, `TASK-0177`, `TASK-0193`..`TASK-0194`, `TASK-0206`, `TASK-0248`..`TASK-0249`
+
+### Observability, Crash, Perf & Diagnostics
+
+- Progress: `3 / 33` done (`9%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0006`, `TASK-0014`, `TASK-0018`, `TASK-0026`, `TASK-0041`, `TASK-0048`..`TASK-0049`, `TASK-0056C`, `TASK-0060`, `TASK-0062B`, `TASK-0080`, `TASK-0141`..`TASK-0145`, `TASK-0152`, `TASK-0170`, `TASK-0172`..`TASK-0173`, `TASK-0183`, `TASK-0190`, `TASK-0201`..`TASK-0202`, `TASK-0205`, `TASK-0216`..`TASK-0217`, `TASK-0227`, `TASK-0234`, `TASK-0236`, `TASK-0242`..`TASK-0243`, `TASK-0264`
+
+### Accounts, Ability & Sessions
+
+- Progress: `0 / 8` done (`0%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0065`, `TASK-0109`..`TASK-0110`, `TASK-0126B`, `TASK-0159`, `TASK-0223`..`TASK-0224`, `TASK-0235`
+
+### Security, Policy & Identity
+
+- Progress: `3 / 36` done (`8%`)
+- Kernel-touch tasks: `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`
+- Tasks: `TASK-0008`, `TASK-0008B`, `TASK-0019`, `TASK-0027`..`TASK-0029`, `TASK-0039`, `TASK-0043`, `TASK-0047`, `TASK-0053`, `TASK-0066`..`TASK-0068`, `TASK-0103`, `TASK-0107`..`TASK-0108`, `TASK-0111`, `TASK-0124`, `TASK-0126`, `TASK-0130`, `TASK-0136`..`TASK-0137`, `TASK-0139`, `TASK-0160`, `TASK-0162`, `TASK-0167`..`TASK-0168`, `TASK-0181`..`TASK-0182`, `TASK-0189`, `TASK-0191`..`TASK-0192`, `TASK-0221`, `TASK-0238`, `TASK-0259`, `TASK-0263`
+
+### Storage, PackageFS & Content
+
+- Progress: `2 / 25` done (`8%`)
+- Kernel-touch tasks: `TASK-0031`
+- Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0051`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`
+
+### Updates, Packaging & Recovery
+
+- Progress: `1 / 21` done (`5%`)
+- Kernel-touch tasks: `TASK-0289`
+- Tasks: `TASK-0007`, `TASK-0034`..`TASK-0037`, `TASK-0050`, `TASK-0089`..`TASK-0090`, `TASK-0129`, `TASK-0131`, `TASK-0140`, `TASK-0174`, `TASK-0178`..`TASK-0180`, `TASK-0197`..`TASK-0198`, `TASK-0239`, `TASK-0260`..`TASK-0261`, `TASK-0289`
+
+### Bringup, Hardware & Drivers
+
+- Progress: `0 / 12` done (`0%`)
+- Kernel-touch tasks: `TASK-0244`, `TASK-0251`
+- Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0253`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`
+
+### Windowing, UI & Graphics
+
+- Progress: `0 / 73` done (`0%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0275`
+
+### Text, IME, I18N & Accessibility
+
+- Progress: `0 / 9` done (`0%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0077`, `TASK-0146`..`TASK-0149`, `TASK-0151`, `TASK-0175`, `TASK-0240`..`TASK-0241`
+
+### Media & Creative
+
+- Progress: `0 / 5` done (`0%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0155`, `TASK-0184`..`TASK-0185`, `TASK-0218`, `TASK-0254`
+
+### Messaging, Search, Store & Sharing
+
+- Progress: `0 / 9` done (`0%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0122C`, `TASK-0123`, `TASK-0126C`, `TASK-0126D`, `TASK-0153`..`TASK-0154`, `TASK-0213`..`TASK-0214`, `TASK-0226`
+
+### DSL, App Platform & SDK
+
+- Progress: `0 / 14` done (`0%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0077B`, `TASK-0077C`, `TASK-0078`, `TASK-0078B`, `TASK-0079`, `TASK-0122B`, `TASK-0163`..`TASK-0166`, `TASK-0169B`, `TASK-0274`, `TASK-0280B`, `TASK-0284B`
+
+### DevX, Config & Tooling
+
+- Progress: `1 / 10` done (`10%`)
+- Kernel-touch tasks: —
+- Tasks: `TASK-0045`..`TASK-0046`, `TASK-0138`, `TASK-0222`, `TASK-0252`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`
+
 ## Done (Ongoing, Cumulative)
 
 | Task | Title | Status | Notes |
@@ -152,6 +319,7 @@ Current RFC closure status: `RFC-0033` and `RFC-0034` are both `Done`.
 | TRACK-PIM-SUITE | `tasks/TRACK-PIM-SUITE.md` |
 | TRACK-PINBALL-APP | `tasks/TRACK-PINBALL-APP.md` |
 | TRACK-PODCASTS-APP | `tasks/TRACK-PODCASTS-APP.md` |
+| TRACK-PRODUCTION-GATES-KERNEL-SERVICES | `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` |
 | TRACK-PUZZLE-APP | `tasks/TRACK-PUZZLE-APP.md` |
 | TRACK-RECIPES-APP | `tasks/TRACK-RECIPES-APP.md` |
 | TRACK-REFERENCE-GAMES | `tasks/TRACK-REFERENCE-GAMES.md` |

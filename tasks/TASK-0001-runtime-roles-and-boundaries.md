@@ -3,6 +3,8 @@ title: TASK-0001 Runtime roles & boundaries (Host + OS-lite): init/execd/loader 
 status: Done
 owner: @init-team @runtime
 created: 2025-10-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

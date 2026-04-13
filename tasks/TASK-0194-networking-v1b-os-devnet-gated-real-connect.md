@@ -3,6 +3,8 @@ title: TASK-0194 Networking v1b (OS/QEMU, gated): devnet-enabled TCP/TLS plumbin
 status: Draft
 owner: @networking
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

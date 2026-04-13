@@ -3,6 +3,8 @@ title: TASK-0122C DSL App Integration Kit v1: picker + clipboard + share + print
 status: Draft
 owner: @ui
 created: 2026-03-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0011B Kernel Rust idioms & ownership clarity (pre-SMP prep)
 status: Draft
 owner: @kernel-team
 created: 2026-01-09
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

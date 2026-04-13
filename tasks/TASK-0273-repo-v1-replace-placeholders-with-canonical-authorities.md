@@ -3,6 +3,8 @@ title: TASK-0273 Repo v1: replace placeholders with canonical authorities (no pa
 status: Draft
 owner: @runtime
 created: 2025-12-30
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0079 DSL v0.3a: IR stabilization + AOT Rust codegen + incremental re
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

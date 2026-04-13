@@ -3,6 +3,8 @@ title: TASK-0135 Storage UI + nx-state: quotas/snapshots/GC controls in Settings
 status: Draft
 owner: @ui
 created: 2025-12-25
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

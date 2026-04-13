@@ -3,6 +3,8 @@ title: TASK-0053 Security v3 (Recovery): signed Recovery Action tokens (.nxra) +
 status: Draft
 owner: @security
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

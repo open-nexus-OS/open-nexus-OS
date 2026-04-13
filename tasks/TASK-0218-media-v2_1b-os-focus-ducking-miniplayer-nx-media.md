@@ -3,6 +3,8 @@ title: TASK-0218 Media UX v2.1b (OS/QEMU): focus/ducking policies + per-app volu
 status: Draft
 owner: @media
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

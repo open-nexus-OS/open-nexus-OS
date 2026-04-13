@@ -3,6 +3,8 @@ title: TASK-0227 Diagnostics v1 (offline): deterministic bugreport bundles + `nx
 status: Draft
 owner: @reliability @devx
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

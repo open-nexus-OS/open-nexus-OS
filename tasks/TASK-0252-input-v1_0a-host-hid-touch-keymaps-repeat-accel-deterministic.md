@@ -3,6 +3,8 @@ title: TASK-0252 Input v1.0a (host-first): HID/touch event core + keymaps + key 
 status: Draft
 owner: @ui
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

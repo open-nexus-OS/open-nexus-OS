@@ -3,6 +3,8 @@ title: TASK-0207 Windowing/Compositor v2.1a (host-first): GPU-ready surface/swap
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0214 Search v2.1b (UI+OS/QEMU): palette semantic chips + query expan
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

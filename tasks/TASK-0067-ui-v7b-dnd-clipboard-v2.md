@@ -3,6 +3,8 @@ title: TASK-0067 UI v7b: drag-and-drop controller (typed offers) + clipboard v2 
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,9 @@ title: TASK-0247 RISC-V Bring-up v1.1b (OS/QEMU): SMP (SBI HSM/IPI) + per-hart t
 status: Draft
 owner: @kernel
 created: 2025-12-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0288
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -80,6 +83,14 @@ On OS/QEMU:
   - SBI HSM (Hart State Management) must be available in OpenSBI. If not, this task must document fallback or gate on OpenSBI version.
 - **YELLOW (hart-runtime hardening completion)**:
   - Complete the deferred hardening from `TASK-0012B`: per-hart trap runtime ownership, kernel stack-overflow detection strategy, NMI-safety policy, and FPU context policy for secondary-hart execution.
+
+## Production-grade gate note
+
+This task closes the **RISC-V bring-up extension** and is required for honest SMP-on-`virt`, but it is
+still not the final runtime production-grade proof.
+
+- `TASK-0288` is the runtime closeout step for deterministic SMP/timer/IPI latency budgets and stress proofs.
+- Treat this task as "bring-up + architecture enablement" and `TASK-0288` as the step that turns that path into a production-grade runtime floor.
 
 ## Security considerations
 

@@ -3,6 +3,8 @@ title: TASK-0126B System Delegation v1a (host-first): action-based intents (chat
 status: Draft
 owner: @runtime @ui
 created: 2026-01-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

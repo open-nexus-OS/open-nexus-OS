@@ -3,6 +3,8 @@ title: TASK-0076B DSL v0.1c: visible OS mount + first DSL frame in windowd/Syste
 status: Draft
 owner: @ui
 created: 2026-03-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,12 @@ title: TASK-0027 StateFS v2b: optional encryption-at-rest (AEAD) via keystored (
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0008B
+  - TASK-0009
+  - TASK-0026
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0086 UI v12c: Files app (grid/list/search/thumbnails) + progress UI 
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

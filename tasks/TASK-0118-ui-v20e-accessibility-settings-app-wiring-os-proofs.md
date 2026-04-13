@@ -3,6 +3,8 @@ title: TASK-0118 UI v20e: accessibility settings pages + app wiring hardening + 
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

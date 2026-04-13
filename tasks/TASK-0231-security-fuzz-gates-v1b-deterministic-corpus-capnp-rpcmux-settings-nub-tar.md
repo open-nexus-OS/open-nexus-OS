@@ -3,6 +3,8 @@ title: TASK-0231 Security fuzz gates v1b (host-first): deterministic corpus test
 status: Draft
 owner: @security
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

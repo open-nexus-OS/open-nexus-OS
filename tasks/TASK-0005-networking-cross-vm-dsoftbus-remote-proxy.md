@@ -4,6 +4,9 @@ status: Done
 owner: @runtime
 created: 2025-12-22
 updated: 2026-01-13
+depends-on:
+  - TASK-0004
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

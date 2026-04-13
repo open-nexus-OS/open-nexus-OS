@@ -5,6 +5,12 @@ owner: @runtime
 created: 2025-12-22
 updated: 2026-01-14
 completed: 2026-01-14
+depends-on: []
+follow-up-tasks:
+  - TASK-0014
+  - TASK-0018
+  - TASK-0040
+  - TASK-0141
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -13,11 +19,6 @@ links:
   - Testing contract: scripts/qemu-test.sh
   - Rust standards (newtypes, must-use): docs/standards/RUST_STANDARDS.md
   - Security standards (error discipline): docs/standards/SECURITY_STANDARDS.md
-follow-up-tasks:
-  - TASK-0014: Observability v2 (metrics/tracing exports via logd)
-  - TASK-0018: Crashdumps v1 (minidump + symbolization; extends crash reports)
-  - TASK-0040: Remote observability v1 (scrape logs/metrics over DSoftBus)
-  - TASK-0141: Crash export/redaction surface (.nxcd.zst artifacts)
 ---
 
 ## Context

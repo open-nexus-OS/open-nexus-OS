@@ -3,6 +3,8 @@ title: TASK-0201 Text v2.1a (host-first): hyphenation (EN/DE) + UAX#14 line brea
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

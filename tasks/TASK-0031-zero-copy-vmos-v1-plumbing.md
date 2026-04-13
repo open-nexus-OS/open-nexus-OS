@@ -4,6 +4,14 @@ status: Draft
 owner: @runtime
 created: 2025-12-22
 updated: 2026-01-26
+depends-on:
+  - TASK-0009
+  - TASK-0020
+  - TASK-0029
+follow-up-tasks:
+  - TASK-0031-v2
+  - TASK-0031-vfs
+  - TASK-0290
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -27,13 +35,6 @@ links:
   - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (zero-copy packet buffers)
   - Early UI/kernel perf consumer follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
   - UI/MM perf consumer follow-up: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
-
-follow-up-tasks:
-  - TASK-0031-v2: Kernel-enforced RO sealing (`Rights::SEAL`) and write-map denial proofs (to be created; gate on kernel support)
-  - TASK-0031-vfs: VFS/content providers “splice to VMO” paths and registries (once writable `/state` and provider hooks exist)
-  - TASK-0020 extension: DSoftBus mux v2 VMO frames (builds on existing mux v2 baseline and this v1 contract)
-  - TRACK-DRIVERS-ACCELERATORS: zero-copy DMA buffers for real devices (GPU/NPU/VPU/Audio/Camera/ISP)
-  - TRACK-NETWORKING-DRIVERS: zero-copy packet buffers and bounded receive rings
 ---
 
 ## Context
@@ -154,6 +155,14 @@ either security bugs (cap leaks, write mappings) or “fake zero-copy” claims.
 - Add `Rights::SEAL` capability bit
 - Kernel rejects write mappings of sealed VMOs
 - Syscall returns `EPERM` on seal violation
+
+## Production-grade gate note
+
+This task establishes the **plumbing + honesty floor** for zero-copy, but it does not by itself close
+the kernel-side production-grade gap.
+
+- `TASK-0290` is the closeout step for kernel-enforced sealing rights, write-map denial, and reuse/copy-fallback truth.
+- UI and media consumers may cite this task as the baseline, but they should cite `TASK-0290` for a production-grade kernel data-plane claim.
 
 ### Mitigations
 

@@ -1,15 +1,14 @@
-<!-- Copyright 2026 Open Nexus OS Contributors -->
-<!-- SPDX-License-Identifier: Apache-2.0 -->
-
-# TASK-0285: RFC-0014 Phase 2 — QEMU harness phased failure output + phase early-exit
-
-Status: Complete
-Owners: @tools-team, @runtime
-Created: 2026-01-23
-
-Links:
-- RFC: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Phase 2)
-- Testing guide: `docs/testing/index.md`
+---
+title: TASK-0285 RFC-0014 Phase 2: QEMU harness phased failure output + phase early-exit
+status: Done
+owner: @tools-team @runtime
+created: 2026-01-23
+depends-on: []
+follow-up-tasks: []
+links:
+  - RFC: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
+  - Testing guide: docs/testing/index.md
+---
 
 ## Context
 

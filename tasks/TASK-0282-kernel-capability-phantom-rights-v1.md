@@ -3,6 +3,9 @@ title: TASK-0282 Kernel Rust idioms v1d: phantom types for capability rights (co
 status: Draft
 owner: @kernel-team
 created: 2026-01-09
+depends-on:
+  - TASK-0011B
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - IPC/cap model baseline: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md

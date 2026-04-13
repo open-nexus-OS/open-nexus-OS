@@ -4,6 +4,27 @@ status: Done
 owner: @runtime
 created: 2025-12-22
 completed: 2026-01-25
+depends-on:
+  - TASK-0006
+follow-up-tasks:
+  - TASK-0008B
+  - TASK-0009
+  - TASK-0017
+  - TASK-0019
+  - TASK-0188
+  - TASK-0025
+  - TASK-0027
+  - TASK-0028
+  - TASK-0029
+  - TASK-0039
+  - TASK-0043
+  - TASK-0053
+  - TASK-0108
+  - TASK-0136
+  - TASK-0137
+  - TASK-0159
+  - TASK-0160
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -11,23 +32,6 @@ links:
   - RFC (capability model): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Existing policy baseline: recipes/policy/base.toml
-follow-up-tasks:
-  - TASK-0008B: Device identity keys v1 (OS): virtio-rng entropy + rngd + keystored keygen (enables real device keys)
-  - TASK-0009: Persistence v1 (enables persistent device keys; not a blocker for v1)
-  - TASK-0017: DSoftBus remote statefs R/W (policy + audit semantics)
-  - TASK-0019: Security v2 userland ABI/syscall filters (reuse policy authority)
-  - TASK-0025: Statefs write-path hardening (policy-gated ops + audit)
-  - TASK-0027: Statefs encryption-at-rest (device keys + entropy)
-  - TASK-0028: ABI filters v2 (arg match learn/enforce, policy authority)
-  - TASK-0029: Supply chain v1 (SBOM/repro/sign/policy, device identity)
-  - TASK-0039: Sandboxing v1 (VFS namespaces/capfd/manifest, policy authority)
-  - TASK-0043: Security v2 (sandbox quotas/egress/ABI/audit)
-  - TASK-0053: Security v3 (signed recovery actions, policy-gated signing)
-  - TASK-0108: UI keymintd/keystore/keychain baseline (device keys)
-  - TASK-0136: Policy v1 (capability matrix/foreground adapters/audit)
-  - TASK-0137: Security & Privacy Settings UI (audit viewer + approvals)
-  - TASK-0159: Identity/Keystore v1.1 (lifecycle/rotation, host-first)
-  - TASK-0160: Identity/Keystore v1.1 OS (attestd/trust unification/selftests)
 ---
 
 ## Context
@@ -125,6 +129,16 @@ In QEMU, prove:
 - **Critical**: This task defines the core security enforcement layer
 - **Policy engine is the trust anchor**: Bugs here compromise the entire system
 - **Requires thorough security review**: All changes to policyd/keystored must be reviewed
+
+## Production-grade gate note
+
+This task establishes the **policy authority and audit baseline**, but it is not, by itself, the full
+production-grade kernel/service security boundary.
+
+- `TASK-0188` closes the kernel-side syscall filtering boundary.
+- `TASK-0289` closes verified-boot / rollback trust so policy assets and measurements participate in a release-grade boot chain.
+
+Keep describing this task as the policy-control-plane foundation, not the entire hardened boundary.
 
 ### Mitigations
 

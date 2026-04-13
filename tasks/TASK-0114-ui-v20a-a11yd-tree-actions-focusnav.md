@@ -3,6 +3,8 @@ title: TASK-0114 UI v20a: Accessibility tree v1 hardening (a11yd) + actions + fo
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

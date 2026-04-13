@@ -3,6 +3,8 @@ title: TASK-0280B NexusInfer v1b (host-first): tensor/image interop + profile bi
 status: Draft
 owner: @runtime @ui
 created: 2026-04-10
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

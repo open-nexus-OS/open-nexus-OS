@@ -3,6 +3,8 @@ title: TASK-0131 Packages v1c: Installer UI + Files/Open-With integration + Laun
 status: Draft
 owner: @ui
 created: 2025-12-25
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

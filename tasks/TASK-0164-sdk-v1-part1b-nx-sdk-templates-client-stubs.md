@@ -3,6 +3,8 @@ title: TASK-0164 SDK v1 Part 1b (host-first): typed client stubs + app templates
 status: Draft
 owner: @devx
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

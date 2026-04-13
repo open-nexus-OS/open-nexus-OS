@@ -3,6 +3,8 @@ title: TASK-0057 UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG saf
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

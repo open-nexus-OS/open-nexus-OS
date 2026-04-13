@@ -3,6 +3,8 @@ title: TASK-0220 DSoftBus v1.2b (OS/QEMU): Media Remote cast/transfer/group UI (
 status: Draft
 owner: @media
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

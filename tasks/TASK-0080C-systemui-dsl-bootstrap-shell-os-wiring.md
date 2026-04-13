@@ -3,6 +3,8 @@ title: TASK-0080C SystemUI DSL bootstrap shell (OS/QEMU): visible launcher mount
 status: Draft
 owner: @ui
 created: 2026-03-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

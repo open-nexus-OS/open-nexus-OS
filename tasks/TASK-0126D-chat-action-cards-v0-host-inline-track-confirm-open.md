@@ -3,6 +3,8 @@ title: TASK-0126D Chat Action Cards v0 (host-first): inline cards for track/conf
 status: Draft
 owner: @ui @runtime
 created: 2026-01-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

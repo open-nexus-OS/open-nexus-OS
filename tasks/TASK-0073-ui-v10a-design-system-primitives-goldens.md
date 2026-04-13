@@ -3,6 +3,8 @@ title: TASK-0073 UI v10a (host-first): Design System v1 façade + core primitive
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

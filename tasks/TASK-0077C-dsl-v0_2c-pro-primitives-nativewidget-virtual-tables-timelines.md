@@ -3,6 +3,8 @@ title: TASK-0077C DSL v0.2c Pro UI: virtualized table/grid + timeline primitives
 status: Draft
 owner: @ui
 created: 2026-01-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

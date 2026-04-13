@@ -3,6 +3,8 @@ title: TASK-0269 Boot gates v1 (OS/QEMU): readiness contract + spawn failure rea
 status: Complete
 owner: @runtime @kernel-team @tools-team
 created: 2026-01-16
+depends-on: []
+follow-up-tasks: []
 links:
   - RFC: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
   - Logging discipline: docs/rfcs/RFC-0003-unified-logging.md

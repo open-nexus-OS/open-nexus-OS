@@ -3,6 +3,8 @@ title: TASK-0163 SDK v1 Part 1a (host-first): freeze Cap'n Proto IDLs + determin
 status: Draft
 owner: @devx
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0161 Backup/Restore v1a (host-first): NBK v1 deterministic bundle fo
 status: Draft
 owner: @runtime
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

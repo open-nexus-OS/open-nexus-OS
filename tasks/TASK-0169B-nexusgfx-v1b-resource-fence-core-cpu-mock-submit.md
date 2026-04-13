@@ -3,6 +3,8 @@ title: TASK-0169B NexusGfx v1b (host-first): resource/fence core + CPU mock subm
 status: Draft
 owner: @ui @runtime
 created: 2026-04-10
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

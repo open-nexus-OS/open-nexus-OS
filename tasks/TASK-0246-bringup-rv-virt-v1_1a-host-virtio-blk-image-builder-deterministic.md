@@ -3,6 +3,10 @@ title: TASK-0246 RISC-V Bring-up v1.1a (host-first): virtio-blk frontend core + 
 status: Draft
 owner: @kernel
 created: 2025-12-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0260
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -58,6 +62,14 @@ Deliver on host:
 
 - **YELLOW (virtio-blk vs TASK-0009)**:
   - `TASK-0009` already plans virtio-blk for statefs. This task should provide a reusable library that both packagefs and statefs can use. Document the relationship explicitly.
+
+## Production-grade gate note
+
+This task closes the **host-first block/image-builder floor** for bring-up, but it is not yet the full
+release-grade provisioning or trusted-boot path.
+
+- `TASK-0260` carries deterministic provisioning/recovery and flash protocol closure.
+- `TASK-0289` is still needed for verified-boot and rollback-protected image trust.
 
 ## Contract sources (single source of truth)
 

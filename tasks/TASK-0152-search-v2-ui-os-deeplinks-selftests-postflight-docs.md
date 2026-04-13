@@ -3,6 +3,8 @@ title: TASK-0152 Search v2 UI (OS/QEMU): deep-link router + intents/open-with + 
 status: Draft
 owner: @ui
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

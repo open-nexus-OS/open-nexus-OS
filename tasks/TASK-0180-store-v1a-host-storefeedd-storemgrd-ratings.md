@@ -3,6 +3,8 @@ title: TASK-0180 Store v1a (host-first): offline feed (pkg://store) + storefeedd
 status: Draft
 owner: @platform
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

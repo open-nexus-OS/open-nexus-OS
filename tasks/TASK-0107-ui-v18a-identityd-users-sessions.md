@@ -3,6 +3,8 @@ title: TASK-0107 UI v18a: identityd (users + password/PIN auth + sessions) with 
 status: Draft
 owner: @security
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

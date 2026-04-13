@@ -3,6 +3,8 @@ title: TASK-0128 Share v2c: sender-side wiring (Files/Text/Images/Markdown/PDF/B
 status: Draft
 owner: @ui
 created: 2025-12-25
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

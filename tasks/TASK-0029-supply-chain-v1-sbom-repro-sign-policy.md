@@ -3,6 +3,13 @@ title: TASK-0029 Supply-Chain v1: bundle SBOM (CycloneDX) + repro metadata + sig
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0008B
+follow-up-tasks:
+  - TASK-0197
+  - TASK-0198
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -67,6 +74,16 @@ Deliver supply-chain v1 for **bundles** first:
 - **YELLOW (policy authority)**:
   - Publisher allowlists should be rooted in a single authority. Prefer `keystored` (anchors/keys) and `policyd` for decisions,
     with `bundlemgrd` enforcing at install time.
+
+## Production-grade gate note
+
+This task establishes the **host-first supply-chain baseline**, but production-grade update/trust
+claims require later OS enforcement and boot-chain closure:
+
+- `TASK-0197` / `TASK-0198` for full sigchain/translog/provenance and anti-downgrade enforcement in OS paths,
+- `TASK-0289` for verified-boot anchors and rollback indices tied to the boot path.
+
+Do not use this task alone as evidence of production-grade anti-rollback or boot trust.
 
 ## Contract sources (single source of truth)
 

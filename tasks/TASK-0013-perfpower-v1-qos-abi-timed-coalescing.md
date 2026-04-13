@@ -3,6 +3,14 @@ title: TASK-0013 Performance & Power v1 (userspace): QoS ABI hints + timed servi
 status: Done
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0012
+  - TASK-0012B
+follow-up-tasks:
+  - TASK-0042
+  - TASK-0247
+  - TASK-0277
+  - TASK-0283
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

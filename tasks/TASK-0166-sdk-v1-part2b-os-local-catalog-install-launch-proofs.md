@@ -3,6 +3,8 @@ title: TASK-0166 SDK v1 Part 2b (OS/QEMU): local catalog + install/launch proofs
 status: Draft
 owner: @devx
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

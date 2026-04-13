@@ -3,6 +3,8 @@ title: TASK-0117 UI v20d: captions/subtitles (SRT/VTT) crate + Video app renderi
 status: Draft
 owner: @media
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0052 Security v3 (Ingress): default-deny inbound policy + ingressd u
 status: Draft
 owner: @security
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

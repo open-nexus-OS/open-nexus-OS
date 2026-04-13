@@ -3,6 +3,8 @@ title: TASK-0141 Crash v1 (offline): crash notifications + export/redaction surf
 status: Draft
 owner: @reliability
 created: 2025-12-25
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

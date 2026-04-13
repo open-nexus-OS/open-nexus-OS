@@ -3,6 +3,8 @@ title: TASK-0179 Updated v2 (offline, deterministic): pkg://updates feed + manif
 status: Draft
 owner: @runtime
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

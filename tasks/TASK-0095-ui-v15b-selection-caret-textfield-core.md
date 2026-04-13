@@ -3,6 +3,8 @@ title: TASK-0095 UI v15b: selection/caret engine (textedit_core) + TextField reb
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0167 Policy v1.1 (host-first): scoped grants + once/session/persiste
 status: Draft
 owner: @runtime
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

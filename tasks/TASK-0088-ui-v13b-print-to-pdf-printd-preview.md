@@ -3,6 +3,8 @@ title: TASK-0088 UI v13b: Print-to-PDF pipeline (pdfgen + printd) + preview UI (
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

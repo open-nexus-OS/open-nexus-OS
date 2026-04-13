@@ -3,6 +3,8 @@ title: TASK-0036 OTA A/B v2 (userspace): slot state machine + health multiplexer
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Packaging/updates baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md

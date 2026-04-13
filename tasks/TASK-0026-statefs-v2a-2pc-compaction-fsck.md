@@ -3,6 +3,9 @@ title: TASK-0026 StateFS v2a: 2PC crash-atomicity + bounded compaction + fsck to
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0009
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0078B DSL v0.2b QuerySpec v1: foundation + service-gated execution +
 status: Draft
 owner: @ui
 created: 2026-04-03
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

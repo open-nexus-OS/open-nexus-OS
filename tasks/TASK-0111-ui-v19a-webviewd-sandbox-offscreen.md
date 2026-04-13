@@ -3,6 +3,8 @@ title: TASK-0111 UI v19a: webviewd offscreen WebView (sandboxed, offline) + URL 
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

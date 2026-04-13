@@ -3,6 +3,9 @@ title: TASK-0013B IPC liveness hardening v1: bounded retry/correlation contract 
 status: Done
 owner: @runtime
 created: 2026-02-16
+depends-on: []
+follow-up-tasks:
+  - TASK-0247
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0235 Ability/Lifecycle v1.1b (OS/QEMU): appmgrd extension + samgr ho
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

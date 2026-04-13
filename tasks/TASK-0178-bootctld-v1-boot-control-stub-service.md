@@ -3,6 +3,8 @@ title: TASK-0178 Boot control v1 (OS/QEMU): bootctld stub service + slot/trial s
 status: Draft
 owner: @runtime
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

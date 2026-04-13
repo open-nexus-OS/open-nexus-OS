@@ -3,6 +3,8 @@ title: TASK-0283 Kernel SMP prep v1: per-CPU ownership wrapper (`PerCpu<T>`) and
 status: Draft
 owner: @kernel-team
 created: 2026-01-09
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Rust SMP model: docs/architecture/16-rust-concurrency-model.md

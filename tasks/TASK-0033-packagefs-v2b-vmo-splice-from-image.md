@@ -3,6 +3,11 @@ title: TASK-0033 packagefs v2b: zero-copy VMO splice from RO package image (gate
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0028
+  - TASK-0031
+  - TASK-0032
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Depends-on (package image v2): tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md

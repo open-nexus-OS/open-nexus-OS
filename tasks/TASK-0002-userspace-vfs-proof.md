@@ -3,6 +3,8 @@ title: TASK-0002 Userspace VFS Proof
 status: Done
 owner: @runtime
 created: 2025-10-24
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

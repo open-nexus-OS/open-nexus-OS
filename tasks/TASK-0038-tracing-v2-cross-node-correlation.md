@@ -3,6 +3,13 @@ title: TASK-0038 Tracing v2: cross-node correlation via DSoftBus (context propag
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0003
+  - TASK-0006
+  - TASK-0009
+  - TASK-0014
+  - TASK-0020
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

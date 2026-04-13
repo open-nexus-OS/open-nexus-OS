@@ -3,6 +3,8 @@ title: TASK-0062B UI v5a extension: animation frame-budget discipline + perf sce
 status: Draft
 owner: @ui @runtime
 created: 2026-03-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,10 @@ title: TASK-0238 Installer v1.1a (host-first): NXB format (SemVer, migrations, p
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks:
+  - TASK-0239
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -71,6 +75,14 @@ Deliver on host:
   - Do not introduce `manifest.json` + `payload.tar` as a new bundle format. Use NXB (`manifest.nxb` + `payload.elf`) only. If the prompt suggests a different layout or name, treat it as documentation/UI naming, not a new on-disk contract.
 - **YELLOW (migration determinism)**:
   - Migration scripts must be idempotent and timeout-bounded. Tests must use injectable time sources.
+
+## Production-grade gate note
+
+This task closes the **host-first installer logic floor** for policy, SemVer, and migrations, but it
+does not yet prove the OS activation/recovery boundary.
+
+- `TASK-0239` carries the OS/QEMU atomic activation and installer-service integration.
+- `TASK-0289` closes the verified-boot / anti-rollback side needed for full release-grade recovery and update trust.
 
 ## Contract sources (single source of truth)
 

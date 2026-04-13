@@ -3,6 +3,8 @@ title: TASK-0084 UI v12a: scoped content:// URI grants (grantsd) + contentd enfo
 status: Draft
 owner: @security
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

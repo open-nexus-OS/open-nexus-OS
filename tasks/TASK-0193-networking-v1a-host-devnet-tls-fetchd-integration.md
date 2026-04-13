@@ -3,6 +3,8 @@ title: TASK-0193 Networking v1a (host-first): devnet flag + resolverd hosts + ru
 status: Draft
 owner: @networking
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

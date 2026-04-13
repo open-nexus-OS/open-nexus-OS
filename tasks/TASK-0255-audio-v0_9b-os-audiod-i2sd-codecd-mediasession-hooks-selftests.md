@@ -3,6 +3,8 @@ title: TASK-0255 Audio v0.9b (OS/QEMU): audiod service + i2sd/codecd stubs + med
 status: Draft
 owner: @media
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

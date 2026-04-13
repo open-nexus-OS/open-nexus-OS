@@ -3,6 +3,8 @@ title: TASK-0219 DSoftBus v1.2a (host-first): Media Remote (media.remote@1) prot
 status: Draft
 owner: @media
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

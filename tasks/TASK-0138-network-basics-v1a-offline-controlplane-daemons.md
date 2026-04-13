@@ -3,6 +3,8 @@ title: TASK-0138 Network Basics v1a (offline): netcfgd + sim-dhcpcd + dnsd (host
 status: Draft
 owner: @platform
 created: 2025-12-25
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

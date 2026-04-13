@@ -3,6 +3,8 @@ title: TASK-0105 UI v17c: screen recorder (recorderd) via screencapd + capture o
 status: Draft
 owner: @media
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

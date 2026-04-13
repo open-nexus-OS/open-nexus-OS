@@ -3,6 +3,8 @@ title: TASK-0165 SDK v1 Part 2a (host-first): nx sdk dev-tools + templates + man
 status: Draft
 owner: @devx
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

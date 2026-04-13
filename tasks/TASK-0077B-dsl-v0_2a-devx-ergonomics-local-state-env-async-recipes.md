@@ -3,6 +3,8 @@ title: TASK-0077B DSL v0.2a DevX: local state ergonomics (`$state.field`) + bind
 status: Draft
 owner: @ui
 created: 2026-01-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

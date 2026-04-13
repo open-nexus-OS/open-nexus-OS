@@ -3,6 +3,9 @@ title: TASK-0041 Lock profiling v1 (userspace-first): contention/hold-time stats
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0014
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Depends-on (metrics/tracing sinks, optional): tasks/TASK-0014-observability-v2-metrics-tracing.md

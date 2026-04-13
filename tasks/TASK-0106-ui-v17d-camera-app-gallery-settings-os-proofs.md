@@ -3,6 +3,8 @@ title: TASK-0106 UI v17d: Camera app + Gallery integration + Settings privacy pa
 status: Draft
 owner: @media
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0276 Parallelism v1: deterministic threadpools policy (safe-by-defau
 status: Draft
 owner: @arch
 created: 2025-12-30
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0185 Media UX v2b (OS/QEMU): tray mini-player (session switcher) + n
 status: Draft
 owner: @media
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

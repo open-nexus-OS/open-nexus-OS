@@ -3,6 +3,8 @@ title: TASK-0076 DSL v0.1b: IR interpreter bridge + headless snapshots + SystemU
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

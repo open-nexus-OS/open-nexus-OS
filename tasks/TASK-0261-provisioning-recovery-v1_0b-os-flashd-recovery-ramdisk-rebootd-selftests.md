@@ -3,6 +3,8 @@ title: TASK-0261 Provisioning/Recovery v1.0b (OS/QEMU): flashd service + recover
 status: Draft
 owner: @reliability
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

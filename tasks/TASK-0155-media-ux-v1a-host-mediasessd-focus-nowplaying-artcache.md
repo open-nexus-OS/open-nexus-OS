@@ -3,6 +3,8 @@ title: TASK-0155 Media UX v1a (host-first): mediasessd sessions + focus rules + 
 status: Draft
 owner: @media
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

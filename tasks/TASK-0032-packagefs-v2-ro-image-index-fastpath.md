@@ -3,6 +3,11 @@ title: TASK-0032 packagefs v2: read-only package image + precomputed index (O(1)
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0007
+  - TASK-0009
+  - TASK-0010
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Packaging baseline: docs/packaging/nxb.md

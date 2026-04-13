@@ -3,6 +3,8 @@ title: TASK-0211 DSoftBus v1.1c (host-first): busdir (service directory + watch)
 status: Draft
 owner: @runtime
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

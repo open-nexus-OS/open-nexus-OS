@@ -3,6 +3,19 @@ title: TASK-0010 Device access model v1: safe userspace MMIO for virtio devices 
 status: Done
 owner: @kernel-team @runtime
 created: 2025-12-22
+depends-on: []
+follow-up-tasks:
+  - TASK-0009
+  - TASK-0032
+  - TASK-0247
+  - TASK-0249
+  - TASK-0251
+  - TASK-0253
+  - TASK-0255
+  - TASK-0257
+  - TASK-0259
+  - TASK-0280
+  - TASK-0284
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -16,18 +29,6 @@ links:
   - Unblocks: tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md
   - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (GPU/NPU/VPU/Audio/Camera/ISP userspace drivers)
   - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (virtio-net userspace frontend)
-follow-up-tasks:
-  - TASK-0009: Persistence v1 (virtio-blk + statefs) — blocked until this task is complete enough for virtio-blk
-  - TASK-0247: RISC-V bring-up v1.1b (virtioblkd + pkgfs from disk) — needs virtio-blk MMIO caps
-  - TASK-0249: RISC-V bring-up v1.2b (virtionetd/netstackd) — needs virtio-net MMIO caps
-  - TASK-0032: packagefs v2 blk-backed OS path (optional) — gated on virtio-blk MMIO caps
-  - TASK-0280: DriverKit v1 core contracts — depends on MMIO caps being real and auditable
-  - TASK-0284: DMA buffer ownership prototype — builds on the same device-class boundary (MMIO now, DMA later)
-  - TASK-0251: Display v1.0b OS (fbdevd) — may require MMIO caps for real devices
-  - TASK-0253: Input v1.0b OS (hidrawd/touchd) — may require MMIO caps for real devices
-  - TASK-0255: Audio v0.9b OS (audiod + codec/i2s) — may require MMIO caps for real devices
-  - TASK-0257: Battery v0.9b OS — may require MMIO caps for fuel-gauge/charger
-  - TASK-0259: Sensor bus v0.9b OS (i2cd/spid) — may require MMIO caps for bus controllers
 ---
 
 ## Context

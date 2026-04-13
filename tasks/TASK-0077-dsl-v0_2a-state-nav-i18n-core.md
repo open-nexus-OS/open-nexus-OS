@@ -3,6 +3,10 @@ title: TASK-0077 DSL v0.2a: stores/reducers/effects + routes/navigation + i18n k
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks:
+  - TASK-0077B
+  - TASK-0077C
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -13,9 +17,6 @@ links:
   - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-follow-up-tasks:
-  - TASK-0077B: DevX ergonomics (local state/bindings/env/async recipes)
-  - TASK-0077C: Pro primitives + NativeWidget blessed path (tables/timelines)
 ---
 
 ## Context

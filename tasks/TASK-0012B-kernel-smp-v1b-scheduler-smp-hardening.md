@@ -3,6 +3,12 @@ title: TASK-0012B Kernel SMP v1b: scheduler + SMP hardening (bounded queues, tra
 status: Done
 owner: @kernel-team
 created: 2026-02-10
+depends-on: []
+follow-up-tasks:
+  - TASK-0013
+  - TASK-0042
+  - TASK-0247
+  - TASK-0283
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

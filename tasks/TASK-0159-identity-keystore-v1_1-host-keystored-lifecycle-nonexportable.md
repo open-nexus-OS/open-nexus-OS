@@ -3,6 +3,8 @@ title: TASK-0159 Identity/Keystore v1.1 (host-first): keystored key lifecycle + 
 status: Draft
 owner: @security
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

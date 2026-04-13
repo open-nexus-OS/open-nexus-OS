@@ -3,6 +3,8 @@ title: TASK-0176 WebView Net v1a (host-first): HTML sanitizer v2 + SanitizedDOM 
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

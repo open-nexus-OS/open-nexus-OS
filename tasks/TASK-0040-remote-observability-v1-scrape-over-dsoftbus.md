@@ -3,6 +3,14 @@ title: TASK-0040 Remote observability v1: scrape logs/metrics over DSoftBus (hos
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0003
+  - TASK-0006
+  - TASK-0014
+  - TASK-0020
+  - TASK-0030
+  - TASK-0031
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - DSoftBus base: docs/distributed/dsoftbus-lite.md

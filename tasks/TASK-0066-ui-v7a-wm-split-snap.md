@@ -3,6 +3,8 @@ title: TASK-0066 UI v7a: multi-window split/snap zones + simple tiling policy (w
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

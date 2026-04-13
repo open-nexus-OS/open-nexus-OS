@@ -3,6 +3,8 @@ title: TASK-0233 Files/Content v1.2b (OS/QEMU): SAF picker flows (open/save/fold
 status: Draft
 owner: @ui @platform
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

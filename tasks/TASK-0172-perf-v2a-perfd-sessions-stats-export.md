@@ -3,6 +3,8 @@ title: TASK-0172 Perf v2a (host-first): perfd sessions API + deterministic stats
 status: Draft
 owner: @reliability
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

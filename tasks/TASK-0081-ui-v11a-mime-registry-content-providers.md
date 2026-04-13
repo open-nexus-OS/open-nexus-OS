@@ -3,6 +3,8 @@ title: TASK-0081 UI v11a: MIME registry (mimed) + content provider API (contentd
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,15 @@ title: TASK-0018 Crashdumps & Symbolization v1 (OS): deterministic in-process mi
 status: Done
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0009
+follow-up-tasks:
+  - TASK-0048
+  - TASK-0049
+  - TASK-0141
+  - TASK-0142
+  - TASK-0227
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -10,12 +19,6 @@ links:
   - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
-follow-up-tasks:
-  - TASK-0048: Crashdump v2a host pipeline (`nxsym`, `.nxcd`, `nx crash`)
-  - TASK-0049: Crashdump v2b OS pipeline (`crashd`, retention, policy redaction)
-  - TASK-0141: Crash export/redaction + notifications surface
-  - TASK-0142: Problem Reporter UI integration
-  - TASK-0227: Offline bugreport bundles (`nx diagnose`)
 ---
 
 ## Context

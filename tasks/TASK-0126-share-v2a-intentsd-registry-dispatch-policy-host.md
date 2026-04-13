@@ -3,6 +3,9 @@ title: TASK-0126 Share v2a: intentsd registry/query/dispatch + result callbacks 
 status: Draft
 owner: @ui
 created: 2025-12-25
+depends-on: []
+follow-up-tasks:
+  - TASK-0126B
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

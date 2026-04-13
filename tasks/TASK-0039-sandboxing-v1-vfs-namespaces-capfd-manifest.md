@@ -3,6 +3,12 @@ title: TASK-0039 Sandboxing v1 (userspace): per-subject VFS namespaces + CapFd r
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0008
+  - TASK-0019
+  - TASK-0028
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

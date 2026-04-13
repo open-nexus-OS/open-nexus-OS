@@ -3,6 +3,8 @@ title: TASK-0102 UI v16d: Music app + Video app (gif/apng/mjpeg) + MIME wiring +
 status: Draft
 owner: @media
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

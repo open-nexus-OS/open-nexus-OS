@@ -3,6 +3,8 @@ title: TASK-0248 RISC-V Bring-up v1.2a (host-first): virtio-net frontend core + 
 status: Draft
 owner: @kernel
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

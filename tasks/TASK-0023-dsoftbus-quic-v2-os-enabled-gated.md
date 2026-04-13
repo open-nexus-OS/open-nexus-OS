@@ -3,6 +3,11 @@ title: TASK-0023 DSoftBus QUIC v2 (OS enabled): UDP over nexus-net + handshake +
 status: Blocked
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0003
+  - TASK-0020
+  - TASK-0022
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

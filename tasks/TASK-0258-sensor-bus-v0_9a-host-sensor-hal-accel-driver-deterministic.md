@@ -3,6 +3,8 @@ title: TASK-0258 Sensor-Bus v0.9a (host-first): sensor HAL + accelerometer drive
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

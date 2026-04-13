@@ -3,6 +3,11 @@ title: TASK-0130 Packages v1b: bundlemgrd install/upgrade/uninstall for third-pa
 status: Draft
 owner: @runtime
 created: 2025-12-25
+depends-on: []
+follow-up-tasks:
+  - TASK-0238
+  - TASK-0239
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -67,6 +72,15 @@ Deliver:
 - Atomic install: stage → verify → commit (no partial installs).
 - Deterministic error reasons and deterministic markers.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
+
+## Production-grade gate note
+
+This task delivers the **bundle install/trust baseline**, but it is still below the full release-grade
+activation and rollback story.
+
+- `TASK-0238` adds host-side SemVer/migration/policy closure.
+- `TASK-0239` adds OS atomic A/B activation and installer integration.
+- `TASK-0289` closes verified-boot / anti-rollback trust for the boot and recovery chain.
 
 ## Stop conditions (Definition of Done)
 

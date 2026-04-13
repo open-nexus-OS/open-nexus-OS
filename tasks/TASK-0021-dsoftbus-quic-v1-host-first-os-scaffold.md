@@ -3,6 +3,13 @@ title: TASK-0021 DSoftBus QUIC v1: host QUIC transport (quinn) + OS UDP scaffold
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0003
+  - TASK-0005
+  - TASK-0015
+  - TASK-0020
+  - TASK-0022
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

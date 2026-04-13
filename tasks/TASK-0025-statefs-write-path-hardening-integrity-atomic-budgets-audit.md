@@ -3,6 +3,15 @@ title: TASK-0025 StateFS write-path hardening: integrity envelopes + atomic comm
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0008
+  - TASK-0009
+  - TASK-0019
+follow-up-tasks:
+  - TASK-0132
+  - TASK-0133
+  - TASK-0289
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -60,6 +69,17 @@ Prove, deterministically:
   - Audit via logd depends on TASK-0006. Until then, use a bounded local audit sink in tests and keep OS audit as “best effort”.
 - **YELLOW (policy source of truth)**:
   - Policy should not be duplicated across `statefsd`, `policyd`, and ABI filters. Prefer a single authority (policyd/nexus-sel) with ABI filters as guardrails.
+
+## Production-grade gate note
+
+This task closes the **write-path integrity/atomicity floor** for `/state`, but production-grade
+storage/recovery claims still need follow-on closure:
+
+- `TASK-0132` for stable cross-service storage error semantics,
+- `TASK-0133` for deterministic quota enforcement,
+- `TASK-0289` for boot-chain-backed rollback/trust closure.
+
+Treat this task as necessary but not sufficient for release-grade storage trust.
 
 ## Contract sources (single source of truth)
 

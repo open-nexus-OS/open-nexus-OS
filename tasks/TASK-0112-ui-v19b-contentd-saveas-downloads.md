@@ -3,6 +3,8 @@ title: TASK-0112 UI v19b: contentd saveAs helper (data:/content:// → state:/Do
 status: Draft
 owner: @platform
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

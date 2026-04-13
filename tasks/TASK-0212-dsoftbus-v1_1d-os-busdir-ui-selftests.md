@@ -3,6 +3,8 @@ title: TASK-0212 DSoftBus v1.1d (OS/QEMU): busdir wiring + rpcmux calls + health
 status: Draft
 owner: @runtime
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

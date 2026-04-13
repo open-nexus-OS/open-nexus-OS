@@ -3,6 +3,8 @@ title: TASK-0101 UI v16c: mediasessd (now-playing + controls) + SystemUI volume 
 status: Draft
 owner: @media
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

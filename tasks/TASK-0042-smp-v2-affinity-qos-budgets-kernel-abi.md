@@ -3,6 +3,9 @@ title: TASK-0042 SMP v2: affinity hints + QoS CPU budgets (requires kernel ABI +
 status: Draft
 owner: @kernel-team @runtime
 created: 2025-12-22
+depends-on: []
+follow-up-tasks:
+  - TASK-0247
 links:
   - Vision: docs/agents/VISION.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md

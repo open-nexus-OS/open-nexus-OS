@@ -3,6 +3,8 @@ title: TASK-0189 Sandbox profiles v2 (userspace): profile format + distribution 
 status: Draft
 owner: @security
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

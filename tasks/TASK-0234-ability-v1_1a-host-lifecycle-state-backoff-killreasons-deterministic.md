@@ -3,6 +3,8 @@ title: TASK-0234 Ability/Lifecycle v1.1a (host-first): deterministic lifecycle s
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

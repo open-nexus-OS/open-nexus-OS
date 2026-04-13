@@ -3,6 +3,8 @@ title: TASK-0059 UI v3b: clipping/scroll layers + precise damage + CPU effects (
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

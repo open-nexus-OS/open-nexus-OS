@@ -3,6 +3,8 @@ title: TASK-0168 Policy v1.1 (OS/QEMU): permsd runtime prompts + Privacy Dashboa
 status: Draft
 owner: @ui
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

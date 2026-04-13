@@ -3,6 +3,9 @@ title: TASK-0281 Kernel Rust idioms v1c: complete newtype coverage for all kerne
 status: Draft
 owner: @kernel-team
 created: 2026-01-09
+depends-on:
+  - TASK-0011B
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md

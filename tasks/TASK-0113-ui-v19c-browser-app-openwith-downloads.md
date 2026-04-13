@@ -3,6 +3,8 @@ title: TASK-0113 UI v19c: Browser app (offline) + downloads shelf + Open With ht
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

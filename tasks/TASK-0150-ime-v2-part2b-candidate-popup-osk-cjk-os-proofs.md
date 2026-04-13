@@ -3,6 +3,8 @@ title: TASK-0150 IME v2 Part 2b (OS-gated): candidate popup UI + OSK JP/KR/ZH la
 status: Draft
 owner: @ui
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

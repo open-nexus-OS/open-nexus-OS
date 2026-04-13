@@ -3,6 +3,9 @@ title: TASK-0127 Share v2b: SystemUI chooser overlay + first-party targets (Clip
 status: Draft
 owner: @ui
 created: 2025-12-25
+depends-on: []
+follow-up-tasks:
+  - TASK-0126B
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

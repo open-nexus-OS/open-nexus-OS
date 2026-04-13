@@ -4,6 +4,9 @@ status: Done ✅ (loopback scope complete; discovery-driven connect + identity b
 owner: @runtime
 created: 2026-01-07
 updated: 2026-01-07
+depends-on:
+  - TASK-0003B
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

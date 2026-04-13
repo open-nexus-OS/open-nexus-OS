@@ -3,6 +3,8 @@ title: TASK-0116 UI v20c: magnifier (lens/fullscreen) + color filters + high-con
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

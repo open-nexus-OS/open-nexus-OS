@@ -3,6 +3,8 @@ title: TASK-0262 Bring-up Retrospective & Cleanup v1.0a (host-first): repo hygie
 status: Draft
 owner: @devx
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

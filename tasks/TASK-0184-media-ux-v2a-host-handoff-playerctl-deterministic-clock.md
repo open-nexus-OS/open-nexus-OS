@@ -3,6 +3,8 @@ title: TASK-0184 Media UX v2a (host-first): mediasessd multi-session + determini
 status: Draft
 owner: @media
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

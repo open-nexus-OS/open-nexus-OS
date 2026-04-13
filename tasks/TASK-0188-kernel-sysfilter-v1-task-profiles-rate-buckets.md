@@ -3,6 +3,8 @@ title: TASK-0188 Kernel sysfilter v1 (NEURON): per-task syscall allowlist + rate
 status: Draft
 owner: @runtime
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -73,6 +75,14 @@ Deliver:
 
 - **RED (self-hosting risk)**:
   - Default-deny can brick the system if profiles are wrong. Provide a safe “bootstrap profile” for init/execd bring-up.
+
+## Production-grade gate note
+
+This task is a core part of the production-grade kernel security boundary, but it is not sufficient on
+its own to make the kernel security story production-grade.
+
+- It must land together with the broader production-grade closure tracked in `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
+- In particular, boot trust / anti-rollback (`TASK-0289`) and kernel memory/resource truth (`TASK-0286` / `TASK-0287`) still matter for a release-grade claim even if syscall filtering is present.
 
 ## Security considerations
 

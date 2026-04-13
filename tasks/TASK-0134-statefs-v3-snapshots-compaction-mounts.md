@@ -3,6 +3,8 @@ title: TASK-0134 StateFS v3: named snapshots + read-only mounts + log compaction
 status: Draft
 owner: @runtime
 created: 2025-12-25
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

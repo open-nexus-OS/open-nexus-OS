@@ -3,6 +3,8 @@ title: TASK-0181 Store v1b (OS/QEMU): Storefront UI + install/update/remove via 
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

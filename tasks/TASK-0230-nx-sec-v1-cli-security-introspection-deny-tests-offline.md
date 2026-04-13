@@ -3,6 +3,8 @@ title: TASK-0230 nx sec v1 (offline): security introspection CLI (`nx sec`) over
 status: Draft
 owner: @security @devx
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

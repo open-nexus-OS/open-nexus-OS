@@ -3,6 +3,16 @@ title: TASK-0014 Observability v2 (OS): metricsd (counters/gauges/histograms) + 
 status: Done
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0009
+  - TASK-0013
+follow-up-tasks:
+  - TASK-0038
+  - TASK-0040
+  - TASK-0041
+  - TASK-0046
+  - TASK-0143
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -18,12 +28,6 @@ enables:
   - TASK-0041: Lock profiling v1 userspace export hooks (optional sinks into metrics/tracing)
   - TASK-0143: Perf v1a perfd frame trace + bounded metrics export
   - TASK-0046: Config v1 schemas/layering consume metrics/tracing policy surfaces
-follow-up-tasks:
-  - TASK-0038: extend local span model to cross-node propagation/correlation only after local v2 contract is proven
-  - TASK-0040: add remote scrape/collector path over DSoftBus on top of local logd/metricsd exports
-  - TASK-0041: consume metrics/tracing sinks as optional lock-profiling export target
-  - TASK-0143: build UI/perf-focused tracing and metrics on top of shared observability primitives
-  - TASK-0046: align config schemas and rollout controls for metrics/tracing retention and budgets
 ---
 
 ## Context

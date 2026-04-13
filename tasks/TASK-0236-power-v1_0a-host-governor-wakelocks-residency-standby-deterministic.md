@@ -3,6 +3,8 @@ title: TASK-0236 Power/Idle v1.0a (host-first): deterministic governor + wake lo
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

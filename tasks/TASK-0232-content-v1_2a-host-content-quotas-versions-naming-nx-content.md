@@ -3,6 +3,8 @@ title: TASK-0232 Files/Content v1.2a (host-first): per-app content quotas (bytes
 status: Draft
 owner: @platform @devx
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

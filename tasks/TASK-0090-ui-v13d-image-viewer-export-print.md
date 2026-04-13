@@ -3,6 +3,8 @@ title: TASK-0090 UI v13d: Image Viewer app (png/jpeg/svg) + zoom/pan/rotate/expo
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,8 @@ title: TASK-0056B UI v2a extension: visible input v0 (cursor + focus + click) in
 status: Draft
 owner: @ui
 created: 2026-03-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

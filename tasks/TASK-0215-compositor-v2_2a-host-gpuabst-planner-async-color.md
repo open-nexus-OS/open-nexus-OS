@@ -3,6 +3,8 @@ title: TASK-0215 Compositor v2.2a (host-first): gpuabst CPU stub + plane planner
 status: Draft
 owner: @ui
 created: 2025-12-27
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

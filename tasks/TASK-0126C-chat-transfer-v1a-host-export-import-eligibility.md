@@ -3,6 +3,8 @@ title: TASK-0126C Chat Transfer v1a (host-first): portable export/import contrac
 status: Draft
 owner: @runtime @ui
 created: 2026-01-28
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

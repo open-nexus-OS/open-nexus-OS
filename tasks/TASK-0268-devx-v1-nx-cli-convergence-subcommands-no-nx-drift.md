@@ -3,6 +3,8 @@ title: TASK-0268 DevX v1: nx CLI convergence (subcommands only, eliminate nx-* t
 status: Draft
 owner: @devx
 created: 2025-12-30
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

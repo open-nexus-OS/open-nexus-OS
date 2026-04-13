@@ -3,6 +3,8 @@ title: TASK-0256 Battery v0.9a (host-first): fuel-gauge model + charger state + 
 status: Draft
 owner: @runtime
 created: 2025-12-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,11 @@ title: TASK-0035 Delta updates v1b (system sets): nxs delta container + updated 
 status: Blocked
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0007
+  - TASK-0029
+  - TASK-0034
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Depends-on (bundle deltas): tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md

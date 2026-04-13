@@ -3,6 +3,8 @@ title: TASK-0011 Kernel simplification (RFC-0001): Phase A (text-only) + Phase B
 status: Complete
 owner: @kernel-team
 created: 2025-12-22
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

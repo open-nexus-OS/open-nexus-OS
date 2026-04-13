@@ -3,6 +3,8 @@ title: TASK-0157 DSoftBus v1a (host-first): localSim discovery + numeric pairing
 status: Draft
 owner: @runtime
 created: 2025-12-26
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

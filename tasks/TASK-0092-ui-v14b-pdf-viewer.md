@@ -3,6 +3,8 @@ title: TASK-0092 UI v14b: PDF Viewer app (preview raster pages) + zoom/pan/nav +
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

@@ -3,6 +3,10 @@ title: TASK-0047 Policy as Code v1: unified policy tree + evaluator + explain/dr
 status: Draft
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0006
+  - TASK-0046
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

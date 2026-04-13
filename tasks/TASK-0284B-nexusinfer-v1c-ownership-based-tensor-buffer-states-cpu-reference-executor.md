@@ -3,6 +3,8 @@ title: TASK-0284B NexusInfer v1c (host-first): ownership-based tensor/buffer sta
 status: Draft
 owner: @runtime @ui
 created: 2026-04-10
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

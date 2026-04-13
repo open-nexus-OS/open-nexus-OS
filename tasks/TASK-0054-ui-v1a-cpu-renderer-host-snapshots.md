@@ -3,6 +3,8 @@ title: TASK-0054 UI v1a (host-first): BGRA8888 CPU renderer + damage tracking + 
 status: Draft
 owner: @ui
 created: 2025-12-23
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

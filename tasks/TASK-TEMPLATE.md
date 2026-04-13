@@ -3,6 +3,8 @@ title: TASK-XXXX Short title (big step)
 status: Draft
 owner: @runtime
 created: YYYY-MM-DD
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

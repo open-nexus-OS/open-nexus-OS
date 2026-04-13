@@ -3,6 +3,8 @@ title: TASK-0056C UI v2a extension: present/input perf polish (click-to-frame la
 status: Draft
 owner: @ui @runtime
 created: 2026-03-29
+depends-on: []
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md

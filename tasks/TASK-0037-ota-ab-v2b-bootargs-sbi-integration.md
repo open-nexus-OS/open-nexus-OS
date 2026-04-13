@@ -3,6 +3,9 @@ title: TASK-0037 OTA A/B v2b: real boot slot via bootargs/OpenSBI (blocked, requ
 status: Blocked
 owner: @runtime
 created: 2025-12-22
+depends-on:
+  - TASK-0036
+follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Depends-on: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md

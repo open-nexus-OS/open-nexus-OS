@@ -5,6 +5,13 @@ status: Done
 owner: @runtime
 created: 2025-12-22
 updated: 2026-01-22
+depends-on: []
+follow-up-tasks:
+  - TASK-0034
+  - TASK-0037
+  - TASK-0198
+  - TASK-0239
+  - TASK-0289
 links:
 
   - Vision: docs/agents/VISION.md
@@ -18,7 +25,6 @@ links:
   - Security standards: docs/standards/SECURITY_STANDARDS.md
   - RFC: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 
-follow-up-tasks:
 
   - TASK-0034: Delta updates v1 + v1.1 features (digest/size fields, persistence integration)
   - TASK-0035: Delta updates v1b (system-set level)
@@ -180,6 +186,19 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - **Significant**: Update system is a critical attack vector for persistent compromise
 - **Supply chain risk**: Compromised updates can persist across reboots
 - **Requires security review**: Any changes to signature verification must be reviewed
+
+## Production-grade gate note
+
+This task is intentionally the **userspace A/B and packaging skeleton**, not the final release-grade
+update and boot-trust story.
+
+- `TASK-0034` closes persistent update state and richer verification fields.
+- `TASK-0037` closes real reboot / bootloader slot coordination.
+- `TASK-0198` closes stronger OS supply-chain enforcement.
+- `TASK-0239` closes installer-side atomic activation flows that need to align with updates.
+- `TASK-0289` closes verified-boot anchors, rollback indices, and measured-boot handoff.
+
+Until those land, keep this task framed as an honest OTA floor, not as full production-grade update security.
 
 ### Mitigations
 
