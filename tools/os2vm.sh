@@ -77,6 +77,7 @@ LOG_DIR=${LOG_DIR:-"$OS2VM_RUNS_DIR/$AGENT_RUN_ID"}
 OS2VM_PCAP_BASENAME=${OS2VM_PCAP_BASENAME:-packets}
 OS2VM_SUMMARY_JSON=${OS2VM_SUMMARY_JSON:-"$LOG_DIR/summary.json"}
 OS2VM_SUMMARY_TXT=${OS2VM_SUMMARY_TXT:-"$LOG_DIR/summary.txt"}
+OS2VM_RELEASE_BUNDLE_JSON=${OS2VM_RELEASE_BUNDLE_JSON:-"$LOG_DIR/release-evidence.json"}
 OS2VM_PID_FILE=${OS2VM_PID_FILE:-"$LOG_DIR/pids.env"}
 OS2VM_RESULT_FILE=${OS2VM_RESULT_FILE:-"$LOG_DIR/result.txt"}
 OS2VM_RETENTION_ENABLE=${OS2VM_RETENTION_ENABLE:-1}
@@ -459,7 +460,28 @@ MARKER_TIMEOUT_LEGACY=${MARKER_TIMEOUT:-$RUN_TIMEOUT_SECS}
 MARKER_TIMEOUT_DEFAULT=$(resolve_timeout_secs "$MARKER_TIMEOUT_LEGACY" "$RUN_TIMEOUT_SECS")
 MARKER_TIMEOUT_DISCOVERY_SECS=$(resolve_timeout_secs "${OS2VM_MARKER_TIMEOUT_DISCOVERY:-}" "$MARKER_TIMEOUT_DEFAULT")
 MARKER_TIMEOUT_SESSION_SECS=$(resolve_timeout_secs "${OS2VM_MARKER_TIMEOUT_SESSION:-}" "$MARKER_TIMEOUT_DEFAULT")
+MARKER_TIMEOUT_MUX_SECS=$(resolve_timeout_secs "${OS2VM_MARKER_TIMEOUT_MUX:-}" "$MARKER_TIMEOUT_DEFAULT")
 MARKER_TIMEOUT_REMOTE_SECS=$(resolve_timeout_secs "${OS2VM_MARKER_TIMEOUT_REMOTE:-}" "$MARKER_TIMEOUT_DEFAULT")
+# Phase-D style deterministic runtime budgets (opt-out via OS2VM_BUDGET_ENABLE=0).
+OS2VM_BUDGET_ENABLE=${OS2VM_BUDGET_ENABLE:-1}
+OS2VM_BUDGET_DISCOVERY_MS=${OS2VM_BUDGET_DISCOVERY_MS:-15000}
+OS2VM_BUDGET_SESSION_MS=${OS2VM_BUDGET_SESSION_MS:-5000}
+OS2VM_BUDGET_MUX_MS=${OS2VM_BUDGET_MUX_MS:-5000}
+OS2VM_BUDGET_REMOTE_MS=${OS2VM_BUDGET_REMOTE_MS:-60000}
+OS2VM_BUDGET_TOTAL_MS=${OS2VM_BUDGET_TOTAL_MS:-120000}
+# Phase-E style bounded soak stability gate (opt-out via OS2VM_SOAK_ENABLE=0).
+OS2VM_SOAK_ENABLE=${OS2VM_SOAK_ENABLE:-1}
+OS2VM_SOAK_DURATION_SECS=$(resolve_timeout_secs_uncapped "${OS2VM_SOAK_DURATION:-15s}" "15")
+if (( OS2VM_SOAK_DURATION_SECS < 0 )); then
+  OS2VM_SOAK_DURATION_SECS=0
+fi
+OS2VM_SOAK_ROUNDS=${OS2VM_SOAK_ROUNDS:-1}
+if ! [[ "$OS2VM_SOAK_ROUNDS" =~ ^[0-9]+$ ]]; then
+  OS2VM_SOAK_ROUNDS=1
+fi
+if (( OS2VM_SOAK_ROUNDS < 1 )); then
+  OS2VM_SOAK_ROUNDS=1
+fi
 # QEMU lifetime must outlive phase-gated waits; otherwise nodes can terminate before session/remote markers.
 QEMU_TIMEOUT_SECS=$(resolve_timeout_secs_uncapped "${OS2VM_QEMU_TIMEOUT:-}" "$(( RUN_TIMEOUT_SECS * 4 ))")
 if (( QEMU_TIMEOUT_SECS < RUN_TIMEOUT_SECS )); then
@@ -561,7 +583,7 @@ wait_dual_markers() {
   return 1
 }
 
-declare -a PHASE_ORDER=("build" "launch" "discovery" "session" "remote" "end")
+declare -a PHASE_ORDER=("build" "launch" "discovery" "session" "mux" "remote" "perf" "soak" "end")
 declare -A PHASE_START_MS
 declare -A PHASE_END_MS
 declare -A PHASE_DURATION_MS
@@ -706,6 +728,78 @@ apply_error_matrix() {
       ERROR_HINT="SYN seen without SYN-ACK; inspect peer listen readiness and link path"
       ERROR_CONFIDENCE="0.90"
       ERROR_TYPED_EXIT=45
+      ;;
+    OS2VM_E_MUX_TIMEOUT)
+      ERROR_SUBSYSTEM="dsoftbusd/mux-crossvm"
+      ERROR_HINT="cross-vm mux marker ladder timed out; inspect mux handshake/data flow in both nodes"
+      ERROR_CONFIDENCE="0.84"
+      ERROR_TYPED_EXIT=46
+      ;;
+    OS2VM_E_MUX_NODE_A_ENDED)
+      ERROR_SUBSYSTEM="selftest-client/node-a"
+      ERROR_HINT="node A ended before cross-vm mux marker ladder completed"
+      ERROR_CONFIDENCE="0.90"
+      ERROR_TYPED_EXIT=47
+      ;;
+    OS2VM_E_MUX_NODE_B_ENDED)
+      ERROR_SUBSYSTEM="selftest-client/node-b"
+      ERROR_HINT="node B ended before cross-vm mux marker ladder completed"
+      ERROR_CONFIDENCE="0.90"
+      ERROR_TYPED_EXIT=48
+      ;;
+    OS2VM_E_MUX_NEGATIVE_MARKER)
+      ERROR_SUBSYSTEM="dsoftbusd/mux-crossvm"
+      ERROR_HINT="mux fail marker was observed despite success ladder; treat as fake-green contradiction"
+      ERROR_CONFIDENCE="0.96"
+      ERROR_TYPED_EXIT=49
+      ;;
+    OS2VM_E_PERF_BUDGET_DISCOVERY)
+      ERROR_SUBSYSTEM="dsoftbusd/perf-discovery"
+      ERROR_HINT="discovery phase exceeded deterministic budget; inspect discovery churn and retries"
+      ERROR_CONFIDENCE="0.91"
+      ERROR_TYPED_EXIT=81
+      ;;
+    OS2VM_E_PERF_BUDGET_SESSION)
+      ERROR_SUBSYSTEM="dsoftbusd/perf-session"
+      ERROR_HINT="session phase exceeded deterministic budget; inspect dial/accept/handshake latency"
+      ERROR_CONFIDENCE="0.91"
+      ERROR_TYPED_EXIT=82
+      ;;
+    OS2VM_E_PERF_BUDGET_MUX)
+      ERROR_SUBSYSTEM="dsoftbusd/perf-mux"
+      ERROR_HINT="cross-vm mux ladder exceeded deterministic budget; inspect mux roundtrip flow"
+      ERROR_CONFIDENCE="0.91"
+      ERROR_TYPED_EXIT=83
+      ;;
+    OS2VM_E_PERF_BUDGET_REMOTE)
+      ERROR_SUBSYSTEM="dsoftbusd/perf-remote"
+      ERROR_HINT="remote proxy phase exceeded deterministic budget; inspect remote fs/rpc path latency"
+      ERROR_CONFIDENCE="0.91"
+      ERROR_TYPED_EXIT=84
+      ;;
+    OS2VM_E_PERF_BUDGET_TOTAL)
+      ERROR_SUBSYSTEM="dsoftbusd/perf-total"
+      ERROR_HINT="total 2-VM runtime exceeded deterministic budget; inspect cross-phase regressions"
+      ERROR_CONFIDENCE="0.90"
+      ERROR_TYPED_EXIT=85
+      ;;
+    OS2VM_E_SOAK_NODE_A_ENDED)
+      ERROR_SUBSYSTEM="selftest-client/node-a"
+      ERROR_HINT="node A terminated during bounded soak window"
+      ERROR_CONFIDENCE="0.92"
+      ERROR_TYPED_EXIT=86
+      ;;
+    OS2VM_E_SOAK_NODE_B_ENDED)
+      ERROR_SUBSYSTEM="selftest-client/node-b"
+      ERROR_HINT="node B terminated during bounded soak window"
+      ERROR_CONFIDENCE="0.92"
+      ERROR_TYPED_EXIT=87
+      ;;
+    OS2VM_E_SOAK_FAIL_MARKER)
+      ERROR_SUBSYSTEM="dsoftbusd/soak-guard"
+      ERROR_HINT="fail/panic marker appeared during bounded soak window; inspect UART logs"
+      ERROR_CONFIDENCE="0.95"
+      ERROR_TYPED_EXIT=88
       ;;
     OS2VM_E_REMOTE_RESOLVE_MISSING)
       ERROR_SUBSYSTEM="dsoftbusd/remote-proxy-resolve"
@@ -1128,6 +1222,76 @@ phase_session() {
   return 0
 }
 
+phase_mux() {
+  local -a mux_markers=(
+    "dsoftbus:mux crossvm session up"
+    "dsoftbus:mux crossvm data ok"
+    "SELFTEST: mux crossvm pri control ok"
+    "SELFTEST: mux crossvm bulk ok"
+    "SELFTEST: mux crossvm backpressure ok"
+  )
+  local marker=""
+  local rc=0
+  local a_mux_fail_total=0
+  local b_mux_fail_total=0
+  echo "[info] Waiting for cross-VM mux ladder markers..."
+  for marker in "${mux_markers[@]}"; do
+    rc=0
+    wait_dual_markers "$UART_A" "$marker" "$UART_B" "$marker" "" "$MARKER_TIMEOUT_MUX_SECS" "$PID_A" "$PID_B" || rc=$?
+    if [[ $rc -ne 0 ]]; then
+      EVIDENCE["a_mux_marker_hits"]=$(count_marker "$UART_A" "$marker")
+      EVIDENCE["b_mux_marker_hits"]=$(count_marker "$UART_B" "$marker")
+      EVIDENCE["a_mux_fail"]=$(count_marker "$UART_A" "dsoftbus:mux crossvm fail")
+      EVIDENCE["b_mux_fail"]=$(count_marker "$UART_B" "dsoftbus:mux crossvm fail")
+      MISSING_MARKER="$marker (both nodes)"
+      if [[ $rc -eq 2 ]]; then
+        set_failure "OS2VM_E_MUX_NODE_A_ENDED" "mux" "A" "node A ended before mux marker"
+        return 1
+      elif [[ $rc -eq 3 ]]; then
+        set_failure "OS2VM_E_MUX_NODE_B_ENDED" "mux" "B" "node B ended before mux marker"
+        return 1
+      fi
+      set_failure "OS2VM_E_MUX_TIMEOUT" "mux" "both" "mux marker timeout"
+      return 1
+    fi
+    case "$marker" in
+      "dsoftbus:mux crossvm session up")
+        MARKER_LINES["A_mux_session"]=$LAST_WAIT_A_LINE
+        MARKER_LINES["B_mux_session"]=$LAST_WAIT_B_LINE
+        ;;
+      "dsoftbus:mux crossvm data ok")
+        MARKER_LINES["A_mux_data"]=$LAST_WAIT_A_LINE
+        MARKER_LINES["B_mux_data"]=$LAST_WAIT_B_LINE
+        ;;
+      "SELFTEST: mux crossvm pri control ok")
+        MARKER_LINES["A_mux_pri"]=$LAST_WAIT_A_LINE
+        MARKER_LINES["B_mux_pri"]=$LAST_WAIT_B_LINE
+        ;;
+      "SELFTEST: mux crossvm bulk ok")
+        MARKER_LINES["A_mux_bulk"]=$LAST_WAIT_A_LINE
+        MARKER_LINES["B_mux_bulk"]=$LAST_WAIT_B_LINE
+        ;;
+      "SELFTEST: mux crossvm backpressure ok")
+        MARKER_LINES["A_mux_backpressure"]=$LAST_WAIT_A_LINE
+        MARKER_LINES["B_mux_backpressure"]=$LAST_WAIT_B_LINE
+        ;;
+    esac
+  done
+
+  # Fake-green guard: any explicit mux fail marker makes the run fail even if success markers exist.
+  a_mux_fail_total=$(count_marker "$UART_A" "dsoftbus:mux crossvm fail")
+  b_mux_fail_total=$(count_marker "$UART_B" "dsoftbus:mux crossvm fail")
+  EVIDENCE["a_mux_fail_total"]=$a_mux_fail_total
+  EVIDENCE["b_mux_fail_total"]=$b_mux_fail_total
+  if (( a_mux_fail_total > 0 || b_mux_fail_total > 0 )); then
+    MISSING_MARKER="mux-fail-marker-absent"
+    set_failure "OS2VM_E_MUX_NEGATIVE_MARKER" "mux" "both" "mux fail marker observed in successful marker ladder"
+    return 1
+  fi
+
+  return 0
+}
+
 phase_remote() {
   local rc=0
   echo "[info] Waiting for remote proxy markers on Node A..."
@@ -1261,6 +1425,140 @@ phase_remote() {
     return 1
   fi
   agent_debug_log "H4" "tools/os2vm.sh:remote_markers_done" "remote proxy markers reached on node A" "{\"status\":\"ok\"}"
+  return 0
+}
+
+phase_perf() {
+  if [[ "$OS2VM_BUDGET_ENABLE" != "1" ]]; then
+    echo "[info] Phase-D perf budgets disabled (OS2VM_BUDGET_ENABLE=$OS2VM_BUDGET_ENABLE)."
+    return 0
+  fi
+
+  local discovery_ms=${PHASE_DURATION_MS["discovery"]:-0}
+  local session_ms=${PHASE_DURATION_MS["session"]:-0}
+  local mux_ms=${PHASE_DURATION_MS["mux"]:-0}
+  local remote_ms=${PHASE_DURATION_MS["remote"]:-0}
+  local now_ms_value
+  local build_start_ms
+  local total_ms
+  now_ms_value=$(now_ms)
+  build_start_ms=${PHASE_START_MS["build"]:-$now_ms_value}
+  total_ms=$(( now_ms_value - build_start_ms ))
+
+  EVIDENCE["perf_discovery_ms"]=$discovery_ms
+  EVIDENCE["perf_session_ms"]=$session_ms
+  EVIDENCE["perf_mux_ms"]=$mux_ms
+  EVIDENCE["perf_remote_ms"]=$remote_ms
+  EVIDENCE["perf_total_ms"]=$total_ms
+
+  if (( discovery_ms > OS2VM_BUDGET_DISCOVERY_MS )); then
+    set_failure "OS2VM_E_PERF_BUDGET_DISCOVERY" "perf" "both" "discovery_ms=${discovery_ms} exceeds budget=${OS2VM_BUDGET_DISCOVERY_MS}"
+    return 1
+  fi
+  if (( session_ms > OS2VM_BUDGET_SESSION_MS )); then
+    set_failure "OS2VM_E_PERF_BUDGET_SESSION" "perf" "both" "session_ms=${session_ms} exceeds budget=${OS2VM_BUDGET_SESSION_MS}"
+    return 1
+  fi
+  if (( mux_ms > OS2VM_BUDGET_MUX_MS )); then
+    set_failure "OS2VM_E_PERF_BUDGET_MUX" "perf" "both" "mux_ms=${mux_ms} exceeds budget=${OS2VM_BUDGET_MUX_MS}"
+    return 1
+  fi
+  if (( remote_ms > OS2VM_BUDGET_REMOTE_MS )); then
+    set_failure "OS2VM_E_PERF_BUDGET_REMOTE" "perf" "both" "remote_ms=${remote_ms} exceeds budget=${OS2VM_BUDGET_REMOTE_MS}"
+    return 1
+  fi
+  if (( total_ms > OS2VM_BUDGET_TOTAL_MS )); then
+    set_failure "OS2VM_E_PERF_BUDGET_TOTAL" "perf" "both" "total_ms=${total_ms} exceeds budget=${OS2VM_BUDGET_TOTAL_MS}"
+    return 1
+  fi
+
+  return 0
+}
+
+phase_soak() {
+  if [[ "$OS2VM_SOAK_ENABLE" != "1" ]]; then
+    echo "[info] Phase-E soak gate disabled (OS2VM_SOAK_ENABLE=$OS2VM_SOAK_ENABLE)."
+    return 0
+  fi
+  if (( OS2VM_SOAK_DURATION_SECS <= 0 )); then
+    echo "[info] Phase-E soak duration is 0s; skipping soak checks."
+    return 0
+  fi
+
+  local rounds_target=$OS2VM_SOAK_ROUNDS
+  local rounds_completed=0
+  local round=0
+  local round_started=0
+  local round_deadline=0
+  local next_progress_at=0
+  local a_mux_fail_hits=0
+  local b_mux_fail_hits=0
+  local a_remote_fail_hits=0
+  local b_remote_fail_hits=0
+  local a_panic_hits=0
+  local b_panic_hits=0
+  local now_ts
+  local remaining
+
+  echo "[info] Running bounded soak stability checks (${OS2VM_SOAK_DURATION_SECS}s x ${rounds_target} round(s))..."
+  for (( round=1; round<=rounds_target; round++ )); do
+    round_started=$(date +%s)
+    round_deadline=$(( round_started + OS2VM_SOAK_DURATION_SECS ))
+    next_progress_at=$(( round_started + 5 ))
+    while (( $(date +%s) < round_deadline )); do
+      if ! is_pid_alive "$PID_A"; then
+        set_failure "OS2VM_E_SOAK_NODE_A_ENDED" "soak" "A" "node A terminated during soak window"
+        return 1
+      fi
+      if ! is_pid_alive "$PID_B"; then
+        set_failure "OS2VM_E_SOAK_NODE_B_ENDED" "soak" "B" "node B terminated during soak window"
+        return 1
+      fi
+
+      a_mux_fail_hits=$(count_marker "$UART_A" "dsoftbus:mux crossvm fail")
+      b_mux_fail_hits=$(count_marker "$UART_B" "dsoftbus:mux crossvm fail")
+      a_remote_fail_hits=$(count_marker "$UART_A" "SELFTEST: remote .* FAIL")
+      b_remote_fail_hits=$(count_marker "$UART_B" "SELFTEST: remote .* FAIL")
+      a_panic_hits=$(count_marker "$UART_A" "panic")
+      b_panic_hits=$(count_marker "$UART_B" "panic")
+      if (( a_mux_fail_hits > 0 || b_mux_fail_hits > 0 || a_remote_fail_hits > 0 || b_remote_fail_hits > 0 || a_panic_hits > 0 || b_panic_hits > 0 )); then
+        EVIDENCE["soak_a_mux_fail_hits"]=$a_mux_fail_hits
+        EVIDENCE["soak_b_mux_fail_hits"]=$b_mux_fail_hits
+        EVIDENCE["soak_a_remote_fail_hits"]=$a_remote_fail_hits
+        EVIDENCE["soak_b_remote_fail_hits"]=$b_remote_fail_hits
+        EVIDENCE["soak_a_panic_hits"]=$a_panic_hits
+        EVIDENCE["soak_b_panic_hits"]=$b_panic_hits
+        EVIDENCE["soak_rounds_completed"]=$rounds_completed
+        EVIDENCE["soak_rounds_target"]=$rounds_target
+        MISSING_MARKER="soak-fail-marker-absent"
+        set_failure "OS2VM_E_SOAK_FAIL_MARKER" "soak" "both" "fail/panic marker observed during soak window"
+        return 1
+      fi
+
+      now_ts=$(date +%s)
+      if (( now_ts >= next_progress_at )); then
+        remaining=$(( round_deadline - now_ts ))
+        if (( remaining < 0 )); then
+          remaining=0
+        fi
+        echo "[wait] soak round ${round}/${rounds_target}: remaining=${remaining}s"
+        next_progress_at=$(( now_ts + 5 ))
+      fi
+      sleep 1
+    done
+
+    rounds_completed=$round
+  done
+
+  EVIDENCE["soak_duration_secs"]=$OS2VM_SOAK_DURATION_SECS
+  EVIDENCE["soak_rounds_target"]=$rounds_target
+  EVIDENCE["soak_rounds_completed"]=$rounds_completed
+  EVIDENCE["soak_a_mux_fail_hits"]=$a_mux_fail_hits
+  EVIDENCE["soak_b_mux_fail_hits"]=$b_mux_fail_hits
+  EVIDENCE["soak_a_remote_fail_hits"]=$a_remote_fail_hits
+  EVIDENCE["soak_b_remote_fail_hits"]=$b_remote_fail_hits
+  EVIDENCE["soak_a_panic_hits"]=$a_panic_hits
+  EVIDENCE["soak_b_panic_hits"]=$b_panic_hits
   return 0
 }
 
@@ -1486,6 +1784,16 @@ collect_marker_lines() {
   MARKER_LINES["B_discovery"]=${MARKER_LINES["B_discovery"]:-$(marker_line "$UART_B" "dsoftbusd: discovery cross-vm up")}
   MARKER_LINES["A_session"]=${MARKER_LINES["A_session"]:-$(marker_line "$UART_A" "dsoftbusd: cross-vm session ok")}
   MARKER_LINES["B_session"]=${MARKER_LINES["B_session"]:-$(marker_line "$UART_B" "dsoftbusd: cross-vm session ok")}
+  MARKER_LINES["A_mux_session"]=${MARKER_LINES["A_mux_session"]:-$(marker_line "$UART_A" "dsoftbus:mux crossvm session up")}
+  MARKER_LINES["B_mux_session"]=${MARKER_LINES["B_mux_session"]:-$(marker_line "$UART_B" "dsoftbus:mux crossvm session up")}
+  MARKER_LINES["A_mux_data"]=${MARKER_LINES["A_mux_data"]:-$(marker_line "$UART_A" "dsoftbus:mux crossvm data ok")}
+  MARKER_LINES["B_mux_data"]=${MARKER_LINES["B_mux_data"]:-$(marker_line "$UART_B" "dsoftbus:mux crossvm data ok")}
+  MARKER_LINES["A_mux_pri"]=${MARKER_LINES["A_mux_pri"]:-$(marker_line "$UART_A" "SELFTEST: mux crossvm pri control ok")}
+  MARKER_LINES["B_mux_pri"]=${MARKER_LINES["B_mux_pri"]:-$(marker_line "$UART_B" "SELFTEST: mux crossvm pri control ok")}
+  MARKER_LINES["A_mux_bulk"]=${MARKER_LINES["A_mux_bulk"]:-$(marker_line "$UART_A" "SELFTEST: mux crossvm bulk ok")}
+  MARKER_LINES["B_mux_bulk"]=${MARKER_LINES["B_mux_bulk"]:-$(marker_line "$UART_B" "SELFTEST: mux crossvm bulk ok")}
+  MARKER_LINES["A_mux_backpressure"]=${MARKER_LINES["A_mux_backpressure"]:-$(marker_line "$UART_A" "SELFTEST: mux crossvm backpressure ok")}
+  MARKER_LINES["B_mux_backpressure"]=${MARKER_LINES["B_mux_backpressure"]:-$(marker_line "$UART_B" "SELFTEST: mux crossvm backpressure ok")}
   MARKER_LINES["A_remote_resolve"]=${MARKER_LINES["A_remote_resolve"]:-$(marker_line "$UART_A" "SELFTEST: remote resolve ok")}
   MARKER_LINES["A_remote_query"]=${MARKER_LINES["A_remote_query"]:-$(marker_line "$UART_A" "SELFTEST: remote query ok")}
   MARKER_LINES["A_remote_statefs_flow"]=${MARKER_LINES["A_remote_statefs_flow"]:-$(marker_line "$UART_A" "SELFTEST: remote statefs rw ok")}
@@ -1524,8 +1832,40 @@ write_summary_json() {
     "runTimeoutSecs": $RUN_TIMEOUT_SECS,
     "discoveryTimeoutSecs": $MARKER_TIMEOUT_DISCOVERY_SECS,
     "sessionTimeoutSecs": $MARKER_TIMEOUT_SESSION_SECS,
+    "muxTimeoutSecs": $MARKER_TIMEOUT_MUX_SECS,
     "remoteTimeoutSecs": $MARKER_TIMEOUT_REMOTE_SECS,
     "totalDurationMs": $total_ms
+  },
+  "performanceBudgetsMs": {
+    "enabled": $OS2VM_BUDGET_ENABLE,
+    "discovery": $OS2VM_BUDGET_DISCOVERY_MS,
+    "session": $OS2VM_BUDGET_SESSION_MS,
+    "mux": $OS2VM_BUDGET_MUX_MS,
+    "remote": $OS2VM_BUDGET_REMOTE_MS,
+    "total": $OS2VM_BUDGET_TOTAL_MS
+  },
+  "performanceObservedMs": {
+    "discovery": ${EVIDENCE["perf_discovery_ms"]:-0},
+    "session": ${EVIDENCE["perf_session_ms"]:-0},
+    "mux": ${EVIDENCE["perf_mux_ms"]:-0},
+    "remote": ${EVIDENCE["perf_remote_ms"]:-0},
+    "total": ${EVIDENCE["perf_total_ms"]:-0}
+  },
+  "soakGate": {
+    "enabled": $OS2VM_SOAK_ENABLE,
+    "durationSecs": $OS2VM_SOAK_DURATION_SECS,
+    "rounds": $OS2VM_SOAK_ROUNDS,
+    "observed": {
+      "durationSecs": ${EVIDENCE["soak_duration_secs"]:-0},
+      "roundsTarget": ${EVIDENCE["soak_rounds_target"]:-0},
+      "roundsCompleted": ${EVIDENCE["soak_rounds_completed"]:-0},
+      "aMuxFailHits": ${EVIDENCE["soak_a_mux_fail_hits"]:-0},
+      "bMuxFailHits": ${EVIDENCE["soak_b_mux_fail_hits"]:-0},
+      "aRemoteFailHits": ${EVIDENCE["soak_a_remote_fail_hits"]:-0},
+      "bRemoteFailHits": ${EVIDENCE["soak_b_remote_fail_hits"]:-0},
+      "aPanicHits": ${EVIDENCE["soak_a_panic_hits"]:-0},
+      "bPanicHits": ${EVIDENCE["soak_b_panic_hits"]:-0}
+    }
   },
   "paths": {
     "runDir": "$(json_escape "$LOG_DIR")",
@@ -1534,14 +1874,18 @@ write_summary_json() {
     "hostA": "$(json_escape "$HOST_A")",
     "hostB": "$(json_escape "$HOST_B")",
     "summaryTxt": "$(json_escape "$OS2VM_SUMMARY_TXT")",
-    "summaryJson": "$(json_escape "$OS2VM_SUMMARY_JSON")"
+    "summaryJson": "$(json_escape "$OS2VM_SUMMARY_JSON")",
+    "releaseBundleJson": "$(json_escape "$OS2VM_RELEASE_BUNDLE_JSON")"
   },
   "phaseDurationsMs": {
     "build": ${PHASE_DURATION_MS["build"]:-0},
     "launch": ${PHASE_DURATION_MS["launch"]:-0},
     "discovery": ${PHASE_DURATION_MS["discovery"]:-0},
     "session": ${PHASE_DURATION_MS["session"]:-0},
+    "mux": ${PHASE_DURATION_MS["mux"]:-0},
     "remote": ${PHASE_DURATION_MS["remote"]:-0},
+    "perf": ${PHASE_DURATION_MS["perf"]:-0},
+    "soak": ${PHASE_DURATION_MS["soak"]:-0},
     "end": ${PHASE_DURATION_MS["end"]:-0}
   },
   "markerLines": {
@@ -1549,6 +1893,16 @@ write_summary_json() {
     "B_discovery": ${MARKER_LINES["B_discovery"]:-0},
     "A_session": ${MARKER_LINES["A_session"]:-0},
     "B_session": ${MARKER_LINES["B_session"]:-0},
+    "A_mux_session": ${MARKER_LINES["A_mux_session"]:-0},
+    "B_mux_session": ${MARKER_LINES["B_mux_session"]:-0},
+    "A_mux_data": ${MARKER_LINES["A_mux_data"]:-0},
+    "B_mux_data": ${MARKER_LINES["B_mux_data"]:-0},
+    "A_mux_pri": ${MARKER_LINES["A_mux_pri"]:-0},
+    "B_mux_pri": ${MARKER_LINES["B_mux_pri"]:-0},
+    "A_mux_bulk": ${MARKER_LINES["A_mux_bulk"]:-0},
+    "B_mux_bulk": ${MARKER_LINES["B_mux_bulk"]:-0},
+    "A_mux_backpressure": ${MARKER_LINES["A_mux_backpressure"]:-0},
+    "B_mux_backpressure": ${MARKER_LINES["B_mux_backpressure"]:-0},
     "A_remote_resolve": ${MARKER_LINES["A_remote_resolve"]:-0},
     "A_remote_query": ${MARKER_LINES["A_remote_query"]:-0},
     "A_remote_statefs_flow": ${MARKER_LINES["A_remote_statefs_flow"]:-0},
@@ -1611,8 +1965,87 @@ hint: ${ERROR_HINT:-none}
 qemuExitA: ${QEMU_EXIT_A}
 qemuExitB: ${QEMU_EXIT_B}
 pcapMode: $OS2VM_PCAP_MODE
+perfBudgetEnabled: $OS2VM_BUDGET_ENABLE
+perfBudgetDiscoveryMs: $OS2VM_BUDGET_DISCOVERY_MS
+perfBudgetSessionMs: $OS2VM_BUDGET_SESSION_MS
+perfBudgetMuxMs: $OS2VM_BUDGET_MUX_MS
+perfBudgetRemoteMs: $OS2VM_BUDGET_REMOTE_MS
+perfBudgetTotalMs: $OS2VM_BUDGET_TOTAL_MS
+perfObservedDiscoveryMs: ${EVIDENCE["perf_discovery_ms"]:-0}
+perfObservedSessionMs: ${EVIDENCE["perf_session_ms"]:-0}
+perfObservedMuxMs: ${EVIDENCE["perf_mux_ms"]:-0}
+perfObservedRemoteMs: ${EVIDENCE["perf_remote_ms"]:-0}
+perfObservedTotalMs: ${EVIDENCE["perf_total_ms"]:-0}
+soakEnabled: $OS2VM_SOAK_ENABLE
+soakDurationSecs: $OS2VM_SOAK_DURATION_SECS
+soakRounds: $OS2VM_SOAK_ROUNDS
+soakObservedDurationSecs: ${EVIDENCE["soak_duration_secs"]:-0}
+soakObservedRoundsTarget: ${EVIDENCE["soak_rounds_target"]:-0}
+soakObservedRoundsCompleted: ${EVIDENCE["soak_rounds_completed"]:-0}
+soakObservedMuxFailHitsA: ${EVIDENCE["soak_a_mux_fail_hits"]:-0}
+soakObservedMuxFailHitsB: ${EVIDENCE["soak_b_mux_fail_hits"]:-0}
+soakObservedRemoteFailHitsA: ${EVIDENCE["soak_a_remote_fail_hits"]:-0}
+soakObservedRemoteFailHitsB: ${EVIDENCE["soak_b_remote_fail_hits"]:-0}
+soakObservedPanicHitsA: ${EVIDENCE["soak_a_panic_hits"]:-0}
+soakObservedPanicHitsB: ${EVIDENCE["soak_b_panic_hits"]:-0}
 runDir: $LOG_DIR
 summaryJson: $OS2VM_SUMMARY_JSON
+releaseBundleJson: $OS2VM_RELEASE_BUNDLE_JSON
+EOF
+}
+
+write_release_bundle_json() {
+  cat >"$OS2VM_RELEASE_BUNDLE_JSON" <<EOF
+{
+  "runId": "$(json_escape "$AGENT_RUN_ID")",
+  "generatedAtEpochMs": $(now_ms),
+  "result": "$(json_escape "$RESULT")",
+  "commands": {
+    "distributed": "RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh",
+    "singleVm": "REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh",
+    "regression": "just test-e2e && just test-os-dhcp"
+  },
+  "gates": {
+    "muxLadder": {
+      "passed": $( [[ "${MARKER_LINES["A_mux_backpressure"]:-0}" -gt 0 && "${MARKER_LINES["B_mux_backpressure"]:-0}" -gt 0 ]] && echo "true" || echo "false" ),
+      "aBackpressureLine": ${MARKER_LINES["A_mux_backpressure"]:-0},
+      "bBackpressureLine": ${MARKER_LINES["B_mux_backpressure"]:-0}
+    },
+    "perf": {
+      "enabled": $OS2VM_BUDGET_ENABLE,
+      "passed": $( [[ "$RESULT" == "success" ]] && echo "true" || echo "false" ),
+      "observedMs": {
+        "discovery": ${EVIDENCE["perf_discovery_ms"]:-0},
+        "session": ${EVIDENCE["perf_session_ms"]:-0},
+        "mux": ${EVIDENCE["perf_mux_ms"]:-0},
+        "remote": ${EVIDENCE["perf_remote_ms"]:-0},
+        "total": ${EVIDENCE["perf_total_ms"]:-0}
+      }
+    },
+    "soak": {
+      "enabled": $OS2VM_SOAK_ENABLE,
+      "durationSecs": $OS2VM_SOAK_DURATION_SECS,
+      "rounds": $OS2VM_SOAK_ROUNDS,
+      "observedRoundsCompleted": ${EVIDENCE["soak_rounds_completed"]:-0},
+      "failHits": {
+        "aMux": ${EVIDENCE["soak_a_mux_fail_hits"]:-0},
+        "bMux": ${EVIDENCE["soak_b_mux_fail_hits"]:-0},
+        "aRemote": ${EVIDENCE["soak_a_remote_fail_hits"]:-0},
+        "bRemote": ${EVIDENCE["soak_b_remote_fail_hits"]:-0},
+        "aPanic": ${EVIDENCE["soak_a_panic_hits"]:-0},
+        "bPanic": ${EVIDENCE["soak_b_panic_hits"]:-0}
+      }
+    }
+  },
+  "artifacts": {
+    "summaryJson": "$(json_escape "$OS2VM_SUMMARY_JSON")",
+    "summaryTxt": "$(json_escape "$OS2VM_SUMMARY_TXT")",
+    "uartA": "$(json_escape "$UART_A")",
+    "uartB": "$(json_escape "$UART_B")",
+    "hostA": "$(json_escape "$HOST_A")",
+    "hostB": "$(json_escape "$HOST_B")"
+  }
+}
 EOF
 }
 
@@ -1634,6 +2067,7 @@ on_exit() {
   FINAL_EXIT_CODE=$(resolve_exit_code)
   write_summary_json
   write_summary_txt
+  write_release_bundle_json
   if [[ "$OS2VM_PCAP_MODE" == "auto" && "$RESULT" == "success" ]]; then
     rm -f "$PCAP_A" "$PCAP_B"
   fi
@@ -1670,8 +2104,26 @@ if phase_should_run "session"; then
     exit "$FINAL_EXIT_CODE"
   fi
 fi
+if phase_should_run "mux"; then
+  if ! run_phase "mux" phase_mux; then
+    FINAL_EXIT_CODE=$(resolve_exit_code)
+    exit "$FINAL_EXIT_CODE"
+  fi
+fi
 if phase_should_run "remote"; then
   if ! run_phase "remote" phase_remote; then
+    FINAL_EXIT_CODE=$(resolve_exit_code)
+    exit "$FINAL_EXIT_CODE"
+  fi
+fi
+if phase_should_run "perf"; then
+  if ! run_phase "perf" phase_perf; then
+    FINAL_EXIT_CODE=$(resolve_exit_code)
+    exit "$FINAL_EXIT_CODE"
+  fi
+fi
+if phase_should_run "soak"; then
+  if ! run_phase "soak" phase_soak; then
     FINAL_EXIT_CODE=$(resolve_exit_code)
     exit "$FINAL_EXIT_CODE"
   fi

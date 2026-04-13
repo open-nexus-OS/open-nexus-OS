@@ -19,6 +19,31 @@ links:
   - Testing contract (2-VM): tools/os2vm.sh
 ---
 
+## Short description
+
+- **Scope**: Add host-first QUIC transport selection (`auto|tcp|quic`) without destabilizing the default TCP path.
+- **Deliver**: Host QUIC session proof, strict-mode downgrade rejects, and deterministic OS fallback markers while OS QUIC stays disabled-by-default.
+- **Out of scope**: Enabling real OS QUIC by default or changing kernel/networking contracts.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock boundaries, security invariants, and explicit fallback semantics.
+- **Phase B (Host proof)**: requirement-named host tests (including negative paths) are green.
+- **Phase C (OS-gated proof)**: single-VM marker ladder is green; distributed proof is required where applicable.
+- **Phase D (Performance gate)**: deterministic latency/throughput/backpressure budgets are defined and met.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: task-owned requirement suites (for transport selection and downgrade behavior).
+- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- 2-VM (if distributed behavior is asserted): `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 We want an optional QUIC/UDP transport alongside TCP for DSoftBus, without breaking the default
@@ -32,7 +57,7 @@ bring-up path. The best approach is:
 
 Prove:
 
-- Host: QUIC session works and can carry mux traffic (if mux exists), including negative cases.
+- Host: QUIC session works and carries TASK-0020 mux traffic, including negative cases.
 - OS/QEMU: default path remains green; OS reports deterministic “QUIC disabled → fallback TCP” markers.
 
 ## Target-state alignment (post TASK-0015 / RFC-0027)
@@ -83,6 +108,22 @@ Prove:
 - `test_reject_quic_invalid_or_untrusted_cert`
 - `test_reject_quic_strict_mode_downgrade`
 - `test_auto_mode_fallback_marker_emitted`
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus -- quic --nocapture`
+- Required tests:
+  - `test_reject_quic_wrong_alpn`
+  - `test_reject_quic_invalid_or_untrusted_cert`
+  - `test_reject_quic_strict_mode_downgrade`
+
+### Hardening markers (QEMU, if applicable)
+
+- `dsoftbus: quic os disabled (fallback tcp)`
+- `SELFTEST: quic fallback ok`
 
 ## Red flags / decision points
 

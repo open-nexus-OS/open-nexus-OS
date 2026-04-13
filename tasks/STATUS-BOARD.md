@@ -40,8 +40,10 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 | ✅ TASK-0017 | DSoftBus Remote-StateFS v1 | Done | Deterministic ACL/audit + 1-VM/2-VM proof complete |
 | ✅ TASK-0018 | Crashdumps v1: deterministic minidump + host symbolization | Done | Final hardening + drift lock complete |
 | ✅ TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | Done | Kernel-untouched guardrail closure with authenticated profile distribution and deterministic proofs complete |
+| 🟨 TASK-0020 | DSoftBus Streams v2: mux + flow-control + keepalive | In Review | Legacy 0001..0020 production closure gates proven (host/OS/2-VM/perf/soak/release-evidence); review sync pending |
 
-Current queue head (in progress): `TASK-0020`.
+Current queue head (in review): `TASK-0020` (closeout review before advancing to `TASK-0021`).
+Production closure program note: `RFC-0034` is now done for legacy `TASK-0001..0020` production closure scope.
 
 ---
 
@@ -109,7 +111,7 @@ QEMU window before the later display/system migration tasks fully land.
 | ✅ RFC-0031 | Crashdumps v1 + host symbolization | `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` |
 | ✅ RFC-0032 | ABI syscall guardrails v2 (userland, kernel-untouched) | `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md` |
 
-Current RFC queue head (in progress): none (RFC-0032 complete).
+Current RFC closure status: `RFC-0033` and `RFC-0034` are both `Done`.
 
 ---
 

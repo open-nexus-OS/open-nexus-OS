@@ -14,6 +14,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Add host-first control-plane stack: bus directory, rpc multiplexing, health transitions, and quota/backpressure rules.
+- **Deliver**: Deterministic watch/rpc/keepalive behavior on top of secure framed transport (reusing Mux v2 flow semantics where present).
+- **Out of scope**: Building a parallel mux layer that duplicates TASK-0020 responsibilities.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock busdir/rpcmux/health semantics and quota boundaries.
+- **Phase B (Host proof)**: requirement-named host suites for control-plane rejects and ordering are green.
+- **Phase C (OS-gated proof)**: OS marker claims require real protocol-level evidence.
+- **Phase D (Performance gate)**: deterministic inflight/backpressure/latency budgets are validated.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: `cargo test -p dsoftbus_v1_1_host -- --nocapture`
+- OS (if touched): `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- 2-VM (if distributed behavior is asserted): `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 We already have:
@@ -86,6 +110,50 @@ Deliver:
 - **RED (parallel multiplexers drift)**:
   - Avoid building a second “mux” that duplicates `TASK-0020`. `rpcmux` is for req/resp semantics; byte-level flow control should come from Mux v2 where possible.
 
+## Security considerations
+
+### Threat model
+
+- Unauthorized service directory updates or watcher subscriptions.
+- rpcmux inflight abuse to trigger memory/queue exhaustion.
+- Keepalive/health spoofing that masks dead peers as healthy.
+
+### Security invariants (MUST hold)
+
+- busdir updates are accepted only from authenticated/authorized session context.
+- inflight streams/bytes are bounded with deterministic reject behavior.
+- health state transitions are deterministic and not user-forgeable through payload-only inputs.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T run rpcmux as an unbounded request queue.
+- DON'T duplicate flow-control logic that bypasses Mux v2 guarantees.
+- DON'T emit healthy/up markers without verified keepalive evidence.
+
+### Attack surface impact
+
+- Significant: directory/rpc control-plane and health surfaces.
+
+### Mitigations
+
+- authenticated control stream, bounded inflight windows, and strict keepalive state machine checks.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus_v1_1_host -- --nocapture`
+- Required tests:
+  - `test_reject_busdir_update_from_unauthenticated_peer`
+  - `test_reject_rpcmux_inflight_limit_exceeded`
+  - `test_reject_health_state_spoof_without_keepalive_path`
+
+### Hardening markers (QEMU, if applicable)
+
+- `SELFTEST: bus dir watch ok`
+- `SELFTEST: bus health degrade ok`
+
 ## Stop conditions (Definition of Done)
 
 - **Proof (Host)**:
@@ -111,4 +179,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove directory/watch, RPC mux parallelism, keepalive health transitions, and bounded flow-control behavior.
-

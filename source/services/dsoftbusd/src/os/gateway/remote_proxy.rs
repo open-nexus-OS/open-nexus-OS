@@ -295,7 +295,11 @@ pub(crate) fn run_remote_proxy_loop(
                         // #endregion
                     }
                     status = 0;
-                    let op = if req.len() >= 4 { req[3] } else { pkg::PK_OP_STAT };
+                    let op = if req.len() >= 4 {
+                        req[3]
+                    } else {
+                        pkg::PK_OP_STAT
+                    };
                     rsp_payload = pkg::encode_status_only(op, pkg::PK_STATUS_IO);
                 }
             }
@@ -399,7 +403,11 @@ fn handle_packagefs_ro_request(
     pkg_handles: &mut BTreeMap<u32, Vec<u8>>,
     next_pkg_handle: &mut u32,
 ) -> (Vec<u8>, bool) {
-    let op_for_error = if req.len() >= 4 { req[3] } else { pkg::PK_OP_STAT };
+    let op_for_error = if req.len() >= 4 {
+        req[3]
+    } else {
+        pkg::PK_OP_STAT
+    };
     let parsed = match pkg::parse_request(req, authenticated) {
         Ok(v) => v,
         Err(reason) => {
@@ -419,7 +427,10 @@ fn handle_packagefs_ro_request(
                     // #region agent log
                     let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs stat ok");
                     // #endregion
-                    (pkg::encode_stat_rsp(pkg::PK_STATUS_OK, entry.size, entry.kind), true)
+                    (
+                        pkg::encode_stat_rsp(pkg::PK_STATUS_OK, entry.size, entry.kind),
+                        true,
+                    )
                 }
                 Ok(None) => {
                     // #region agent log
@@ -455,19 +466,32 @@ fn handle_packagefs_ro_request(
                 Err(()) => (pkg::encode_open_rsp(pkg::PK_STATUS_IO, 0), false),
             }
         }
-        pkg::PackagefsRequest::Read { handle, offset, read_len } => {
+        pkg::PackagefsRequest::Read {
+            handle,
+            offset,
+            read_len,
+        } => {
             let Some(data) = pkg_handles.get(&handle) else {
                 return (pkg::encode_read_rsp(pkg::PK_STATUS_BADF, &[]), false);
             };
             let start = core::cmp::min(offset as usize, data.len());
             let end = core::cmp::min(start.saturating_add(read_len as usize), data.len());
-            (pkg::encode_read_rsp(pkg::PK_STATUS_OK, &data[start..end]), true)
+            (
+                pkg::encode_read_rsp(pkg::PK_STATUS_OK, &data[start..end]),
+                true,
+            )
         }
         pkg::PackagefsRequest::Close { handle } => {
             if pkg_handles.remove(&handle).is_some() {
-                (pkg::encode_status_only(pkg::PK_OP_CLOSE, pkg::PK_STATUS_OK), true)
+                (
+                    pkg::encode_status_only(pkg::PK_OP_CLOSE, pkg::PK_STATUS_OK),
+                    true,
+                )
             } else {
-                (pkg::encode_status_only(pkg::PK_OP_CLOSE, pkg::PK_STATUS_BADF), false)
+                (
+                    pkg::encode_status_only(pkg::PK_OP_CLOSE, pkg::PK_STATUS_BADF),
+                    false,
+                )
             }
         }
     }
@@ -499,14 +523,17 @@ fn resolve_package_entry(
     rel_path: &str,
 ) -> core::result::Result<Option<pkg::PackagefsEntry>, ()> {
     let req = pkg::encode_packagefs_resolve_req(rel_path);
-    packagefsd.send(&req, Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| {
-        // #region agent log
-        let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve send fail");
-        // #endregion
-        ()
-    })?;
-    let rsp =
-        packagefsd.recv(Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| {
+    packagefsd
+        .send(&req, Wait::Timeout(core::time::Duration::from_millis(300)))
+        .map_err(|_| {
+            // #region agent log
+            let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve send fail");
+            // #endregion
+            ()
+        })?;
+    let rsp = packagefsd
+        .recv(Wait::Timeout(core::time::Duration::from_millis(300)))
+        .map_err(|_| {
             // #region agent log
             let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve timeout");
             // #endregion
@@ -556,7 +583,10 @@ fn handle_statefs_rw_request(
     };
 
     if statefsd
-        .send(internal_req.as_slice(), Wait::Timeout(core::time::Duration::from_millis(2_000)))
+        .send(
+            internal_req.as_slice(),
+            Wait::Timeout(core::time::Duration::from_millis(2_000)),
+        )
         .is_err()
     {
         let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote statefs send fail");

@@ -13,6 +13,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Define host-first media remote protocol and cast/group control flows over DSoftBus control plane.
+- **Deliver**: Deterministic transfer/group-sync behavior with explicit share fallback and bounded drift semantics.
+- **Out of scope**: Remote audio streaming transport and UDP discovery expansion.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock `media.remote@1` protocol semantics and fallback boundaries.
+- **Phase B (Host proof)**: requirement-named host tests for transfer/group/reject paths are green.
+- **Phase C (OS-gated proof)**: OS claims stay gated until matching OS wiring evidence exists.
+- **Phase D (Performance gate)**: deterministic drift/latency budgets are defined and validated.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: `cargo test -p dsoftbus_media_remote_v1_2_host -- --nocapture`
+- OS (if touched): `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 We want deterministic “cast/remote control” over DSoftBus while staying offline and QEMU-tolerant:
@@ -79,6 +103,50 @@ Deliver:
 - **YELLOW (group sync semantics)**:
   - “party mode” must define a strict, deterministic model (block-aligned) and avoid wallclock/NTP claims.
 
+## Security considerations
+
+### Threat model
+
+- Unauthorized remote media control commands.
+- Malicious transfer/group commands causing inconsistent playback state.
+- Share fallback misuse to inject unexpected payloads.
+
+### Security invariants (MUST hold)
+
+- `media.remote@1` control paths require authenticated, authorized peers.
+- Transfer completion requires remote playing confirmation before local stop/pause.
+- Share fallback content handling is bounded and verified (hash/size checks).
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T treat media control channel as trusted without rpcmux/session auth.
+- DON'T claim group-sync success without deterministic drift-bound assertions.
+- DON'T bypass share integrity checks for playback convenience.
+
+### Attack surface impact
+
+- Significant: remote control over media session behavior.
+
+### Mitigations
+
+- authenticated rpcmux calls, deterministic state-transition checks, bounded sync and fallback rules.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus_media_remote_v1_2_host -- --nocapture`
+- Required tests:
+  - `test_reject_media_control_without_cap`
+  - `test_reject_transfer_without_remote_confirm_playing`
+  - `test_reject_share_fallback_hash_mismatch`
+
+### Hardening markers (QEMU, if applicable)
+
+- `SELFTEST: media cast transfer ok`
+- `SELFTEST: media cast party sync ok`
+
 ## Stop conditions (Definition of Done)
 
 - **Proof (Host)**:
@@ -101,4 +169,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove media remote discovery/control, transfer, group sync, and share fallback.
-

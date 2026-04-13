@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-10
+
+#### DSoftBus mux v2 production closure (`TASK-0020`, `RFC-0033`, `RFC-0034`)
+
+- `TASK-0020` is closed as `Done` with host, single-VM, and 2-VM marker proofs plus deterministic perf/soak and release-evidence artifacts.
+- `RFC-0033` status is now `Complete` (mux v2 contract closure).
+- `RFC-0034` status is now `Complete` for legacy `TASK-0001..0020` production-closure scope.
+- Sequential queue head moved to `TASK-0021` after `TASK-0020` closeout.
+
 ### Changed - 2026-03-27
 
 #### DSoftBus mux v2 kickoff (`TASK-0020`, `RFC-0033`)

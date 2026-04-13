@@ -14,6 +14,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Wire busdir/rpcmux/health capabilities into OS services, SystemUI, and selftests.
+- **Deliver**: Deterministic QEMU proofs for directory watch, parallel req/resp, health degradation, and share resume.
+- **Out of scope**: Claiming UDP/LAN success without unblocked OS networking.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock OS wiring boundaries and marker truth rules.
+- **Phase B (Host proof)**: requirement-named host control-plane rejects are green.
+- **Phase C (OS-gated proof)**: canonical QEMU marker ladder and bounded selftests are green.
+- **Phase D (Performance gate)**: deterministic parallel req/resp and health-transition budgets are met.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: `cargo test -p dsoftbus_v1_1_host -- --nocapture`
+- OS: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=200s ./scripts/qemu-test.sh`
+- 2-VM (if distributed behavior is asserted): `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 This task wires DSoftBus v1.1 control-plane features into OS/QEMU:
@@ -76,6 +100,59 @@ Deliver:
   - “health degrade ok” must be proven by a deterministic keepalive simulation (test mode is explicit).
 - Bounded timeouts; no busy-wait.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
+
+## Red flags / decision points (track explicitly)
+
+- **RED (marker honesty)**:
+  - `SELFTEST: bus mux parallel ok` must reflect real concurrent req/resp, not log-only evidence.
+- **YELLOW (ui coupling)**:
+  - SystemUI watch/update wiring must remain non-authoritative for health; busdir/dsoftbusd state remains source of truth.
+
+## Security considerations
+
+### Threat model
+
+- Unauthorized rpc calls or busdir watch subscriptions in OS wiring path.
+- UI-triggered operations bypassing capability checks.
+- False health state projection causing unsafe remote actions.
+
+### Security invariants (MUST hold)
+
+- busdir/rpcmux operations require authenticated and authorized session context.
+- UI actions are policy-gated; disabled state is enforced when peer health is down.
+- marker-based success claims require real protocol-level verification.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T accept unauthenticated control-plane traffic.
+- DON'T let UI state override protocol health truth.
+- DON'T mark selftests green based only on marker grep without state assertions.
+
+### Attack surface impact
+
+- Significant: OS control-plane exposure and UI action path.
+
+### Mitigations
+
+- policy checks on call paths, deterministic keepalive state assertions, bounded rpcmux quotas.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus_v1_1_host -- --nocapture`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=200s ./scripts/qemu-test.sh`
+- Required tests:
+  - `test_reject_busdir_watch_without_auth`
+  - `test_reject_rpc_call_without_required_cap`
+  - `test_reject_send_when_peer_health_down`
+
+### Hardening markers (QEMU, if applicable)
+
+- `SELFTEST: bus dir watch ok`
+- `SELFTEST: bus mux parallel ok`
+- `SELFTEST: bus health degrade ok`
 
 ## Stop conditions (Definition of Done)
 

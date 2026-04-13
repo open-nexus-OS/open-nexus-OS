@@ -52,6 +52,17 @@ Convenience targets:
 - `just test-dsoftbus-2vm` / `just os2vm`
 - `just test-dsoftbus-2vm-pcap` / `just os2vm-pcap`
 
+### TASK-0020 mux marker status
+
+For `TASK-0020` runs, keep marker interpretation explicit:
+
+- **Single-VM proven** (green with `REQUIRE_DSOFTBUS=1`): `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, `dsoftbus:mux session up`, `dsoftbus:mux data ok`, `SELFTEST: mux pri control ok`, `SELFTEST: mux bulk ok`, `SELFTEST: mux backpressure ok`, `SELFTEST: dsoftbus os connect ok`, `SELFTEST: dsoftbus ping ok`.
+- **2-VM proven** (green with `RUN_OS2VM=1`): `dsoftbus:mux crossvm session up`, `dsoftbus:mux crossvm data ok`, `SELFTEST: mux crossvm pri control ok`, `SELFTEST: mux crossvm bulk ok`, `SELFTEST: mux crossvm backpressure ok` (checked on both nodes by `tools/os2vm.sh` phase `mux`).
+- **2-VM performance-gate proven**: deterministic runtime budgets are enforced in `tools/os2vm.sh` phase `perf` (discovery/session/mux/remote/total thresholds in summary JSON).
+- **2-VM hardening soak proven**: bounded stability window is enforced in `tools/os2vm.sh` phase `soak` (node liveness + fail/panic marker absence, configurable soak rounds).
+
+Do not infer distributed mux closure from transport/session markers alone; use the dedicated `phase: mux` ladder checks.
+
 ## QEMU Networking Proof Knobs
 
 Single-VM smoke (`scripts/qemu-test.sh`) supports explicit proof gating:
@@ -61,6 +72,21 @@ Single-VM smoke (`scripts/qemu-test.sh`) supports explicit proof gating:
 - `REQUIRE_QEMU_DHCP_STRICT=1` with `REQUIRE_QEMU_DHCP=1`: requires deterministic DHCP bound.
 - `REQUIRE_DSOFTBUS=1`: requires DSoftBus transport markers in smoke.
 - `REQUIRE_DSOFTBUS_REMOTE_PKGFS=1`: enforces remote packagefs markers when cross-VM session markers are present; in single-VM profile it logs an explicit skip warning.
+
+2-VM harness (`tools/os2vm.sh`) supports deterministic performance budgets:
+
+- `OS2VM_BUDGET_ENABLE=1|0`: enable/disable budget enforcement (default `1`)
+- `OS2VM_BUDGET_DISCOVERY_MS`, `OS2VM_BUDGET_SESSION_MS`, `OS2VM_BUDGET_MUX_MS`, `OS2VM_BUDGET_REMOTE_MS`, `OS2VM_BUDGET_TOTAL_MS`
+
+2-VM harness (`tools/os2vm.sh`) supports bounded hardening soak checks:
+
+- `OS2VM_SOAK_ENABLE=1|0`: enable/disable soak hardening gate (default `1`)
+- `OS2VM_SOAK_DURATION=<seconds|Ns|Nm|Nh>`: soak window duration (default `15s`)
+- `OS2VM_SOAK_ROUNDS=<N>`: number of deterministic soak rounds (default `1`)
+
+Release-ready evidence artifact:
+
+- `artifacts/os2vm/runs/<runId>/release-evidence.json` (machine-readable gate snapshot for mux/perf/soak + artifact pointers)
 
 See `docs/adr/0025-qemu-smoke-proof-gating.md` for policy rationale.
 

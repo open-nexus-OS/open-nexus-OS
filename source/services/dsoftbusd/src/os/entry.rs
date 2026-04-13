@@ -506,7 +506,13 @@ pub(crate) fn dual_stream_write(
     w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
     w[10..10 + data.len()].copy_from_slice(data);
     w[10 + data.len()..10 + data.len() + 8].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = rpc_nonce(pending, net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &w[..10 + data.len() + 8],
+        OP_WRITE | 0x80,
+        nonce,
+    )?;
     if rsp[4] == STATUS_OK {
         Ok(())
     } else {

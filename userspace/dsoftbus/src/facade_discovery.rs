@@ -59,8 +59,9 @@ where
     pub fn new(net: N, bind: SocketAddr, bus: SocketAddr) -> Result<Self, DiscoveryError> {
         let mut net = net;
         let local = to_v4(bind)?;
-        let socket =
-            net.udp_bind(local).map_err(|e| DiscoveryError::Registry(format!("udp_bind: {e}")))?;
+        let socket = net
+            .udp_bind(local)
+            .map_err(|e| DiscoveryError::Registry(format!("udp_bind: {e}")))?;
         Ok(Self {
             net: Arc::new(Mutex::new(net)),
             socket: Arc::new(Mutex::new(socket)),
@@ -120,8 +121,12 @@ where
                         Announcement::new(device_id, pkt.services, pkt.port, pkt.noise_static);
                     // Reject replay/duplicate announces deterministically: if the cache already has
                     // an identical announcement for this device id, ignore it (no new yield).
-                    if let Some(prev) =
-                        self.discovery.cache.lock().get(ann.device_id().as_str()).cloned()
+                    if let Some(prev) = self
+                        .discovery
+                        .cache
+                        .lock()
+                        .get(ann.device_id().as_str())
+                        .cloned()
                     {
                         if prev.services() == ann.services()
                             && prev.port() == ann.port()

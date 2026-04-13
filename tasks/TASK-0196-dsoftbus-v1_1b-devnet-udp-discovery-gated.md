@@ -14,6 +14,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Add optional host-first UDP discovery mode with strict devnet gating and deterministic loopback default.
+- **Deliver**: Mode-force behavior, localhost beacon TTL aging, and honest OS markers while OS UDP remains gated.
+- **Out of scope**: Full LAN/mDNS parity and ungated OS UDP claims.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock devnet mode-gating and bounded beacon contract.
+- **Phase B (Host proof)**: requirement-named host tests for mode gating and reject paths are green.
+- **Phase C (OS-gated proof)**: OS marker claims remain honest while networking dependencies are gated.
+- **Phase D (Performance gate)**: deterministic discovery churn/rate behavior is validated under bounded load.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: `cargo test -p dsoftbus_v1_1_udp_host -- --nocapture`
+- OS: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh`
+- 2-VM (if distributed behavior is asserted): `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 We want an optional UDP-based discovery mode for DSoftBus that is:
@@ -58,6 +82,49 @@ Deliver:
 - **RED (OS networking dependency)**:
   - UDP mode on OS requires real networking (virtio-net + MMIO access). Until then, OS must remain loopback-only.
 
+## Security considerations
+
+### Threat model
+
+- Unauthorized enabling of UDP discovery when devnet is disabled.
+- Spoofed beacons causing false peer registration.
+- TTL/backoff handling abuse causing stale or flapping peer state.
+
+### Security invariants (MUST hold)
+
+- `devnet.enabled=false` forces loopback mode regardless of requested transport.
+- Beacon parsing and peer cache updates are bounded and deterministic.
+- UDP discovery never bypasses authenticated session requirements for data plane.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T claim OS UDP success without real OS socket evidence.
+- DON'T trust beacon identity without later authenticated binding.
+- DON'T allow unbounded peer table growth.
+
+### Attack surface impact
+
+- Moderate: discovery control plane expansion.
+
+### Mitigations
+
+- hard mode gate, bounded cache/TTL logic, and explicit marker discipline.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus_v1_1_udp_host -- --nocapture`
+- Required tests:
+  - `test_reject_udp_mode_when_devnet_disabled`
+  - `test_reject_oversize_or_malformed_beacon`
+  - `test_reject_stale_peer_after_ttl_expiry`
+
+### Hardening markers (QEMU, if applicable)
+
+- `SELFTEST: bus mode gate ok`
+
 ## Stop conditions (Definition of Done)
 
 - **Proof (Host)**:
@@ -86,4 +153,3 @@ Deliver:
 ## Acceptance criteria (behavioral)
 
 - Host tests deterministically prove localhost UDP discovery under devnet; OS remains honest and loopback-only unless networking is unblocked.
-

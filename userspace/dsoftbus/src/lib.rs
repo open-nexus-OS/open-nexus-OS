@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional (host backend), Placeholder (OS backend - pending kernel transport)
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 14 integration tests (host transport + discovery packet vectors + facade discovery + identity binding)
+//! TEST_COVERAGE: integration tests for host/facade transport, discovery robustness, and mux v2 requirement suites (`mux_contract_rejects_and_bounds`, `mux_frame_state_keepalive_contract`, `mux_open_accept_data_rst_integration`)
 //!
 //! PUBLIC API:
 //!   - Announcement: Service discovery announcement
@@ -55,7 +55,12 @@ impl Announcement {
         port: u16,
         noise_static: [u8; 32],
     ) -> Self {
-        Self { device_id, services, port, noise_static }
+        Self {
+            device_id,
+            services,
+            port,
+            noise_static,
+        }
     }
 
     /// Returns the announced device id.
@@ -259,6 +264,8 @@ pub mod discovery_packet;
 
 pub mod remote_proxy_policy;
 
+pub mod mux_v2;
+
 #[cfg(nexus_env = "os")]
 mod os;
 
@@ -289,8 +296,10 @@ fn host_run() {
     };
 
     // Choose a listening port. Allow override via DSOFTBUS_PORT for integration.
-    let port: u16 =
-        env::var("DSOFTBUS_PORT").ok().and_then(|s| s.parse::<u16>().ok()).unwrap_or(34_567);
+    let port: u16 = env::var("DSOFTBUS_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(34_567);
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
     let authenticator = match HostAuthenticator::bind(addr, identity.clone()) {

@@ -14,6 +14,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Add host-first secure channels (Noise + identity proofs), encrypted framing, and resumable file-share contract.
+- **Deliver**: Deterministic crypto/error-path tests (allowlist deny, tamper reject, quota/resume checks).
+- **Out of scope**: UDP discovery transport and kernel-side crypto changes.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock secure-channel, encrypted framing, and resume/quota invariants.
+- **Phase B (Host proof)**: requirement-named host tests (including reject/tamper paths) are green.
+- **Phase C (OS-gated proof)**: OS claims remain gated until corresponding OS secure-path evidence exists.
+- **Phase D (Performance gate)**: bounded overhead/backpressure budgets are measured with deterministic workloads.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: `cargo test -p dsoftbus_v1_1_host -- --nocapture`
+- OS (if touched): `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 DSoftBus v1 localSim (`TASK-0157`) is intentionally offline and does not include Noise/TLS crypto.
@@ -77,6 +101,51 @@ Deliver:
 
 - **RED (no_std viability later)**:
   - Keep the crypto/transport core structured so it can later be moved toward `no_std+alloc` (see `TASK-0022` direction).
+
+## Security considerations
+
+### Threat model
+
+- MITM or impersonation during Noise handshake and identity proof exchange.
+- Ciphertext tampering/replay against framed encrypted streams.
+- File-share abuse via wrong resume offsets or quota bypass.
+
+### Security invariants (MUST hold)
+
+- Unknown peers are denied by trust allowlist.
+- AEAD integrity failures are fail-closed and do not leak plaintext.
+- Resume is accepted only at exact expected offset; quota limits are enforced deterministically.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T use fixture keys outside explicitly test-only contexts.
+- DON'T continue transfer on auth/tag mismatch.
+- DON'T accept out-of-order resume that changes prior committed bytes.
+
+### Attack surface impact
+
+- Significant: crypto/session boundary and remote file-transfer path.
+
+### Mitigations
+
+- Noise transcript identity proof, allowlist gating, monotonic sequence/AAD checks, and strict quota/resume validation.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus_v1_1_host -- --nocapture`
+- Required tests:
+  - `test_reject_unknown_peer_allowlist`
+  - `test_reject_tampered_encrypted_frame`
+  - `test_reject_resume_wrong_offset`
+  - `test_reject_quota_exceeded`
+
+### Hardening markers (QEMU, if applicable)
+
+- `dsoftbusd: auth ok`
+- `dsoftbusd: remote proxy denied (unauthenticated)`
 
 ## Stop conditions (Definition of Done)
 

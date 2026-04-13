@@ -14,6 +14,31 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Harden discovery and admission with deterministic mDNS metadata, TTL/backoff, ACL checks, and rate limits.
+- **Deliver**: Host-first negative/abuse-case proofs with bounded peer cache and fail-closed pre-session policy checks.
+- **Out of scope**: Transport redesign or kernel/network stack expansion.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock ACL authority, TTL/backoff contract, and deterministic rate-limit semantics.
+- **Phase B (Host proof)**: requirement-named host abuse/reject suites are green.
+- **Phase C (OS-gated proof)**: canonical marker ladder is green once OS backend supports these paths.
+- **Phase D (Performance gate)**: bounded discovery/admission behavior under load is proven with deterministic workloads.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: task-owned requirement suites for ACL/rate-limit/TTL behavior.
+- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- 2-VM distributed: `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 DSoftBus discovery and admission need hardening to be robust against:
@@ -67,6 +92,50 @@ Implement discovery/authz hardening without changing transports or mux:
 - **YELLOW (ACL authority)**:
   - Keep ACL simple and deterministic, and document its relationship to policyd/nexus-sel.
   - Prefer allow-by-default = false.
+
+## Security considerations
+
+### Threat model
+
+- Discovery flooding and handshake spamming to exhaust resources.
+- Unauthorized peers attempting pre-session connection before policy checks.
+- Malformed mDNS SRV/TXT payloads attempting parser or bounds failures.
+
+### Security invariants (MUST hold)
+
+- Admission is deny-by-default until ACL/policy allows.
+- Discovery parsing is bounded and deterministic.
+- Rate-limit and backoff decisions are enforced before expensive session work.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T perform connect/accept before ACL/policy checks.
+- DON'T parse unbounded TXT payloads.
+- DON'T downgrade authz failures into warning-only behavior.
+
+### Attack surface impact
+
+- Significant: network-discovery and admission-control surface.
+
+### Mitigations
+
+- Bounded peer table + TXT caps, deterministic token buckets, and explicit pre-session policy gate.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus -- discovery --nocapture`
+- Required tests:
+  - `test_reject_peer_outside_acl`
+  - `test_reject_discovery_rate_limit_exceeded`
+  - `test_reject_oversize_mdns_txt_payload`
+
+### Hardening markers (QEMU, if applicable)
+
+- `dsoftbusd: discovery up (udp)`
+- `dsoftbusd: remote proxy denied (unauthenticated)`
 
 ## Contract sources (single source of truth)
 
@@ -146,4 +215,3 @@ Notes:
 5. **Docs**
    - `docs/distributed/discovery.md`: SRV/TXT schema, TTL/backoff, rate limits.
    - `docs/security/dsoftbus-acl.md`: ACL schema and examples.
-

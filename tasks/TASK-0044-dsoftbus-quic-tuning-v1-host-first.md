@@ -11,6 +11,31 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Tune host QUIC behavior (pacing/CC) and improve mux scheduling fairness under mixed load.
+- **Deliver**: Deterministic host load proofs for latency/throughput trade-offs with explicit fallback behavior.
+- **Out of scope**: Claiming OS QUIC tuning success before OS QUIC is real.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock tuning knobs, fallback behavior, and deterministic measurement methodology.
+- **Phase B (Host proof)**: requirement-named host load suites and reject paths are green.
+- **Phase C (OS-gated proof)**: OS marker claims remain gated until real OS transport support exists.
+- **Phase D (Performance gate)**: latency/throughput/fairness budgets under deterministic load are met.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: task-owned requirement suites for pacing/cc/priorities.
+- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- 2-VM distributed: `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 We want more realistic performance under load while keeping the system small and testable:
@@ -23,7 +48,7 @@ Repo reality today:
 
 - Host DSoftBus backend exists; OS backend is still a placeholder.
 - QUIC on OS is blocked/gated (no_std feasibility); host QUIC is the primary environment for this work.
-- Mux v2 is planned but not implemented yet.
+- Mux v2 baseline from `TASK-0020` is implemented.
 
 Therefore this task is **host-first** and **OS-gated**.
 
@@ -58,6 +83,50 @@ On host builds, prove:
   - If the chosen QUIC stack does not provide a safe pluggable BBR-lite, keep Reno as the only supported CC in v1 and document the limitation.
 - **YELLOW (test flakiness)**:
   - Load tests can become flaky if based on wall-clock latency thresholds. Use deterministic workload generators and validate relative ordering/ratios.
+
+## Security considerations
+
+### Threat model
+
+- Priority/fairness misconfiguration can starve control traffic and weaken liveness guarantees.
+- Congestion/pacing toggles could mask degraded behavior without explicit evidence.
+- Transport tuning paths can accidentally bypass auth/session safeguards.
+
+### Security invariants (MUST hold)
+
+- Control-plane traffic remains bounded and prioritized under load.
+- Tuning knobs never bypass authentication/authorization boundaries.
+- Fallback behavior is explicit and auditable.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T ship benchmark-only settings as defaults without deterministic proof.
+- DON'T claim performance success using non-deterministic timing-only checks.
+- DON'T disable fail-closed backpressure behavior for throughput gains.
+
+### Attack surface impact
+
+- Minimal to significant depending on runtime knob exposure; treated as significant for production gates.
+
+### Mitigations
+
+- Deterministic mixed-load suites, explicit budget checks, and fixed fallback semantics.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus -- tuning --nocapture`
+- Required tests:
+  - `test_reject_unbounded_priority_starvation`
+  - `test_reject_invalid_tuning_profile`
+  - `test_reject_backpressure_disable_under_load`
+
+### Hardening markers (QEMU, if applicable)
+
+- `SELFTEST: mux pri control ok`
+- `SELFTEST: mux backpressure ok`
 
 ## Stop conditions (Definition of Done)
 
@@ -108,4 +177,3 @@ Only once OS QUIC is real (future) should we add QEMU markers for pacing/cc/prio
 
 4. **Docs**
    - Explain knobs and default policy.
-

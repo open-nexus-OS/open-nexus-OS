@@ -7,7 +7,7 @@ Keep it compact, explicit, and contract-oriented.
 -->
 
 ## Current architecture state
-- **last_decision**: move `TASK-0020` and `RFC-0033` from draft setup into active in-progress execution with task-as-SSOT.
+- **last_decision**: close `TASK-0020` with proven legacy-production gates and lock `RFC-0033`/`RFC-0034` as complete for 0001..0020 scope.
 - **rationale**:
   - preserve low-drift sequencing after `TASK-0019` closeout,
   - lock mux/flow-control contract boundaries before implementation growth,
@@ -20,7 +20,7 @@ Keep it compact, explicit, and contract-oriented.
   - OS proofs only via canonical harnesses with modern virtio-mmio defaults.
 
 ## Current focus (execution)
-- **active_task**: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (In Progress, phase-0 contract/determinism lock)
+- **active_task**: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (Done, legacy 0001..0020 production-closure gates proven)
 - **seed_contract**:
   - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
   - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
@@ -34,12 +34,12 @@ Keep it compact, explicit, and contract-oriented.
   - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
   - `scripts/qemu-test.sh`
   - `docs/testing/index.md`
-- **phase_now**: `TASK-0020` and `RFC-0033` are In Progress; active work is phase-0 lock and host-first proof implementation.
+- **phase_now**: `TASK-0020` is `Done`, `RFC-0033` is `Complete`, and `RFC-0034` legacy-scope closure for `TASK-0001..0020` is `Complete`.
 - **baseline_commit**: `74c50a6` (TASK-0019 done closeout commit)
 - **next_task_slice**:
-  - keep `TASK-0020` host-first and OS-gated while `userspace/dsoftbus` OS backend remains placeholder,
-  - execute phase 0 contract/determinism lock before mux feature growth,
-  - keep transport evolution/core extraction scope in `TASK-0021`/`TASK-0022`.
+  - start `TASK-0021` in strict numerical order,
+  - keep `TASK-0021` host-first and scoped (no absorption of `TASK-0022` core split),
+  - preserve no-fake-success harness discipline established in TASK-0020 closure.
 
 ## Last completed
 - `TASK-0019` archived and done:
@@ -52,7 +52,21 @@ Keep it compact, explicit, and contract-oriented.
 
 ## Proof baseline currently green
 - `TASK-0017`/`TASK-0018`/`TASK-0019` closure baselines remain green.
-- `TASK-0020` proofs are pending while implementation is in progress (no completion claims yet).
+- `TASK-0020` requirement-based host proofs are green:
+  - `cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture`
+  - `cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture`
+  - `cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture`
+  - `cargo test -p dsoftbus -- --nocapture`
+  - per-slice regressions: `just test-e2e`, `just test-os-dhcp`
+- OS harnesses executed:
+  - `RUN_UNTIL_MARKER=1 just test-os` (green),
+  - `just test-dsoftbus-2vm` (green summary artifacts reviewed: `os2vm_1775990226`).
+- `TASK-0020` OS/QEMU mux marker ladder is proven in canonical smoke with `REQUIRE_DSOFTBUS=1`.
+- `TASK-0020` distributed mux ladder is proven via `tools/os2vm.sh` (`phase: mux`) with run evidence `os2vm_1775990226`.
+- `TASK-0020` deterministic distributed performance budget gate is proven via `tools/os2vm.sh` (`phase: perf`) with summary-contained observed vs budget metrics.
+- `TASK-0020` bounded distributed soak hardening gate is proven via `tools/os2vm.sh` (`phase: soak`) with zero fail/panic marker hits across two soak rounds.
+- `TASK-0020` release evidence bundle is emitted per green 2-VM run (`release-evidence.json`).
+- legacy closure gates were executed under `TASK-0020` (no preemption).
 
 ## Active invariants (must hold)
 - **security**
@@ -63,13 +77,16 @@ Keep it compact, explicit, and contract-oriented.
   - stable reject labels and bounded retry budgets,
   - canonical marker/harness discipline only.
 - **scope hygiene**
-  - keep `TASK-0020` separate from `TASK-0021` and `TASK-0022`,
-  - do not claim OS mux closure before OS backend gate is actually met.
+  - keep `TASK-0021` separate from `TASK-0022`,
+  - execute tasks one-by-one in general order (no preemption of `TASK-0030+`),
+  - preserve completed legacy closure scope (`RFC-0034` is limited to `TASK-0001..0020`).
 
 ## Open threads / follow-ups
-- `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
 - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
 - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+
+## Open items (current slice)
+- none (current slice closed; next execution target is `TASK-0021` in normal order).
 
 ## DON'T DO (session-local)
 - DON'T silently absorb QUIC (`TASK-0021`) or core/no_std extraction (`TASK-0022`) scope.

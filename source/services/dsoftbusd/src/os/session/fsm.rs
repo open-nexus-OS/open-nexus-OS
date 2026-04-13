@@ -37,7 +37,11 @@ pub(crate) struct SessionFsm<S> {
 impl<S: Copy> SessionFsm<S> {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self { phase: SessionPhase::Idle, epoch: EpochId::initial(), sid: None }
+        Self {
+            phase: SessionPhase::Idle,
+            epoch: EpochId::initial(),
+            sid: None,
+        }
     }
 
     #[inline]

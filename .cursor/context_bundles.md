@@ -262,6 +262,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 ### @task_0020_context
 - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
 - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+- `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md`
 - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
 - `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
 - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
@@ -277,6 +278,18 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `scripts/qemu-test.sh`
 - `tools/os2vm.sh`
 
+### @dsoftbus_production_closure_context
+- `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+- `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md`
+- `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
+- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
+- `tasks/STATUS-BOARD.md`
+- `docs/testing/index.md`
+- `.cursor/current_state.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0020_touched
 - `userspace/dsoftbus/**`
 - `source/services/dsoftbusd/**` (OS-gated integration only)
@@ -284,6 +297,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `tests/**` (mux host tests)
 - `docs/distributed/**`
 - `scripts/qemu-test.sh` (only when OS backend gate is met)
+- `tools/os2vm.sh` (2-VM mux + perf + soak marker/budget/hardening gates + release-evidence bundle)
 
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
@@ -352,6 +366,9 @@ Kontext strikt: @core_context @task_0019_context @quality_gates @task_0019_touch
 
 ## Standard instruction line (TASK-0020)
 Kontext strikt: @core_context @task_0020_context @quality_gates @task_0020_touched. Kein @codebase Scan.
+
+## Standard instruction line (DSoftBus production closure)
+Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.
 
 ## Standard instruction line (TASK-0016B)
 Kontext strikt: @core_context @task_0016b_context @quality_gates @task_0016b_touched. Kein @codebase Scan.

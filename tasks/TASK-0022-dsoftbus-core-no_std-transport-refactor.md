@@ -11,12 +11,37 @@ links:
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
   - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
   - Unblocks: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Unblocks: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - Related baseline: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Unblocks: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
   - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
 ---
+
+## Short description
+
+- **Scope**: Split DSoftBus into a `no_std + alloc` core and transport/back-end adapters.
+- **Deliver**: Deterministic core state-machine tests, explicit transport traits, and an OS-compilable core boundary.
+- **Out of scope**: Implementing QUIC or new OS networking features in this task.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock no_std core boundaries, trait contracts, and fail-closed error model.
+- **Phase B (Host proof)**: requirement-named host tests (including reject paths) are green.
+- **Phase C (OS-gated proof)**: OS build integration and marker ladder are green where applicable.
+- **Phase D (Performance gate)**: deterministic budget checks for core path overhead and backpressure are met.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: task-owned requirement suites for core state machine and transport trait behavior.
+- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- Build hygiene: `cd /home/jenning/open-nexus-OS && just dep-gate && just diag-os`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
 
 ## Context
 
@@ -90,6 +115,23 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - `test_reject_oversize_frame_or_record`
 - `test_reject_unauthenticated_message_path`
 
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus -- reject --nocapture`
+- Required tests:
+  - `test_reject_invalid_state_transition`
+  - `test_reject_nonce_mismatch_or_stale_reply`
+  - `test_reject_oversize_frame_or_record`
+  - `test_reject_unauthenticated_message_path`
+
+### Hardening markers (QEMU, if applicable)
+
+- `dsoftbusd: ready`
+- `dsoftbusd: auth ok`
+
 ## Red flags / decision points
 
 - **RED**: As long as DSoftBus depends on `std` types (`std::net::*`, `TcpStream`, `std::sync`), OS transports cannot be real.
@@ -112,6 +154,12 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
   - `test_reject_*` coverage for parser/state/correlation invariants exists and is green.
 - OS proof discipline:
   - if OS integration hooks are touched, run single-VM + 2-VM proofs sequentially (`scripts/qemu-test.sh`, `tools/os2vm.sh`).
+
+## Plan (small PRs)
+
+1. Extract no_std core state-machine modules and lock transport-neutral contracts.
+2. Add requirement-named host tests for state, correlation, bounds, and reject paths.
+3. Integrate backend adapters and run build/proof gates (`dep-gate`, `diag-os`, OS/2-VM when touched).
 
 ## Alignment note (2026-02, low-drift)
 

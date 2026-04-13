@@ -46,7 +46,9 @@ pub(crate) fn get_peer_ip(
     ips: &[(alloc::string::String, [u8; 4])],
     device_id: &str,
 ) -> Option<[u8; 4]> {
-    ips.iter().find(|(id, _)| id.as_str() == device_id).map(|(_, ip)| *ip)
+    ips.iter()
+        .find(|(id, _)| id.as_str() == device_id)
+        .map(|(_, ip)| *ip)
 }
 
 /// SECURITY: bring-up test keys, NOT production custody.

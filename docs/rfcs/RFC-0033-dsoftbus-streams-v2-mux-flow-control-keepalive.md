@@ -1,9 +1,9 @@
 # RFC-0033: DSoftBus Streams v2 mux/flow-control/keepalive (host-first, OS-gated)
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime
 - Created: 2026-03-27
-- Last Updated: 2026-03-27
+- Last Updated: 2026-04-11
 - Links:
   - Tasks: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (execution + proof; SSOT)
   - ADRs: `docs/adr/0005-dsoftbus-architecture.md`
@@ -14,13 +14,13 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract + determinism lock)**: 🟨
-- **Phase 1 (host mux engine + security proofs)**: ⬜
-- **Phase 2 (OS-gated marker closure)**: ⬜
+- **Phase 0 (contract + determinism lock)**: ✅
+- **Phase 1 (host mux engine + security proofs)**: ✅
+- **Phase 2 (OS-gated marker closure)**: ✅
 
 Definition:
 
-- "Complete" means the contract is defined and the proof gates are green (tests/markers). It does not mean "never changes again".
+- "Done" means the contract is defined and the proof gates are green (tests/markers). It does not mean "never changes again".
 
 ## Scope boundaries (anti-drift)
 
@@ -33,7 +33,16 @@ This RFC is a design seed / contract. Implementation planning and proofs live in
 - **This RFC does NOT own**:
   - QUIC transport evolution (`TASK-0021`),
   - no_std core/backend extraction (`TASK-0022`),
+  - cross-task production hardening program (`RFC-0034`),
   - kernel networking or kernel transport changes.
+
+## Production-closure bridge (RFC-0034 boundary)
+
+This RFC remains intentionally narrow so it can reach `Complete` once `TASK-0020` closure proofs are green.
+
+- `RFC-0033` is authoritative for mux v2 contract semantics only.
+- `RFC-0034` is authoritative for multi-task production closure (gates, perf budgets, and legacy hardening mapping from `TASK-0001..0020`).
+- Any requirement that spans multiple follow-on tasks must be added to `RFC-0034` rather than expanding this RFC into a backlog.
 
 ### Relationship to tasks (single execution truth)
 
@@ -86,18 +95,32 @@ Current DSoftBus transport supports encrypted framing on authenticated sessions 
   - sender decrements on `DATA`, receiver restores with bounded `WINDOW_UPDATE`,
   - overflow/underflow is deterministic protocol rejection.
 - **Scheduling**:
-  - priority classes with bounded-starvation requirement (high-pri favored, low-pri still progresses).
+  - priority classes `0..=7` (`0` highest),
+  - default contract is strict-priority selection with deterministic starvation budget:
+    - serve highest available priority by default,
+    - after `HIGH_PRIORITY_BURST_LIMIT` consecutive high-priority dequeues while lower priority work is pending,
+      one lower-priority dequeue is required before resuming high-priority preference.
 - **Keepalive**:
   - bounded heartbeat cadence and timeout thresholds,
   - missing keepalive response leads to explicit deterministic teardown.
 - **Error model**:
   - invalid state transition, unknown stream, oversize frame, credit violation -> fail-closed reject path.
 
+### Reject labels (normative)
+
+The following reject labels are part of the deterministic contract and must stay stable:
+
+- `mux.reject.frame_oversize`
+- `mux.reject.invalid_stream_state_transition`
+- `mux.reject.window_credit_overflow_or_underflow`
+- `mux.reject.unknown_stream_frame`
+- `mux.reject.unauthenticated_session`
+
 ### Phases / milestones (contract-level)
 
 - **Phase 0**: lock deterministic limits/reject labels and typed ownership boundaries.
 - **Phase 1**: host mux engine + negative tests + deterministic fairness/backpressure/keepalive proofs.
-- **Phase 2**: OS-gated integration markers and optional 2-VM mux proof once backend is ready.
+- **Phase 2**: OS-gated integration markers and 2-VM mux proof once backend is ready.
 
 ## Security considerations
 
@@ -143,6 +166,14 @@ Current DSoftBus transport supports encrypted framing on authenticated sessions 
 - Credit/window overflow/underflow -> deterministic reject and stream/session fail-closed handling per policy.
 - Keepalive timeout -> explicit teardown; no silent fallback to "connected" state.
 
+Deterministic reject labels:
+
+- `mux.reject.frame_oversize`
+- `mux.reject.invalid_stream_state_transition`
+- `mux.reject.window_credit_overflow_or_underflow`
+- `mux.reject.unknown_stream_frame`
+- `mux.reject.unauthenticated_session`
+
 ## Proof / validation strategy (required)
 
 ### Proof (Host)
@@ -158,13 +189,35 @@ And task-owned targeted rejects/behavior checks per `TASK-0020` stop conditions,
 - unknown stream reject,
 - fairness/backpressure/keepalive deterministic coverage.
 
+Evidence snapshot (2026-04-11):
+
+- `cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture` -> 11 passed / 0 failed
+- `cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture` -> 7 passed / 0 failed
+- `cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture` -> 5 passed / 0 failed
+- `cargo test -p dsoftbus -- --nocapture` -> package test suite green
+- requirement-based host contract surfaces landed in:
+  - `userspace/dsoftbus/tests/mux_contract_rejects_and_bounds.rs`
+  - `userspace/dsoftbus/tests/mux_frame_state_keepalive_contract.rs`
+  - `userspace/dsoftbus/tests/mux_open_accept_data_rst_integration.rs`
+- host integration/event-pump surface hardened in `userspace/dsoftbus/src/mux_v2.rs`
+- mandatory per-phase regression gates executed for these slices:
+  - `just test-e2e`
+  - `just test-os-dhcp`
+- OS-gated harnesses executed:
+  - `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh` (green harness with mux markers)
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` (green; summary at `artifacts/os2vm/runs/os2vm_1775990226/summary.json`)
+  - 2-VM mux ladder markers proven on both nodes (`tools/os2vm.sh` phase `mux`)
+  - deterministic performance budget gate proven (`tools/os2vm.sh` phase `perf`)
+  - bounded soak stability gate proven (`tools/os2vm.sh` phase `soak`, rounds=2, fail/panic markers remain zero)
+  - release evidence bundle emitted: `artifacts/os2vm/runs/os2vm_1775990226/release-evidence.json`
+
 ### Proof (OS/QEMU)
 
 ```bash
-cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh
+cd /home/jenning/open-nexus-OS && REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh
 ```
 
-Optional when 2-VM mux proof exists:
+2-VM mux proof:
 
 ```bash
 cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh
@@ -177,6 +230,11 @@ cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh
 - `SELFTEST: mux pri control ok`
 - `SELFTEST: mux bulk ok`
 - `SELFTEST: mux backpressure ok`
+- `dsoftbus:mux crossvm session up`
+- `dsoftbus:mux crossvm data ok`
+- `SELFTEST: mux crossvm pri control ok`
+- `SELFTEST: mux crossvm bulk ok`
+- `SELFTEST: mux crossvm backpressure ok`
 
 ## Alternatives considered
 
@@ -186,8 +244,7 @@ cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh
 
 ## Open questions
 
-- Should priority fairness use weighted round-robin or strict-priority + starvation budget as default contract?
-- Which stream naming/registry constraints are fixed in v2 contract versus left task-owned?
+- None currently; naming/registry fail-closed constraints are now covered by host contract/integration tests and task-owned evidence.
 
 ## RFC Quality Guidelines (for authors)
 
@@ -204,9 +261,16 @@ When updating this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: Contract + determinism lock (`newtype`/ownership/`#[must_use]` boundaries + reject-label lock) — proof: task-owned host checks in `TASK-0020`.
-- [ ] **Phase 1**: Host mux engine + security rejects/fairness/backpressure/keepalive proofs — proof: `cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus -- --nocapture`.
-- [ ] **Phase 2**: OS-gated marker closure and optional 2-VM mux proof — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh` (+ optional `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`).
-- [ ] Task linked with stop conditions + proof commands (`TASK-0020` as SSOT).
-- [ ] QEMU markers (if enabled) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: Contract + determinism lock (`newtype`/ownership/`#[must_use]` boundaries + reject-label lock) — proof: task-owned host checks in `TASK-0020`.
+- [x] **Phase 1**: Host mux engine + security rejects/fairness/backpressure/keepalive proofs — proof: `cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus -- --nocapture`.
+- [x] **Phase 2**: OS-gated marker closure and 2-VM mux proof — proof: `cd /home/jenning/open-nexus-OS && REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh` + `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`.
+- [x] **Bridge boundary locked**: cross-task production closure is tracked in `RFC-0034`, while this RFC stays mux-contract scoped.
+- [x] Task linked with stop conditions + proof commands (`TASK-0020` as SSOT).
+- [x] QEMU markers (if enabled) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).
+
+Progress note (2026-04-11):
+
+- host phase-1 proofs remain requirement-based and green.
+- phase-2 OS mux-marker closure is now proven with `REQUIRE_DSOFTBUS=1` ladder and marker checks in `scripts/qemu-test.sh`.
+- 2-VM distributed mux ladder is now proven via `tools/os2vm.sh` (`phase: mux`, both nodes).

@@ -106,7 +106,9 @@ pub fn decode_announce_v1(bytes: &[u8]) -> Result<AnnounceV1, PacketError> {
         return Err(PacketError::InvalidInput("device_id length"));
     }
     let dev = take(&mut b, dev_len)?;
-    let device_id = core::str::from_utf8(dev).map_err(|_| PacketError::Utf8)?.to_string();
+    let device_id = core::str::from_utf8(dev)
+        .map_err(|_| PacketError::Utf8)?
+        .to_string();
 
     let port_bytes = take(&mut b, 2)?;
     let port = u16::from_be_bytes([port_bytes[0], port_bytes[1]]);
@@ -126,9 +128,16 @@ pub fn decode_announce_v1(bytes: &[u8]) -> Result<AnnounceV1, PacketError> {
             return Err(PacketError::InvalidInput("service name length"));
         }
         let s = take(&mut b, n)?;
-        let s = core::str::from_utf8(s).map_err(|_| PacketError::Utf8)?.to_string();
+        let s = core::str::from_utf8(s)
+            .map_err(|_| PacketError::Utf8)?
+            .to_string();
         services.push(s);
     }
 
-    Ok(AnnounceV1 { device_id, port, noise_static, services })
+    Ok(AnnounceV1 {
+        device_id,
+        port,
+        noise_static,
+        services,
+    })
 }

@@ -83,6 +83,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0031: Crashdumps v1 (bounded artifacts + fail-closed crash metadata publish contract)
 - RFC-0032: ABI syscall guardrails v2 (userland guardrail + authenticated profile distribution boundary)
 - RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive (authenticated mux + bounded credits/state transitions)
+- RFC-0034: DSoftBus production closure v1 (legacy `TASK-0001..0020` production gates + hardening mapping)
 
 ## Index
 
@@ -150,5 +151,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
 - RFC-0032: ABI syscall guardrails v2 - userland guardrail (Complete; policyd-only profile authority with deterministic proof closure)
   - docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md
-- RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive - host-first contract seed (In Progress; TASK-0020 is SSOT)
+- RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive - host-first contract seed (Done; TASK-0020 closure proofs green including single-VM/2-VM/perf/soak/release-evidence)
   - docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md
+- RFC-0034: DSoftBus production closure v1 - legacy `TASK-0001..0020` closure contract (Done; obligations extracted/proven under TASK-0020, no >0020 scope)
+  - docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md

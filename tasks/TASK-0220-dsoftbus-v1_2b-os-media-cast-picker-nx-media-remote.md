@@ -14,6 +14,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Integrate media remote cast UX into OS (SystemUI + `nx-media`) on loopback-first DSoftBus wiring.
+- **Deliver**: Deterministic QEMU selftests for transfer/group/disconnect flows with policy/schema caps.
+- **Out of scope**: Enabling UDP by default or delivering remote audio stream transport.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock cast UI contract, policy caps, and marker honesty rules.
+- **Phase B (Host proof)**: requirement-named host reject/control suites are green.
+- **Phase C (OS-gated proof)**: canonical QEMU cast marker ladder is green with real state assertions.
+- **Phase D (Performance gate)**: deterministic cast/group responsiveness and drift budgets are met.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: `cargo test -p dsoftbus_media_remote_v1_2_host -- --nocapture`
+- OS: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=200s ./scripts/qemu-test.sh`
+- 2-VM (if distributed behavior is asserted): `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 With busdir/rpcmux in OS (v1.1) and media remote semantics proven host-first (v1.2a),
@@ -78,6 +102,59 @@ Deliver:
 - Loopback default; UDP path remains gated (aligned with `TASK-0196`).
 - No fake success: selftests validate state via service queries and deterministic metrics, not log greps.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
+
+## Red flags / decision points (track explicitly)
+
+- **RED (ui-proof drift)**:
+  - cast UI markers must be coupled to protocol/service state, not button-click events alone.
+- **YELLOW (policy surface)**:
+  - `media.remote.control` and share fallback caps must remain fail-closed for non-system callers.
+
+## Security considerations
+
+### Threat model
+
+- Unauthorized cast control through UI or CLI command path.
+- Health/drift spoofing that enables invalid transfer/group actions.
+- Share fallback payload abuse in cast flow.
+
+### Security invariants (MUST hold)
+
+- cast control actions require authenticated peer context and capability checks.
+- health state and drift badges derive from verified protocol data, not client-provided labels.
+- share fallback obeys existing quota/integrity constraints.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T enable cast actions when peer health is down.
+- DON'T treat UI confirmation as authorization.
+- DON'T claim cast selftest success without protocol-level evidence.
+
+### Attack surface impact
+
+- Significant: OS UI path controlling remote media operations.
+
+### Mitigations
+
+- strict policy checks, deterministic health/drift evaluation, bounded share fallback validations.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=200s ./scripts/qemu-test.sh`
+- Required tests:
+  - `test_reject_cast_control_without_cap`
+  - `test_reject_group_action_when_peer_down`
+  - `test_reject_share_fallback_without_integrity_proof`
+
+### Hardening markers (QEMU, if applicable)
+
+- `SELFTEST: media cast transfer ok`
+- `SELFTEST: media cast group solo ok`
+- `SELFTEST: media cast party sync ok`
+- `SELFTEST: media cast disconnect ok`
 
 ## Stop conditions (Definition of Done)
 

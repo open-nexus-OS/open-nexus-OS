@@ -31,7 +31,7 @@ links:
 follow-up-tasks:
   - TASK-0031-v2: Kernel-enforced RO sealing (`Rights::SEAL`) and write-map denial proofs (to be created; gate on kernel support)
   - TASK-0031-vfs: VFS/content providers “splice to VMO” paths and registries (once writable `/state` and provider hooks exist)
-  - TASK-0020: DSoftBus mux v2 VMO frames (once mux v2 exists; depends on this v1 contract)
+  - TASK-0020 extension: DSoftBus mux v2 VMO frames (builds on existing mux v2 baseline and this v1 contract)
   - TRACK-DRIVERS-ACCELERATORS: zero-copy DMA buffers for real devices (GPU/NPU/VPU/Audio/Camera/ISP)
   - TRACK-NETWORKING-DRIVERS: zero-copy packet buffers and bounded receive rings
 ---
@@ -81,7 +81,7 @@ This task also establishes the early **zero-copy honesty contract**:
 ## Non-Goals
 
 - Full “VFS splice → VMO” (requires writable VFS + provider hooks; separate task once VFS/statefs exist).
-- DSoftBus mux VMO frames (separate task once mux v2 exists).
+- DSoftBus mux VMO frames (separate task on top of the existing mux v2 baseline).
 - Kernel changes (this task must only use existing syscalls/capabilities).
 
 ## Constraints / invariants (hard requirements)

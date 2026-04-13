@@ -35,6 +35,8 @@ help:
     @echo "  just test-os-dhcp-strict  # QEMU smoke with strict DHCP gate (requires net: dhcp bound)"
     @echo "  just test-dsoftbus-2vm    # TASK-0005: 2-VM DSoftBus harness"
     @echo "  just test-dsoftbus-2vm-pcap # 2-VM DSoftBus harness + PCAP capture"
+    @echo "  just test-dsoftbus-mux    # TASK-0020: requirement-named mux host suites"
+    @echo "  just test-dsoftbus-host   # full userspace/dsoftbus host regression"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
     @echo "  INIT_LITE_LOG_TOPICS=svc-meta just qemu  # opt-in init-lite log topics"
@@ -121,6 +123,16 @@ test-dsoftbus-2vm:
 
 test-dsoftbus-2vm-pcap:
     just os2vm-pcap
+
+# TASK-0020 requirement-named host suites (deterministic contract surface).
+test-dsoftbus-mux:
+    cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture
+    cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture
+    cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture
+
+# Full userspace dsoftbus host regression (includes mux + reject suites).
+test-dsoftbus-host:
+    cargo test -p dsoftbus -- --nocapture
 
 # -----------------------------------------------------------------------------
 # Host test suites

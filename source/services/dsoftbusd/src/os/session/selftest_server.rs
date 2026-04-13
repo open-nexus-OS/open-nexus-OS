@@ -14,6 +14,157 @@ const OP_WRITE: u8 = 5;
 const STATUS_OK: u8 = 0;
 const STATUS_WOULD_BLOCK: u8 = 3;
 
+fn run_mux_contract_selftest() -> bool {
+    use crate::os::mux_v2::{
+        MuxHostEndpoint, MuxSessionState, PriorityClass, SendBudgetOutcome, StreamId, StreamName,
+        WindowCredit, DEFAULT_INITIAL_STREAM_CREDIT, MAX_FRAME_PAYLOAD_BYTES,
+    };
+
+    let control_id = match StreamId::new(1) {
+        Some(v) => v,
+        None => return false,
+    };
+    let bulk_id = match StreamId::new(2) {
+        Some(v) => v,
+        None => return false,
+    };
+    let control_pri = match PriorityClass::new(PriorityClass::HIGHEST) {
+        Some(v) => v,
+        None => return false,
+    };
+    let bulk_pri = match PriorityClass::new(4) {
+        Some(v) => v,
+        None => return false,
+    };
+    let control_name = match StreamName::new("selftest/control") {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let bulk_name = match StreamName::new("selftest/bulk") {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let credit = WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT);
+
+    // Endpoint-level proof: OPEN/OPEN_ACK + DATA propagation with typed names.
+    let mut client = MuxHostEndpoint::new_authenticated(0);
+    let mut server = MuxHostEndpoint::new_authenticated(0);
+    if client
+        .open_stream(control_id, control_pri, control_name.clone(), credit)
+        .is_err()
+    {
+        return false;
+    }
+    if client
+        .open_stream(bulk_id, bulk_pri, bulk_name.clone(), credit)
+        .is_err()
+    {
+        return false;
+    }
+    let client_open_events = client.drain_outbound();
+    for event in client_open_events {
+        if server.ingest(event).is_err() {
+            return false;
+        }
+    }
+    let mut saw_control_accept = false;
+    let mut saw_bulk_accept = false;
+    while let Some(accepted) = server.accept_stream() {
+        if accepted.stream_id == control_id && accepted.name.as_str() == "selftest/control" {
+            saw_control_accept = true;
+        }
+        if accepted.stream_id == bulk_id && accepted.name.as_str() == "selftest/bulk" {
+            saw_bulk_accept = true;
+        }
+    }
+    if !(saw_control_accept && saw_bulk_accept) {
+        return false;
+    }
+    let server_open_ack_events = server.drain_outbound();
+    for event in server_open_ack_events {
+        if client.ingest(event).is_err() {
+            return false;
+        }
+    }
+
+    let control_sent = matches!(
+        client.send_data(control_id, control_pri, 16),
+        Ok(SendBudgetOutcome::Sent { .. })
+    );
+    let bulk_sent = matches!(
+        client.send_data(bulk_id, bulk_pri, 128),
+        Ok(SendBudgetOutcome::Sent { .. })
+    );
+    if !(control_sent && bulk_sent) {
+        return false;
+    }
+    let client_data_events = client.drain_outbound();
+    for event in client_data_events {
+        if server.ingest(event).is_err() {
+            return false;
+        }
+    }
+    let control_buffered = server.buffered_bytes(control_id).unwrap_or(0) >= 16;
+    let bulk_buffered = server.buffered_bytes(bulk_id).unwrap_or(0) >= 128;
+    if !(control_buffered && bulk_buffered) {
+        return false;
+    }
+
+    // Session-level proof: scheduler prioritizes control, and credit exhaustion backpressures bulk.
+    let mut priority_session = MuxSessionState::new_authenticated(0);
+    if priority_session
+        .open_stream(
+            control_id,
+            control_pri,
+            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
+        )
+        .is_err()
+    {
+        return false;
+    }
+    if priority_session
+        .open_stream(
+            bulk_id,
+            bulk_pri,
+            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
+        )
+        .is_err()
+    {
+        return false;
+    }
+    if priority_session.send_data(bulk_id, 8).is_err() {
+        return false;
+    }
+    if priority_session.send_data(control_id, 8).is_err() {
+        return false;
+    }
+    let control_priority_wins =
+        matches!(priority_session.dequeue_next_stream(), Some(id) if id == control_id);
+    if !control_priority_wins {
+        return false;
+    }
+
+    let mut backpressure_session = MuxSessionState::new_authenticated(0);
+    if backpressure_session
+        .open_stream(
+            bulk_id,
+            bulk_pri,
+            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
+        )
+        .is_err()
+    {
+        return false;
+    }
+    let first = backpressure_session.send_data(bulk_id, MAX_FRAME_PAYLOAD_BYTES);
+    let second = backpressure_session.send_data(bulk_id, MAX_FRAME_PAYLOAD_BYTES);
+    let third = backpressure_session.send_data(bulk_id, 1);
+    let backpressure_ok = matches!(first, Ok(SendBudgetOutcome::Sent { .. }))
+        && matches!(second, Ok(SendBudgetOutcome::Sent { .. }))
+        && matches!(third, Ok(SendBudgetOutcome::WouldBlock { .. }));
+
+    backpressure_ok
+}
+
 pub(crate) fn run_selftest_server_loop(
     pending_replies: &mut ReplyBuffer<16, 512>,
     net: &KernelClient,
@@ -161,6 +312,18 @@ pub(crate) fn run_selftest_server_loop(
     w[14..22].copy_from_slice(&nonce.to_le_bytes());
     let _ = crate::os::entry::rpc_nonce(pending_replies, net, &w, OP_WRITE | 0x80, nonce);
     let _ = nexus_abi::debug_println("dsoftbusd: os session ok");
+
+    // Prove mux-v2 contract behavior in the OS execution path without synthetic
+    // success markers. Markers below are emitted only after real state-machine checks.
+    if run_mux_contract_selftest() {
+        let _ = nexus_abi::debug_println("dsoftbus:mux session up");
+        let _ = nexus_abi::debug_println("dsoftbus:mux data ok");
+        let _ = nexus_abi::debug_println("SELFTEST: mux pri control ok");
+        let _ = nexus_abi::debug_println("SELFTEST: mux bulk ok");
+        let _ = nexus_abi::debug_println("SELFTEST: mux backpressure ok");
+    } else {
+        let _ = nexus_abi::debug_println("dsoftbus:mux selftest fail");
+    }
 
     loop {
         let _ = yield_();

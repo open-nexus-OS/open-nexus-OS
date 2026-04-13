@@ -42,6 +42,9 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] OS proof is green and sequential only when backend gate is met:
   - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - [ ] `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` (if required by scope/profile)
+- [ ] If phase-D performance closure is claimed, distributed `phase: perf` budgets are green and recorded in 2-VM summary artifacts.
+- [ ] If phase-E hardening closure is claimed, distributed `phase: soak` is green with zero fail/panic marker hits in summary artifacts.
+- [ ] If phase-E hardening closure is claimed, a deterministic `release-evidence.json` bundle is emitted and reviewed.
 - [ ] QEMU marker ladder includes and proves (when OS gate is met):
   - [ ] `dsoftbus:mux session up`
   - [ ] `dsoftbus:mux data ok`
@@ -65,3 +68,31 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] Scope expanded beyond touched-path allowlist without explicit plan/task update.
 - [ ] QEMU proofs were run in parallel and produced contention artifacts.
 - [ ] Wire layout, retry budgets, ACL/audit behavior, or marker semantics changed silently.
+
+## Active progress snapshot (TASK-0020 requirement-based progression, 2026-04-11)
+- [x] Deterministic mux host surfaces are implemented in `userspace/dsoftbus`.
+- [x] Required `test_reject_*` suite is present and green (including unauthenticated session reject).
+- [x] Host proof floor is green:
+  - [x] `cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture`
+  - [x] `cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture`
+  - [x] `cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture`
+  - [x] `cargo test -p dsoftbus -- --nocapture`
+- [x] Per-phase regression commands executed:
+  - [x] `just test-e2e`
+  - [x] `just test-os-dhcp`
+- [x] Canonical OS harnesses executed sequentially:
+  - [x] `RUN_UNTIL_MARKER=1 just test-os`
+  - [x] `just test-dsoftbus-2vm` (summary artifacts reviewed: `os2vm_1775990226`)
+- [x] No follow-on scope (`TASK-0021`, `TASK-0022`) absorbed.
+- [x] OS mux-specific marker closure is proven in canonical smoke with `REQUIRE_DSOFTBUS=1`:
+  - [x] `dsoftbus:mux session up`
+  - [x] `dsoftbus:mux data ok`
+  - [x] `SELFTEST: mux pri control ok`
+  - [x] `SELFTEST: mux bulk ok`
+  - [x] `SELFTEST: mux backpressure ok`
+- [x] Distributed mux-ladder closure is proven in canonical 2-VM harness (`tools/os2vm.sh` phase `mux`).
+- [x] Distributed deterministic perf-budget closure is proven in canonical 2-VM harness (`tools/os2vm.sh` phase `perf`).
+- [x] Distributed bounded soak-hardening closure is proven in canonical 2-VM harness (`tools/os2vm.sh` phase `soak`).
+- [x] Distributed release-evidence bundle closure is proven in canonical 2-VM harness (`tools/os2vm.sh` emits `release-evidence.json`).
+- [x] Legacy `TASK-0001..0020` closure obligations are fully encoded/proven under `TASK-0020` gate sections.
+- [x] Sequencing lock was respected during closure (no proof-execution start for `TASK-0021+` before `TASK-0020` legacy-production closeout).

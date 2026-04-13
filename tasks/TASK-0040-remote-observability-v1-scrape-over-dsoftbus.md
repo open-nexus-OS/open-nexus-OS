@@ -15,6 +15,31 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Add host-first remote log/metrics scrape over DSoftBus with ACL/rate/sampling controls.
+- **Deliver**: Deterministic collector/storage behavior and bounded retention; OS proofs remain gated until prerequisites exist.
+- **Out of scope**: VMO bulk backfill and kernel-level observability plumbing.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock ACL/rate/sampling/retention bounds and transport trust boundaries.
+- **Phase B (Host proof)**: requirement-named host suites (including reject paths) are green.
+- **Phase C (OS-gated proof)**: canonical marker ladder is green once OS dependencies are real.
+- **Phase D (Performance gate)**: bounded scrape/storage overhead and backpressure behavior meet deterministic budgets.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: task-owned requirement suites for collector correctness and boundedness.
+- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- 2-VM distributed: `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 We want remote collection of logs and metrics across nodes via DSoftBus with:
@@ -28,7 +53,7 @@ Repo reality today:
 
 - logd v1 and metricsd are still planned tasks (not implemented).
 - OS DSoftBus backend is a placeholder until networking tasks land.
-- Mux v2 is planned (TASK-0020).
+- Mux v2 baseline is available from `TASK-0020`.
 - True “VMO bulk backfill over DSoftBus” depends on VMO sharing + mux VMO frames (not available yet).
 
 Therefore v1 must be **host-first** and **OS-gated**, and VMO backfill must be explicitly deferred.
@@ -89,6 +114,50 @@ This task does **not** assume:
 - DSoftBus stream/session traits: `userspace/dsoftbus`
 - log sink contract: TASK-0006
 - metrics/span export contract: TASK-0014
+
+## Security considerations
+
+### Threat model
+
+- Unauthorized remote scrape requests for logs/metrics.
+- Resource exhaustion via scrape frequency, payload size, or retention abuse.
+- Sensitive data leakage through observability transport or error paths.
+
+### Security invariants (MUST hold)
+
+- Remote scrape is ACL- and policy-gated.
+- Sampling/rate/retention limits are enforced deterministically.
+- Secrets/credentials are never emitted in transported observability data or markers.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T allow unrestricted remote scrape without explicit policy.
+- DON'T accept unbounded payload/query sizes.
+- DON'T log secret material while reporting failures.
+
+### Attack surface impact
+
+- Significant: remote data access and storage pipeline.
+
+### Mitigations
+
+- Explicit ACL + token-bucket limits, bounded storage windows, deterministic rejection semantics.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus -- observability --nocapture`
+- Required tests:
+  - `test_reject_obs_query_without_acl`
+  - `test_reject_obs_payload_over_limit`
+  - `test_reject_obs_rate_limit_exceeded`
+
+### Hardening markers (QEMU, if applicable)
+
+- `obs: scrape rejected (acl)`
+- `obs: scrape rejected (rate_limit)`
 
 ## Stop conditions (Definition of Done)
 

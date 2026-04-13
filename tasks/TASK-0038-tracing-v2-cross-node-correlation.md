@@ -28,7 +28,7 @@ to a distributed system:
 Repo reality today:
 
 - OS DSoftBus backend is still a placeholder until networking tasks land.
-- Mux v2 is planned (TASK-0020), not implemented yet.
+- Mux v2 baseline from `TASK-0020` is implemented (integration here remains OS-gated).
 - `/state` persistence is planned (TASK-0009).
 
 Therefore this task must be **host-first** and **OS-gated**, with honest markers only when real behavior exists.
@@ -72,7 +72,7 @@ Deliver cross-node tracing v2 such that:
 
 ## Contract sources (single source of truth)
 
-- DSoftBus stream contract: `userspace/dsoftbus` (and mux v2 once implemented)
+- DSoftBus stream contract: `userspace/dsoftbus` (mux v2 baseline from `TASK-0020`).
 - log sink semantics: TASK-0006
 - marker contract: `scripts/qemu-test.sh` (OS-gated)
 
@@ -90,7 +90,7 @@ New deterministic host tests (`tests/tracing_v2_host/`):
 
 ### Proof (OS / QEMU) — gated
 
-Once DSoftBus OS backend + mux v2 exist and `/state` exists:
+Once DSoftBus OS backend and `/state` exist:
 
 - `traced: ready`
 - `dsoftbus: mux trace caps on`
@@ -103,7 +103,7 @@ Once DSoftBus OS backend + mux v2 exist and `/state` exists:
 
 - `userspace/telemetry/` (new trace lib)
 - `source/services/traced/` (new collector)
-- `userspace/dsoftbus/` (mux trace meta once mux v2 exists)
+- `userspace/dsoftbus/` (mux trace metadata extension over the existing mux v2 baseline)
 - `source/apps/selftest-client/` (OS-gated)
 - `tests/` (host tests)
 - `docs/observability/tracing.md`
@@ -119,7 +119,7 @@ Once DSoftBus OS backend + mux v2 exist and `/state` exists:
      - text-map (for debugging/tools).
 
 2. **Propagation**
-   - DSoftBus mux: attach trace meta to stream open (once mux v2 exists).
+   - DSoftBus mux: attach trace metadata to stream open on top of the existing mux v2 baseline.
    - Optional IPC propagation: provide helpers for services to attach trace meta to their byte frames
      (do not require kernel changes or universal adoption in v2).
 
@@ -137,4 +137,3 @@ Once DSoftBus OS backend + mux v2 exist and `/state` exists:
 
 5. **Docs**
    - Trace model, propagation rules, sampling and privacy.
-

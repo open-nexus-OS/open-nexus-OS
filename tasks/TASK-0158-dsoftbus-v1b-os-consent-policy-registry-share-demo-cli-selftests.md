@@ -17,6 +17,30 @@ links:
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
+## Short description
+
+- **Scope**: Wire localSim DSoftBus into OS with consent, capability policy, registry persistence gates, and demo/CLI paths.
+- **Deliver**: Deterministic OS selftests and explicit stub markers when `/state` or gated features are unavailable.
+- **Out of scope**: Real networked DSoftBus and full production share-intent system.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock consent/policy/persistence semantics with explicit gated behavior.
+- **Phase B (Host proof)**: requirement-named host tests for consent/capability rejects are green.
+- **Phase C (OS-gated proof)**: canonical QEMU marker ladder is green with honest stub behavior where required.
+- **Phase D (Performance gate)**: bounded timeout/backpressure behavior validated under deterministic runs.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: `cargo test -p dsoftbus_v1_host -- --nocapture`
+- OS: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=185s ./scripts/qemu-test.sh`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 With a deterministic localSim DSoftBus core (v1a), we need an OS-facing slice:
@@ -95,6 +119,51 @@ Deliver:
 
 - **YELLOW (permsd availability)**:
   - if `permsd` is not yet present, consent must be explicitly stubbed and marked (never “granted”).
+
+## Security considerations
+
+### Threat model
+
+- Consent bypass through test-mode or missing permsd wiring.
+- Unauthorized stream and share actions without required caps.
+- Persistence misuse when `/state` is unavailable.
+
+### Security invariants (MUST hold)
+
+- Pair accept requires explicit consent decision path.
+- Capability checks (`bus.discover`, `bus.pair`, `bus.stream.open`) are enforced fail-closed.
+- Persistence claims are honest: no persist-ok marker without real `/state` backing.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T silently auto-grant consent outside explicit test mode.
+- DON'T bypass capability gates for demo convenience.
+- DON'T mark persistence/selftests green when only stub behavior exists.
+
+### Attack surface impact
+
+- Significant: policy/consent and data-persistence surfaces in OS context.
+
+### Mitigations
+
+- Explicit consent flags, deny-by-default capability checks, and deterministic stub markers.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus_v1_host -- --nocapture`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=185s ./scripts/qemu-test.sh`
+- Required tests:
+  - `test_reject_pair_accept_without_consent`
+  - `test_reject_stream_open_without_caps`
+  - `test_reject_persistence_claim_without_state`
+
+### Hardening markers (QEMU, if applicable)
+
+- `perms: dsoftbus pair consent granted`
+- `policy: dsoftbus caps enforced`
 
 ## Stop conditions (Definition of Done)
 

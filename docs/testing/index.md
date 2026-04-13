@@ -59,6 +59,40 @@ For a detailed feature-by-feature breakdown, see: **[E2E Coverage Matrix](e2e-co
 | QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests plus service readiness and crashdump v1 markers. | `RUN_UNTIL_MARKER=1 just test-os` | Kernel-only path enforces UART sequence: banner → `SELFTEST: begin` → `SELFTEST: time ok` → `KSELFTEST: spawn ok` → `SELFTEST: end`. With services enabled, os-lite `nexus-init` is the default bootstrapper; the harness waits for each `init: start <svc>` / `init: up <svc>` pair in addition to `execd: elf load ok`, `child: hello-elf`, `SELFTEST: e2e exec-elf ok`, the exit lifecycle trio (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), crashdump v1 markers (`execd: minidump written`, `SELFTEST: minidump ok`, negative reject markers), policy probes, and VFS checks before stopping. Logs are trimmed to keep artefacts small. |
 | QEMU 2-VM opt-in (`tools/os2vm.sh`) | Two QEMU instances exercising cross-VM DSoftBus discovery, Noise-authenticated session establishment, and remote proxy (`samgrd`/`bundlemgrd` + TASK-0016 remote packagefs RO marker ladder). | `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh` | Canonical proof for TASK-0005/TASK-0016. Uses run-scoped artifacts under `artifacts/os2vm/runs/<runId>/` with retention/GC and typed failure classification. |
 
+### TASK-0020 mux v2 requirement matrix
+
+`TASK-0020` uses requirement-based host tests (not phase-named files). Host suites are authoritative and OS mux-marker closure is now enforced via `REQUIRE_DSOFTBUS=1`.
+
+| Requirement surface | Test file | Canonical command |
+| --- | --- | --- |
+| Reject taxonomy, bounded flow-control/backpressure, mixed-priority starvation bounds, naming rejects | `userspace/dsoftbus/tests/mux_contract_rejects_and_bounds.rs` | `cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture` |
+| Frame/state transitions, keepalive semantics, seeded state-machine accounting invariants, idempotent RST contract | `userspace/dsoftbus/tests/mux_frame_state_keepalive_contract.rs` | `cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture` |
+| Open/accept/data/rst endpoint integration, duplicate-name reject, unauthenticated fail-closed, teardown rejects | `userspace/dsoftbus/tests/mux_open_accept_data_rst_integration.rs` | `cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture` |
+| Requirement-suite aggregate | n/a | `just test-dsoftbus-mux` |
+| Full package regression | n/a | `just test-dsoftbus-host` (or `cargo test -p dsoftbus -- --nocapture`) |
+| Mandatory slice regressions | n/a | `just test-e2e` and `just test-os-dhcp` |
+
+OS and distributed evidence:
+- `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh` (includes `dsoftbus:mux ...` and `SELFTEST: mux ...` ladder)
+- `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` with reviewed summaries under `artifacts/os2vm/runs/<runId>/summary.{json,txt}` plus `release-evidence.json` (includes explicit `phase: mux` cross-VM ladder, `phase: perf` deterministic budget gate, and `phase: soak` hardening gate)
+- For `RFC-0034` legacy-closure distributed claims (`TASK-0001..0020`), review `release-evidence.json` as a mandatory artifact alongside summaries.
+
+### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
+
+Legacy tasks remain `Done`; production closure uses follow-on requirement suites to prove Soll behavior (not implementation internals).
+
+| Requirement lineage (1..20) | Soll-oriented proof expectation | Canonical command(s) |
+| --- | --- | --- |
+| Authenticated session + identity binding (`TASK-0003B/0004/0005`) | reject unauthenticated or mismatched identity before payload/proxy actions | `cargo test -p dsoftbus -- reject --nocapture`; `RUN_UNTIL_MARKER=1 just test-os` |
+| Discovery/admission boundedness (`TASK-0003C/0004`) | ACL/rate/TTL rejects and deterministic peer aging | task-owned requirement suites; `RUN_UNTIL_MARKER=1 just test-os` |
+| Remote proxy authorization and deny-by-default (`TASK-0005/0016/0017`) | explicit deny markers and no unauthorized forwarding | `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` |
+| Mux/backpressure/keepalive correctness (`TASK-0020`) | deterministic reject taxonomy + bounded flow control + keepalive teardown | `just test-dsoftbus-mux`; `just test-dsoftbus-host` |
+| Distributed correctness claims (`TASK-0005` lineage) | no single-VM substitution for distributed assertions | `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` |
+| Marker honesty (all 1..20 lineages) | markers validated against real protocol/state outcomes, never grep-only closure | `scripts/qemu-test.sh` expected markers + task-owned assertions |
+
+Hard rule:
+- No fake-success markers (`*: ready`, `SELFTEST: * ok`, transport/mux/media OK markers) may be used as proof unless the associated behavior is asserted by deterministic tests/harness checks.
+
 ## Workflow checklist
 
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -87,6 +121,8 @@ seen and ensure log caps are in effect. `just test-os` wraps
 
 - Host unit/property: `just test-host`
 - Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
+- DSoftBus mux requirement suites (`TASK-0020`): `just test-dsoftbus-mux`
+- DSoftBus full host regression: `just test-dsoftbus-host`
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
 - QEMU smoke (DHCP requested): `just test-os-dhcp`
 - QEMU smoke (Strict DHCP gate): `just test-os-dhcp-strict`

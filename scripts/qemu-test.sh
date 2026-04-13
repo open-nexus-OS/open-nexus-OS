@@ -865,6 +865,11 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
     "dsoftbusd: ready" \
     "dsoftbusd: auth ok" \
     "dsoftbusd: os session ok" \
+    "dsoftbus:mux session up" \
+    "dsoftbus:mux data ok" \
+    "SELFTEST: mux pri control ok" \
+    "SELFTEST: mux bulk ok" \
+    "SELFTEST: mux backpressure ok" \
     "SELFTEST: dsoftbus os connect ok" \
     "SELFTEST: dsoftbus ping ok"; do
     if ! grep -aFq "$m" "$UART_LOG"; then

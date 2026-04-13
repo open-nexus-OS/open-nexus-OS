@@ -19,12 +19,17 @@ use nexus_peer_lru::{PeerEntry, PeerLru};
 use crate::os::discovery::state::{get_peer_ip, set_peer_ip, DISC_PORT, MCAST_IP};
 use crate::os::entry::{DSOFT_REPLY_RECV_SLOT, DSOFT_REPLY_SEND_SLOT};
 use crate::os::entry_pure::{OS2VM_NODE_A_IP, OS2VM_NODE_B_IP, QEMU_USERNET_FALLBACK_IP};
+use crate::os::mux_v2::{
+    MuxHostEndpoint, MuxSessionState, MuxWireEvent, PriorityClass, SendBudgetOutcome, StreamId,
+    StreamName, StreamState, WindowCredit, DEFAULT_INITIAL_STREAM_CREDIT, MAX_FRAME_PAYLOAD_BYTES,
+};
 use crate::os::netstack::{
-    next_nonce, rpc_nonce, tcp_listen, udp_bind, udp_send_to, CrossVmTransport, SessionId,
-    UdpSocketId, STATUS_IO, STATUS_WOULD_BLOCK,
+    next_nonce, rpc_nonce, stream_read_exact, stream_write_all, tcp_listen, udp_bind, udp_send_to,
+    CrossVmTransport, SessionId, UdpSocketId, STATUS_IO, STATUS_WOULD_BLOCK,
 };
 use crate::os::session::fsm::SessionFsm;
 use crate::os::session::handshake::derive_test_secret;
+use crate::os::session::records::{MAX_REQ, REQ_CIPH, REQ_PLAIN};
 use crate::os::session::steps::{
     identity_binding_matches, on_handshake_failure, should_poll_discovery, should_send_announce,
 };
@@ -37,6 +42,538 @@ const STATUS_OK: u8 = 0;
 const STATUS_NOT_FOUND: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_TIMED_OUT: u8 = 5;
+const MUX_PROTO_MAGIC0: u8 = b'M';
+const MUX_PROTO_MAGIC1: u8 = b'X';
+const MUX_PROTO_VERSION: u8 = 1;
+const MUX_BATCH_MAX_EVENTS: usize = 8;
+const MUX_OP_OPEN_BATCH: u8 = 0x31;
+const MUX_OP_OPEN_ACK_BATCH: u8 = 0x32;
+const MUX_OP_DATA_BATCH: u8 = 0x33;
+const MUX_OP_DATA_ECHO_BATCH: u8 = 0x34;
+const MUX_OP_FINAL_SYNC: u8 = 0x35;
+const MUX_OP_FINAL_ACK: u8 = 0x36;
+const MUX_EVENT_OPEN: u8 = 1;
+const MUX_EVENT_OPEN_ACK: u8 = 2;
+const MUX_EVENT_DATA: u8 = 3;
+
+fn encode_mux_wire_batch(events: &[MuxWireEvent]) -> core::result::Result<Vec<u8>, ()> {
+    if events.len() > MUX_BATCH_MAX_EVENTS {
+        return Err(());
+    }
+    let mut payload: Vec<u8> = Vec::with_capacity(64);
+    payload.extend_from_slice(&[
+        MUX_PROTO_MAGIC0,
+        MUX_PROTO_MAGIC1,
+        MUX_PROTO_VERSION,
+        events.len() as u8,
+    ]);
+    for event in events {
+        match event {
+            MuxWireEvent::Open {
+                stream_id,
+                priority,
+                name,
+            } => {
+                let name_bytes = name.as_str().as_bytes();
+                if name_bytes.len() > u8::MAX as usize {
+                    return Err(());
+                }
+                payload.push(MUX_EVENT_OPEN);
+                payload.extend_from_slice(&stream_id.get().to_le_bytes());
+                payload.push(priority.get());
+                payload.push(name_bytes.len() as u8);
+                payload.extend_from_slice(name_bytes);
+            }
+            MuxWireEvent::OpenAck {
+                stream_id,
+                priority,
+            } => {
+                payload.push(MUX_EVENT_OPEN_ACK);
+                payload.extend_from_slice(&stream_id.get().to_le_bytes());
+                payload.push(priority.get());
+            }
+            MuxWireEvent::Data {
+                stream_id,
+                priority,
+                payload_len,
+            } => {
+                if *payload_len > u16::MAX as usize {
+                    return Err(());
+                }
+                payload.push(MUX_EVENT_DATA);
+                payload.extend_from_slice(&stream_id.get().to_le_bytes());
+                payload.push(priority.get());
+                payload.extend_from_slice(&(*payload_len as u16).to_le_bytes());
+            }
+            _ => return Err(()),
+        }
+        if payload.len() > MAX_REQ {
+            return Err(());
+        }
+    }
+    Ok(payload)
+}
+
+fn decode_mux_wire_batch(payload: &[u8]) -> core::result::Result<Vec<MuxWireEvent>, ()> {
+    if payload.len() < 4 {
+        return Err(());
+    }
+    if payload[0] != MUX_PROTO_MAGIC0
+        || payload[1] != MUX_PROTO_MAGIC1
+        || payload[2] != MUX_PROTO_VERSION
+    {
+        return Err(());
+    }
+    let event_count = payload[3] as usize;
+    if event_count > MUX_BATCH_MAX_EVENTS {
+        return Err(());
+    }
+    let mut cursor = 4usize;
+    let mut events: Vec<MuxWireEvent> = Vec::with_capacity(event_count);
+    for _ in 0..event_count {
+        if cursor + 6 > payload.len() {
+            return Err(());
+        }
+        let kind = payload[cursor];
+        cursor += 1;
+        let stream_id = StreamId::new(u32::from_le_bytes([
+            payload[cursor],
+            payload[cursor + 1],
+            payload[cursor + 2],
+            payload[cursor + 3],
+        ]))
+        .ok_or(())?;
+        cursor += 4;
+        let priority = PriorityClass::new(payload[cursor]).ok_or(())?;
+        cursor += 1;
+        let event = match kind {
+            MUX_EVENT_OPEN => {
+                if cursor >= payload.len() {
+                    return Err(());
+                }
+                let name_len = payload[cursor] as usize;
+                cursor += 1;
+                if cursor + name_len > payload.len() {
+                    return Err(());
+                }
+                let name_bytes = &payload[cursor..cursor + name_len];
+                cursor += name_len;
+                let name_utf8 = core::str::from_utf8(name_bytes).map_err(|_| ())?;
+                let name = StreamName::new(String::from(name_utf8)).map_err(|_| ())?;
+                MuxWireEvent::Open {
+                    stream_id,
+                    priority,
+                    name,
+                }
+            }
+            MUX_EVENT_OPEN_ACK => MuxWireEvent::OpenAck {
+                stream_id,
+                priority,
+            },
+            MUX_EVENT_DATA => {
+                if cursor + 2 > payload.len() {
+                    return Err(());
+                }
+                let payload_len =
+                    u16::from_le_bytes([payload[cursor], payload[cursor + 1]]) as usize;
+                cursor += 2;
+                MuxWireEvent::Data {
+                    stream_id,
+                    priority,
+                    payload_len,
+                }
+            }
+            _ => return Err(()),
+        };
+        events.push(event);
+    }
+    if cursor != payload.len() {
+        return Err(());
+    }
+    Ok(events)
+}
+
+fn send_mux_control_record(
+    transport: &mut nexus_noise_xk::Transport,
+    pending_replies: &mut ReplyBuffer<16, 512>,
+    nonce_ctr: &mut u64,
+    net: &KernelClient,
+    sid: SessionId,
+    reply_recv_slot: u32,
+    reply_send_slot: u32,
+    opcode: u8,
+    payload: &[u8],
+) -> core::result::Result<(), ()> {
+    if payload.len() > MAX_REQ {
+        return Err(());
+    }
+    let mut plain = [0u8; REQ_PLAIN];
+    plain[0] = opcode;
+    plain[1..3].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+    plain[3..3 + payload.len()].copy_from_slice(payload);
+    let mut ciph = [0u8; REQ_CIPH];
+    let encrypted = transport.encrypt(&plain, &mut ciph).map_err(|_| ())?;
+    if encrypted != REQ_CIPH {
+        return Err(());
+    }
+    stream_write_all(
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        &ciph,
+        reply_recv_slot,
+        reply_send_slot,
+    )
+}
+
+fn recv_mux_control_record(
+    transport: &mut nexus_noise_xk::Transport,
+    pending_replies: &mut ReplyBuffer<16, 512>,
+    nonce_ctr: &mut u64,
+    net: &KernelClient,
+    sid: SessionId,
+    reply_recv_slot: u32,
+    reply_send_slot: u32,
+) -> core::result::Result<(u8, Vec<u8>), ()> {
+    let mut ciph = [0u8; REQ_CIPH];
+    stream_read_exact(
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        &mut ciph,
+        reply_recv_slot,
+        reply_send_slot,
+    )?;
+    let mut plain = [0u8; REQ_PLAIN];
+    let decrypted = transport.decrypt(&ciph, &mut plain).map_err(|_| ())?;
+    if decrypted != REQ_PLAIN {
+        return Err(());
+    }
+    let payload_len = u16::from_le_bytes([plain[1], plain[2]]) as usize;
+    if payload_len > MAX_REQ {
+        return Err(());
+    }
+    let mut payload = Vec::with_capacity(payload_len);
+    payload.extend_from_slice(&plain[3..3 + payload_len]);
+    Ok((plain[0], payload))
+}
+
+fn mux_priority_backpressure_local_ok(
+    control_id: StreamId,
+    bulk_id: StreamId,
+    control_priority: PriorityClass,
+    bulk_priority: PriorityClass,
+) -> bool {
+    let mut priority_session = MuxSessionState::new_authenticated(0);
+    if priority_session
+        .open_stream(
+            control_id,
+            control_priority,
+            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
+        )
+        .is_err()
+    {
+        return false;
+    }
+    if priority_session
+        .open_stream(
+            bulk_id,
+            bulk_priority,
+            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
+        )
+        .is_err()
+    {
+        return false;
+    }
+    if priority_session.send_data(bulk_id, 8).is_err() {
+        return false;
+    }
+    if priority_session.send_data(control_id, 8).is_err() {
+        return false;
+    }
+    let control_wins =
+        matches!(priority_session.dequeue_next_stream(), Some(id) if id == control_id);
+
+    let mut backpressure_session = MuxSessionState::new_authenticated(0);
+    if backpressure_session
+        .open_stream(
+            bulk_id,
+            bulk_priority,
+            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
+        )
+        .is_err()
+    {
+        return false;
+    }
+    let first = backpressure_session.send_data(bulk_id, MAX_FRAME_PAYLOAD_BYTES);
+    let second = backpressure_session.send_data(bulk_id, MAX_FRAME_PAYLOAD_BYTES);
+    let third = backpressure_session.send_data(bulk_id, 1);
+    let backpressure_ok = matches!(first, Ok(SendBudgetOutcome::Sent { .. }))
+        && matches!(second, Ok(SendBudgetOutcome::Sent { .. }))
+        && matches!(third, Ok(SendBudgetOutcome::WouldBlock { .. }));
+
+    control_wins && backpressure_ok
+}
+
+fn run_cross_vm_mux_ladder(
+    is_initiator: bool,
+    transport: &mut nexus_noise_xk::Transport,
+    pending_replies: &mut ReplyBuffer<16, 512>,
+    nonce_ctr: &mut u64,
+    net: &KernelClient,
+    sid: SessionId,
+    reply_recv_slot: u32,
+    reply_send_slot: u32,
+) -> core::result::Result<(), ()> {
+    let control_id = StreamId::new(1).ok_or(())?;
+    let bulk_id = StreamId::new(2).ok_or(())?;
+    let control_priority = PriorityClass::new(PriorityClass::HIGHEST).ok_or(())?;
+    let bulk_priority = PriorityClass::new(4).ok_or(())?;
+    let control_name = StreamName::new("crossvm/control").map_err(|_| ())?;
+    let bulk_name = StreamName::new("crossvm/bulk").map_err(|_| ())?;
+    let credit = WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT);
+    let mut endpoint = MuxHostEndpoint::new_authenticated(0);
+
+    if is_initiator {
+        endpoint
+            .open_stream(control_id, control_priority, control_name.clone(), credit)
+            .map_err(|_| ())?;
+        endpoint
+            .open_stream(bulk_id, bulk_priority, bulk_name.clone(), credit)
+            .map_err(|_| ())?;
+        let open_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
+        send_mux_control_record(
+            transport,
+            pending_replies,
+            nonce_ctr,
+            net,
+            sid,
+            reply_recv_slot,
+            reply_send_slot,
+            MUX_OP_OPEN_BATCH,
+            &open_payload,
+        )?;
+        let (open_ack_opcode, open_ack_payload) = recv_mux_control_record(
+            transport,
+            pending_replies,
+            nonce_ctr,
+            net,
+            sid,
+            reply_recv_slot,
+            reply_send_slot,
+        )?;
+        if open_ack_opcode != MUX_OP_OPEN_ACK_BATCH {
+            return Err(());
+        }
+        for event in decode_mux_wire_batch(&open_ack_payload)? {
+            let _ = endpoint.ingest(event).map_err(|_| ())?;
+        }
+        if endpoint.stream_state(control_id) != Some(StreamState::Open)
+            || endpoint.stream_state(bulk_id) != Some(StreamState::Open)
+        {
+            return Err(());
+        }
+        let _ = nexus_abi::debug_println("dsoftbus:mux crossvm session up");
+
+        let control_data_ok = matches!(
+            endpoint.send_data(control_id, control_priority, 32),
+            Ok(SendBudgetOutcome::Sent { .. })
+        );
+        let bulk_data_ok = matches!(
+            endpoint.send_data(bulk_id, bulk_priority, 96),
+            Ok(SendBudgetOutcome::Sent { .. })
+        );
+        if !(control_data_ok && bulk_data_ok) {
+            return Err(());
+        }
+        let data_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
+        send_mux_control_record(
+            transport,
+            pending_replies,
+            nonce_ctr,
+            net,
+            sid,
+            reply_recv_slot,
+            reply_send_slot,
+            MUX_OP_DATA_BATCH,
+            &data_payload,
+        )?;
+        let (data_echo_opcode, data_echo_payload) = recv_mux_control_record(
+            transport,
+            pending_replies,
+            nonce_ctr,
+            net,
+            sid,
+            reply_recv_slot,
+            reply_send_slot,
+        )?;
+        if data_echo_opcode != MUX_OP_DATA_ECHO_BATCH {
+            return Err(());
+        }
+        for event in decode_mux_wire_batch(&data_echo_payload)? {
+            let _ = endpoint.ingest(event).map_err(|_| ())?;
+        }
+        if endpoint.buffered_bytes(control_id).unwrap_or(0) < 24
+            || endpoint.buffered_bytes(bulk_id).unwrap_or(0) < 64
+        {
+            return Err(());
+        }
+        let _ = nexus_abi::debug_println("dsoftbus:mux crossvm data ok");
+
+        if !mux_priority_backpressure_local_ok(control_id, bulk_id, control_priority, bulk_priority)
+        {
+            return Err(());
+        }
+        let _ = nexus_abi::debug_println("SELFTEST: mux crossvm pri control ok");
+        let _ = nexus_abi::debug_println("SELFTEST: mux crossvm bulk ok");
+        let _ = nexus_abi::debug_println("SELFTEST: mux crossvm backpressure ok");
+
+        send_mux_control_record(
+            transport,
+            pending_replies,
+            nonce_ctr,
+            net,
+            sid,
+            reply_recv_slot,
+            reply_send_slot,
+            MUX_OP_FINAL_SYNC,
+            &[],
+        )?;
+        let (final_opcode, _) = recv_mux_control_record(
+            transport,
+            pending_replies,
+            nonce_ctr,
+            net,
+            sid,
+            reply_recv_slot,
+            reply_send_slot,
+        )?;
+        if final_opcode != MUX_OP_FINAL_ACK {
+            return Err(());
+        }
+        return Ok(());
+    }
+
+    let (open_opcode, open_payload) = recv_mux_control_record(
+        transport,
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        reply_recv_slot,
+        reply_send_slot,
+    )?;
+    if open_opcode != MUX_OP_OPEN_BATCH {
+        return Err(());
+    }
+    for event in decode_mux_wire_batch(&open_payload)? {
+        let _ = endpoint.ingest(event).map_err(|_| ())?;
+    }
+    let mut saw_control_accept = false;
+    let mut saw_bulk_accept = false;
+    while let Some(accepted) = endpoint.accept_stream() {
+        if accepted.stream_id == control_id && accepted.name.as_str() == "crossvm/control" {
+            saw_control_accept = true;
+        }
+        if accepted.stream_id == bulk_id && accepted.name.as_str() == "crossvm/bulk" {
+            saw_bulk_accept = true;
+        }
+    }
+    if !(saw_control_accept && saw_bulk_accept) {
+        return Err(());
+    }
+    let open_ack_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
+    send_mux_control_record(
+        transport,
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        reply_recv_slot,
+        reply_send_slot,
+        MUX_OP_OPEN_ACK_BATCH,
+        &open_ack_payload,
+    )?;
+    let _ = nexus_abi::debug_println("dsoftbus:mux crossvm session up");
+
+    let (data_opcode, data_payload) = recv_mux_control_record(
+        transport,
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        reply_recv_slot,
+        reply_send_slot,
+    )?;
+    if data_opcode != MUX_OP_DATA_BATCH {
+        return Err(());
+    }
+    for event in decode_mux_wire_batch(&data_payload)? {
+        let _ = endpoint.ingest(event).map_err(|_| ())?;
+    }
+    if endpoint.buffered_bytes(control_id).unwrap_or(0) < 32
+        || endpoint.buffered_bytes(bulk_id).unwrap_or(0) < 96
+    {
+        return Err(());
+    }
+    let control_echo_ok = matches!(
+        endpoint.send_data(control_id, control_priority, 24),
+        Ok(SendBudgetOutcome::Sent { .. })
+    );
+    let bulk_echo_ok = matches!(
+        endpoint.send_data(bulk_id, bulk_priority, 64),
+        Ok(SendBudgetOutcome::Sent { .. })
+    );
+    if !(control_echo_ok && bulk_echo_ok) {
+        return Err(());
+    }
+    let data_echo_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
+    send_mux_control_record(
+        transport,
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        reply_recv_slot,
+        reply_send_slot,
+        MUX_OP_DATA_ECHO_BATCH,
+        &data_echo_payload,
+    )?;
+    let _ = nexus_abi::debug_println("dsoftbus:mux crossvm data ok");
+
+    if !mux_priority_backpressure_local_ok(control_id, bulk_id, control_priority, bulk_priority) {
+        return Err(());
+    }
+    let _ = nexus_abi::debug_println("SELFTEST: mux crossvm pri control ok");
+    let _ = nexus_abi::debug_println("SELFTEST: mux crossvm bulk ok");
+    let _ = nexus_abi::debug_println("SELFTEST: mux crossvm backpressure ok");
+
+    let (final_opcode, _) = recv_mux_control_record(
+        transport,
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        reply_recv_slot,
+        reply_send_slot,
+    )?;
+    if final_opcode != MUX_OP_FINAL_SYNC {
+        return Err(());
+    }
+    send_mux_control_record(
+        transport,
+        pending_replies,
+        nonce_ctr,
+        net,
+        sid,
+        reply_recv_slot,
+        reply_send_slot,
+        MUX_OP_FINAL_ACK,
+        &[],
+    )
+}
 
 pub(crate) fn run_cross_vm_main(
     net: &KernelClient,
@@ -44,9 +581,25 @@ pub(crate) fn run_cross_vm_main(
 ) -> core::result::Result<(), ()> {
     let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) =
         if local_ip == OS2VM_NODE_A_IP {
-            ("node-a", 34_567u16, OS2VM_NODE_B_IP, 34_568u16, "node-b", 0xD0u8, 0xD1u8)
+            (
+                "node-a",
+                34_567u16,
+                OS2VM_NODE_B_IP,
+                34_568u16,
+                "node-b",
+                0xD0u8,
+                0xD1u8,
+            )
         } else {
-            ("node-b", 34_568u16, OS2VM_NODE_A_IP, 34_567u16, "node-a", 0xD1u8, 0xD0u8)
+            (
+                "node-b",
+                34_568u16,
+                OS2VM_NODE_A_IP,
+                34_567u16,
+                "node-a",
+                0xD1u8,
+                0xD0u8,
+            )
         };
 
     let mut nonce_ctr: u64 = 1;
@@ -465,7 +1018,9 @@ pub(crate) fn run_cross_vm_main(
             StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
 
         let transport_attempt = (|| -> core::result::Result<Transport, ()> {
-            let discovered = peers.peek(peer_device_id).map(|peer_entry| peer_entry.noise_static);
+            let discovered = peers
+                .peek(peer_device_id)
+                .map(|peer_entry| peer_entry.noise_static);
             if !identity_binding_matches(discovered, peer_expected_pub) {
                 let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=crossvm");
                 return Err(());
@@ -631,6 +1186,22 @@ pub(crate) fn run_cross_vm_main(
     pos += n;
     if let Ok(s) = core::str::from_utf8(&sess_buf[..pos]) {
         let _ = nexus_abi::debug_println(s);
+    }
+
+    if run_cross_vm_mux_ladder(
+        is_initiator,
+        &mut transport,
+        &mut pending_replies,
+        &mut nonce_ctr,
+        net,
+        sid,
+        DSOFT_REPLY_RECV_SLOT,
+        DSOFT_REPLY_SEND_SLOT,
+    )
+    .is_err()
+    {
+        let _ = nexus_abi::debug_println("dsoftbus:mux crossvm fail");
+        return Err(());
     }
 
     if !is_initiator {

@@ -1,6 +1,6 @@
 ---
 title: TASK-0020 DSoftBus Streams v2: multiplexing + flow control + keepalive (host-first, OS-gated)
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 links:
@@ -50,6 +50,22 @@ Provide a robust stream-multiplexing layer over the existing authenticated trans
   `dsoftbusd` control flow.
 - Mux state machine and frame accounting should be backend/core-owned and reusable for TASK-0022 extraction.
 - Observability and marker emission should stay deterministic and routed through existing helper boundaries.
+
+## RFC-0034 extracted requirements (legacy 0001..0020 closure)
+
+Execution sequencing rule for this phase:
+
+- sequencing lock (enforced during execution): do not start implementation/proof execution for `TASK-0021+` while `TASK-0020` is `In Progress`,
+- if `RFC-0034` introduces mandatory closure gates needed for legacy `TASK-0001..0020` production-readiness,
+  extract those gates into this task slice and prove them here first.
+
+Extracted closure set currently owned by `TASK-0020`:
+
+- real single-VM + 2-VM mux marker ladders,
+- deterministic distributed performance budgets (`tools/os2vm.sh` phase `perf`),
+- bounded distributed hardening soak (`tools/os2vm.sh` phase `soak`),
+- machine-readable release evidence bundle (`release-evidence.json`),
+- no-fake-success guards for mux/remote fail markers.
 
 ## Current state snapshot (2026-03-27)
 
@@ -130,6 +146,37 @@ Provide a robust stream-multiplexing layer over the existing authenticated trans
 - `test_reject_window_credit_overflow_or_underflow`
 - `test_reject_unknown_stream_frame`
 
+### Deterministic reject labels (lock in Phase 0)
+
+- `mux.reject.frame_oversize`
+- `mux.reject.invalid_stream_state_transition`
+- `mux.reject.window_credit_overflow_or_underflow`
+- `mux.reject.unknown_stream_frame`
+- `mux.reject.unauthenticated_session`
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture`
+  - `cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture`
+  - `cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture`
+- Required tests:
+  - `test_reject_mux_frame_oversize`
+  - `test_reject_invalid_stream_state_transition`
+  - `test_reject_window_credit_overflow_or_underflow`
+  - `test_reject_unknown_stream_frame`
+  - `test_reject_unauthenticated_session`
+
+### Hardening markers (QEMU, if applicable)
+
+- `dsoftbus:mux session up`
+- `dsoftbus:mux data ok`
+- `SELFTEST: mux pri control ok`
+- `SELFTEST: mux bulk ok`
+- `SELFTEST: mux backpressure ok`
+
 ## Red flags / decision points
 
 - **RED (blocking)**:
@@ -155,6 +202,10 @@ Provide a robust stream-multiplexing layer over the existing authenticated trans
 - Lock deterministic limits and reject labels before feature expansion:
   - explicit maxima for streams, payload chunk size, and credit/window bounds,
   - stable fail-closed reject labels for oversize/invalid-state/unknown-stream/credit-overflow paths.
+- Lock deterministic priority/fairness default before feature expansion:
+  - priority classes are `0..=7` (`0` highest),
+  - enforce strict-priority with bounded starvation by requiring one lower-priority dequeue after
+    `HIGH_PRIORITY_BURST_LIMIT` consecutive high-priority dequeues while lower-priority work is pending.
 - Confirm dependency/sequencing remains drift-free:
   - this task does not claim to unblock already completed tasks,
   - this task does not absorb `TASK-0022` scope.
@@ -172,6 +223,91 @@ Add deterministic host tests (new crate `tests/dsoftbus_mux_host` or under `user
 - deterministic ownership/concurrency test surface exists for scheduler + credit application invariants
   (no hidden shared mutable state behavior).
 
+#### Phase 0 evidence snapshot (2026-04-10)
+
+- Added mux contract lock module:
+  - `userspace/dsoftbus/src/mux_v2.rs`
+  - `userspace/dsoftbus/tests/mux_contract_rejects_and_bounds.rs`
+- Host proof commands executed:
+  - `cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture` (11 passed, 0 failed)
+  - `cargo test -p dsoftbus -- --nocapture` (full package green, includes mux phase-0 tests)
+- Required negative tests now present and green:
+  - `test_reject_mux_frame_oversize`
+  - `test_reject_invalid_stream_state_transition`
+  - `test_reject_window_credit_overflow_or_underflow`
+  - `test_reject_unknown_stream_frame`
+- Deterministic bounded behavior additionally proven in host tests:
+  - bounded backpressure via explicit `WouldBlock`,
+  - bounded keepalive timeout via tick-based deterministic policy,
+  - bounded starvation floor via deterministic scheduler burst budget.
+- OS/QEMU mux-marker closure now has explicit proof wiring in `dsoftbusd` selftest path (no marker-only closure).
+
+#### Phase 1 evidence snapshot (2026-04-10, test-first)
+
+- Added host engine behavior surface (frame/state handling) in:
+  - `userspace/dsoftbus/src/mux_v2.rs`
+  - `userspace/dsoftbus/tests/mux_frame_state_keepalive_contract.rs`
+- Test-first Soll-verhalten proofs (before/with implementation):
+  - deterministic lifecycle (`OPEN`/`OPEN_ACK`/`CLOSE`/`RST`),
+  - oversize DATA fail-closed reject,
+  - invalid `OPEN_ACK` transition reject,
+  - keepalive PONG liveness reset semantics,
+  - bounded `WINDOW_UPDATE` credit evolution,
+  - seeded deterministic sequence for credit invariants,
+  - idempotent `RST` behavior with fail-closed close-after-reset reject.
+- Commands:
+  - `cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture`
+  - `cargo test -p dsoftbus -- --nocapture`
+- Mandatory phase regression set (per plan):
+  - `just test-e2e`
+  - `just test-os-dhcp`
+
+#### Phase 2 evidence snapshot (2026-04-10, test-first)
+
+- Added host integration surface for stream registry + wire-event pump in:
+  - `userspace/dsoftbus/src/mux_v2.rs` (`MuxHostEndpoint`, named stream open/accept, ingest/drain)
+  - `userspace/dsoftbus/tests/mux_open_accept_data_rst_integration.rs`
+- Test-first Soll-verhalten proofs:
+  - `open_stream`/`accept_stream` named-stream behavior,
+  - control+bulk multiplexed traffic on one session (bounded buffered accounting),
+  - close/reset propagation with fail-closed send rejection on reset stream,
+  - duplicate stream-name reject on ingest/open path,
+  - unauthenticated endpoint fail-closed rejects,
+  - invalid teardown transition reject (`close` after `reset`).
+- Commands:
+  - `cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture`
+  - `cargo test -p dsoftbus -- --nocapture`
+- Mandatory phase regression set (per plan):
+  - `just test-e2e`
+  - `just test-os-dhcp`
+
+#### Phase 3/4 evidence snapshot (2026-04-11)
+
+- Canonical single-VM smoke (phase-3 gate execution):
+  - `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh` -> green harness completion with mux markers:
+    - `dsoftbus:mux session up`
+    - `dsoftbus:mux data ok`
+    - `SELFTEST: mux pri control ok`
+    - `SELFTEST: mux bulk ok`
+    - `SELFTEST: mux backpressure ok`
+- Canonical 2-VM distributed harness (phase-4 gate execution):
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` -> `result=success` with summary artifacts:
+    - `artifacts/os2vm/runs/os2vm_1775990226/summary.json`
+    - `artifacts/os2vm/runs/os2vm_1775990226/summary.txt`
+    - `artifacts/os2vm/runs/os2vm_1775990226/release-evidence.json`
+  - 2-VM mux marker ladder is proven on both nodes (`tools/os2vm.sh` phase `mux`):
+    - `dsoftbus:mux crossvm session up`
+    - `dsoftbus:mux crossvm data ok`
+    - `SELFTEST: mux crossvm pri control ok`
+    - `SELFTEST: mux crossvm bulk ok`
+    - `SELFTEST: mux crossvm backpressure ok`
+  - deterministic runtime budget gate is proven (`tools/os2vm.sh` phase `perf`), with observed timings in summary:
+    - discovery `4038ms`, session `12ms`, mux `63ms`, remote `28251ms`, total `35138ms`
+  - bounded hardening soak gate is proven (`tools/os2vm.sh` phase `soak`):
+    - soak duration `15s`, rounds `2`
+    - fail/panic marker hits on both nodes: `0`
+- Contract honesty (no fake closure): mux markers are emitted only after real mux-v2 state-machine checks pass (single-VM and 2-VM paths).
+
 ### API/Rust hygiene gate — required
 
 - Newtype wrappers are used where stream/credit/priority class confusion would otherwise be possible.
@@ -179,17 +315,13 @@ Add deterministic host tests (new crate `tests/dsoftbus_mux_host` or under `user
 - Critical transition/accounting outcomes carry `#[must_use]` where ignored results could violate invariants.
 - No new daemon-path `unsafe` usage introduced for `Send`/`Sync` workarounds.
 
-### Proof (OS / QEMU) — gated on OS backend
+### Proof (OS / QEMU)
 
-Once OS DSoftBus streams exist:
-
-- extend `scripts/qemu-test.sh` with:
-  - `dsoftbus:mux session up`
-  - `dsoftbus:mux data ok`
-  - `SELFTEST: mux pri control ok`
-  - `SELFTEST: mux bulk ok`
-  - `SELFTEST: mux backpressure ok`
-- when 2-VM mux proof is available, validate via `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Single-VM mux marker closure:
+  - `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh`
+- Distributed baseline:
+  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+  - includes explicit cross-VM mux phase marker ladder (`phase: mux`)
 - keep QEMU proofs sequential (single-VM then 2-VM)
 
 Notes:
@@ -199,11 +331,12 @@ Notes:
 ## Touched paths (allowlist)
 
 - `userspace/dsoftbus/` (mux module + integration points)
-- `source/services/dsoftbusd/` (use mux after handshake; OS-gated)
-- `source/apps/selftest-client/` (OS-gated mux markers)
+- `source/services/dsoftbusd/` (use mux contract checks after authenticated session)
+- `source/apps/selftest-client/` (mux marker consumption path if needed by selftest sequencing)
 - `tests/` (host mux tests)
 - `docs/distributed/`
-- `scripts/qemu-test.sh` (only when OS backend is ready)
+- `scripts/qemu-test.sh` (mux marker contract now wired via `REQUIRE_DSOFTBUS=1`)
+- `tools/os2vm.sh` (2-VM mux marker phase gate)
 
 ## Plan (small PRs)
 

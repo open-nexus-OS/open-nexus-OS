@@ -80,7 +80,9 @@ impl Session for OsSession {
     }
 
     fn into_stream(self) -> Result<Self::Stream, SessionError> {
-        Err(SessionError::Rejected("OS DSoftBus session is unsupported (placeholder)".into()))
+        Err(SessionError::Rejected(
+            "OS DSoftBus session is unsupported (placeholder)".into(),
+        ))
     }
 }
 
@@ -89,10 +91,14 @@ pub struct OsStream;
 
 impl Stream for OsStream {
     fn send(&mut self, _channel: u32, _payload: &[u8]) -> Result<(), StreamError> {
-        Err(StreamError::Protocol("OS DSoftBus stream is unsupported (placeholder)".into()))
+        Err(StreamError::Protocol(
+            "OS DSoftBus stream is unsupported (placeholder)".into(),
+        ))
     }
 
     fn recv(&mut self) -> Result<Option<crate::FramePayload>, StreamError> {
-        Err(StreamError::Protocol("OS DSoftBus stream is unsupported (placeholder)".into()))
+        Err(StreamError::Protocol(
+            "OS DSoftBus stream is unsupported (placeholder)".into(),
+        ))
     }
 }

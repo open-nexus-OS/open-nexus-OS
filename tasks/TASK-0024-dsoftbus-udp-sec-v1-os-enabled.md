@@ -14,6 +14,31 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Short description
+
+- **Scope**: Build an OS-friendly secure UDP transport (Noise + reliability + congestion) under `no_std` constraints.
+- **Deliver**: Reliable ordered stream abstraction for Mux v2, bounded recovery queues, deterministic timers, and TCP fallback.
+- **Out of scope**: QUIC wire compatibility and kernel-side changes.
+
+## Production Closure Phases (RFC-0034 alignment)
+
+This task follows the shared production gate profile (`Core + Performance`) from `RFC-0034`.
+No phase may be marked green without the linked proof evidence.
+
+- **Phase A (Contract lock)**: lock packet/recovery/crypto invariants and bounded queue rules.
+- **Phase B (Host proof)**: requirement-named host loss/recovery tests and negative tests are green.
+- **Phase C (OS-gated proof)**: canonical OS marker ladder is green with explicit TCP fallback semantics.
+- **Phase D (Performance gate)**: deterministic latency/throughput/recovery budgets are defined and met.
+- **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
+
+Canonical gate commands:
+
+- Host: task-owned requirement suites for reliability/recovery/congestion.
+- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- 2-VM distributed: `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
+- Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
+- Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
 ## Context
 
 OS “real QUIC” is blocked by `no_std` feasibility (see TASK-0023). We still want the properties that
@@ -107,6 +132,50 @@ In QEMU (single-VM first; cross-VM later), prove:
 - `docs/distributed/`
 - `scripts/qemu-test.sh`
 
+## Security considerations
+
+### Threat model
+
+- Spoofed or replayed UDP packets attempt session takeover.
+- Loss/recovery abuse attempts memory pressure via retransmit or reassembly growth.
+- Fallback confusion allows unauthenticated traffic to bypass secure path expectations.
+
+### Security invariants (MUST hold)
+
+- Session authentication must complete before DATA is accepted.
+- Retransmit/reassembly/inflight buffers are strictly bounded.
+- Transport fallback is explicit and auditable; no silent downgrade.
+
+### DON'T DO (explicit prohibitions)
+
+- DON'T accept unauthenticated packets into stream state.
+- DON'T allow unbounded retransmit/reassembly growth.
+- DON'T mark udp-sec success without real encrypted session behavior.
+
+### Attack surface impact
+
+- Significant: network-facing encrypted transport and recovery logic.
+
+### Mitigations
+
+- Nonce/packet-number validation, bounded queues, deterministic timeout policy, and fail-closed parser rejects.
+
+## Security proof
+
+### Audit tests (negative cases / attack simulation)
+
+- Commands:
+  - `cargo test -p dsoftbus -- udp --nocapture`
+- Required tests:
+  - `test_reject_replay_or_stale_packet_number`
+  - `test_reject_unauthenticated_data_before_handshake`
+  - `test_reject_oversize_datagram_or_reassembly_overflow`
+
+### Hardening markers (QEMU, if applicable)
+
+- `dsoftbusd: auth ok`
+- `SELFTEST: dsoftbus ping ok`
+
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host)
@@ -133,6 +202,12 @@ When UDP-sec is disabled/unavailable:
 - `dsoftbus: udp-sec os disabled (fallback tcp)`
 - `SELFTEST: udp-sec fallback ok`
 
+## Plan (small PRs)
+
+1. Land bounded handshake/packet format and recovery core with requirement-named host tests.
+2. Integrate OS listener/session path with explicit fallback markers and negative-path coverage.
+3. Close performance gates (loss/cwnd/backpressure budgets) and sync docs/harness expectations.
+
 ## Docs
 
 Update `docs/distributed/dsoftbus-transport.md`:
@@ -140,4 +215,3 @@ Update `docs/distributed/dsoftbus-transport.md`:
 - define `udp-sec` transport kind and selection policy (`auto|udp-sec|tcp`),
 - PMTU/timeout defaults,
 - security caveats (RNG requirement, key derivation).
-

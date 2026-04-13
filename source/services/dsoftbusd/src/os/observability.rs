@@ -94,7 +94,10 @@ pub(crate) fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
     frame.extend_from_slice(msg);
 
     // Use CAP_MOVE so the logd response does not pollute selftest-client's logd recv queue.
-    if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
+    if logd
+        .send_with_cap_move_wait(&frame, moved, Wait::NonBlocking)
+        .is_err()
+    {
         let _ = nexus_abi::cap_close(moved);
         invalidate_cached_slots(&LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE);
         // #region agent log
