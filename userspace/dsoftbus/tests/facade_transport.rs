@@ -40,9 +40,7 @@ mod host {
     ) -> Result<dsoftbus::FramePayload, dsoftbus::StreamError> {
         loop {
             if Instant::now() > deadline {
-                return Err(dsoftbus::StreamError::Protocol(
-                    "timed out waiting for frame".into(),
-                ));
+                return Err(dsoftbus::StreamError::Protocol("timed out waiting for frame".into()));
             }
             if let Some(frame) = stream.recv()? {
                 return Ok(frame);
@@ -87,9 +85,7 @@ mod host {
             stream.send(1, b"pong").expect("server send pong");
 
             // Wait for the client to confirm it received pong before closing the stream.
-            ack_rx
-                .recv_timeout(Duration::from_secs(2))
-                .expect("server wait pong-ack");
+            ack_rx.recv_timeout(Duration::from_secs(2)).expect("server wait pong-ack");
         });
 
         let client_identity = Identity::generate().expect("client identity");

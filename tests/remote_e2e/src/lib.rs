@@ -1080,6 +1080,6 @@ fn parse_pkgfs_close_rsp(bytes: &[u8]) -> Result<u8> {
 pub fn random_port() -> u16 {
     const BASE: u16 = 30_000;
     const RANGE: u16 = 10_000;
-    let mut rng = rand::thread_rng();
-    BASE + rng.gen_range(0..RANGE)
+    let mut rng = rand::rng();
+    BASE + rng.random_range(0..RANGE)
 }

@@ -80,9 +80,7 @@ fn remote_exchange(
         reply_send_slot,
     )?;
     let mut rsp_plain = [0u8; RSP_PLAIN];
-    let n = transport
-        .decrypt(&rsp_ciph, &mut rsp_plain)
-        .map_err(|_| ())?;
+    let n = transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
     if n != RSP_PLAIN {
         return Err(());
     }
@@ -203,9 +201,8 @@ pub(crate) fn run_local_ipc_loop(
                                     reply_send_slot,
                                 )?;
                                 let mut rsp_plain = [0u8; RSP_PLAIN];
-                                let n = transport
-                                    .decrypt(&rsp_ciph, &mut rsp_plain)
-                                    .map_err(|_| ())?;
+                                let n =
+                                    transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
                                 if n != RSP_PLAIN {
                                     return Err(());
                                 }
@@ -277,9 +274,7 @@ pub(crate) fn run_local_ipc_loop(
                             reply_send_slot,
                         )?;
                         let mut rsp_plain = [0u8; RSP_PLAIN];
-                        let n = transport
-                            .decrypt(&rsp_ciph, &mut rsp_plain)
-                            .map_err(|_| ())?;
+                        let n = transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
                         if n != RSP_PLAIN {
                             return Err(());
                         }

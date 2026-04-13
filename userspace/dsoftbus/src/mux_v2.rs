@@ -117,6 +117,7 @@ impl MuxReject {
         Self { label }
     }
 
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     pub const fn label(self) -> &'static str {
         self.label
     }
@@ -139,6 +140,7 @@ pub enum StreamState {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StreamTransition {
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     SendClose,
     ReceiveClose,
     Reset,
@@ -158,6 +160,7 @@ pub enum SendBudgetOutcome {
 }
 
 #[must_use]
+#[cfg_attr(nexus_env = "os", allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KeepaliveVerdict {
     Healthy,
@@ -180,22 +183,11 @@ pub enum InboundFrame {
 #[must_use]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameApplyOutcome {
-    StreamOpened {
-        state: StreamState,
-    },
-    OpenAcked {
-        state: StreamState,
-    },
-    DataAccepted {
-        buffered_bytes: usize,
-        remaining_credit: WindowCredit,
-    },
-    WindowUpdated {
-        credit: WindowCredit,
-    },
-    StreamTransitioned {
-        state: StreamState,
-    },
+    StreamOpened { state: StreamState },
+    OpenAcked { state: StreamState },
+    DataAccepted { buffered_bytes: usize, remaining_credit: WindowCredit },
+    WindowUpdated { credit: WindowCredit },
+    StreamTransitioned { state: StreamState },
     KeepaliveObserved,
     PingResponseRequired,
 }
@@ -216,19 +208,23 @@ pub enum MuxWireEvent {
         priority: PriorityClass,
         payload_len: usize,
     },
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     WindowUpdate {
         stream_id: StreamId,
         priority: PriorityClass,
         delta: i64,
     },
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     Rst {
         stream_id: StreamId,
         priority: PriorityClass,
     },
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     Close {
         stream_id: StreamId,
         priority: PriorityClass,
     },
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     Ping {
         stream_id: StreamId,
         priority: PriorityClass,
@@ -254,10 +250,7 @@ pub struct KeepalivePolicy {
 
 impl Default for KeepalivePolicy {
     fn default() -> Self {
-        Self {
-            interval_ticks: KEEPALIVE_INTERVAL_TICKS,
-            timeout_ticks: KEEPALIVE_TIMEOUT_TICKS,
-        }
+        Self { interval_ticks: KEEPALIVE_INTERVAL_TICKS, timeout_ticks: KEEPALIVE_TIMEOUT_TICKS }
     }
 }
 
@@ -321,11 +314,7 @@ impl PriorityScheduler {
         for offset in 0..lower_count {
             let idx = 1 + ((self.lower_priority_cursor - 1 + offset) % lower_count);
             if let Some(id) = self.queues[idx].pop_front() {
-                self.lower_priority_cursor = if idx + 1 >= self.queues.len() {
-                    1
-                } else {
-                    idx + 1
-                };
+                self.lower_priority_cursor = if idx + 1 >= self.queues.len() { 1 } else { idx + 1 };
                 return Some(id);
             }
         }
@@ -341,8 +330,10 @@ pub struct MuxSessionState {
     max_streams: usize,
     max_frame_payload_bytes: usize,
     max_buffered_bytes_per_stream: usize,
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     keepalive: KeepalivePolicy,
     last_peer_activity_tick: Tick,
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     last_keepalive_ping_tick: Tick,
     current_tick: Tick,
 }
@@ -367,6 +358,7 @@ impl MuxHostEndpoint {
         }
     }
 
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     pub fn new_unauthenticated(now_tick: Tick) -> Self {
         Self {
             session: MuxSessionState::new_unauthenticated(now_tick),
@@ -387,16 +379,10 @@ impl MuxHostEndpoint {
         if self.stream_ids_by_name.contains_key(name.as_str()) {
             return Err(MuxReject::new(REJECT_DUPLICATE_STREAM_NAME));
         }
-        self.session
-            .open_stream(stream_id, priority, initial_credit)?;
-        self.stream_ids_by_name
-            .insert(name.as_str().to_string(), stream_id);
+        self.session.open_stream(stream_id, priority, initial_credit)?;
+        self.stream_ids_by_name.insert(name.as_str().to_string(), stream_id);
         self.stream_names_by_id.insert(stream_id, name.clone());
-        self.outbound.push_back(MuxWireEvent::Open {
-            stream_id,
-            priority,
-            name,
-        });
+        self.outbound.push_back(MuxWireEvent::Open { stream_id, priority, name });
         Ok(())
     }
 
@@ -408,42 +394,30 @@ impl MuxHostEndpoint {
     ) -> Result<SendBudgetOutcome, MuxReject> {
         let outcome = self.session.send_data(stream_id, payload_len)?;
         if matches!(outcome, SendBudgetOutcome::Sent { .. }) {
-            self.outbound.push_back(MuxWireEvent::Data {
-                stream_id,
-                priority,
-                payload_len,
-            });
+            self.outbound.push_back(MuxWireEvent::Data { stream_id, priority, payload_len });
         }
         Ok(outcome)
     }
 
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     pub fn close_stream(
         &mut self,
         stream_id: StreamId,
         priority: PriorityClass,
     ) -> Result<TransitionOutcome, MuxReject> {
-        let outcome = self
-            .session
-            .apply_transition(stream_id, StreamTransition::SendClose)?;
-        self.outbound.push_back(MuxWireEvent::Close {
-            stream_id,
-            priority,
-        });
+        let outcome = self.session.apply_transition(stream_id, StreamTransition::SendClose)?;
+        self.outbound.push_back(MuxWireEvent::Close { stream_id, priority });
         Ok(outcome)
     }
 
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     pub fn reset_stream(
         &mut self,
         stream_id: StreamId,
         priority: PriorityClass,
     ) -> Result<TransitionOutcome, MuxReject> {
-        let outcome = self
-            .session
-            .apply_transition(stream_id, StreamTransition::Reset)?;
-        self.outbound.push_back(MuxWireEvent::Rst {
-            stream_id,
-            priority,
-        });
+        let outcome = self.session.apply_transition(stream_id, StreamTransition::Reset)?;
+        self.outbound.push_back(MuxWireEvent::Rst { stream_id, priority });
         Ok(outcome)
     }
 
@@ -457,86 +431,42 @@ impl MuxHostEndpoint {
 
     pub fn ingest(&mut self, event: MuxWireEvent) -> Result<FrameApplyOutcome, MuxReject> {
         match event {
-            MuxWireEvent::Open {
-                stream_id,
-                priority,
-                name,
-            } => {
+            MuxWireEvent::Open { stream_id, priority, name } => {
                 if self.stream_ids_by_name.contains_key(name.as_str()) {
                     return Err(MuxReject::new(REJECT_DUPLICATE_STREAM_NAME));
                 }
                 let outcome =
-                    self.session
-                        .apply_inbound_frame(stream_id, priority, InboundFrame::Open)?;
-                self.stream_ids_by_name
-                    .insert(name.as_str().to_string(), stream_id);
+                    self.session.apply_inbound_frame(stream_id, priority, InboundFrame::Open)?;
+                self.stream_ids_by_name.insert(name.as_str().to_string(), stream_id);
                 self.stream_names_by_id.insert(stream_id, name.clone());
-                self.accepted.push_back(AcceptedStream {
-                    stream_id,
-                    priority,
-                    name,
-                });
-                self.outbound.push_back(MuxWireEvent::OpenAck {
-                    stream_id,
-                    priority,
-                });
+                self.accepted.push_back(AcceptedStream { stream_id, priority, name });
+                self.outbound.push_back(MuxWireEvent::OpenAck { stream_id, priority });
                 Ok(outcome)
             }
-            MuxWireEvent::OpenAck {
-                stream_id,
-                priority,
-            } => self
+            MuxWireEvent::OpenAck { stream_id, priority } => {
+                self.session.apply_inbound_frame(stream_id, priority, InboundFrame::OpenAck)
+            }
+            MuxWireEvent::Data { stream_id, priority, payload_len } => self
                 .session
-                .apply_inbound_frame(stream_id, priority, InboundFrame::OpenAck),
-            MuxWireEvent::Data {
-                stream_id,
-                priority,
-                payload_len,
-            } => self.session.apply_inbound_frame(
-                stream_id,
-                priority,
-                InboundFrame::Data { payload_len },
-            ),
-            MuxWireEvent::WindowUpdate {
-                stream_id,
-                priority,
-                delta,
-            } => self.session.apply_inbound_frame(
-                stream_id,
-                priority,
-                InboundFrame::WindowUpdate { delta },
-            ),
-            MuxWireEvent::Rst {
-                stream_id,
-                priority,
-            } => self
+                .apply_inbound_frame(stream_id, priority, InboundFrame::Data { payload_len }),
+            MuxWireEvent::WindowUpdate { stream_id, priority, delta } => self
                 .session
-                .apply_inbound_frame(stream_id, priority, InboundFrame::Rst),
-            MuxWireEvent::Close {
-                stream_id,
-                priority,
-            } => self
-                .session
-                .apply_inbound_frame(stream_id, priority, InboundFrame::Close),
-            MuxWireEvent::Ping {
-                stream_id,
-                priority,
-            } => {
+                .apply_inbound_frame(stream_id, priority, InboundFrame::WindowUpdate { delta }),
+            MuxWireEvent::Rst { stream_id, priority } => {
+                self.session.apply_inbound_frame(stream_id, priority, InboundFrame::Rst)
+            }
+            MuxWireEvent::Close { stream_id, priority } => {
+                self.session.apply_inbound_frame(stream_id, priority, InboundFrame::Close)
+            }
+            MuxWireEvent::Ping { stream_id, priority } => {
                 let outcome =
-                    self.session
-                        .apply_inbound_frame(stream_id, priority, InboundFrame::Ping)?;
-                self.outbound.push_back(MuxWireEvent::Pong {
-                    stream_id,
-                    priority,
-                });
+                    self.session.apply_inbound_frame(stream_id, priority, InboundFrame::Ping)?;
+                self.outbound.push_back(MuxWireEvent::Pong { stream_id, priority });
                 Ok(outcome)
             }
-            MuxWireEvent::Pong {
-                stream_id,
-                priority,
-            } => self
-                .session
-                .apply_inbound_frame(stream_id, priority, InboundFrame::Pong),
+            MuxWireEvent::Pong { stream_id, priority } => {
+                self.session.apply_inbound_frame(stream_id, priority, InboundFrame::Pong)
+            }
         }
     }
 
@@ -554,6 +484,7 @@ impl MuxSessionState {
         Self::new(true, now_tick)
     }
 
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     pub fn new_unauthenticated(now_tick: Tick) -> Self {
         Self::new(false, now_tick)
     }
@@ -628,18 +559,13 @@ impl MuxSessionState {
             .get_mut(&stream_id)
             .ok_or_else(|| MuxReject::new(REJECT_UNKNOWN_STREAM_FRAME))?;
 
-        if !matches!(
-            context.state,
-            StreamState::Open | StreamState::HalfClosedRemote
-        ) {
+        if !matches!(context.state, StreamState::Open | StreamState::HalfClosedRemote) {
             return Err(MuxReject::new(REJECT_INVALID_STREAM_STATE_TRANSITION));
         }
 
         let current_credit = context.credit.as_u32() as usize;
         if payload_len > current_credit {
-            return Ok(SendBudgetOutcome::WouldBlock {
-                remaining_credit: context.credit,
-            });
+            return Ok(SendBudgetOutcome::WouldBlock { remaining_credit: context.credit });
         }
 
         let projected = context
@@ -647,9 +573,7 @@ impl MuxSessionState {
             .checked_add(payload_len)
             .ok_or_else(|| MuxReject::new(REJECT_WINDOW_CREDIT_OVERFLOW_OR_UNDERFLOW))?;
         if projected > self.max_buffered_bytes_per_stream {
-            return Ok(SendBudgetOutcome::WouldBlock {
-                remaining_credit: context.credit,
-            });
+            return Ok(SendBudgetOutcome::WouldBlock { remaining_credit: context.credit });
         }
 
         let updated_credit = context.credit.as_u32() - payload_len as u32;
@@ -657,9 +581,7 @@ impl MuxSessionState {
         context.buffered_bytes = projected;
         self.scheduler.enqueue(context.priority, stream_id);
 
-        Ok(SendBudgetOutcome::Sent {
-            remaining_credit: context.credit,
-        })
+        Ok(SendBudgetOutcome::Sent { remaining_credit: context.credit })
     }
 
     pub fn apply_window_update(
@@ -695,9 +617,7 @@ impl MuxSessionState {
                     priority,
                     WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
                 )?;
-                Ok(FrameApplyOutcome::StreamOpened {
-                    state: StreamState::Open,
-                })
+                Ok(FrameApplyOutcome::StreamOpened { state: StreamState::Open })
             }
             InboundFrame::OpenAck => {
                 let context = self
@@ -708,9 +628,7 @@ impl MuxSessionState {
                     return Err(MuxReject::new(REJECT_INVALID_STREAM_STATE_TRANSITION));
                 }
                 context.open_acked = true;
-                Ok(FrameApplyOutcome::OpenAcked {
-                    state: context.state,
-                })
+                Ok(FrameApplyOutcome::OpenAcked { state: context.state })
             }
             InboundFrame::Data { payload_len } => {
                 validate_frame_payload_len(payload_len, self.max_frame_payload_bytes)?;
@@ -719,19 +637,13 @@ impl MuxSessionState {
                         .streams
                         .get_mut(&stream_id)
                         .ok_or_else(|| MuxReject::new(REJECT_UNKNOWN_STREAM_FRAME))?;
-                    if !matches!(
-                        context.state,
-                        StreamState::Open | StreamState::HalfClosedLocal
-                    ) {
+                    if !matches!(context.state, StreamState::Open | StreamState::HalfClosedLocal) {
                         return Err(MuxReject::new(REJECT_INVALID_STREAM_STATE_TRANSITION));
                     }
                     let projected =
-                        context
-                            .buffered_bytes
-                            .checked_add(payload_len)
-                            .ok_or_else(|| {
-                                MuxReject::new(REJECT_WINDOW_CREDIT_OVERFLOW_OR_UNDERFLOW)
-                            })?;
+                        context.buffered_bytes.checked_add(payload_len).ok_or_else(|| {
+                            MuxReject::new(REJECT_WINDOW_CREDIT_OVERFLOW_OR_UNDERFLOW)
+                        })?;
                     if projected > self.max_buffered_bytes_per_stream {
                         return Err(MuxReject::new(REJECT_WINDOW_CREDIT_OVERFLOW_OR_UNDERFLOW));
                     }
@@ -739,10 +651,7 @@ impl MuxSessionState {
                     (projected, context.credit)
                 };
                 self.observe_peer_activity(self.current_tick);
-                Ok(FrameApplyOutcome::DataAccepted {
-                    buffered_bytes,
-                    remaining_credit,
-                })
+                Ok(FrameApplyOutcome::DataAccepted { buffered_bytes, remaining_credit })
             }
             InboundFrame::WindowUpdate { delta } => {
                 let credit = self.apply_window_update(stream_id, delta)?;
@@ -752,17 +661,13 @@ impl MuxSessionState {
             InboundFrame::Rst => {
                 let transition = self.apply_transition(stream_id, StreamTransition::Reset)?;
                 self.observe_peer_activity(self.current_tick);
-                Ok(FrameApplyOutcome::StreamTransitioned {
-                    state: transition.next_state,
-                })
+                Ok(FrameApplyOutcome::StreamTransitioned { state: transition.next_state })
             }
             InboundFrame::Close => {
                 let transition =
                     self.apply_transition(stream_id, StreamTransition::ReceiveClose)?;
                 self.observe_peer_activity(self.current_tick);
-                Ok(FrameApplyOutcome::StreamTransitioned {
-                    state: transition.next_state,
-                })
+                Ok(FrameApplyOutcome::StreamTransitioned { state: transition.next_state })
             }
             InboundFrame::Ping => {
                 self.observe_peer_activity(self.current_tick);
@@ -775,6 +680,7 @@ impl MuxSessionState {
         }
     }
 
+    #[cfg_attr(nexus_env = "os", allow(dead_code))]
     pub fn keepalive_tick(&mut self, now_tick: Tick) -> KeepaliveVerdict {
         self.current_tick = now_tick;
         let idle_ticks = now_tick.saturating_sub(self.last_peer_activity_tick);

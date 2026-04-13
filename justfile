@@ -95,10 +95,16 @@ test-smp:
 #
 # IMPORTANT: run these sequentially (not in parallel) to avoid blk.img lock contention.
 test-os-dhcp:
-    REQUIRE_QEMU_DHCP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp:start","message":"start target","data":{"target":"test-os-dhcp"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
+    bash -lc 'set -o pipefail; REQUIRE_QEMU_DHCP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os 2>&1 | tee "/home/jenning/open-nexus-OS/.cursor/test-os-dhcp.output.log"; rc=${PIPESTATUS[0]}; RC="$rc" python -c '\''import json,os,time,pathlib; p=pathlib.Path("/home/jenning/open-nexus-OS/.cursor/test-os-dhcp.output.log"); lines=p.read_text(encoding="utf-8",errors="ignore").splitlines() if p.exists() else []; warns=[ln.strip() for ln in lines if ("warning:" in ln.lower() or "[warn" in ln.lower())]; dbg="/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log"; open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H6","location":"justfile:test-os-dhcp:warning-scan","message":"captured warning lines","data":{"target":"test-os-dhcp","warningCount":len(warns),"warningSample":warns[:8],"exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n"); open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp:end","message":"target completed","data":{"target":"test-os-dhcp","exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n")'\''; exit $rc'
 
 test-os-dhcp-strict:
-    REQUIRE_QEMU_DHCP=1 REQUIRE_QEMU_DHCP_STRICT=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp-strict:start","message":"start target","data":{"target":"test-os-dhcp-strict"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
+    bash -lc 'set -o pipefail; REQUIRE_QEMU_DHCP=1 REQUIRE_QEMU_DHCP_STRICT=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os 2>&1 | tee "/home/jenning/open-nexus-OS/.cursor/test-os-dhcp-strict.output.log"; rc=${PIPESTATUS[0]}; RC="$rc" python -c '\''import json,os,time,pathlib; p=pathlib.Path("/home/jenning/open-nexus-OS/.cursor/test-os-dhcp-strict.output.log"); lines=p.read_text(encoding="utf-8",errors="ignore").splitlines() if p.exists() else []; warns=[ln.strip() for ln in lines if ("warning:" in ln.lower() or "[warn" in ln.lower())]; dbg="/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log"; open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H7","location":"justfile:test-os-dhcp-strict:warning-scan","message":"captured warning lines","data":{"target":"test-os-dhcp-strict","warningCount":len(warns),"warningSample":warns[:8],"exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n"); open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp-strict:end","message":"target completed","data":{"target":"test-os-dhcp-strict","exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n")'\''; exit $rc'
 
 # Run only until device-MMIO proofs are complete (faster local iteration).
 test-mmio:
@@ -119,20 +125,35 @@ os2vm-pcap:
 
 # Friendlier aliases for DSoftBus bring-up.
 test-dsoftbus-2vm:
-    just os2vm
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H4","location":"justfile:test-dsoftbus-2vm:start","message":"start target","data":{"target":"test-dsoftbus-2vm"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
+    bash -lc 'set -o pipefail; just os2vm 2>&1 | tee "/home/jenning/open-nexus-OS/.cursor/test-dsoftbus-2vm.output.log"; rc=${PIPESTATUS[0]}; RC="$rc" python -c '\''import json,os,time,pathlib; p=pathlib.Path("/home/jenning/open-nexus-OS/.cursor/test-dsoftbus-2vm.output.log"); lines=p.read_text(encoding="utf-8",errors="ignore").splitlines() if p.exists() else []; warns=[ln.strip() for ln in lines if ("warning:" in ln.lower() or "[warn" in ln.lower())]; dbg="/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log"; open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H8","location":"justfile:test-dsoftbus-2vm:warning-scan","message":"captured warning lines","data":{"target":"test-dsoftbus-2vm","warningCount":len(warns),"warningSample":warns[:8],"exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n"); open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H4","location":"justfile:test-dsoftbus-2vm:end","message":"target completed","data":{"target":"test-dsoftbus-2vm","exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n")'\''; exit $rc'
 
 test-dsoftbus-2vm-pcap:
     just os2vm-pcap
 
 # TASK-0020 requirement-named host suites (deterministic contract surface).
 test-dsoftbus-mux:
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:start","message":"start target","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
     cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture
     cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture
     cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:end","message":"target completed","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
 
 # Full userspace dsoftbus host regression (includes mux + reject suites).
 test-dsoftbus-host:
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:start","message":"start target","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
     cargo test -p dsoftbus -- --nocapture
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:end","message":"target completed","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
 
 # -----------------------------------------------------------------------------
 # Host test suites
@@ -181,6 +202,9 @@ arch-check:
 # -----------------------------------------------------------------------------
 
 test-all:
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:start","message":"start aggregate gate","data":{"target":"test-all"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
     just fmt-check
     just lint
     just deny-check
@@ -191,6 +215,9 @@ test-all:
     just arch-check
     just build-kernel
     just test-smp
+    # #region agent log
+    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:end","message":"aggregate gate completed","data":{"target":"test-all"},"timestamp":int(time.time()*1000)})+"\n")'
+    # #endregion
 
 # -----------------------------------------------------------------------------
 # Diagnostics (reproduce editor/rust-analyzer output)

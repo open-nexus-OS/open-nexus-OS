@@ -49,16 +49,10 @@ fn run_mux_contract_selftest() -> bool {
     // Endpoint-level proof: OPEN/OPEN_ACK + DATA propagation with typed names.
     let mut client = MuxHostEndpoint::new_authenticated(0);
     let mut server = MuxHostEndpoint::new_authenticated(0);
-    if client
-        .open_stream(control_id, control_pri, control_name.clone(), credit)
-        .is_err()
-    {
+    if client.open_stream(control_id, control_pri, control_name.clone(), credit).is_err() {
         return false;
     }
-    if client
-        .open_stream(bulk_id, bulk_pri, bulk_name.clone(), credit)
-        .is_err()
-    {
+    if client.open_stream(bulk_id, bulk_pri, bulk_name.clone(), credit).is_err() {
         return false;
     }
     let client_open_events = client.drain_outbound();
@@ -87,14 +81,10 @@ fn run_mux_contract_selftest() -> bool {
         }
     }
 
-    let control_sent = matches!(
-        client.send_data(control_id, control_pri, 16),
-        Ok(SendBudgetOutcome::Sent { .. })
-    );
-    let bulk_sent = matches!(
-        client.send_data(bulk_id, bulk_pri, 128),
-        Ok(SendBudgetOutcome::Sent { .. })
-    );
+    let control_sent =
+        matches!(client.send_data(control_id, control_pri, 16), Ok(SendBudgetOutcome::Sent { .. }));
+    let bulk_sent =
+        matches!(client.send_data(bulk_id, bulk_pri, 128), Ok(SendBudgetOutcome::Sent { .. }));
     if !(control_sent && bulk_sent) {
         return false;
     }
@@ -113,21 +103,13 @@ fn run_mux_contract_selftest() -> bool {
     // Session-level proof: scheduler prioritizes control, and credit exhaustion backpressures bulk.
     let mut priority_session = MuxSessionState::new_authenticated(0);
     if priority_session
-        .open_stream(
-            control_id,
-            control_pri,
-            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
-        )
+        .open_stream(control_id, control_pri, WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT))
         .is_err()
     {
         return false;
     }
     if priority_session
-        .open_stream(
-            bulk_id,
-            bulk_pri,
-            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
-        )
+        .open_stream(bulk_id, bulk_pri, WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT))
         .is_err()
     {
         return false;
@@ -146,11 +128,7 @@ fn run_mux_contract_selftest() -> bool {
 
     let mut backpressure_session = MuxSessionState::new_authenticated(0);
     if backpressure_session
-        .open_stream(
-            bulk_id,
-            bulk_pri,
-            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
-        )
+        .open_stream(bulk_id, bulk_pri, WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT))
         .is_err()
     {
         return false;

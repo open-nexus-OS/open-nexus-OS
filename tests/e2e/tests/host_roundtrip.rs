@@ -145,7 +145,7 @@ fn bundle_install_signed_enforced_via_keystored() {
 
     // Generate a new keypair and write public key as hex anchor
     use ed25519_dalek::{Signer, SigningKey};
-    let sk = SigningKey::generate(&mut rand::rngs::OsRng);
+    let sk = SigningKey::from_bytes(&[7u8; 32]);
     let pk = sk.verifying_key();
     let anchor_hex = hex::encode(pk.to_bytes());
     std::fs::write(tmp.path().join("dev.publisher.pub"), &anchor_hex).expect("write anchor");

@@ -69,11 +69,7 @@ fn encode_mux_wire_batch(events: &[MuxWireEvent]) -> core::result::Result<Vec<u8
     ]);
     for event in events {
         match event {
-            MuxWireEvent::Open {
-                stream_id,
-                priority,
-                name,
-            } => {
+            MuxWireEvent::Open { stream_id, priority, name } => {
                 let name_bytes = name.as_str().as_bytes();
                 if name_bytes.len() > u8::MAX as usize {
                     return Err(());
@@ -84,19 +80,12 @@ fn encode_mux_wire_batch(events: &[MuxWireEvent]) -> core::result::Result<Vec<u8
                 payload.push(name_bytes.len() as u8);
                 payload.extend_from_slice(name_bytes);
             }
-            MuxWireEvent::OpenAck {
-                stream_id,
-                priority,
-            } => {
+            MuxWireEvent::OpenAck { stream_id, priority } => {
                 payload.push(MUX_EVENT_OPEN_ACK);
                 payload.extend_from_slice(&stream_id.get().to_le_bytes());
                 payload.push(priority.get());
             }
-            MuxWireEvent::Data {
-                stream_id,
-                priority,
-                payload_len,
-            } => {
+            MuxWireEvent::Data { stream_id, priority, payload_len } => {
                 if *payload_len > u16::MAX as usize {
                     return Err(());
                 }
@@ -160,16 +149,9 @@ fn decode_mux_wire_batch(payload: &[u8]) -> core::result::Result<Vec<MuxWireEven
                 cursor += name_len;
                 let name_utf8 = core::str::from_utf8(name_bytes).map_err(|_| ())?;
                 let name = StreamName::new(String::from(name_utf8)).map_err(|_| ())?;
-                MuxWireEvent::Open {
-                    stream_id,
-                    priority,
-                    name,
-                }
+                MuxWireEvent::Open { stream_id, priority, name }
             }
-            MUX_EVENT_OPEN_ACK => MuxWireEvent::OpenAck {
-                stream_id,
-                priority,
-            },
+            MUX_EVENT_OPEN_ACK => MuxWireEvent::OpenAck { stream_id, priority },
             MUX_EVENT_DATA => {
                 if cursor + 2 > payload.len() {
                     return Err(());
@@ -177,11 +159,7 @@ fn decode_mux_wire_batch(payload: &[u8]) -> core::result::Result<Vec<MuxWireEven
                 let payload_len =
                     u16::from_le_bytes([payload[cursor], payload[cursor + 1]]) as usize;
                 cursor += 2;
-                MuxWireEvent::Data {
-                    stream_id,
-                    priority,
-                    payload_len,
-                }
+                MuxWireEvent::Data { stream_id, priority, payload_len }
             }
             _ => return Err(()),
         };
@@ -216,15 +194,7 @@ fn send_mux_control_record(
     if encrypted != REQ_CIPH {
         return Err(());
     }
-    stream_write_all(
-        pending_replies,
-        nonce_ctr,
-        net,
-        sid,
-        &ciph,
-        reply_recv_slot,
-        reply_send_slot,
-    )
+    stream_write_all(pending_replies, nonce_ctr, net, sid, &ciph, reply_recv_slot, reply_send_slot)
 }
 
 fn recv_mux_control_record(
@@ -268,21 +238,13 @@ fn mux_priority_backpressure_local_ok(
 ) -> bool {
     let mut priority_session = MuxSessionState::new_authenticated(0);
     if priority_session
-        .open_stream(
-            control_id,
-            control_priority,
-            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
-        )
+        .open_stream(control_id, control_priority, WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT))
         .is_err()
     {
         return false;
     }
     if priority_session
-        .open_stream(
-            bulk_id,
-            bulk_priority,
-            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
-        )
+        .open_stream(bulk_id, bulk_priority, WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT))
         .is_err()
     {
         return false;
@@ -298,11 +260,7 @@ fn mux_priority_backpressure_local_ok(
 
     let mut backpressure_session = MuxSessionState::new_authenticated(0);
     if backpressure_session
-        .open_stream(
-            bulk_id,
-            bulk_priority,
-            WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT),
-        )
+        .open_stream(bulk_id, bulk_priority, WindowCredit::new(DEFAULT_INITIAL_STREAM_CREDIT))
         .is_err()
     {
         return false;
@@ -340,9 +298,7 @@ fn run_cross_vm_mux_ladder(
         endpoint
             .open_stream(control_id, control_priority, control_name.clone(), credit)
             .map_err(|_| ())?;
-        endpoint
-            .open_stream(bulk_id, bulk_priority, bulk_name.clone(), credit)
-            .map_err(|_| ())?;
+        endpoint.open_stream(bulk_id, bulk_priority, bulk_name.clone(), credit).map_err(|_| ())?;
         let open_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
         send_mux_control_record(
             transport,
@@ -581,25 +537,9 @@ pub(crate) fn run_cross_vm_main(
 ) -> core::result::Result<(), ()> {
     let (device_id, listen_port, peer_ip, peer_port, peer_device_id, key_tag_self, key_tag_peer) =
         if local_ip == OS2VM_NODE_A_IP {
-            (
-                "node-a",
-                34_567u16,
-                OS2VM_NODE_B_IP,
-                34_568u16,
-                "node-b",
-                0xD0u8,
-                0xD1u8,
-            )
+            ("node-a", 34_567u16, OS2VM_NODE_B_IP, 34_568u16, "node-b", 0xD0u8, 0xD1u8)
         } else {
-            (
-                "node-b",
-                34_568u16,
-                OS2VM_NODE_A_IP,
-                34_567u16,
-                "node-a",
-                0xD1u8,
-                0xD0u8,
-            )
+            ("node-b", 34_568u16, OS2VM_NODE_A_IP, 34_567u16, "node-a", 0xD1u8, 0xD0u8)
         };
 
     let mut nonce_ctr: u64 = 1;
@@ -1018,9 +958,7 @@ pub(crate) fn run_cross_vm_main(
             StaticKeypair::from_secret(derive_test_secret(key_tag_peer, peer_port)).public;
 
         let transport_attempt = (|| -> core::result::Result<Transport, ()> {
-            let discovered = peers
-                .peek(peer_device_id)
-                .map(|peer_entry| peer_entry.noise_static);
+            let discovered = peers.peek(peer_device_id).map(|peer_entry| peer_entry.noise_static);
             if !identity_binding_matches(discovered, peer_expected_pub) {
                 let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=crossvm");
                 return Err(());
