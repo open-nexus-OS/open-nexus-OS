@@ -79,7 +79,7 @@ nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-log = { path = "../../libs/nexus-log", features = ["sink-userspace"] }
 serde = { version = "1", features = ["derive"], optional = true }
 toml = { version = "0.8", optional = true }
-thiserror = { version = "1", optional = true }
+thiserror = { version = "2", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", optional = true }
 

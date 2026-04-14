@@ -1,75 +1,59 @@
 # Next Task Preparation (Drift-Free)
 
-<!--
-CONTEXT
-Preparation file for the next execution slice.
-Update during wrap-up so a new session can start without drift.
--->
+## Candidate next execution
+- **task**: `TASK-0022` (core/no_std transport refactor)
+- **focus**: extract reusable transport core seams without reopening `TASK-0021` host QUIC scope.
 
-## Candidate next task
-- **task**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`In Progress`)
-- **handoff_target**: `.cursor/handoff/current.md`
-- **handoff_archive**: `.cursor/handoff/archive/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-- **linked_contracts**:
-  - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (`Done`, legacy closure SSOT complete)
-  - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md` (`In Progress`, TASK-0021 seed contract)
-  - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md` (`Done`)
-  - `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md` (`Done`, legacy `TASK-0001..0020` scope only)
-  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-  - `docs/adr/0005-dsoftbus-architecture.md`
-  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
-  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
-  - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
-  - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
-  - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
-  - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (follow-on boundary)
-  - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md` (follow-on boundary)
-  - `docs/testing/index.md`
-  - `scripts/qemu-test.sh`
-- **first_action**: execute behavior-first phase-B host proofs under `TASK-0021` + `RFC-0035` (strict order, no `TASK-0022` absorption).
+## Current proven baseline
+- Host real QUIC transport proof: `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`
+- Host selection/reject/perf proof: `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`
+- QUIC keyword regression subset: `cargo test -p dsoftbus -- quic --nocapture`
+- Targeted host QUIC aggregate: `just test-dsoftbus-quic`
+- OS fallback marker proof: `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- OS dep hygiene: `just dep-gate`
+- Regression floor:
+  - `just test-e2e`
+  - `just test-os-dhcp`
 
-## Start slice (now)
-- **slice_name**: TASK-0021 phase-B behavior-first host proof lock (post RFC-0035 seed)
-- **target_file**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-- **must_cover**:
-  - keep TASK-0019 closed as done baseline,
-  - keep strict order (no preemption of later tasks),
-  - preserve host-first execution and explicit OS gating for QUIC scaffolding,
-  - preserve separation from `TASK-0022` core/no_std extraction scope,
-  - reuse closure evidence discipline from `TASK-0020` (no fake success markers).
+## Boundaries for next slice
+- Keep `TASK-0021` closed/done; do not reopen host-proof scope.
+- Do not absorb `TASK-0022` core/no_std extraction.
+- Do not pre-enable or pre-unblock `TASK-0023` OS QUIC path.
+- Do not absorb `TASK-0044` tuning matrix.
 
-## Execution order
-1. **TASK-0017**: remote statefs RW (Done)
-2. **TASK-0018**: crashdumps v1 (Done, archived handoff)
-3. **TASK-0019**: ABI syscall guardrails v2 (Done)
-4. **TASK-0020**: streams v2 mux/flow-control/keepalive (Done)
-5. **TASK-0021**: QUIC v1 host-first scaffold (next slice)
+## Linked contracts
+- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `docs/testing/index.md`
+- `docs/architecture/07-contracts-map.md`
+- `docs/distributed/dsoftbus-lite.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `tasks/STATUS-BOARD.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
 
-## Drift-free check (must be YES to proceed)
-- **aligns_with_current_state**: YES
-  - SSOT/handoff show TASK-0020 closed and next queue head is TASK-0021.
-- **best_system_solution**: YES
-  - strict numerical progression preserves drift-free execution.
-- **scope_clear**: YES
-  - scope is TASK-0021 only; no absorption from TASK-0022 or later tracks.
-- **touched_paths_allowlist_present**: YES
-  - TASK-0021 touched paths are explicit in task header.
+## Ready condition
+- Start from the frozen green proof set above and preserve anti-drift scope constraints.
 
-## Header / follow-up hygiene
-- **follow_ups_in_task_header**: YES
-  - TASK-0022 boundary is explicit in TASK-0021 header.
-- **security_considerations_complete**: YES
-  - TASK-0021 security section exists and stays fail-closed.
+## Harmonization readiness matrix
+- **Achieved now**:
+  - first-party `thiserror` line converged to `2.x`,
+  - `snow` uplifted to `0.10.x` in `dsoftbus`,
+  - `windows-sys` duplicate count reduced (`3 -> 2`) via `tempfile/rustix` uplift,
+  - `identity` key generation migrated to `getrandom 0.3` byte-source,
+  - unnecessary first-party `ed25519-dalek/rand_core` feature coupling removed,
+  - `dsoftbus` local key derivation moved off `x25519-dalek` to `curve25519-dalek`,
+  - `nexus-noise-xk` migrated to curve-based wrapper/newtypes with clamp + zeroize + all-zero DH reject.
+- **Still open**:
+  - `getrandom` split (`0.2` vs `0.3`) and `windows-sys` split (`0.52` vs `0.61`) remain compatibility-constrained and are now handled by narrow `cargo-deny` bans skip entries (strict mode retained).
+- **Known blockers**:
+  - `ring 0.17.x` binds to `getrandom 0.2` and `windows-sys 0.52`,
+  - `tokio/quinn-udp` bind to `windows-sys 0.61`.
 
-## Dependencies & blockers
-- **blocked_by**:
-  - none for starting TASK-0021 in host-first mode.
-- **prereqs_ready**: YES
-  - `TASK-0005`, `TASK-0015`, `TASK-0016`, `TASK-0016B`, and `TASK-0017` are complete and referenced.
-  - canonical harness contracts remain stable for staged host-first -> OS-gated execution.
+## Planning note
+- Dependency convergence phase-2 closure is complete; next sequential planning target is `TASK-0022`.
 
-## Decision
-- **status**: ACTIVE (TASK-0021 started in strict order after TASK-0020 closeout)
-- **notes**:
-  - `TASK-0020` is `Done`, `RFC-0033` is `Done`, and `RFC-0034` legacy-scope closure is `Done`.
-  - next execution starts with `TASK-0021` only, keeping strict numerical order.
+## Post Phase-2 next action
+- Treat residual duplicate lines as compatibility-constrained closure work:
+  - either upstream-version convergence (ring/quinn/tokio ecosystem),
+  - or explicit bounded accept-with-rationale for remaining split lines.
+- Keep `TASK-0021` proof floor unchanged while evaluating that closure path.

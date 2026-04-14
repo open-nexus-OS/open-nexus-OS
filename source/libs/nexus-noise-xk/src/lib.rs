@@ -23,7 +23,8 @@ use blake2::digest::Digest;
 use blake2::Blake2s256;
 use chacha20poly1305::aead::{AeadInPlace, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Tag};
-use x25519_dalek::{PublicKey, StaticSecret};
+use curve25519_dalek::montgomery::MontgomeryPoint;
+use zeroize::Zeroize;
 
 pub const PROTOCOL_NAME: &str = "Noise_XK_25519_ChaChaPoly_BLAKE2s";
 
@@ -40,6 +41,7 @@ pub enum NoiseError {
     BadLength,
     Crypto,
     StaticKeyMismatch,
+    InvalidSharedSecret,
 }
 
 #[derive(Clone, Copy)]
@@ -48,11 +50,71 @@ pub struct StaticKeypair {
     pub public: [u8; 32],
 }
 
+// Wrapper types keep X25519 invariants in one place while using curve25519-dalek:
+// clamping on input, low-order/all-zero shared-secret rejection, and zeroize-on-drop.
+#[derive(Clone)]
+struct X25519Secret([u8; 32]);
+
+impl X25519Secret {
+    fn from_bytes(secret: [u8; 32]) -> Self {
+        Self(clamp_scalar(secret))
+    }
+
+    fn to_bytes(&self) -> [u8; 32] {
+        self.0
+    }
+
+    fn public_key(&self) -> X25519Public {
+        X25519Public(MontgomeryPoint::mul_base_clamped(self.0).to_bytes())
+    }
+
+    fn diffie_hellman(&self, public: &X25519Public) -> Result<SharedSecret, NoiseError> {
+        let shared = MontgomeryPoint(public.0).mul_clamped(self.0).to_bytes();
+        if shared == [0u8; 32] {
+            return Err(NoiseError::InvalidSharedSecret);
+        }
+        Ok(SharedSecret(shared))
+    }
+}
+
+impl Drop for X25519Secret {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+#[derive(Clone, Copy)]
+struct X25519Public([u8; 32]);
+
+impl X25519Public {
+    fn from_bytes(public: [u8; 32]) -> Self {
+        Self(public)
+    }
+
+    fn to_bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+struct SharedSecret([u8; 32]);
+
+impl SharedSecret {
+    fn to_bytes(&self) -> [u8; 32] {
+        self.0
+    }
+}
+
+impl Drop for SharedSecret {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
 impl StaticKeypair {
     pub fn from_secret(secret: [u8; 32]) -> Self {
-        let sec = StaticSecret::from(secret);
-        let pubk = PublicKey::from(&sec);
-        Self { secret: sec.to_bytes(), public: pubk.to_bytes() }
+        let secret = X25519Secret::from_bytes(secret);
+        let public = secret.public_key().to_bytes();
+        Self { secret: secret.to_bytes(), public }
     }
 }
 
@@ -192,7 +254,7 @@ impl SymmetricState {
 pub struct XkInitiator {
     local_static: StaticKeypair,
     remote_static_pub: [u8; 32],
-    e: StaticSecret,
+    e: X25519Secret,
     e_pub: [u8; 32],
     symmetric: SymmetricState,
     re_pub: Option<[u8; 32]>,
@@ -208,8 +270,8 @@ impl XkInitiator {
         let mut symmetric = SymmetricState::initialize(PROTOCOL_NAME.as_bytes());
         // XK has responder static as a pre-message.
         symmetric.mix_hash(&remote_static_pub);
-        let e = StaticSecret::from(eph_seed);
-        let e_pub = PublicKey::from(&e).to_bytes();
+        let e = X25519Secret::from_bytes(eph_seed);
+        let e_pub = e.public_key().to_bytes();
         Self { local_static, remote_static_pub, e, e_pub, symmetric, re_pub: None }
     }
 
@@ -232,7 +294,7 @@ impl XkInitiator {
         self.symmetric.mix_hash(&re);
 
         // ee
-        let dh_ee = dh(&self.e, &re);
+        let dh_ee = dh(&self.e, &re)?;
         self.symmetric.mix_key(&dh_ee);
 
         // decrypt responder static (must match pinned key)
@@ -243,7 +305,7 @@ impl XkInitiator {
         }
 
         // es = DH(e, rs)
-        let dh_es = dh(&self.e, &self.remote_static_pub);
+        let dh_es = dh(&self.e, &self.remote_static_pub)?;
         self.symmetric.mix_key(&dh_es);
 
         // decrypt payload (empty)
@@ -264,7 +326,7 @@ impl XkInitiator {
         off += n;
 
         // se = DH(s_i, re)
-        let dh_se = dh_static(&self.local_static.secret, &re);
+        let dh_se = dh_static(&self.local_static.secret, &re)?;
         self.symmetric.mix_key(&dh_se);
 
         // enc(payload="") -> tag only
@@ -281,7 +343,7 @@ impl XkInitiator {
 pub struct XkResponder {
     local_static: StaticKeypair,
     expected_remote_static_pub: [u8; 32],
-    e: StaticSecret,
+    e: X25519Secret,
     e_pub: [u8; 32],
     symmetric: SymmetricState,
     ie_pub: Option<[u8; 32]>,
@@ -297,8 +359,8 @@ impl XkResponder {
         let mut symmetric = SymmetricState::initialize(PROTOCOL_NAME.as_bytes());
         // XK has responder static as a pre-message (the responder knows its own static).
         symmetric.mix_hash(&local_static.public);
-        let e = StaticSecret::from(eph_seed);
-        let e_pub = PublicKey::from(&e).to_bytes();
+        let e = X25519Secret::from_bytes(eph_seed);
+        let e_pub = e.public_key().to_bytes();
         Self { local_static, expected_remote_static_pub, e, e_pub, symmetric, ie_pub: None }
     }
 
@@ -320,7 +382,7 @@ impl XkResponder {
         self.symmetric.mix_hash(&out_msg2[..32]);
 
         // ee = DH(e_r, e_i)
-        let dh_ee = dh(&self.e, &ie);
+        let dh_ee = dh(&self.e, &ie)?;
         self.symmetric.mix_key(&dh_ee);
 
         // enc(s_r)
@@ -331,7 +393,7 @@ impl XkResponder {
         }
 
         // es = DH(s_r, e_i)
-        let dh_es = dh_static(&self.local_static.secret, &ie);
+        let dh_es = dh_static(&self.local_static.secret, &ie)?;
         self.symmetric.mix_key(&dh_es);
 
         // enc(payload="") -> tag only
@@ -359,7 +421,7 @@ impl XkResponder {
         }
 
         // se = DH(e_r, s_i)
-        let dh_se = dh(&self.e, &is_plain);
+        let dh_se = dh(&self.e, &is_plain)?;
         self.symmetric.mix_key(&dh_se);
 
         // decrypt payload (empty)
@@ -405,14 +467,22 @@ fn make_nonce(n: u64) -> [u8; 12] {
     out
 }
 
-fn dh(secret: &StaticSecret, public_bytes: &[u8; 32]) -> [u8; 32] {
-    let pk = PublicKey::from(*public_bytes);
-    secret.diffie_hellman(&pk).to_bytes()
+fn dh(secret: &X25519Secret, public_bytes: &[u8; 32]) -> Result<[u8; 32], NoiseError> {
+    let public = X25519Public::from_bytes(*public_bytes);
+    let shared = secret.diffie_hellman(&public)?;
+    Ok(shared.to_bytes())
 }
 
-fn dh_static(secret_bytes: &[u8; 32], public_bytes: &[u8; 32]) -> [u8; 32] {
-    let sec = StaticSecret::from(*secret_bytes);
-    dh(&sec, public_bytes)
+fn dh_static(secret_bytes: &[u8; 32], public_bytes: &[u8; 32]) -> Result<[u8; 32], NoiseError> {
+    let secret = X25519Secret::from_bytes(*secret_bytes);
+    dh(&secret, public_bytes)
+}
+
+fn clamp_scalar(mut secret: [u8; 32]) -> [u8; 32] {
+    secret[0] &= 248;
+    secret[31] &= 127;
+    secret[31] |= 64;
+    secret
 }
 
 fn hash(data: &[u8]) -> [u8; 32] {
@@ -462,4 +532,66 @@ fn hkdf2(chaining_key: &[u8; 32], ikm: &[u8]) -> ([u8; 32], [u8; 32]) {
     t1_2[32] = 0x02;
     let t2 = hmac_blake2s(&prk, &t1_2);
     (t1, t2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_hex_32(hex: &str) -> [u8; 32] {
+        assert_eq!(hex.len(), 64, "hex must be 32 bytes");
+        let mut out = [0u8; 32];
+        let bytes = hex.as_bytes();
+        for i in 0..32 {
+            let hi = from_hex_nibble(bytes[i * 2]);
+            let lo = from_hex_nibble(bytes[i * 2 + 1]);
+            out[i] = (hi << 4) | lo;
+        }
+        out
+    }
+
+    fn from_hex_nibble(b: u8) -> u8 {
+        match b {
+            b'0'..=b'9' => b - b'0',
+            b'a'..=b'f' => b - b'a' + 10,
+            b'A'..=b'F' => b - b'A' + 10,
+            _ => panic!("invalid hex nibble"),
+        }
+    }
+
+    #[test]
+    fn x25519_wrapper_matches_rfc7748_vector() {
+        // RFC 7748 section 6.1 test vectors.
+        let alice_secret =
+            parse_hex_32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+        let alice_public_expected =
+            parse_hex_32("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
+        let bob_secret =
+            parse_hex_32("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
+        let bob_public_expected =
+            parse_hex_32("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
+        let shared_expected =
+            parse_hex_32("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+
+        let alice = X25519Secret::from_bytes(alice_secret);
+        let bob = X25519Secret::from_bytes(bob_secret);
+        let alice_public = alice.public_key();
+        let bob_public = bob.public_key();
+
+        assert_eq!(alice_public.to_bytes(), alice_public_expected);
+        assert_eq!(bob_public.to_bytes(), bob_public_expected);
+
+        let alice_shared = alice.diffie_hellman(&bob_public).unwrap().to_bytes();
+        let bob_shared = bob.diffie_hellman(&alice_public).unwrap().to_bytes();
+        assert_eq!(alice_shared, shared_expected);
+        assert_eq!(bob_shared, shared_expected);
+    }
+
+    #[test]
+    fn x25519_wrapper_rejects_all_zero_shared_secret() {
+        let secret = X25519Secret::from_bytes([0x42; 32]);
+        let low_order_public = X25519Public::from_bytes([0u8; 32]);
+        let result = secret.diffie_hellman(&low_order_public);
+        assert!(matches!(result, Err(NoiseError::InvalidSharedSecret)));
+    }
 }

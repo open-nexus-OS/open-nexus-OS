@@ -64,10 +64,10 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] Wire layout, retry budgets, ACL/audit behavior, or marker semantics changed silently.
 
 ## Active progress snapshot (TASK-0021 kickoff, 2026-04-10)
-- [x] Queue/order metadata synchronized (`TASK-0020` done; queue head is `TASK-0021`).
+- [x] Queue/order metadata synchronized (`TASK-0021` done; queue head is `TASK-0022`).
 - [x] Handoff archived for `TASK-0020` and current handoff switched to `TASK-0021`.
 - [x] Core `.cursor` working files retargeted for `TASK-0021`.
 - [x] TASK-0021 task status promoted to `In Progress`.
 - [x] TASK-0021 phase-A contract lock finalized (`RFC-0035` seed created and linked).
-- [ ] TASK-0021 host requirement-named tests implemented and green.
-- [ ] TASK-0021 OS fallback marker proofs green in canonical QEMU harness.
+- [x] TASK-0021 host requirement-named tests implemented and green.
+- [x] TASK-0021 OS fallback marker proofs green in canonical QEMU harness.

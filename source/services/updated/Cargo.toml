@@ -40,7 +40,7 @@ updates = { path = "../../../userspace/updates", optional = true, default-featur
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
-thiserror = { version = "1", optional = true }
+thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }

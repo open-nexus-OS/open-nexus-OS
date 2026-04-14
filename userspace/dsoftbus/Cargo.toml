@@ -7,7 +7,7 @@ authors = ["Open Nexus OS Contributors"]
 
 [dependencies]
 capnp = "0.24"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "2" }
 identity = { path = "../identity" }
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }
 nexus-net = { path = "../nexus-net" }
@@ -15,7 +15,10 @@ once_cell = "1"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-snow = "0.9"
+snow = "0.10"
 sha2 = "0.10"
-thiserror = "1"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+thiserror = "2"
+curve25519-dalek = "4"
+quinn = { version = "0.11.9", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+tokio = { version = "1.51.1", default-features = false, features = ["rt", "rt-multi-thread", "net", "time"] }
+rustls = { version = "0.23.38", default-features = false, features = ["std", "ring"] }

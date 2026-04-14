@@ -11,7 +11,7 @@
 //!
 //! DEPENDENCIES:
 //!   - ed25519-dalek: Digital signatures
-//!   - rand_core: Random number generation
+//!   - getrandom: Random byte generation
 //!   - serde: JSON serialization
 //!   - sha2: Cryptographic hashing
 //!
@@ -28,8 +28,7 @@ compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or 
 use core::fmt;
 
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
-use rand_core::OsRng;
-use rand_core::{CryptoRng, RngCore};
+use getrandom::fill;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -108,19 +107,12 @@ pub struct Identity {
 }
 
 impl Identity {
-    /// Generates a new identity using the provided random number generator.
-    pub fn generate_with<R>(rng: &mut R) -> Result<Self, IdentityError>
-    where
-        R: RngCore + CryptoRng,
-    {
-        let signing_key = SigningKey::generate(rng);
-        Ok(Self::from_signing_key(signing_key))
-    }
-
     /// Generates a new identity using the operating system random source.
     pub fn generate() -> Result<Self, IdentityError> {
-        let mut rng = OsRng;
-        Self::generate_with(&mut rng)
+        let mut bytes = [0u8; 32];
+        fill(&mut bytes)
+            .map_err(|err| IdentityError::Crypto(format!("random source failed: {err}")))?;
+        Self::from_secret_key_bytes(&bytes)
     }
 
     /// Reconstructs an identity from raw signing key bytes.

@@ -290,6 +290,7 @@ pub(crate) fn run_selftest_server_loop(
     w[14..22].copy_from_slice(&nonce.to_le_bytes());
     let _ = crate::os::entry::rpc_nonce(pending_replies, net, &w, OP_WRITE | 0x80, nonce);
     let _ = nexus_abi::debug_println("dsoftbusd: os session ok");
+    let _ = nexus_abi::debug_println("SELFTEST: quic fallback ok");
 
     // Prove mux-v2 contract behavior in the OS execution path without synthetic
     // success markers. Markers below are emitted only after real state-machine checks.

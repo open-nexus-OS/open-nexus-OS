@@ -17,3 +17,17 @@ ignore = [
     # Track removal by upgrading smoltcp/heapless to a portable-atomic based stack.
     "RUSTSEC-2023-0089",
 ]
+
+[bans]
+# Keep duplicate detection strict by default. We only permit the currently
+# compatibility-constrained splits tracked in TASK-0021 closure work:
+# - getrandom 0.2/0.3 (ring 0.17 line vs modern host stack)
+# - windows-sys 0.52/0.61 (ring/quinn-udp/rustix vs tokio/mio/socket2)
+multiple-versions = "deny"
+skip = [
+    { name = "getrandom", version = "0.2" },
+    { name = "getrandom", version = "0.3" },
+    { name = "windows-sys", version = "0.52" },
+    { name = "windows-sys", version = "0.61" },
+]
+

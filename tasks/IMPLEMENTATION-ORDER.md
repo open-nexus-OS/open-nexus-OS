@@ -69,10 +69,10 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0020 and onward
+## Current: TASK-0021 closure complete, queue at TASK-0022
 
-Execute in numerical order. Current queue head is **TASK-0021 (Draft)**.
-Latest completed closure slices before this queue head: **TASK-0017 (Done)**, **TASK-0018 (Done)**, and **TASK-0019 (Done)**.
+Execute in numerical order. Current queue head is **TASK-0022 (Draft)**.
+Latest completed closure slices before this queue head: **TASK-0020 (Done)** and **TASK-0021 (Done)**.
 Current TASK-0020 closure checkpoint: requirement-based host contract/integration suites are green, canonical OS harnesses are green, mux marker ladders are proven in single-VM and 2-VM paths, deterministic perf and hardening soak gates are green, and a machine-readable release evidence bundle is emitted per run.
 Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0020 production closure scope.
 
@@ -85,7 +85,7 @@ Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0
 | TASK-0018 | Crashdumps v1: minidump + host symbolization | TASK-0006, TASK-0009 | Done |
 | TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | TASK-0006, TASK-0008, TASK-0009 | Done |
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Done |
-| TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Draft |
+| TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Done |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Draft |
 
 ---

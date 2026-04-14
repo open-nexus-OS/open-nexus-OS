@@ -22,6 +22,19 @@ const STATUS_OK: u8 = 0;
 const STATUS_WOULD_BLOCK: u8 = 3;
 const STATUS_IO: u8 = 4;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OsTransportSelection {
+    TcpFallbackQuicDisabled,
+}
+
+pub(crate) fn select_os_transport_for_session() -> OsTransportSelection {
+    // TASK-0021 Phase C contract: OS QUIC remains disabled-by-default until TASK-0022 scope.
+    // Marker honesty: emit fallback markers only when this real runtime decision is taken.
+    let _ = nexus_abi::debug_println("dsoftbus: quic os disabled (fallback tcp)");
+    let _ = nexus_abi::debug_println("dsoftbusd: transport selected tcp");
+    OsTransportSelection::TcpFallbackQuicDisabled
+}
+
 #[inline]
 pub(crate) fn is_cross_vm_ip(local_ip: [u8; 4]) -> bool {
     crate::os::entry_pure::is_cross_vm_ip(local_ip)

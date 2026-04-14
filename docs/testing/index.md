@@ -77,6 +77,21 @@ OS and distributed evidence:
 - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh` with reviewed summaries under `artifacts/os2vm/runs/<runId>/summary.{json,txt}` plus `release-evidence.json` (includes explicit `phase: mux` cross-VM ladder, `phase: perf` deterministic budget gate, and `phase: soak` hardening gate)
 - For `RFC-0034` legacy-closure distributed claims (`TASK-0001..0020`), review `release-evidence.json` as a mandatory artifact alongside summaries.
 
+### TASK-0021 QUIC scaffold behavior-first matrix
+
+`TASK-0021` Phase-B/C/D closure uses a minimal behavior-first proof set and keeps OS QUIC disabled-by-default.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Host real QUIC connect + bidirectional stream exchange + TASK-0020 mux smoke payload + reject mapping | host transport assertions | `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture` |
+| Host QUIC selection + reject/fallback contract (`test_reject_*` + positive path) | host selection assertions | `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture` |
+| OS fallback marker wiring (`dsoftbus: quic os disabled (fallback tcp)`, `dsoftbusd: transport selected tcp`, `SELFTEST: quic fallback ok`) | single-VM boundary marker proof | `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh` |
+| Deterministic selection perf envelope (bounded attempts/marker budget) | host perf-budget assertions | `cargo test -p dsoftbus --test quic_selection_contract perf_budget -- --nocapture` |
+
+Scope note:
+- 2-VM proof is only required when `TASK-0021` claims new distributed behavior; do not run `tools/os2vm.sh` for completeness-only reasons.
+- Convenience aggregate for host QUIC scope: `just test-dsoftbus-quic`.
+
 ### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
 
 Legacy tasks remain `Done`; production closure uses follow-on requirement suites to prove Soll behavior (not implementation internals).
@@ -122,6 +137,7 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - Host unit/property: `just test-host`
 - Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
 - DSoftBus mux requirement suites (`TASK-0020`): `just test-dsoftbus-mux`
+- DSoftBus QUIC host requirement suites (`TASK-0021`): `just test-dsoftbus-quic`
 - DSoftBus full host regression: `just test-dsoftbus-host`
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
 - QEMU smoke (DHCP requested): `just test-os-dhcp`

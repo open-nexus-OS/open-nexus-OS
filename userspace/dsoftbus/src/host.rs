@@ -273,6 +273,7 @@ pub(crate) fn write_frame<W: Write>(stream: &mut W, payload: &[u8]) -> Result<()
 fn build_responder(noise_secret: &[u8; 32]) -> Result<HandshakeState, AuthError> {
     NoiseBuilder::new(noise_params())
         .local_private_key(noise_secret)
+        .map_err(|err| AuthError::Noise(err.to_string()))?
         .build_responder()
         .map_err(|err| AuthError::Noise(err.to_string()))
 }
@@ -283,7 +284,9 @@ fn build_initiator(
 ) -> Result<HandshakeState, AuthError> {
     NoiseBuilder::new(noise_params())
         .local_private_key(noise_secret)
+        .map_err(|err| AuthError::Noise(err.to_string()))?
         .remote_public_key(remote)
+        .map_err(|err| AuthError::Noise(err.to_string()))?
         .build_initiator()
         .map_err(|err| AuthError::Noise(err.to_string()))
 }

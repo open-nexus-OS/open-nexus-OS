@@ -1,6 +1,6 @@
 ---
 title: TASK-0021 DSoftBus QUIC v1: host QUIC transport (quinn) + OS UDP scaffold (disabled) + TCP fallback
-status: In Progress
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -46,11 +46,57 @@ No phase may be marked green without the linked proof evidence.
 
 Canonical gate commands:
 
-- Host: task-owned requirement suites (for transport selection and downgrade behavior).
+- Host (real QUIC transport proof): `cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`
+- Host (selection/reject contract): `cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`
+- Host (targeted just gate): `cd /home/jenning/open-nexus-OS && just test-dsoftbus-quic`
 - OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- OS fallback (Phase C): `cd /home/jenning/open-nexus-OS && REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- Phase D perf budget: `cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus --test quic_selection_contract perf_budget -- --nocapture`
 - 2-VM (if distributed behavior is asserted): `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
 - Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
 - Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
+## Phase B kickoff (behavior-first proof definition)
+
+- **Target behavior**: Transport selection for `auto|tcp|quic` is deterministic, `mode=quic` is fail-closed, and fallback evidence is explicit when QUIC is disabled.
+- **Main break point**: Any silent downgrade in strict QUIC mode (or warning-only handling of ALPN/cert validation failures) makes this slice security-dishonest.
+- **Primary/secondary proof**: Primary is host requirement-named QUIC selection/reject tests; secondary remains the Phase C OS fallback-marker boundary proof only (no extra host test layers).
+
+## Phase C-D evidence snapshot (current)
+
+- **Phase B (host real QUIC path)**: green with `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`; proved:
+  - QUIC connect + bidirectional stream echo over real quinn transport
+  - QUIC carries TASK-0020 mux contract smoke payload (open+data wire events roundtrip and ingest)
+  - deterministic reject mapping for wrong ALPN and untrusted cert
+  - strict `mode=quic` no-downgrade and deterministic `mode=auto` fallback mapping
+  - host daemon runtime now evaluates `DSOFTBUS_TRANSPORT=tcp|quic|auto` and runs a QUIC server path when selected (with explicit cert/key env gating)
+- **Phase C (OS fallback markers)**: green with `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`; required markers observed:
+  - `dsoftbus: quic os disabled (fallback tcp)`
+  - `dsoftbusd: transport selected tcp`
+  - `SELFTEST: quic fallback ok`
+- **Phase D (deterministic perf envelope)**: green with `cargo test -p dsoftbus --test quic_selection_contract perf_budget -- --nocapture`; bounded contract:
+  - `mode=tcp` -> 0 QUIC attempts
+  - `mode=quic` -> exactly 1 QUIC attempt
+  - `mode=auto` -> at most 1 QUIC attempt + deterministic fallback marker count/order
+- **2-VM evidence scope**: not required for this slice because no new distributed-behavior claim is made here (Rule-07 anti-overproof).
+
+## Delta update (release-note style, 2026-04-14)
+
+- Added host runtime transport selection wiring in `userspace/dsoftbus/src/lib.rs`:
+  - `DSOFTBUS_TRANSPORT=tcp|quic|auto`
+  - deterministic strict/auto behavior with explicit fallback semantics
+- Added real host QUIC transport proof surface (`userspace/dsoftbus/src/host_quic.rs`) and behavior-first tests:
+  - `userspace/dsoftbus/tests/quic_host_transport_contract.rs`
+  - `userspace/dsoftbus/tests/quic_selection_contract.rs`
+- Added explicit QUIC+mux smoke proof in `quic_host_transport_contract`:
+  - `test_quic_carries_mux_contract_smoke_payload`
+  - generates real mux contract wire events via `MuxHostEndpoint`, transports them over QUIC, decodes, and ingests on receiver side
+- Added targeted gate command for this slice:
+  - `just test-dsoftbus-quic`
+- Preserved anti-drift boundaries:
+  - no `TASK-0022` no_std/core absorption,
+  - no `TASK-0023` OS QUIC enablement absorption,
+  - OS fallback markers remain deterministic and auditable.
 
 ## Context
 
@@ -70,8 +116,15 @@ Prove:
 
 ## Current state snapshot (Ist-Zustand)
 
-- Queue head is `TASK-0021`; `TASK-0020` closure remains done baseline.
-- `userspace/dsoftbus/src/os.rs` is still placeholder-only (`Unsupported` paths), so OS QUIC enablement remains out of scope for this task slice.
+- Queue head moved to `TASK-0022`; `TASK-0021` closure is complete and frozen as the host-first QUIC scaffold baseline.
+- Host QUIC transport probe path is implemented in `userspace/dsoftbus/src/host_quic.rs` and is wired into transport-selection semantics through `select_transport_with_host_quic(...)`.
+- Host QUIC behavior-first suite now includes explicit mux-over-QUIC smoke coverage (`test_quic_carries_mux_contract_smoke_payload`) to satisfy the TASK-0020 traffic-carrying proof claim without expanding into TASK-0022/TASK-0023 scope.
+- Host runtime transport selection now executes in `userspace/dsoftbus/src/lib.rs::host_run()` with explicit `DSOFTBUS_TRANSPORT=tcp|quic|auto` behavior:
+  - `tcp`: existing Noise/TCP daemon path
+  - `auto`: deterministic fallback to TCP unless QUIC runtime material is present
+  - `quic`: host QUIC server path (gated by server cert/key env vars)
+- `userspace/dsoftbus/src/os.rs` is still placeholder-only (`Unsupported` paths), so OS QUIC enablement remains out of scope for this task slice (`TASK-0023` boundary preserved).
+- `TASK-0022` no_std/core extraction remains explicitly untouched by this slice.
 - Security section + required `test_reject_*` naming is already present and remains mandatory.
 
 ## Target-state alignment (post TASK-0015 / RFC-0027)
@@ -128,8 +181,13 @@ Prove:
 ### Audit tests (negative cases / attack simulation)
 
 - Commands:
-  - `cargo test -p dsoftbus -- quic --nocapture`
+  - `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`
+  - `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`
 - Required tests:
+  - `test_quic_carries_mux_contract_smoke_payload`
+  - `test_reject_quic_wrong_alpn_real_transport`
+  - `test_reject_quic_invalid_or_untrusted_cert_real_transport`
+  - `test_reject_quic_strict_mode_downgrade_when_probe_unavailable`
   - `test_reject_quic_wrong_alpn`
   - `test_reject_quic_invalid_or_untrusted_cert`
   - `test_reject_quic_strict_mode_downgrade`
@@ -141,10 +199,10 @@ Prove:
 
 ## Red flags / decision points
 
-- **RED**:
-  - `userspace/dsoftbus` OS backend is currently a placeholder (`userspace/dsoftbus/src/os.rs`) and this is **not** yet entkräftbar.
-    OS QUIC must remain off by default and must not claim support until a reusable OS backend exists
-    (`TASK-0022`) and UDP-sec/QUIC gating is in place.
+- **RED (in-scope blockers)**:
+  - none.
+- **RED (explicit follow-on boundary, out of scope for closure)**:
+  - `userspace/dsoftbus` OS backend remains placeholder (`userspace/dsoftbus/src/os.rs`); OS QUIC enablement is tracked by `TASK-0022` + `TASK-0023` and is intentionally not part of this task's closure claim.
 - **YELLOW**:
   - Certificate/identity model: v1 can use ephemeral self-signed certs for host tests, but long-term should bind to device identity keys.
   - Async runtime: quinn is async; keep the host tests isolated and avoid pulling async into OS bring-up.
@@ -160,7 +218,8 @@ Prove:
 ### Proof (Host)
 
 - Deterministic host tests:
-  - QUIC connect + bidir stream + small echo (and/or mux smoke if available)
+  - Real QUIC connect + bidirectional stream echo over host quinn endpoint
+  - QUIC carries TASK-0020 mux smoke payload (`MuxHostEndpoint` wire events roundtrip + receiver ingest)
   - Negative: wrong ALPN / cert rejection path fails cleanly
   - Fallback: `auto` with QUIC unavailable selects TCP
   - strict-mode (`quic`) downgrade is rejected
@@ -173,6 +232,20 @@ Prove:
   - and `dsoftbusd: transport selected tcp` (or equivalent selection marker)
 - optional 2-VM validation uses `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
 - keep QEMU proofs sequential (single-VM then 2-VM)
+
+### Proof (Phase D deterministic perf envelope)
+
+- Bounded selection attempts:
+  - `mode=tcp` performs `0` QUIC attempts.
+  - `mode=quic` performs exactly `1` strict QUIC attempt.
+  - `mode=auto` performs at most `1` QUIC attempt before deterministic fallback.
+- Bounded fallback marker emission:
+  - fallback path emits exactly three stable markers in order:
+    1. `dsoftbus: quic os disabled (fallback tcp)`
+    2. `dsoftbusd: transport selected tcp`
+    3. `SELFTEST: quic fallback ok`
+- Canonical proof command:
+  - `cargo test -p dsoftbus --test quic_selection_contract perf_budget -- --nocapture`
 
 Notes:
 

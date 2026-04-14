@@ -12,4 +12,4 @@ idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 capnp = { version = "0.24", optional = true }
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }
 nexus-ipc = { path = "../nexus-ipc" }
-thiserror = "1"
+thiserror = "2"

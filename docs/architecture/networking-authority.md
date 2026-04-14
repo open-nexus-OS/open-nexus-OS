@@ -99,7 +99,7 @@ Concrete profile values are maintained in `docs/architecture/network-address-mat
 
 ---
 
-## Task Mapping (Updated 2026-01-07)
+## Task Mapping (Updated 2026-04-14)
 
 | Task | Path | Services | Status |
 |------|------|----------|--------|
@@ -108,7 +108,9 @@ Concrete profile values are maintained in `docs/architecture/network-address-mat
 | TASK-0003C | Canonical | (UDP discovery) | ✅ Done (loopback scope) |
 | TASK-0004 | Canonical | (dual-node + identity binding) | ✅ Done |
 | TASK-0005 | Canonical | (cross-VM DSoftBus + remote proxy) | ✅ Done (opt-in 2-VM harness) |
-| TASK-0024 | Canonical | (QUIC transport) | Draft (blocked on RFC-0008 Phase 2) |
+| TASK-0021 | Canonical (host-first) | (QUIC v1 selection + host transport proof, OS fallback markers) | 🟨 In Progress |
+| TASK-0023 | Canonical (OS QUIC) | (OS QUIC enablement gate) | Blocked |
+| TASK-0024 | Canonical | (UDP-sec OS transport path, non-QUIC) | Draft |
 | TASK-0248 | Alternative | `virtionetd-lite`, `netstackd-lite` | Draft |
 | TASK-0249 | Alternative | (OS wiring for lite services) | Draft |
 
@@ -128,6 +130,11 @@ Concrete profile values are maintained in `docs/architecture/network-address-mat
 - **Problem**: address decisions risked drifting across service/runtime/harness docs.
 - **Decision**: keep one normative matrix in `docs/architecture/network-address-matrix.md`.
 - **Impact**: networking and distributed docs now reference the same profile table.
+
+### 2026-04-14: QUIC task boundary clarification
+- **Problem**: QUIC ownership drift between host-first scaffold and OS enablement follow-on tasks.
+- **Decision**: map host-first QUIC to `TASK-0021`; keep OS QUIC enablement explicitly gated in `TASK-0023`.
+- **Impact**: authority table now reflects real execution boundaries and avoids accidental scope absorption.
 
 ---
 

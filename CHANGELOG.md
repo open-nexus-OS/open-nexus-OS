@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-14
+
+#### DSoftBus QUIC host-first closure sync (`TASK-0021`, `RFC-0035`)
+
+- `TASK-0021` advanced from `In Review` to `Done`.
+- Queue head advanced to `TASK-0022`.
+- Closure state synchronized across task/board/workfiles:
+  - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+  - `tasks/STATUS-BOARD.md`
+  - `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+  - `.cursor/current_state.md`
+  - `.cursor/handoff/current.md`
+  - `.cursor/next_task_prep.md`
+  - `README.md`
+- Cargo-deny duplicate handling is now explicit and strict:
+  - `multiple-versions = "deny"` remains enforced,
+  - narrow compatibility skips were added only for `getrandom` (`0.2/0.3`) and `windows-sys` (`0.52/0.61`).
+- Fresh green gate evidence includes:
+  - `just test-os-dhcp`
+  - `just test-dsoftbus-host`
+  - `just test-all`
+  - `just deny-check`
+
 ### Changed - 2026-04-10
 
 #### DSoftBus mux v2 production closure (`TASK-0020`, `RFC-0033`, `RFC-0034`)

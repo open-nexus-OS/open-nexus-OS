@@ -36,7 +36,7 @@ os-lite = [
 capnp = { version = "0.24", optional = true }
 log = { version = "0.4", optional = true }
 parking_lot = { version = "0.12", optional = true }
-thiserror = { version = "1.0", optional = true }
+thiserror = { version = "2", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-packagefs = { path = "../../../userspace/nexus-packagefs", optional = true }

@@ -53,13 +53,13 @@ This is the anti-fake-success gate.
 - [ ] Follow-on boundary (`TASK-0022`) is documented and not absorbed.
 
 ## Active progress snapshot (TASK-0021 kickoff, 2026-04-10)
-- [x] Queue/order sync complete (`TASK-0020` Done, queue head moved to `TASK-0021`).
+- [x] Queue/order sync complete (`TASK-0021` Done, queue head moved to `TASK-0022`).
 - [x] `TASK-0020` handoff archived and `current` switched to TASK-0021 baseline.
 - [x] Working context files retargeted to TASK-0021 (`current_state`, `context_bundles`, `next_task_prep`, `pre_flight`, `stop_conditions`).
 - [x] TASK-0021 status moved from `Draft` to `In Progress`.
 - [x] TASK-0021 phase-A contract lock review completed (`RFC-0035` seed created and linked).
-- [ ] TASK-0021 host requirement suites implemented and green.
-- [ ] TASK-0021 OS fallback markers proven in canonical QEMU harness.
+- [x] TASK-0021 host requirement suites implemented and green.
+- [x] TASK-0021 OS fallback markers proven in canonical QEMU harness.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).

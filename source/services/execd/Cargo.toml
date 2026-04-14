@@ -42,7 +42,7 @@ nexus-log = { path = "../../libs/nexus-log", optional = true, default-features =
 nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false }
 nexus-loader = { path = "../../../userspace/nexus-loader", optional = true }
 capnp = { version = "0.24", optional = true }
-thiserror = { version = "1", optional = true }
+thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 crash = { path = "../../../userspace/crash", optional = true, default-features = false, features = ["os-lite"] }
 

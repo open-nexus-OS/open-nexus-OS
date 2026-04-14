@@ -3,9 +3,9 @@
 
 //! CONTEXT: DSoftBus-lite distributed service fabric
 //! OWNERS: @runtime
-//! STATUS: Functional (host backend), Placeholder (OS backend - pending kernel transport)
+//! STATUS: Functional (host TCP + host QUIC runtime selection), Placeholder (OS backend - pending kernel transport)
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: integration tests for host/facade transport, discovery robustness, and mux v2 requirement suites (`mux_contract_rejects_and_bounds`, `mux_frame_state_keepalive_contract`, `mux_open_accept_data_rst_integration`)
+//! TEST_COVERAGE: integration tests for host/facade transport, discovery robustness, QUIC host/selection contracts (`quic_host_transport_contract`, `quic_selection_contract`), and mux v2 requirement suites (`mux_contract_rejects_and_bounds`, `mux_frame_state_keepalive_contract`, `mux_open_accept_data_rst_integration`)
 //!
 //! PUBLIC API:
 //!   - Announcement: Service discovery announcement
@@ -15,7 +15,7 @@
 //!
 //! DEPENDENCIES:
 //!   - identity: Device identity and signing
-//!   - x25519-dalek: Noise protocol
+//!   - curve25519-dalek: Noise key derivation
 //!   - ed25519-dalek: Digital signatures
 //!   - serde: Message serialization
 //!
@@ -30,12 +30,15 @@ compile_error!("nexus_env: both 'host' and 'os' set");
 
 use std::net::SocketAddr;
 
+use capnp::message::{Builder, ReaderOptions};
+use capnp::serialize;
+use curve25519_dalek::montgomery::MontgomeryPoint;
 use ed25519_dalek::{Signature, VerifyingKey};
 use identity::{DeviceId, Identity};
+use nexus_idl_runtime::dsoftbus_capnp::{connect_request, connect_response};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use x25519_dalek::{PublicKey as NoisePublicKey, StaticSecret as NoiseSecret};
 
 /// Discovery data broadcast by each node.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -223,11 +226,34 @@ fn proof_message(role: HandshakeRole, noise_static: &[u8; 32]) -> Vec<u8> {
 fn derive_noise_keys(identity: &Identity) -> ([u8; 32], [u8; 32]) {
     let secret = identity.secret_key_bytes();
     let hash = Sha256::digest(secret);
-    let mut bytes = [0u8; 32];
-    bytes.copy_from_slice(&hash);
-    let secret = NoiseSecret::from(bytes);
-    let public = NoisePublicKey::from(&secret);
-    (secret.to_bytes(), public.to_bytes())
+    let mut private = [0u8; 32];
+    private.copy_from_slice(&hash);
+    // Clamp once to ensure deterministic X25519-compatible static key material.
+    private[0] &= 248;
+    private[31] &= 127;
+    private[31] |= 64;
+    let public = MontgomeryPoint::mul_base_clamped(private).to_bytes();
+    (private, public)
+}
+
+fn deserialize_connect_request_plain(bytes: &[u8]) -> Result<String, String> {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+        .map_err(|err| err.to_string())?;
+    let reader: connect_request::Reader<'_> = message.get_root().map_err(|err| err.to_string())?;
+    let txt = reader.get_device_id().map_err(|err| err.to_string())?;
+    txt.to_str().map_err(|err| err.to_string()).map(str::to_string)
+}
+
+fn serialize_connect_response_plain(ok: bool) -> Result<Vec<u8>, String> {
+    let mut message = Builder::new_default();
+    {
+        let mut response: connect_response::Builder<'_> = message.init_root();
+        response.set_ok(ok);
+    }
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &message).map_err(|err| err.to_string())?;
+    Ok(out)
 }
 
 #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
@@ -261,6 +287,23 @@ pub mod remote_proxy_policy;
 pub mod mux_v2;
 pub use mux_v2::*;
 
+pub mod transport_selection;
+pub use transport_selection::{
+    fallback_marker_budget, quic_attempts_for_mode, select_transport, QuicProbe, TransportKind,
+    TransportMode, TransportSelectionError, TransportSelectionOutcome, AUTO_FALLBACK_MARKER_COUNT,
+    MARKER_QUIC_OS_DISABLED_FALLBACK_TCP, MARKER_SELFTEST_QUIC_FALLBACK_OK,
+    MARKER_TRANSPORT_SELECTED_QUIC, MARKER_TRANSPORT_SELECTED_TCP,
+};
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+pub mod host_quic;
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+pub use host_quic::{
+    build_server_config, probe_and_echo_once, select_transport_with_host_quic, HostQuicProbeError,
+    HostQuicProbeRequest, HostQuicProbeResult, DSOFTBUS_QUIC_DEFAULT_ALPN,
+};
+
 #[cfg(nexus_env = "os")]
 mod os;
 
@@ -281,20 +324,175 @@ pub fn run() {
 }
 
 #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
-fn host_run() {
-    use std::env;
-    use std::thread;
+fn host_transport_mode_from_env() -> TransportMode {
+    let raw = std::env::var("DSOFTBUS_TRANSPORT").unwrap_or_else(|_| "tcp".to_string());
+    match raw.to_ascii_lowercase().as_str() {
+        "tcp" => TransportMode::Tcp,
+        "quic" => TransportMode::Quic,
+        "auto" => TransportMode::Auto,
+        other => panic!("invalid DSOFTBUS_TRANSPORT='{other}'; expected tcp|quic|auto"),
+    }
+}
 
-    let identity = match Identity::generate() {
-        Ok(id) => id,
-        Err(e) => panic!("identity generation failed: {e}"),
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+fn dsoftbus_port_from_env() -> u16 {
+    std::env::var("DSOFTBUS_PORT").ok().and_then(|raw| raw.parse::<u16>().ok()).unwrap_or(34_567)
+}
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+struct HostQuicRuntimeConfig {
+    cert_chain: Vec<rustls::pki_types::CertificateDer<'static>>,
+    private_key: rustls::pki_types::PrivateKeyDer<'static>,
+}
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+fn load_host_quic_runtime_config_from_env() -> Result<HostQuicRuntimeConfig, String> {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+    let cert_path = std::env::var("DSOFTBUS_QUIC_SERVER_CERT_DER_PATH")
+        .map_err(|_| "DSOFTBUS_QUIC_SERVER_CERT_DER_PATH missing".to_string())?;
+    let key_path = std::env::var("DSOFTBUS_QUIC_SERVER_KEY_DER_PATH")
+        .map_err(|_| "DSOFTBUS_QUIC_SERVER_KEY_DER_PATH missing".to_string())?;
+
+    let cert_der = std::fs::read(&cert_path)
+        .map_err(|err| format!("read DSOFTBUS_QUIC_SERVER_CERT_DER_PATH failed: {err}"))?;
+    let key_der = std::fs::read(&key_path)
+        .map_err(|err| format!("read DSOFTBUS_QUIC_SERVER_KEY_DER_PATH failed: {err}"))?;
+    let cert_chain = vec![CertificateDer::from(cert_der)];
+    let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));
+
+    Ok(HostQuicRuntimeConfig { cert_chain, private_key })
+}
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+fn resolve_host_transport_selection(
+    mode: TransportMode,
+    quic_runtime_available: bool,
+) -> Result<TransportSelectionOutcome, TransportSelectionError> {
+    let probe = if quic_runtime_available {
+        QuicProbe::Candidate {
+            expected_alpn: DSOFTBUS_QUIC_DEFAULT_ALPN,
+            offered_alpn: DSOFTBUS_QUIC_DEFAULT_ALPN,
+            cert_trusted: true,
+        }
+    } else {
+        QuicProbe::Disabled
+    };
+    select_transport(mode, probe)
+}
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+fn host_run_quic(identity: Identity, port: u16, quic_runtime: HostQuicRuntimeConfig) {
+    const MAX_AUTH_BYTES: usize = 8 * 1024;
+    const MAX_HOST_QUIC_STREAM_BYTES: usize = 64 * 1024;
+
+    let server_config = match build_server_config(
+        quic_runtime.cert_chain,
+        quic_runtime.private_key,
+        DSOFTBUS_QUIC_DEFAULT_ALPN,
+    ) {
+        Ok(config) => config,
+        Err(err) => panic!("build host quic server config failed: {err}"),
     };
 
-    // Choose a listening port. Allow override via DSOFTBUS_PORT for integration.
-    let port: u16 =
-        env::var("DSOFTBUS_PORT").ok().and_then(|s| s.parse::<u16>().ok()).unwrap_or(34_567);
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_io()
+        .enable_time()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(err) => panic!("build host quic runtime failed: {err}"),
+    };
 
+    runtime.block_on(async move {
+        let endpoint = match quinn::Endpoint::server(
+            server_config,
+            SocketAddr::from(([127, 0, 0, 1], port)),
+        ) {
+            Ok(endpoint) => endpoint,
+            Err(err) => panic!("bind host quic endpoint failed: {err}"),
+        };
+        let local_port = match endpoint.local_addr() {
+            Ok(addr) => addr.port(),
+            Err(err) => panic!("host quic endpoint local_addr failed: {err}"),
+        };
+
+        let discovery = HostDiscovery::new();
+        let services = vec!["samgrd".to_string(), "bundlemgrd".to_string()];
+        let (_, noise_public) = derive_noise_keys(&identity);
+        let announcement =
+            Announcement::new(identity.device_id().clone(), services, local_port, noise_public);
+        if let Err(err) = discovery.announce(announcement) {
+            panic!("announce local node (quic): {err}");
+        }
+
+        println!("{}", MARKER_TRANSPORT_SELECTED_QUIC);
+        println!("dsoftbusd: ready");
+
+        while let Some(incoming) = endpoint.accept().await {
+            tokio::spawn(async move {
+                let connection = match incoming.await {
+                    Ok(connection) => connection,
+                    Err(err) => {
+                        eprintln!("[dsoftbus] quic accept failed: {err}");
+                        return;
+                    }
+                };
+                let mut session_authenticated = false;
+                loop {
+                    let (mut send, mut recv) = match connection.accept_bi().await {
+                        Ok(streams) => streams,
+                        Err(_) => break,
+                    };
+
+                    if !session_authenticated {
+                        let auth_request = match recv.read_to_end(MAX_AUTH_BYTES).await {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                let _ = send.finish();
+                                connection.close(0u32.into(), b"quic auth read failed");
+                                break;
+                            }
+                        };
+                        let auth_ok = match deserialize_connect_request_plain(&auth_request) {
+                            Ok(device_id) => !device_id.is_empty(),
+                            Err(_) => false,
+                        };
+                        let auth_response = match serialize_connect_response_plain(auth_ok) {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                let _ = send.finish();
+                                connection.close(0u32.into(), b"quic auth response encode failed");
+                                break;
+                            }
+                        };
+                        if send.write_all(&auth_response).await.is_err() {
+                            let _ = send.finish();
+                            connection.close(0u32.into(), b"quic auth response send failed");
+                            break;
+                        }
+                        let _ = send.finish();
+                        if !auth_ok {
+                            connection.close(0u32.into(), b"quic auth rejected");
+                            break;
+                        }
+                        session_authenticated = true;
+                        continue;
+                    }
+
+                    let _ = recv.read_to_end(MAX_HOST_QUIC_STREAM_BYTES).await;
+                }
+            });
+        }
+    });
+}
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+fn host_run_tcp(identity: Identity, port: u16) {
+    use std::thread;
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let authenticator = match HostAuthenticator::bind(addr, identity.clone()) {
         Ok(a) => a,
         Err(e) => panic!("bind host authenticator: {e}"),
@@ -314,7 +512,6 @@ fn host_run() {
         Err(e) => panic!("announce local node: {e}"),
     }
 
-    // Print readiness marker once the listener and discovery are active.
     println!("dsoftbusd: ready");
 
     // Accept authenticated sessions and drain their streams in dedicated threads.
@@ -334,9 +531,35 @@ fn host_run() {
             },
             Err(err) => {
                 eprintln!("[dsoftbus] accept failed: {err}");
-                // Back off briefly on transient failures.
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
+        }
+    }
+}
+
+#[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
+fn host_run() {
+    let identity = match Identity::generate() {
+        Ok(id) => id,
+        Err(e) => panic!("identity generation failed: {e}"),
+    };
+    let mode = host_transport_mode_from_env();
+    let quic_runtime = load_host_quic_runtime_config_from_env().ok();
+    let transport_selection = match resolve_host_transport_selection(mode, quic_runtime.is_some()) {
+        Ok(selection) => selection,
+        Err(err) => panic!("dsoftbus host transport selection failed: {err}"),
+    };
+    eprintln!("[dsoftbus] host transport selected {:?}", transport_selection.transport());
+
+    let port = dsoftbus_port_from_env();
+    match transport_selection.transport() {
+        TransportKind::Tcp => host_run_tcp(identity, port),
+        TransportKind::Quic => {
+            let runtime = match quic_runtime {
+                Some(cfg) => cfg,
+                None => panic!("host quic selected but server runtime material is unavailable"),
+            };
+            host_run_quic(identity, port, runtime);
         }
     }
 }

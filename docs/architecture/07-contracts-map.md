@@ -52,6 +52,13 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Canonical practice**: `docs/testing/index.md` + `scripts/qemu-test.sh`
 - **Standards**: `docs/standards/DOCUMENTATION_STANDARDS.md`
 
+### DSoftBus transport selection (host-first QUIC scaffold)
+
+- **Contract**: deterministic `auto|tcp|quic` selection, strict-mode fail-closed, explicit fallback markers
+- **Canonical spec**: `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- **Execution SSOT**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- **Proof**: `just test-dsoftbus-quic` + `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+
 ### Observability (logd journal + crash reports)
 
 - **Contract**: bounded RAM journal (APPEND/QUERY/STATS), crash report envelope, core service integration

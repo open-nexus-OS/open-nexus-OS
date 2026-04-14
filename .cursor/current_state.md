@@ -1,96 +1,88 @@
 # Cursor Current State (SSOT)
 
-<!--
-CONTEXT
-This file is the single source of truth for the current system state.
-Keep it compact, explicit, and contract-oriented.
--->
-
 ## Current architecture state
-- **last_decision**: archive `TASK-0020` handoff and prepare execution state for `TASK-0021` in strict numerical order.
-- **rationale**:
-  - keep queue-head metadata aligned with execution SSOT,
-  - preserve proven `TASK-0020` closure as immutable baseline,
-  - start QUIC work host-first without destabilizing default TCP path.
+- **last_decision**: close `TASK-0021` as `Done` with host-only real QUIC proof slice complete and OS QUIC still disabled-by-default.
 - **active_constraints**:
-  - kernel untouched in this slice,
-  - `TASK-0021` must not absorb `TASK-0022` core/no_std extraction scope,
-  - strict QUIC mode must fail closed (no silent downgrade),
-  - `auto` fallback must be deterministic and auditable via stable markers.
+  - no scope absorption from `TASK-0022` (no core/no_std extraction),
+  - no pre-enable work from `TASK-0023` (no OS QUIC enablement/unblock),
+  - strict `mode=quic` fail-closed; `mode=auto` fallback must stay explicit/deterministic.
 
 ## Current focus (execution)
-- **active_task**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`In Progress`, kickoff slice)
+- **active_task**: `TASK-0022` planning follow-up (core/no_std transport split), with `TASK-0021` frozen
 - **seed_contract**:
   - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
   - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
-  - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-  - `docs/adr/0005-dsoftbus-architecture.md`
-  - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (`Done` baseline)
-- **contract_dependencies**:
-  - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
-  - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
-  - `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`
-  - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-  - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md` (boundary only)
-  - `scripts/qemu-test.sh`
-  - `tools/os2vm.sh`
   - `docs/testing/index.md`
-- **phase_now**: `TASK-0020` is fully closed (`Done`); `TASK-0021` is `In Progress` and phase-A contract lock is seeded in `RFC-0035`.
-- **baseline_commit**: `a996549` (TASK-0020 status finalized to Done)
-- **next_task_slice**:
-  - execute phase-B host behavior proofs (smallest honest suite first),
-  - lock `auto|tcp|quic` selection semantics and strict-mode fail-closed behavior,
-  - keep OS QUIC disabled-by-default with explicit fallback markers.
 
-## Last completed
-- `TASK-0019` archived and done:
-  - archive: `.cursor/handoff/archive/TASK-0019-security-v2-userland-abi-syscall-filters.md`
-  - status: done with green host/OS/QEMU proofs.
-- `TASK-0020` archived and done:
-  - archive: `.cursor/handoff/archive/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-  - status: done with green host/OS/distributed/perf/soak/release-evidence proofs.
-- `TASK-0018` handoff remains archived:
-  - archive: `.cursor/handoff/archive/TASK-0018-crashdumps-v1-minidump-host-symbolize.md`
-  - status: done with completed proofs and closeout commits.
-- `TASK-0017` remains `Done`.
+## Implemented in this slice
+- Added host QUIC probe backend: `userspace/dsoftbus/src/host_quic.rs`.
+- Wired host runtime transport selection into daemon start (`DSOFTBUS_TRANSPORT=tcp|quic|auto`) in `userspace/dsoftbus/src/lib.rs`.
+- Added host QUIC daemon runtime path with session-gate handshake (connect request/response before payload streams) in `userspace/dsoftbus/src/lib.rs`.
+- Added behavior-first real transport suite: `userspace/dsoftbus/tests/quic_host_transport_contract.rs`.
+- Added explicit QUIC+mux smoke coverage (`test_quic_carries_mux_contract_smoke_payload`) proving TASK-0020 wire-event payload roundtrip + receiver ingest over real QUIC.
+- Updated selection contract metadata + `#[must_use]` hardening in `userspace/dsoftbus/src/transport_selection.rs`.
+- Added targeted QUIC proof gate: `just test-dsoftbus-quic`.
+- Kept OS fallback marker contract unchanged in behavior (`dsoftbus: quic os disabled (fallback tcp)` ladder).
 
-## Proof baseline currently green
-- `TASK-0017`/`TASK-0018`/`TASK-0019` closure baselines remain green.
-- `TASK-0020` closure baselines remain green:
-  - `just test-dsoftbus-mux`
-  - `just test-dsoftbus-host`
-  - `RUN_UNTIL_MARKER=1 just test-os`
-  - `RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
-- quality floor is green:
-  - `scripts/fmt-clippy-deny.sh`
-  - `just fmt-check && just lint`
-  - `just test-all`
+## Proof status (green)
+- `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`
+- `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`
+- `cargo test -p dsoftbus -- quic --nocapture`
+- `just test-dsoftbus-quic`
+- `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- `just dep-gate`
+- `just test-e2e`
+- `just test-os-dhcp`
 
-## Active invariants (must hold)
-- **security**
-  - strict QUIC mode rejects downgrade paths,
-  - transport-only success never bypasses DSoftBus authenticated session semantics,
-  - ALPN/cert validation failures are deterministic rejects (no warn-and-continue).
-- **determinism**
-  - stable transport-selection markers for `auto|tcp|quic`,
-  - explicit fallback markers when QUIC remains OS-disabled,
-  - canonical marker/harness discipline only.
-- **scope hygiene**
-  - keep `TASK-0021` implementation separate from `TASK-0022` extraction work,
-  - execute tasks one-by-one in general order (no preemption of `TASK-0030+`),
-  - preserve completed legacy closure scope (`RFC-0034` is limited to `TASK-0001..0020`).
+## Scope boundaries reaffirmed
+- `TASK-0022`: untouched and still follow-on boundary only.
+- `TASK-0023`: untouched; OS QUIC remains disabled-by-default.
+- `TASK-0044`: untouched; no tuning breadth absorbed into this task.
 
-## Open threads / follow-ups
-- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+## Dependency harmonization status (2026-04-14)
+- **Target matrix (prefer higher line)**:
+  - `thiserror`: target `2.x` (achieved in first-party manifests).
+  - `snow`: target `0.10.x` (achieved in `userspace/dsoftbus`).
+  - `getrandom`/`rand_core`: target `0.3.x`/`0.9.x` where feasible (advanced; residual blockers remain).
+  - `windows-sys`: reduce fragmentation toward newest compatible line (improved).
+- **Measured delta**:
+  - `thiserror` duplicate warnings removed from `just deny-check`.
+  - `windows-sys` duplicate versions reduced from `3` to `2` after `tempfile/rustix` update.
+  - `identity` no longer pins `rand_core 0.6` directly (switched to `getrandom 0.3` key generation path).
+  - `dsoftbus` no longer enables `ed25519-dalek` `rand_core` feature.
+  - Remaining compatibility-constrained duplicate lines: `getrandom`, `windows-sys`.
+- **Confirmed blockers**:
+  - `ring 0.17.x` keeps `getrandom 0.2` alive.
+  - `ring 0.17.x` and `tokio/quinn-udp` keep split `windows-sys` lines (`0.52` + `0.61`).
 
-## Open items (current slice)
-- keep task/rfc contract parity between `TASK-0021` and `RFC-0035`.
-- lock touched-path allowlist and test plan for phase A/B.
-- align `.cursor/pre_flight.md` + `.cursor/stop_conditions.md` checklists with TASK-0021 + behavior-first proof gates.
+## Next handoff target
+- Keep `TASK-0021` frozen/done and hand over execution planning to `TASK-0022`.
 
-## DON'T DO (session-local)
-- DON'T silently absorb `TASK-0022` core/no_std split into `TASK-0021`.
-- DON'T silently downgrade `mode=quic` to TCP.
-- DON'T emit QUIC success/fallback markers without real transport selection.
-- DON'T destabilize default TCP bring-up while QUIC is OS-disabled.
+## Active follow-up planning
+- **next_plan**: `TASK-0022` execution planning (core/no_std split) after `TASK-0021` closure.
+- **plan_goal**: keep `TASK-0021` proof floor frozen while extracting reusable core transport seams for OS follow-on work.
+
+## Dependency convergence closure snapshot (2026-04-14)
+- **Implemented**:
+  - `userspace/identity`: switched key generation to `getrandom 0.3` bytes + `SigningKey::from_bytes` (removed direct `rand_core` dependency).
+  - `userspace/dsoftbus` and `userspace/identity`: removed unnecessary `ed25519-dalek` `rand_core` feature coupling.
+  - `userspace/dsoftbus`: replaced local `x25519-dalek` key-derivation usage with `curve25519-dalek` base-point derivation, removing `dsoftbus` as a direct `rand_core 0.6` anchor.
+- **Residual duplicate owners**:
+  - `getrandom 0.2`: pinned by `ring 0.17.x`.
+  - `windows-sys 0.52`: pinned by `ring`/`quinn-udp` side; `windows-sys 0.61`: pinned by `tokio`/`mio`.
+  - both are explicitly and narrowly allowed via `config/deny.toml` bans skip entries while `multiple-versions = "deny"` remains enforced.
+- **Gate results**:
+  - `just deny-check`: pass (duplicates remain as above, no bypass).
+  - `just test-dsoftbus-quic`: pass.
+  - `just dep-gate`: pass.
+  - `just test-os-dhcp`: pass.
+
+## Noise wrapper hardening snapshot (2026-04-14)
+- `source/libs/nexus-noise-xk` migrated from `x25519-dalek` to `curve25519-dalek` with minimal internal wrapper newtypes:
+  - secret/public/shared wrappers added,
+  - secret clamping centralized on construction,
+  - secret/shared material zeroized on drop,
+  - DH now rejects all-zero shared secret (`NoiseError::InvalidSharedSecret`).
+- **Duplicate delta after hardening**:
+  - `rand_core` duplicate warning removed from `just deny-check`.
+  - remaining duplicate warnings: `getrandom`, `windows-sys`.

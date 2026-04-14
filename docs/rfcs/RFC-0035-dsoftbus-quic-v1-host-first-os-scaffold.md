@@ -1,9 +1,9 @@
 # RFC-0035: DSoftBus QUIC v1 host-first scaffold contract
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime
 - Created: 2026-04-10
-- Last Updated: 2026-04-10
+- Last Updated: 2026-04-14
 - Links:
   - Execution SSOT: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
   - Program gate track: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
@@ -17,10 +17,10 @@
 ## Status at a Glance
 
 - **Phase A (contract lock + fallback semantics)**: ✅
-- **Phase B (host proof: QUIC + reject paths)**: ⬜
-- **Phase C (OS-gated fallback markers)**: ⬜
-- **Phase D (deterministic perf gate)**: ⬜
-- **Phase E (closure sync + handoff evidence)**: ⬜
+- **Phase B (host proof: QUIC + reject paths)**: ✅
+- **Phase C (OS-gated fallback markers)**: ✅
+- **Phase D (deterministic perf gate)**: ✅
+- **Phase E (closure sync + handoff evidence)**: ✅
 
 Definition:
 
@@ -38,7 +38,8 @@ This RFC is a design seed / contract. Execution truth remains in tasks.
 - **This RFC does NOT own**:
   - legacy `TASK-0001..0020` closure obligations already owned by `RFC-0034`,
   - mux v2 flow-control/keepalive semantics already owned by `RFC-0033`,
-  - full reusable OS backend/core split work (`TASK-0022`) beyond boundary declarations.
+  - full reusable OS backend/core split work (`TASK-0022`) beyond boundary declarations,
+  - OS QUIC enablement/feasibility unlock work (`TASK-0023`).
 
 ### Relationship to tasks (single execution truth)
 
@@ -91,6 +92,10 @@ After `TASK-0020` closure, DSoftBus needs a host-first QUIC transport scaffold w
   - `quic` (strict mode; fail closed),
   - `auto` (attempt QUIC first, then deterministic TCP fallback).
 - QUIC selection and fallback decisions must emit stable, grep-safe markers for harness verification.
+- Host runtime wiring honors `DSOFTBUS_TRANSPORT=tcp|quic|auto`:
+  - `tcp`: existing host TCP daemon path,
+  - `auto`: deterministic fallback when QUIC runtime material is unavailable,
+  - `quic`: fail-closed if required runtime cert/key material is missing.
 - Mux semantics remain transport-agnostic and governed by `RFC-0033`; this RFC only defines transport selection and downgrade behavior.
 
 ### Marker contract (normative)
@@ -183,11 +188,21 @@ No QUIC-success marker is allowed when TCP was selected.
 ### Proof (Host)
 
 ```bash
-cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus -- quic --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture
+```
+
+```bash
+cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus --test quic_selection_contract -- --nocapture
+```
+
+```bash
+cd /home/jenning/open-nexus-OS && just test-dsoftbus-quic
 ```
 
 Host suite must include the behavior-first minimum:
 
+- one real QUIC connect + bidirectional stream exchange assertion,
+- one QUIC+mux smoke payload assertion (TASK-0020 wire events carried over QUIC and ingestable by `MuxHostEndpoint`),
 - one positive QUIC selection assertion,
 - strict-mode downgrade reject,
 - ALPN/cert reject paths,
@@ -197,6 +212,25 @@ Host suite must include the behavior-first minimum:
 
 ```bash
 cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+```
+
+Phase-C fallback marker gate (task-owned):
+
+```bash
+cd /home/jenning/open-nexus-OS && REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+```
+
+### Proof (Phase D deterministic perf budget)
+
+Deterministic envelope (selection/fallback path):
+
+- `mode=tcp`: 0 QUIC attempts.
+- `mode=quic`: exactly 1 QUIC attempt.
+- `mode=auto`: at most 1 QUIC attempt, then deterministic fallback.
+- fallback markers: exactly three stable markers in order.
+
+```bash
+cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus --test quic_selection_contract perf_budget -- --nocapture
 ```
 
 ### Proof (2-VM when distributed behavior is asserted)
@@ -247,9 +281,9 @@ When updating this RFC, ensure:
 **This section tracks implementation progress.**
 
 - [x] **Phase A**: selection/fallback contract locked — proof: RFC + task alignment review.
-- [ ] **Phase B**: host QUIC/reject suite green — proof: `cargo test -p dsoftbus -- quic --nocapture`
-- [ ] **Phase C**: OS fallback markers green — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-- [ ] **Phase D**: deterministic perf gate green — proof: task-owned perf command(s) in `TASK-0021`
-- [ ] **Phase E**: closure sync + handoff evidence complete — proof: task closeout docs + status sync
+- [x] **Phase B**: host QUIC/reject suite green — proof: `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture` and `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`
+- [x] **Phase C**: OS fallback markers green — proof: `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- [x] **Phase D**: deterministic perf gate green — proof: `cargo test -p dsoftbus --test quic_selection_contract perf_budget -- --nocapture`
+- [x] **Phase E**: closure sync + handoff evidence complete — proof: task closeout docs + status sync
 - [x] Task linked as execution SSOT (`tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`).
-- [ ] Security negative tests exist and are green (`test_reject_*` for QUIC downgrade/validation).
+- [x] Security negative tests exist and are green (`test_reject_*` for QUIC downgrade/validation).

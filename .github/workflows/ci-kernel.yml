@@ -53,5 +53,5 @@ jobs:
           npx jscpd --min-lines 20 --threshold 2 --ignore "**/target/**" || true
       - name: Dependency hygiene
         run: |
-          cargo deny check || true
+          cargo deny check --config config/deny.toml || true
           cargo udeps --workspace || true

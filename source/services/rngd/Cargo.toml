@@ -18,7 +18,7 @@ os-lite = [
 ]
 
 [dependencies]
-thiserror = { version = "1", optional = true }
+thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }

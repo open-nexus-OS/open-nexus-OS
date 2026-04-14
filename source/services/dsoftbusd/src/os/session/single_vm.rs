@@ -176,6 +176,9 @@ pub(crate) fn run_single_vm_dual_node_bringup(
 
     let lid = crate::os::entry::listen_with_retry(pending_replies, net, nonce_ctr, port)?;
     let _ = nexus_abi::debug_println("dsoftbusd: os transport up (udp+tcp)");
+    match crate::os::entry::select_os_transport_for_session() {
+        crate::os::entry::OsTransportSelection::TcpFallbackQuicDisabled => {}
+    }
 
     let port_b: u16 = 34_568;
     let mut req_b = [0u8; 14];

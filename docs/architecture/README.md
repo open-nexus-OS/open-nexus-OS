@@ -58,10 +58,12 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **RFC-0008**: DSoftBus Noise XK v1 (handshake + identity binding)
 - **RFC-0009**: no_std Dependency Hygiene v1 (OS build policy)
 - **RFC-0027**: DSoftBusd modular daemon structure v1 (Completed)
+- **RFC-0035**: DSoftBus QUIC v1 host-first scaffold contract (In Progress)
 - **ADR-0026**: Network address profiles + validation semantics
 
 **Current snapshot**:
 - Core networking transport, authenticated session flow, and dual-node harness behavior are established.
+- Host-first QUIC transport proofs are available via `just test-dsoftbus-quic`; OS QUIC remains disabled-by-default in the TASK-0021 scope.
 - Networking docs here focus on authority boundaries and invariants; rollout/proof state remains task-owned.
 
 ## Services and contracts

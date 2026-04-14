@@ -23,7 +23,7 @@ bundlemgr = { path = "../../userspace/bundlemgr" }
 bundlemgrd = { path = "../../source/services/bundlemgrd", features = ["idl-capnp"] }
 parking_lot = "0.12"
 rand = "0.9"
-thiserror = "1"
+thiserror = "2"
 
 [dev-dependencies]
 tracing-subscriber = "0.3"

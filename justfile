@@ -36,6 +36,7 @@ help:
     @echo "  just test-dsoftbus-2vm    # TASK-0005: 2-VM DSoftBus harness"
     @echo "  just test-dsoftbus-2vm-pcap # 2-VM DSoftBus harness + PCAP capture"
     @echo "  just test-dsoftbus-mux    # TASK-0020: requirement-named mux host suites"
+    @echo "  just test-dsoftbus-quic   # TASK-0021: host QUIC transport + selection suites"
     @echo "  just test-dsoftbus-host   # full userspace/dsoftbus host regression"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
@@ -144,6 +145,11 @@ test-dsoftbus-mux:
     # #region agent log
     python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:end","message":"target completed","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)})+"\n")'
     # #endregion
+
+# TASK-0021 targeted host QUIC proof suites (real transport + selection/reject contract).
+test-dsoftbus-quic:
+    cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture
+    cargo test -p dsoftbus --test quic_selection_contract -- --nocapture
 
 # Full userspace dsoftbus host regression (includes mux + reject suites).
 test-dsoftbus-host:

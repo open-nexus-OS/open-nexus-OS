@@ -39,28 +39,34 @@ and avoid copying.
 ## Host vs OS split
 
 The `userspace/dsoftbus` crate exposes the high level traits used by the daemon.
-Two backends exist today:
+Two runtime tracks are relevant today:
 
-- `cfg(nexus_env = "host")` implements discovery, Noise handshakes, and framed
-  streams with deterministic, host-first transports:
+- `cfg(nexus_env = "host")` implements discovery, Noise handshakes, framed streams,
+  and host-first QUIC selection/proof surfaces:
   - An in-process transport for socketless tests (`InProcAuthenticator`).
   - A sockets-facade-backed transport (`FacadeAuthenticator`) layered over
     `userspace/nexus-net` (using `FakeNet` in tests).
+  - Host QUIC v1 transport-selection/runtime path (`auto|tcp|quic`) with strict fail-closed
+    semantics and deterministic fallback markers (TASK-0021 / RFC-0035 contract).
   - The UDP discovery announce payload has a versioned, bounded byte layout with golden vectors
     (`userspace/dsoftbus/src/discovery_packet.rs`, `userspace/dsoftbus/tests/discovery_packet.rs`).
   The discovery registry is process-local so multiple nodes can run inside a
   single integration test.
-- `cfg(nexus_env = "os")` — **OS transport is now implemented** (as of 2026-01-07):
+- OS runtime remains split by boundary:
+  - `userspace/dsoftbus` `cfg(nexus_env = "os")` backend is still placeholder-only (`Unsupported`)
+    until TASK-0022 extraction/no_std boundary work.
+  - `source/services/dsoftbusd` OS daemon path remains the authority for current OS transport behavior:
   - Networking: virtio-net + smoltcp + IPC sockets facade (`netstackd`)
   - UDP discovery announce/receive (loopback scope) via `nexus-discovery-packet` + `nexus-peer-lru`
   - Noise XK handshake (`nexus-noise-xk` library)
   - TCP sessions over the sockets facade
   - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
+  - QUIC on OS is disabled-by-default in TASK-0021 and remains follow-on scoped (`TASK-0023`).
 
 Address-profile contracts used by these paths are documented in
 `docs/architecture/network-address-matrix.md`.
 
-## Current OS Implementation Status (2026-03-12)
+## Current OS Implementation Status (2026-04-14)
 
 | Feature | Status | Task |
 |---------|--------|------|
@@ -75,6 +81,8 @@ Address-profile contracts used by these paths are documented in
 | Remote packagefs RO (`STAT/OPEN/READ/CLOSE`, authenticated streams) | 🟨 In Progress | TASK-0016 |
 | Daemon modular structure (`src/os/**`, thin `main.rs`) | 🟨 In Review | TASK-0015 |
 | Host seam + security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ Done | TASK-0015 |
+| Host QUIC selection + real host QUIC transport proof | ✅ Done | TASK-0021 |
+| OS QUIC default state | ✅ Disabled-by-default (explicit fallback) | TASK-0021/TASK-0023 boundary |
 
 **2-VM proof harness (opt-in)**:
 - Canonical harness: `tools/os2vm.sh`

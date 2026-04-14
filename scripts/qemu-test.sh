@@ -859,12 +859,15 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
     "dsoftbusd: discovery announce sent" \
     "dsoftbusd: discovery peer found device=local" \
     "dsoftbusd: os transport up (udp+tcp)" \
+    "dsoftbus: quic os disabled (fallback tcp)" \
+    "dsoftbusd: transport selected tcp" \
     "dsoftbusd: session connect peer=node-b" \
     "dsoftbusd: identity bound peer=node-b" \
     "dsoftbusd: dual-node session ok" \
     "dsoftbusd: ready" \
     "dsoftbusd: auth ok" \
     "dsoftbusd: os session ok" \
+    "SELFTEST: quic fallback ok" \
     "dsoftbus:mux session up" \
     "dsoftbus:mux data ok" \
     "SELFTEST: mux pri control ok" \

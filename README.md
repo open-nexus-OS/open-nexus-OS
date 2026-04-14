@@ -66,7 +66,8 @@ Test entrypoints:
 - Kernel baseline behavior is stabilized and continuously regression-tested with deterministic QEMU marker gates.
 - Userspace syscall guardrail hardening (`TASK-0019` / `RFC-0032`) is closed as done with authenticated profile distribution and fail-closed behavior proofs.
 - `TASK-0020` (DSoftBus streams v2) is closed as `Done` with host + single-VM + 2-VM + perf/soak evidence.
-- Next sequential queue head is `TASK-0021`.
+- `TASK-0021` (DSoftBus QUIC v1 host-first scaffold) is closed as `Done` with real host QUIC transport proof, QUIC+mux payload smoke proof, strict fail-closed mode semantics, and deterministic OS fallback markers.
+- Next sequential queue head is `TASK-0022`.
 - Canonical security proof ladder:
   - `cargo test -p nexus-abi -- reject --nocapture`
   - `just dep-gate`

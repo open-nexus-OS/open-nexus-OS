@@ -17,6 +17,8 @@ Implement `userspace/dsoftbus` as the distributed service fabric with the follow
 - **Sessions**: Authenticated connections with device identity
 - **Streams**: Reliable framed communication with channel multiplexing
 - **Backends**: Host (TCP), OS (userspace sockets facade via `netstackd`)
+- **Transport selection contract**: deterministic `auto|tcp|quic` with strict fail-closed semantics
+  and explicit fallback markers (host-first QUIC in TASK-0021; OS QUIC follow-on gated)
 
 ## Rationale
 
@@ -31,6 +33,7 @@ Implement `userspace/dsoftbus` as the distributed service fabric with the follow
 - Device identities are cryptographically bound
 - Handshake proofs prevent man-in-the-middle attacks
 - Frame boundaries are preserved across network transport
+- QUIC adoption must not silently bypass authenticated session authority or downgrade policy
 
 ## Invariants
 
@@ -72,10 +75,12 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 3. ✅ Implement authenticated sessions (loopback scope)
 4. ✅ Implement discovery-driven connect + identity binding (TASK-0004)
 5. ✅ Implement cross-VM discovery/session + minimal remote proxy (TASK-0005, opt-in)
-6. ⬜ Implement reliable streams with multiplexing (TASK-0020+)
-7. ✅ Add comprehensive test coverage (host tests green)
+6. ✅ Implement reliable streams with multiplexing (TASK-0020)
+7. ✅ Host-first QUIC v1 transport selection + host runtime proof (TASK-0021)
+8. ⬜ OS QUIC enablement remains gated follow-on (TASK-0023)
+9. ✅ Add comprehensive test coverage (host tests green)
 
-## Implementation Status (2026-03-12)
+## Implementation Status (2026-04-14)
 
 | Component | Host | OS | Task |
 | --------- | ---- | -- | ---- |
@@ -89,6 +94,8 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 | Remote proxy (`samgrd`/`bundlemgrd`, deny-by-default) | ✅ | ✅ | TASK-0005 |
 | Modular daemon orchestration (`src/os/**`, thin `main.rs`) | ✅ | 🟨 In Review | TASK-0015 |
 | Host seam/security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ | ✅ | TASK-0015 |
+| QUIC v1 host transport selection + runtime proof | ✅ | n/a | TASK-0021 |
+| OS QUIC default mode | n/a | ✅ Disabled-by-default | TASK-0021/TASK-0023 boundary |
 
 **Cross-VM harness contract (opt-in)**:
 

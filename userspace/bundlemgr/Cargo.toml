@@ -7,7 +7,7 @@ authors = ["Open Nexus OS Contributors"]
 
 [dependencies]
 semver = "1"
-thiserror = "1"
+thiserror = "2"
 capnp = "0.24"
 hex = "0.4"
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }

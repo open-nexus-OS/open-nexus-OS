@@ -6,7 +6,7 @@ This document summarizes the TASK-0020 host-first contract for DSoftBus Streams 
 
 - Execution/proof SSOT: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
 - Contract SSOT: `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
-- Out of scope here: QUIC transport (`TASK-0021`) and core/no_std extraction (`TASK-0022`)
+- Out of scope here: QUIC transport contract internals (`TASK-0021`) and core/no_std extraction (`TASK-0022`)
 
 ## Contract surfaces
 
@@ -63,6 +63,12 @@ just test-dsoftbus-2vm
 ```
 
 Review `summary.json` and `summary.txt` under `artifacts/os2vm/runs/<runId>/` for each 2-VM run.
+
+Related QUIC host proof command (TASK-0021):
+
+```bash
+just test-dsoftbus-quic
+```
 
 ## Marker honesty rule
 

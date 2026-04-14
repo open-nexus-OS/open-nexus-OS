@@ -204,7 +204,9 @@ Representative task spine:
 Closure definition:
 
 - legacy `TASK-0001`..`TASK-0020` closure remains green,
-- `TASK-0021` contract seed remains explicit in `RFC-0035` (host-first QUIC scaffold with fail-closed strict mode),
+- `TASK-0021` is now closed as done in `RFC-0035` (host-first QUIC scaffold with fail-closed strict mode),
+- `TASK-0021` closure preserves OS QUIC disabled-by-default with deterministic fallback markers and bounded selection/perf proofs, including host runtime selection wiring (`DSOFTBUS_TRANSPORT=tcp|quic|auto`), real host QUIC transport assertions (`quic_host_transport_contract` with explicit QUIC+mux smoke payload), selection/perf suites (`quic_selection_contract`), and `REQUIRE_DSOFTBUS=1` single-VM marker gate,
+- dependency harmonization after `TASK-0021` keeps strict deny policy (`multiple-versions = "deny"`): `thiserror`/`snow` convergence is complete, `rand_core` split is removed, and only compatibility-constrained `getrandom`/`windows-sys` lines are narrowly skipped in `config/deny.toml`,
 - auth/discovery/session/routing follow-ons preserve bounded identity enforcement,
 - new media/busdir/QUIC work does not regress the earlier deterministic host/OS/2-VM story.
 
