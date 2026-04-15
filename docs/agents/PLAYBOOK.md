@@ -1,6 +1,6 @@
 # Cursor Agent Playbook (Open Nexus OS)
 
-This playbook keeps agent sessions focused, low-token, and production-minded.
+This playbook keeps agent sessions focused, high-signal, and production-minded.
 
 ## Principles
 
@@ -14,6 +14,16 @@ This playbook keeps agent sessions focused, low-token, and production-minded.
 - Logging/markers must be **unified + deterministic**: prefer the shared logging facade (`nexus-log` / `log_*` macros) and centralized marker helpers; avoid new ad-hoc UART prints except in panic/trap floor paths.
 - Default vision lens: see `docs/agents/VISION.md`. Use it when evaluating tradeoffs and suggest improvements aligned with the vision.
 
+## Communication defaults (low-token, high-signal)
+
+- Lead with outcome first, then supporting evidence.
+- Use compact structure: `Result -> Evidence -> Next step`.
+- Prefer short bullets over long prose; one decision per line.
+- Remove filler and hedging; keep technical precision.
+- Expand detail only for security decisions, architecture tradeoffs, or blockers.
+- Never compress code identifiers, marker strings, commands, error labels, or policy wording.
+- If blocked, report exact blocker + one concrete next action.
+
 ## Proof of implementation (default)
 
 Unless the user explicitly asks for a design-only response, every “please implement X” task MUST include:
@@ -23,6 +33,7 @@ Unless the user explicitly asks for a design-only response, every “please impl
   - a test (`cargo test -p …`), or
   - a QEMU marker run (`RUN_UNTIL_MARKER=1 …`), or
   - an ABI/contract test demonstrating the behavior is enforced.
+- A one-line behavior map in the report: `target behavior -> proof -> regression signal`.
 
 If proof cannot be produced (e.g. missing tooling), the agent MUST state the blocker explicitly.
 

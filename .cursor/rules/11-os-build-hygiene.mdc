@@ -7,7 +7,7 @@ globs:
 
 # OS build hygiene
 
-When changing OS-relevant code (`source/**`, `userspace/**`):
+Apply when changing OS-relevant code (`source/**`, `userspace/**`).
 
 ## Feature gates
 - OS services must build with `--no-default-features --features os-lite` where applicable.

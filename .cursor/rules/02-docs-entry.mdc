@@ -10,13 +10,13 @@ globs:
 - Documentation is a contract surface when referenced by tasks/RFCs/ADRs.
 - Keep docs changes consistent with the actual implemented behavior and proof artifacts.
 
-## RFC workflow (new task = new RFC seed)
+## RFC workflow (new task -> RFC seed)
 
 When starting a **new task** that defines a stable contract:
 
-### 1) Analyze & create RFC seed (first session action)
+### 1) Analyze and create RFC seed (first session action)
 - **Read**: `docs/rfcs/RFC-TEMPLATE.md` and `docs/rfcs/README.md`
-- **Analyze**: Does this task define a new contract/interface? (e.g., new syscall, new service API, new storage format)
+- **Analyze**: does this task define a new contract/interface? (for example: new syscall, service API, storage format)
 - **If YES**: Create RFC seed **before implementation**
   - Use next available RFC number (check `docs/rfcs/README.md`)
   - Follow RFC-TEMPLATE.md structure

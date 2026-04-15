@@ -1,89 +1,54 @@
 # Agent Vision (Open Nexus OS)
 
-This document captures the **default product and architecture vision** that agents should use as
-context when implementing changes, so users do not have to restate it in every session.
+This document captures the **default product and architecture vision** agents should use when implementing changes.
 
 ## North Star
 
-Build a **universal, secure, and high-performance OS** that scales across:
+Build a **secure, high-performance OS core** that scales across phone, desktop, TV, automotive, and embedded classes.
 
-- phone / tablet / desktop
-- TV / automotive
-- IoT and embedded
-- networked/distributed deployments (future `softbusd`)
-
-The OS should be **RISC‑V optimized** and aligned with the direction of **HarmonyOS**: an ecosystem
-of devices that “feels like one system” to the user, with a distributed service layer.
-
-The architecture must be **Rust-first** and **RISC‑V-first**: prefer Rust-idiomatic designs,
-stable interfaces, and simple invariants that compile cleanly without endless feature-flag
-workarounds.
-
-It must feel **extremely fast** (low-latency interactions) while also supporting **long battery
-life**. On desktop-class machines it must additionally support **professional peak performance**
-when it is appropriate (e.g., rendering / graphics / heavy compute), without turning the default
-experience into a power-hungry system.
-
-It should also be a **real local computing platform**, not merely a locked-down endpoint:
-
-- capable of local development workflows when explicitly enabled,
-- capable of family / school / enterprise / fleet-style managed device postures,
-- and able to scale those experiences across multiple device classes without requiring a different
-  authority model for each product surface.
+- **RISC-V-first, Rust-first**: favor Rust-idiomatic designs, stable interfaces, and simple invariants.
+- **Fast by default**: low-latency interactions with energy-aware defaults.
+- **Peak mode when explicit**: allow burst performance for pro workloads without making the baseline power-hungry.
+- **Local sovereignty**: support local development and self-hosted operations where policy allows.
+- **Managed posture support**: family, school, enterprise, and fleet policies share one coherent authority model.
+- **Distributed fabric trajectory**: services should feel local across trusted devices via userland distributed layers.
 
 ## Principles (decision lens)
 
 When choosing between designs, prefer solutions that:
 
 - **Preserve security boundaries**: capability-based authority, least privilege, no ambient authority.
-- **Prefer one coherent model over feature sprawl**: do not chase “everything for everyone”.
-  Extend the same security, policy, config, identity, and multi-device architecture across
-  product surfaces instead of building separate special-case stacks.
-- **Aim for microkernel-hard security**: architecture-first security that is as close as practical to
-  “military-grade” while remaining maintainable for a consumer OS (updates, developer velocity, and
-  performance still matter).
-- **Stay performance-scalable**: small fastpaths, avoid unnecessary copies; use VMO/filebuffer for bulk.
-- **Support both efficiency and peak performance**: default to energy-efficient paths and enable
-  explicit “burst/perf” modes for professional workloads.
-- **Keep kernel minimal**: push complexity (IDL parsing, policy, crypto, distributed routing) to userland services.
-- **Remain testable**: host-first tests + minimal authoritative QEMU E2E; no “success logs” without behavior.
-- **Avoid lock-in**: designs should not hardcode “desktop only” or “IoT only”; keep a common core.
-- **Stay locally sovereign**: avoid forcing vendor cloud lock-in for development, management, or
-  device relationships when the same capability can be delivered through local or self-hostable
-  paths.
-- **Do not copy seL4 (or any reference OS) 1:1**: take only what fits our constraints. If an idea
-  forces Rust into unnatural contortions (endless cfg/feature flag matrices, unsafe glue, or “API
-  gymnastics”), prefer a simpler Rust-idiomatic alternative.
+- **Use one coherent model**: reuse security/policy/identity architecture across product surfaces.
+- **Keep kernel minimal**: move policy, routing, parsing, and crypto orchestration to userland.
+- **Stay performance-scalable**: optimize fast paths, avoid copies, use VMO/filebuffer for bulk transfer.
+- **Balance efficiency and burst**: default energy-efficient paths, explicit peak modes.
+- **Remain testable**: host-first proofs + minimal authoritative QEMU E2E.
+- **Avoid lock-in**: no desktop-only or IoT-only forks of core authority model.
+- **Prefer local/self-hostable control paths** where equivalent security can be maintained.
+- **Do not clone reference systems 1:1**: adopt principles, keep implementations Rust-idiomatic.
 
 ## Architecture stance (current direction)
 
 - **Control plane**: Cap’n Proto IDL in userland (typed messages).
 - **Data plane**: VMO/filebuffer for large payloads (low/zero copy).
 - **Local IPC**: kernel-enforced endpoint capabilities (RFC‑0005).
-- **Policy**: `policyd` decides who gets what; kernel enforces rights on held caps.
-- **Discovery/service graph**: `samgrd` registers/resolves services (OHOS-aligned).
-- **Distributed (future)**: `softbusd` is layered in userland; kernel ABI stays local/portable.
+- **Policy**: `policyd` decides authority; kernel enforces capability rights.
+- **Discovery graph**: `samgrd` registers and resolves services.
+- **Distributed (future)**: `softbusd` remains userland-layered; kernel ABI stays local and portable.
 
 ## Hybrid security-root roadmap (default)
 
-We deliberately use a hybrid approach:
+Use a hybrid approach:
 
-- **MVP root**: verified boot + signed bundles/packages + policy gating + capability enforcement.
-  This yields strong architecture-first security without blocking development on device-specific
-  hardware.
-- **Pluggable key custody**: design `keystored`/`identityd` so key material can migrate from a
-  software backend (host/QEMU bring-up) to secure hardware (Secure Element / TEE / TPM-like) per
-  device class without ABI churn.
-- **Measured boot + attestation (later)**: add device attestation as an additive layer for the
-  HarmonyOS-like device mesh (`softbusd`), keeping the kernel small and the trust decisions in
-  userland policy.
+- **MVP trust root**: verified boot + signed bundles + policy gating + capability enforcement.
+- **Pluggable key custody**: `keystored`/`identityd` migrates from software bring-up to secure hardware without ABI churn.
+- **Measured boot + attestation (later)**: additive trust layer for distributed mesh admission, with trust policy in userland.
 
 ## Distributed vision (softbusd, later)
 
-The long-term direction is a HarmonyOS-like “device mesh”:
+Long-term direction is a userland-driven “device mesh”:
 
-- `softbusd` provides discovery, secure sessions, and routing so services can appear “local” across
-  devices.
+- `softbusd` provides discovery, secure sessions, and routing so services can appear local across devices.
 - Kernel IPC remains local and capability-based; distributed behavior is expressed in userland and
   is policy-gated.
 
@@ -93,3 +58,4 @@ The long-term direction is a HarmonyOS-like “device mesh”:
 - If a request seems to conflict with the vision (security/perf/testability), call it out early.
 - Propose **better implementations** when they are clearly aligned with the vision, with concrete tradeoffs.
 - Keep stubs honest: label them, never fake success markers, and always provide proof of real behavior.
+- Keep responses concise by default; expand only when risk, tradeoff, or ambiguity requires detail.

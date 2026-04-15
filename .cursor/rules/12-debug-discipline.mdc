@@ -9,7 +9,7 @@ alwaysApply: true
 - **No Cursor/agent debug logs in kernel**: never add prints/markers/logging in `source/kernel/**`.
 - **No fake success**: never emit `*: ready` or `SELFTEST:* ok` until the behavior is actually proven.
 - **No unbounded “drain/yield”**: never add “drain inbox until empty” or “yield until it works” loops without hard bounds.
-- **No nondeterministic markers**: don’t include random IDs, timestamps, or counts that vary run-to-run in gating markers.
+- **No nondeterministic markers**: do not include random IDs, timestamps, or counts that vary run-to-run in gating markers.
 
 ## Where to instrument (preferred)
 - **Userspace services**: `source/services/**` (emit stable markers + structured error labels).
