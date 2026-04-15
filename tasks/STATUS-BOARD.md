@@ -209,8 +209,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | Done | Kernel-untouched guardrail closure with authenticated profile distribution and deterministic proofs complete |
 | ✅ TASK-0020 | DSoftBus Streams v2: mux + flow-control + keepalive | Done | Legacy 0001..0020 production closure gates proven (host/OS/2-VM/perf/soak/release-evidence); closeout synced |
 | ✅ TASK-0021 | DSoftBus QUIC v1 host-first scaffold | Done | Real host QUIC transport + QUIC/mux payload proof + deterministic OS fallback markers + strict-mode fail-closed closure synced |
+| 🟨 TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | In Review | `dsoftbus-core` no_std crate boundary extracted, required `test_reject_*` + deterministic perf/zero-copy trait evidence green, review sync pending final queue advance |
 
-Current queue head: `TASK-0022` (core/no_std transport split planning stage after TASK-0021 closeout).
+Current queue head: `TASK-0022` (In Review; production-quality review and sync checks in progress before queue advance).
 Production closure program note: `RFC-0034` is now done for legacy `TASK-0001..0020` production closure scope.
 Task contract seed note: `RFC-0035` is the `TASK-0021` host-first QUIC scaffold contract (strict fallback + no silent downgrade, with explicit `TASK-0022` boundary).
 Current TASK-0021 slice status: ✅ Done. Phase-B host proof (real QUIC transport + selection/reject contract + QUIC+mux smoke payload), Phase-C OS fallback marker proof, and Phase-D deterministic perf budget proof are green; host runtime transport selection wiring (`DSOFTBUS_TRANSPORT=tcp|quic|auto`) and targeted gate (`just test-dsoftbus-quic`) are closed and synchronized.

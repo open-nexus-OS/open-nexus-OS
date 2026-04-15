@@ -34,7 +34,11 @@ pub enum TransportKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuicProbe<'a> {
     Disabled,
-    Candidate { expected_alpn: &'a str, offered_alpn: &'a str, cert_trusted: bool },
+    Candidate {
+        expected_alpn: &'a str,
+        offered_alpn: &'a str,
+        cert_trusted: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +85,11 @@ enum QuicValidationError {
 fn validate_quic_probe(probe: QuicProbe<'_>) -> Result<(), QuicValidationError> {
     match probe {
         QuicProbe::Disabled => Err(QuicValidationError::Unavailable),
-        QuicProbe::Candidate { expected_alpn, offered_alpn, cert_trusted } => {
+        QuicProbe::Candidate {
+            expected_alpn,
+            offered_alpn,
+            cert_trusted,
+        } => {
             if expected_alpn != offered_alpn {
                 return Err(QuicValidationError::WrongAlpn);
             }

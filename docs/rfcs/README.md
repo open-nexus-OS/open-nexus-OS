@@ -159,5 +159,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md
 - RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (Done; `TASK-0021` closure proofs synced with explicit `TASK-0022` boundary)
   - docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
-- RFC-0036: DSoftBus core no_std transport abstraction v1 (Draft; `TASK-0022` execution SSOT)
+- RFC-0036: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` remains in review)
   - docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md

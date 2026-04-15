@@ -6,6 +6,7 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [dependencies]
+dsoftbus-core = { path = "core" }
 capnp = "0.24"
 ed25519-dalek = { version = "2" }
 identity = { path = "../identity" }

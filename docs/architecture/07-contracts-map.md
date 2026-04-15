@@ -59,6 +59,19 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Execution SSOT**: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
 - **Proof**: `just test-dsoftbus-quic` + `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
 
+### DSoftBus core no_std transport abstraction seam
+
+- **Contract**: transport-neutral `no_std + alloc` core boundaries (`BorrowedFrameTransport`, reject invariants, bounded correlation, ownership-safe records) with host/OS adapter split
+- **Canonical spec**: `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
+- **Execution SSOT**: `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+- **Proof**:
+  - `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
+  - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
+  - `cargo test -p dsoftbus -- reject --nocapture`
+  - `just test-dsoftbus-quic`
+  - `just dep-gate && just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+
 ### Observability (logd journal + crash reports)
 
 - **Contract**: bounded RAM journal (APPEND/QUERY/STATS), crash report envelope, core service integration

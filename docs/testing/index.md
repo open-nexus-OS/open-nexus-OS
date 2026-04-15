@@ -92,6 +92,21 @@ Scope note:
 - 2-VM proof is only required when `TASK-0021` claims new distributed behavior; do not run `tools/os2vm.sh` for completeness-only reasons.
 - Convenience aggregate for host QUIC scope: `just test-dsoftbus-quic`.
 
+### TASK-0022 no_std core abstraction matrix
+
+`TASK-0022` closure uses host-first deterministic reject/perf proofs plus explicit no_std compile evidence.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Core crate no_std compatibility (`dsoftbus-core`) | target compile proof | `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf` |
+| Required security reject paths (`test_reject_*`) | host reject assertions | `cargo test -p dsoftbus -- reject --nocapture` |
+| Core boundary + determinism extras (`Send`/`Sync`, backpressure budget, borrow-view no-copy) | host deterministic contract assertions | `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture` |
+| TASK-0021 regression floor preserved | host QUIC regression assertions | `just test-dsoftbus-quic` |
+| OS integration hygiene + marker ladder when hooks are touched | OS compile + single-VM proof | `just dep-gate && just diag-os && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
+
+Scope note:
+- `tools/os2vm.sh` is required only when the slice asserts new distributed behavior claims.
+
 ### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
 
 Legacy tasks remain `Done`; production closure uses follow-on requirement suites to prove Soll behavior (not implementation internals).

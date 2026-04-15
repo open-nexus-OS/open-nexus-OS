@@ -1,8 +1,29 @@
 # Next Task Preparation (Drift-Free)
 
 ## Candidate next execution
-- **task**: `TASK-0022` (core/no_std transport refactor)
-- **focus**: extract reusable transport core seams without reopening `TASK-0021` host QUIC scope.
+- **task**: complete `TASK-0022` review closure first, then evaluate `TASK-0023` (currently `Blocked`) or explicit resequencing to `TASK-0044` if QUIC-feasibility work remains blocked.
+- **focus**: preserve TASK-0022 core/no_std closure contracts while finishing review-grade evidence.
+
+## Latest completed slice (2026-04-15)
+- `TASK-0022` implementation closure synchronized; task is now in final review (`status: In Review`, RFC-0036 `Complete`).
+- Real crate split established:
+  - `userspace/dsoftbus/core` (`dsoftbus-core`) added as no_std core crate boundary.
+- Host/OS adapters remain in `userspace/dsoftbus` and consume/re-export core seams.
+- Required reject/contract/perf trait tests are green including:
+  - `test_reject_*` family,
+  - `test_core_boundary_types_are_send_sync`,
+  - `test_perf_backpressure_budget_is_deterministic`,
+  - `test_zero_copy_borrow_view_preserves_payload_reference`.
+- Gates green:
+  - `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
+  - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
+  - `cargo test -p dsoftbus -- reject --nocapture`
+  - `just test-dsoftbus-quic`
+  - `just diag-host`
+  - `just deny-check`
+  - `just dep-gate && just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `just test-e2e && just test-os-dhcp`
 
 ## Current proven baseline
 - Host real QUIC transport proof: `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`
@@ -17,8 +38,8 @@
 
 ## Boundaries for next slice
 - Keep `TASK-0021` closed/done; do not reopen host-proof scope.
-- Execute only `TASK-0022` core/no_std extraction scope.
-- Do not pre-enable or pre-unblock `TASK-0023` OS QUIC path.
+- Keep `TASK-0022` closure frozen; do not reopen completed core/no_std split without explicit regression evidence.
+- Do not silently pre-enable `TASK-0023` OS QUIC path outside its own feasibility gate contract.
 - Do not absorb `TASK-0044` tuning matrix.
 
 ## Linked contracts
@@ -52,8 +73,11 @@
   - `tokio/quinn-udp` bind to `windows-sys 0.61`.
 
 ## Planning note
-- Dependency convergence phase-2 closure is complete; next sequential planning target is `TASK-0022`.
-- RFC seed for this slice is `RFC-0036` with production-class wording and explicit plane-separation/authority boundaries.
+- Dependency convergence phase-2 closure remains complete.
+- `TASK-0022` implementation closure is complete and under review; `RFC-0036` is `Complete`.
+- Hybrid-phased bulk-path decision is locked for this task family:
+  - phase-1 borrow-view seam in `TASK-0022`,
+  - handle-first canonicalization remains follow-up scope.
 
 ## Post Phase-2 next action
 - Treat residual duplicate lines as compatibility-constrained closure work:

@@ -53,8 +53,17 @@ Two runtime tracks are relevant today:
   The discovery registry is process-local so multiple nodes can run inside a
   single integration test.
 - OS runtime remains split by boundary:
-  - `userspace/dsoftbus` `cfg(nexus_env = "os")` backend is still placeholder-only (`Unsupported`)
-    until TASK-0022 extraction/no_std boundary work.
+  - `userspace/dsoftbus` `cfg(nexus_env = "os")` backend now exposes an explicit adapter seam
+    (`BorrowedFrameTransport`) with deterministic `Unsupported` behavior for unimplemented paths.
+  - TASK-0022 closure introduced a dedicated no_std core crate
+    (`userspace/dsoftbus/core`, package `dsoftbus-core`) using `core + alloc` types for:
+    - bounded correlation nonce guards,
+    - payload-vs-channel identity enforcement,
+    - bounded record rejects,
+    - borrow-view/owned-record transport adapter boundaries.
+  - This remains intentionally **hybrid-phased**:
+    - phase-1 in TASK-0022: borrow-view-first core seam,
+    - handle-first (VMO/filebuffer) canonical bulk path: follow-up scope only.
   - `source/services/dsoftbusd` OS daemon path remains the authority for current OS transport behavior:
   - Networking: virtio-net + smoltcp + IPC sockets facade (`netstackd`)
   - UDP discovery announce/receive (loopback scope) via `nexus-discovery-packet` + `nexus-peer-lru`
@@ -66,7 +75,7 @@ Two runtime tracks are relevant today:
 Address-profile contracts used by these paths are documented in
 `docs/architecture/network-address-matrix.md`.
 
-## Current OS Implementation Status (2026-04-14)
+## Current OS Implementation Status (2026-04-15)
 
 | Feature | Status | Task |
 |---------|--------|------|
@@ -78,11 +87,12 @@ Address-profile contracts used by these paths are documented in
 | Dual-node proof | ✅ Done | TASK-0004 |
 | Cross-VM sessions (2× QEMU) | ✅ Done (opt-in) | TASK-0005 |
 | Remote proxy (`samgrd`/`bundlemgrd`, deny-by-default) | ✅ Done (opt-in) | TASK-0005 |
-| Remote packagefs RO (`STAT/OPEN/READ/CLOSE`, authenticated streams) | 🟨 In Progress | TASK-0016 |
-| Daemon modular structure (`src/os/**`, thin `main.rs`) | 🟨 In Review | TASK-0015 |
+| Remote packagefs RO (`STAT/OPEN/READ/CLOSE`, authenticated streams) | ✅ Done | TASK-0016 |
+| Daemon modular structure (`src/os/**`, thin `main.rs`) | ✅ Done | TASK-0015 |
 | Host seam + security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ Done | TASK-0015 |
 | Host QUIC selection + real host QUIC transport proof | ✅ Done | TASK-0021 |
 | OS QUIC default state | ✅ Disabled-by-default (explicit fallback) | TASK-0021/TASK-0023 boundary |
+| no_std core seam (`dsoftbus-core` crate + transport-neutral contract helpers) | 🟨 In Review | TASK-0022 |
 
 **2-VM proof harness (opt-in)**:
 - Canonical harness: `tools/os2vm.sh`

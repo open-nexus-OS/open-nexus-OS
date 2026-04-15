@@ -24,7 +24,8 @@ use std::net::SocketAddr;
 use identity::Identity;
 
 use crate::{
-    Announcement, AuthError, Discovery, DiscoveryError, Session, SessionError, Stream, StreamError,
+    Announcement, AuthError, BorrowedFrameTransport, Discovery, DiscoveryError, OwnedRecord,
+    Session, SessionError, Stream, StreamError,
 };
 
 /// Placeholder discovery backend for the OS configuration.
@@ -80,19 +81,62 @@ impl Session for OsSession {
     }
 
     fn into_stream(self) -> Result<Self::Stream, SessionError> {
-        Err(SessionError::Rejected("OS DSoftBus session is unsupported (placeholder)".into()))
+        Err(SessionError::Rejected(
+            "OS DSoftBus session is unsupported (placeholder)".into(),
+        ))
     }
 }
 
 /// Placeholder stream object for the OS configuration.
-pub struct OsStream;
+pub struct OsStream {
+    adapter: OsTransportAdapter,
+}
+
+#[derive(Debug)]
+enum OsTransportAdapterError {
+    Unsupported,
+}
+
+impl std::fmt::Display for OsTransportAdapterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsupported => write!(f, "os transport adapter unsupported"),
+        }
+    }
+}
+
+struct OsTransportAdapter;
+
+impl BorrowedFrameTransport for OsTransportAdapter {
+    type Error = OsTransportAdapterError;
+
+    fn send_record(&mut self, _channel: u32, _payload: &[u8]) -> Result<(), Self::Error> {
+        Err(OsTransportAdapterError::Unsupported)
+    }
+
+    fn recv_record(&mut self) -> Result<Option<OwnedRecord>, Self::Error> {
+        Err(OsTransportAdapterError::Unsupported)
+    }
+}
 
 impl Stream for OsStream {
-    fn send(&mut self, _channel: u32, _payload: &[u8]) -> Result<(), StreamError> {
-        Err(StreamError::Protocol("OS DSoftBus stream is unsupported (placeholder)".into()))
+    fn send(&mut self, channel: u32, payload: &[u8]) -> Result<(), StreamError> {
+        self.adapter.send_record(channel, payload).map_err(|_| {
+            StreamError::Protocol("OS DSoftBus stream is unsupported (placeholder)".into())
+        })
     }
 
     fn recv(&mut self) -> Result<Option<crate::FramePayload>, StreamError> {
-        Err(StreamError::Protocol("OS DSoftBus stream is unsupported (placeholder)".into()))
+        self.adapter
+            .recv_record()
+            .map_err(|_| {
+                StreamError::Protocol("OS DSoftBus stream is unsupported (placeholder)".into())
+            })
+            .map(|record| {
+                record.map(|owned| crate::FramePayload {
+                    channel: owned.channel(),
+                    bytes: owned.into_bytes(),
+                })
+            })
     }
 }

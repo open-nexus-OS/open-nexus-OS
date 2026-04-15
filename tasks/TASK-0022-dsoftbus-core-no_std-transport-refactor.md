@@ -1,6 +1,6 @@
 ---
 title: TASK-0022 DSoftBus core refactor: no_std-compatible core + transport abstraction (unblocks OS backends)
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -54,6 +54,56 @@ Canonical gate commands:
 - Dependency hygiene: `cd /home/jenning/open-nexus-OS && just deny-check`
 - Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
 - Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
+## Execution update (2026-04-15, hybrid phase-1)
+
+- Added a transport-neutral, `no_std + alloc`-friendly core contract module:
+  - extracted into dedicated crate `userspace/dsoftbus/core` (`package: dsoftbus-core`)
+  - includes `BorrowedFrameTransport`, ownership-safe record wrappers, bounded correlation nonce guard, and required reject labels.
+- Core state machine extraction is now crate-boundary based:
+  - `userspace/dsoftbus/src/mux_v2.rs` and `userspace/dsoftbus/src/core_contract.rs` are consumed via `dsoftbus-core` crate boundary,
+  - `userspace/dsoftbus/src/lib.rs` re-exports core API to preserve adapter-facing surface compatibility.
+- Rewired host identity mismatch enforcement through the shared core authority helper:
+  - `userspace/dsoftbus/src/host.rs` now gates connect-request payload identity against channel-authoritative identity using `validate_payload_identity_spoof_vs_sender_service_id(...)`.
+- Replaced implicit OS placeholder seam with an explicit unsupported adapter boundary:
+  - `userspace/dsoftbus/src/os.rs` now uses an `OsTransportAdapter` implementing `BorrowedFrameTransport` and returns deterministic unsupported errors (no fake success markers).
+- Added requirement-named reject tests for TASK-0022:
+  - `userspace/dsoftbus/tests/core_contract_rejects.rs`
+  - `test_reject_invalid_state_transition`
+  - `test_reject_nonce_mismatch_or_stale_reply`
+  - `test_reject_oversize_frame_or_record`
+  - `test_reject_unauthenticated_message_path`
+  - `test_reject_payload_identity_spoof_vs_sender_service_id`
+  - `test_core_boundary_types_are_send_sync` (compile-time trait contract)
+  - `test_perf_backpressure_budget_is_deterministic` (deterministic budget behavior)
+  - `test_zero_copy_borrow_view_preserves_payload_reference` (borrow-view no-copy evidence)
+- Hybrid phased bulk-path decision applied:
+  - phase-1 keeps borrow-view-first core seams in this task,
+  - handle-first bulk path remains explicit follow-up scope (no TASK-0023/TASK-0044 absorption).
+- Proof snapshot (green):
+  - `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
+  - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
+  - `cargo test -p dsoftbus -- reject --nocapture`
+  - `just test-dsoftbus-quic`
+  - `just diag-host`
+  - `just deny-check`
+  - `just dep-gate && just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `just test-e2e && just test-os-dhcp`
+  - `just deny-check` (advisory baseline refreshed)
+
+## Review verification pass (2026-04-15)
+
+- Task status advanced to `In Review` for production-quality verification prior to queue advance.
+- Re-ran closure-class quality/security/performance gates; all commands are green:
+  - `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
+  - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
+  - `cargo test -p dsoftbus -- reject --nocapture`
+  - `just test-dsoftbus-quic`
+  - `just deny-check`
+  - `just dep-gate && just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `just test-e2e && just test-os-dhcp`
 
 ## Program alignment (TRACK production gates)
 
@@ -194,7 +244,8 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
   - `Send`/`Sync` expectations for core/session types are documented and verified without unsafe blanket trait impls.
   - Data-path changes document why copies are unavoidable where zero-copy is not possible.
 - OS proof discipline:
-  - if OS integration hooks are touched, run single-VM + 2-VM proofs sequentially (`scripts/qemu-test.sh`, `tools/os2vm.sh`).
+  - if OS integration hooks are touched, run single-VM proof (`scripts/qemu-test.sh`);
+  - run `tools/os2vm.sh` sequentially only when this task slice asserts new distributed behavior claims.
 
 ## Plan (small PRs)
 

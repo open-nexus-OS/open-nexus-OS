@@ -74,8 +74,10 @@ use parking_lot::Mutex;
 use snow::{params::NoiseParams, Builder as NoiseBuilder, HandshakeState, TransportState};
 
 use crate::{
-    derive_noise_keys, proof_message, Announcement, AuthError, Discovery, DiscoveryError,
-    FramePayload, HandshakeProof, HandshakeRole, Session, SessionError, Stream, StreamError,
+    derive_noise_keys, proof_message, validate_payload_identity_spoof_vs_sender_service_id,
+    Announcement, AuthError, BorrowedFrameTransport, Discovery, DiscoveryError, FramePayload,
+    HandshakeProof, HandshakeRole, OwnedRecord, PayloadIdentityClaim, SenderServiceId, Session,
+    SessionError, Stream, StreamError,
 };
 use identity::{DeviceId, Identity};
 use nexus_idl_runtime::dsoftbus_capnp::{connect_request, connect_response, frame};
@@ -89,14 +91,18 @@ struct Registry {
 
 impl Registry {
     fn new() -> Self {
-        Self { announcements: HashMap::new(), watchers: Vec::new() }
+        Self {
+            announcements: HashMap::new(),
+            watchers: Vec::new(),
+        }
     }
 
     fn announce(&mut self, announcement: Announcement) {
         for sender in &self.watchers {
             let _ = sender.send(announcement.clone());
         }
-        self.announcements.insert(announcement.device_id().as_str().to_string(), announcement);
+        self.announcements
+            .insert(announcement.device_id().as_str().to_string(), announcement);
     }
 
     fn watch(&mut self) -> mpsc::Receiver<Announcement> {
@@ -292,15 +298,17 @@ fn build_initiator(
 }
 
 fn parse_verifying_key(bytes: &[u8]) -> Result<VerifyingKey, AuthError> {
-    let array: [u8; 32] =
-        bytes.try_into().map_err(|_| AuthError::Identity("invalid verifying key length".into()))?;
+    let array: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| AuthError::Identity("invalid verifying key length".into()))?;
     VerifyingKey::from_bytes(&array)
         .map_err(|err| AuthError::Identity(format!("verifying key: {err}")))
 }
 
 fn parse_signature(bytes: &[u8]) -> Result<Signature, AuthError> {
-    let array: [u8; 64] =
-        bytes.try_into().map_err(|_| AuthError::Identity("invalid signature length".into()))?;
+    let array: [u8; 64] = bytes
+        .try_into()
+        .map_err(|_| AuthError::Identity("invalid signature length".into()))?;
     Ok(Signature::from_bytes(&array))
 }
 
@@ -309,8 +317,9 @@ pub(crate) fn decrypt_payload(
     frame: &[u8],
 ) -> Result<Vec<u8>, StreamError> {
     let mut buf = vec![0u8; frame.len()];
-    let len =
-        state.read_message(frame, &mut buf).map_err(|err| StreamError::Crypto(err.to_string()))?;
+    let len = state
+        .read_message(frame, &mut buf)
+        .map_err(|err| StreamError::Crypto(err.to_string()))?;
     buf.truncate(len);
     Ok(buf)
 }
@@ -320,8 +329,9 @@ pub(crate) fn encrypt_payload(
     data: &[u8],
 ) -> Result<Vec<u8>, StreamError> {
     let mut buf = vec![0u8; data.len() + 64];
-    let len =
-        state.write_message(data, &mut buf).map_err(|err| StreamError::Crypto(err.to_string()))?;
+    let len = state
+        .write_message(data, &mut buf)
+        .map_err(|err| StreamError::Crypto(err.to_string()))?;
     buf.truncate(len);
     Ok(buf)
 }
@@ -347,20 +357,32 @@ fn deserialize_connect_request(bytes: &[u8]) -> Result<String, AuthError> {
     let mut cursor = std::io::Cursor::new(bytes);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| AuthError::Protocol(err.to_string()))?;
-    let reader: connect_request::Reader<'_> =
-        message.get_root().map_err(|err| AuthError::Protocol(err.to_string()))?;
-    let txt = reader.get_device_id().map_err(|err| AuthError::Protocol(err.to_string()))?;
-    Ok(txt.to_str().map_err(|e| AuthError::Protocol(e.to_string()))?.to_string())
+    let reader: connect_request::Reader<'_> = message
+        .get_root()
+        .map_err(|err| AuthError::Protocol(err.to_string()))?;
+    let txt = reader
+        .get_device_id()
+        .map_err(|err| AuthError::Protocol(err.to_string()))?;
+    Ok(txt
+        .to_str()
+        .map_err(|e| AuthError::Protocol(e.to_string()))?
+        .to_string())
 }
 
 pub(crate) fn deserialize_frame(bytes: &[u8]) -> Result<FramePayload, StreamError> {
     let mut cursor = std::io::Cursor::new(bytes);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| StreamError::Protocol(err.to_string()))?;
-    let reader: frame::Reader<'_> =
-        message.get_root().map_err(|err| StreamError::Protocol(err.to_string()))?;
-    let payload = reader.get_bytes().map_err(|err| StreamError::Protocol(err.to_string()))?;
-    Ok(FramePayload { channel: reader.get_chan(), bytes: payload.to_vec() })
+    let reader: frame::Reader<'_> = message
+        .get_root()
+        .map_err(|err| StreamError::Protocol(err.to_string()))?;
+    let payload = reader
+        .get_bytes()
+        .map_err(|err| StreamError::Protocol(err.to_string()))?;
+    Ok(FramePayload {
+        channel: reader.get_chan(),
+        bytes: payload.to_vec(),
+    })
 }
 
 pub(crate) fn serialize_frame(channel: u32, payload: &[u8]) -> Result<Vec<u8>, StreamError> {
@@ -387,7 +409,10 @@ pub(crate) fn send_connect_response(
     })?;
     let encrypted =
         encrypt_payload(state, &bytes).map_err(|err| AuthError::Protocol(err.to_string()))?;
-    eprintln!("[dsoftbus] server: sending encrypted connect_response len={}", encrypted.len());
+    eprintln!(
+        "[dsoftbus] server: sending encrypted connect_response len={}",
+        encrypted.len()
+    );
     write_frame(stream, &encrypted)?;
     Ok(())
 }
@@ -412,14 +437,18 @@ pub(crate) fn receive_connect_response(
     state: &mut TransportState,
 ) -> Result<bool, AuthError> {
     let frame = read_frame(stream)?;
-    eprintln!("[dsoftbus] client: received encrypted connect_response len={}", frame.len());
+    eprintln!(
+        "[dsoftbus] client: received encrypted connect_response len={}",
+        frame.len()
+    );
     let bytes =
         decrypt_payload(state, &frame).map_err(|err| AuthError::Protocol(err.to_string()))?;
     let mut cursor = std::io::Cursor::new(bytes);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new())
         .map_err(|err| AuthError::Protocol(err.to_string()))?;
-    let reader: connect_response::Reader<'_> =
-        message.get_root().map_err(|err| AuthError::Protocol(err.to_string()))?;
+    let reader: connect_response::Reader<'_> = message
+        .get_root()
+        .map_err(|err| AuthError::Protocol(err.to_string()))?;
     Ok(reader.get_ok())
 }
 
@@ -428,7 +457,10 @@ pub(crate) fn receive_connect_request(
     state: &mut TransportState,
 ) -> Result<String, AuthError> {
     let frame = read_frame(stream)?;
-    eprintln!("[dsoftbus] server: received encrypted connect_request len={}", frame.len());
+    eprintln!(
+        "[dsoftbus] server: received encrypted connect_request len={}",
+        frame.len()
+    );
     let bytes =
         decrypt_payload(state, &frame).map_err(|err| AuthError::Protocol(err.to_string()))?;
     deserialize_connect_request(&bytes)
@@ -459,8 +491,9 @@ fn read_handshake_proof(
     message: &[u8],
 ) -> Result<HandshakeProof, AuthError> {
     let mut buf = vec![0u8; MAX_MESSAGE];
-    let len =
-        state.read_message(message, &mut buf).map_err(|err| AuthError::Noise(err.to_string()))?;
+    let len = state
+        .read_message(message, &mut buf)
+        .map_err(|err| AuthError::Noise(err.to_string()))?;
     buf.truncate(len);
     serde_json::from_slice(&buf).map_err(|err| AuthError::Protocol(err.to_string()))
 }
@@ -471,8 +504,9 @@ fn write_handshake_proof(
 ) -> Result<Vec<u8>, AuthError> {
     let payload = serde_json::to_vec(proof).map_err(|err| AuthError::Protocol(err.to_string()))?;
     let mut buf = vec![0u8; payload.len() + 64];
-    let len =
-        state.write_message(&payload, &mut buf).map_err(|err| AuthError::Noise(err.to_string()))?;
+    let len = state
+        .write_message(&payload, &mut buf)
+        .map_err(|err| AuthError::Noise(err.to_string()))?;
     buf.truncate(len);
     Ok(buf)
 }
@@ -499,7 +533,9 @@ pub(crate) fn handshake_accept(
     // message 1
     let message1 = read_frame(stream)?;
     let mut scratch = vec![0u8; MAX_MESSAGE];
-    state.read_message(&message1, &mut scratch).map_err(|err| AuthError::Noise(err.to_string()))?;
+    state
+        .read_message(&message1, &mut scratch)
+        .map_err(|err| AuthError::Noise(err.to_string()))?;
     eprintln!("[dsoftbus] accept: got msg1");
 
     // message 2 with server proof
@@ -519,8 +555,13 @@ pub(crate) fn handshake_accept(
     let remote_static = ensure_remote_static(&state)?;
     let (device_id, _) = validate_proof(proof, HandshakeRole::Client, &remote_static)?;
 
-    let transport = state.into_transport_mode().map_err(|err| AuthError::Noise(err.to_string()))?;
-    eprintln!("[dsoftbus] accept: transport established for {}", device_id.as_str());
+    let transport = state
+        .into_transport_mode()
+        .map_err(|err| AuthError::Noise(err.to_string()))?;
+    eprintln!(
+        "[dsoftbus] accept: transport established for {}",
+        device_id.as_str()
+    );
     Ok((transport, device_id))
 }
 
@@ -536,8 +577,9 @@ pub(crate) fn handshake_connect(
     // message 1
     let mut message1 = vec![0u8; MAX_MESSAGE];
     eprintln!("[dsoftbus] connect: sending msg1");
-    let len =
-        state.write_message(&[], &mut message1).map_err(|err| AuthError::Noise(err.to_string()))?;
+    let len = state
+        .write_message(&[], &mut message1)
+        .map_err(|err| AuthError::Noise(err.to_string()))?;
     message1.truncate(len);
     write_frame(stream, &message1)?;
     eprintln!("[dsoftbus] connect: sent msg1");
@@ -557,7 +599,9 @@ pub(crate) fn handshake_connect(
     // The announcement is the (device_id -> noise_static_pub) mapping input; the handshake proof
     // authenticates the remote identity. They must match.
     if &device_id != announcement.device_id() {
-        return Err(AuthError::Identity("announcement device_id mismatch".into()));
+        return Err(AuthError::Identity(
+            "announcement device_id mismatch".into(),
+        ));
     }
 
     let message = proof_message(HandshakeRole::Client, noise_public);
@@ -568,8 +612,13 @@ pub(crate) fn handshake_connect(
     write_frame(stream, &final_message)?;
     eprintln!("[dsoftbus] connect: sent msg3");
 
-    let transport = state.into_transport_mode().map_err(|err| AuthError::Noise(err.to_string()))?;
-    eprintln!("[dsoftbus] connect: transport established for {}", device_id.as_str());
+    let transport = state
+        .into_transport_mode()
+        .map_err(|err| AuthError::Noise(err.to_string()))?;
+    eprintln!(
+        "[dsoftbus] connect: transport established for {}",
+        device_id.as_str()
+    );
 
     Ok((transport, device_id))
 }
@@ -616,7 +665,12 @@ impl HostAuthenticator {
 
     fn new(listener: TcpListener, identity: Identity) -> Self {
         let (noise_secret, noise_public) = derive_noise_keys(&identity);
-        Self { listener: Arc::new(listener), identity, noise_secret, noise_public }
+        Self {
+            listener: Arc::new(listener),
+            identity,
+            noise_secret,
+            noise_public,
+        }
     }
 }
 
@@ -634,17 +688,28 @@ impl crate::Authenticator for HostAuthenticator {
         stream.set_nodelay(true)?;
         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-        let (mut transport, device_id) =
-            handshake_accept(&self.identity, &self.noise_secret, &self.noise_public, &mut stream)?;
+        let (mut transport, device_id) = handshake_accept(
+            &self.identity,
+            &self.noise_secret,
+            &self.noise_public,
+            &mut stream,
+        )?;
 
         let request_id = receive_connect_request(&mut stream, &mut transport)?;
-        if request_id != device_id.as_str() {
+        if let Err(reject) = validate_payload_identity_spoof_vs_sender_service_id(
+            SenderServiceId::new(device_id.as_str()),
+            PayloadIdentityClaim::new(request_id.as_str()),
+        ) {
             send_connect_response(&mut stream, &mut transport, false)?;
-            return Err(AuthError::Identity("device mismatch".into()));
+            return Err(AuthError::Identity(reject.label().to_string()));
         }
         send_connect_response(&mut stream, &mut transport, true)?;
 
-        Ok(HostSession { stream, transport, remote_device: device_id })
+        Ok(HostSession {
+            stream,
+            transport,
+            remote_device: device_id,
+        })
     }
 
     fn connect(&self, announcement: &Announcement) -> Result<Self::Session, AuthError> {
@@ -667,7 +732,11 @@ impl crate::Authenticator for HostAuthenticator {
         if !ok {
             return Err(AuthError::Identity("connection rejected".into()));
         }
-        Ok(HostSession { stream, transport, remote_device: device_id })
+        Ok(HostSession {
+            stream,
+            transport,
+            remote_device: device_id,
+        })
     }
 }
 
@@ -686,7 +755,10 @@ impl Session for HostSession {
     }
 
     fn into_stream(self) -> Result<Self::Stream, SessionError> {
-        Ok(HostStream { stream: self.stream, transport: self.transport })
+        Ok(HostStream {
+            stream: self.stream,
+            transport: self.transport,
+        })
     }
 }
 
@@ -709,6 +781,21 @@ impl Stream for HostStream {
                 let bytes = decrypt_payload(&mut self.transport, &frame)?;
                 deserialize_frame(&bytes).map(Some)
             }
+            None => Ok(None),
+        }
+    }
+}
+
+impl BorrowedFrameTransport for HostStream {
+    type Error = StreamError;
+
+    fn send_record(&mut self, channel: u32, payload: &[u8]) -> Result<(), Self::Error> {
+        Stream::send(self, channel, payload)
+    }
+
+    fn recv_record(&mut self) -> Result<Option<OwnedRecord>, Self::Error> {
+        match Stream::recv(self)? {
+            Some(frame) => Ok(Some(OwnedRecord::new(frame.channel, frame.bytes))),
             None => Ok(None),
         }
     }

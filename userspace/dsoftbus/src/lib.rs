@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional (host TCP + host QUIC runtime selection), Placeholder (OS backend - pending kernel transport)
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: integration tests for host/facade transport, discovery robustness, QUIC host/selection contracts (`quic_host_transport_contract`, `quic_selection_contract`), and mux v2 requirement suites (`mux_contract_rejects_and_bounds`, `mux_frame_state_keepalive_contract`, `mux_open_accept_data_rst_integration`)
+//! TEST_COVERAGE: integration tests for host/facade transport, discovery robustness, QUIC host/selection contracts (`quic_host_transport_contract`, `quic_selection_contract`), mux v2 requirement suites (`mux_contract_rejects_and_bounds`, `mux_frame_state_keepalive_contract`, `mux_open_accept_data_rst_integration`), and no_std-core reject contracts (`core_contract_rejects`)
 //!
 //! PUBLIC API:
 //!   - Announcement: Service discovery announcement
@@ -57,7 +57,12 @@ impl Announcement {
         port: u16,
         noise_static: [u8; 32],
     ) -> Self {
-        Self { device_id, services, port, noise_static }
+        Self {
+            device_id,
+            services,
+            port,
+            noise_static,
+        }
     }
 
     /// Returns the announced device id.
@@ -242,7 +247,9 @@ fn deserialize_connect_request_plain(bytes: &[u8]) -> Result<String, String> {
         .map_err(|err| err.to_string())?;
     let reader: connect_request::Reader<'_> = message.get_root().map_err(|err| err.to_string())?;
     let txt = reader.get_device_id().map_err(|err| err.to_string())?;
-    txt.to_str().map_err(|err| err.to_string()).map(str::to_string)
+    txt.to_str()
+        .map_err(|err| err.to_string())
+        .map(str::to_string)
 }
 
 fn serialize_connect_response_plain(ok: bool) -> Result<Vec<u8>, String> {
@@ -284,8 +291,21 @@ pub mod discovery_packet;
 
 pub mod remote_proxy_policy;
 
-pub mod mux_v2;
-pub use mux_v2::*;
+pub mod mux_v2 {
+    pub use dsoftbus_core::mux_v2::*;
+}
+pub use dsoftbus_core::mux_v2::*;
+
+pub mod core_contract {
+    pub use dsoftbus_core::core_contract::*;
+}
+pub use dsoftbus_core::core_contract::{
+    validate_payload_identity_spoof_vs_sender_service_id, validate_record_bounds,
+    BorrowedFrameTransport, CoreReject, CorrelationNonce, CorrelationWindow, OwnedRecord,
+    PayloadIdentityClaim, SenderServiceId, REJECT_INVALID_STATE_TRANSITION,
+    REJECT_NONCE_MISMATCH_OR_STALE_REPLY, REJECT_OVERSIZE_FRAME_OR_RECORD,
+    REJECT_PAYLOAD_IDENTITY_SPOOF_VS_SENDER_SERVICE_ID, REJECT_UNAUTHENTICATED_MESSAGE_PATH,
+};
 
 pub mod transport_selection;
 pub use transport_selection::{
@@ -336,7 +356,10 @@ fn host_transport_mode_from_env() -> TransportMode {
 
 #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 fn dsoftbus_port_from_env() -> u16 {
-    std::env::var("DSOFTBUS_PORT").ok().and_then(|raw| raw.parse::<u16>().ok()).unwrap_or(34_567)
+    std::env::var("DSOFTBUS_PORT")
+        .ok()
+        .and_then(|raw| raw.parse::<u16>().ok())
+        .unwrap_or(34_567)
 }
 
 #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
@@ -361,7 +384,10 @@ fn load_host_quic_runtime_config_from_env() -> Result<HostQuicRuntimeConfig, Str
     let cert_chain = vec![CertificateDer::from(cert_der)];
     let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));
 
-    Ok(HostQuicRuntimeConfig { cert_chain, private_key })
+    Ok(HostQuicRuntimeConfig {
+        cert_chain,
+        private_key,
+    })
 }
 
 #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
@@ -421,8 +447,12 @@ fn host_run_quic(identity: Identity, port: u16, quic_runtime: HostQuicRuntimeCon
         let discovery = HostDiscovery::new();
         let services = vec!["samgrd".to_string(), "bundlemgrd".to_string()];
         let (_, noise_public) = derive_noise_keys(&identity);
-        let announcement =
-            Announcement::new(identity.device_id().clone(), services, local_port, noise_public);
+        let announcement = Announcement::new(
+            identity.device_id().clone(),
+            services,
+            local_port,
+            noise_public,
+        );
         if let Err(err) = discovery.announce(announcement) {
             panic!("announce local node (quic): {err}");
         }
@@ -549,7 +579,10 @@ fn host_run() {
         Ok(selection) => selection,
         Err(err) => panic!("dsoftbus host transport selection failed: {err}"),
     };
-    eprintln!("[dsoftbus] host transport selected {:?}", transport_selection.transport());
+    eprintln!(
+        "[dsoftbus] host transport selected {:?}",
+        transport_selection.transport()
+    );
 
     let port = dsoftbus_port_from_env();
     match transport_selection.transport() {

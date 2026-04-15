@@ -1,7 +1,7 @@
 # Cursor Current State (SSOT)
 
 ## Current architecture state
-- **last_decision**: close `TASK-0021` as `Done` with host-only real QUIC proof slice complete and OS QUIC still disabled-by-default.
+- **last_decision**: move `TASK-0022` to `In Review` after closure implementation, with production-quality verification and process sync in progress.
 - **active_constraints**:
   - execute only `TASK-0022` core/no_std extraction scope (no pre-enable work from `TASK-0023`),
   - do not absorb `TASK-0044` QUIC tuning breadth,
@@ -9,7 +9,7 @@
   - keep closure language production-class (avoid broad production-ready overclaims for the distributed stack).
 
 ## Current focus (execution)
-- **active_task**: `TASK-0022` planning follow-up (core/no_std transport split), with `TASK-0021` frozen
+- **active_task**: `TASK-0022` review synchronization (`In Review`), with `TASK-0021` frozen
 - **seed_contract**:
   - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
   - `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
@@ -67,11 +67,11 @@
   - `ring 0.17.x` and `tokio/quinn-udp` keep split `windows-sys` lines (`0.52` + `0.61`).
 
 ## Next handoff target
-- Keep `TASK-0021` frozen/done and hand over execution planning to `TASK-0022`.
+- Keep `TASK-0021` frozen/done; keep `TASK-0022` frozen for review-only synchronization before queue advance.
 
 ## Active follow-up planning
-- **next_plan**: `TASK-0022` execution planning (core/no_std split) after `TASK-0021` closure.
-- **plan_goal**: keep `TASK-0021` proof floor frozen while extracting reusable core transport seams for OS follow-on work.
+- **next_plan**: complete `TASK-0022` review pass and then choose executable next slice (`TASK-0023` remains blocked by its own gate).
+- **plan_goal**: preserve the new core crate boundary and reject/determinism contracts while avoiding scope absorption.
 
 ## Dependency convergence closure snapshot (2026-04-14)
 - **Implemented**:
@@ -97,3 +97,50 @@
 - **Duplicate delta after hardening**:
   - `rand_core` duplicate warning removed from `just deny-check`.
   - remaining duplicate warnings: `getrandom`, `windows-sys`.
+
+## TASK-0022 execution snapshot (2026-04-15, hybrid phase-1)
+- Added `userspace/dsoftbus/src/core_contract.rs` with no_std-friendly (`core + alloc`) transport-neutral helpers:
+  - `BorrowedFrameTransport` adapter seam,
+  - ownership-safe `OwnedRecord`/borrow-view contract,
+  - bounded correlation nonce guard,
+  - deterministic reject labels for state/correlation/bounds/auth/identity-spoof paths.
+- Wired host identity reject through shared core helper in `userspace/dsoftbus/src/host.rs`:
+  - payload identity is checked against channel-authoritative identity using `validate_payload_identity_spoof_vs_sender_service_id`.
+- Replaced implicit OS placeholder seam with explicit unsupported adapter boundary in `userspace/dsoftbus/src/os.rs`.
+- Added requirement-named reject proofs:
+  - `userspace/dsoftbus/tests/core_contract_rejects.rs`
+  - `test_reject_invalid_state_transition`
+  - `test_reject_nonce_mismatch_or_stale_reply`
+  - `test_reject_oversize_frame_or_record`
+  - `test_reject_unauthenticated_message_path`
+  - `test_reject_payload_identity_spoof_vs_sender_service_id`
+- Proof snapshot (green):
+  - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
+  - `cargo test -p dsoftbus -- reject --nocapture`
+  - `just test-dsoftbus-quic`
+  - `just diag-host`
+  - `just deny-check`
+  - `just dep-gate && just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `just test-e2e && just test-os-dhcp`
+
+## TASK-0022 closure resolution (2026-04-15)
+- Gap-lock resolution completed in this slice:
+  - `dsoftbus-core` crate boundary is real (`userspace/dsoftbus/core`, package `dsoftbus-core`),
+  - explicit no_std proof is green: `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`,
+  - deterministic Phase-D evidence is green (`test_perf_backpressure_budget_is_deterministic`, `test_zero_copy_borrow_view_preserves_payload_reference`),
+  - `Send`/`Sync` compile-time contract assertion is green (`test_core_boundary_types_are_send_sync`),
+  - Phase-E sync completed across task/RFC/testing/status/handoff/current-state surfaces.
+- `os2vm` note clarified for TASK-0022:
+  - 2-VM proof remains conditional on asserting new distributed behavior claims; this closure slice does not assert new distributed behavior.
+
+## TASK-0022 review verification pass (2026-04-15)
+- Re-ran quality/security/performance gates while task status is `In Review`:
+  - `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
+  - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
+  - `cargo test -p dsoftbus -- reject --nocapture`
+  - `just test-dsoftbus-quic`
+  - `just deny-check`
+  - `just dep-gate && just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `just test-e2e && just test-os-dhcp`

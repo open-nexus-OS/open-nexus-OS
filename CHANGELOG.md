@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-15
+
+#### TASK-0022 review sync (`TASK-0022`, `RFC-0036`)
+
+- `TASK-0022` moved to `In Review` for final production-quality verification pass.
+- `RFC-0036` is now `Complete` while `TASK-0022` remains `In Review` for final task-level sign-off.
+- `dsoftbus-core` crate boundary and review evidence synchronized into process docs:
+  - `tasks/IMPLEMENTATION-ORDER.md`
+  - `tasks/STATUS-BOARD.md`
+  - `.cursor/current_state.md`
+  - `.cursor/handoff/current.md`
+  - `.cursor/next_task_prep.md`
+- Fresh quality/security/performance verification pass run:
+  - `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
+  - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
+  - `cargo test -p dsoftbus -- reject --nocapture`
+  - `just test-dsoftbus-quic`
+  - `just deny-check`
+  - `just dep-gate && just diag-os`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `just test-e2e && just test-os-dhcp`
+
 ### Changed - 2026-04-14
 
 #### DSoftBus QUIC host-first closure sync (`TASK-0021`, `RFC-0035`)

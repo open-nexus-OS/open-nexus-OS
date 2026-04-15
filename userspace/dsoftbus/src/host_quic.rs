@@ -120,9 +120,11 @@ async fn probe_and_echo_once_async(
     })?;
     endpoint.set_default_client_config(client_config);
 
-    let connecting = endpoint.connect(request.server_addr, request.server_name).map_err(|err| {
-        HostQuicProbeError::Unavailable(format!("client connect setup failed: {err}"))
-    })?;
+    let connecting = endpoint
+        .connect(request.server_addr, request.server_name)
+        .map_err(|err| {
+            HostQuicProbeError::Unavailable(format!("client connect setup failed: {err}"))
+        })?;
     let connection = match tokio::time::timeout(request.timeout, connecting).await {
         Ok(Ok(connection)) => connection,
         Ok(Err(err)) => {
@@ -150,12 +152,16 @@ async fn probe_and_echo_once_async(
             Ok(Err(err)) => {
                 connection.close(0u32.into(), b"open_bi fail");
                 endpoint.wait_idle().await;
-                return Err(HostQuicProbeError::Unavailable(format!("open_bi failed: {err}")));
+                return Err(HostQuicProbeError::Unavailable(format!(
+                    "open_bi failed: {err}"
+                )));
             }
             Err(_) => {
                 connection.close(0u32.into(), b"open_bi timeout");
                 endpoint.wait_idle().await;
-                return Err(HostQuicProbeError::Unavailable("open_bi timed out".to_string()));
+                return Err(HostQuicProbeError::Unavailable(
+                    "open_bi timed out".to_string(),
+                ));
             }
         };
 
@@ -164,12 +170,16 @@ async fn probe_and_echo_once_async(
         Ok(Err(err)) => {
             connection.close(0u32.into(), b"write fail");
             endpoint.wait_idle().await;
-            return Err(HostQuicProbeError::Unavailable(format!("stream write failed: {err}")));
+            return Err(HostQuicProbeError::Unavailable(format!(
+                "stream write failed: {err}"
+            )));
         }
         Err(_) => {
             connection.close(0u32.into(), b"write timeout");
             endpoint.wait_idle().await;
-            return Err(HostQuicProbeError::Unavailable("stream write timed out".to_string()));
+            return Err(HostQuicProbeError::Unavailable(
+                "stream write timed out".to_string(),
+            ));
         }
     }
 
@@ -186,12 +196,16 @@ async fn probe_and_echo_once_async(
             Ok(Err(err)) => {
                 connection.close(0u32.into(), b"read fail");
                 endpoint.wait_idle().await;
-                return Err(HostQuicProbeError::Unavailable(format!("stream read failed: {err}")));
+                return Err(HostQuicProbeError::Unavailable(format!(
+                    "stream read failed: {err}"
+                )));
             }
             Err(_) => {
                 connection.close(0u32.into(), b"read timeout");
                 endpoint.wait_idle().await;
-                return Err(HostQuicProbeError::Unavailable("stream read timed out".to_string()));
+                return Err(HostQuicProbeError::Unavailable(
+                    "stream read timed out".to_string(),
+                ));
             }
         }
     }
@@ -206,7 +220,10 @@ async fn probe_and_echo_once_async(
     connection.close(0u32.into(), b"probe done");
     endpoint.wait_idle().await;
 
-    Ok(HostQuicProbeResult { negotiated_alpn, echoed_payload })
+    Ok(HostQuicProbeResult {
+        negotiated_alpn,
+        echoed_payload,
+    })
 }
 
 pub fn select_transport_with_host_quic(
@@ -262,8 +279,10 @@ fn build_client_config(
         .map_err(|err| HostQuicProbeError::Protocol(format!("tls version config failed: {err}")))?
         .with_root_certificates(roots)
         .with_no_client_auth();
-    let mut alpn_protocols: Vec<Vec<u8>> =
-        offered_alpns.iter().map(|alpn| alpn.as_bytes().to_vec()).collect();
+    let mut alpn_protocols: Vec<Vec<u8>> = offered_alpns
+        .iter()
+        .map(|alpn| alpn.as_bytes().to_vec())
+        .collect();
     if alpn_protocols.is_empty() {
         alpn_protocols.push(expected_alpn.as_bytes().to_vec());
     }

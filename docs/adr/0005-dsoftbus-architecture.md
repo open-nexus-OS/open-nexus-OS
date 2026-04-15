@@ -2,6 +2,7 @@
 
 Status: Accepted
 Date: 2025-01-27
+Last Updated: 2026-04-15
 Owners: @runtime
 
 ## Context
@@ -19,6 +20,8 @@ Implement `userspace/dsoftbus` as the distributed service fabric with the follow
 - **Backends**: Host (TCP), OS (userspace sockets facade via `netstackd`)
 - **Transport selection contract**: deterministic `auto|tcp|quic` with strict fail-closed semantics
   and explicit fallback markers (host-first QUIC in TASK-0021; OS QUIC follow-on gated)
+- **Core transport abstraction seam**: `dsoftbus-core` (`no_std + alloc`) owns transport-neutral
+  contract helpers and mux state boundaries; host/OS adapters remain in `userspace/dsoftbus`
 
 ## Rationale
 
@@ -77,8 +80,9 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 5. ✅ Implement cross-VM discovery/session + minimal remote proxy (TASK-0005, opt-in)
 6. ✅ Implement reliable streams with multiplexing (TASK-0020)
 7. ✅ Host-first QUIC v1 transport selection + host runtime proof (TASK-0021)
-8. ⬜ OS QUIC enablement remains gated follow-on (TASK-0023)
-9. ✅ Add comprehensive test coverage (host tests green)
+8. 🟨 Extract no_std core seam + transport abstraction (`TASK-0022`, in review)
+9. ⬜ OS QUIC enablement remains gated follow-on (TASK-0023)
+10. ✅ Add comprehensive test coverage (host tests green)
 
 ## Implementation Status (2026-04-14)
 
@@ -92,9 +96,10 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 | Dual-node proof | ✅ | ✅ | TASK-0004 |
 | Cross-VM sessions (2× QEMU, opt-in) | ✅ | ✅ | TASK-0005 |
 | Remote proxy (`samgrd`/`bundlemgrd`, deny-by-default) | ✅ | ✅ | TASK-0005 |
-| Modular daemon orchestration (`src/os/**`, thin `main.rs`) | ✅ | 🟨 In Review | TASK-0015 |
+| Modular daemon orchestration (`src/os/**`, thin `main.rs`) | ✅ | ✅ | TASK-0015 |
 | Host seam/security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ | ✅ | TASK-0015 |
 | QUIC v1 host transport selection + runtime proof | ✅ | n/a | TASK-0021 |
+| no_std core seam + transport-neutral contract helpers (`dsoftbus-core`) | ✅ | ✅ (explicit unsupported adapter boundary for non-implemented transport paths) | TASK-0022 |
 | OS QUIC default mode | n/a | ✅ Disabled-by-default | TASK-0021/TASK-0023 boundary |
 
 **Cross-VM harness contract (opt-in)**:
@@ -108,6 +113,8 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 - RFC-0007: DSoftBus OS Transport v1
 - RFC-0008: DSoftBus Noise XK v1
 - RFC-0009: no_std Dependency Hygiene v1
+- RFC-0035: DSoftBus QUIC v1 host-first scaffold contract
+- RFC-0036: DSoftBus core no_std transport abstraction v1
 
 ## References
 

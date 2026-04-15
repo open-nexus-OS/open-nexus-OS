@@ -58,22 +58,39 @@ fn open_accept_and_control_bulk_multiplexing() {
     let bulk_id = stream_id(2);
 
     client
-        .open_stream(control_id, priority(0), stream_name("control"), WindowCredit::new(64 * 1024))
+        .open_stream(
+            control_id,
+            priority(0),
+            stream_name("control"),
+            WindowCredit::new(64 * 1024),
+        )
         .expect("open control");
     client
-        .open_stream(bulk_id, priority(3), stream_name("bulk"), WindowCredit::new(64 * 1024))
+        .open_stream(
+            bulk_id,
+            priority(3),
+            stream_name("bulk"),
+            WindowCredit::new(64 * 1024),
+        )
         .expect("open bulk");
     exchange(&mut client, &mut server);
 
     let accept1 = server.accept_stream().expect("accept first");
     let accept2 = server.accept_stream().expect("accept second");
-    let accepted_names = [accept1.name.as_str().to_string(), accept2.name.as_str().to_string()];
+    let accepted_names = [
+        accept1.name.as_str().to_string(),
+        accept2.name.as_str().to_string(),
+    ];
     assert!(accepted_names.iter().any(|n| n == "control"));
     assert!(accepted_names.iter().any(|n| n == "bulk"));
 
-    let control_send = client.send_data(control_id, priority(0), 32).expect("send control");
+    let control_send = client
+        .send_data(control_id, priority(0), 32)
+        .expect("send control");
     assert!(matches!(control_send, SendBudgetOutcome::Sent { .. }));
-    let bulk_send = client.send_data(bulk_id, priority(3), 8 * 1024).expect("send bulk");
+    let bulk_send = client
+        .send_data(bulk_id, priority(3), 8 * 1024)
+        .expect("send bulk");
     assert!(matches!(bulk_send, SendBudgetOutcome::Sent { .. }));
     exchange(&mut client, &mut server);
 
@@ -87,18 +104,25 @@ fn close_then_rst_propagates_fail_closed() {
     let mut server = MuxHostEndpoint::new_authenticated(0);
     let sid = stream_id(7);
 
-    client.open_stream(sid, priority(1), stream_name("rpc"), WindowCredit::new(64)).expect("open");
+    client
+        .open_stream(sid, priority(1), stream_name("rpc"), WindowCredit::new(64))
+        .expect("open");
     exchange(&mut client, &mut server);
 
     let _ = client.close_stream(sid, priority(1)).expect("close");
     exchange(&mut client, &mut server);
-    assert_eq!(server.stream_state(sid), Some(StreamState::HalfClosedRemote));
+    assert_eq!(
+        server.stream_state(sid),
+        Some(StreamState::HalfClosedRemote)
+    );
 
     let _ = client.reset_stream(sid, priority(1)).expect("reset");
     exchange(&mut client, &mut server);
     assert_eq!(server.stream_state(sid), Some(StreamState::Reset));
 
-    let err = server.send_data(sid, priority(1), 8).expect_err("reset stream must reject send");
+    let err = server
+        .send_data(sid, priority(1), 8)
+        .expect_err("reset stream must reject send");
     assert_eq!(err.label(), REJECT_INVALID_STREAM_STATE_TRANSITION);
 }
 
@@ -117,7 +141,9 @@ fn ingest_duplicate_stream_name_rejects() {
     };
 
     let _ = server.ingest(first).expect("first open ingest");
-    let err = server.ingest(second).expect_err("duplicate ingest name must reject");
+    let err = server
+        .ingest(second)
+        .expect_err("duplicate ingest name must reject");
     assert_eq!(err.label(), REJECT_DUPLICATE_STREAM_NAME);
 }
 
@@ -125,7 +151,12 @@ fn ingest_duplicate_stream_name_rejects() {
 fn unauthenticated_endpoint_rejects_open_and_ingest() {
     let mut endpoint = MuxHostEndpoint::new_unauthenticated(0);
     let err = endpoint
-        .open_stream(stream_id(40), priority(1), stream_name("rpc"), WindowCredit::new(64))
+        .open_stream(
+            stream_id(40),
+            priority(1),
+            stream_name("rpc"),
+            WindowCredit::new(64),
+        )
         .expect_err("open must reject when endpoint is unauthenticated");
     assert_eq!(err.label(), REJECT_UNAUTHENTICATED_SESSION);
 
@@ -144,10 +175,17 @@ fn close_after_reset_rejects_on_integration_path() {
     let mut endpoint = MuxHostEndpoint::new_authenticated(0);
     let sid = stream_id(50);
     endpoint
-        .open_stream(sid, priority(1), stream_name("rpc-close-reset"), WindowCredit::new(64))
+        .open_stream(
+            sid,
+            priority(1),
+            stream_name("rpc-close-reset"),
+            WindowCredit::new(64),
+        )
         .expect("open");
     let _ = endpoint.reset_stream(sid, priority(1)).expect("reset");
 
-    let err = endpoint.close_stream(sid, priority(1)).expect_err("close after reset must reject");
+    let err = endpoint
+        .close_stream(sid, priority(1))
+        .expect_err("close after reset must reject");
     assert_eq!(err.label(), REJECT_INVALID_STREAM_STATE_TRANSITION);
 }

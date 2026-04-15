@@ -1,9 +1,9 @@
 # RFC-0036: DSoftBus core no_std transport abstraction v1
 
-- Status: Draft
+- Status: Complete
 - Owners: @runtime
 - Created: 2026-04-14
-- Last Updated: 2026-04-14
+- Last Updated: 2026-04-15
 - Links:
   - Execution SSOT: `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
   - Program gate track: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
@@ -15,11 +15,11 @@
 
 ## Status at a Glance
 
-- **Phase A (contract lock + boundary freeze)**: 🟨
-- **Phase B (host core proofs + reject paths)**: ⬜
-- **Phase C (OS-compilable integration + marker discipline)**: ⬜
-- **Phase D (deterministic perf + zero-copy discipline)**: ⬜
-- **Phase E (closure sync + handoff evidence)**: ⬜
+- **Phase A (contract lock + boundary freeze)**: ✅
+- **Phase B (host core proofs + reject paths)**: ✅
+- **Phase C (OS-compilable integration + marker discipline)**: ✅
+- **Phase D (deterministic perf + zero-copy discipline)**: ✅
+- **Phase E (closure sync + handoff evidence)**: ✅
 
 Definition:
 
@@ -202,8 +202,10 @@ cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp
 
 ## Open questions
 
-- Which concrete bulk-path abstraction should be canonical in core-facing adapter contracts for zero-copy evidence (`Bytes`-style borrow view vs explicit VMO/filebuffer handles)? (owner: @runtime)
-- Should `Send`/`Sync` expectations be encoded as compile-time trait assertions per core boundary type set in host tests? (owner: @runtime)
+- Bulk-path abstraction decision is now hybrid-phased for this task family:
+  - phase-1 (`TASK-0022`): borrow-view-first core adapter contract,
+  - follow-up: explicit handle-first canonicalization in a separate closure slice.
+- `Send`/`Sync` expectations are encoded via compile-time trait assertions in `userspace/dsoftbus/tests/core_contract_rejects.rs` (`test_core_boundary_types_are_send_sync`).
 
 ## RFC Quality Guidelines (for authors)
 
@@ -221,9 +223,9 @@ When updating this RFC, ensure:
 **This section tracks implementation progress.**
 
 - [x] **Phase A**: contract lock + boundary freeze — proof: task + RFC alignment in `TASK-0022`.
-- [ ] **Phase B**: host reject/core suites + baseline freeze remain green — proof: `just test-dsoftbus-quic` and `cargo test -p dsoftbus -- reject --nocapture`.
-- [ ] **Phase C**: OS compile/integration boundary green where touched — proof: `just dep-gate && just diag-os && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`.
-- [ ] **Phase D**: deterministic perf + zero-copy discipline evidence green — proof: task-owned perf/bounds suites.
-- [ ] **Phase E**: docs/testing/status/handoff synchronized with proof evidence.
+- [x] **Phase B**: host reject/core suites + baseline freeze remain green — proof: `just test-dsoftbus-quic` and `cargo test -p dsoftbus -- reject --nocapture`.
+- [x] **Phase C**: OS compile/integration boundary green where touched — proof: `just dep-gate && just diag-os && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`.
+- [x] **Phase D**: deterministic perf + zero-copy discipline evidence green — proof: `test_perf_backpressure_budget_is_deterministic` and `test_zero_copy_borrow_view_preserves_payload_reference` in `userspace/dsoftbus/tests/core_contract_rejects.rs`.
+- [x] **Phase E**: docs/testing/status/handoff synchronized with proof evidence.
 - [x] Task linked as execution SSOT.
-- [ ] Security-relevant negative tests exist and are green (`test_reject_*` family for state/correlation/bounds/auth).
+- [x] Security-relevant negative tests exist and are green (`test_reject_*` family for state/correlation/bounds/auth).
