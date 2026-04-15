@@ -17,11 +17,13 @@
 
 ## Boundaries for next slice
 - Keep `TASK-0021` closed/done; do not reopen host-proof scope.
-- Do not absorb `TASK-0022` core/no_std extraction.
+- Execute only `TASK-0022` core/no_std extraction scope.
 - Do not pre-enable or pre-unblock `TASK-0023` OS QUIC path.
 - Do not absorb `TASK-0044` tuning matrix.
 
 ## Linked contracts
+- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+- `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
 - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
 - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
 - `docs/testing/index.md`
@@ -51,9 +53,10 @@
 
 ## Planning note
 - Dependency convergence phase-2 closure is complete; next sequential planning target is `TASK-0022`.
+- RFC seed for this slice is `RFC-0036` with production-class wording and explicit plane-separation/authority boundaries.
 
 ## Post Phase-2 next action
 - Treat residual duplicate lines as compatibility-constrained closure work:
   - either upstream-version convergence (ring/quinn/tokio ecosystem),
   - or explicit bounded accept-with-rationale for remaining split lines.
-- Keep `TASK-0021` proof floor unchanged while evaluating that closure path.
+- Keep `TASK-0021` proof floor unchanged while executing `TASK-0022`.

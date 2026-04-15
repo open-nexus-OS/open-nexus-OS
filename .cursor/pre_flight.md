@@ -8,7 +8,7 @@ This is the anti-fake-success gate.
 
 ## Automatic (must be green when applicable)
 - [ ] Host diagnostics compile (when host code touched): `just diag-host`
-- [ ] Narrow host/unit tests pass (task canonical command from active task doc; for TASK-0021: QUIC selection/reject/fallback requirement suites)
+- [ ] Narrow host/unit tests pass (task canonical commands from active task doc; for TASK-0022: baseline freeze + core reject suites)
 - [ ] OS dependency gate (when OS code touched): `just dep-gate`
 - [ ] OS diagnostics compile (when OS code touched): `just diag-os`
 - [ ] Single-VM QEMU marker proof is green (only when OS backend gate is met): `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
@@ -31,35 +31,36 @@ This is the anti-fake-success gate.
 - [ ] Rust construct hygiene reviewed where relevant (`newtype` candidates, ownership boundaries, `#[must_use]` for critical return values)
 - [ ] `Send`/`Sync` discipline reviewed (no blanket/unsafe trait shortcuts in daemon/session state)
 
-## Task-0021 manual addendum (when applicable)
+## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:
   - [ ] target behavior is stated in 1-3 lines,
   - [ ] main break point is explicit,
   - [ ] primary proof closes the core risk, secondary proof only closes a real blind spot.
-- [ ] Scope stays kernel-unchanged and host-first while OS QUIC remains explicitly disabled by default.
-- [ ] Runtime transport selection semantics are explicit and deterministic (`auto|tcp|quic`).
-- [ ] `mode=quic` fails closed (no silent downgrade to TCP).
-- [ ] `mode=auto` downgrade to TCP is explicit and auditable via deterministic markers.
-- [ ] Required negative tests exist and are green:
-  - [ ] `test_reject_quic_wrong_alpn`
-  - [ ] `test_reject_quic_invalid_or_untrusted_cert`
-  - [ ] `test_reject_quic_strict_mode_downgrade`
-  - [ ] `test_auto_mode_fallback_marker_emitted`
-- [ ] Transport-only success does not bypass DSoftBus authenticated session checks.
-- [ ] OS marker ladder is updated/proven only when fallback behavior is genuinely exercised:
-  - [ ] `dsoftbus: quic os disabled (fallback tcp)`
-  - [ ] `SELFTEST: quic fallback ok`
-  - [ ] `dsoftbusd: transport selected tcp` (or equivalent deterministic selector marker)
-- [ ] Follow-on boundary (`TASK-0022`) is documented and not absorbed.
+- [ ] Scope stays kernel-unchanged and does not pre-enable `TASK-0023` OS QUIC behavior.
+- [ ] Plane separation remains explicit in core contracts:
+  - [ ] discovery / auth-session / transmission boundaries are distinct,
+  - [ ] auth success is not treated as policy authorization.
+- [ ] Identity authority remains channel-bound (`sender_service_id`), never payload-derived.
+- [ ] Zero-copy-first discipline is preserved:
+  - [ ] bulk path prefers borrow/VMO/filebuffer style where possible,
+  - [ ] unavoidable copies are bounded and documented.
+- [ ] Rust API discipline is applied where safety-relevant:
+  - [ ] `newtype` used for domain IDs/handles,
+  - [ ] `#[must_use]` on decision-bearing return values,
+  - [ ] ownership transfer semantics are explicit,
+  - [ ] `Send`/`Sync` behavior reviewed without unsafe blanket shortcuts.
+- [ ] `TASK-0021` baseline remains green during refactor (`just test-dsoftbus-quic`).
+- [ ] Modern virtio-mmio proof floor is preserved for OS/QEMU closure claims.
 
-## Active progress snapshot (TASK-0021 kickoff, 2026-04-10)
+## Active progress snapshot (TASK-0022 kickoff, 2026-04-14)
 - [x] Queue/order sync complete (`TASK-0021` Done, queue head moved to `TASK-0022`).
-- [x] `TASK-0020` handoff archived and `current` switched to TASK-0021 baseline.
-- [x] Working context files retargeted to TASK-0021 (`current_state`, `context_bundles`, `next_task_prep`, `pre_flight`, `stop_conditions`).
-- [x] TASK-0021 status moved from `Draft` to `In Progress`.
-- [x] TASK-0021 phase-A contract lock review completed (`RFC-0035` seed created and linked).
-- [x] TASK-0021 host requirement suites implemented and green.
-- [x] TASK-0021 OS fallback markers proven in canonical QEMU harness.
+- [x] `TASK-0021` handoff archived and `current` switched to TASK-0022 prep.
+- [x] Working context files retargeted to TASK-0022 (`current_state`, `context_bundles`, `next_task_prep`, `pre_flight`, `stop_conditions`).
+- [x] TASK-0022 status moved from `Draft` to `In Progress`.
+- [x] TASK-0022 RFC seed created and linked (`RFC-0036`).
+- [x] TASK-0022 contract lock updated with production-class wording + zero-copy/Rust-discipline invariants.
+- [ ] TASK-0022 host requirement suites implemented and green.
+- [ ] TASK-0022 OS compile/marker proofs green where touched.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).

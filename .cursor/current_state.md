@@ -3,16 +3,27 @@
 ## Current architecture state
 - **last_decision**: close `TASK-0021` as `Done` with host-only real QUIC proof slice complete and OS QUIC still disabled-by-default.
 - **active_constraints**:
-  - no scope absorption from `TASK-0022` (no core/no_std extraction),
-  - no pre-enable work from `TASK-0023` (no OS QUIC enablement/unblock),
-  - strict `mode=quic` fail-closed; `mode=auto` fallback must stay explicit/deterministic.
+  - execute only `TASK-0022` core/no_std extraction scope (no pre-enable work from `TASK-0023`),
+  - do not absorb `TASK-0044` QUIC tuning breadth,
+  - preserve `TASK-0021` strict `mode=quic` fail-closed and deterministic `mode=auto` fallback behavior,
+  - keep closure language production-class (avoid broad production-ready overclaims for the distributed stack).
 
 ## Current focus (execution)
 - **active_task**: `TASK-0022` planning follow-up (core/no_std transport split), with `TASK-0021` frozen
 - **seed_contract**:
-  - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-  - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
+  - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+  - `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
   - `docs/testing/index.md`
+
+## Task-0022 prep snapshot (2026-04-14)
+- RFC seed created and linked: `RFC-0036`.
+- Contract guidance sharpened for:
+  - discovery/auth/transmission plane separation,
+  - auth separate from policy authority,
+  - channel-authoritative service identity (`sender_service_id`),
+  - transport-agnostic core behavior,
+  - zero-copy-first bulk data policy.
+- `.cursor` prep files aligned for TASK-0022 kickoff (`context_bundles`, `handoff/current`, `next_task_prep`, `pre_flight`, `stop_conditions`).
 
 ## Implemented in this slice
 - Added host QUIC probe backend: `userspace/dsoftbus/src/host_quic.rs`.
@@ -35,7 +46,7 @@
 - `just test-os-dhcp`
 
 ## Scope boundaries reaffirmed
-- `TASK-0022`: untouched and still follow-on boundary only.
+- `TASK-0022`: active scope (core/no_std split + transport abstraction only).
 - `TASK-0023`: untouched; OS QUIC remains disabled-by-default.
 - `TASK-0044`: untouched; no tuning breadth absorbed into this task.
 

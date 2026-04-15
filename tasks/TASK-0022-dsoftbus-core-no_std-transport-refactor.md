@@ -1,21 +1,28 @@
 ---
 title: TASK-0022 DSoftBus core refactor: no_std-compatible core + transport abstraction (unblocks OS backends)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on:
   - TASK-0015
-follow-up-tasks: []
+  - TASK-0021
+follow-up-tasks:
+  - TASK-0023
+  - TASK-0044
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
+  - RFC (seed contract): docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md
+  - Production gate track: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
+  - RFC (host QUIC scaffold baseline): docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
   - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
-  - Unblocks: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - Related baseline: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Related baseline: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Unblocks: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
+  - Related baseline (Done): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
+  - Unblocks: tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md
   - Testing methodology: docs/testing/index.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
@@ -40,11 +47,20 @@ No phase may be marked green without the linked proof evidence.
 
 Canonical gate commands:
 
+- Host baseline freeze (must stay green while refactoring): `cd /home/jenning/open-nexus-OS && just test-dsoftbus-quic`
 - Host: task-owned requirement suites for core state machine and transport trait behavior.
 - OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
 - Build hygiene: `cd /home/jenning/open-nexus-OS && just dep-gate && just diag-os`
+- Dependency hygiene: `cd /home/jenning/open-nexus-OS && just deny-check`
 - Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
 - Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
+
+## Program alignment (TRACK production gates)
+
+- This task executes in the `DSoftBus & Distributed` `production-floor` gate family from `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
+- Language policy for this slice: use `production-class` quality wording for DSoftBus closure claims; avoid broad `production-ready` overclaims for the distributed stack.
+- `TASK-0021` closure is frozen baseline: host QUIC proof, strict fail-closed semantics, and deterministic OS fallback markers must not regress during this refactor.
+- Primary closure intent here is architectural: extract reusable `no_std` core seams that unblock `TASK-0023` without regressing existing host/OS behavior contracts.
 
 ## Context
 
@@ -52,6 +68,7 @@ Canonical gate commands:
 - `userspace/dsoftbus` is currently **std-based** and its OS backend is a **placeholder** (`userspace/dsoftbus/src/os.rs`).
   Note: OS bring-up streams exist via os-lite services (`netstackd` + `dsoftbusd`) as of TASK-0005, but
   they are not yet factored into a reusable no_std-capable core/backend split.
+- `TASK-0021` is now `Done` with a real host QUIC transport path (`auto|tcp|quic`) and deterministic fallback proofs; this task must preserve those externally visible contracts while refactoring internals.
 
 This blocks any “OS transport ON” work (including QUIC over UDP): we need a DSoftBus core that can run in OS.
 
@@ -89,6 +106,10 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - `dsoftbus-core` must be **`#![no_std]` + `extern crate alloc`** (no `std`).
 - No `unwrap`/`expect`; no blanket `allow(dead_code)`.
 - Deterministic tests on host for the core state machine.
+- `TASK-0021` host/selection/fallback proof contracts remain green throughout refactor (`just test-dsoftbus-quic` must stay green).
+- Zero-copy-first discipline: control-path framing may copy bounded metadata, but bulk payload path must prefer borrowed buffers / VMO-backed/filebuffer-style transfer over eager reallocation/copy chains.
+- Rust API discipline for new core boundaries: use `newtype`s for domain IDs/handles, `#[must_use]` on decision-bearing return values, explicit ownership transfer semantics, and reviewed `Send`/`Sync` behavior (no unsafe blanket trait shortcuts).
+- OS proof runs must stay aligned with modern virtio-mmio defaults (no legacy-mode dependency for success claims).
 
 ## Security considerations
 
@@ -104,12 +125,17 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - Correlation/state-machine transitions remain deterministic and bounded (no unbounded wait loops).
 - Core parsing/frame handling enforces explicit size bounds.
 - No secret/session material is emitted in logs/errors during core/backend boundaries.
+- Service identity binding remains channel-authoritative (`sender_service_id` from IPC metadata), never payload-derived.
+- Ownership and concurrency boundaries remain explicit: cross-thread/session state sharing must preserve safety invariants without hidden aliasing assumptions.
 
 ### DON'T DO
 
 - DON'T move policy authorization decisions into generic transport core.
 - DON'T accept unauthenticated payload strings as identity inputs.
 - DON'T introduce hidden `std` dependencies in no_std core paths.
+- DON'T relax strict downgrade/auth reject behavior that was proven in `TASK-0021`.
+- DON'T reintroduce copy-heavy hot paths where zero-copy-capable buffers are available.
+- DON'T use unsafe `Send`/`Sync` impl shortcuts to force concurrency compatibility.
 
 ### Required negative tests
 
@@ -117,6 +143,7 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 - `test_reject_nonce_mismatch_or_stale_reply`
 - `test_reject_oversize_frame_or_record`
 - `test_reject_unauthenticated_message_path`
+- `test_reject_payload_identity_spoof_vs_sender_service_id`
 
 ## Security proof
 
@@ -129,6 +156,7 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
   - `test_reject_nonce_mismatch_or_stale_reply`
   - `test_reject_oversize_frame_or_record`
   - `test_reject_unauthenticated_message_path`
+  - `test_reject_payload_identity_spoof_vs_sender_service_id`
 
 ### Hardening markers (QEMU, if applicable)
 
@@ -137,8 +165,11 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
 
 ## Red flags / decision points
 
-- **RED**: As long as DSoftBus depends on `std` types (`std::net::*`, `TcpStream`, `std::sync`), OS transports cannot be real.
-- **YELLOW**: Crypto crates (Noise/TLS) may have `std` assumptions; pick `no_std`-capable dependencies or isolate them behind feature gates.
+- **RED**:
+  - none at task-entry. The prior `std` coupling is now this task's primary execution scope, not an external blocker.
+- **YELLOW**:
+  - Crypto crates (Noise/TLS) may have `std` assumptions; choose `no_std`-capable dependencies or isolate via feature-gated adapters.
+  - Refactor churn can silently regress `TASK-0021` externally visible behavior; keep baseline host QUIC suites and fallback marker gates in the mandatory regression floor.
 
 ## Touched paths (allowlist)
 
@@ -155,6 +186,13 @@ Make the DSoftBus “core protocol + state machine” usable in OS builds by:
   - what is required for an OS backend (UDP, timers, entropy/identity).
 - Security gate:
   - `test_reject_*` coverage for parser/state/correlation invariants exists and is green.
+- Baseline contract preservation:
+  - `just test-dsoftbus-quic` remains green (no regression of `TASK-0021` host QUIC/selection/fallback proofs).
+  - `just deny-check` remains green under strict policy (`multiple-versions = "deny"` with only narrow compatibility skips).
+- Rust/zero-copy discipline:
+  - New core boundary types apply `newtype`/ownership/`#[must_use]` where decision-safety requires it.
+  - `Send`/`Sync` expectations for core/session types are documented and verified without unsafe blanket trait impls.
+  - Data-path changes document why copies are unavoidable where zero-copy is not possible.
 - OS proof discipline:
   - if OS integration hooks are touched, run single-VM + 2-VM proofs sequentially (`scripts/qemu-test.sh`, `tools/os2vm.sh`).
 
