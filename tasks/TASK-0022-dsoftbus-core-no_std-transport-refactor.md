@@ -1,6 +1,6 @@
 ---
 title: TASK-0022 DSoftBus core refactor: no_std-compatible core + transport abstraction (unblocks OS backends)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -94,7 +94,7 @@ Canonical gate commands:
 
 ## Review verification pass (2026-04-15)
 
-- Task status advanced to `In Review` for production-quality verification prior to queue advance.
+- Task status advanced to `Done` after production-quality verification and closure sync.
 - Re-ran closure-class quality/security/performance gates; all commands are green:
   - `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
   - `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`

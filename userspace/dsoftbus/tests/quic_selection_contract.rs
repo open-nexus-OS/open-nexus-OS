@@ -64,10 +64,7 @@ fn test_reject_quic_invalid_or_untrusted_cert() {
     )
     .expect_err("untrusted cert must reject");
 
-    assert_eq!(
-        err,
-        TransportSelectionError::RejectQuicInvalidOrUntrustedCert
-    );
+    assert_eq!(err, TransportSelectionError::RejectQuicInvalidOrUntrustedCert);
 }
 
 #[test]
@@ -109,10 +106,7 @@ fn test_perf_budget_quic_mode_single_attempt() {
 #[test]
 fn test_perf_budget_auto_mode_single_attempt_and_fallback_marker_count() {
     assert_eq!(quic_attempts_for_mode(TransportMode::Auto), 1);
-    assert_eq!(
-        fallback_marker_budget(TransportMode::Auto),
-        AUTO_FALLBACK_MARKER_COUNT
-    );
+    assert_eq!(fallback_marker_budget(TransportMode::Auto), AUTO_FALLBACK_MARKER_COUNT);
 
     let outcome = select_transport(TransportMode::Auto, QuicProbe::Disabled)
         .expect("auto mode should deterministically fallback");

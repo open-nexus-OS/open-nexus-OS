@@ -209,9 +209,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | Done | Kernel-untouched guardrail closure with authenticated profile distribution and deterministic proofs complete |
 | ✅ TASK-0020 | DSoftBus Streams v2: mux + flow-control + keepalive | Done | Legacy 0001..0020 production closure gates proven (host/OS/2-VM/perf/soak/release-evidence); closeout synced |
 | ✅ TASK-0021 | DSoftBus QUIC v1 host-first scaffold | Done | Real host QUIC transport + QUIC/mux payload proof + deterministic OS fallback markers + strict-mode fail-closed closure synced |
-| 🟨 TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | In Review | `dsoftbus-core` no_std crate boundary extracted, required `test_reject_*` + deterministic perf/zero-copy trait evidence green, review sync pending final queue advance |
+| ✅ TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | Done | `dsoftbus-core` no_std crate boundary extracted, required `test_reject_*` + deterministic perf/zero-copy trait evidence green, closure sync complete |
 
-Current queue head: `TASK-0022` (In Review; production-quality review and sync checks in progress before queue advance).
+Current queue head: `TASK-0023` (Blocked by OS-QUIC feasibility gate; next executable candidate is `TASK-0024` unless resequenced).
 Production closure program note: `RFC-0034` is now done for legacy `TASK-0001..0020` production closure scope.
 Task contract seed note: `RFC-0035` is the `TASK-0021` host-first QUIC scaffold contract (strict fallback + no silent downgrade, with explicit `TASK-0022` boundary).
 Current TASK-0021 slice status: ✅ Done. Phase-B host proof (real QUIC transport + selection/reject contract + QUIC+mux smoke payload), Phase-C OS fallback marker proof, and Phase-D deterministic perf budget proof are green; host runtime transport selection wiring (`DSOFTBUS_TRANSPORT=tcp|quic|auto`) and targeted gate (`just test-dsoftbus-quic`) are closed and synchronized.
@@ -282,7 +282,7 @@ QEMU window before the later display/system migration tasks fully land.
 | ✅ RFC-0031 | Crashdumps v1 + host symbolization | `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` |
 | ✅ RFC-0032 | ABI syscall guardrails v2 (userland, kernel-untouched) | `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md` |
 
-Current RFC closure status: `RFC-0033` and `RFC-0034` are both `Done`.
+Current RFC closure status: `RFC-0033`, `RFC-0034`, `RFC-0035`, and `RFC-0036` are `Done/Complete`.
 
 ---
 

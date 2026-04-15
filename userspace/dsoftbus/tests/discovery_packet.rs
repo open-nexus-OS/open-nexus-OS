@@ -90,10 +90,7 @@ mod host {
         bytes.extend_from_slice(&1u16.to_be_bytes());
         bytes.extend_from_slice(&[0u8; 32]);
         bytes.push(0);
-        assert_eq!(
-            decode_announce_v1(&bytes),
-            Err(PacketError::UnsupportedVersion(2))
-        );
+        assert_eq!(decode_announce_v1(&bytes), Err(PacketError::UnsupportedVersion(2)));
     }
 
     #[test]

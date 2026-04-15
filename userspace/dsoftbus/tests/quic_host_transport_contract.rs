@@ -147,10 +147,7 @@ fn test_reject_quic_invalid_or_untrusted_cert_real_transport() {
     let selection =
         select_transport_with_host_quic(TransportMode::Quic, DSOFTBUS_QUIC_DEFAULT_ALPN, Err(err))
             .expect_err("strict quic must fail-closed on cert rejection");
-    assert_eq!(
-        selection,
-        TransportSelectionError::RejectQuicInvalidOrUntrustedCert
-    );
+    assert_eq!(selection, TransportSelectionError::RejectQuicInvalidOrUntrustedCert);
 }
 
 #[test]
@@ -167,17 +164,11 @@ fn test_reject_quic_strict_mode_downgrade_when_probe_unavailable() {
         timeout: Duration::from_millis(150),
     });
     let err = probe.expect_err("probe must fail when no server is available");
-    assert!(matches!(
-        err,
-        HostQuicProbeError::Unavailable(_) | HostQuicProbeError::Timeout
-    ));
+    assert!(matches!(err, HostQuicProbeError::Unavailable(_) | HostQuicProbeError::Timeout));
     let selection =
         select_transport_with_host_quic(TransportMode::Quic, DSOFTBUS_QUIC_DEFAULT_ALPN, Err(err))
             .expect_err("strict quic mode must reject downgrade");
-    assert_eq!(
-        selection,
-        TransportSelectionError::RejectQuicStrictModeDowngrade
-    );
+    assert_eq!(selection, TransportSelectionError::RejectQuicStrictModeDowngrade);
 }
 
 #[test]
@@ -216,16 +207,9 @@ fn test_quic_carries_mux_contract_smoke_payload() {
 
     let mut sender_mux = MuxHostEndpoint::new_authenticated(0);
     sender_mux
-        .open_stream(
-            stream_id,
-            priority,
-            stream_name.clone(),
-            WindowCredit::new(8 * 1024),
-        )
+        .open_stream(stream_id, priority, stream_name.clone(), WindowCredit::new(8 * 1024))
         .expect("open stream");
-    let send_outcome = sender_mux
-        .send_data(stream_id, priority, 128)
-        .expect("send data event");
+    let send_outcome = sender_mux.send_data(stream_id, priority, 128).expect("send data event");
     assert!(
         matches!(send_outcome, dsoftbus::SendBudgetOutcome::Sent { .. }),
         "mux data event must be accepted"
@@ -254,9 +238,7 @@ fn test_quic_carries_mux_contract_smoke_payload() {
     for event in echoed_events {
         let _ = receiver_mux.ingest(event).expect("ingest mux wire event");
     }
-    let accepted = receiver_mux
-        .accept_stream()
-        .expect("accepted stream after open");
+    let accepted = receiver_mux.accept_stream().expect("accepted stream after open");
     assert_eq!(accepted.stream_id, stream_id);
     assert_eq!(accepted.priority, priority);
     assert_eq!(accepted.name, stream_name);
@@ -302,9 +284,8 @@ fn spawn_quic_echo_server(
         });
     });
 
-    let addr = addr_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("receive server address from thread");
+    let addr =
+        addr_rx.recv_timeout(Duration::from_secs(1)).expect("receive server address from thread");
     (addr, cert, handle)
 }
 
@@ -329,11 +310,7 @@ fn encode_mux_wire_events(events: &[MuxWireEvent]) -> Vec<u8> {
     out.extend_from_slice(&(events.len() as u32).to_le_bytes());
     for event in events {
         match event {
-            MuxWireEvent::Open {
-                stream_id,
-                priority,
-                name,
-            } => {
+            MuxWireEvent::Open { stream_id, priority, name } => {
                 out.push(1);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
@@ -341,62 +318,39 @@ fn encode_mux_wire_events(events: &[MuxWireEvent]) -> Vec<u8> {
                 out.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
                 out.extend_from_slice(name_bytes);
             }
-            MuxWireEvent::OpenAck {
-                stream_id,
-                priority,
-            } => {
+            MuxWireEvent::OpenAck { stream_id, priority } => {
                 out.push(2);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
             }
-            MuxWireEvent::Data {
-                stream_id,
-                priority,
-                payload_len,
-            } => {
+            MuxWireEvent::Data { stream_id, priority, payload_len } => {
                 out.push(3);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
                 out.extend_from_slice(&(*payload_len as u32).to_le_bytes());
             }
-            MuxWireEvent::WindowUpdate {
-                stream_id,
-                priority,
-                delta,
-            } => {
+            MuxWireEvent::WindowUpdate { stream_id, priority, delta } => {
                 out.push(4);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
                 out.extend_from_slice(&delta.to_le_bytes());
             }
-            MuxWireEvent::Rst {
-                stream_id,
-                priority,
-            } => {
+            MuxWireEvent::Rst { stream_id, priority } => {
                 out.push(5);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
             }
-            MuxWireEvent::Close {
-                stream_id,
-                priority,
-            } => {
+            MuxWireEvent::Close { stream_id, priority } => {
                 out.push(6);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
             }
-            MuxWireEvent::Ping {
-                stream_id,
-                priority,
-            } => {
+            MuxWireEvent::Ping { stream_id, priority } => {
                 out.push(7);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
             }
-            MuxWireEvent::Pong {
-                stream_id,
-                priority,
-            } => {
+            MuxWireEvent::Pong { stream_id, priority } => {
                 out.push(8);
                 out.extend_from_slice(&stream_id.get().to_le_bytes());
                 out.push(priority.get());
@@ -427,48 +381,21 @@ fn decode_mux_wire_events(bytes: &[u8]) -> Result<Vec<MuxWireEvent>, String> {
                     std::str::from_utf8(name).map_err(|err| format!("invalid utf8 name: {err}"))?;
                 let stream_name = StreamName::new(name_str)
                     .map_err(|err| format!("invalid stream name: {err}"))?;
-                MuxWireEvent::Open {
-                    stream_id,
-                    priority,
-                    name: stream_name,
-                }
+                MuxWireEvent::Open { stream_id, priority, name: stream_name }
             }
-            2 => MuxWireEvent::OpenAck {
-                stream_id,
-                priority,
-            },
+            2 => MuxWireEvent::OpenAck { stream_id, priority },
             3 => {
                 let payload_len = read_u32_le(bytes, &mut offset)? as usize;
-                MuxWireEvent::Data {
-                    stream_id,
-                    priority,
-                    payload_len,
-                }
+                MuxWireEvent::Data { stream_id, priority, payload_len }
             }
             4 => {
                 let delta = read_i64_le(bytes, &mut offset)?;
-                MuxWireEvent::WindowUpdate {
-                    stream_id,
-                    priority,
-                    delta,
-                }
+                MuxWireEvent::WindowUpdate { stream_id, priority, delta }
             }
-            5 => MuxWireEvent::Rst {
-                stream_id,
-                priority,
-            },
-            6 => MuxWireEvent::Close {
-                stream_id,
-                priority,
-            },
-            7 => MuxWireEvent::Ping {
-                stream_id,
-                priority,
-            },
-            8 => MuxWireEvent::Pong {
-                stream_id,
-                priority,
-            },
+            5 => MuxWireEvent::Rst { stream_id, priority },
+            6 => MuxWireEvent::Close { stream_id, priority },
+            7 => MuxWireEvent::Ping { stream_id, priority },
+            8 => MuxWireEvent::Pong { stream_id, priority },
             _ => return Err(format!("unknown mux event tag: {tag}")),
         };
         events.push(event);
@@ -481,9 +408,7 @@ fn decode_mux_wire_events(bytes: &[u8]) -> Result<Vec<MuxWireEvent>, String> {
 }
 
 fn read_u8(bytes: &[u8], offset: &mut usize) -> Result<u8, String> {
-    let value = *bytes
-        .get(*offset)
-        .ok_or_else(|| "unexpected eof while reading u8".to_string())?;
+    let value = *bytes.get(*offset).ok_or_else(|| "unexpected eof while reading u8".to_string())?;
     *offset += 1;
     Ok(value)
 }
@@ -506,12 +431,10 @@ fn read_i64_le(bytes: &[u8], offset: &mut usize) -> Result<i64, String> {
 }
 
 fn read_bytes<'a>(bytes: &'a [u8], offset: &mut usize, len: usize) -> Result<&'a [u8], String> {
-    let end = offset
-        .checked_add(len)
-        .ok_or_else(|| "offset overflow while reading bytes".to_string())?;
-    let chunk = bytes
-        .get(*offset..end)
-        .ok_or_else(|| "unexpected eof while reading bytes".to_string())?;
+    let end =
+        offset.checked_add(len).ok_or_else(|| "offset overflow while reading bytes".to_string())?;
+    let chunk =
+        bytes.get(*offset..end).ok_or_else(|| "unexpected eof while reading bytes".to_string())?;
     *offset = end;
     Ok(chunk)
 }

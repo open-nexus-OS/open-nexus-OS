@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-04-15
 
-#### TASK-0022 review sync (`TASK-0022`, `RFC-0036`)
+#### TASK-0022 closure sync (`TASK-0022`, `RFC-0036`)
 
-- `TASK-0022` moved to `In Review` for final production-quality verification pass.
-- `RFC-0036` is now `Complete` while `TASK-0022` remains `In Review` for final task-level sign-off.
+- `TASK-0022` is now `Done` after final production-quality verification and closure sync.
+- `RFC-0036` is `Complete` and remains aligned as the closed contract seed for this slice.
+- Sequential queue head moved to `TASK-0023` (`Blocked`); next executable candidate is `TASK-0024` unless resequenced.
 - `dsoftbus-core` crate boundary and review evidence synchronized into process docs:
   - `tasks/IMPLEMENTATION-ORDER.md`
   - `tasks/STATUS-BOARD.md`

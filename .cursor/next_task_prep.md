@@ -1,11 +1,11 @@
 # Next Task Preparation (Drift-Free)
 
 ## Candidate next execution
-- **task**: complete `TASK-0022` review closure first, then evaluate `TASK-0023` (currently `Blocked`) or explicit resequencing to `TASK-0044` if QUIC-feasibility work remains blocked.
-- **focus**: preserve TASK-0022 core/no_std closure contracts while finishing review-grade evidence.
+- **task**: `TASK-0023` is current queue head but remains `Blocked`; execute `TASK-0024` next unless explicit resequencing to `TASK-0044` is requested.
+- **focus**: preserve frozen TASK-0022 core/no_std closure contracts while selecting the next executable distributed slice.
 
 ## Latest completed slice (2026-04-15)
-- `TASK-0022` implementation closure synchronized; task is now in final review (`status: In Review`, RFC-0036 `Complete`).
+- `TASK-0022` implementation closure synchronized (`status: Done`, RFC-0036 `Complete`).
 - Real crate split established:
   - `userspace/dsoftbus/core` (`dsoftbus-core`) added as no_std core crate boundary.
 - Host/OS adapters remain in `userspace/dsoftbus` and consume/re-export core seams.
@@ -74,7 +74,7 @@
 
 ## Planning note
 - Dependency convergence phase-2 closure remains complete.
-- `TASK-0022` implementation closure is complete and under review; `RFC-0036` is `Complete`.
+- `TASK-0022` closure is complete (`Done`) and frozen; `RFC-0036` is `Complete`.
 - Hybrid-phased bulk-path decision is locked for this task family:
   - phase-1 borrow-view seam in `TASK-0022`,
   - handle-first canonicalization remains follow-up scope.

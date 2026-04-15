@@ -1,7 +1,7 @@
 # Cursor Current State (SSOT)
 
 ## Current architecture state
-- **last_decision**: move `TASK-0022` to `In Review` after closure implementation, with production-quality verification and process sync in progress.
+- **last_decision**: close `TASK-0022` as `Done` after green quality/security/performance gates and synchronized closure docs.
 - **active_constraints**:
   - execute only `TASK-0022` core/no_std extraction scope (no pre-enable work from `TASK-0023`),
   - do not absorb `TASK-0044` QUIC tuning breadth,
@@ -9,7 +9,7 @@
   - keep closure language production-class (avoid broad production-ready overclaims for the distributed stack).
 
 ## Current focus (execution)
-- **active_task**: `TASK-0022` review synchronization (`In Review`), with `TASK-0021` frozen
+- **active_task**: `TASK-0022` closure synchronized (`Done`), with `TASK-0021` frozen
 - **seed_contract**:
   - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
   - `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
@@ -67,10 +67,10 @@
   - `ring 0.17.x` and `tokio/quinn-udp` keep split `windows-sys` lines (`0.52` + `0.61`).
 
 ## Next handoff target
-- Keep `TASK-0021` frozen/done; keep `TASK-0022` frozen for review-only synchronization before queue advance.
+- Keep `TASK-0021` and `TASK-0022` frozen/done; evaluate queue execution from `TASK-0023` blocked state.
 
 ## Active follow-up planning
-- **next_plan**: complete `TASK-0022` review pass and then choose executable next slice (`TASK-0023` remains blocked by its own gate).
+- **next_plan**: keep `TASK-0023` marked blocked and select the next executable distributed slice (`TASK-0024`) unless explicitly resequenced.
 - **plan_goal**: preserve the new core crate boundary and reject/determinism contracts while avoiding scope absorption.
 
 ## Dependency convergence closure snapshot (2026-04-14)

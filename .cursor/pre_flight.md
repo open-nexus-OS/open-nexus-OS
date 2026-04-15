@@ -61,7 +61,7 @@ This is the anti-fake-success gate.
 - [x] TASK-0022 contract lock updated with production-class wording + zero-copy/Rust-discipline invariants.
 - [x] TASK-0022 host requirement suites implemented and green.
 - [x] TASK-0022 OS compile/marker proofs green where touched.
-- [x] TASK-0022 review sync in progress (`status: In Review`, RFC-0036 `Complete`, docs/handoff/state synchronized for final verification pass).
+- [x] TASK-0022 closure sync complete (`status: Done`, RFC-0036 `Complete`, docs/handoff/state synchronized).
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).

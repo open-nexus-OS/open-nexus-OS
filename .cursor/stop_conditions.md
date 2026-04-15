@@ -78,4 +78,4 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] TASK-0022 phase-A contract lock finalized (`RFC-0036` seed created and linked).
 - [x] TASK-0022 host requirement-named tests implemented and green.
 - [x] TASK-0022 OS compile/marker proofs green in canonical harness where touched.
-- [x] TASK-0022 review sync in progress (task/rfc/docs/handoff/current-state aligned to green proof set for final review pass).
+- [x] TASK-0022 closure sync completed (task/rfc/docs/handoff/current-state aligned to green proof set).
