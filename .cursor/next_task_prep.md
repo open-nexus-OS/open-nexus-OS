@@ -1,8 +1,8 @@
 # Next Task Preparation (Drift-Free)
 
 ## Candidate next execution
-- **task**: `TASK-0023` is current queue head but remains `Blocked`; execute `TASK-0024` next unless explicit resequencing to `TASK-0044` is requested.
-- **focus**: preserve frozen TASK-0022 core/no_std closure contracts while selecting the next executable distributed slice.
+- **task**: `TASK-0023` is `In Progress` as a gated contract-closure slice; execute `TASK-0024` next unless explicit resequencing to `TASK-0044` is requested.
+- **focus**: preserve frozen `TASK-0021`/`TASK-0022` guarantees, keep `TASK-0023` + `RFC-0037` fail-closed gate contract intact, and open execution on `TASK-0024`.
 
 ## Latest completed slice (2026-04-15)
 - `TASK-0022` implementation closure synchronized (`status: Done`, RFC-0036 `Complete`).
@@ -39,10 +39,14 @@
 ## Boundaries for next slice
 - Keep `TASK-0021` closed/done; do not reopen host-proof scope.
 - Keep `TASK-0022` closure frozen; do not reopen completed core/no_std split without explicit regression evidence.
-- Do not silently pre-enable `TASK-0023` OS QUIC path outside its own feasibility gate contract.
+- Keep `TASK-0023` explicitly blocked until no_std QUIC feasibility evidence exists.
+- Route OS transport implementation work to `TASK-0024`.
 - Do not absorb `TASK-0044` tuning matrix.
 
 ## Linked contracts
+- `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
+- `docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md`
+- `tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md`
 - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
 - `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
 - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
@@ -75,12 +79,14 @@
 ## Planning note
 - Dependency convergence phase-2 closure remains complete.
 - `TASK-0022` closure is complete (`Done`) and frozen; `RFC-0036` is `Complete`.
-- Hybrid-phased bulk-path decision is locked for this task family:
-  - phase-1 borrow-view seam in `TASK-0022`,
-  - handle-first canonicalization remains follow-up scope.
+- `TASK-0023` gate-prep is synchronized:
+  - RED feasibility is resolved as explicit blocked outcome,
+  - follow-up routing is explicit (`TASK-0024`, `TASK-0044`),
+  - strict fallback marker proof remains required while blocked.
+- `RFC-0037` is now the active contract seed (`In Progress`) for `TASK-0023`.
 
 ## Post Phase-2 next action
 - Treat residual duplicate lines as compatibility-constrained closure work:
   - either upstream-version convergence (ring/quinn/tokio ecosystem),
   - or explicit bounded accept-with-rationale for remaining split lines.
-- Keep `TASK-0021` proof floor unchanged while executing `TASK-0022`.
+- Keep `TASK-0021` proof floor unchanged while executing `TASK-0023` contract updates and `TASK-0024` implementation follow-up.

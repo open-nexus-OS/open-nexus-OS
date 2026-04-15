@@ -57,6 +57,30 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] No unresolved RED decision points remain in `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`.
 - [ ] No follow-on scope (`TASK-0023` / `TASK-0044`) was silently absorbed.
 
+## TASK-0023 class stop conditions (DSoftBus QUIC v2 OS-enabled gated)
+- [ ] Blocked-state gate outcome is explicit and synchronized:
+  - [ ] task remains `Blocked` until no_std QUIC feasibility evidence exists,
+  - [ ] `RFC-0037` is linked as the active contract seed,
+  - [ ] follow-up implementation route is explicit (`TASK-0024`),
+  - [ ] tuning follow-up remains explicit (`TASK-0044`).
+- [ ] Behavior-first proof shape is explicit and maintained:
+  - [ ] target behavior is explicit,
+  - [ ] main break point is explicit,
+  - [ ] primary proof is minimal and honest.
+- [ ] Security reject contract is current and mirrors real requirement-named tests:
+  - [ ] `test_reject_quic_strict_mode_downgrade`
+  - [ ] `test_reject_quic_invalid_or_untrusted_cert`
+  - [ ] `test_reject_quic_wrong_alpn`
+- [ ] Marker contract remains honest while blocked:
+  - [ ] `dsoftbus: quic os disabled (fallback tcp)`
+  - [ ] `SELFTEST: quic fallback ok`
+- [ ] No QUIC success markers are emitted in OS/QEMU while task is blocked.
+- [ ] Rust API discipline for follow-up implementation is documented and enforced:
+  - [ ] `newtype`/ownership/`#[must_use]` expectations are explicit for transport/session boundaries,
+  - [ ] `Send`/`Sync` expectations are reviewed without unsafe blanket trait shortcuts.
+- [ ] Modern virtio-mmio proof floor is preserved for OS/QEMU closure claims.
+- [ ] No OS QUIC implementation scope was silently absorbed into unrelated tasks.
+
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0021-class QUIC scaffold stop conditions: use archived closure evidence in `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Done`).
 - [ ] TASK-0019-class ABI guardrail stop conditions: use archived closeout evidence in `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (`Done`).
@@ -70,12 +94,11 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] QEMU proofs were run in parallel and produced contention artifacts.
 - [ ] Wire layout, retry budgets, ACL/audit behavior, or marker semantics changed silently.
 
-## Active progress snapshot (TASK-0022 kickoff, 2026-04-14)
-- [x] Queue/order metadata synchronized (`TASK-0021` done; queue head is `TASK-0022`).
-- [x] Handoff archived for `TASK-0021` and current handoff switched to `TASK-0022` prep.
-- [x] Core `.cursor` working files retargeted for `TASK-0022`.
-- [x] TASK-0022 task status promoted to `In Progress`.
-- [x] TASK-0022 phase-A contract lock finalized (`RFC-0036` seed created and linked).
-- [x] TASK-0022 host requirement-named tests implemented and green.
-- [x] TASK-0022 OS compile/marker proofs green in canonical harness where touched.
-- [x] TASK-0022 closure sync completed (task/rfc/docs/handoff/current-state aligned to green proof set).
+## Active progress snapshot (TASK-0023 in-progress gate sync, 2026-04-15)
+- [x] Queue/order metadata remains synchronized (`TASK-0023` queue head, explicitly blocked).
+- [x] Handoff archived for `TASK-0022`; `current` switched to `TASK-0023` prep state.
+- [x] Core `.cursor` working files retargeted to `TASK-0023` gate-prep context.
+- [x] `RFC-0037` contract seed added and linked to `TASK-0023`.
+- [x] `TASK-0023` follow-up routing synchronized (`TASK-0024`, `TASK-0044`).
+- [x] `TASK-0023` RED feasibility risk resolved as explicit blocked gate outcome.
+- [x] `TASK-0023` security proof test names synchronized to real host reject suites.

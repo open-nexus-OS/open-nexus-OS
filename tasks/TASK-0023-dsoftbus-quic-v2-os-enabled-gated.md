@@ -1,16 +1,19 @@
 ---
 title: TASK-0023 DSoftBus QUIC v2 (OS enabled): UDP over nexus-net + handshake + loss/congestion (gated)
-status: Blocked
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on:
   - TASK-0003
   - TASK-0020
   - TASK-0022
-follow-up-tasks: []
+follow-up-tasks:
+  - TASK-0024
+  - TASK-0044
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Contract seed: docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - ADR: docs/adr/0006-device-identity-architecture.md
   - Depends-on (DSoftBus core in OS): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
@@ -24,6 +27,7 @@ links:
 - **Scope**: Track OS QUIC enablement decision and feasibility boundaries.
 - **Deliver**: Explicit gate: OS QUIC remains blocked until `no_std` feasibility is proven; route implementation to UDP-sec path.
 - **Out of scope**: Shipping half-enabled OS QUIC with fake-success markers.
+- **Execution mode**: `In Progress` here means contract/gate closure work is active; it does **not** mean OS QUIC is already enabled.
 
 ## Production Closure Phases (RFC-0034 alignment)
 
@@ -82,14 +86,19 @@ In QEMU, with QUIC enabled:
 - Default stays green: QUIC is opt-in (`DSOFTBUS_TRANSPORT=quic|auto`), and `tcp` remains the fallback.
 - Bounded memory and deterministic timers.
 - Do not fragment: enforce PMTU ~1200 bytes; chunk at higher layers.
+- Rust discipline for follow-up implementation:
+  - use `newtype` wrappers for mode/session/domain IDs where safety-relevant,
+  - use `#[must_use]` for decision-bearing return values,
+  - keep ownership transfer explicit across transport/session boundaries,
+  - review `Send`/`Sync` expectations via compile-time assertions (no unsafe blanket trait shortcuts).
 
 ## Red flags / decision points
 
-- **RED (feasibility)**:
-  - OS userland is `no_std`. `quinn`/`rustls`/`quinn-proto` suitability for `no_std` must be proven up-front.
-  - This has been decided: **OS QUIC remains disabled until proven feasible; OS-secure UDP becomes the v2 transport plan.**
-- **YELLOW (identity binding)**:
-  - Device identity keys in OS depend on keystore persistence and entropy. If keystored RNG isn’t available in OS builds, certificate issuance must be deferred.
+- **RED (feasibility, resolved as explicit gate outcome)**:
+  - OS userland is `no_std`; `quinn`/`rustls`/`quinn-proto` suitability for this environment is not yet production-proven.
+  - Gate outcome is locked: **OS QUIC remains disabled until feasibility evidence exists; OS-secure UDP is executed in `TASK-0024`.**
+- **YELLOW (identity binding, carried to follow-up implementation)**:
+  - Device identity keys in OS depend on keystore persistence and entropy; if keystored RNG is unavailable, certificate issuance remains blocked fail-closed.
 
 ## Touched paths (allowlist)
 
@@ -136,9 +145,9 @@ In QEMU, with QUIC enabled:
 - Commands:
   - `cargo test -p dsoftbus -- quic --nocapture`
 - Required tests:
-  - `test_reject_quic_unavailable_in_strict_mode`
-  - `test_reject_invalid_peer_identity_or_cert`
-  - `test_reject_oversize_or_malformed_transport_frame`
+  - `test_reject_quic_strict_mode_downgrade`
+  - `test_reject_quic_invalid_or_untrusted_cert`
+  - `test_reject_quic_wrong_alpn`
 
 ### Hardening markers (QEMU, if applicable)
 
@@ -147,26 +156,43 @@ In QEMU, with QUIC enabled:
 
 ## Stop conditions (Definition of Done)
 
-### Proof (Host) — feasibility spike only
+### Proof (Host) — gate integrity + feasibility checkpoint
 
-- Prove (via `cargo test` on a dedicated spike crate) whether the selected QUIC stack can build for OS constraints:
+- Keep gate integrity and strict-fail behavior green on host:
+  - `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`
+  - `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`
+  - `cargo test -p dsoftbus -- quic --nocapture`
+- If feasibility is re-opened, prove (via `cargo test` on a dedicated spike crate) whether the selected QUIC stack can build for OS constraints:
   - `no_std` viability (or a clearly isolated `std` boundary),
   - deterministic timers without OS async runtime assumptions,
   - crypto dependencies and their entropy requirements.
 
 ### Proof (OS / QEMU)
 
-- Not applicable while status is **Blocked**. Use `TASK-0024` for OS/QEMU proof of a UDP-based transport.
+- While the feasibility gate remains **Blocked**, required proof is the explicit fallback marker contract only:
+  - `dsoftbus: quic os disabled (fallback tcp)`
+  - `SELFTEST: quic fallback ok`
+- Real OS transport proof lives in `TASK-0024` (UDP-sec path) until feasibility changes.
 
-## Plan (small PRs)
+## Slice plan (small PRs)
 
-1. Run feasibility spike and lock explicit blocker outcomes.
-2. Add requirement-named reject suites for strict-mode and auth/bounds failures.
-3. Keep gated marker policy explicit and route OS closure to `TASK-0024` until feasibility changes.
+1. **Slice 1 (gate-contract closure)**: lock feasibility criteria, blocked-state semantics, and routing ownership (`TASK-0024`, `TASK-0044`).
+2. **Slice 2 (security/reject floor)**: keep requirement-named strict-mode/auth reject suites green and aligned to task/RFC.
+3. **Slice 3 (runtime boundary evidence)**: preserve deterministic fallback marker contract and sync docs/board/handoff without pre-enabling OS QUIC.
+
+## Baseline evidence refresh (2026-04-15)
+
+- Host gate baseline (green):
+  - `just test-dsoftbus-quic`
+- OS blocked-state marker baseline (green):
+  - `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - observed markers:
+    - `dsoftbus: quic os disabled (fallback tcp)`
+    - `SELFTEST: quic fallback ok`
 
 ## Docs
 
-Update `docs/distributed/dsoftbus-transport.md`:
+Update `docs/distributed/dsoftbus-lite.md`:
 
 - OS QUIC: clearly marked as **future** and blocked on feasibility
 - OS UDP-sec transport: documented in `TASK-0024`

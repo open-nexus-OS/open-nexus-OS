@@ -59,13 +59,13 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - **RFC-0009**: no_std Dependency Hygiene v1 (OS build policy)
 - **RFC-0027**: DSoftBusd modular daemon structure v1 (Completed)
 - **RFC-0035**: DSoftBus QUIC v1 host-first scaffold contract (Done)
-- **RFC-0036**: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` remains in review)
+- **RFC-0036**: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` is Done)
 - **ADR-0026**: Network address profiles + validation semantics
 
 **Current snapshot**:
 - Core networking transport, authenticated session flow, and dual-node harness behavior are established.
 - Host-first QUIC transport proofs are available via `just test-dsoftbus-quic`; OS QUIC remains disabled-by-default in the TASK-0021 scope.
-- DSoftBus core no_std transport abstraction seam is implemented via `dsoftbus-core`; queue head remains `TASK-0022` until review closure.
+- DSoftBus core no_std transport abstraction seam is implemented via `dsoftbus-core`; queue head is `TASK-0023` (explicitly blocked by feasibility gate, route to `TASK-0024`).
 - Networking docs here focus on authority boundaries and invariants; rollout/proof state remains task-owned.
 
 ## Services and contracts

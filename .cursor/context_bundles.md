@@ -342,6 +342,29 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `scripts/qemu-test.sh` (only if marker contract changes)
 - `tools/os2vm.sh` (only if distributed behavior claims require it)
 
+### @task_0023_context
+- `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
+- `docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md`
+- `tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md`
+- `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
+- `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `docs/distributed/dsoftbus-lite.md`
+- `docs/testing/index.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `scripts/qemu-test.sh`
+
+### @task_0023_touched
+- `userspace/dsoftbus/**` (host feasibility/reject suites only while blocked)
+- `userspace/net/nexus-net/**` (only if feasibility spike requires)
+- `source/services/dsoftbusd/**` (marker/selection sync only while blocked)
+- `source/apps/selftest-client/**` (fallback marker contract only while blocked)
+- `tests/**` (requirement-named reject/feasibility suites)
+- `docs/distributed/**`
+- `docs/rfcs/**` (RFC-0037 seed + index sync)
+- `scripts/qemu-test.sh`
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -415,6 +438,9 @@ Kontext strikt: @core_context @task_0021_context @quality_gates @task_0021_touch
 
 ## Standard instruction line (TASK-0022)
 Kontext strikt: @core_context @task_0022_context @quality_gates @task_0022_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0023)
+Kontext strikt: @core_context @task_0023_context @quality_gates @task_0023_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

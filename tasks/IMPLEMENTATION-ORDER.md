@@ -69,9 +69,9 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0022 closure complete, queue at TASK-0023 (blocked)
+## Current: TASK-0022 closure complete, TASK-0023 in progress (gated)
 
-Execute in numerical order. Current queue head is **TASK-0023 (Blocked)**.
+Execute in numerical order. Current queue head is **TASK-0023 (In Progress, gated by explicit feasibility outcome)**.
 Latest completed closure slices before this queue head: **TASK-0020 (Done)** and **TASK-0021 (Done)**.
 Current TASK-0020 closure checkpoint: requirement-based host contract/integration suites are green, canonical OS harnesses are green, mux marker ladders are proven in single-VM and 2-VM paths, deterministic perf and hardening soak gates are green, and a machine-readable release evidence bundle is emitted per run.
 Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0020 production closure scope.

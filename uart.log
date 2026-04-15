@@ -995,7 +995,10 @@ policyd: mmio rng allow priv
 net: virtio-net up
 SELFTEST: net iface ok
 net: virtio tx reclaim
-net: dhcp event deconfigured
+net: dhcp event configured
+net: dhcp bound 10.0.2.15/24 gw=10.0.2.2
+net: smoltcp iface up 10.0.2.15
+SELFTEST: net ping ok
 init: mmio cap_create svc=rngd
 init: mmio cap_create ok svc=rngd cap_slot=0x000000000000004f
 init: mmio xfer_to_slot svc=rngd dst_slot=0x0000000000000030
@@ -1004,10 +1007,6 @@ init: mmio grant svc=rngd slot=0x0000000000000030
 init: mmio grant begin svc=selftest-client pid=0x0000000000000021 slot=0x0000000000000030 base=0x0000000010008000 len=0x0000000000001000 cap=device.mmio.net
 policyd: audit emit FAIL
 policyd: mmio net allow priv
-net: dhcp event configured
-net: dhcp bound 10.0.2.15/24 gw=10.0.2.2
-net: smoltcp iface up 10.0.2.15
-SELFTEST: net ping ok
 init: mmio cap_create svc=selftest-client
 init: mmio cap_create ok svc=selftest-client cap_slot=0x000000000000004f
 init: mmio xfer_to_slot svc=selftest-client dst_slot=0x0000000000000030

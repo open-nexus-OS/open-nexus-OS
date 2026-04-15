@@ -80,11 +80,11 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 5. ✅ Implement cross-VM discovery/session + minimal remote proxy (TASK-0005, opt-in)
 6. ✅ Implement reliable streams with multiplexing (TASK-0020)
 7. ✅ Host-first QUIC v1 transport selection + host runtime proof (TASK-0021)
-8. 🟨 Extract no_std core seam + transport abstraction (`TASK-0022`, in review)
-9. ⬜ OS QUIC enablement remains gated follow-on (TASK-0023)
+8. ✅ Extract no_std core seam + transport abstraction (`TASK-0022`, done)
+9. ⬜ OS QUIC enablement remains gated follow-on (`TASK-0023`, blocked by feasibility gate)
 10. ✅ Add comprehensive test coverage (host tests green)
 
-## Implementation Status (2026-04-14)
+## Implementation Status (2026-04-15)
 
 | Component | Host | OS | Task |
 | --------- | ---- | -- | ---- |

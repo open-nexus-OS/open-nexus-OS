@@ -1,19 +1,31 @@
 # Cursor Current State (SSOT)
 
 ## Current architecture state
-- **last_decision**: close `TASK-0022` as `Done` after green quality/security/performance gates and synchronized closure docs.
+- **last_decision**: create and link `RFC-0037` as contract seed for `TASK-0023`, then synchronize working state to the blocked QUIC-v2 gate posture.
 - **active_constraints**:
-  - execute only `TASK-0022` core/no_std extraction scope (no pre-enable work from `TASK-0023`),
-  - do not absorb `TASK-0044` QUIC tuning breadth,
+  - keep `TASK-0022` frozen as done baseline; do not reopen closed core/no_std scope without explicit regression evidence,
+  - keep `TASK-0023` blocked until no_std QUIC feasibility evidence exists,
+  - route OS transport implementation to `TASK-0024` and avoid silent scope absorption from `TASK-0044`,
   - preserve `TASK-0021` strict `mode=quic` fail-closed and deterministic `mode=auto` fallback behavior,
-  - keep closure language production-class (avoid broad production-ready overclaims for the distributed stack).
+  - keep `TASK-0023` proof selection behavior-first and production-floor aligned (`TRACK-PRODUCTION-GATES-KERNEL-SERVICES`).
 
 ## Current focus (execution)
-- **active_task**: `TASK-0022` closure synchronized (`Done`), with `TASK-0021` frozen
+- **active_task**: `TASK-0023` contract-seed sync (`In Progress`, gated by feasibility), with `TASK-0021` + `TASK-0022` frozen
 - **seed_contract**:
-  - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
-  - `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
+  - `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
+  - `docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md`
+  - `tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md`
   - `docs/testing/index.md`
+
+## TASK-0023 contract seed snapshot (2026-04-15)
+- `RFC-0037` added as dedicated follow-up contract seed per RFC README scope rule.
+- `TASK-0023` links now reference the seed contract and explicit follow-up ownership:
+  - implementation route: `TASK-0024`,
+  - tuning route: `TASK-0044`.
+- Contract quality posture locked:
+  - fail-closed blocked-state semantics remain mandatory,
+  - no fake QUIC success markers while blocked,
+  - behavior-first proof shape and requirement-named reject tests are explicit.
 
 ## Task-0022 prep snapshot (2026-04-14)
 - RFC seed created and linked: `RFC-0036`.
@@ -46,9 +58,10 @@
 - `just test-os-dhcp`
 
 ## Scope boundaries reaffirmed
-- `TASK-0022`: active scope (core/no_std split + transport abstraction only).
-- `TASK-0023`: untouched; OS QUIC remains disabled-by-default.
-- `TASK-0044`: untouched; no tuning breadth absorbed into this task.
+- `TASK-0022`: frozen/done (core/no_std split + transport abstraction complete).
+- `TASK-0023`: queue head remains blocked by explicit no_std-feasibility gate.
+- `TASK-0024`: next executable distributed transport slice.
+- `TASK-0044`: follow-up tuning scope only; no silent absorption.
 
 ## Dependency harmonization status (2026-04-14)
 - **Target matrix (prefer higher line)**:
@@ -67,11 +80,11 @@
   - `ring 0.17.x` and `tokio/quinn-udp` keep split `windows-sys` lines (`0.52` + `0.61`).
 
 ## Next handoff target
-- Keep `TASK-0021` and `TASK-0022` frozen/done; evaluate queue execution from `TASK-0023` blocked state.
+- Keep `TASK-0021` and `TASK-0022` frozen/done; treat `TASK-0023` as explicit gate record and execute `TASK-0024` unless resequenced.
 
 ## Active follow-up planning
-- **next_plan**: keep `TASK-0023` marked blocked and select the next executable distributed slice (`TASK-0024`) unless explicitly resequenced.
-- **plan_goal**: preserve the new core crate boundary and reject/determinism contracts while avoiding scope absorption.
+- **next_plan**: preserve `TASK-0023` blocked gate posture, execute `TASK-0024`, and keep `TASK-0044` as explicit follow-up tuning scope.
+- **plan_goal**: maintain strict fail-closed transport selection, bounded transport security invariants, and deterministic marker/proof discipline.
 
 ## Dependency convergence closure snapshot (2026-04-14)
 - **Implemented**:

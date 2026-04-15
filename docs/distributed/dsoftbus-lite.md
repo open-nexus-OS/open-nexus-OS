@@ -70,7 +70,8 @@ Two runtime tracks are relevant today:
   - Noise XK handshake (`nexus-noise-xk` library)
   - TCP sessions over the sockets facade
   - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
-  - QUIC on OS is disabled-by-default in TASK-0021 and remains follow-on scoped (`TASK-0023`).
+  - QUIC on OS is disabled-by-default in TASK-0021 and remains explicitly blocked in `TASK-0023`
+    until feasibility changes; implementation route is `TASK-0024` (UDP-sec).
 
 Address-profile contracts used by these paths are documented in
 `docs/architecture/network-address-matrix.md`.
@@ -92,7 +93,7 @@ Address-profile contracts used by these paths are documented in
 | Host seam + security-negative tests (`p0_unit`, `reject_transport_validation`, `session_steps`) | ✅ Done | TASK-0015 |
 | Host QUIC selection + real host QUIC transport proof | ✅ Done | TASK-0021 |
 | OS QUIC default state | ✅ Disabled-by-default (explicit fallback) | TASK-0021/TASK-0023 boundary |
-| no_std core seam (`dsoftbus-core` crate + transport-neutral contract helpers) | 🟨 In Review | TASK-0022 |
+| no_std core seam (`dsoftbus-core` crate + transport-neutral contract helpers) | ✅ Done | TASK-0022 |
 
 **2-VM proof harness (opt-in)**:
 - Canonical harness: `tools/os2vm.sh`

@@ -1,35 +1,28 @@
-# Current Handoff: TASK-0022 closure synchronized
+# Current Handoff: TASK-0023 in-progress gate closure
 
 **Date**: 2026-04-15  
-**Status**: `TASK-0022` marked `Done`; closure proofs and process sync are complete.  
-**Execution SSOT**: `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
+**Status**: `TASK-0023` is `In Progress`; feasibility gate remains explicitly blocked for OS QUIC enablement.  
+**Execution SSOT**: `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
 
-## Implemented closure deltas
-- Real crate split achieved:
-  - added `userspace/dsoftbus/core` (`dsoftbus-core`) as no_std core boundary crate,
-  - `userspace/dsoftbus/src/lib.rs` now re-exports core API from crate boundary.
-- Security/determinism core contracts are green:
-  - required `test_reject_*` suite,
-  - deterministic perf/backpressure + borrow-view zero-copy evidence,
-  - `Send`/`Sync` compile-time assertions for core boundary types.
-- Host/OS contracts preserved:
-  - `TASK-0021` regression floor stayed green,
-  - OS boundary remains explicit unsupported where required (no fake success).
+## Implemented prep deltas
+- Archived prior handoff snapshot for `TASK-0022` closure at:
+  - `.cursor/handoff/archive/TASK-0022-dsoftbus-core-no-std-transport-refactor.md`
+- Updated `TASK-0023` / `RFC-0037` to current operational truth:
+  - follow-up routing is explicit (`TASK-0024`, `TASK-0044`),
+  - RED feasibility flag is resolved as a gate decision (OS QUIC stays blocked),
+  - required security/reject proof names now match existing host test suite,
+  - fallback marker contract is explicitly listed as the only required OS proof while blocked.
 
-## Proof snapshot (green)
-- `cargo +nightly-2025-01-15 check -p dsoftbus-core --target riscv64imac-unknown-none-elf`
-- `cargo test -p dsoftbus --test core_contract_rejects -- --nocapture`
-- `cargo test -p dsoftbus -- reject --nocapture`
-- `just test-dsoftbus-quic`
-- `just diag-host`
-- `just deny-check`
-- `just dep-gate && just diag-os`
-- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-- `just test-e2e && just test-os-dhcp`
+## Security and gate posture
+- Strict/fail-closed semantics remain mandatory:
+  - no silent downgrade in strict QUIC mode,
+  - no cert/ALPN acceptance drift,
+  - no QUIC success markers while OS QUIC remains blocked.
+- Canonical blocked-state marker proof:
+  - `dsoftbus: quic os disabled (fallback tcp)`
+  - `SELFTEST: quic fallback ok`
 
 ## Next handoff target
-- Queue head is now `TASK-0023` (`Blocked` by its own OS-QUIC feasibility gate).
-- Next executable distributed slice is `TASK-0024` unless explicit resequencing is requested.
-- Next actionable distributed work should respect:
-  - no `TASK-0023` pre-enable scope in unrelated slices,
-  - no `TASK-0044` tuning breadth absorption without explicit task activation.
+- Queue head remains `TASK-0023` (`In Progress`; no_std-feasibility gate still blocks OS QUIC enablement).
+- Next executable distributed slice remains `TASK-0024` unless explicit resequencing is requested.
+- `TASK-0044` stays follow-up tuning scope and must not be absorbed into unrelated closure slices.

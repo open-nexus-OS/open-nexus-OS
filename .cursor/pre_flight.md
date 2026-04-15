@@ -8,7 +8,7 @@ This is the anti-fake-success gate.
 
 ## Automatic (must be green when applicable)
 - [ ] Host diagnostics compile (when host code touched): `just diag-host`
-- [ ] Narrow host/unit tests pass (task canonical commands from active task doc; for TASK-0022: baseline freeze + core reject suites)
+- [ ] Narrow host/unit tests pass (task canonical commands from active task doc; for TASK-0023: `just test-dsoftbus-quic` + requirement-named QUIC reject suites)
 - [ ] OS dependency gate (when OS code touched): `just dep-gate`
 - [ ] OS diagnostics compile (when OS code touched): `just diag-os`
 - [ ] Single-VM QEMU marker proof is green (only when OS backend gate is met): `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
@@ -52,16 +52,39 @@ This is the anti-fake-success gate.
 - [ ] `TASK-0021` baseline remains green during refactor (`just test-dsoftbus-quic`).
 - [ ] Modern virtio-mmio proof floor is preserved for OS/QEMU closure claims.
 
-## Active progress snapshot (TASK-0022 kickoff, 2026-04-14)
-- [x] Queue/order sync complete (`TASK-0021` Done, queue head moved to `TASK-0022`).
-- [x] `TASK-0021` handoff archived and `current` switched to TASK-0022 prep.
-- [x] Working context files retargeted to TASK-0022 (`current_state`, `context_bundles`, `next_task_prep`, `pre_flight`, `stop_conditions`).
-- [x] TASK-0022 status moved from `Draft` to `In Progress`.
-- [x] TASK-0022 RFC seed created and linked (`RFC-0036`).
-- [x] TASK-0022 contract lock updated with production-class wording + zero-copy/Rust-discipline invariants.
-- [x] TASK-0022 host requirement suites implemented and green.
-- [x] TASK-0022 OS compile/marker proofs green where touched.
-- [x] TASK-0022 closure sync complete (`status: Done`, RFC-0036 `Complete`, docs/handoff/state synchronized).
+## Task-0023 manual addendum (when applicable)
+- [ ] Blocked-state contract is explicit and honest:
+  - [ ] OS QUIC remains gated/blocked until feasibility evidence exists,
+  - [ ] no QUIC success markers are emitted while blocked,
+  - [ ] fallback markers are explicit and deterministic.
+- [ ] Contract seed alignment is explicit:
+  - [ ] `RFC-0037` exists and is linked from `TASK-0023`,
+  - [ ] follow-up ownership remains explicit (`TASK-0024`, `TASK-0044`).
+- [ ] Behavior-first proof shape is explicit in task/RFC:
+  - [ ] target behavior is stated in 1-3 lines,
+  - [ ] main break point is explicit,
+  - [ ] primary proof is minimal and honest.
+- [ ] Security reject discipline is current and requirement-named:
+  - [ ] strict mode downgrade reject stays fail-closed,
+  - [ ] cert trust rejects stay fail-closed,
+  - [ ] ALPN mismatch rejects stay fail-closed.
+- [ ] Rust discipline is captured for follow-up implementation:
+  - [ ] newtype candidates and ownership boundaries are documented,
+  - [ ] `#[must_use]` expectations are explicit for decision-bearing APIs,
+  - [ ] `Send`/`Sync` review expectations are explicit without unsafe blanket traits.
+- [ ] Follow-up routing is explicit and synchronized:
+  - [ ] implementation route is `TASK-0024`,
+  - [ ] tuning follow-up remains `TASK-0044`,
+  - [ ] no scope absorption into unrelated active tasks.
+
+## Active progress snapshot (TASK-0023 in-progress gate sync, 2026-04-15)
+- [x] `TASK-0022` handoff archived under `.cursor/handoff/archive/`.
+- [x] `current` handoff switched to `TASK-0023` gate-prep context.
+- [x] `TASK-0023` metadata synchronized to current state (`Blocked`, explicit follow-up tasks).
+- [x] `RFC-0037` created as contract seed and linked from `TASK-0023`.
+- [x] RED feasibility decision is documented as resolved gate outcome (blocked, routed to `TASK-0024`).
+- [x] Security reject proof names in `TASK-0023` now match real host tests.
+- [x] `.cursor` working files retargeted to `TASK-0023` prep while preserving frozen `TASK-0021`/`TASK-0022` closure.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).

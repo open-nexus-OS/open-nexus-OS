@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-04-15
 
+#### TASK-0023 gate-prep sync (`TASK-0023`)
+
+- Archived `.cursor/handoff/current.md` snapshot to `.cursor/handoff/archive/TASK-0022-dsoftbus-core-no-std-transport-refactor.md`.
+- Synchronized `TASK-0023` to explicit blocked-state truth:
+  - follow-up routing now explicit (`TASK-0024`, `TASK-0044`),
+  - RED feasibility point resolved as documented gate outcome,
+  - security proof test names aligned to existing host reject suites.
+- Updated active workfiles and queue docs for production-grade anti-drift clarity (`.cursor/current_state.md`, `.cursor/handoff/current.md`, `.cursor/next_task_prep.md`, `.cursor/pre_flight.md`, `.cursor/stop_conditions.md`, `tasks/IMPLEMENTATION-ORDER.md`, `tasks/STATUS-BOARD.md`).
+- Synced architecture/distributed docs that still referenced `TASK-0022` review state:
+  - `docs/architecture/README.md`
+  - `docs/adr/0005-dsoftbus-architecture.md`
+  - `docs/distributed/dsoftbus-lite.md`
+
 #### TASK-0022 closure sync (`TASK-0022`, `RFC-0036`)
 
 - `TASK-0022` is now `Done` after final production-quality verification and closure sync.

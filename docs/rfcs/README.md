@@ -86,6 +86,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0034: DSoftBus production closure v1 (legacy `TASK-0001..0020` production gates + hardening mapping)
 - RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (transport selection + fail-closed downgrade semantics + deterministic fallback markers)
 - RFC-0036: DSoftBus core no_std transport abstraction v1 (no_std core boundary + transport abstraction + zero-copy-first and Rust safety discipline)
+- RFC-0037: DSoftBus QUIC v2 OS enablement gated contract (blocked-state contract + feasibility unlock criteria + fail-closed fallback evidence)
 
 ## Index
 
@@ -159,5 +160,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md
 - RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (Done; `TASK-0021` closure proofs synced with explicit `TASK-0022` boundary)
   - docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
-- RFC-0036: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` remains in review)
+- RFC-0036: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` is Done)
   - docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md
+- RFC-0037: DSoftBus QUIC v2 OS enablement gated contract (In Progress; `TASK-0023` blocked-state contract seed)
+  - docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md
