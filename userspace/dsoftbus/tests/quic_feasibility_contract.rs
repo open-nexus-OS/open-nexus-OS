@@ -39,8 +39,8 @@ fn test_current_os_runtime_state_is_feasibility_eligible() {
         QuicEntropyReadiness::Ready,
         LossRetryBudget::new(8, 256, 64).expect("bounded budget"),
     );
-    let assessment =
-        assess_quic_phase_d_feasibility(input).expect("current OS runtime state should be eligible");
+    let assessment = assess_quic_phase_d_feasibility(input)
+        .expect("current OS runtime state should be eligible");
     assert!(assessment.requires_manual_unlock_review());
 }
 

@@ -28,7 +28,7 @@ links:
 - **Scope**: implement and verify real OS QUIC v2 session behavior on the no_std OS path.
 - **Deliver**: UDP datagram QUIC-v2 framing + Noise XK auth + mux-v2 continuity, with deterministic QEMU evidence.
 - **Out of scope**: full IETF QUIC/TLS feature parity (0-RTT, advanced congestion tuning, pacing/BBR).
-- **Execution mode**: `Done` means OS QUIC session path is real and test-proven in current production-floor scope.
+- **Execution mode**: `Done` means the OS QUIC session path is implemented and proven at the task floor and broader regression/harness verification is green.
 
 ## Production Closure Phases (RFC-0034 alignment)
 

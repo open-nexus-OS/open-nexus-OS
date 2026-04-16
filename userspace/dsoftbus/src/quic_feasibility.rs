@@ -99,7 +99,6 @@ pub struct QuicFeasibilityInput {
 }
 
 impl QuicFeasibilityInput {
-    #[must_use]
     pub fn new(
         os_runtime_implementation: QuicOsRuntimeImplementation,
         runtime_boundary: QuicRuntimeBoundary,
@@ -107,7 +106,13 @@ impl QuicFeasibilityInput {
         entropy_readiness: QuicEntropyReadiness,
         budget: LossRetryBudget,
     ) -> Self {
-        Self { os_runtime_implementation, runtime_boundary, timer_determinism, entropy_readiness, budget }
+        Self {
+            os_runtime_implementation,
+            runtime_boundary,
+            timer_determinism,
+            entropy_readiness,
+            budget,
+        }
     }
 }
 
@@ -127,7 +132,6 @@ impl QuicFeasibilityAssessment {
         true
     }
 
-    #[must_use]
     pub fn budget(&self) -> LossRetryBudget {
         self.budget
     }

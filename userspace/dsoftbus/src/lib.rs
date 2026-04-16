@@ -310,10 +310,11 @@ pub use transport_selection::{
 
 pub mod quic_feasibility;
 pub use quic_feasibility::{
-    assess_quic_phase_d_feasibility, LossRetryBudget, QuicEntropyReadiness, QuicFeasibilityAssessment,
-    QuicFeasibilityError, QuicFeasibilityInput, QuicOsRuntimeImplementation, QuicRuntimeBoundary,
-    QuicTimerDeterminism, CURRENT_OS_QUIC_RUNTIME_IMPLEMENTATION,
-    MAX_FEASIBILITY_INFLIGHT_PACKETS, MAX_FEASIBILITY_REORDER_PACKETS, MAX_FEASIBILITY_RETRANSMITS,
+    assess_quic_phase_d_feasibility, LossRetryBudget, QuicEntropyReadiness,
+    QuicFeasibilityAssessment, QuicFeasibilityError, QuicFeasibilityInput,
+    QuicOsRuntimeImplementation, QuicRuntimeBoundary, QuicTimerDeterminism,
+    CURRENT_OS_QUIC_RUNTIME_IMPLEMENTATION, MAX_FEASIBILITY_INFLIGHT_PACKETS,
+    MAX_FEASIBILITY_REORDER_PACKETS, MAX_FEASIBILITY_RETRANSMITS,
 };
 
 #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]

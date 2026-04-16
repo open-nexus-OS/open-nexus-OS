@@ -1,6 +1,6 @@
 # RFC-0037: DSoftBus QUIC v2 OS enablement gated contract
 
-- Status: Complete
+- Status: Done
 - Owners: @runtime
 - Created: 2026-04-15
 - Last Updated: 2026-04-15
@@ -24,7 +24,7 @@
 
 Definition:
 
-- `Complete` means OS QUIC session behavior is implemented and proven within the current production-floor scope.
+- `Done` means OS QUIC session behavior is implemented and proven within the current production-floor scope.
 - This RFC no longer represents a blocked/no-go gate state.
 
 ## Scope boundaries (anti-drift)

@@ -11,7 +11,7 @@ OpenSBI v1.7
 
 Platform Name               : riscv-virtio,qemu
 Platform Features           : medeleg
-Platform HART Count         : 1
+Platform HART Count         : 2
 Platform IPI Device         : aclint-mswi
 Platform Timer Device       : aclint-mtimer @ 10000000Hz
 Platform Console Device     : uart8250
@@ -22,11 +22,11 @@ Platform Shutdown Device    : syscon-poweroff
 Platform Suspend Device     : ---
 Platform CPPC Device        : ---
 Firmware Base               : 0x80000000
-Firmware Size               : 317 KB
+Firmware Size               : 329 KB
 Firmware RW Offset          : 0x40000
-Firmware RW Size            : 61 KB
-Firmware Heap Offset        : 0x46000
-Firmware Heap Size          : 37 KB (total), 2 KB (reserved), 12 KB (used), 22 KB (free)
+Firmware RW Size            : 73 KB
+Firmware Heap Offset        : 0x48000
+Firmware Heap Size          : 41 KB (total), 2 KB (reserved), 12 KB (used), 26 KB (free)
 Firmware Scratch Size       : 4096 B (total), 1400 B (used), 2696 B (free)
 Runtime SBI Version         : 3.0
 Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
@@ -34,11 +34,11 @@ Experimental SBI Extensions : none
 
 Domain0 Name                : root
 Domain0 Boot HART           : 0
-Domain0 HARTs               : 0*
+Domain0 HARTs               : 0*,1*
 Domain0 Region00            : 0x0000000000100000-0x0000000000100fff M: (I,R,W) S/U: (R,W)
 Domain0 Region01            : 0x0000000010000000-0x0000000010000fff M: (I,R,W) S/U: (R,W)
 Domain0 Region02            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
-Domain0 Region03            : 0x0000000080040000-0x000000008004ffff M: (R,W) S/U: ()
+Domain0 Region03            : 0x0000000080040000-0x000000008005ffff M: (R,W) S/U: ()
 Domain0 Region04            : 0x0000000080000000-0x000000008003ffff M: (R,X) S/U: ()
 Domain0 Region05            : 0x000000000c400000-0x000000000c5fffff M: (I,R,W) S/U: (R,W)
 Domain0 Region06            : 0x000000000c000000-0x000000000c3fffff M: (I,R,W) S/U: (R,W)
@@ -101,6 +101,7 @@ SCHED: new exit
 SYSCALL install debug_putc=0x0000000080227f42
 SYSCALL install ep_create=0x0000000080226c34
 [INFO smp] KINIT: cpu0 online
+[INFO smp] KINIT: cpu1 online
 [INFO boot]  _ __   ___ _   _ _ __ ___  _ __
 [INFO boot] | '_ \ / _ \ | | | '__/ _ \| '_ \
 [INFO boot] | | | |  __/ |_| | | | (_) | | | |
@@ -223,6 +224,15 @@ CAP: new exit
 [INFO selftest] KSELFTEST: spawn reasons ok
 CAP: with_capacity slots=8
 [INFO selftest] KSELFTEST: resource sentinel ok
+[INFO selftest] KSELFTEST: smp online ok
+[INFO selftest] KSELFTEST: ipi counterfactual ok
+[INFO selftest] KSELFTEST: ipi resched ok
+[INFO selftest] KSELFTEST: test_reject_invalid_ipi_target_cpu ok
+[INFO selftest] KSELFTEST: test_reject_offline_cpu_resched ok
+[INFO selftest] KSELFTEST: work stealing ok
+[INFO selftest] KSELFTEST: test_reject_steal_above_bound ok
+[INFO selftest] KSELFTEST: test_reject_steal_higher_qos ok
+[DEBUG sched] enqueue: pid=0 qos=Normal
 SYSCALL install debug_putc=0x0000000080227f42
 SYSCALL install ep_create=0x0000000080226c34
 [INFO sys] SPAWN: entry=0x802220ba sp=0x0 as=0 slot=0 gp=0x0
@@ -961,7 +971,6 @@ AS: pc check va=0x0000000080209000
 AS: sp check va=0x00000000805ef000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UBupdated: entry
-[DEBUG sched] enqueue: pid=26 qos=Normal
 AS: activating satp=0x80010000000804d0
 AS: pc check va=0x0000000080209000
 AS: sp check va=0x00000000805ef000
@@ -1099,6 +1108,12 @@ virtio-blk: cap=0000000000020000 sectors
 logd: route fallback
 logd: ready
 logd: ready
+samgrd: route err timeout
+samgrd: route fallback
+samgrd: slots logging
+samgrd: slots 00000003 00000004
+bundlemgrd: route err timeout
+bundlemgrd: route fallback
 virtio-blk: warmup ok
 blk: virtio-blk up
 blk: virtio-blk up (ss=512 nsec=131072)
@@ -1113,19 +1128,18 @@ updated: rx
 updated: rx head 55 44 01
 updated: rx op 05
 [INFO updated] core service log probe: updated
-samgrd: route err timeout
-samgrd: route fallback
-samgrd: slots logging
-samgrd: slots 00000003 00000004
-bundlemgrd: route err timeout
-bundlemgrd: route fallback
 updated: capmove
 [INFO updated] audit op=boot_attempt status=ok
-dbg:netstackd: dns h-start
 updated: audit (op=boot_attempt status=ok)
 updated: tx op 85
 updated: replycap slot=0x0000000d
 [INFO bundlemgrd] core service log probe: bundlemgrd
+dbg:netstackd: dns h-start
+SELFTEST: ipc routing keystored ok
+SELFTEST: keystored v1 ok
+[INFO qos] QOS-AUDIT decision=allow reason=applied caller_sid=0x52c6c4a34ffb3f69 caller_pid=33 target_pid=33 from=normal to=normal
+[INFO qos] QOS-AUDIT decision=deny reason=unauthorized_escalation caller_sid=0x52c6c4a34ffb3f69 caller_pid=33 target_pid=33 from=normal to=interactive
+SELFTEST: qos ok
 init: rollback fail
 init: ctrl req from updated
 metricsd: ready
@@ -1135,11 +1149,6 @@ init: route vfsd from vfsd
 init: route vfsd lookup svc=vfsd has_slots=Y
 timed: ready
 init: ctrl req from updated
-SELFTEST: ipc routing keystored ok
-SELFTEST: keystored v1 ok
-[INFO qos] QOS-AUDIT decision=allow reason=applied caller_sid=0x52c6c4a34ffb3f69 caller_pid=33 target_pid=33 from=normal to=normal
-[INFO qos] QOS-AUDIT decision=deny reason=unauthorized_escalation caller_sid=0x52c6c4a34ffb3f69 caller_pid=33 target_pid=33 from=normal to=interactive
-SELFTEST: qos ok
 timed: audit register decision=allow reason=applied
 timed: audit register decision=deny reason=over_limit
 timed: audit register decision=deny reason=invalid_args

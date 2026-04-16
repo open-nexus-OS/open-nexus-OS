@@ -1,13 +1,13 @@
 //! Selftest server loop runner for single-VM os_entry path.
 
-use nexus_abi::yield_;
-use nexus_ipc::reqrep::ReplyBuffer;
-use nexus_ipc::KernelClient;
-use nexus_noise_xk::{StaticKeypair, Transport, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
 use super::quic_frame::{
     decode_quic_frame, encode_quic_frame, QUIC_OP_MSG1, QUIC_OP_MSG2, QUIC_OP_MSG3, QUIC_OP_PING,
     QUIC_OP_PONG,
 };
+use nexus_abi::yield_;
+use nexus_ipc::reqrep::ReplyBuffer;
+use nexus_ipc::KernelClient;
+use nexus_noise_xk::{StaticKeypair, Transport, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
 
 fn run_mux_contract_selftest() -> bool {
     use crate::os::mux_v2::{
@@ -144,17 +144,19 @@ fn run_quic_udp_selftest_server_loop(
     nonce_ctr: &mut u64,
     port: u16,
 ) -> ! {
-    let udp_id = match crate::os::entry::udp_bind(pending_replies, net, nonce_ctr, [0, 0, 0, 0], port) {
-        Ok(id) => id,
-        Err(()) => {
-            let _ = nexus_abi::debug_println("dsoftbusd: quic udp bind FAIL");
-            loop {
-                let _ = yield_();
+    let udp_id =
+        match crate::os::entry::udp_bind(pending_replies, net, nonce_ctr, [0, 0, 0, 0], port) {
+            Ok(id) => id,
+            Err(()) => {
+                let _ = nexus_abi::debug_println("dsoftbusd: quic udp bind FAIL");
+                loop {
+                    let _ = yield_();
+                }
             }
-        }
-    };
+        };
 
-    let server_static = StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xA0, port));
+    let server_static =
+        StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xA0, port));
     let server_eph_seed = crate::os::entry::derive_test_secret(0xC0, port);
     let client_static_expected =
         StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xB0, port)).public;
@@ -168,7 +170,13 @@ fn run_quic_udp_selftest_server_loop(
     let mut msg1 = [0u8; MSG1_LEN];
     let mut got_msg1 = false;
     for _ in 0..50_000 {
-        match crate::os::entry::udp_recv_from(pending_replies, net, nonce_ctr, udp_id, &mut in_frame) {
+        match crate::os::entry::udp_recv_from(
+            pending_replies,
+            net,
+            nonce_ctr,
+            udp_id,
+            &mut in_frame,
+        ) {
             Ok(Some((from_ip, from_port, n))) => {
                 let Some((op, nonce, payload)) = decode_quic_frame(&in_frame, n) else {
                     continue;
@@ -206,7 +214,8 @@ fn run_quic_udp_selftest_server_loop(
             let _ = yield_();
         }
     }
-    let Some(msg2_len) = encode_quic_frame(QUIC_OP_MSG2, session_nonce, &msg2, &mut out_frame) else {
+    let Some(msg2_len) = encode_quic_frame(QUIC_OP_MSG2, session_nonce, &msg2, &mut out_frame)
+    else {
         let _ = nexus_abi::debug_println("dsoftbusd: quic msg2 frame FAIL");
         loop {
             let _ = yield_();
@@ -232,7 +241,13 @@ fn run_quic_udp_selftest_server_loop(
     let mut msg3 = [0u8; MSG3_LEN];
     let mut got_msg3 = false;
     for _ in 0..50_000 {
-        match crate::os::entry::udp_recv_from(pending_replies, net, nonce_ctr, udp_id, &mut in_frame) {
+        match crate::os::entry::udp_recv_from(
+            pending_replies,
+            net,
+            nonce_ctr,
+            udp_id,
+            &mut in_frame,
+        ) {
             Ok(Some((from_ip, from_port, n))) => {
                 if from_ip != peer_ip || from_port != peer_port {
                     continue;
@@ -279,7 +294,13 @@ fn run_quic_udp_selftest_server_loop(
 
     let mut got_ping = false;
     for _ in 0..50_000 {
-        match crate::os::entry::udp_recv_from(pending_replies, net, nonce_ctr, udp_id, &mut in_frame) {
+        match crate::os::entry::udp_recv_from(
+            pending_replies,
+            net,
+            nonce_ctr,
+            udp_id,
+            &mut in_frame,
+        ) {
             Ok(Some((from_ip, from_port, n))) => {
                 if from_ip != peer_ip || from_port != peer_port {
                     continue;
@@ -305,7 +326,8 @@ fn run_quic_udp_selftest_server_loop(
         }
     }
 
-    let Some(pong_len) = encode_quic_frame(QUIC_OP_PONG, session_nonce, b"PONG", &mut out_frame) else {
+    let Some(pong_len) = encode_quic_frame(QUIC_OP_PONG, session_nonce, b"PONG", &mut out_frame)
+    else {
         let _ = nexus_abi::debug_println("dsoftbusd: quic pong frame FAIL");
         loop {
             let _ = yield_();

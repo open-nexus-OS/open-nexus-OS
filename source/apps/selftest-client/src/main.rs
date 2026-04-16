@@ -4587,7 +4587,12 @@ mod os_lite {
             Err(())
         }
 
-        fn encode_quic_frame(op: u8, session_nonce: u32, payload: &[u8], out: &mut [u8; 256]) -> Option<usize> {
+        fn encode_quic_frame(
+            op: u8,
+            session_nonce: u32,
+            payload: &[u8],
+            out: &mut [u8; 256],
+        ) -> Option<usize> {
             if payload.len() > out.len().saturating_sub(QUIC_FRAME_HEADER_LEN) {
                 return None;
             }
@@ -4605,7 +4610,9 @@ mod os_lite {
             if n < QUIC_FRAME_HEADER_LEN {
                 return None;
             }
-            if buf[0] != QUIC_FRAME_MAGIC0 || buf[1] != QUIC_FRAME_MAGIC1 || buf[2] != QUIC_FRAME_VERSION
+            if buf[0] != QUIC_FRAME_MAGIC0
+                || buf[1] != QUIC_FRAME_MAGIC1
+                || buf[2] != QUIC_FRAME_VERSION
             {
                 return None;
             }
@@ -4723,7 +4730,10 @@ mod os_lite {
             req[4..8].copy_from_slice(&udp_id.to_le_bytes());
             req[8..10].copy_from_slice(&((out.len().min(460)) as u16).to_le_bytes());
             let rsp = rpc(net, &req)?;
-            if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_UDP_RECV_FROM | 0x80)
+            if rsp[0] != MAGIC0
+                || rsp[1] != MAGIC1
+                || rsp[2] != VERSION
+                || rsp[3] != (OP_UDP_RECV_FROM | 0x80)
             {
                 return Err(());
             }

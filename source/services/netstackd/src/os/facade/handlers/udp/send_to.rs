@@ -94,15 +94,16 @@ pub(crate) fn handle_send_to<R: FnMut(&[u8])>(
                 return DispatchControl::ContinueLoop;
             }
             let sender_port = *local;
-            let target_idx = udps.iter().position(|entry| {
-                matches!(entry, Some(UdpSock::Loop(LoopUdp { port: p, .. })) if *p == port)
-            });
+            let target_idx = udps.iter().position(
+                |entry| matches!(entry, Some(UdpSock::Loop(LoopUdp { port: p, .. })) if *p == port),
+            );
             let Some(target_idx) = target_idx else {
                 reply_status_maybe_nonce(reply, OP_UDP_SEND_TO, STATUS_NOT_FOUND, nonce);
                 let _ = yield_();
                 return DispatchControl::ContinueLoop;
             };
-            let Some(Some(UdpSock::Loop(LoopUdp { rx, last_from_port, .. }))) = udps.get_mut(target_idx)
+            let Some(Some(UdpSock::Loop(LoopUdp { rx, last_from_port, .. }))) =
+                udps.get_mut(target_idx)
             else {
                 reply(&status_frame(OP_UDP_SEND_TO, STATUS_IO));
                 let _ = yield_();

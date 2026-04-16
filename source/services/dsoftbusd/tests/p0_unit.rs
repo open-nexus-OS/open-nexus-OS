@@ -8,10 +8,10 @@ mod entry_pure;
 mod fsm;
 #[path = "../src/os/session/handshake.rs"]
 mod handshake;
-#[path = "../src/os/session/quic_frame.rs"]
-mod quic_frame;
 #[path = "../src/os/netstack/ids.rs"]
 mod ids;
+#[path = "../src/os/session/quic_frame.rs"]
+mod quic_frame;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -169,7 +169,9 @@ fn test_reject_quic_frame_truncated_payload() {
 fn test_reject_quic_frame_oversized_payload_encode() {
     let mut out = [0u8; 256];
     let oversized = [0u8; 247];
-    assert!(quic_frame::encode_quic_frame(quic_frame::QUIC_OP_PING, 1, &oversized, &mut out).is_none());
+    assert!(
+        quic_frame::encode_quic_frame(quic_frame::QUIC_OP_PING, 1, &oversized, &mut out).is_none()
+    );
 }
 
 #[test]

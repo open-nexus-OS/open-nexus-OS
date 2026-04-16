@@ -86,7 +86,8 @@ pub(crate) fn handle_recv_from<R: FnMut(&[u8])>(
         }
         UdpSock::Loop(LoopUdp { rx: _, port: _, last_from_port: _ }) => {
             let mut tmp = [0u8; 460];
-            let Some(Some(UdpSock::Loop(LoopUdp { rx, port, last_from_port }))) = udps.get_mut(idx) else {
+            let Some(Some(UdpSock::Loop(LoopUdp { rx, port, last_from_port }))) = udps.get_mut(idx)
+            else {
                 reply(&status_frame(OP_UDP_RECV_FROM, STATUS_IO));
                 let _ = yield_();
                 return DispatchControl::ContinueLoop;
