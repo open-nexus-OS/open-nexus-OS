@@ -59,7 +59,7 @@ fn os_entry() -> core::result::Result<(), ()> {
     );
 
     let port: u16 = 34_567;
-    let lid = os::session::single_vm::run_single_vm_dual_node_bringup(
+    let (lid, transport_selection) = os::session::single_vm::run_single_vm_dual_node_bringup(
         &mut pending_replies,
         &net,
         &mut nonce_ctr,
@@ -73,6 +73,7 @@ fn os_entry() -> core::result::Result<(), ()> {
         &mut nonce_ctr,
         lid,
         port,
+        transport_selection,
     );
 }
 

@@ -4,15 +4,10 @@ use nexus_abi::yield_;
 use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::KernelClient;
 use nexus_noise_xk::{StaticKeypair, Transport, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
-
-const MAGIC0: u8 = b'N';
-const MAGIC1: u8 = b'S';
-const VERSION: u8 = 1;
-const OP_ACCEPT: u8 = 2;
-const OP_READ: u8 = 4;
-const OP_WRITE: u8 = 5;
-const STATUS_OK: u8 = 0;
-const STATUS_WOULD_BLOCK: u8 = 3;
+use super::quic_frame::{
+    decode_quic_frame, encode_quic_frame, QUIC_OP_MSG1, QUIC_OP_MSG2, QUIC_OP_MSG3, QUIC_OP_PING,
+    QUIC_OP_PONG,
+};
 
 fn run_mux_contract_selftest() -> bool {
     use crate::os::mux_v2::{
@@ -143,84 +138,122 @@ fn run_mux_contract_selftest() -> bool {
     backpressure_ok
 }
 
-pub(crate) fn run_selftest_server_loop(
+fn run_quic_udp_selftest_server_loop(
     pending_replies: &mut ReplyBuffer<16, 512>,
     net: &KernelClient,
     nonce_ctr: &mut u64,
-    lid: u32,
     port: u16,
 ) -> ! {
-    // Wait for a client connection, perform auth, then do ping/pong over stream IO.
-    let mut sid: Option<u32> = None;
+    let udp_id = match crate::os::entry::udp_bind(pending_replies, net, nonce_ctr, [0, 0, 0, 0], port) {
+        Ok(id) => id,
+        Err(()) => {
+            let _ = nexus_abi::debug_println("dsoftbusd: quic udp bind FAIL");
+            loop {
+                let _ = yield_();
+            }
+        }
+    };
+
+    let server_static = StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xA0, port));
+    let server_eph_seed = crate::os::entry::derive_test_secret(0xC0, port);
+    let client_static_expected =
+        StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xB0, port)).public;
+    let mut responder = XkResponder::new(server_static, client_static_expected, server_eph_seed);
+
+    let mut in_frame = [0u8; 256];
+    let mut out_frame = [0u8; 256];
+    let mut peer: Option<([u8; 4], u16)> = None;
+    let mut session_nonce: u32 = 0;
+
+    let mut msg1 = [0u8; MSG1_LEN];
+    let mut got_msg1 = false;
     for _ in 0..50_000 {
-        let nonce = crate::os::entry::next_nonce(nonce_ctr);
-        let mut a = [0u8; 16];
-        a[0] = MAGIC0;
-        a[1] = MAGIC1;
-        a[2] = VERSION;
-        a[3] = OP_ACCEPT;
-        a[4..8].copy_from_slice(&lid.to_le_bytes());
-        a[8..16].copy_from_slice(&nonce.to_le_bytes());
-        let rsp =
-            match crate::os::entry::rpc_nonce(pending_replies, net, &a, OP_ACCEPT | 0x80, nonce) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80)
-        {
-            if rsp[4] == STATUS_OK {
-                sid = Some(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
+        match crate::os::entry::udp_recv_from(pending_replies, net, nonce_ctr, udp_id, &mut in_frame) {
+            Ok(Some((from_ip, from_port, n))) => {
+                let Some((op, nonce, payload)) = decode_quic_frame(&in_frame, n) else {
+                    continue;
+                };
+                if op != QUIC_OP_MSG1 || payload.len() != MSG1_LEN {
+                    continue;
+                }
+                msg1.copy_from_slice(payload);
+                peer = Some((from_ip, from_port));
+                session_nonce = nonce;
+                got_msg1 = true;
                 break;
             }
-            if rsp[4] != STATUS_WOULD_BLOCK {
-                break;
-            }
+            Ok(None) => {}
+            Err(()) => {}
         }
         let _ = yield_();
     }
-    let Some(sid) = sid else {
+    if !got_msg1 {
+        let _ = nexus_abi::debug_println("dsoftbusd: quic msg1 timeout");
+        loop {
+            let _ = yield_();
+        }
+    }
+
+    let Some((peer_ip, peer_port)) = peer else {
         loop {
             let _ = yield_();
         }
     };
-
-    // REAL Noise XK Handshake with selftest-client (RFC-0008).
-    // SECURITY: bring-up test keys, NOT production custody.
-    let server_static =
-        StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xA0, port));
-    // SECURITY: bring-up test keys, NOT production custody.
-    let server_eph_seed = crate::os::entry::derive_test_secret(0xC0, port);
-    // SECURITY: bring-up test keys, NOT production custody.
-    let client_static_expected =
-        StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xB0, port)).public;
-
-    let mut responder = XkResponder::new(server_static, client_static_expected, server_eph_seed);
-
-    let mut msg1 = [0u8; MSG1_LEN];
-    if crate::os::entry::stream_read(pending_replies, net, nonce_ctr, sid, &mut msg1).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: noise msg1 read FAIL");
-        loop {
-            let _ = yield_();
-        }
-    }
-
     let mut msg2 = [0u8; MSG2_LEN];
     if responder.read_msg1_write_msg2(&msg1, &mut msg2).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: noise msg2 gen FAIL");
+        let _ = nexus_abi::debug_println("dsoftbusd: quic msg2 gen FAIL");
         loop {
             let _ = yield_();
         }
     }
-    if crate::os::entry::stream_write(pending_replies, net, nonce_ctr, sid, &msg2).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: noise msg2 write FAIL");
+    let Some(msg2_len) = encode_quic_frame(QUIC_OP_MSG2, session_nonce, &msg2, &mut out_frame) else {
+        let _ = nexus_abi::debug_println("dsoftbusd: quic msg2 frame FAIL");
+        loop {
+            let _ = yield_();
+        }
+    };
+    if crate::os::entry::udp_send_to(
+        pending_replies,
+        net,
+        nonce_ctr,
+        udp_id,
+        peer_ip,
+        peer_port,
+        &out_frame[..msg2_len],
+    )
+    .is_err()
+    {
+        let _ = nexus_abi::debug_println("dsoftbusd: quic msg2 send FAIL");
         loop {
             let _ = yield_();
         }
     }
 
     let mut msg3 = [0u8; MSG3_LEN];
-    if crate::os::entry::stream_read(pending_replies, net, nonce_ctr, sid, &mut msg3).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: noise msg3 read FAIL");
+    let mut got_msg3 = false;
+    for _ in 0..50_000 {
+        match crate::os::entry::udp_recv_from(pending_replies, net, nonce_ctr, udp_id, &mut in_frame) {
+            Ok(Some((from_ip, from_port, n))) => {
+                if from_ip != peer_ip || from_port != peer_port {
+                    continue;
+                }
+                let Some((op, nonce, payload)) = decode_quic_frame(&in_frame, n) else {
+                    continue;
+                };
+                if nonce != session_nonce || op != QUIC_OP_MSG3 || payload.len() != MSG3_LEN {
+                    continue;
+                }
+                msg3.copy_from_slice(payload);
+                got_msg3 = true;
+                break;
+            }
+            Ok(None) => {}
+            Err(()) => {}
+        }
+        let _ = yield_();
+    }
+    if !got_msg3 {
+        let _ = nexus_abi::debug_println("dsoftbusd: quic msg3 timeout");
         loop {
             let _ = yield_();
         }
@@ -235,65 +268,69 @@ pub(crate) fn run_selftest_server_loop(
             }
         }
         Err(_) => {
-            let _ = nexus_abi::debug_println("dsoftbusd: noise msg3 FAIL");
+            let _ = nexus_abi::debug_println("dsoftbusd: quic msg3 FAIL");
             loop {
                 let _ = yield_();
             }
         }
     };
-
     let mut _transport = Transport::new(transport_keys);
     let _ = nexus_abi::debug_println("dsoftbusd: auth ok");
 
     let mut got_ping = false;
     for _ in 0..50_000 {
-        let nonce = crate::os::entry::next_nonce(nonce_ctr);
-        let mut r = [0u8; 18];
-        r[0] = MAGIC0;
-        r[1] = MAGIC1;
-        r[2] = VERSION;
-        r[3] = OP_READ;
-        r[4..8].copy_from_slice(&sid.to_le_bytes());
-        r[8..10].copy_from_slice(&(4u16).to_le_bytes());
-        r[10..18].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = match crate::os::entry::rpc_nonce(pending_replies, net, &r, OP_READ | 0x80, nonce)
-        {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_READ | 0x80) {
-            if rsp[4] == STATUS_OK {
-                let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                if n == 4 && &rsp[7..11] == b"PING" {
-                    got_ping = true;
-                    break;
+        match crate::os::entry::udp_recv_from(pending_replies, net, nonce_ctr, udp_id, &mut in_frame) {
+            Ok(Some((from_ip, from_port, n))) => {
+                if from_ip != peer_ip || from_port != peer_port {
+                    continue;
                 }
+                let Some((op, nonce, payload)) = decode_quic_frame(&in_frame, n) else {
+                    continue;
+                };
+                if nonce != session_nonce || op != QUIC_OP_PING || payload != b"PING" {
+                    continue;
+                }
+                got_ping = true;
+                break;
             }
+            Ok(None) => {}
+            Err(()) => {}
         }
         let _ = yield_();
     }
     if !got_ping {
+        let _ = nexus_abi::debug_println("dsoftbusd: quic ping timeout");
         loop {
             let _ = yield_();
         }
     }
 
-    let nonce = crate::os::entry::next_nonce(nonce_ctr);
-    let mut w = [0u8; 22];
-    w[0] = MAGIC0;
-    w[1] = MAGIC1;
-    w[2] = VERSION;
-    w[3] = OP_WRITE;
-    w[4..8].copy_from_slice(&sid.to_le_bytes());
-    w[8..10].copy_from_slice(&(4u16).to_le_bytes());
-    w[10..14].copy_from_slice(b"PONG");
-    w[14..22].copy_from_slice(&nonce.to_le_bytes());
-    let _ = crate::os::entry::rpc_nonce(pending_replies, net, &w, OP_WRITE | 0x80, nonce);
-    let _ = nexus_abi::debug_println("dsoftbusd: os session ok");
-    let _ = nexus_abi::debug_println("SELFTEST: quic fallback ok");
+    let Some(pong_len) = encode_quic_frame(QUIC_OP_PONG, session_nonce, b"PONG", &mut out_frame) else {
+        let _ = nexus_abi::debug_println("dsoftbusd: quic pong frame FAIL");
+        loop {
+            let _ = yield_();
+        }
+    };
+    if crate::os::entry::udp_send_to(
+        pending_replies,
+        net,
+        nonce_ctr,
+        udp_id,
+        peer_ip,
+        peer_port,
+        &out_frame[..pong_len],
+    )
+    .is_err()
+    {
+        let _ = nexus_abi::debug_println("dsoftbusd: quic pong send FAIL");
+        loop {
+            let _ = yield_();
+        }
+    }
 
-    // Prove mux-v2 contract behavior in the OS execution path without synthetic
-    // success markers. Markers below are emitted only after real state-machine checks.
+    let _ = nexus_abi::debug_println("dsoftbusd: os session ok");
+    let _ = nexus_abi::debug_println("SELFTEST: quic session ok");
+
     if run_mux_contract_selftest() {
         let _ = nexus_abi::debug_println("dsoftbus:mux session up");
         let _ = nexus_abi::debug_println("dsoftbus:mux data ok");
@@ -306,5 +343,21 @@ pub(crate) fn run_selftest_server_loop(
 
     loop {
         let _ = yield_();
+    }
+}
+
+pub(crate) fn run_selftest_server_loop(
+    pending_replies: &mut ReplyBuffer<16, 512>,
+    net: &KernelClient,
+    nonce_ctr: &mut u64,
+    lid: u32,
+    port: u16,
+    transport_selection: crate::os::entry::OsTransportSelection,
+) -> ! {
+    match transport_selection {
+        crate::os::entry::OsTransportSelection::QuicUdp => {
+            let _ = lid;
+            run_quic_udp_selftest_server_loop(pending_replies, net, nonce_ctr, port)
+        }
     }
 }

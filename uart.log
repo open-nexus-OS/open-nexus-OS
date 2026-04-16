@@ -338,26 +338,26 @@ PT: heap alloc
 [INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x12fb2 flags=0x5
 [INFO selftest] KSELFTEST: map flags bits=0x1b
 PT: heap alloc
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fb8 memsz=0x111250 flags=0x4
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fb8 memsz=0x111ac0 flags=0x4
 [INFO selftest] KSELFTEST: map flags bits=0x13
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10524208 memsz=0x80df9 flags=0x6
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10524a78 memsz=0x80589 flags=0x6
 [INFO selftest] KSELFTEST: map flags bits=0x17
 PT: heap alloc
 PT: heap alloc
 [INFO selftest] KSELFTEST: text page entry=0x000000002018005b va=0x0000000010400000
 [INFO selftest] KSELFTEST: data page entry=0x00000000201c90d7 va=0x0000000010524000
-[INFO selftest] KSELFTEST: derived gp=0x10524a08 from .sdata/.data
-[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10524a08
-[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10524a08
+[INFO selftest] KSELFTEST: derived gp=0x10525278 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10525278
+[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10525278
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10524a08
+[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10525278
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [INFO selftest] KSELFTEST: spawn ok pid=17
 [INFO selftest] KSELFTEST: init frame:
   sepc=0x0000000010400000
-  gp=0x0000000010524a08
+  gp=0x0000000010525278
   sp=0x0000000020008000
   sstatus=0x0000000000040020
   SPP=0 (U-mode=0, S-mode=1)
@@ -368,7 +368,7 @@ CAP: new exit
 [INFO kmain] KMAIN: skip S-mode task pid=15 (SPP=1)
 [INFO kmain] KMAIN: skip S-mode task pid=16 (SPP=1)
 [INFO kmain] KMAIN: switch to U-mode pid=17 sepc=0x10400000 sp=0x20008000
-ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x0000000080404db0 sp=0x0000000020008000 gp=0x0000000010524a08 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
+ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x0000000080404db0 sp=0x0000000020008000 gp=0x0000000010525278 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
 AS: activating satp=0x80006000000803e6
 AS: pc check va=0x0000000080209000
 AS: sp check va=0x00000000805ef000
@@ -825,7 +825,7 @@ PT: heap alloc
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x1da20 sp(x2)=0x20008000 gp(x3)=0x2c41e
+[INFO task] SPAWN-FRAME: sepc=0x1dace sp(x2)=0x20008000 gp(x3)=0x2c4cc
 [DEBUG sched] enqueue: pid=31 qos=Normal
 init: up netstackd
 init: start dsoftbusd
@@ -857,7 +857,7 @@ PT: heap alloc
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x2e064 sp(x2)=0x20008000 gp(x3)=0x3ceb0
+[INFO task] SPAWN-FRAME: sepc=0x2e542 sp(x2)=0x20008000 gp(x3)=0x3d390
 [DEBUG sched] enqueue: pid=32 qos=Normal
 init: up dsoftbusd
 init: start selftest-client
@@ -889,7 +889,7 @@ PT: heap alloc
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x3fcec sp(x2)=0x20008000 gp(x3)=0x4dfb0
+[INFO task] SPAWN-FRAME: sepc=0x3ffd0 sp(x2)=0x20008000 gp(x3)=0x4e290
 [DEBUG sched] enqueue: pid=33 qos=Normal
 init: up selftest-client
 init: ready
@@ -1200,8 +1200,7 @@ netstackd: rpc listen
 dbg:netstackd: listen mode loopback
 netstackd: rpc listen ok
 dsoftbusd: os transport up (udp+tcp)
-dsoftbus: quic os disabled (fallback tcp)
-dsoftbusd: transport selected tcp
+dsoftbusd: transport selected quic
 netstackd: rpc listen
 netstackd: rpc listen ok
 dsoftbusd: session connect peer=node-b
@@ -1510,7 +1509,7 @@ SELFTEST: vfs ebadf ok
 SELFTEST: icmp ping ok
 dsoftbusd: auth ok
 dsoftbusd: os session ok
-SELFTEST: quic fallback ok
+SELFTEST: quic session ok
 dsoftbus:mux session up
 dsoftbus:mux data ok
 SELFTEST: mux pri control ok

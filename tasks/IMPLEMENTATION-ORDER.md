@@ -69,11 +69,13 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0022 closure complete, TASK-0023 in progress (gated)
+## Current: TASK-0023 complete, TASK-0023B refactor next, TASK-0024 after
 
-Execute in numerical order. Current queue head is **TASK-0023 (In Progress, gated by explicit feasibility outcome)**.
+Execute in numerical order. Current queue head is **TASK-0023B (Draft, selftest-client refactor slice before transport feature expansion)**.
 Latest completed closure slices before this queue head: **TASK-0020 (Done)** and **TASK-0021 (Done)**.
 Current TASK-0020 closure checkpoint: requirement-based host contract/integration suites are green, canonical OS harnesses are green, mux marker ladders are proven in single-VM and 2-VM paths, deterministic perf and hardening soak gates are green, and a machine-readable release evidence bundle is emitted per run.
+Current TASK-0023 closure checkpoint: host gate proofs (`just test-dsoftbus-quic`, `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_feasibility_contract -- --nocapture`) and OS QUIC marker proof (`REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`) are green; required markers are `dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, and `SELFTEST: quic session ok`, with fallback markers forbidden in this profile.
+Current pre-feature queue policy: execute `TASK-0023B` first to refactor `source/apps/selftest-client/src/main.rs` into maintainable modules before implementing additional transport features in `TASK-0024`.
 Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0020 production closure scope.
 
 | Task | Title | Prereqs | Status |
@@ -87,6 +89,9 @@ Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0
 | TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Done |
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Done |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Done |
+| TASK-0023 | DSoftBus QUIC v2 OS enablement (session path closure) | TASK-0003, TASK-0020, TASK-0022 | Done |
+| TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | TASK-0023 | Draft |
+| TASK-0024 | DSoftBus QUIC-v2 OS follow-up (reliability/recovery/congestion hardening) | TASK-0003, TASK-0020, TASK-0022, TASK-0023B | Draft |
 
 ---
 
@@ -95,7 +100,7 @@ Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0
 Continue in numerical order after TASK-0014.
 
 Notable upcoming tasks:
-- **TASK-0019–0024**: Security and DSoftBus follow-ons (ABI guardrails, streams/QUIC, tightening)
+- **TASK-0019–0024 (+0023B)**: Security and DSoftBus follow-ons (ABI guardrails, streams/QUIC, refactor-before-feature expansion)
 - **TASK-0018**: crashdump v1 closed with final hardening (identity/report fail-closed checks, deterministic marker proofs)
 - **TASK-0019**: ABI syscall guardrails v2 completed (proof gates green; closed as done)
 - **TASK-0016B**: completed networking-structure closure slice for `netstackd` (supports follow-on networking tasks)

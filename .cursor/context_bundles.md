@@ -345,6 +345,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 ### @task_0023_context
 - `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
 - `docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md`
+- `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`
 - `tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md`
 - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
 - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
@@ -356,14 +357,33 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `scripts/qemu-test.sh`
 
 ### @task_0023_touched
-- `userspace/dsoftbus/**` (host feasibility/reject suites only while blocked)
-- `userspace/net/nexus-net/**` (only if feasibility spike requires)
-- `source/services/dsoftbusd/**` (marker/selection sync only while blocked)
-- `source/apps/selftest-client/**` (fallback marker contract only while blocked)
+- `userspace/dsoftbus/**` (host feasibility/reject suites and closure-proof sync)
+- `userspace/net/nexus-net/**` (only if tightly required by closure-proof contract)
+- `source/services/dsoftbusd/**` (real OS session path + marker contract surfaces)
+- `source/apps/selftest-client/**` (real QUIC session probe path)
 - `tests/**` (requirement-named reject/feasibility suites)
 - `docs/distributed/**`
 - `docs/rfcs/**` (RFC-0037 seed + index sync)
 - `scripts/qemu-test.sh`
+
+### @task_0023b_context
+- `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`
+- `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`
+- `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
+- `docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md`
+- `tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md`
+- `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
+- `docs/adr/0005-dsoftbus-architecture.md`
+- `docs/testing/index.md`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `scripts/qemu-test.sh`
+
+### @task_0023b_touched
+- `source/apps/selftest-client/src/main.rs`
+- `source/apps/selftest-client/src/**`
+- `docs/testing/index.md` (only if proof command guidance changes)
+- `tasks/STATUS-BOARD.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
 
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
@@ -441,6 +461,9 @@ Kontext strikt: @core_context @task_0022_context @quality_gates @task_0022_touch
 
 ## Standard instruction line (TASK-0023)
 Kontext strikt: @core_context @task_0023_context @quality_gates @task_0023_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0023B)
+Kontext strikt: @core_context @task_0023b_context @quality_gates @task_0023b_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

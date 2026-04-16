@@ -3,6 +3,7 @@
 pub(crate) mod cross_vm;
 pub(crate) mod fsm;
 pub(crate) mod handshake;
+pub(crate) mod quic_frame;
 pub(crate) mod records;
 pub(crate) mod selftest_server;
 pub(crate) mod single_vm;

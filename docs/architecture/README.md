@@ -64,8 +64,8 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 **Current snapshot**:
 - Core networking transport, authenticated session flow, and dual-node harness behavior are established.
-- Host-first QUIC transport proofs are available via `just test-dsoftbus-quic`; OS QUIC remains disabled-by-default in the TASK-0021 scope.
-- DSoftBus core no_std transport abstraction seam is implemented via `dsoftbus-core`; queue head is `TASK-0023` (explicitly blocked by feasibility gate, route to `TASK-0024`).
+- Host-first QUIC transport proofs are available via `just test-dsoftbus-quic`; OS QUIC-v2 session behavior is now proven in `TASK-0023`.
+- DSoftBus core no_std transport abstraction seam is implemented via `dsoftbus-core`; `TASK-0023` closes real OS session enablement with QUIC-required marker proofs, and follow-on work moves to `TASK-0024`/`TASK-0044` tuning breadth.
 - Networking docs here focus on authority boundaries and invariants; rollout/proof state remains task-owned.
 
 ## Services and contracts

@@ -4546,11 +4546,21 @@ mod os_lite {
         const MAGIC0: u8 = b'N';
         const MAGIC1: u8 = b'S';
         const VERSION: u8 = 1;
-        const OP_CONNECT: u8 = 3;
-        const OP_READ: u8 = 4;
-        const OP_WRITE: u8 = 5;
+        const OP_UDP_BIND: u8 = 6;
+        const OP_UDP_SEND_TO: u8 = 7;
+        const OP_UDP_RECV_FROM: u8 = 8;
         const STATUS_OK: u8 = 0;
         const STATUS_WOULD_BLOCK: u8 = 3;
+        const QUIC_FRAME_MAGIC0: u8 = b'Q';
+        const QUIC_FRAME_MAGIC1: u8 = b'D';
+        const QUIC_FRAME_VERSION: u8 = 1;
+        const QUIC_FRAME_HEADER_LEN: usize = 10;
+        const QUIC_OP_MSG1: u8 = 1;
+        const QUIC_OP_MSG2: u8 = 2;
+        const QUIC_OP_MSG3: u8 = 3;
+        const QUIC_OP_PING: u8 = 4;
+        const QUIC_OP_PONG: u8 = 5;
+        const SESSION_NONCE: u32 = 0x5155_4943;
 
         fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
             let reply = cached_reply_client().map_err(|_| ())?;
@@ -4577,36 +4587,61 @@ mod os_lite {
             Err(())
         }
 
+        fn encode_quic_frame(op: u8, session_nonce: u32, payload: &[u8], out: &mut [u8; 256]) -> Option<usize> {
+            if payload.len() > out.len().saturating_sub(QUIC_FRAME_HEADER_LEN) {
+                return None;
+            }
+            out[0] = QUIC_FRAME_MAGIC0;
+            out[1] = QUIC_FRAME_MAGIC1;
+            out[2] = QUIC_FRAME_VERSION;
+            out[3] = op;
+            out[4..8].copy_from_slice(&session_nonce.to_le_bytes());
+            out[8..10].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+            out[10..10 + payload.len()].copy_from_slice(payload);
+            Some(QUIC_FRAME_HEADER_LEN + payload.len())
+        }
+
+        fn decode_quic_frame(buf: &[u8], n: usize) -> Option<(u8, u32, &[u8])> {
+            if n < QUIC_FRAME_HEADER_LEN {
+                return None;
+            }
+            if buf[0] != QUIC_FRAME_MAGIC0 || buf[1] != QUIC_FRAME_MAGIC1 || buf[2] != QUIC_FRAME_VERSION
+            {
+                return None;
+            }
+            let op = buf[3];
+            let session_nonce = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+            let payload_len = u16::from_le_bytes([buf[8], buf[9]]) as usize;
+            let payload_end = QUIC_FRAME_HEADER_LEN.checked_add(payload_len)?;
+            if payload_end > n || payload_end > buf.len() {
+                return None;
+            }
+            Some((op, session_nonce, &buf[QUIC_FRAME_HEADER_LEN..payload_end]))
+        }
+
         let net = cached_netstackd_client().map_err(|_| ())?;
 
-        // Connect to dsoftbusd session port.
+        // QUIC-v2 over UDP datagrams against dsoftbusd session endpoint.
         let port: u16 = 34_567;
-        let mut sid: Option<u32> = None;
-        for _ in 0..50_000 {
-            let mut c = [0u8; 10];
-            c[0] = MAGIC0;
-            c[1] = MAGIC1;
-            c[2] = VERSION;
-            c[3] = OP_CONNECT;
-            c[4..8].copy_from_slice(&[10, 0, 2, 15]);
-            c[8..10].copy_from_slice(&port.to_le_bytes());
-            let rsp = rpc(&net, &c)?;
-            if rsp[0] == MAGIC0
-                && rsp[1] == MAGIC1
-                && rsp[2] == VERSION
-                && rsp[3] == (OP_CONNECT | 0x80)
-            {
-                if rsp[4] == STATUS_OK {
-                    sid = Some(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
-                    break;
-                }
-                if rsp[4] != STATUS_WOULD_BLOCK {
-                    return Err(());
-                }
-            }
-            let _ = yield_();
+        let server_ip = [10, 0, 2, 15];
+
+        let mut bind_req = [0u8; 10];
+        bind_req[0] = MAGIC0;
+        bind_req[1] = MAGIC1;
+        bind_req[2] = VERSION;
+        bind_req[3] = OP_UDP_BIND;
+        bind_req[4..8].copy_from_slice(&[0, 0, 0, 0]);
+        bind_req[8..10].copy_from_slice(&34_569u16.to_le_bytes());
+        let bind_rsp = rpc(&net, &bind_req)?;
+        if bind_rsp[0] != MAGIC0
+            || bind_rsp[1] != MAGIC1
+            || bind_rsp[2] != VERSION
+            || bind_rsp[3] != (OP_UDP_BIND | 0x80)
+            || bind_rsp[4] != STATUS_OK
+        {
+            return Err(());
         }
-        let sid = sid.ok_or(())?;
+        let udp_id = u32::from_le_bytes([bind_rsp[5], bind_rsp[6], bind_rsp[7], bind_rsp[8]]);
 
         // ============================================================
         // REAL Noise XK Handshake (RFC-0008) - Initiator side
@@ -4642,178 +4677,141 @@ mod os_lite {
         let mut initiator =
             XkInitiator::new(client_static, server_static_expected, client_eph_seed);
 
-        // Helper to read exactly N bytes from the session
-        fn stream_read(
+        fn udp_send_frame(
             net: &KernelClient,
-            sid: u32,
-            buf: &mut [u8],
+            udp_id: u32,
+            dst_ip: [u8; 4],
+            dst_port: u16,
+            payload: &[u8],
         ) -> core::result::Result<(), ()> {
-            const MAGIC0: u8 = b'N';
-            const MAGIC1: u8 = b'S';
-            const VERSION: u8 = 1;
-            const OP_READ: u8 = 4;
-            const STATUS_OK: u8 = 0;
-            const STATUS_WOULD_BLOCK: u8 = 3;
-
-            let len = buf.len();
-            for _ in 0..100_000 {
-                let mut r = [0u8; 10];
-                r[0] = MAGIC0;
-                r[1] = MAGIC1;
-                r[2] = VERSION;
-                r[3] = OP_READ;
-                r[4..8].copy_from_slice(&sid.to_le_bytes());
-                r[8..10].copy_from_slice(&(len as u16).to_le_bytes());
-                let reply = cached_reply_client().map_err(|_| ())?;
-                let (reply_send_slot, reply_recv_slot) = reply.slots();
-                let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-                net.send_with_cap_move(&r, reply_send_clone).map_err(|_| ())?;
-                let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-                let mut rsp = [0u8; 512];
-                for _ in 0..5_000 {
-                    match nexus_abi::ipc_recv_v1(
-                        reply_recv_slot,
-                        &mut hdr,
-                        &mut rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                        0,
-                    ) {
-                        Ok(_) => {
-                            if rsp[0] == MAGIC0
-                                && rsp[1] == MAGIC1
-                                && rsp[2] == VERSION
-                                && rsp[3] == (OP_READ | 0x80)
-                            {
-                                if rsp[4] == STATUS_OK {
-                                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                                    if n == len && 7 + n <= rsp.len() {
-                                        buf.copy_from_slice(&rsp[7..7 + n]);
-                                        return Ok(());
-                                    }
-                                } else if rsp[4] == STATUS_WOULD_BLOCK {
-                                    break; // retry outer loop
-                                } else {
-                                    return Err(());
-                                }
-                            }
-                            break;
-                        }
-                        Err(nexus_abi::IpcError::QueueEmpty) => {
-                            let _ = nexus_abi::yield_();
-                        }
-                        Err(_) => return Err(()),
-                    }
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(())
-        }
-
-        // Helper to write exactly N bytes to the session
-        fn stream_write(net: &KernelClient, sid: u32, data: &[u8]) -> core::result::Result<(), ()> {
-            const MAGIC0: u8 = b'N';
-            const MAGIC1: u8 = b'S';
-            const VERSION: u8 = 1;
-            const OP_WRITE: u8 = 5;
-            const STATUS_OK: u8 = 0;
-
-            let mut w = [0u8; 256];
-            if data.len() + 10 > w.len() {
+            let mut req = [0u8; 16 + 256];
+            if payload.len() > 256 {
                 return Err(());
             }
-            w[0] = MAGIC0;
-            w[1] = MAGIC1;
-            w[2] = VERSION;
-            w[3] = OP_WRITE;
-            w[4..8].copy_from_slice(&sid.to_le_bytes());
-            w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
-            w[10..10 + data.len()].copy_from_slice(data);
-
-            let reply = cached_reply_client().map_err(|_| ())?;
-            let (reply_send_slot, reply_recv_slot) = reply.slots();
-            let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-            net.send_with_cap_move(&w[..10 + data.len()], reply_send_clone).map_err(|_| ())?;
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut rsp = [0u8; 64];
-            for _ in 0..5_000 {
-                match nexus_abi::ipc_recv_v1(
-                    reply_recv_slot,
-                    &mut hdr,
-                    &mut rsp,
-                    nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                    0,
-                ) {
-                    Ok(_) => {
-                        if rsp[0] == MAGIC0
-                            && rsp[1] == MAGIC1
-                            && rsp[2] == VERSION
-                            && rsp[3] == (OP_WRITE | 0x80)
-                            && rsp[4] == STATUS_OK
-                        {
-                            return Ok(());
-                        }
-                        return Err(());
-                    }
-                    Err(nexus_abi::IpcError::QueueEmpty) => {
-                        let _ = nexus_abi::yield_();
-                    }
-                    Err(_) => return Err(()),
-                }
+            req[0] = MAGIC0;
+            req[1] = MAGIC1;
+            req[2] = VERSION;
+            req[3] = OP_UDP_SEND_TO;
+            req[4..8].copy_from_slice(&udp_id.to_le_bytes());
+            req[8..12].copy_from_slice(&dst_ip);
+            req[12..14].copy_from_slice(&dst_port.to_le_bytes());
+            req[14..16].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+            req[16..16 + payload.len()].copy_from_slice(payload);
+            let rsp = rpc(net, &req[..16 + payload.len()])?;
+            if rsp[0] == MAGIC0
+                && rsp[1] == MAGIC1
+                && rsp[2] == VERSION
+                && rsp[3] == (OP_UDP_SEND_TO | 0x80)
+                && rsp[4] == STATUS_OK
+            {
+                Ok(())
+            } else {
+                Err(())
             }
-            Err(())
+        }
+
+        fn udp_recv_frame(
+            net: &KernelClient,
+            udp_id: u32,
+            out: &mut [u8],
+        ) -> core::result::Result<Option<([u8; 4], u16, usize)>, ()> {
+            let mut req = [0u8; 10];
+            req[0] = MAGIC0;
+            req[1] = MAGIC1;
+            req[2] = VERSION;
+            req[3] = OP_UDP_RECV_FROM;
+            req[4..8].copy_from_slice(&udp_id.to_le_bytes());
+            req[8..10].copy_from_slice(&((out.len().min(460)) as u16).to_le_bytes());
+            let rsp = rpc(net, &req)?;
+            if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_UDP_RECV_FROM | 0x80)
+            {
+                return Err(());
+            }
+            if rsp[4] == STATUS_WOULD_BLOCK {
+                return Ok(None);
+            }
+            if rsp[4] != STATUS_OK {
+                return Err(());
+            }
+            let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+            let from_ip = [rsp[7], rsp[8], rsp[9], rsp[10]];
+            let from_port = u16::from_le_bytes([rsp[11], rsp[12]]);
+            let base = 13usize;
+            if n > out.len() || base + n > rsp.len() {
+                return Err(());
+            }
+            out[..n].copy_from_slice(&rsp[base..base + n]);
+            Ok(Some((from_ip, from_port, n)))
         }
 
         // Step 1: Write msg1 (initiator ephemeral public key, 32 bytes)
         let mut msg1 = [0u8; MSG1_LEN];
         initiator.write_msg1(&mut msg1);
-        stream_write(&net, sid, &msg1)?;
+        let mut frame = [0u8; 256];
+        let msg1_len =
+            encode_quic_frame(QUIC_OP_MSG1, SESSION_NONCE, &msg1, &mut frame).ok_or(())?;
+        udp_send_frame(&net, udp_id, server_ip, port, &frame[..msg1_len])?;
 
         // Step 2: Read msg2 (responder ephemeral + encrypted static + tag, 96 bytes)
         let mut msg2 = [0u8; MSG2_LEN];
-        stream_read(&net, sid, &mut msg2)?;
+        let mut inbound = [0u8; 256];
+        let mut got_msg2 = false;
+        for _ in 0..100_000 {
+            match udp_recv_frame(&net, udp_id, &mut inbound)? {
+                Some((from_ip, from_port, n)) => {
+                    if from_ip != server_ip || from_port != port {
+                        continue;
+                    }
+                    let Some((op, nonce, payload)) = decode_quic_frame(&inbound, n) else {
+                        continue;
+                    };
+                    if op == QUIC_OP_MSG2 && nonce == SESSION_NONCE && payload.len() == MSG2_LEN {
+                        msg2.copy_from_slice(payload);
+                        got_msg2 = true;
+                        break;
+                    }
+                }
+                None => {
+                    let _ = yield_();
+                }
+            }
+        }
+        if !got_msg2 {
+            return Err(());
+        }
 
         // Step 3: Write msg3 and get transport keys (encrypted initiator static + tag, 64 bytes)
         let mut msg3 = [0u8; MSG3_LEN];
         let transport_keys = initiator.read_msg2_write_msg3(&msg2, &mut msg3).map_err(|_| ())?;
-        stream_write(&net, sid, &msg3)?;
+        let msg3_len =
+            encode_quic_frame(QUIC_OP_MSG3, SESSION_NONCE, &msg3, &mut frame).ok_or(())?;
+        udp_send_frame(&net, udp_id, server_ip, port, &frame[..msg3_len])?;
 
         // Create transport for encrypted communication
         let mut _transport = Transport::new(transport_keys);
 
         // Handshake complete - server will emit "dsoftbusd: auth ok" after processing msg3
 
-        // WRITE "PING"
-        let mut w = [0u8; 14];
-        w[0] = MAGIC0;
-        w[1] = MAGIC1;
-        w[2] = VERSION;
-        w[3] = OP_WRITE;
-        w[4..8].copy_from_slice(&sid.to_le_bytes());
-        w[8..10].copy_from_slice(&(4u16).to_le_bytes());
-        w[10..14].copy_from_slice(b"PING");
-        let _ = rpc(&net, &w)?;
+        // WRITE "PING" datagram frame.
+        let ping_len =
+            encode_quic_frame(QUIC_OP_PING, SESSION_NONCE, b"PING", &mut frame).ok_or(())?;
+        udp_send_frame(&net, udp_id, server_ip, port, &frame[..ping_len])?;
 
-        // READ "PONG"
-        for _ in 0..50_000 {
-            let mut r = [0u8; 10];
-            r[0] = MAGIC0;
-            r[1] = MAGIC1;
-            r[2] = VERSION;
-            r[3] = OP_READ;
-            r[4..8].copy_from_slice(&sid.to_le_bytes());
-            r[8..10].copy_from_slice(&(4u16).to_le_bytes());
-            let rsp = rpc(&net, &r)?;
-            if rsp[0] == MAGIC0
-                && rsp[1] == MAGIC1
-                && rsp[2] == VERSION
-                && rsp[3] == (OP_READ | 0x80)
-            {
-                if rsp[4] == STATUS_OK {
-                    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
-                    if n == 4 && &rsp[7..11] == b"PONG" {
+        // READ "PONG" datagram frame.
+        for _ in 0..100_000 {
+            match udp_recv_frame(&net, udp_id, &mut inbound)? {
+                Some((from_ip, from_port, n)) => {
+                    if from_ip != server_ip || from_port != port {
+                        continue;
+                    }
+                    let Some((op, nonce, payload)) = decode_quic_frame(&inbound, n) else {
+                        continue;
+                    };
+                    if op == QUIC_OP_PONG && nonce == SESSION_NONCE && payload == b"PONG" {
                         return Ok(());
                     }
                 }
+                None => {}
             }
             let _ = yield_();
         }

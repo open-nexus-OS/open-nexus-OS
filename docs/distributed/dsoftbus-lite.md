@@ -68,15 +68,15 @@ Two runtime tracks are relevant today:
   - Networking: virtio-net + smoltcp + IPC sockets facade (`netstackd`)
   - UDP discovery announce/receive (loopback scope) via `nexus-discovery-packet` + `nexus-peer-lru`
   - Noise XK handshake (`nexus-noise-xk` library)
-  - TCP sessions over the sockets facade
+  - QUIC-v2 UDP session framing over the sockets facade (TASK-0023 closure path)
   - See `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (Done)
-  - QUIC on OS is disabled-by-default in TASK-0021 and remains explicitly blocked in `TASK-0023`
-    until feasibility changes; implementation route is `TASK-0024` (UDP-sec).
+  - QUIC on OS is enabled in `TASK-0023` with real auth/session marker proofs.
+  - Follow-on transport breadth/tuning remains routed to `TASK-0024` and `TASK-0044`.
 
 Address-profile contracts used by these paths are documented in
 `docs/architecture/network-address-matrix.md`.
 
-## Current OS Implementation Status (2026-04-15)
+## Current OS Implementation Status (2026-04-16)
 
 | Feature | Status | Task |
 |---------|--------|------|

@@ -79,13 +79,13 @@ OS and distributed evidence:
 
 ### TASK-0021 QUIC scaffold behavior-first matrix
 
-`TASK-0021` Phase-B/C/D closure uses a minimal behavior-first proof set and keeps OS QUIC disabled-by-default.
+`TASK-0021` remains the host-first QUIC contract baseline.
 
 | Requirement surface | Proof type | Canonical command |
 | --- | --- | --- |
 | Host real QUIC connect + bidirectional stream exchange + TASK-0020 mux smoke payload + reject mapping | host transport assertions | `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture` |
 | Host QUIC selection + reject/fallback contract (`test_reject_*` + positive path) | host selection assertions | `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture` |
-| OS fallback marker wiring (`dsoftbus: quic os disabled (fallback tcp)`, `dsoftbusd: transport selected tcp`, `SELFTEST: quic fallback ok`) | single-VM boundary marker proof | `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s ./scripts/qemu-test.sh` |
+| OS QUIC marker wiring (`dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `SELFTEST: quic session ok`) plus fallback-marker rejection | single-VM boundary marker proof | `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s ./scripts/qemu-test.sh` |
 | Deterministic selection perf envelope (bounded attempts/marker budget) | host perf-budget assertions | `cargo test -p dsoftbus --test quic_selection_contract perf_budget -- --nocapture` |
 
 Scope note:
@@ -106,6 +106,22 @@ Scope note:
 
 Scope note:
 - `tools/os2vm.sh` is required only when the slice asserts new distributed behavior claims.
+
+### TASK-0023 QUIC v2 OS-enabled matrix
+
+`TASK-0023` closes OS QUIC-v2 session enablement in the no_std-friendly UDP framing profile.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Host fail-closed selection + real-transport reject mapping (`test_reject_*`) | host gate-integrity assertions | `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture` and `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture` |
+| Phase-D feasibility reject/boundedness contract (`test_reject_quic_feasibility_*`) | host feasibility assertions | `cargo test -p dsoftbus --test quic_feasibility_contract -- --nocapture` |
+| Service-side QUIC frame reject paths (`test_reject_quic_frame_*`) | host service contract assertions | `cargo test -p dsoftbusd --test p0_unit -- --nocapture` |
+| Host aggregate regression floor for QUIC semantics | host aggregate assertions | `just test-dsoftbus-quic` |
+| OS QUIC marker contract (`dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, `SELFTEST: quic session ok`) with fallback-marker rejection | single-VM boundary marker proof | `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s ./scripts/qemu-test.sh` |
+
+Scope note:
+- `tools/os2vm.sh` remains required only when new distributed behavior is explicitly claimed.
+- Advanced QUIC tuning/perf breadth remains follow-up scope (`TASK-0044`).
 
 ### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
 

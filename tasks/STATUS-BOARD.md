@@ -17,7 +17,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Group | Done / Total | Progress | Kernel-touch tasks | Notes |
 |------|---------------|----------|--------------------|-------|
 | Kernel Core & Runtime | 6 / 30 | 20% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
-| DSoftBus & Distributed | 6 / 26 | 23% | — | Distributed session, transport, mux, and remote-service stack. |
+| DSoftBus & Distributed | 7 / 27 | 26% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
 | Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 0 / 8 | 0% | — | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
@@ -95,9 +95,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### DSoftBus & Distributed
 
-- Progress: `6 / 26` done (`23%`)
+- Progress: `7 / 27` done (`26%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0003`, `TASK-0003B`, `TASK-0003C`, `TASK-0004`..`TASK-0005`, `TASK-0015`..`TASK-0017`, `TASK-0020`..`TASK-0024`, `TASK-0030`, `TASK-0038`, `TASK-0040`, `TASK-0044`, `TASK-0157`..`TASK-0158`, `TASK-0195`..`TASK-0196`, `TASK-0211`..`TASK-0212`, `TASK-0219`..`TASK-0220`, `TASK-0231`
+- Tasks: `TASK-0003`, `TASK-0003B`, `TASK-0003C`, `TASK-0004`..`TASK-0005`, `TASK-0015`..`TASK-0017`, `TASK-0020`..`TASK-0024`, `TASK-0023B`, `TASK-0030`, `TASK-0038`, `TASK-0040`, `TASK-0044`, `TASK-0157`..`TASK-0158`, `TASK-0195`..`TASK-0196`, `TASK-0211`..`TASK-0212`, `TASK-0219`..`TASK-0220`, `TASK-0231`
 
 ### Networking & Transport
 
@@ -210,8 +210,11 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0020 | DSoftBus Streams v2: mux + flow-control + keepalive | Done | Legacy 0001..0020 production closure gates proven (host/OS/2-VM/perf/soak/release-evidence); closeout synced |
 | ✅ TASK-0021 | DSoftBus QUIC v1 host-first scaffold | Done | Real host QUIC transport + QUIC/mux payload proof + deterministic OS fallback markers + strict-mode fail-closed closure synced |
 | ✅ TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | Done | `dsoftbus-core` no_std crate boundary extracted, required `test_reject_*` + deterministic perf/zero-copy trait evidence green, closure sync complete |
+| ✅ TASK-0023 | DSoftBus QUIC v2 OS enabled (gated) | Done | Real OS QUIC-v2 UDP session path shipped: `transport selected quic` + auth/session markers proven; fallback markers rejected in QUIC-required profile |
 
-Current queue head: `TASK-0023` (`In Progress`, feasibility gate remains blocked for OS QUIC enablement; explicit routing to `TASK-0024`, next executable candidate unless resequenced).
+Current queue head: `TASK-0023B` (`Draft`, production-grade deterministic test architecture refactor for `selftest-client` before `TASK-0024` feature expansion).
+Current TASK-0023 closure checkpoint: host floors (`just test-dsoftbus-quic`, `quic_selection_contract`, `quic_host_transport_contract`, `quic_feasibility_contract`) and OS QUIC marker floor (`REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`) are green; required markers are `dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, and `SELFTEST: quic session ok`, with fallback markers forbidden in this profile.
+Next sequencing policy: `TASK-0023B` (refactor/no-behavior-change) -> `TASK-0024` (reliability/recovery/congestion features) -> `TASK-0044` (advanced tuning breadth).
 Production closure program note: `RFC-0034` is now done for legacy `TASK-0001..0020` production closure scope.
 Task contract seed note: `RFC-0035` is the `TASK-0021` host-first QUIC scaffold contract (strict fallback + no silent downgrade, with explicit `TASK-0022` boundary).
 Current TASK-0021 slice status: ✅ Done. Phase-B host proof (real QUIC transport + selection/reject contract + QUIC+mux smoke payload), Phase-C OS fallback marker proof, and Phase-D deterministic perf budget proof are green; host runtime transport selection wiring (`DSOFTBUS_TRANSPORT=tcp|quic|auto`) and targeted gate (`just test-dsoftbus-quic`) are closed and synchronized.
@@ -282,7 +285,7 @@ QEMU window before the later display/system migration tasks fully land.
 | ✅ RFC-0031 | Crashdumps v1 + host symbolization | `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` |
 | ✅ RFC-0032 | ABI syscall guardrails v2 (userland, kernel-untouched) | `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md` |
 
-Current RFC closure status: `RFC-0033`, `RFC-0034`, `RFC-0035`, and `RFC-0036` are `Done/Complete`; `RFC-0037` is `In Progress` (gated contract seed for `TASK-0023`).
+Current RFC closure status: `RFC-0033`, `RFC-0034`, `RFC-0035`, `RFC-0036`, and `RFC-0037` are `Done/Complete`.
 
 ---
 

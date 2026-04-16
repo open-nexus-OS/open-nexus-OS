@@ -77,7 +77,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     udp_id: u32,
     disc_port: u16,
     port: u16,
-) -> core::result::Result<u32, ()> {
+) -> core::result::Result<(u32, crate::os::entry::OsTransportSelection), ()> {
     // Bounded peer cache (Phase 1): keep a small, deterministic LRU of recently seen peers.
     let mut peers = PeerLru::with_default_capacity();
     let mut peer_ips: Vec<(String, [u8; 4])> = Vec::new();
@@ -176,9 +176,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
 
     let lid = crate::os::entry::listen_with_retry(pending_replies, net, nonce_ctr, port)?;
     let _ = nexus_abi::debug_println("dsoftbusd: os transport up (udp+tcp)");
-    match crate::os::entry::select_os_transport_for_session() {
-        crate::os::entry::OsTransportSelection::TcpFallbackQuicDisabled => {}
-    }
+    let transport_selection = crate::os::entry::select_os_transport_for_session();
 
     let port_b: u16 = 34_568;
     let mut req_b = [0u8; 14];
@@ -368,5 +366,5 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         line.text("dsoftbusd: ready");
     });
 
-    Ok(lid)
+    Ok((lid, transport_selection))
 }

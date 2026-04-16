@@ -308,6 +308,14 @@ pub use transport_selection::{
     MARKER_TRANSPORT_SELECTED_QUIC, MARKER_TRANSPORT_SELECTED_TCP,
 };
 
+pub mod quic_feasibility;
+pub use quic_feasibility::{
+    assess_quic_phase_d_feasibility, LossRetryBudget, QuicEntropyReadiness, QuicFeasibilityAssessment,
+    QuicFeasibilityError, QuicFeasibilityInput, QuicOsRuntimeImplementation, QuicRuntimeBoundary,
+    QuicTimerDeterminism, CURRENT_OS_QUIC_RUNTIME_IMPLEMENTATION,
+    MAX_FEASIBILITY_INFLIGHT_PACKETS, MAX_FEASIBILITY_REORDER_PACKETS, MAX_FEASIBILITY_RETRANSMITS,
+};
+
 #[cfg(any(nexus_env = "host", not(nexus_env = "os")))]
 pub mod host_quic;
 

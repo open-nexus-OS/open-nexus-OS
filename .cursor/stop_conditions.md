@@ -57,29 +57,79 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] No unresolved RED decision points remain in `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`.
 - [ ] No follow-on scope (`TASK-0023` / `TASK-0044`) was silently absorbed.
 
-## TASK-0023 class stop conditions (DSoftBus QUIC v2 OS-enabled gated)
-- [ ] Blocked-state gate outcome is explicit and synchronized:
-  - [ ] task remains `Blocked` until no_std QUIC feasibility evidence exists,
-  - [ ] `RFC-0037` is linked as the active contract seed,
-  - [ ] follow-up implementation route is explicit (`TASK-0024`),
-  - [ ] tuning follow-up remains explicit (`TASK-0044`).
+## TASK-0023 class stop conditions (DSoftBus QUIC v2 OS-enabled)
+- [ ] Real OS QUIC session behavior is implemented and synchronized:
+  - [ ] `RFC-0037` and task doc reflect enabled session posture,
+  - [ ] follow-up routes remain explicit (`TASK-0024`, `TASK-0044`).
 - [ ] Behavior-first proof shape is explicit and maintained:
   - [ ] target behavior is explicit,
   - [ ] main break point is explicit,
   - [ ] primary proof is minimal and honest.
-- [ ] Security reject contract is current and mirrors real requirement-named tests:
+- [ ] Security reject contract is current and mirrors requirement-named tests:
   - [ ] `test_reject_quic_strict_mode_downgrade`
   - [ ] `test_reject_quic_invalid_or_untrusted_cert`
   - [ ] `test_reject_quic_wrong_alpn`
-- [ ] Marker contract remains honest while blocked:
-  - [ ] `dsoftbus: quic os disabled (fallback tcp)`
-  - [ ] `SELFTEST: quic fallback ok`
-- [ ] No QUIC success markers are emitted in OS/QEMU while task is blocked.
-- [ ] Rust API discipline for follow-up implementation is documented and enforced:
+  - [ ] `test_reject_quic_frame_bad_magic`
+  - [ ] `test_reject_quic_frame_truncated_payload`
+  - [ ] `test_reject_quic_frame_oversized_payload_encode`
+- [ ] Phase-D feasibility guard contract stays green:
+  - [ ] `cargo test -p dsoftbus --test quic_feasibility_contract -- --nocapture`
+  - [ ] `test_reject_quic_feasibility_std_runtime_coupling`
+  - [ ] `test_reject_quic_feasibility_non_deterministic_timer_assumptions`
+  - [ ] `test_reject_quic_feasibility_entropy_prerequisites_unsatisfied`
+  - [ ] `test_reject_quic_feasibility_unbounded_loss_retry_budget`
+- [ ] Marker contract is honest in QUIC-required OS profile:
+  - [ ] required:
+    - [ ] `dsoftbusd: transport selected quic`
+    - [ ] `dsoftbusd: auth ok`
+    - [ ] `dsoftbusd: os session ok`
+    - [ ] `SELFTEST: quic session ok`
+  - [ ] forbidden:
+    - [ ] `dsoftbusd: transport selected tcp`
+    - [ ] `dsoftbus: quic os disabled (fallback tcp)`
+    - [ ] `SELFTEST: quic fallback ok`
+- [ ] Rust API discipline remains enforced:
   - [ ] `newtype`/ownership/`#[must_use]` expectations are explicit for transport/session boundaries,
   - [ ] `Send`/`Sync` expectations are reviewed without unsafe blanket trait shortcuts.
 - [ ] Modern virtio-mmio proof floor is preserved for OS/QEMU closure claims.
-- [ ] No OS QUIC implementation scope was silently absorbed into unrelated tasks.
+- [ ] No follow-up scope is silently absorbed into unrelated tasks.
+
+## TASK-0023B class stop conditions (selftest-client deterministic refactor)
+- [ ] Phase sequence is completed in order with no skipped closure gate:
+  - [ ] Phase 1 structural extraction,
+  - [ ] Phase 2 maintainability/extensibility cleanup,
+  - [ ] Phase 3 standards/closure review.
+- [ ] Behavior-preserving refactor contract holds:
+  - [ ] marker ordering semantics remain unchanged,
+  - [ ] marker meanings remain unchanged,
+  - [ ] reject behavior remains fail-closed,
+  - [ ] no `TASK-0024` feature scope was absorbed.
+- [ ] Proof floor is rerun after each major extraction cut and remains green:
+  - [ ] `cargo test -p dsoftbusd -- --nocapture`
+  - [ ] `just test-dsoftbus-quic`
+  - [ ] `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`
+- [ ] Full ladder authority is preserved:
+  - [ ] `scripts/qemu-test.sh` remains the authoritative proof contract,
+  - [ ] QUIC markers remain a critical subset, not the whole closure claim.
+- [ ] Marker honesty is enforced:
+  - [ ] success markers are emitted only after verified behavior/state,
+  - [ ] any discovered logic bug or fake-success marker path is corrected before closure,
+  - [ ] dishonest markers are converted into honest behavior/proof markers.
+- [ ] `main.rs` minimality is materially achieved:
+  - [ ] `main.rs` is reduced to entry wiring + top-level orchestration,
+  - [ ] no parser/encoder/decoder logic remains in `main.rs`,
+  - [ ] no retry/deadline/reply-matching loops remain in `main.rs`,
+  - [ ] no service-specific marker branching remains in `main.rs`.
+- [ ] Architecture contract stays synchronized:
+  - [ ] `TASK-0023B` remains execution SSOT,
+  - [ ] `RFC-0038` remains architecture/contract seed,
+  - [ ] `TASK-0023` closure baseline remains frozen and green,
+  - [ ] `TASK-0024` remains queued after `TASK-0023B`.
+- [ ] Rust discipline review is completed where sensible:
+  - [ ] `newtype` candidates are reviewed,
+  - [ ] ownership boundaries are explicit,
+  - [ ] `#[must_use]` is applied to decision-bearing results where useful,
+  - [ ] `Send`/`Sync` expectations are reviewed without unsafe shortcut traits.
 
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0021-class QUIC scaffold stop conditions: use archived closure evidence in `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Done`).
@@ -94,11 +144,8 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] QEMU proofs were run in parallel and produced contention artifacts.
 - [ ] Wire layout, retry budgets, ACL/audit behavior, or marker semantics changed silently.
 
-## Active progress snapshot (TASK-0023 in-progress gate sync, 2026-04-15)
-- [x] Queue/order metadata remains synchronized (`TASK-0023` queue head, explicitly blocked).
-- [x] Handoff archived for `TASK-0022`; `current` switched to `TASK-0023` prep state.
-- [x] Core `.cursor` working files retargeted to `TASK-0023` gate-prep context.
-- [x] `RFC-0037` contract seed added and linked to `TASK-0023`.
-- [x] `TASK-0023` follow-up routing synchronized (`TASK-0024`, `TASK-0044`).
-- [x] `TASK-0023` RED feasibility risk resolved as explicit blocked gate outcome.
-- [x] `TASK-0023` security proof test names synchronized to real host reject suites.
+## Active progress snapshot (TASK-0023B queue-head refresh, 2026-04-16)
+- [x] `TASK-0023` is archived as a frozen handoff baseline.
+- [x] Active `.cursor` workfiles now point to `TASK-0023B` / `RFC-0038`.
+- [x] Refactor-specific stop conditions now cover phase order, marker honesty, and `main.rs` minimality.
+- [x] Queue order is synchronized: `TASK-0023B` before `TASK-0024`.

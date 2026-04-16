@@ -86,7 +86,8 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0034: DSoftBus production closure v1 (legacy `TASK-0001..0020` production gates + hardening mapping)
 - RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (transport selection + fail-closed downgrade semantics + deterministic fallback markers)
 - RFC-0036: DSoftBus core no_std transport abstraction v1 (no_std core boundary + transport abstraction + zero-copy-first and Rust safety discipline)
-- RFC-0037: DSoftBus QUIC v2 OS enablement gated contract (blocked-state contract + feasibility unlock criteria + fail-closed fallback evidence)
+- RFC-0037: DSoftBus QUIC v2 OS enablement contract (real OS session markers + fail-closed reject/bounds evidence)
+- RFC-0038: Selftest-client production-grade deterministic test architecture refactor v1 (deterministic proof infrastructure contract seed + minimal main requirement)
 
 ## Index
 
@@ -162,5 +163,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
 - RFC-0036: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` is Done)
   - docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md
-- RFC-0037: DSoftBus QUIC v2 OS enablement gated contract (In Progress; `TASK-0023` blocked-state contract seed)
+- RFC-0037: DSoftBus QUIC v2 OS enablement gated contract (Complete; `TASK-0023` now proves real OS QUIC session path and QUIC-required marker contract)
   - docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md
+- RFC-0038: Selftest-client production-grade deterministic test architecture refactor v1 (Draft; `TASK-0023B` execution SSOT for refactor phases and proof gates)
+  - docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md

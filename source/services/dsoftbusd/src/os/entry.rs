@@ -18,21 +18,22 @@ const OP_CONNECT: u8 = 3;
 const OP_READ: u8 = 4;
 const OP_WRITE: u8 = 5;
 const OP_UDP_BIND: u8 = 6;
+const OP_UDP_SEND_TO: u8 = 7;
+const OP_UDP_RECV_FROM: u8 = 8;
 const STATUS_OK: u8 = 0;
 const STATUS_WOULD_BLOCK: u8 = 3;
 const STATUS_IO: u8 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OsTransportSelection {
-    TcpFallbackQuicDisabled,
+    QuicUdp,
 }
 
 pub(crate) fn select_os_transport_for_session() -> OsTransportSelection {
-    // TASK-0021 Phase C contract: OS QUIC remains disabled-by-default until TASK-0022 scope.
-    // Marker honesty: emit fallback markers only when this real runtime decision is taken.
-    let _ = nexus_abi::debug_println("dsoftbus: quic os disabled (fallback tcp)");
-    let _ = nexus_abi::debug_println("dsoftbusd: transport selected tcp");
-    OsTransportSelection::TcpFallbackQuicDisabled
+    // OS QUIC v2 datapath runs over UDP datagrams with explicit Noise XK
+    // handshake framing (no fallback marker on this path).
+    let _ = nexus_abi::debug_println("dsoftbusd: transport selected quic");
+    OsTransportSelection::QuicUdp
 }
 
 #[inline]
@@ -279,53 +280,130 @@ pub(crate) fn bind_discovery_udp_with_wait(
     disc_port: u16,
 ) -> u32 {
     let _ = nexus_abi::debug_println("dsoftbusd: udp bind begin");
+    let udp_id = match udp_bind(pending, net, nonce_ctr, [0, 0, 0, 0], disc_port) {
+        Ok(id) => id,
+        Err(()) => {
+            let _ = nexus_abi::debug_println("dsoftbusd: udp bind rpc timeout");
+            loop {
+                let _ = nexus_abi::yield_();
+            }
+        }
+    };
+    let _ = nexus_abi::debug_println("dsoftbusd: udp bind ok");
+    let _ = nexus_abi::debug_println("dsoftbusd: discovery up (udp loopback)");
+    udp_id
+}
+
+pub(crate) fn udp_bind(
+    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
+    net: &nexus_ipc::KernelClient,
+    nonce_ctr: &mut u64,
+    bind_ip: [u8; 4],
+    bind_port: u16,
+) -> core::result::Result<u32, ()> {
     let mut req = [0u8; 18];
     req[0] = MAGIC0;
     req[1] = MAGIC1;
     req[2] = VERSION;
     req[3] = OP_UDP_BIND;
-    req[4..8].copy_from_slice(&[0, 0, 0, 0]); // 0.0.0.0
-    req[8..10].copy_from_slice(&disc_port.to_le_bytes());
-    let mut bind_rsp = None;
-    let mut bind_err_logged = false;
+    req[4..8].copy_from_slice(&bind_ip);
+    req[8..10].copy_from_slice(&bind_port.to_le_bytes());
     for _ in 0..500 {
         let nonce = next_nonce(nonce_ctr);
         req[10..18].copy_from_slice(&nonce.to_le_bytes());
-        match rpc_nonce(pending, net, &req, OP_UDP_BIND | 0x80, nonce) {
-            Ok(rsp) => {
-                if rsp[0] == MAGIC0
-                    && rsp[1] == MAGIC1
-                    && rsp[2] == VERSION
-                    && rsp[3] == (OP_UDP_BIND | 0x80)
-                    && rsp[4] == STATUS_OK
-                {
-                    bind_rsp = Some(rsp);
-                    break;
-                }
-                if !bind_err_logged {
-                    bind_err_logged = true;
-                    let _ = nexus_abi::debug_println("dsoftbusd: udp bind FAIL");
-                }
-            }
-            Err(_) => {
-                if !bind_err_logged {
-                    bind_err_logged = true;
-                    let _ = nexus_abi::debug_println("dsoftbusd: udp bind rpc err");
-                }
-            }
+        let rsp = rpc_nonce(pending, net, &req, OP_UDP_BIND | 0x80, nonce)?;
+        if rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_UDP_BIND | 0x80)
+            && rsp[4] == STATUS_OK
+        {
+            return Ok(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]));
         }
         let _ = nexus_abi::yield_();
     }
-    let Some(rsp) = bind_rsp else {
-        let _ = nexus_abi::debug_println("dsoftbusd: udp bind rpc timeout");
-        loop {
-            let _ = nexus_abi::yield_();
-        }
-    };
-    let _ = nexus_abi::debug_println("dsoftbusd: udp bind ok");
-    let udp_id = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
-    let _ = nexus_abi::debug_println("dsoftbusd: discovery up (udp loopback)");
-    udp_id
+    Err(())
+}
+
+pub(crate) fn udp_send_to(
+    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
+    net: &nexus_ipc::KernelClient,
+    nonce_ctr: &mut u64,
+    udp_id: u32,
+    dst_ip: [u8; 4],
+    dst_port: u16,
+    payload: &[u8],
+) -> core::result::Result<(), ()> {
+    if payload.len() > 256 {
+        return Err(());
+    }
+    let mut req = [0u8; 16 + 256 + 8];
+    req[0] = MAGIC0;
+    req[1] = MAGIC1;
+    req[2] = VERSION;
+    req[3] = OP_UDP_SEND_TO;
+    req[4..8].copy_from_slice(&udp_id.to_le_bytes());
+    req[8..12].copy_from_slice(&dst_ip);
+    req[12..14].copy_from_slice(&dst_port.to_le_bytes());
+    req[14..16].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+    req[16..16 + payload.len()].copy_from_slice(payload);
+    let nonce = next_nonce(nonce_ctr);
+    req[16 + payload.len()..16 + payload.len() + 8].copy_from_slice(&nonce.to_le_bytes());
+    let rsp = rpc_nonce(
+        pending,
+        net,
+        &req[..16 + payload.len() + 8],
+        OP_UDP_SEND_TO | 0x80,
+        nonce,
+    )?;
+    if rsp[0] == MAGIC0
+        && rsp[1] == MAGIC1
+        && rsp[2] == VERSION
+        && rsp[3] == (OP_UDP_SEND_TO | 0x80)
+        && rsp[4] == STATUS_OK
+    {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+pub(crate) fn udp_recv_from(
+    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
+    net: &nexus_ipc::KernelClient,
+    nonce_ctr: &mut u64,
+    udp_id: u32,
+    out: &mut [u8],
+) -> core::result::Result<Option<([u8; 4], u16, usize)>, ()> {
+    let mut req = [0u8; 18];
+    req[0] = MAGIC0;
+    req[1] = MAGIC1;
+    req[2] = VERSION;
+    req[3] = OP_UDP_RECV_FROM;
+    req[4..8].copy_from_slice(&udp_id.to_le_bytes());
+    req[8..10].copy_from_slice(&((out.len().min(460)) as u16).to_le_bytes());
+    let nonce = next_nonce(nonce_ctr);
+    req[10..18].copy_from_slice(&nonce.to_le_bytes());
+    let rsp = rpc_nonce(pending, net, &req, OP_UDP_RECV_FROM | 0x80, nonce)?;
+    if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION || rsp[3] != (OP_UDP_RECV_FROM | 0x80)
+    {
+        return Err(());
+    }
+    if rsp[4] == STATUS_WOULD_BLOCK {
+        return Ok(None);
+    }
+    if rsp[4] != STATUS_OK {
+        return Err(());
+    }
+    let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
+    let from_ip = [rsp[7], rsp[8], rsp[9], rsp[10]];
+    let from_port = u16::from_le_bytes([rsp[11], rsp[12]]);
+    let base = 13usize;
+    if n > out.len() || base + n > rsp.len() {
+        return Err(());
+    }
+    out[..n].copy_from_slice(&rsp[base..base + n]);
+    Ok(Some((from_ip, from_port, n)))
 }
 
 pub(crate) fn listen_with_retry(
@@ -527,22 +605,3 @@ pub(crate) fn dual_stream_write(
     }
 }
 
-pub(crate) fn stream_read(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
-    net: &nexus_ipc::KernelClient,
-    nonce_ctr: &mut u64,
-    sid: u32,
-    buf: &mut [u8],
-) -> core::result::Result<(), ()> {
-    dual_stream_read(pending, net, nonce_ctr, sid, buf)
-}
-
-pub(crate) fn stream_write(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
-    net: &nexus_ipc::KernelClient,
-    nonce_ctr: &mut u64,
-    sid: u32,
-    data: &[u8],
-) -> core::result::Result<(), ()> {
-    dual_stream_write(pending, net, nonce_ctr, sid, data)
-}

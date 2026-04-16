@@ -11,6 +11,7 @@
 pub(crate) const LOOPBACK_PORT: u16 = 34_567;
 pub(crate) const LOOPBACK_PORT_B: u16 = 34_568;
 pub(crate) const LOOPBACK_UDP_PORT: u16 = 37_020;
+pub(crate) const LOOPBACK_UDP_QUIC_CLIENT_PORT: u16 = 34_569;
 pub(crate) const TCP_READY_SPIN_BUDGET: u32 = 16;
 pub(crate) const TCP_READY_STEP_MS: u64 = 2;
 

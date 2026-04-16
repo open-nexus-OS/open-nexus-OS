@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `TASK-0022` is now `Done` after final production-quality verification and closure sync.
 - `RFC-0036` is `Complete` and remains aligned as the closed contract seed for this slice.
-- Sequential queue head moved to `TASK-0023` (`Blocked`); next executable candidate is `TASK-0024` unless resequenced.
+- `TASK-0023` gated-contract closure is now done with blocked/no-go unlock outcome; sequential queue head is `TASK-0024` unless resequenced.
 - `dsoftbus-core` crate boundary and review evidence synchronized into process docs:
   - `tasks/IMPLEMENTATION-ORDER.md`
   - `tasks/STATUS-BOARD.md`

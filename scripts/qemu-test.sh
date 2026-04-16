@@ -859,15 +859,14 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
     "dsoftbusd: discovery announce sent" \
     "dsoftbusd: discovery peer found device=local" \
     "dsoftbusd: os transport up (udp+tcp)" \
-    "dsoftbus: quic os disabled (fallback tcp)" \
-    "dsoftbusd: transport selected tcp" \
+    "dsoftbusd: transport selected quic" \
     "dsoftbusd: session connect peer=node-b" \
     "dsoftbusd: identity bound peer=node-b" \
     "dsoftbusd: dual-node session ok" \
     "dsoftbusd: ready" \
     "dsoftbusd: auth ok" \
     "dsoftbusd: os session ok" \
-    "SELFTEST: quic fallback ok" \
+    "SELFTEST: quic session ok" \
     "dsoftbus:mux session up" \
     "dsoftbus:mux data ok" \
     "SELFTEST: mux pri control ok" \
@@ -882,6 +881,24 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
       exit 1
     fi
   done
+  if grep -aFq "dsoftbusd: transport selected tcp" "$UART_LOG"; then
+    echo "[error] first_failed_phase=routing unexpected_marker='dsoftbusd: transport selected tcp'" >&2
+    echo "[error] Unexpected fallback marker while QUIC session path is required: dsoftbusd: transport selected tcp" >&2
+    print_uart_excerpt "${PHASE_START_MARKER[routing]}" "dsoftbusd: ready"
+    exit 1
+  fi
+  if grep -aFq "dsoftbus: quic os disabled (fallback tcp)" "$UART_LOG"; then
+    echo "[error] first_failed_phase=routing unexpected_marker='dsoftbus: quic os disabled (fallback tcp)'" >&2
+    echo "[error] Unexpected fallback marker while QUIC session path is required: dsoftbus: quic os disabled (fallback tcp)" >&2
+    print_uart_excerpt "${PHASE_START_MARKER[routing]}" "dsoftbusd: ready"
+    exit 1
+  fi
+  if grep -aFq "SELFTEST: quic fallback ok" "$UART_LOG"; then
+    echo "[error] first_failed_phase=routing unexpected_marker='SELFTEST: quic fallback ok'" >&2
+    echo "[error] Unexpected fallback selftest marker while QUIC session path is required: SELFTEST: quic fallback ok" >&2
+    print_uart_excerpt "${PHASE_START_MARKER[routing]}" "dsoftbusd: ready"
+    exit 1
+  fi
   if [[ "$REQUIRE_DSOFTBUS_REMOTE_PKGFS" == "1" ]]; then
     if grep -aFq "dsoftbusd: cross-vm session ok" "$UART_LOG"; then
       for m in \

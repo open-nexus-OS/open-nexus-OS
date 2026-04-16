@@ -1,5 +1,5 @@
 ---
-title: TASK-0024 DSoftBus UDP-sec v1 (OS enabled): Noise-over-UDP reliable stream + recovery + congestion + TCP fallback
+title: TASK-0024 DSoftBus QUIC-v2 OS follow-up: reliability + bounded recovery + transport hardening
 status: Draft
 owner: @runtime
 created: 2025-12-22
@@ -7,7 +7,9 @@ depends-on:
   - TASK-0003
   - TASK-0020
   - TASK-0022
-follow-up-tasks: []
+  - TASK-0023B
+follow-up-tasks:
+  - TASK-0044
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
@@ -16,14 +18,15 @@ links:
   - Depends-on (DSoftBus core in OS): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Depends-on (OS networking UDP): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Depends-on (mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - Depends-on (selftest-client refactor): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
 ## Short description
 
-- **Scope**: Build an OS-friendly secure UDP transport (Noise + reliability + congestion) under `no_std` constraints.
-- **Deliver**: Reliable ordered stream abstraction for Mux v2, bounded recovery queues, deterministic timers, and TCP fallback.
-- **Out of scope**: QUIC wire compatibility and kernel-side changes.
+- **Scope**: Close the remaining transport features on top of the already shipped OS QUIC-v2 session path from `TASK-0023`.
+- **Deliver**: Real reliability/recovery/congestion behavior (bounded, deterministic) for the OS QUIC-v2 datapath and explicit proof coverage.
+- **Out of scope**: full IETF QUIC/TLS parity and kernel-side changes.
 
 ## Production Closure Phases (RFC-0034 alignment)
 
@@ -32,46 +35,55 @@ No phase may be marked green without the linked proof evidence.
 
 - **Phase A (Contract lock)**: lock packet/recovery/crypto invariants and bounded queue rules.
 - **Phase B (Host proof)**: requirement-named host loss/recovery tests and negative tests are green.
-- **Phase C (OS-gated proof)**: canonical OS marker ladder is green with explicit TCP fallback semantics.
+- **Phase C (OS proof)**: canonical OS QUIC marker ladder is green with real recovery/backpressure behavior.
 - **Phase D (Performance gate)**: deterministic latency/throughput/recovery budgets are defined and met.
 - **Phase E (Closure & handoff)**: docs/testing + board/order + RFC state are synchronized with proof evidence, and for distributed claims the `tools/os2vm.sh` release artifacts are reviewed (`summary.{json,txt}` + `release-evidence.json`).
 
 Canonical gate commands:
 
-- Host: task-owned requirement suites for reliability/recovery/congestion.
-- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- Host:
+  - `cd /home/jenning/open-nexus-OS && just test-dsoftbus-quic`
+  - `cd /home/jenning/open-nexus-OS && cargo test -p dsoftbus -- quic --nocapture`
+  - `cd /home/jenning/open-nexus-OS && cargo test -p dsoftbusd -- --nocapture`
+- OS: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`
 - 2-VM distributed: `cd /home/jenning/open-nexus-OS && RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh`
 - Regression: `cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp`
 - Release evidence review (if distributed behavior is asserted): `artifacts/os2vm/runs/<runId>/summary.{json,txt}` and `artifacts/os2vm/runs/<runId>/release-evidence.json`
 
 ## Context
 
-OS “real QUIC” is blocked by `no_std` feasibility (see TASK-0023). We still want the properties that
-motivated QUIC in the first place:
+`TASK-0023` already shipped a real OS QUIC-v2 session path over UDP with:
 
-- UDP path (no head-of-line blocking on packet loss),
-- keepalive and path liveness,
-- recovery (retransmission/ack),
-- congestion control,
-- PMTU discipline,
-- a reliable ordered byte-stream abstraction for higher layers (Mux v2 unchanged).
+- `dsoftbusd: transport selected quic`,
+- Noise-XK auth over framed UDP datagrams,
+- `dsoftbusd: auth ok`,
+- `dsoftbusd: os session ok`,
+- `SELFTEST: quic session ok`,
+- fallback-marker rejection in QUIC-required QEMU profile.
 
-This task implements an OS-friendly, no_std-capable **secure UDP transport** for DSoftBus that keeps
-TCP as a deterministic fallback.
+What is still missing is not "session exists", but "transport behaves production-grade under loss and pressure".
+`TASK-0024` owns this follow-up closure.
+
+## Current implementation baseline (must be preserved)
+
+- OS QUIC-v2 handshake/session flow is implemented in `source/services/dsoftbusd` and `source/apps/selftest-client`.
+- UDP IPC primitives (`OP_UDP_BIND`, `OP_UDP_SEND_TO`, `OP_UDP_RECV_FROM`) are wired end-to-end via `netstackd`.
+- QUIC frame parse/encode reject floor exists (bad magic/truncation/oversize encode) in `dsoftbusd` unit tests.
+- QEMU harness requires QUIC markers and rejects legacy fallback markers in QUIC-required mode.
 
 ## Goal
 
-In QEMU (single-VM first; cross-VM later), prove:
+In QEMU and host testbeds, prove:
 
-- UDP-sec transport establishes a session over `nexus-net` UDP,
-- recovery works under moderate loss (host tests),
-- Mux v2 runs unchanged over the UDP-sec connection,
-- TCP fallback remains intact when UDP-sec disabled/unavailable.
+- QUIC-v2 data transfer tolerates bounded packet loss/reordering via explicit ACK/retransmit behavior.
+- Recovery queues, in-flight accounting, and receive reorder windows stay bounded.
+- Mux-v2 traffic classes run unchanged over the hardened QUIC-v2 transport.
+- Backpressure and congestion signals are deterministic and test-proven.
 
 ## Non-Goals
 
-- QUIC wire-compatibility.
-- Datagram service APIs.
+- Full IETF QUIC wire compatibility.
+- 0-RTT, migration, multipath, and advanced BBR/pacing tuning (belongs in `TASK-0044`).
 - Kernel changes.
 
 ## Constraints / invariants (hard requirements)
@@ -85,7 +97,27 @@ In QEMU (single-VM first; cross-VM later), prove:
   - cap reassembly buffer.
 - Deterministic timers and timeouts.
 
-## Protocol sketch (v1)
+## Concrete feature closure scope (TASK-0024)
+
+All items below are required for `TASK-0024` to be honest/Done:
+
+1. **Reliable data frames on OS QUIC-v2 path**
+   - add explicit DATA + ACK semantics (not only handshake/ping).
+   - packet-number based retransmit on timeout and/or duplicate-loss signal.
+2. **Bounded recovery machinery**
+   - hard caps for retransmit queue entries, in-flight bytes, and reorder buffer.
+   - explicit reject/drop behavior when bounds are exceeded.
+3. **Deterministic congestion/backpressure behavior**
+   - conservative Reno-like controller (slow-start, CA, loss reaction) or equally simple bounded model.
+   - deterministic backpressure propagation to mux path under pressure.
+4. **Session liveness lifecycle**
+   - keepalive/idle-timeout behavior with bounded reconnect attempts.
+   - fail-closed transition on auth/session desync.
+5. **Cross-path proof integrity**
+   - host loss/recovery tests for transport logic.
+   - OS QEMU proof that markers represent real transfer/recovery behavior.
+
+## Protocol sketch (v1 follow-up)
 
 ### Handshake
 
@@ -94,24 +126,21 @@ In QEMU (single-VM first; cross-VM later), prove:
   - authenticate peer device identity the same way as today (signature proof).
 - After handshake, derive session keys and switch to encrypted packets.
 
-### Packet format (post-handshake)
+### Packet format (post-handshake; concrete closure target)
 
-- Little-endian header:
-  - `ver:u8=1`, `typ:u8`, `flags:u8`, `rsv:u8`
-  - `session_id:u64`
-  - `pn:u32` (packet number)
-  - `ack:u32` + `ack_bits:u32` (simple ack + bitmap)
-  - `len:u16`
-- Payload is AEAD-encrypted; rekeying is out of scope for v1.
+- Keep the existing QUIC-v2 framing envelope from `TASK-0023` and extend with data-plane opcodes:
+  - handshake ops (`MSG1`, `MSG2`, `MSG3`) stay unchanged,
+  - add explicit `DATA`, `ACK`, and optional `WINDOW_UPDATE` ops,
+  - keep authenticated framing and nonce/session correlation.
+- Rekeying remains out of scope for v1.
 
 ### Reliability + ordering
 
-- Provide a single reliable ordered byte-stream (“conn”) for v1.
-- Mux v2 runs over this byte-stream unchanged.
-- Implement:
-  - retransmission on loss/timeout (RTO),
-  - in-order delivery with a small receive reorder window,
-  - simple flow control (receiver credit / window update) or rely on mux v2 windows (documented).
+- Provide one reliable ordered stream semantics for v1 (Mux-v2 unchanged above transport).
+- Implement and prove:
+  - retransmission on loss/timeout (bounded RTO policy),
+  - in-order delivery with bounded reorder window,
+  - bounded flow-control surface (transport or documented mux-coupled model).
 
 ### Congestion control
 
@@ -122,17 +151,16 @@ In QEMU (single-VM first; cross-VM later), prove:
 
 ## Red flags / decision points
 
-- **YELLOW**: Entropy / RNG availability in OS impacts Noise ephemeral keys. If RNG is weak/unavailable,
-  we must block “real network security” and keep transport disabled by default.
-- **YELLOW**: If we rely solely on mux flow control, we must ensure UDP-sec cannot buffer unboundedly;
-  in-flight caps still required.
+- **YELLOW**: entropy/RNG availability still gates strong ephemeral behavior; no "warn and continue".
+- **YELLOW**: transport-vs-mux flow-control split must remain explicit to avoid hidden unbounded buffering.
 
 ## Touched paths (allowlist)
 
-- `userspace/dsoftbus/` (transport/udp-sec implementation)
+- `userspace/dsoftbus/` (transport reliability/recovery/congestion logic)
 - `userspace/net/nexus-net/` (UDP send/recv/bind API)
-- `source/services/dsoftbusd/` (transport selection + markers)
-- `source/apps/selftest-client/` (UDP-sec markers + fallback)
+- `source/services/dsoftbusd/` (OS session datapath + markers)
+- `source/services/netstackd/` (loopback UDP behavior/bounds where required)
+- `source/apps/selftest-client/` (QUIC-v2 datapath probes and marker proofs)
 - `tests/` (host lossy-link emulator tests)
 - `docs/distributed/`
 - `scripts/qemu-test.sh`
@@ -149,13 +177,13 @@ In QEMU (single-VM first; cross-VM later), prove:
 
 - Session authentication must complete before DATA is accepted.
 - Retransmit/reassembly/inflight buffers are strictly bounded.
-- Transport fallback is explicit and auditable; no silent downgrade.
+- No silent downgrade marker or fake-success path.
 
 ### DON'T DO (explicit prohibitions)
 
 - DON'T accept unauthenticated packets into stream state.
 - DON'T allow unbounded retransmit/reassembly growth.
-- DON'T mark udp-sec success without real encrypted session behavior.
+- DON'T mark QUIC-v2 transfer/recovery success without real data-plane behavior.
 
 ### Attack surface impact
 
@@ -170,53 +198,78 @@ In QEMU (single-VM first; cross-VM later), prove:
 ### Audit tests (negative cases / attack simulation)
 
 - Commands:
-  - `cargo test -p dsoftbus -- udp --nocapture`
+  - `cargo test -p dsoftbus -- quic --nocapture`
+  - `cargo test -p dsoftbusd -- reject --nocapture`
 - Required tests:
   - `test_reject_replay_or_stale_packet_number`
   - `test_reject_unauthenticated_data_before_handshake`
   - `test_reject_oversize_datagram_or_reassembly_overflow`
+  - `test_reject_quic_frame_bad_magic`
+  - `test_reject_quic_frame_truncated_payload`
+  - `test_reject_quic_frame_oversized_payload_encode`
 
 ### Hardening markers (QEMU, if applicable)
 
+- `dsoftbusd: transport selected quic`
 - `dsoftbusd: auth ok`
-- `SELFTEST: dsoftbus ping ok`
+- `dsoftbusd: os session ok`
+- `SELFTEST: quic session ok`
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host)
 
-- Lossy link emulator (drop 5–10% datagrams) completes handshake + transfers data.
-- PMTU enforcement: assert no sent datagram > 1200 bytes.
-- Congestion: under loss, cwnd decreases; under clean path, cwnd increases (coarse assertions).
-- Fallback selection: `auto` chooses TCP if UDP-sec disabled/unavailable.
+- Lossy-link tests (drop/reorder) complete handshake + data transfer + recovery.
+- PMTU enforcement: no outbound datagram exceeds 1200 bytes.
+- Congestion assertions:
+  - under induced loss, cwnd decreases deterministically,
+  - under clean path, cwnd grows deterministically.
+- Bound assertions:
+  - retransmit queue cap enforced,
+  - in-flight cap enforced,
+  - reorder/reassembly cap enforced.
 
 ### Proof (OS / QEMU)
 
-When UDP-sec is enabled and available:
+Required floor:
 
-- `dsoftbus: udp-sec os listener up <port>`
-- `dsoftbus: udp-sec os session ok`
-- `dsoftbusd: transport selected udp-sec`
-- `dsoftbus:mux data ok (udp-sec)`
-- `SELFTEST: udp-sec control ok`
-- `SELFTEST: udp-sec bulk ok`
-- `SELFTEST: udp-sec backpressure ok`
+- `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`
+- required markers:
+  - `dsoftbusd: transport selected quic`
+  - `dsoftbusd: auth ok`
+  - `dsoftbusd: os session ok`
+  - `SELFTEST: quic session ok`
+- additional TASK-0024 markers to add for real feature closure:
+  - `SELFTEST: quic data transfer ok`
+  - `SELFTEST: quic recovery ok`
+  - `SELFTEST: quic backpressure ok`
+- forbidden markers in QUIC-required profile:
+  - `dsoftbusd: transport selected tcp`
+  - `dsoftbus: quic os disabled (fallback tcp)`
+  - `SELFTEST: quic fallback ok`
 
-When UDP-sec is disabled/unavailable:
+## Feature-to-proof matrix (concrete)
 
-- `dsoftbus: udp-sec os disabled (fallback tcp)`
-- `SELFTEST: udp-sec fallback ok`
+| Feature | Required proof |
+| --- | --- |
+| Data-plane DATA/ACK frames | host transport tests + `SELFTEST: quic data transfer ok` |
+| Retransmit on loss/timeout | host lossy/reorder tests + `SELFTEST: quic recovery ok` |
+| Bounded retransmit/inflight/reorder | requirement-named `test_reject_*` and explicit bound asserts |
+| Congestion/backpressure behavior | host cwnd/backpressure tests + `SELFTEST: quic backpressure ok` |
+| Marker honesty in OS profile | qemu harness requires QUIC markers and rejects fallback markers |
 
 ## Plan (small PRs)
 
-1. Land bounded handshake/packet format and recovery core with requirement-named host tests.
-2. Integrate OS listener/session path with explicit fallback markers and negative-path coverage.
-3. Close performance gates (loss/cwnd/backpressure budgets) and sync docs/harness expectations.
+1. **Data-plane closure**: implement DATA/ACK + retransmit core and requirement-named host tests.
+2. **Boundedness closure**: enforce queue/window caps with deterministic reject/drop policy.
+3. **OS proof closure**: extend selftest markers for transfer/recovery/backpressure and gate them in harness.
+4. **Perf floor closure**: lock coarse deterministic budgets and sync docs/testing surfaces.
 
 ## Docs
 
 Update `docs/distributed/dsoftbus-transport.md`:
 
-- define `udp-sec` transport kind and selection policy (`auto|udp-sec|tcp`),
-- PMTU/timeout defaults,
-- security caveats (RNG requirement, key derivation).
+- define concrete QUIC-v2 OS follow-up feature set (DATA/ACK/recovery/congestion bounds),
+- PMTU/timeout/budget defaults,
+- security caveats (RNG requirement, replay/reorder reject policy),
+- explicit split: `TASK-0024` correctness/hardening vs `TASK-0044` advanced tuning.

@@ -53,10 +53,10 @@ This is the anti-fake-success gate.
 - [ ] Modern virtio-mmio proof floor is preserved for OS/QEMU closure claims.
 
 ## Task-0023 manual addendum (when applicable)
-- [ ] Blocked-state contract is explicit and honest:
-  - [ ] OS QUIC remains gated/blocked until feasibility evidence exists,
-  - [ ] no QUIC success markers are emitted while blocked,
-  - [ ] fallback markers are explicit and deterministic.
+- [ ] Enabled-session contract is explicit and honest:
+  - [ ] OS QUIC session path is real (not marker-only),
+  - [ ] required QUIC markers are emitted only after real auth/session behavior,
+  - [ ] fallback markers are forbidden in QUIC-required profile.
 - [ ] Contract seed alignment is explicit:
   - [ ] `RFC-0037` exists and is linked from `TASK-0023`,
   - [ ] follow-up ownership remains explicit (`TASK-0024`, `TASK-0044`).
@@ -68,6 +68,17 @@ This is the anti-fake-success gate.
   - [ ] strict mode downgrade reject stays fail-closed,
   - [ ] cert trust rejects stay fail-closed,
   - [ ] ALPN mismatch rejects stay fail-closed.
+- [ ] Phase-D feasibility guard suite remains green:
+  - [ ] `cargo test -p dsoftbus --test quic_feasibility_contract -- --nocapture` is green,
+  - [ ] `test_reject_quic_feasibility_std_runtime_coupling` is green,
+  - [ ] `test_reject_quic_feasibility_non_deterministic_timer_assumptions` is green,
+  - [ ] `test_reject_quic_feasibility_entropy_prerequisites_unsatisfied` is green,
+  - [ ] `test_reject_quic_feasibility_unbounded_loss_retry_budget` is green.
+- [ ] Service-side frame reject suite is green:
+  - [ ] `cargo test -p dsoftbusd --test p0_unit -- --nocapture`,
+  - [ ] `test_reject_quic_frame_bad_magic`,
+  - [ ] `test_reject_quic_frame_truncated_payload`,
+  - [ ] `test_reject_quic_frame_oversized_payload_encode`.
 - [ ] Rust discipline is captured for follow-up implementation:
   - [ ] newtype candidates and ownership boundaries are documented,
   - [ ] `#[must_use]` expectations are explicit for decision-bearing APIs,
@@ -76,15 +87,51 @@ This is the anti-fake-success gate.
   - [ ] implementation route is `TASK-0024`,
   - [ ] tuning follow-up remains `TASK-0044`,
   - [ ] no scope absorption into unrelated active tasks.
+- [ ] QEMU marker contract for QUIC-required profile is proven:
+  - [ ] required markers:
+    - [ ] `dsoftbusd: transport selected quic`
+    - [ ] `dsoftbusd: auth ok`
+    - [ ] `dsoftbusd: os session ok`
+    - [ ] `SELFTEST: quic session ok`
+  - [ ] forbidden markers absent:
+    - [ ] `dsoftbusd: transport selected tcp`
+    - [ ] `dsoftbus: quic os disabled (fallback tcp)`
+    - [ ] `SELFTEST: quic fallback ok`
 
-## Active progress snapshot (TASK-0023 in-progress gate sync, 2026-04-15)
-- [x] `TASK-0022` handoff archived under `.cursor/handoff/archive/`.
-- [x] `current` handoff switched to `TASK-0023` gate-prep context.
-- [x] `TASK-0023` metadata synchronized to current state (`Blocked`, explicit follow-up tasks).
-- [x] `RFC-0037` created as contract seed and linked from `TASK-0023`.
-- [x] RED feasibility decision is documented as resolved gate outcome (blocked, routed to `TASK-0024`).
-- [x] Security reject proof names in `TASK-0023` now match real host tests.
-- [x] `.cursor` working files retargeted to `TASK-0023` prep while preserving frozen `TASK-0021`/`TASK-0022` closure.
+## Task-0023B manual addendum (when applicable)
+- [ ] Refactor phase order is respected:
+  - [ ] Phase 1 structural extraction first,
+  - [ ] Phase 2 maintainability/extensibility cleanup second,
+  - [ ] Phase 3 standards/closure review last.
+- [ ] Refactor remains behavior-preserving:
+  - [ ] marker order is unchanged,
+  - [ ] marker meanings are unchanged,
+  - [ ] reject behavior remains fail-closed,
+  - [ ] no `TASK-0024` feature work leaked into the refactor.
+- [ ] Proof is rerun after each major extraction cut, not only at final closeout:
+  - [ ] `cargo test -p dsoftbusd -- --nocapture`,
+  - [ ] `just test-dsoftbus-quic`,
+  - [ ] `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`.
+- [ ] `main.rs` minimality is enforced in the resulting shape:
+  - [ ] no subsystem-specific helper logic remains in `main.rs`,
+  - [ ] no parser/encoder/decoder remains in `main.rs`,
+  - [ ] no retry/deadline/reply-matching loops remain in `main.rs`,
+  - [ ] no service-specific marker branching remains in `main.rs`.
+- [ ] Marker honesty remains explicit:
+  - [ ] success markers are emitted only after verified behavior/state,
+  - [ ] if logic bugs or fake-success markers are found, they are fixed rather than preserved,
+  - [ ] dishonest markers are converted into honest behavior/proof markers before closure.
+- [ ] Architecture contract stays synchronized:
+  - [ ] `TASK-0023B` remains execution SSOT,
+  - [ ] `RFC-0038` remains architecture/contract seed,
+  - [ ] queue order still keeps `TASK-0024` after `TASK-0023B`.
+
+## Active progress snapshot (TASK-0023B queue-head refresh, 2026-04-16)
+- [x] `TASK-0023` handoff archived under `.cursor/handoff/archive/`.
+- [x] `current` handoff switched from `TASK-0023` closure to `TASK-0023B` kickoff context.
+- [x] `.cursor/current_state.md` and `.cursor/next_task_prep.md` now point to `TASK-0023B` as queue head.
+- [x] `.cursor/context_bundles.md` now contains dedicated `TASK-0023B` context/touched bundles.
+- [x] Quality-gate files are synchronized to the phased refactor and marker-honesty contract.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).
@@ -95,4 +142,4 @@ This is the anti-fake-success gate.
 - [ ] Proof commands and evidence are mirrored in handoff/task sections
 - [ ] Header blocks updated (CONTEXT, TEST_COVERAGE, ADR links) where code was touched
 - [ ] Docs synced only where contract/proof surfaces changed
-- [ ] `.cursor/current_state.md`, `.cursor/handoff/current.md`, `.cursor/next_task_prep.md`, `.cursor/stop_conditions.md` updated in same slice
+- [ ] `.cursor/current_state.md`, `.cursor/handoff/current.md`, `.cursor/context_bundles.md`, `.cursor/next_task_prep.md`, `.cursor/stop_conditions.md` updated in same slice

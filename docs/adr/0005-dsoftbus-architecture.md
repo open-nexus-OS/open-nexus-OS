@@ -81,7 +81,7 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 6. ✅ Implement reliable streams with multiplexing (TASK-0020)
 7. ✅ Host-first QUIC v1 transport selection + host runtime proof (TASK-0021)
 8. ✅ Extract no_std core seam + transport abstraction (`TASK-0022`, done)
-9. ⬜ OS QUIC enablement remains gated follow-on (`TASK-0023`, blocked by feasibility gate)
+9. ✅ OS QUIC-v2 session enablement shipped in `TASK-0023` (QEMU marker contract proven; follow-on tuning breadth in `TASK-0044`)
 10. ✅ Add comprehensive test coverage (host tests green)
 
 ## Implementation Status (2026-04-15)

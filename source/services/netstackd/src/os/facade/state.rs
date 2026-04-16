@@ -41,6 +41,7 @@ pub(crate) enum Stream {
 pub(crate) struct LoopUdp {
     pub rx: LoopBuf,
     pub port: u16,
+    pub last_from_port: u16,
 }
 
 /// Kernel UDP socket or in-memory loopback UDP.

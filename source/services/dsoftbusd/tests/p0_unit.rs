@@ -8,6 +8,8 @@ mod entry_pure;
 mod fsm;
 #[path = "../src/os/session/handshake.rs"]
 mod handshake;
+#[path = "../src/os/session/quic_frame.rs"]
+mod quic_frame;
 #[path = "../src/os/netstack/ids.rs"]
 mod ids;
 
@@ -127,4 +129,54 @@ fn test_entry_pure_set_get_and_derive_helpers() {
     let a = entry_pure::derive_test_secret(0xD0, 34_567);
     let b = entry_pure::derive_test_secret(0xD0, 34_567);
     assert_eq!(a, b);
+}
+
+#[test]
+fn test_quic_frame_roundtrip() {
+    let mut out = [0u8; 256];
+    let payload = b"PING";
+    let encoded =
+        quic_frame::encode_quic_frame(quic_frame::QUIC_OP_PING, 0x1122_3344, payload, &mut out)
+            .expect("frame encodes");
+    let decoded = quic_frame::decode_quic_frame(&out, encoded).expect("frame decodes");
+    assert_eq!(decoded.0, quic_frame::QUIC_OP_PING);
+    assert_eq!(decoded.1, 0x1122_3344);
+    assert_eq!(decoded.2, payload);
+}
+
+#[test]
+fn test_reject_quic_frame_bad_magic() {
+    let mut out = [0u8; 256];
+    let payload = b"PING";
+    let encoded =
+        quic_frame::encode_quic_frame(quic_frame::QUIC_OP_PING, 1, payload, &mut out).unwrap();
+    out[0] = b'X';
+    assert!(quic_frame::decode_quic_frame(&out, encoded).is_none());
+}
+
+#[test]
+fn test_reject_quic_frame_truncated_payload() {
+    let mut out = [0u8; 256];
+    let payload = b"PING";
+    let encoded =
+        quic_frame::encode_quic_frame(quic_frame::QUIC_OP_PING, 1, payload, &mut out).unwrap();
+    // Claim one extra payload byte without actually including it in n.
+    out[8..10].copy_from_slice(&5u16.to_le_bytes());
+    assert!(quic_frame::decode_quic_frame(&out, encoded).is_none());
+}
+
+#[test]
+fn test_reject_quic_frame_oversized_payload_encode() {
+    let mut out = [0u8; 256];
+    let oversized = [0u8; 247];
+    assert!(quic_frame::encode_quic_frame(quic_frame::QUIC_OP_PING, 1, &oversized, &mut out).is_none());
+}
+
+#[test]
+fn test_quic_frame_opcode_contract_values() {
+    assert_eq!(quic_frame::QUIC_OP_MSG1, 1);
+    assert_eq!(quic_frame::QUIC_OP_MSG2, 2);
+    assert_eq!(quic_frame::QUIC_OP_MSG3, 3);
+    assert_eq!(quic_frame::QUIC_OP_PING, 4);
+    assert_eq!(quic_frame::QUIC_OP_PONG, 5);
 }
