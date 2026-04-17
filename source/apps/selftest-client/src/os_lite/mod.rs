@@ -26,11 +26,7 @@ pub fn run() -> core::result::Result<(), ()> {
     phases::logd::run(&mut ctx)?;
     phases::ipc_kernel::run(&mut ctx)?;
     phases::mmio::run(&mut ctx)?;
-
-    // Userspace VFS probe over kernel IPC v1 (cross-process).
-    if vfs::verify_vfs().is_err() {
-        emit_line("SELFTEST: vfs FAIL");
-    }
+    phases::vfs::run(&mut ctx)?;
 
     ctx.local_ip = net::local_addr::netstackd_local_addr();
     ctx.os2vm = matches!(ctx.local_ip, Some([10, 42, 0, _]));
