@@ -24,6 +24,7 @@ use nexus_metrics::client::MetricsClient;
 use crate::markers::emit_line;
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::route_with_retry;
+use crate::os_lite::probes::core_service::{core_service_probe, core_service_probe_policyd};
 use crate::os_lite::services;
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
@@ -140,7 +141,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let mut sam_found = false;
     let mut sam_delta_ok = false;
     if let Ok(samgrd) = route_with_retry("samgrd") {
-        sam_probe = services::core_service_probe(&samgrd, b'S', b'M', 1, 0x7f).is_ok();
+        sam_probe = core_service_probe(&samgrd, b'S', b'M', 1, 0x7f).is_ok();
         for _ in 0..64 {
             let _ = yield_();
         }
@@ -162,7 +163,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let mut bnd_probe = false;
     let mut bnd_delta_ok = false;
     if let Ok(bundlemgrd) = route_with_retry("bundlemgrd") {
-        bnd_probe = services::core_service_probe(&bundlemgrd, b'B', b'N', 1, 0x7f).is_ok();
+        bnd_probe = core_service_probe(&bundlemgrd, b'B', b'N', 1, 0x7f).is_ok();
         for _ in 0..64 {
             let _ = yield_();
         }
@@ -186,7 +187,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let mut pol_delta_ok = false;
     let mut pol_found = false;
     if let Ok(policyd) = route_with_retry("policyd") {
-        pol_probe = services::core_service_probe_policyd(&policyd).is_ok();
+        pol_probe = core_service_probe_policyd(&policyd).is_ok();
         for _ in 0..64 {
             let _ = yield_();
         }
