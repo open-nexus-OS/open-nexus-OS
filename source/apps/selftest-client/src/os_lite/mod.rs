@@ -1,17 +1,16 @@
 extern crate alloc;
 
-use alloc::collections::VecDeque;
-use alloc::vec::Vec;
-
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use nexus_abi::{yield_, MsgHeader};
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 use nexus_metrics::client::MetricsClient;
 
+mod context;
 mod dsoftbus;
 mod ipc;
 mod mmio;
 mod net;
+mod phases;
 mod probes;
 mod services;
 mod timed;
@@ -21,6 +20,7 @@ mod vfs;
 use ipc::routing::{route_with_retry, routing_v1_get};
 
 pub fn run() -> core::result::Result<(), ()> {
+    let mut ctx = context::PhaseCtx::bootstrap()?;
     // keystored v1 (routing + put/get/del + negative cases)
     let keystored = match services::keystored::resolve_keystored_client() {
         Ok(client) => client,
@@ -74,17 +74,12 @@ pub fn run() -> core::result::Result<(), ()> {
         emit_line("SELFTEST: device key persist FAIL");
     }
     // @reply slots are deterministically distributed by init-lite to selftest-client.
-    // Note: routing control-plane now supports a nonce-correlated extension, but we still avoid
-    // routing to "@reply" here to keep the proof independent from ctrl-plane behavior.
-    const REPLY_RECV_SLOT: u32 = 0x17;
-    const REPLY_SEND_SLOT: u32 = 0x18;
-    let reply_send_slot = REPLY_SEND_SLOT;
-    let reply_recv_slot = REPLY_RECV_SLOT;
+    // The slot constants live in `context::PhaseCtx::bootstrap()`.
     let reply_ok = true;
     emit_bytes(b"SELFTEST: reply slots ");
-    emit_hex_u64(reply_send_slot as u64);
+    emit_hex_u64(ctx.reply_send_slot as u64);
     emit_byte(b' ');
-    emit_hex_u64(reply_recv_slot as u64);
+    emit_hex_u64(ctx.reply_recv_slot as u64);
     emit_byte(b'\n');
 
     // Loopback sanity: prove the @reply send/recv slots refer to the same live endpoint.
@@ -93,14 +88,19 @@ pub fn run() -> core::result::Result<(), ()> {
         let ping = [b'R', b'P', 1, 0];
         let hdr = MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
         // Best-effort send; ignore failures (still proceed with tests).
-        let _ =
-            nexus_abi::ipc_send_v1(reply_send_slot, &hdr, &ping, nexus_abi::IPC_SYS_NONBLOCK, 0);
+        let _ = nexus_abi::ipc_send_v1(
+            ctx.reply_send_slot,
+            &hdr,
+            &ping,
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        );
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut rb = [0u8; 8];
         let mut ok = false;
         for _ in 0..256 {
             match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
+                ctx.reply_recv_slot,
                 &mut rh,
                 &mut rb,
                 nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
@@ -129,7 +129,9 @@ pub fn run() -> core::result::Result<(), ()> {
     }
 
     if reply_ok {
-        if services::keystored::keystored_cap_move_probe(reply_send_slot, reply_recv_slot).is_ok() {
+        if services::keystored::keystored_cap_move_probe(ctx.reply_send_slot, ctx.reply_recv_slot)
+            .is_ok()
+        {
             emit_line("SELFTEST: keystored capmove ok");
         } else {
             emit_line("SELFTEST: keystored capmove FAIL");
@@ -222,10 +224,14 @@ pub fn run() -> core::result::Result<(), ()> {
     }
     // Malformed request (wrong magic) should not return OK.
     samgrd
-        .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(200)))
+        .send(
+            b"bad",
+            IpcWait::Timeout(core::time::Duration::from_millis(200)),
+        )
         .map_err(|_| ())?;
-    let rsp =
-        samgrd.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
+    let rsp = samgrd
+        .recv(IpcWait::Timeout(core::time::Duration::from_millis(200)))
+        .map_err(|_| ())?;
     if rsp.len() == 13 && rsp[0] == b'S' && rsp[1] == b'M' && rsp[2] == 1 && rsp[4] != 0 {
         emit_line("SELFTEST: samgrd v1 malformed ok");
     } else {
@@ -260,9 +266,13 @@ pub fn run() -> core::result::Result<(), ()> {
     emit_hex_u64(upd_recv as u64);
     emit_byte(b'\n');
     emit_line("SELFTEST: ipc routing updated ok");
-    let mut updated_pending: VecDeque<Vec<u8>> = VecDeque::new();
-    if updated::updated_log_probe(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
-        .is_ok()
+    if updated::updated_log_probe(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    )
+    .is_ok()
     {
         emit_line("SELFTEST: updated probe ok");
     } else {
@@ -280,7 +290,10 @@ pub fn run() -> core::result::Result<(), ()> {
         emit_line("SELFTEST: bundlemgrd v1 image FAIL");
     }
     bundlemgrd
-        .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
+        .send(
+            b"bad",
+            IpcWait::Timeout(core::time::Duration::from_millis(100)),
+        )
         .map_err(|_| ())?;
     let rsp = bundlemgrd
         .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
@@ -297,24 +310,24 @@ pub fn run() -> core::result::Result<(), ()> {
     // Normalize to active-slot A before the OTA flow so rollback assertions are stable.
     if let Ok((_active, pending_slot, _tries_left, _health_ok)) = updated::updated_get_status(
         &updated,
-        reply_send_slot,
-        reply_recv_slot,
-        &mut updated_pending,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
     ) {
         if pending_slot.is_some() {
             // Clear a pending state from a prior run (bounded).
             for _ in 0..4 {
                 let _ = updated::updated_boot_attempt(
                     &updated,
-                    reply_send_slot,
-                    reply_recv_slot,
-                    &mut updated_pending,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
+                    &mut ctx.updated_pending,
                 );
                 if let Ok((_a, p, _t, _h)) = updated::updated_get_status(
                     &updated,
-                    reply_send_slot,
-                    reply_recv_slot,
-                    &mut updated_pending,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
+                    &mut ctx.updated_pending,
                 ) {
                     if p.is_none() {
                         break;
@@ -326,9 +339,9 @@ pub fn run() -> core::result::Result<(), ()> {
     }
     if let Ok((active, _pending, _tries_left, _health_ok)) = updated::updated_get_status(
         &updated,
-        reply_send_slot,
-        reply_recv_slot,
-        &mut updated_pending,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
     ) {
         if active == updated::SlotId::B {
             // Flip B -> A (bounded) so the following tests always stage/switch to B.
@@ -336,9 +349,9 @@ pub fn run() -> core::result::Result<(), ()> {
             for _ in 0..2 {
                 if updated::updated_stage(
                     &updated,
-                    reply_send_slot,
-                    reply_recv_slot,
-                    &mut updated_pending,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
+                    &mut ctx.updated_pending,
                 )
                 .is_err()
                 {
@@ -346,17 +359,17 @@ pub fn run() -> core::result::Result<(), ()> {
                 }
                 let _ = updated::updated_switch(
                     &updated,
-                    reply_send_slot,
-                    reply_recv_slot,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
                     2,
-                    &mut updated_pending,
+                    &mut ctx.updated_pending,
                 );
                 let _ = updated::init_health_ok();
                 if let Ok((a, _p, _t, _h)) = updated::updated_get_status(
                     &updated,
-                    reply_send_slot,
-                    reply_recv_slot,
-                    &mut updated_pending,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
+                    &mut ctx.updated_pending,
                 ) {
                     if a == updated::SlotId::A {
                         break;
@@ -366,15 +379,26 @@ pub fn run() -> core::result::Result<(), ()> {
             }
         }
     }
-    if updated::updated_stage(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
-        .is_ok()
+    if updated::updated_stage(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    )
+    .is_ok()
     {
         emit_line("SELFTEST: ota stage ok");
     } else {
         emit_line("SELFTEST: ota stage FAIL");
     }
-    if updated::updated_switch(&updated, reply_send_slot, reply_recv_slot, 2, &mut updated_pending)
-        .is_ok()
+    if updated::updated_switch(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        2,
+        &mut ctx.updated_pending,
+    )
+    .is_ok()
     {
         emit_line("SELFTEST: ota switch ok");
     } else {
@@ -391,32 +415,37 @@ pub fn run() -> core::result::Result<(), ()> {
         emit_line("SELFTEST: ota health FAIL");
     }
     // Second cycle to force rollback (tries_left=1).
-    if updated::updated_stage(&updated, reply_send_slot, reply_recv_slot, &mut updated_pending)
-        .is_ok()
+    if updated::updated_stage(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    )
+    .is_ok()
     {
         // Determinism: rollback target is the slot that was active *before* the switch.
         let expected_rollback = updated::updated_get_status(
             &updated,
-            reply_send_slot,
-            reply_recv_slot,
-            &mut updated_pending,
+            ctx.reply_send_slot,
+            ctx.reply_recv_slot,
+            &mut ctx.updated_pending,
         )
         .ok()
         .map(|(active, _pending, _tries_left, _health_ok)| active);
         if updated::updated_switch(
             &updated,
-            reply_send_slot,
-            reply_recv_slot,
+            ctx.reply_send_slot,
+            ctx.reply_recv_slot,
             1,
-            &mut updated_pending,
+            &mut ctx.updated_pending,
         )
         .is_ok()
         {
             let got = updated::updated_boot_attempt(
                 &updated,
-                reply_send_slot,
-                reply_recv_slot,
-                &mut updated_pending,
+                ctx.reply_send_slot,
+                ctx.reply_recv_slot,
+                &mut ctx.updated_pending,
             );
             match (expected_rollback, got) {
                 (Some(expected), Ok(Some(slot))) if slot == expected => {
@@ -873,7 +902,7 @@ pub fn run() -> core::result::Result<(), ()> {
 
     // TASK-0006: nexus-log -> logd sink proof.
     // This checks that the facade can send to logd (bounded, best-effort) without relying on UART scraping.
-    let _ = nexus_log::configure_sink_logd_slots(0x15, reply_send_slot, reply_recv_slot);
+    let _ = nexus_log::configure_sink_logd_slots(0x15, ctx.reply_send_slot, ctx.reply_recv_slot);
     nexus_log::info("selftest-client", |line| {
         line.text("nexus-log sink-logd probe");
     });
@@ -1093,8 +1122,8 @@ pub fn run() -> core::result::Result<(), ()> {
         emit_line("SELFTEST: vfs FAIL");
     }
 
-    let local_ip = net::local_addr::netstackd_local_addr();
-    let os2vm = matches!(local_ip, Some([10, 42, 0, _]));
+    ctx.local_ip = net::local_addr::netstackd_local_addr();
+    ctx.os2vm = matches!(ctx.local_ip, Some([10, 42, 0, _]));
 
     // TASK-0004: ICMP ping proof via netstackd facade.
     // Under 2-VM socket/mcast backends there is no gateway, so skip deterministically.
@@ -1103,7 +1132,7 @@ pub fn run() -> core::result::Result<(), ()> {
     // fallback IP. Therefore we MUST NOT infer DHCP availability from the local IP alone.
     // Always attempt the bounded ICMP probe in single-VM mode; the harness decides whether it
     // is required (REQUIRE_QEMU_DHCP=1) based on the `net: dhcp bound` marker.
-    if !os2vm {
+    if !ctx.os2vm {
         if net::icmp_ping::icmp_ping_probe().is_ok() {
             emit_line("SELFTEST: icmp ping ok");
         } else {
@@ -1114,7 +1143,7 @@ pub fn run() -> core::result::Result<(), ()> {
     // TASK-0003: DSoftBus OS transport bring-up via netstackd facade.
     // Under os2vm mode, we rely on real cross-VM discovery+sessions instead (TASK-0005),
     // so skip this local-only probe to avoid false FAIL markers and long waits.
-    if !os2vm {
+    if !ctx.os2vm {
         if dsoftbus::quic_os::dsoftbus_os_transport_probe().is_ok() {
             emit_line("SELFTEST: dsoftbus os connect ok");
             emit_line("SELFTEST: dsoftbus ping ok");
@@ -1126,7 +1155,7 @@ pub fn run() -> core::result::Result<(), ()> {
 
     // TASK-0005: Cross-VM remote proxy proof (opt-in 2-VM harness).
     // Only Node A emits the markers; single-VM smoke must not block on remote RPC waits.
-    if os2vm && local_ip.is_some() {
+    if ctx.os2vm && ctx.local_ip.is_some() {
         // Retry with a wall-clock bound to keep tests deterministic and fast.
         // dsoftbusd must establish the session first.
         let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;

@@ -1,7 +1,7 @@
 # Cursor Current State (SSOT)
 
 ## Current architecture state
-- **last_decision**: `TASK-0023B` Phase 1 **closed** (Cuts 0–22). Task scope **expanded** on 2026-04-17 to include Phases 4–6: Phase 4 (Marker-Manifest as SSOT + profile-aware harness + runtime selftest profiles), Phase 5 (signed evidence bundles per QEMU run), Phase 6 (replay + diff + bisect tooling). Title updated to `TASK-0023B Selftest-Client production-grade deterministic test architecture refactor + manifest/evidence/replay v1`. New track `TRACK-OS-PROOF-INFRASTRUCTURE.md` created for long-running B/C/D discipline workstreams (precondition: Phase 6 closure). `TASK-0024` re-sequenced: now blocked on `TASK-0023B` **Phase 4 closure** (was Phase 3) so TASK-0024's new markers land directly into the profile-aware manifest with `emit_when = { profile = "quic-required" }`. RFC-0014 phase list to be extended 8 → 12 (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`) in Cut P2-00 — precondition for the Phase 4 manifest to make harness phases and code phases congruent.
+- **last_decision**: `TASK-0023B` Phase 2 **in progress** under Cursor-internal plan `task-0023b_phase_2_plan_5e547ada.plan.md`. Cuts **P2-00 (RFC-0014 phase list 8 → 12, doc-only)** and **P2-01 (phases/ skeleton + `os_lite/context.rs` + minimal `PhaseCtx`)** complete; Phase-1 Proof-Floor green (`cargo test -p dsoftbusd`, `just test-dsoftbus-quic`, `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` all pass). 16 cuts remaining (P2-02..P2-17 + closure). PhaseCtx minimality locked at 5 fields (`reply_send_slot`, `reply_recv_slot`, `updated_pending`, `local_ip`, `os2vm`); service handles deliberately not promoted. Plan deviation recorded: actual `pub fn run()` call order is `bringup → routing → ota → policy → exec → logd → ipc_kernel → mmio → vfs → net → remote → end` (not the plan's assumed bringup → ipc_kernel → mmio → … sequence); cuts execute in actual order, plan file unchanged per user instruction. Phase 1 closed; Phase 3-6 + TRACK-OS-PROOF-INFRASTRUCTURE plans unchanged. `TASK-0024` still blocked on Phase 4 closure.
 - **active_constraints**:
   - keep `TASK-0021`, `TASK-0022`, `TASK-0023` frozen as done baselines,
   - keep marker honesty strict (`ok`/`ready` only after real behavior),
@@ -20,7 +20,9 @@
   - defer STATUS-BOARD / IMPLEMENTATION-ORDER updates until Phase 4 closure (per-cut updates create drift); Phase 4 closure also unblocks `TASK-0024` metadata.
 
 ## Current focus (execution)
-- **active_task**: `TASK-0023B` selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay — Phase 1 **closed**; Phases 2–6 sequenced (~44 cuts total: P2-00..P2-17, P3-01..P3-04, P4-01..P4-10, P5-01..P5-06, P6-01..P6-06). Phase 2 is next; opens with Cut P2-00 (RFC-0014 phase list extension; doc-only) followed by Cut P2-01 (skeleton).
+- **active_task**: `TASK-0023B` Phase 2 (cuts P2-02..P2-17 + closure remaining; ~44 total cuts across Phases 2–6).
+- **active_plan**: `/home/jenning/.cursor/plans/task-0023b_phase_2_plan_5e547ada.plan.md` (Cursor-internal; do not edit during execution).
+- **resume cut**: P2-02 (extract `phases/bringup.rs`; ~210 LOC of `pub fn run()` body, largest single cut in Phase 2).
 - **seed_contract**:
   - `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`
   - `tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md`
@@ -33,10 +35,13 @@
   - `tasks/STATUS-BOARD.md`
   - `tasks/IMPLEMENTATION-ORDER.md`
 
-## TASK-0023B Phase-1 closure snapshot (2026-04-17)
-- `source/apps/selftest-client/src/main.rs` = **122** lines (frozen).
-- `source/apps/selftest-client/src/os_lite/mod.rs` = **1226** lines (only top-level imports + `mod`-decls + `pub fn run()` body).
-- Extracted modules under `source/apps/selftest-client/src/os_lite/`:
+## Structural snapshot (post-P2-01, 2026-04-17)
+- `source/apps/selftest-client/src/main.rs` = **122** lines (frozen — no Phase-2 cut touches it).
+- `source/apps/selftest-client/src/os_lite/mod.rs` = **1256** lines (imports + `mod`-decls + `pub fn run()` body now using `ctx.<field>` for the 5 `PhaseCtx` fields).
+- New in P2-01:
+  - `os_lite/context.rs` (52 LOC): `PhaseCtx { reply_send_slot, reply_recv_slot, updated_pending, local_ip, os2vm }` + silent `bootstrap()` (no markers, no routing).
+  - `os_lite/phases/mod.rs` aggregator + 12 stub files (`bringup, ipc_kernel, mmio, routing, ota, policy, exec, logd, vfs, net, remote, end`), each `pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()>` no-op.
+- Existing extracted modules (Phase 1 closure):
   - `dsoftbus/{quic_os, remote/{mod, resolve, pkgfs, statefs}}`
   - `net/{icmp_ping, local_addr, smoltcp_probe (cfg-gated)}`
   - `ipc/{clients, routing, reply}`
@@ -45,7 +50,7 @@
   - `services/{samgrd, bundlemgrd, keystored, policyd, execd, logd, metricsd, statefs, bootctl}/mod.rs`
   - `services/mod.rs` still hosts shared `core_service_probe*` (to be moved to `probes/core_service.rs` in Cut P2-17)
   - `updated/mod.rs` (`SYSTEM_TEST_NXS` + `SlotId` + 9 fns including `updated_send_with_reply` and `init_health_ok`)
-- Behavior-parity gates honored each cut: `pub fn run()` call-order unchanged; marker strings byte-identical; visibility kept at `pub(crate)`.
+- Behavior-parity gates: `pub fn run()` call-order unchanged; marker strings byte-identical; visibility kept at `pub(crate)`; QEMU marker ladder identical pre- and post-P2-01.
 
 ## Phase-2/3 architecture (locked in RFC-0038, normative)
 1. **Two-axis structure**: capability nouns (`services/`, `ipc/`, `probes/`, `dsoftbus/`, `net/`, `mmio/`, `vfs/`, `timed/`, `updated/`) + new orchestration verbs (`os_lite/phases/{bringup, ipc_kernel, mmio, routing, ota, policy, exec, logd, vfs, net, remote, end}.rs`). `pub fn run()` collapses to ~13 lines.
@@ -122,8 +127,8 @@ Detail: see `docs/rfcs/RFC-0038-...` (Phase 4–6 sections) and `.cursor/next_ta
 - `TRACK-OS-PROOF-INFRASTRUCTURE`: precondition is `TASK-0023B` Phase 6 closure. First high-leverage candidates likely CAND-DSC-010 (lint crate) + CAND-OBS-010 (per-phase budgets).
 
 ## Next handoff target
-- **Step 1 — plan-first**: produce `task-0023b_phase-2..6_*.plan.md` mirroring the Phase-1 plan style, encoding the full ~44-cut sequence (P2-00 … P6-06) with Proof-Floor cadence per cut and hard-gate tables per phase boundary.
-- **Step 2 — open Phase 2**: execute Cut P2-00 (RFC-0014 phase list 8 → 12; doc-only) then Cut P2-01 (`phases/` skeleton + `PhaseCtx`); mark RFC-0038 Implementation Checklist as cuts close.
-- **Step 3 — sequential execution**: continue through Phase 2 (18 cuts) then Phase 3 (4 cuts).
+- **Resume command (when user says "go")**: agent mode, mark P2-02 todo `in_progress`, extract `phases/bringup.rs` per actual-order sequence. After each cut: `cargo +nightly check -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite` → `cargo test -p dsoftbusd` → `just test-dsoftbus-quic` → `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` → `rustfmt +stable <touched .rs>` → `just lint`.
+- **Cut order (actual `pub fn run()` sequence, not plan's assumed sequence)**: P2-02 (bringup) → P2-05 (routing) → P2-06 (ota) → P2-07 (policy) → P2-08 (exec) → P2-09 (logd) → P2-03 (ipc_kernel) → P2-04 (mmio) → P2-10 (vfs) → P2-11 (net) → P2-12 (remote) → P2-13 (end), then sub-splits P2-14..P2-17, then closure.
+- **Phase 2 closure**: tick RFC-0038 18-box Phase 2 checklist; sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-3_<hash>.plan.md`.
 - **Phase 4 closure trigger**: unblock `TASK-0024` (update its `depends-on`); refresh STATUS-BOARD / IMPLEMENTATION-ORDER; refresh `docs/testing/index.md`.
 - **Phase 6 closure trigger**: extract first `TRACK-OS-PROOF-INFRASTRUCTURE` candidate into a real `TASK-XXXX`.

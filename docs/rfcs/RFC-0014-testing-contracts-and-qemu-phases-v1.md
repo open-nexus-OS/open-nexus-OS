@@ -146,17 +146,32 @@ Principle:
 
 - A QEMU run must be able to stop early once a phase is proven (`RUN_UNTIL_MARKER=1` style), and failures must point to a named phase, not a generic marker miss.
 
-Proposed phases (names illustrative; final marker strings must be stable and documented in `docs/testing/index.md`):
+Phase list (normative, v2 — extended 2026-04-17 by Cut P2-00 of `TASK-0023B` to make the contract list congruent with the 12 code phases under `source/apps/selftest-client/src/os_lite/phases/`):
 
-- **Phase: bring-up**: banner → `init: ready` plus required `<svc>: ready` markers (RFC-0013 readiness semantics).
-- **Phase: routing**: selftest proves routing v1 deterministically (`SELFTEST: ipc routing ok`).
-- **Phase: exec**: loader + lifecycle selftest markers.
-- **Phase: policy**: allow/deny markers.
-- **Phase: vfs**: stat/read/ebadf markers.
-- **Phase: logd**: query/stats markers.
-- **Phase: ota**: `SELFTEST: ota stage ok` and subsequent gates as defined by RFC-0012.
+1. **Phase: bringup** — banner → `init: ready` plus required `<svc>: ready` markers (RFC-0013 readiness semantics).
+2. **Phase: ipc_kernel** — IPC-kernel plumbing/security/soak probes (qos, payload roundtrip, deadline timeout, loopback, cap_move, sender_pid, sender_service_id).
+3. **Phase: mmio** — TASK-0010 MMIO access + capability query proofs.
+4. **Phase: routing** — selftest proves routing v1 deterministically (`SELFTEST: ipc routing ok`).
+5. **Phase: ota** — `SELFTEST: ota stage ok` and subsequent gates as defined by RFC-0012 (stage → switch → health → rollback).
+6. **Phase: policy** — allow/deny markers, MMIO-policy deny, ABI-filter profile distribution.
+7. **Phase: exec** — loader + lifecycle selftest markers, minidump, forged-metadata/spoof/malformed reject paths.
+8. **Phase: logd** — query/stats markers, TASK-0014 hardening, metrics/tracing.
+9. **Phase: vfs** — stat/read/ebadf markers.
+10. **Phase: net** — ICMP ping + DSoftBus OS transport (incl. QUIC subset markers).
+11. **Phase: remote** — TASK-0005 resolve/query/statefs/pkgfs cross-node proofs.
+12. **Phase: end** — `SELFTEST: end` + cooperative idle.
 
 The harness must treat missing “phase ok” markers as a hard failure and print the name of the failed phase (not just “missing marker X”).
+
+#### Acknowledged contract ↔ harness drift (temporary, resolved at TASK-0023B Phase 4)
+
+This RFC documents the **normative contract list** (12 phases). The current operational harness in `scripts/qemu-test.sh` still hard-codes the v1 list of 7-8 phases (`bring-up, mmio, routing, ota, policy, logd, vfs, end`) consumed via the `RUN_PHASE=<name>` early-exit mechanism. This drift is intentional and bounded:
+
+- The v1 harness list remains operationally authoritative for `RUN_PHASE` until `TASK-0023B` Phase 4 (Cut P4-05) replaces the hard-coded `PHASES`/`PHASE_START_MARKER`/`PHASE_END_MARKER` arrays with consumption from `source/apps/selftest-client/proof-manifest.toml`.
+- `docs/testing/index.md` continues to document the v1 harness list as the supported `RUN_PHASE` values until the same migration. Operators using `RUN_PHASE` should refer to that file, not this one.
+- After Cut P4-05, the harness, the manifest, and this RFC §3 list are congruent; the drift is closed by construction.
+
+Until then, contributors adding new code phases (e.g. `ipc_kernel`, `net`, `remote`) MUST emit honest behavior markers per the rules in §1 and §1b, but MUST NOT add new `RUN_PHASE` values to the harness — the new phases will become harness-addressable through the manifest at Cut P4-05.
 
 ### 4) Deterministic failure reporting (normative)
 
