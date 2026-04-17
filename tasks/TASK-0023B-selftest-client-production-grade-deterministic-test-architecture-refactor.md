@@ -1,8 +1,9 @@
 ---
-title: TASK-0023B Selftest-Client production-grade deterministic test architecture refactor v1
+title: TASK-0023B Selftest-Client production-grade deterministic test architecture refactor + manifest/evidence/replay v1
 status: Draft
 owner: @runtime
 created: 2026-04-16
+last-updated: 2026-04-17
 depends-on:
   - TASK-0023
 follow-up-tasks:
@@ -13,20 +14,40 @@ links:
   - Contract seed: docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
   - Depends-on (OS QUIC session baseline): tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md
   - Follow-up (transport hardening): tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md
-  - Testing contract: scripts/qemu-test.sh
+  - Testing harness: scripts/qemu-test.sh
+  - 2-VM harness: tools/os2vm.sh
+  - Phase contract: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
+  - Long-running infrastructure track: tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md
 ---
 
 ## Short description
 
-- **Scope**: Refactor `source/apps/selftest-client/src/main.rs` and the surrounding selftest-client architecture into a scalable deterministic-test structure.
-- **Deliver**: multi-phase no-behavior-change refactor, adaptive target structure, and a final state where `main.rs` is minimal and the selftest-client architecture reaches a production-grade quality bar.
-- **Out of scope**: New transport features (owned by `TASK-0024`) and protocol semantic changes.
+- **Scope**: Refactor `source/apps/selftest-client/src/main.rs` and the surrounding selftest-client architecture into a scalable deterministic-test structure, then promote the result into a manifest-driven, profile-aware, evidence-producing, replayable proof system.
+- **Deliver** (phased):
+  - Phase 1 (✅ done) — structural extraction; `main.rs` minimal; `os_lite/mod.rs` shrunk from ~6771 → 1226 LOC.
+  - Phase 2 — two-axis architecture (`os_lite/phases/` orchestration verbs alongside capability nouns); `pub fn run()` collapses to ~13 lines; RFC-0014 phase list expanded from 8 → 12 (congruent with code phases).
+  - Phase 3 — `host_lite/` symmetry, single-file `name/mod.rs` flatten, mechanical `arch-gate`, Rust-standards review.
+  - Phase 4 — `proof-manifest.toml` as **single source of truth** for markers and run profiles (SMP, DHCP, OS2VM, QUIC-required, host-only-aggregator); generated harness expectations; runtime selftest-profiles via `SELFTEST_PROFILE`.
+  - Phase 5 — signed evidence bundles per QEMU run (`evidence-bundle.tar.gz`: manifest + UART + trace + config + signature).
+  - Phase 6 — replay capability (`replay-evidence` + `diff-traces` + `bisect-evidence`).
+- **Out of scope** (this task):
+  - New transport features / QUIC recovery / data-plane hardening (owned by `TASK-0024`).
+  - Protocol semantic changes.
+  - Long-running observability/coverage/process-discipline workstreams (owned by `TRACK-OS-PROOF-INFRASTRUCTURE`).
+  - Host-only test reorganization (`test-e2e`, `test-dsoftbus-quic`, `test-host`); these stay outside the proof manifest by design (different mental model: cargo-tested host logic vs. QEMU-attested OS behavior).
 
 ## Why this task exists
 
-`source/apps/selftest-client/src/main.rs` is too large for safe iterative development.
-More importantly, `selftest-client` is one of the central components of this OS because it drives the deterministic QEMU marker ladder and service-proof orchestration.
-Before adding transport features in `TASK-0024`, we need a maintainable and extensible structure that keeps the full service-test ladder stable.
+`source/apps/selftest-client/src/main.rs` was too large for safe iterative development (Phase 1 fixed this).
+More importantly, `selftest-client` is one of the central components of this OS because it drives the deterministic QEMU marker ladder and service-proof orchestration. **No other OS we are aware of treats deterministic OS-level proof as a first-class product surface.** That makes this code path release-truth, not test glue.
+
+The expanded scope (Phases 4–6) exists because today our proof infrastructure has three unforced weaknesses:
+
+1. **Two truths for the marker ladder**: marker strings live both in `scripts/qemu-test.sh` (harness expectation) and in `selftest-client` Rust code (emitter). Drift is possible and only caught by a failed CI run.
+2. **No portable evidence**: a green QEMU run produces a UART log that lives only on the runner. We cannot prove externally what behavior was attested by which build of which manifest.
+3. **No replay**: a failure on machine A cannot be deterministically reproduced on machine B from a stored artifact. Bisects are linear retries instead of trace-diffs.
+
+Before adding transport features in `TASK-0024`, the proof infrastructure must (a) be maintainable and extensible (Phases 1–3), and (b) reach a state where every passing CI run produces a signed, replayable evidence bundle keyed by an explicit profile (Phases 4–6). Without that, the deterministic-proof story is internally usable but not externally provable.
 
 ## Goal
 
@@ -37,6 +58,11 @@ After completion:
 - The full service-test structure and canonical QEMU marker ladder remain unchanged and green.
 - The resulting deterministic test infrastructure is production-grade: maintainable, extensible, deterministic under pressure, and strict about proof integrity.
 - Rust discipline review is done and documented where sensible (`newtype`, ownership, `Send`/`Sync`, `#[must_use]`).
+- A single `proof-manifest.toml` is the authoritative source for: phase list, marker ladder, profile membership (full/smp/dhcp/os2vm/quic-required/bringup/quick/none/…), and run configuration (env vars, runner script, extends-relations).
+- `scripts/qemu-test.sh` and `tools/os2vm.sh` consume the manifest instead of hard-coding `PHASES`/`PHASE_START_MARKER`/`PHASE_END_MARKER` arrays and `REQUIRE_*` flags.
+- Each `just test-os PROFILE=…` run produces a signed `evidence-bundle.tar.gz` in `target/evidence/` (manifest, UART log, marker trace, build config, profile, signature).
+- `tools/replay-evidence.sh <bundle>` deterministically re-runs the captured profile and `tools/diff-traces.sh` produces a stable diff against the original trace; `tools/bisect-evidence.sh` automates the loop.
+- A `SELFTEST_PROFILE=<bringup|quick|net|ota|none|full>` runtime switch (kernel cmdline / env) lets `selftest-client` skip whole phases at runtime — no recompile required for fast local iteration.
 
 ## Target quality bar
 
@@ -51,9 +77,12 @@ Reason:
 ## Non-Goals
 
 - No new QUIC data-plane/recovery features.
-- No marker renaming or semantic drift in the existing deterministic service-test ladder.
+- No marker renaming or semantic drift in the existing deterministic service-test ladder (Phases 1–3). Phase 4 may *add* new markers gated by new profiles (e.g. `SELFTEST: smp ipi ok` under `profile=smp`) but must not rename existing markers.
 - No mandatory creation of new unit tests solely for refactor cosmetics.
-- No kernel changes.
+- No kernel changes (Phases 1–6). Runtime selftest-profile reading from kernel cmdline is a userspace read, not a kernel API change.
+- No host-test reorganization. `cargo test --workspace`, `just test-host`, `just test-e2e`, `just test-dsoftbus-quic` remain outside the proof manifest. They prove host-resident logic, not OS-attested behavior; collapsing both into one model would weaken both.
+- No long-running observability/coverage/process-discipline workstreams. Those land in `TRACK-OS-PROOF-INFRASTRUCTURE` as candidate tasks.
+- No automatic publication of evidence bundles to a remote artifact store (Phase 5 produces and verifies bundles locally; transport/storage is a follow-on).
 
 ## Constraints / invariants (hard requirements)
 
@@ -166,11 +195,51 @@ Review gate for `main.rs` minimality:
 
 ## Touched paths (allowlist)
 
+Phases 1–3 (selftest-client refactor + arch-gate):
+
 - `source/apps/selftest-client/src/main.rs`
 - `source/apps/selftest-client/src/**` (new/refactored modules)
 - `docs/testing/index.md` (only if proof command list changes)
+- `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Phase 2 / Cut P2-02-equivalent: phase list 8 → 12; congruent with code phases)
+- `scripts/check-selftest-arch.sh` (new, Phase 3)
+- `justfile` (Phase 3: add `arch-gate` recipe; chain into `dep-gate`)
 - `tasks/STATUS-BOARD.md`
 - `tasks/IMPLEMENTATION-ORDER.md`
+
+Phase 4 (manifest + profiles):
+
+- `source/apps/selftest-client/proof-manifest.toml` (new)
+- `source/libs/nexus-proof-manifest/**` (new, host-only crate; OS feature-gated out)
+- `source/apps/selftest-client/src/os_lite/profile.rs` (new)
+- `source/apps/selftest-client/build.rs` (extend or add: generate `markers_generated.rs` from manifest)
+- `source/apps/selftest-client/src/markers_generated.rs` (build-time generated; `.gitignore`)
+- `scripts/qemu-test.sh` (rewrite to consume manifest)
+- `tools/os2vm.sh` (rewrite to consume manifest)
+- `justfile` (route all `test-*` through `test-os PROFILE=…`)
+- `docs/testing/index.md`
+- `docs/testing/proof-manifest.md` (new)
+
+Phase 5 (evidence bundle):
+
+- `source/libs/nexus-evidence/**` (new, host-only crate)
+- `tools/extract-trace.sh`, `tools/seal-evidence.sh`, `tools/verify-evidence.sh` (new)
+- `scripts/qemu-test.sh` (hook seal step after pass/fail)
+- `target/evidence/` (build artifact; `.gitignore`)
+- `docs/testing/evidence-bundle.md` (new)
+
+Phase 6 (replay):
+
+- `tools/replay-evidence.sh`, `tools/diff-traces.sh`, `tools/bisect-evidence.sh` (new)
+- `scripts/regression-bisect.sh` (new wrapper)
+- `docs/testing/replay-and-bisect.md` (new)
+- `docs/testing/trace-diff-format.md` (new)
+
+Out-of-allowlist (must not touch in this task):
+
+- `source/kernel/**` (no kernel API changes)
+- `source/drivers/**`
+- `source/services/**` (services are owned by their own tasks; `selftest-client` only orchestrates)
+- `tasks/TASK-0024-*.md` (delay marker added; substantive scope owned by TASK-0024 itself)
 
 ## Execution phases (mandatory sequence)
 
@@ -213,17 +282,16 @@ Phase-1 proof floor:
 
 Scope:
 
-- Improve boundaries and readability across the broader selftest-client structure, not just QUIC code.
-- Reduce coupling between orchestration, service helpers, IPC/routing helpers, DSoftBus helpers, and marker policy.
-- Introduce small typed wrappers where they reduce accidental misuse.
+- Introduce two-axis structure: capability nouns (existing `services/`, `ipc/`, `probes/`, `dsoftbus/`, `net/`, `mmio/`, `vfs/`, `timed/`, `updated/`) + new orchestration verbs under `os_lite/phases/`.
+- Collapse `pub fn run()` to ~13 lines (one call per phase).
+- Sub-split high-density modules (`updated/`, `probes/ipc_kernel/`).
+- Consolidate the 3× duplicated `ReplyInboxV1` impls to `ipc/reply_inbox.rs`.
+- Reduce `services/mod.rs` to aggregator-only by moving `core_service_probe*` to `probes/core_service.rs`.
+- **Extend RFC-0014 phase list from 8 → 12** (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`) so harness phases and code phases are congruent. Phase 4 then encodes this in the manifest.
 - Keep behavior unchanged; still no new transport features.
 - Optimize toward a production-grade end state, not merely a smaller file.
 
-Preferred optimization order:
-
-1. align helper boundaries to harness/runtime phases (`bring-up`, `mmio`, `routing`, `ota`, `policy`, `logd`, `vfs`, `end`) where sensible,
-2. isolate shared retry/deadline/reply-matching logic,
-3. remove duplication that would otherwise re-couple probes into `main.rs`.
+Preferred order: see `.cursor/next_task_prep.md` (17-cut sequence Cut P2-01 .. P2-17).
 
 Phase-2 proof floor:
 
@@ -254,7 +322,167 @@ Mandatory anti-re-monolithization review:
 Phase-3 proof floor:
 
 - Same commands as Phase 1 (must stay green).
-- `cd /home/jenning/open-nexus-OS && just dep-gate && just diag-os`
+- `cd /home/jenning/open-nexus-OS && just dep-gate && just diag-os && just arch-gate`
+
+### Phase 4 — Marker-Manifest as Single Source of Truth + profile-aware harness
+
+Scope (Apple-grade evidence foundation, A1):
+
+- Introduce `source/apps/selftest-client/proof-manifest.toml` as the **single source of truth** for: phase list, marker ladder, profile membership, run configuration.
+- Generate Rust constants for marker emission and the harness expectation list from the manifest at build time (no two truths).
+- Migrate `scripts/qemu-test.sh` and `tools/os2vm.sh` from hard-coded `PHASES`/`PHASE_START_MARKER`/`PHASE_END_MARKER`/`REQUIRE_*` arrays to manifest-driven expectations.
+- Add `SELFTEST_PROFILE=<full|bringup|quick|ota|net|none>` runtime switch (kernel cmdline / env) — `selftest-client` reads the profile and dynamically enables/disables whole phases. Default = `full`.
+- Add `PROFILE=<name>` argument to `just test-os`; the harness uses it to select expected markers from the manifest.
+
+Manifest schema (normative):
+
+```toml
+[meta]
+schema_version = "1"
+
+[phase.bringup]
+order = 1
+markers = ["init: ready", "execd: ready"]
+
+[profile.full]
+runner = "scripts/qemu-test.sh"
+env = {}
+
+[profile.smp]
+extends = "full"
+runner = "scripts/qemu-test.sh"
+env = { SMP = "2", REQUIRE_SMP = "1" }
+
+[profile.dhcp]
+extends = "full"
+env = { REQUIRE_QEMU_DHCP = "1", REQUIRE_QEMU_DHCP_STRICT = "1" }
+
+[profile.os2vm]
+runner = "tools/os2vm.sh"
+env = { REQUIRE_DSOFTBUS = "1" }
+
+[profile.quic-required]
+extends = "full"
+env = { REQUIRE_DSOFTBUS = "1" }
+
+[profile.bringup]   # runtime sub-profile
+runtime_only = true
+phases = ["bringup", "ipc_kernel", "end"]
+
+[marker."SELFTEST: smp ipi ok"]
+phase = "bringup"
+emit_when = { profile = "smp", smp_min = 2 }
+proves = "SMP IPI delivery between hart 0 and hart 1"
+introduced_in = "TASK-0012"
+
+[marker."dsoftbus: quic os disabled (fallback tcp)"]
+phase = "net"
+emit_when_not = { profile = "quic-required" }
+forbidden_when = { profile = "quic-required" }
+```
+
+Cuts (10):
+
+- **P4-01**: write the manifest schema doc + `proof-manifest.toml` skeleton (meta + phase declarations only); add `nexus-proof-manifest` host-only crate to parse it; unit tests for parser + reject paths.
+- **P4-02**: extend RFC-0014 phase list from 8 → 12 (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`) so harness phases and code phases are congruent. (Done via cross-reference; RFC-0014 update is the artifact.)
+- **P4-03**: populate `proof-manifest.toml` with all current markers from `scripts/qemu-test.sh` + `selftest-client` source (1:1, no behavior change). Build script generates `markers_generated.rs` (Rust constants).
+- **P4-04**: replace marker emission in `phases/*` with the generated constants; `arch-gate` enforces no marker string literals outside the generated file + `markers.rs`.
+- **P4-05**: add `[profile.*]` definitions for `full`, `smp`, `dhcp`, `os2vm`, `quic-required`. `scripts/qemu-test.sh` reads the manifest via a small `nexus-proof-manifest` host CLI to compute expected markers + env.
+- **P4-06**: migrate `just test-os`, `just test-smp`, `just test-os-dhcp`, `just test-dsoftbus-2vm`, `just test-network` to call `just test-os PROFILE=…`. Old recipes become aliases for ≥ 1 cycle, then the alias is removed.
+- **P4-07**: add `tools/os2vm.sh` manifest support (`profile.os2vm`).
+- **P4-08**: add `[profile.bringup|quick|ota|net|none]` (runtime-only); add `os_lite/profile.rs` + `Profile::from_kernel_cmdline_or_default(Profile::Full)`; modify `pub fn run()` to iterate `profile.enabled_phases()`; add per-profile QEMU smoke tests.
+- **P4-09**: deny-by-default check: any marker emitted at runtime that is not declared in the manifest for the active profile is a hard failure (host-side analyzer). Conversely, any manifest-declared marker not seen is a hard failure (existing behavior).
+- **P4-10**: hard-deprecate `RUN_PHASE`/`REQUIRE_*` direct env usage in CI; CI must invoke `just test-os PROFILE=<name>`. Document the migration in `docs/testing/index.md`.
+
+Phase-4 proof floor:
+
+- All Phase-1 proofs.
+- `cd /home/jenning/open-nexus-OS && cargo test -p nexus-proof-manifest -- --nocapture` (host parser + reject tests).
+- `cd /home/jenning/open-nexus-OS && just test-os PROFILE=full` green.
+- `cd /home/jenning/open-nexus-OS && just test-os PROFILE=smp` green.
+- `cd /home/jenning/open-nexus-OS && just test-os PROFILE=quic-required` green.
+- `cd /home/jenning/open-nexus-OS && just test-os PROFILE=bringup` green and short-circuits before `routing` phase.
+- `cd /home/jenning/open-nexus-OS && just test-os PROFILE=none` exits cleanly with `SELFTEST: end` and no probe markers.
+- `cd /home/jenning/open-nexus-OS && just dep-gate && just diag-os && just arch-gate`.
+
+Phase-4 hard gates (mechanically enforced):
+
+- No marker string literal outside `markers_generated.rs` + `markers.rs` (arch-gate).
+- No `REQUIRE_*` env var read directly in `just test-*` recipes (allowlist: only inside the manifest CLI).
+- Manifest parser rejects unknown keys (forward-compat checked by reject tests).
+- A profile with no declared markers is rejected at build time.
+
+### Phase 5 — Signed evidence bundle per QEMU run
+
+Scope (Apple-grade evidence foundation, A2):
+
+- Each `just test-os PROFILE=…` run writes `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` containing:
+  - `proof-manifest.toml` (verbatim copy used for the run),
+  - `uart.log` (unfiltered serial output),
+  - `trace.jsonl` (extracted marker ladder with timestamps + phase tags),
+  - `config.json` (profile name, env vars, kernel cmdline, QEMU args, host info, build SHA, rustc version, qemu version),
+  - `signature.bin` (Ed25519 signature over a deterministic canonical hash of the above using a CI-held key; dev runs use a labeled "bring-up evidence key").
+- Verification tool `tools/verify-evidence.sh <bundle>` re-derives the canonical hash and validates signature; fails closed.
+- New host-only crate `nexus-evidence` owns hashing, sign, verify, canonicalization; reuses `nexus-noise-xk` Ed25519 primitives.
+
+Cuts (6):
+
+- **P5-01**: `nexus-evidence` crate skeleton + canonicalization spec + unit tests (deterministic hash over `(manifest_bytes, sorted(trace_entries), sorted(config_entries))`).
+- **P5-02**: `tools/extract-trace.sh` produces `trace.jsonl` from `uart.log` using manifest phase tags. Reject test: an out-of-order marker ladder produces a `trace.jsonl` with an `out_of_order: true` annotation but no signature is generated for failed runs (fail-closed at sign time).
+- **P5-03**: `tools/seal-evidence.sh` builds `evidence-bundle.tar.gz`, signs with the active key, writes to `target/evidence/`. CI key vs bring-up key is selected by env (`EVIDENCE_KEY=ci|bringup`); bringup key is labeled and refuses to verify against CI policy in P5-05.
+- **P5-04**: hook `tools/seal-evidence.sh` into `scripts/qemu-test.sh` after the existing pass/fail decision; failed runs still produce a bundle but with `signature.bin` absent (replay-only artifact).
+- **P5-05**: `tools/verify-evidence.sh` + Bring-up vs CI key separation; reject tests for: tampered manifest, tampered uart, tampered trace, swapped key.
+- **P5-06**: `docs/testing/evidence-bundle.md` documents bundle layout, key model, verify workflow, and how to consume bundles in PR review.
+
+Phase-5 proof floor:
+
+- All Phase-4 proofs.
+- `cd /home/jenning/open-nexus-OS && cargo test -p nexus-evidence -- --nocapture` (canonicalization + reject tests).
+- `cd /home/jenning/open-nexus-OS && just test-os PROFILE=full` writes a verifiable bundle; `tools/verify-evidence.sh target/evidence/<latest>` returns 0.
+- Tamper test: editing 1 byte in `uart.log` inside the bundle causes verify to fail with a stable, classified error (`EvidenceError::SignatureMismatch`).
+
+Phase-5 hard gates:
+
+- A run that fails to seal an evidence bundle is itself a CI failure (no silent skip).
+- Bringup-key bundles must not validate against CI policy (label check in `verify-evidence.sh`).
+- No secret material (private keys, session keys, raw key bytes) appears in `uart.log`, `trace.jsonl`, or `config.json` (reject test scans for known patterns).
+
+### Phase 6 — Replay capability
+
+Scope (Apple-grade evidence foundation, A3):
+
+- `tools/replay-evidence.sh <bundle>`: re-builds from the bundle's recorded git-SHA, replays under the recorded profile + env + QEMU args, captures a fresh trace.
+- `tools/diff-traces.sh <original-trace> <replay-trace>`: produces a deterministic diff (phase-by-phase, order-aware). Empty diff = exact replay; bounded diff = drift report; structural diff = regression candidate.
+- `tools/bisect-evidence.sh <good-bundle> <bad-bundle>`: walks the git-SHA range between the two bundles, runs a replay per commit, classifies first regressing commit using the diff tool. Bounded by max-commits + wallclock budget; never unbounded.
+
+Cuts (6):
+
+- **P6-01**: `tools/replay-evidence.sh` skeleton — extract bundle, validate signature (P5-05), pin git-SHA, set env, invoke `just test-os PROFILE=<recorded>`.
+- **P6-02**: trace diff format spec (`docs/testing/trace-diff-format.md`) + `tools/diff-traces.sh` implementation; unit fixtures for "exact match", "extra marker", "missing marker", "reorder", "phase mismatch".
+- **P6-03**: `tools/bisect-evidence.sh` with mandatory `--max-commits` and `--max-seconds` budgets; fail-closed on budget exhaust.
+- **P6-04**: integrate bisect into `scripts/regression-bisect.sh` wrapper for the typical CI failure flow ("CI failed at SHA X, last green at SHA Y, replay-bisect → first bad SHA").
+- **P6-05**: cross-host determinism floor: replay must reach the same trace on at least 2 host configurations (the CI runner + 1 dev box) for the same bundle. CI runner records trace once, dev re-runs once, diff must be empty modulo a documented allowlist (e.g. wall-clock, qemu version banner).
+- **P6-06**: `docs/testing/replay-and-bisect.md` documents the workflow + known non-deterministic surfaces + the documented allowlist + how to extend it.
+
+Phase-6 proof floor:
+
+- All Phase-5 proofs.
+- `cd /home/jenning/open-nexus-OS && tools/replay-evidence.sh target/evidence/<good-bundle>` produces an empty diff against the recorded trace.
+- Synthetic bad-bundle test: a manually corrupted bundle replay produces a non-empty, classified diff and exits non-zero.
+- Bisect smoke: a 3-commit synthetic range (good → drift → regress) is correctly bisected to the regressing commit.
+
+Phase-6 hard gates:
+
+- No replay step may run unbounded (`--max-seconds` mandatory; default cap = 300s per replay).
+- A replay that requires a kernel cmdline change beyond what is recorded in the bundle is a hard failure (no environmental drift hidden under "replay").
+- Cross-host determinism allowlist is reviewable and append-only.
+
+## Sequencing with TASK-0024
+
+- `TASK-0024` (DSoftBus QUIC recovery / UDP-sec) currently lists `TASK-0023B` as `depends-on`. With the expanded scope, `TASK-0024` is now blocked until **Phase 4 closure** of `TASK-0023B`.
+- Reason: `TASK-0024` introduces new markers (recovery probes) that must land directly into the profile-aware manifest with `emit_when = { profile = "quic-required" }`. Adding them before Phase 4 would create another two-truth surface that Phase 4 has to reverse-engineer.
+- After Phase 4 closes, `TASK-0024` may proceed in parallel with Phases 5/6.
+- `TASK-0024`'s implementation pattern under the new architecture: `dsoftbus/recovery_probe.rs` (capability) + 1 line in `phases/net.rs` (orchestration) + N marker entries in `proof-manifest.toml` (contract).
 
 ## Security considerations
 
@@ -306,21 +534,29 @@ Phase-3 proof floor:
 
 ## Stop conditions (Definition of Done)
 
-1. Phase 1-3 completed in order, with green proof floor after each phase.
+1. Phases 1–6 completed in order, with green proof floor after each phase.
 2. The initial target structure exists or has been intentionally improved during the refactor with better module boundaries.
 3. `main.rs` is minimal and no longer acts as monolithic storage for service/protocol logic.
-4. No behavior regressions in host/service and QEMU proof floors.
+4. No behavior regressions in host/service and QEMU proof floors at any phase boundary.
 5. The broader deterministic service-test structure remains green and unchanged, including the `TASK-0023` QUIC marker subset.
 6. Rust standards closure review is complete and reflected in touched code/docs where sensible.
 7. The resulting architecture meets a production-grade bar for deterministic proof infrastructure rather than a one-off refactor-only bar.
 8. Any discovered logic bugs or fake-success markers have been converted into honest behavior/proof markers rather than preserved.
-9. `TASK-0024` depends-on/queue metadata remains `TASK-0023B` first.
+9. `TASK-0024` blocked on this task until **Phase 4 closure**, then unblocked.
+10. **Phase 4 closure**: `proof-manifest.toml` is the single source of truth; `scripts/qemu-test.sh` and `tools/os2vm.sh` consume it; all `just test-*` recipes route through `just test-os PROFILE=…`; `SELFTEST_PROFILE` runtime switch works for `bringup|quick|ota|net|none|full`; arch-gate enforces no marker string literals outside the generated file + `markers.rs`.
+11. **Phase 5 closure**: every QEMU run produces a `target/evidence/<utc>-<profile>-<sha>.tar.gz`; `tools/verify-evidence.sh` validates signature; tamper test fails closed; bringup-key bundles cannot validate against CI policy.
+12. **Phase 6 closure**: `tools/replay-evidence.sh` produces an empty diff for a known-good bundle on at least 2 host configurations; `tools/bisect-evidence.sh` correctly identifies a synthetic regression in a bounded run; `docs/testing/replay-and-bisect.md` documents the workflow and the determinism allowlist.
 
 ## Plan (small PRs)
 
-1. **Phase 1 PR**: create scalable `os_lite` structure and start shrinking `main.rs` without behavior changes.
-2. **Phase 2 PR**: improve broader module boundaries for maintainability/extensibility (still no behavior changes).
-3. **Phase 3 PR**: standards/documentation closure review, ensure `main.rs` stays minimal, and rerun full proof floor.
+1. **Phase 1 PR** (✅ done): create scalable `os_lite` structure and shrink `main.rs` without behavior changes.
+2. **Phase 2 PR**: introduce `os_lite/phases/`, collapse `pub fn run()` to ~13 lines, sub-split high-density modules, expand RFC-0014 phase list 8 → 12. (~17 cuts.)
+3. **Phase 3 PR**: `host_lite/`, single-file flatten, mechanical `arch-gate`, standards review. (~4 cuts.)
+4. **Phase 4 PR(s)**: `proof-manifest.toml` + manifest-driven harness + runtime profile switch. (~10 cuts; may split into 4a parser/schema, 4b harness migration, 4c runtime profiles.)
+5. **Phase 5 PR(s)**: `nexus-evidence` crate + sealing/verification toolchain. (~6 cuts.)
+6. **Phase 6 PR(s)**: replay + diff + bisect tooling. (~6 cuts.)
+
+Total: ~43 cuts after Phase 1. Each cut keeps the proof floor green; each phase has additional hard gates as listed above.
 
 ## SSOT rule
 
@@ -328,5 +564,7 @@ Phase-3 proof floor:
   - phase completion,
   - proof commands,
   - stop conditions,
-  - queue/dependency updates.
-- The RFC may define architecture intent and constraints, but must not become the execution tracker for this work.
+  - queue/dependency updates,
+  - Phase 4 marker manifest content authority (the manifest itself is the technical SSOT for marker strings + profile membership; this task authorizes that mapping).
+- `RFC-0038` defines architecture intent and constraints; it must not become the execution tracker.
+- `TRACK-OS-PROOF-INFRASTRUCTURE` defines long-running discipline workstreams (B/C/D) that *consume* the manifest + evidence + replay infrastructure delivered here, but does not modify them.
