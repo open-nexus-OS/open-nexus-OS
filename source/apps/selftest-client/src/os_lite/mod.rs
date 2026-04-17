@@ -25,24 +25,8 @@ pub fn run() -> core::result::Result<(), ()> {
     phases::exec::run(&mut ctx)?;
     phases::logd::run(&mut ctx)?;
     phases::ipc_kernel::run(&mut ctx)?;
+    phases::mmio::run(&mut ctx)?;
 
-    // TASK-0010: userspace MMIO capability mapping proof (virtio-mmio magic register).
-    if mmio::mmio_map_probe().is_ok() {
-        emit_line("SELFTEST: mmio map ok");
-    } else {
-        emit_line("SELFTEST: mmio map FAIL");
-    }
-    // Pre-req for virtio DMA: userland can query (base,len) for address-bearing caps.
-    if mmio::cap_query_mmio_probe().is_ok() {
-        emit_line("SELFTEST: cap query mmio ok");
-    } else {
-        emit_line("SELFTEST: cap query mmio FAIL");
-    }
-    if mmio::cap_query_vmo_probe().is_ok() {
-        emit_line("SELFTEST: cap query vmo ok");
-    } else {
-        emit_line("SELFTEST: cap query vmo FAIL");
-    }
     // Userspace VFS probe over kernel IPC v1 (cross-process).
     if vfs::verify_vfs().is_err() {
         emit_line("SELFTEST: vfs FAIL");
