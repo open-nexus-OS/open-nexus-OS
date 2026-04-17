@@ -12,3 +12,4 @@
 //! ADR: docs/adr/0017-service-architecture.md, docs/rfcs/RFC-0038-*.md
 
 pub(crate) mod quic_os;
+pub(crate) mod remote;

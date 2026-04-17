@@ -13,3 +13,5 @@
 
 pub(crate) mod icmp_ping;
 pub(crate) mod local_addr;
+#[cfg(feature = "smoltcp-probe")]
+pub(crate) mod smoltcp_probe;

@@ -90,8 +90,7 @@ pub(crate) fn routing_v1_get(target: &str) -> core::result::Result<(u8, u32, u32
                 if got_nonce != nonce {
                     continue;
                 }
-                if let Some((status, send, recv)) =
-                    nexus_abi::routing::decode_route_rsp(&buf[..13])
+                if let Some((status, send, recv)) = nexus_abi::routing::decode_route_rsp(&buf[..13])
                 {
                     return Ok((status, send, recv));
                 }

@@ -158,11 +158,9 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     let client_eph_seed = derive_test_secret(0xD0, port);
     // Expected server static public key (server uses tag 0xA0)
     // SECURITY: bring-up test keys, NOT production custody
-    let server_static_expected =
-        StaticKeypair::from_secret(derive_test_secret(0xA0, port)).public;
+    let server_static_expected = StaticKeypair::from_secret(derive_test_secret(0xA0, port)).public;
 
-    let mut initiator =
-        XkInitiator::new(client_static, server_static_expected, client_eph_seed);
+    let mut initiator = XkInitiator::new(client_static, server_static_expected, client_eph_seed);
 
     fn udp_send_frame(
         net: &KernelClient,
@@ -238,8 +236,7 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     let mut msg1 = [0u8; MSG1_LEN];
     initiator.write_msg1(&mut msg1);
     let mut frame = [0u8; 256];
-    let msg1_len =
-        encode_quic_frame(QUIC_OP_MSG1, SESSION_NONCE, &msg1, &mut frame).ok_or(())?;
+    let msg1_len = encode_quic_frame(QUIC_OP_MSG1, SESSION_NONCE, &msg1, &mut frame).ok_or(())?;
     udp_send_frame(&net, udp_id, server_ip, port, &frame[..msg1_len])?;
 
     // Step 2: Read msg2 (responder ephemeral + encrypted static + tag, 96 bytes)
@@ -273,8 +270,7 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     // Step 3: Write msg3 and get transport keys (encrypted initiator static + tag, 64 bytes)
     let mut msg3 = [0u8; MSG3_LEN];
     let transport_keys = initiator.read_msg2_write_msg3(&msg2, &mut msg3).map_err(|_| ())?;
-    let msg3_len =
-        encode_quic_frame(QUIC_OP_MSG3, SESSION_NONCE, &msg3, &mut frame).ok_or(())?;
+    let msg3_len = encode_quic_frame(QUIC_OP_MSG3, SESSION_NONCE, &msg3, &mut frame).ok_or(())?;
     udp_send_frame(&net, udp_id, server_ip, port, &frame[..msg3_len])?;
 
     // Create transport for encrypted communication
@@ -283,8 +279,7 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     // Handshake complete - server will emit "dsoftbusd: auth ok" after processing msg3
 
     // WRITE "PING" datagram frame.
-    let ping_len =
-        encode_quic_frame(QUIC_OP_PING, SESSION_NONCE, b"PING", &mut frame).ok_or(())?;
+    let ping_len = encode_quic_frame(QUIC_OP_PING, SESSION_NONCE, b"PING", &mut frame).ok_or(())?;
     udp_send_frame(&net, udp_id, server_ip, port, &frame[..ping_len])?;
 
     // READ "PONG" datagram frame.

@@ -19,8 +19,7 @@ pub(crate) fn recv_large_bounded(
     let clock = nexus_ipc::budget::OsClock;
     let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let deadline_ns = nexus_ipc::budget::deadline_after(&clock, budget).map_err(|_| ())?;
-    let n =
-        nexus_ipc::budget::raw::recv_budgeted(&clock, recv_slot, &mut hdr, out, deadline_ns)
-            .map_err(|_| ())?;
+    let n = nexus_ipc::budget::raw::recv_budgeted(&clock, recv_slot, &mut hdr, out, deadline_ns)
+        .map_err(|_| ())?;
     Ok(core::cmp::min(n, out.len()))
 }
