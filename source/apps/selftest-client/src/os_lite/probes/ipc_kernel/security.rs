@@ -5,22 +5,18 @@
 //!   * `sender_pid_probe`        -- kernel-attested sender PID matches `pid()`.
 //!   * `sender_service_id_probe` -- kernel-attested sender service_id matches.
 //!
-//! Behavior is byte-for-byte identical to the pre-split implementation; the
-//! local `ReplyInboxV1` adapter is preserved here verbatim and will be DRY'd
-//! in P2-16 (consolidate into `ipc/reply_inbox.rs`).
+//! Behavior is byte-for-byte identical to the pre-split implementation. As of
+//! P2-16, the previously-triplicated local `ReplyInboxV1` adapter is sourced
+//! from `super::super::super::ipc::reply_inbox` (single source of truth).
 
-extern crate alloc;
-
-use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 
-use nexus_abi::{ipc_recv_v1, MsgHeader};
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
-use nexus_ipc::{Client, IpcError, Wait as IpcWait};
 
 use super::super::super::ipc::clients::{cached_reply_client, cached_samgrd_client};
+use super::super::super::ipc::reply_inbox::ReplyInboxV1;
 use super::super::super::services::samgrd::fetch_sender_service_id_from_samgrd;
 
 pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
@@ -35,29 +31,6 @@ pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
     static NONCE: AtomicU64 = AtomicU64::new(1);
     let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
 
-    struct ReplyInboxV1 {
-        recv_slot: u32,
-    }
-    impl Client for ReplyInboxV1 {
-        fn send(&self, _frame: &[u8], _wait: IpcWait) -> nexus_ipc::Result<()> {
-            Err(IpcError::Unsupported)
-        }
-        fn recv(&self, _wait: IpcWait) -> nexus_ipc::Result<Vec<u8>> {
-            let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 64];
-            match ipc_recv_v1(
-                self.recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
-                Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
-                Err(other) => Err(IpcError::Kernel(other)),
-            }
-        }
-    }
     let inbox = ReplyInboxV1 {
         recv_slot: reply_recv_slot,
     };
@@ -117,29 +90,6 @@ pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
     sam.send_with_cap_move(&frame, reply_send_clone)
         .map_err(|_| ())?;
 
-    struct ReplyInboxV1 {
-        recv_slot: u32,
-    }
-    impl Client for ReplyInboxV1 {
-        fn send(&self, _frame: &[u8], _wait: IpcWait) -> nexus_ipc::Result<()> {
-            Err(IpcError::Unsupported)
-        }
-        fn recv(&self, _wait: IpcWait) -> nexus_ipc::Result<Vec<u8>> {
-            let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 64];
-            match ipc_recv_v1(
-                self.recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
-                Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
-                Err(other) => Err(IpcError::Kernel(other)),
-            }
-        }
-    }
     let inbox = ReplyInboxV1 {
         recv_slot: reply_recv_slot,
     };
