@@ -2,7 +2,6 @@ extern crate alloc;
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use nexus_abi::yield_;
-use nexus_ipc::{Client, Wait as IpcWait};
 use nexus_metrics::client::MetricsClient;
 
 mod context;
@@ -22,72 +21,15 @@ use ipc::routing::route_with_retry;
 pub fn run() -> core::result::Result<(), ()> {
     let mut ctx = context::PhaseCtx::bootstrap()?;
     phases::bringup::run(&mut ctx)?;
+    phases::routing::run(&mut ctx)?;
 
-    // Policy E2E via policyd (minimal IPC protocol).
-    let policyd = match route_with_retry("policyd") {
-        Ok(client) => client,
-        Err(_) => return Err(()),
-    };
-    emit_line("SELFTEST: ipc routing policyd ok");
-    let bundlemgrd = match route_with_retry("bundlemgrd") {
-        Ok(client) => client,
-        Err(_) => return Err(()),
-    };
-    let (bnd_send, bnd_recv) = bundlemgrd.slots();
-    emit_bytes(b"SELFTEST: bundlemgrd slots ");
-    emit_hex_u64(bnd_send as u64);
-    emit_byte(b' ');
-    emit_hex_u64(bnd_recv as u64);
-    emit_byte(b'\n');
-    emit_line("SELFTEST: ipc routing bundlemgrd ok");
-    let updated = match route_with_retry("updated") {
-        Ok(client) => client,
-        Err(_) => return Err(()),
-    };
-    let (upd_send, upd_recv) = updated.slots();
-    emit_bytes(b"SELFTEST: updated slots ");
-    emit_hex_u64(upd_send as u64);
-    emit_byte(b' ');
-    emit_hex_u64(upd_recv as u64);
-    emit_byte(b'\n');
-    emit_line("SELFTEST: ipc routing updated ok");
-    if updated::updated_log_probe(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    )
-    .is_ok()
-    {
-        emit_line("SELFTEST: updated probe ok");
-    } else {
-        emit_line("SELFTEST: updated probe FAIL");
-    }
-    let (st, count) = services::bundlemgrd::bundlemgrd_v1_list(&bundlemgrd)?;
-    if st == 0 && count == 1 {
-        emit_line("SELFTEST: bundlemgrd v1 list ok");
-    } else {
-        emit_line("SELFTEST: bundlemgrd v1 list FAIL");
-    }
-    if services::bundlemgrd::bundlemgrd_v1_fetch_image(&bundlemgrd).is_ok() {
-        emit_line("SELFTEST: bundlemgrd v1 image ok");
-    } else {
-        emit_line("SELFTEST: bundlemgrd v1 image FAIL");
-    }
-    bundlemgrd
-        .send(
-            b"bad",
-            IpcWait::Timeout(core::time::Duration::from_millis(100)),
-        )
-        .map_err(|_| ())?;
-    let rsp = bundlemgrd
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-        .map_err(|_| ())?;
-    if rsp.len() == 8 && rsp[0] == b'B' && rsp[1] == b'N' && rsp[2] == 1 && rsp[4] != 0 {
-        emit_line("SELFTEST: bundlemgrd v1 malformed ok");
-    } else {
-        emit_line("SELFTEST: bundlemgrd v1 malformed FAIL");
-    }
+    // P2-05 deviation note: `bundlemgrd`, `updated`, and `policyd` were owned by
+    // `phases::routing::run` and dropped at end-of-phase. `route_with_retry` is
+    // silent (no markers), so re-resolving here for the still-inline ota/policy
+    // slices preserves the marker ladder byte-identically. Folded into
+    // `phases::ota::run` / `phases::policy::run` at P2-06 / P2-07.
+    let bundlemgrd = route_with_retry("bundlemgrd").map_err(|_| ())?;
+    let updated = route_with_retry("updated").map_err(|_| ())?;
 
     // TASK-0007: updated stage/switch/rollback (non-persistent A/B skeleton).
     let _ = services::bundlemgrd::bundlemgrd_v1_set_active_slot(&bundlemgrd, 1);
@@ -264,6 +206,10 @@ pub fn run() -> core::result::Result<(), ()> {
         emit_byte(b'\n');
         emit_line("SELFTEST: bundlemgrd route execd denied FAIL");
     }
+    // P2-05 deviation note: `policyd` was owned by `phases::routing::run` and dropped at
+    // end-of-phase. Re-resolve via the silent `route_with_retry` (no marker change). Folded
+    // into `phases::policy::run` at P2-07.
+    let policyd = route_with_retry("policyd").map_err(|_| ())?;
     // Policy check tests: selftest-client must check its own permissions (identity-bound).
     // selftest-client has ["ipc.core"] in policy, so CHECK should return ALLOW.
     if services::policyd::policy_check(&policyd, "selftest-client").unwrap_or(false) {
