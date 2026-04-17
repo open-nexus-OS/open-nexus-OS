@@ -27,37 +27,7 @@ pub fn run() -> core::result::Result<(), ()> {
     phases::ipc_kernel::run(&mut ctx)?;
     phases::mmio::run(&mut ctx)?;
     phases::vfs::run(&mut ctx)?;
-
-    ctx.local_ip = net::local_addr::netstackd_local_addr();
-    ctx.os2vm = matches!(ctx.local_ip, Some([10, 42, 0, _]));
-
-    // TASK-0004: ICMP ping proof via netstackd facade.
-    // Under 2-VM socket/mcast backends there is no gateway, so skip deterministically.
-    //
-    // Note: QEMU slirp DHCP commonly assigns 10.0.2.15, which is also the deterministic static
-    // fallback IP. Therefore we MUST NOT infer DHCP availability from the local IP alone.
-    // Always attempt the bounded ICMP probe in single-VM mode; the harness decides whether it
-    // is required (REQUIRE_QEMU_DHCP=1) based on the `net: dhcp bound` marker.
-    if !ctx.os2vm {
-        if net::icmp_ping::icmp_ping_probe().is_ok() {
-            emit_line("SELFTEST: icmp ping ok");
-        } else {
-            emit_line("SELFTEST: icmp ping FAIL");
-        }
-    }
-
-    // TASK-0003: DSoftBus OS transport bring-up via netstackd facade.
-    // Under os2vm mode, we rely on real cross-VM discovery+sessions instead (TASK-0005),
-    // so skip this local-only probe to avoid false FAIL markers and long waits.
-    if !ctx.os2vm {
-        if dsoftbus::quic_os::dsoftbus_os_transport_probe().is_ok() {
-            emit_line("SELFTEST: dsoftbus os connect ok");
-            emit_line("SELFTEST: dsoftbus ping ok");
-        } else {
-            emit_line("SELFTEST: dsoftbus os connect FAIL");
-            emit_line("SELFTEST: dsoftbus ping FAIL");
-        }
-    }
+    phases::net::run(&mut ctx)?;
 
     // TASK-0005: Cross-VM remote proxy proof (opt-in 2-VM harness).
     // Only Node A emits the markers; single-VM smoke must not block on remote RPC waits.
