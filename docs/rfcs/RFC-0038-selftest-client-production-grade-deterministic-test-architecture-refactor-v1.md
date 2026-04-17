@@ -17,8 +17,8 @@
 ## Status at a Glance
 
 - **Phase 0 (contract seed + target architecture)**: ✅
-- **Phase 1 (structural refactor without behavior change)**: 🟡 in-flight — Cuts 0–18 merged: `os_lite/{ipc, dsoftbus, net, mmio, vfs, timed, probes, services/{samgrd,bundlemgrd,keystored,policyd,execd,logd,metricsd,statefs,bootctl}}` extracted; `main.rs` at 122 lines; `os_lite/mod.rs` at ≈ 2025 lines (down from ~6771). Remaining: `updated` family + IPC-kernel/security probes + ELF helpers + `emit_line` shim.
-- **Phase 2 (maintainability/extensibility optimization)**: ⬜ — opens after Phase 1 closure; first item is `pub fn run()` slicing into sub-orchestrators.
+- **Phase 1 (structural refactor without behavior change)**: ✅ — Cuts 0–22 merged: `os_lite/{ipc, dsoftbus, net, mmio, vfs, timed, updated, probes/{rng,device_key,ipc_kernel,elf}, services/{samgrd,bundlemgrd,keystored,policyd,execd,logd,metricsd,statefs,bootctl}}` extracted; `emit_line` shim removed; `main.rs` frozen at 122 lines; `os_lite/mod.rs` at 1226 lines (down from ~6771). Only top-level imports + module declarations + `pub fn run()` orchestrator body remain.
+- **Phase 2 (maintainability/extensibility optimization)**: 🟡 ready to open — first item is `pub fn run()` slicing into sub-orchestrators (`bring_up`, `mmio`, `routing`, `ota`, `policy`, `logd`, `vfs`, `end`); intra-domain sub-splits in `updated/` and `probes/ipc_kernel/`; DRY-Konsolidierung der lokalen `ReplyInboxV1`-`impl Client` Kopien.
 - **Phase 3 (production-grade closure + standards review)**: ⬜
 
 Definition:
@@ -274,16 +274,17 @@ When updating this RFC, ensure:
 **This section tracks implementation progress. Update as phases complete.**
 
 - [x] **Phase 0**: contract seed defined; initial target structure + invariants are explicit — proof: task + RFC linked.
-- [ ] **Phase 1**: structural refactor begins and shrinks `main.rs` without behavior change — proof: `cargo test -p dsoftbusd -- --nocapture && just test-dsoftbus-quic && REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`.
+- [x] **Phase 1**: structural refactor shrinks `main.rs` without behavior change — proof: `cargo test -p dsoftbusd -- --nocapture && just test-dsoftbus-quic && REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` green after every cut.
   - [x] Cuts 0–9: periphery extraction (`ipc/{clients,routing,reply}`, `mmio`, `vfs`, `net/{icmp_ping,local_addr,smoltcp_probe}`, `dsoftbus/{quic_os,remote/*}`, `timed`, `probes/{rng,device_key}`).
   - [x] Cuts 10–18: service-family extraction (`services/{samgrd,bundlemgrd,keystored,policyd,execd,logd,metricsd,statefs,bootctl}/mod.rs` + shared `services::core_service_probe*`).
-  - [ ] Cut 19+: `updated` family (`updated_*`, `init_health_ok`, `SYSTEM_TEST_NXS`).
-  - [ ] Cut 20+: IPC-kernel/security probes (`qos_probe`, `ipc_payload_roundtrip`, `ipc_deadline_timeout_probe`, `nexus_ipc_kernel_loopback_probe`, `cap_move_reply_probe`, `sender_pid_probe`, `sender_service_id_probe`, `ipc_soak_probe`).
-  - [ ] Cut 21+: ELF helpers (`log_hello_elf_header`, `read_u64_le`) + `emit_line` shim consolidation.
-  - [ ] Phase-1 closure: `wc -l main.rs` = 122 unchanged; `os_lite/mod.rs` reduced to imports + `run()` body + remaining glue; full Proof-Floor green.
-- [ ] **Phase 2**: broader module boundaries optimized for maintainability/extensibility — proof: same phase proof floor. First Phase-2 deliverable: `pub fn run()` slicing into sub-orchestrators (`bring_up`, `mmio`, `routing`, `ota`, `policy`, `logd`, `vfs`, `end`).
+  - [x] Cut 19: `updated` family (`updated_*`, `init_health_ok`, `SYSTEM_TEST_NXS`, `SlotId`) → `os_lite/updated/mod.rs`.
+  - [x] Cut 20: IPC-kernel/security probes (`qos_probe`, `ipc_payload_roundtrip`, `ipc_deadline_timeout_probe`, `nexus_ipc_kernel_loopback_probe`, `cap_move_reply_probe`, `sender_pid_probe`, `sender_service_id_probe`, `ipc_soak_probe`) → `os_lite/probes/ipc_kernel/mod.rs`.
+  - [x] Cut 21: ELF helpers (`log_hello_elf_header`, `read_u64_le`) → `os_lite/probes/elf.rs`.
+  - [x] Cut 22: `emit_line` shim removed in `os_lite/mod.rs`; replaced with direct `use crate::markers::emit_line`.
+  - [x] Phase-1 closure: `wc -l main.rs` = 122 unchanged; `os_lite/mod.rs` reduced to imports + `mod`-decls + `pub fn run()` body (1226 lines); full Proof-Floor green.
+- [ ] **Phase 2**: broader module boundaries optimized for maintainability/extensibility — proof: same phase proof floor. First Phase-2 deliverable: `pub fn run()` slicing into sub-orchestrators (`bring_up`, `mmio`, `routing`, `ota`, `policy`, `logd`, `vfs`, `end`); intra-domain sub-splits in `updated/{stage.rs, switch.rs, health.rs, reply_pump.rs}` and `probes/ipc_kernel/{plumbing.rs, security.rs, soak.rs}`; DRY-Konsolidierung der dreifach duplizierten lokalen `ReplyInboxV1`-`impl Client` Kopien.
 - [ ] **Phase 3**: production-grade closure review complete (`main.rs` minimal, standards reviewed, proof paths auditable) — proof: same phase proof floor + `just dep-gate && just diag-os`.
 - [x] Task linked with stop conditions + proof commands.
-- [x] QEMU markers remain green in `scripts/qemu-test.sh` (verified after every cut so far).
-- [x] Security-relevant negative behavior remains fail-closed (Cuts 0–18: reject paths preserved; `keystored_sign_denied`, `policyd_requester_spoof_denied`, `metricsd_security_reject_probe`, `statefs_unauthorized_access`, `logd_hardening_reject_probe` all intact).
-- [ ] Any discovered logic-error or fake-success-marker path is converted into honest behavior/proof signaling — none discovered in Cuts 10–18; rule remains active for the remaining cuts.
+- [x] QEMU markers remain green in `scripts/qemu-test.sh` (verified after every Cut 0–22).
+- [x] Security-relevant negative behavior remains fail-closed (Cuts 0–22: reject paths preserved; `keystored_sign_denied`, `policyd_requester_spoof_denied`, `metricsd_security_reject_probe`, `statefs_unauthorized_access`, `logd_hardening_reject_probe` all intact).
+- [x] Any discovered logic-error or fake-success-marker path is converted into honest behavior/proof signaling — none discovered in Cuts 0–22; rule remains active for Phase 2/3.
