@@ -1,72 +1,77 @@
 # Next Task Preparation (Drift-Free)
 
 ## Candidate next execution
-- **task**: continue `TASK-0023B` **Phase 2** execution under Cursor-internal plan `task-0023b_phase_2_plan_5e547ada.plan.md`.
-- **focus (immediate)**: Cut **P2-02** — extract `phases/bringup.rs` (largest cut in Phase 2; ~210 LOC of `pub fn run()` body).
-- **mode**: agent. Execute remaining 16 cuts (P2-02 … P2-17 + closure) sequentially with Phase-1 Proof-Floor after each.
-- **closed in current session**: P2-00 (RFC-0014 8 → 12, doc-only) and P2-01 (phases/ skeleton + `os_lite/context.rs` with minimal `PhaseCtx`). Phase-1 Proof-Floor green.
+- **task**: begin `TASK-0023B` **Phase 3** under a new Cursor-internal plan `task-0023b_phase-3_<hash>.plan.md` (to be authored at the start of the Phase-3 session).
+- **focus (immediate)**: Cut **P3-01** — survey `os_lite/` for Single-File-`name/mod.rs` modules that Phase 2 did NOT sub-split (`phases/`, `updated/`, `probes/ipc_kernel/` are out of scope), then flatten each to `name.rs`.
+- **mode**: switch to plan mode first (author the Phase-3 plan), then agent mode to execute the 4 cuts (P3-01 → P3-04) sequentially with the Phase-2 Proof-Floor after each.
+- **closed in current session**: all 18 Phase-2 cuts (P2-00 → P2-17). RFC-0038 §"Stop conditions / acceptance" Phase 2 checklist ticked (8 boxes). `os_lite/mod.rs` 1256 → 31 LoC; `pub fn run()` body ~1100 → 14 lines; QEMU `SELFTEST:` ladder byte-identical (119 markers) at every cut.
 
-## Plan deviation: actual phase order in `pub fn run()`
-The plan's assumed P2-02..P2-13 order does **not** mirror the current `pub fn run()` call sequence. Verified ground truth:
+## Phase-2 closure record (chronological)
 
-| Plan order (assumed) | Actual order in `pub fn run()` | Cut ID applied to actual phase |
+Cuts executed in **actual** `pub fn run()` order (top-to-bottom), not the plan's assumed sequence. Per user instruction the plan file itself stayed untouched; this is the deviation record:
+
+| Phase order in `pub fn run()` | Cut ID | Closed |
 |---|---|---|
-| 1. bringup     | 1. bringup     | P2-02 |
-| 2. ipc_kernel  | 2. routing     | P2-05 |
-| 3. mmio        | 3. ota         | P2-06 |
-| 4. routing     | 4. policy      | P2-07 |
-| 5. ota         | 5. exec        | P2-08 |
-| 6. policy      | 6. logd        | P2-09 |
-| 7. exec        | 7. ipc_kernel  | P2-03 |
-| 8. logd        | 8. mmio        | P2-04 |
-| 9. vfs         | 9. vfs         | P2-10 |
-| 10. net        | 10. net        | P2-11 |
-| 11. remote     | 11. remote     | P2-12 |
-| 12. end        | 12. end        | P2-13 |
+| 1. bringup     | P2-02 | done |
+| 2. routing     | P2-05 | done |
+| 3. ota         | P2-06 | done |
+| 4. policy      | P2-07 | done |
+| 5. exec        | P2-08 | done |
+| 6. logd        | P2-09 | done |
+| 7. ipc_kernel  | P2-03 | done |
+| 8. mmio        | P2-04 | done |
+| 9. vfs         | P2-10 | done |
+| 10. net        | P2-11 | done |
+| 11. remote     | P2-12 | done |
+| 12. end        | P2-13 | done |
 
-Cuts will be executed in **actual** order (top-to-bottom of `pub fn run()`), so the chronological cut sequence will be:
-**P2-02 → P2-05 → P2-06 → P2-07 → P2-08 → P2-09 → P2-03 → P2-04 → P2-10 → P2-11 → P2-12 → P2-13**, then sub-splits **P2-14 → P2-15 → P2-16 → P2-17**, then closure.
-Per user instruction the plan file itself stays untouched; this table is the deviation record.
+Sub-splits (post-extraction): **P2-14** (updated/ → 6 files), **P2-15** (probes/ipc_kernel/ → 3 files), **P2-16** (DRY `ipc/reply_inbox.rs`), **P2-17** (services/mod.rs aggregator-only via `probes/core_service.rs`). Closure: this file + `handoff/current.md` + `current_state.md` + RFC-0038 checklist.
 
-## Current structural state (post-P2-01, verified green)
-- `source/apps/selftest-client/src/main.rs` = 122 lines (frozen — no Phase-2 cut touches it).
-- `source/apps/selftest-client/src/os_lite/mod.rs` = **1256** lines (imports + `mod`-decls + `pub fn run()` body using `ctx.<field>`).
-- New in P2-01:
+## Current structural state (post-Phase-2 closure, verified green)
+- `source/apps/selftest-client/src/main.rs` = **122** lines (frozen — first move is Cut P3-02).
+- `source/apps/selftest-client/src/os_lite/mod.rs` = **31** lines (12 `mod` decls + 14-line `pub fn run()` dispatch).
+- `pub fn run()` body = **14 lines** (`PhaseCtx::bootstrap()?` + 12 phase calls).
+- New in Phase 2:
   - `os_lite/context.rs` (52 LOC): `PhaseCtx { reply_send_slot, reply_recv_slot, updated_pending, local_ip, os2vm }` + silent `bootstrap()`.
-  - `os_lite/phases/mod.rs` (aggregator) + 12 stub files (`bringup.rs … end.rs`, ~9 LOC each, no-op `pub(crate) fn run(_ctx: &mut PhaseCtx)`).
-- Existing extracted modules (from Phase 1):
+  - `os_lite/phases/{mod, bringup, routing, ota, policy, exec, logd, ipc_kernel, mmio, vfs, net, remote, end}.rs` (12 phase files, LoC range 18→259).
+  - `os_lite/ipc/reply_inbox.rs` (54 LOC) — single shared `ReplyInboxV1` `nexus_ipc::Client` adapter (replaces 3× duplicated local impls).
+  - `os_lite/probes/core_service.rs` (64 LOC) — generic core-service probes moved out of `services/mod.rs`.
+- Phase-2 sub-splits:
+  - `os_lite/updated/{mod, types, reply_pump, stage, switch, status, health}.rs` — `mod.rs` 451 → 30 LoC (aggregator-only).
+  - `os_lite/probes/ipc_kernel/{mod, plumbing, security, soak}.rs` — `mod.rs` 393 → 28 LoC (aggregator-only).
+  - `os_lite/services/mod.rs` 51 → 23 LoC (aggregator-only).
+- Pre-Phase-2 extractions still in place (Phase 1):
   - `dsoftbus/{quic_os, remote/{mod, resolve, pkgfs, statefs}}`
   - `net/{icmp_ping, local_addr, smoltcp_probe (cfg-gated)}`
-  - `ipc/{clients, routing, reply}`
+  - `ipc/{clients, routing, reply}` (P2-16 added `reply_inbox`)
   - `mmio/`, `vfs/`, `timed/`
-  - `probes/{rng, device_key, ipc_kernel, elf}`
-  - `services/{samgrd, bundlemgrd, keystored, policyd, execd, logd, metricsd, statefs, bootctl}/mod.rs` (+ `services/mod.rs` shared `core_service_probe*` helpers — to be moved out in Cut P2-17)
-  - `updated/mod.rs` (`SYSTEM_TEST_NXS` + `SlotId` + 9 fns incl. `updated_send_with_reply` and `init_health_ok`)
+  - `probes/{rng, device_key, ipc_kernel, elf}` (P2-15 sub-split, P2-17 added `core_service`)
+  - `services/{samgrd, bundlemgrd, keystored, policyd, execd, logd, metricsd, statefs, bootctl}/mod.rs`
 
-## Refined Phase-2 plan (18 cuts, plan-first)
+## Phase-2 plan (18 cuts) — CLOSED
 
-Two-axis structure: **capability nouns** (existing) + **orchestration phases** (new). Marker order, marker strings, and reject behavior are frozen across all 18 cuts. Phase-1 Proof-Floor cadence applies after every cut.
+Two-axis structure: **capability nouns** (existing) + **orchestration phases** (new). Marker order, marker strings, and reject behavior held frozen across all 18 cuts. Phase-1 Proof-Floor cadence applied after every cut.
 
-| Cut | Scope | Risk |
+| Cut | Scope | Status |
 |---|---|---|
-| P2-00 | Doc-only: extend `RFC-0014` phase list 8 → 12 (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`). Precondition for Phase 4 manifest. | trivial |
-| P2-01 | Skeleton: `phases/mod.rs`, `os_lite/context.rs` with empty `PhaseCtx::bootstrap()`. No move yet. | trivial |
-| P2-02 | Extract `phases/bringup.rs` (keystored, qos, timed-coalesce, rng, device-key, statefs CRUD/persist, dsoftbus readiness, samgrd v1 register/lookup/malformed). | low |
-| P2-03 | Extract `phases/ipc_kernel.rs` (orchestration only — calls `probes::ipc_kernel::*`). | low |
-| P2-04 | Extract `phases/mmio.rs` (TASK-0010 MMIO + cap query). | low |
-| P2-05 | Extract `phases/routing.rs` (policyd, bundlemgrd, updated routing slot probes). | low |
-| P2-06 | Extract `phases/ota.rs` (TASK-0007 stage/switch/rollback, bootctl persist). | medium (state-machine) |
-| P2-07 | Extract `phases/policy.rs` (allow/deny, MMIO-policy deny, ABI-filter profile distribution). | low |
-| P2-08 | Extract `phases/exec.rs` (execd spawn, exit lifecycle, minidump, forged-metadata reject, spoof reject, malformed). | medium (timing) |
-| P2-09 | Extract `phases/logd.rs` (TASK-0014 hardening, metrics/tracing, nexus-log facade, core-service log proof). | medium (logd-stat deltas) |
-| P2-10 | Extract `phases/vfs.rs` (cross-process VFS probe). | low |
-| P2-11 | Extract `phases/net.rs` (ICMP ping, DSoftBus OS transport). | low |
-| P2-12 | Extract `phases/remote.rs` (TASK-0005 resolve/query/statefs/pkgfs). | low |
-| P2-13 | Extract `phases/end.rs` (`SELFTEST: end` + cooperative idle). `pub fn run()` now ≈ 13 lines. | trivial |
-| P2-14 | Sub-split `updated/{types, status, stage, switch, health, reply_pump}.rs` via `updated/mod.rs` re-exports. | low |
-| P2-15 | Sub-split `probes/ipc_kernel/{plumbing, security, soak}.rs`. | low |
-| P2-16 | DRY `ipc/reply_inbox.rs` newtype + `impl Client`; remove 3× duplicated local impls in `cap_move_reply_probe`, `sender_pid_probe`, `ipc_soak_probe`. | medium (ABI-shape exact) |
-| P2-17 | Aggregator-only cleanup: move `services::core_service_probe*` to `probes/core_service.rs`; reduce `services/mod.rs` to declarations only. | low |
+| P2-00 | Doc-only: extend `RFC-0014` phase list 8 → 12. | done |
+| P2-01 | Skeleton: `phases/mod.rs`, `os_lite/context.rs` with empty `PhaseCtx::bootstrap()`. | done |
+| P2-02 | Extract `phases/bringup.rs`. | done |
+| P2-03 | Extract `phases/ipc_kernel.rs` (orchestration only). | done |
+| P2-04 | Extract `phases/mmio.rs`. | done |
+| P2-05 | Extract `phases/routing.rs`. | done |
+| P2-06 | Extract `phases/ota.rs`. | done |
+| P2-07 | Extract `phases/policy.rs`. | done |
+| P2-08 | Extract `phases/exec.rs` (timing preserved). | done |
+| P2-09 | Extract `phases/logd.rs` (logd-stat deltas preserved). | done |
+| P2-10 | Extract `phases/vfs.rs`. | done |
+| P2-11 | Extract `phases/net.rs`. | done |
+| P2-12 | Extract `phases/remote.rs`. | done |
+| P2-13 | Extract `phases/end.rs`. `pub fn run()` body now 14 lines. | done |
+| P2-14 | Sub-split `updated/{types, reply_pump, stage, switch, status, health}.rs` via `updated/mod.rs` re-exports. `mod.rs` 451 → 30 LoC. | done |
+| P2-15 | Sub-split `probes/ipc_kernel/{plumbing, security, soak}.rs`. `mod.rs` 393 → 28 LoC. | done |
+| P2-16 | DRY `ipc/reply_inbox.rs` newtype + `impl Client`; removed 3× duplicated local impls. Net −21 LoC. | done |
+| P2-17 | Aggregator-only cleanup: moved `services::core_service_probe*` to `probes/core_service.rs`; `services/mod.rs` 51 → 23 LoC (declarations only). | done |
 
 ### `PhaseCtx` minimality (locked at Cut P2-01, executed)
 - **Promoted (5 fields)**: `reply_send_slot: u32`, `reply_recv_slot: u32`, `updated_pending: VecDeque<Vec<u8>>`, `local_ip: Option<[u8;4]>`, `os2vm: bool`.
@@ -285,7 +290,8 @@ Goal: failures reproducible from stored bundles; CI bisects become trace-diff-dr
 - `tasks/IMPLEMENTATION-ORDER.md`
 
 ## Ready condition
-- **Active plan (Cursor-internal, do not edit)**: `/home/jenning/.cursor/plans/task-0023b_phase_2_plan_5e547ada.plan.md`.
-- **Resume command (when user says "go")**: agent mode, mark P2-02 todo `in_progress`, extract `phases/bringup.rs` per actual-order table above. After each cut: `cargo +nightly check -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite` → `cargo test -p dsoftbusd` → `just test-dsoftbus-quic` → `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` → `rustfmt +stable <touched .rs>` → `just lint`.
+- **Active plan (Cursor-internal, do not edit during execution)**: TBD — `/home/jenning/.cursor/plans/task-0023b_phase-3_<hash>.plan.md` to be authored at the start of the Phase-3 session, scoped to 4 cuts only (P3-01 → P3-04), mirroring the Phase-2 plan format.
+- **Resume command (when user says "go")**: switch to **plan mode** to author the Phase-3 plan; then switch to agent mode, mark P3-01 todo `in_progress`, and execute the survey-first flatten cut. After each cut: `cargo +nightly check -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite` → `cargo test -p dsoftbusd` → `just test-dsoftbus-quic` → `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` (`grep -E '^SELFTEST: '` `diff`-empty vs pre-cut baseline) → `rustfmt +stable <touched .rs>` → `just lint`. After P3-03 lands, also `just arch-gate`.
+- **Phase 3 closure trigger**: tick RFC-0038 Phase-3 checklist; sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-4_<hash>.plan.md` (10 cuts, manifest-driven).
 - **Phase 4 closure trigger**: unblock `TASK-0024` (update its `depends-on`), update STATUS-BOARD / IMPLEMENTATION-ORDER, refresh `docs/testing/index.md`.
 - **Phase 6 closure trigger**: extract first `TRACK-OS-PROOF-INFRASTRUCTURE` candidate into a real `TASK-XXXX`.

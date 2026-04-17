@@ -650,14 +650,14 @@ When updating this RFC, ensure:
   - [x] Cut 21: ELF helpers (`log_hello_elf_header`, `read_u64_le`) → `os_lite/probes/elf.rs`.
   - [x] Cut 22: `emit_line` shim removed in `os_lite/mod.rs`; replaced with direct `use crate::markers::emit_line`.
   - [x] Phase-1 closure: `wc -l main.rs` = 122 unchanged; `os_lite/mod.rs` reduced to imports + `mod`-decls + `pub fn run()` body (1226 lines); full Proof-Floor green.
-- [ ] **Phase 2**: broader module boundaries optimized for maintainability/extensibility per the two-axis structure (refinement (1)) — proof: same phase proof floor green after every cut.
-  - [ ] Cut P2-00: extend `RFC-0014` phase list 8 → 12 (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`) so harness phases and code phases are congruent. Doc-only cut; no code change.
-  - [ ] Cut P2-01: `phases/` skeleton + `os_lite/context.rs` with empty `PhaseCtx::bootstrap()` (plumbing only, no behavior).
-  - [ ] Cuts P2-02..P2-13: extract `phases/{bringup, ipc_kernel, mmio, routing, ota, policy, exec, logd, vfs, net, remote, end}.rs` from `pub fn run()` one phase per cut, no marker-string or order changes.
-  - [ ] Cut P2-14: intra-domain sub-split `updated/{types, status, stage, switch, health, reply_pump}.rs` (re-exports via `updated/mod.rs`).
-  - [ ] Cut P2-15: intra-domain sub-split `probes/ipc_kernel/{plumbing, security, soak}.rs`.
-  - [ ] Cut P2-16: DRY consolidation `ipc/reply_inbox.rs` (`ReplyInboxV1` newtype + `impl Client`) replaces 3× duplicated local impls in `cap_move_reply_probe`, `sender_pid_probe`, `ipc_soak_probe`.
-  - [ ] Cut P2-17: aggregator-only cleanup — move `services::core_service_probe*` to `probes/core_service.rs`; reduce `services/mod.rs` to declarations only (refinement (5)).
+- [x] **Phase 2**: broader module boundaries optimized for maintainability/extensibility per the two-axis structure (refinement (1)) — proof: phase proof floor green after every cut; QEMU `SELFTEST:` ladder byte-identical (119 markers) across P2-00 → P2-17.
+  - [x] Cut P2-00: extend `RFC-0014` phase list 8 → 12 (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`) so harness phases and code phases are congruent. Doc-only cut; no code change.
+  - [x] Cut P2-01: `phases/` skeleton + `os_lite/context.rs` with empty `PhaseCtx::bootstrap()` (plumbing only, no behavior). 12 phase stubs; `PhaseCtx` minimality locked at 5 fields (`reply_send_slot`, `reply_recv_slot`, `updated_pending`, `local_ip`, `os2vm`).
+  - [x] Cuts P2-02..P2-13: extract `phases/{bringup, routing, ota, policy, exec, logd, ipc_kernel, mmio, vfs, net, remote, end}.rs` from `pub fn run()` one phase per cut, no marker-string or order changes. Executed in actual `pub fn run()` order (P2-02, P2-05, P2-06, P2-07, P2-08, P2-09, P2-03, P2-04, P2-10, P2-11, P2-12, P2-13). `os_lite/mod.rs` shrunk 1256 → 31 LoC; `pub fn run()` body now 14 lines.
+  - [x] Cut P2-14: intra-domain sub-split `updated/{types, status, stage, switch, health, reply_pump}.rs` (re-exports via `updated/mod.rs`). `updated/mod.rs` shrunk 451 → 30 LoC.
+  - [x] Cut P2-15: intra-domain sub-split `probes/ipc_kernel/{plumbing, security, soak}.rs`. `probes/ipc_kernel/mod.rs` shrunk 393 → 28 LoC.
+  - [x] Cut P2-16: DRY consolidation `ipc/reply_inbox.rs` (`ReplyInboxV1` newtype + `impl Client`) replaces 3× duplicated local impls in `cap_move_reply_probe`, `sender_pid_probe`, `ipc_soak_probe`. Net −21 LoC + single source of truth for shared-inbox recv semantics.
+  - [x] Cut P2-17: aggregator-only cleanup — move `services::core_service_probe*` to `probes/core_service.rs`; reduce `services/mod.rs` to declarations only (refinement (5)). `services/mod.rs` is now 23 LoC (no fn bodies).
 - [ ] **Phase 3**: production-grade closure + structural-discipline gates — proof: same phase proof floor + `just dep-gate && just diag-os && just arch-gate`.
   - [ ] Cut P3-01: flatten Single-File-`name/mod.rs` modules to `name.rs` for those Phase 2 did not sub-split (refinement (4)).
   - [ ] Cut P3-02: extract host-pfad `run()` from `main.rs` into `host_lite/mod.rs::run()`; `main.rs` becomes cfg + 2 dispatch lines (refinement (6)).

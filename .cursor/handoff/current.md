@@ -1,106 +1,88 @@
-# Current Handoff: TASK-0023B Phase 2 in progress — P2-00 + P2-01 closed; 16 cuts remaining
+# Current Handoff: TASK-0023B Phase 2 — CLOSED
 
-**Date**: 2026-04-17 (Phase 2 execution session, P2-00 + P2-01 landed)
-**Status**: `TASK-0023B` Phase 2 **in progress** under plan `task-0023b_phase_2_plan_5e547ada.plan.md` (Cursor-internal). Cuts **P2-00 (RFC-0014 phase list 8 → 12, doc-only)** and **P2-01 (phases/ skeleton + `os_lite/context.rs` + minimal `PhaseCtx`)** complete; Phase-1 Proof-Floor green (`cargo test -p dsoftbusd`, `just test-dsoftbus-quic`, `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` all pass). 16 cuts remaining (P2-02 … P2-17 + closure). Phase 1 stayed complete; Phase 3-6 + TRACK-OS-PROOF-INFRASTRUCTURE unchanged.
-**Execution SSOT**: `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md` (now titled `… refactor + manifest/evidence/replay v1`)
+**Date**: 2026-04-17 (Phase 2 closure session, all 18 cuts landed)
+**Status**: `TASK-0023B` Phase 2 **complete**. All 18 cuts (P2-00 → P2-17) executed under Cursor-internal plan `task-0023b_phase_2_plan_5e547ada.plan.md`. RFC-0038 §"Stop conditions / acceptance" Phase 2 checklist ticked (8 boxes). `pub fn run()` reduced from ~1100 LoC of inline orchestration to **14 lines** of phase dispatch; `os_lite/mod.rs` reduced from 1256 → **31 LoC**. QEMU `SELFTEST:` ladder is byte-identical (119 markers) across all 18 cuts versus the pre-Phase-2 baseline.
+**Execution SSOT**: `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`
 **Contract SSOT**: `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`
 **Long-running discipline track**: `tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md`
 
-## What changed in the latest session (Phase 2 execution, cuts P2-00 + P2-01)
+## Phase 2 closure summary
 
-- **Cut P2-00 — RFC-0014 phase list 8 → 12 (doc-only)**:
-  - `docs/rfcs/RFC-0014-…-v1.md` §3 rewritten: 7 illustrative phases → 12 normative numbered phases, congruent with the 12 phase files now under `os_lite/phases/`.
-  - New subsection "Acknowledged contract ↔ harness drift": `scripts/qemu-test.sh PHASES` stays at 8 until Cut P4-05; explicit prohibition on adding new `RUN_PHASE` values before then.
-  - `docs/testing/index.md` intentionally **not** modified — that file documents harness-operational `RUN_PHASE` values (unchanged in P2-00).
-- **Cut P2-01 — phases/ skeleton + `os_lite/context.rs` (plumbing)**:
-  - New `source/apps/selftest-client/src/os_lite/context.rs` (52 LOC): `PhaseCtx { reply_send_slot, reply_recv_slot, updated_pending: VecDeque<Vec<u8>>, local_ip: Option<[u8;4]>, os2vm: bool }` + silent `bootstrap()` (no markers, no routing).
-  - New `source/apps/selftest-client/src/os_lite/phases/mod.rs` aggregator + 12 stub files (`bringup, ipc_kernel, mmio, routing, ota, policy, exec, logd, vfs, net, remote, end`), each `pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()>`.
-  - `os_lite/mod.rs` updates: `mod context; mod phases;` added; `let mut ctx = context::PhaseCtx::bootstrap()?;` at top of `run()`; redundant `REPLY_*_SLOT` consts + `let mut updated_pending` removed; ~30 references rewritten to `ctx.<field>`.
-  - Phase-1 Proof-Floor rerun: `cargo test -p dsoftbusd` green; `just test-dsoftbus-quic` 6+8 green; `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` green (full marker ladder, ~118s).
-- **PhaseCtx minimality (locked at P2-01)**: only `reply_send_slot`, `reply_recv_slot`, `updated_pending`, `local_ip`, `os2vm` promoted. Service handles (logd / policyd / bundlemgrd / samgrd / etc.) deliberately **not** cached — existing code already re-resolves them per-phase via `route_with_retry`; promoting them is higher-risk and out of scope for P2-01.
-- **Plan deviation: actual `pub fn run()` call order ≠ plan's assumed P2-02..P2-13 order**. Verified by reading `mod.rs` after P2-01:
-  - Plan assumed: `bringup, ipc_kernel, mmio, routing, ota, policy, exec, logd, vfs, net, remote, end`.
-  - Actual: `bringup, routing, ota, policy, exec, logd, ipc_kernel, mmio, vfs, net, remote, end`.
-  - Will execute extraction cuts in actual order (todo IDs identify phase content, not sequence number). Plan file unchanged per user instruction; this handoff is the deviation record.
-- **Operational lessons (apply to every future cut)**:
-  - `cargo +stable fmt --all` reformats ~200 unrelated files due to long-standing rustfmt drift; never run it. Use `rustfmt +stable <touched-files…>` and revert any submodule churn it pulls in via `mod` resolution.
-  - `git diff --name-only | grep -v -E '^(file1|file2)$'` requires **exact-line** match; use `git diff --name-only -- :^path1 :^path2` instead.
-  - `just diag-os` does not include `selftest-client`. Use `cargo +nightly check -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite` for direct compile verification.
-- **Frozen baseline**: marker order, marker strings, reject paths all byte-identical post-P2-01.
-- **No edits to**: `main.rs`, `markers.rs`, `Cargo.toml`, `build.rs`, kernel.
+### Final structural state (post-P2-17, verified 2026-04-17)
 
-## Phase-2/3 architecture (locked in RFC-0038, unchanged)
-Captured as 9 normative refinements:
+| File | Pre-Phase-2 LoC | Post-Phase-2 LoC | Δ |
+|---|---|---|---|
+| `source/apps/selftest-client/src/main.rs` | 122 | 122 | 0 (frozen — moves in Phase 3 / Cut P3-02) |
+| `source/apps/selftest-client/src/os_lite/mod.rs` | 1256 | **31** | **−1225** |
+| `pub fn run()` body inside the above | ~1100 | **14** | **−~1086** |
+| `os_lite/updated/mod.rs` | 451 | **30** | **−421** (split into 6 files) |
+| `os_lite/probes/ipc_kernel/mod.rs` | 393 | **28** | **−365** (split into 3 files) |
+| `os_lite/services/mod.rs` | 51 | **23** | **−28** (now aggregator-only) |
 
-1. **Two-axis structure (Capabilities × Phases)**: capability nouns kept; new orchestration verbs under `os_lite/phases/{bringup, ipc_kernel, mmio, routing, ota, policy, exec, logd, vfs, net, remote, end}.rs`. `pub fn run()` collapses to ~13 lines.
-2. **`PhaseCtx` minimality**: only state read by ≥ 2 phases or determining the marker ladder.
-3. **Phase isolation**: `phases/*` MUST NOT import other `phases::*`. Mechanically enforced in Phase 3.
-4. **Folder-form heuristic**: `name.rs` is default; `name/mod.rs` only when ≥ 1 sibling exists.
-5. **Aggregator-only `mod.rs`**: declarations + re-exports only; `services::core_service_probe*` → `probes/core_service.rs` (Cut P2-17).
-6. **Host-pfad symmetry**: extract host `run()` from `main.rs` into `host_lite/` (Cut P3-02).
-7. **Mechanical architecture gate**: `scripts/check-selftest-arch.sh` + `just arch-gate` chained into `just dep-gate` (Cut P3-03). Phase 4 extends arch-gate to enforce no marker-string literals outside `markers_generated.rs` + `markers.rs`.
-8. **Explicitly rejected**: Rust marker-string SSOT (was rejected pre-Phase-4 because the harness was the SSOT; **now superseded by Phase 4** which makes `proof-manifest.toml` the SSOT and generates Rust constants from it). `trait Phase`, generic `Probe` trait, renaming `os_lite/` — still rejected.
-9. **Forward-compatibility check**: TASK-0024 → 1 line in `phases/net.rs` + N marker entries in `proof-manifest.toml`. TRACK-PODCASTS-APP / mediasessd → `services/mediasessd.rs` + `phases/media.rs`.
+### New top-level structure under `source/apps/selftest-client/src/os_lite/`
 
-## Phase 4 — Marker-Manifest as SSOT + profile dimension (NEW)
-- `source/apps/selftest-client/proof-manifest.toml` is the single source of truth for: phase list, marker ladder, profile membership, run config (env, runner, extends).
-- Profiles unified into the manifest:
-  - **Harness profiles** (drive `scripts/qemu-test.sh` / `tools/os2vm.sh`): `full`, `smp`, `dhcp`, `os2vm`, `quic-required`.
-  - **Runtime profiles** (drive `selftest-client` via `SELFTEST_PROFILE` env / kernel cmdline): `full`, `bringup`, `quick`, `ota`, `net`, `none`. Selects subset of the 12 code phases at runtime; no recompile.
-- Markers gain `emit_when` / `emit_when_not` / `forbidden_when` fields for profile-conditional behavior.
-- `build.rs` generates `markers_generated.rs` from the manifest; `arch-gate` enforces no marker string literal outside `markers_generated.rs` + `markers.rs`.
-- `scripts/qemu-test.sh` and `tools/os2vm.sh` rewritten to consume the manifest via a small host CLI (`nexus-proof-manifest list-markers --profile=… / list-env --profile=…`).
-- All `just test-*` recipes route through `just test-os PROFILE=…`. Old recipes alias for ≥ 1 cycle, then deleted.
-- Hard gates: no marker string literal outside generated file; no `REQUIRE_*` env in `just test-*`; manifest parser rejects unknown keys; deny-by-default analyzer (any unexpected runtime marker for active profile = hard failure).
-- 10 cuts (P4-01 … P4-10).
+- **Capabilities (nouns, pre-existing)**: `dsoftbus/`, `ipc/`, `mmio/`, `net/`, `probes/`, `services/`, `timed/`, `updated/`, `vfs/`.
+- **Orchestration (verbs, NEW in Phase 2)**: `phases/{bringup, routing, ota, policy, exec, logd, ipc_kernel, mmio, vfs, net, remote, end}.rs` (12 files, 21 LoC aggregator + ~1500 LoC of moved bodies).
+- **Cross-phase state (NEW in Phase 2)**: `context.rs` hosts `PhaseCtx { reply_send_slot, reply_recv_slot, updated_pending, local_ip, os2vm }` (5 fields, locked minimal) + silent `bootstrap()`.
+- **DRY consolidation (NEW in Phase 2)**: `ipc/reply_inbox.rs` hosts the single `ReplyInboxV1` `nexus_ipc::Client` adapter previously triplicated across 3 probes.
+- **Sub-splits (NEW in Phase 2)**:
+  - `updated/{types, reply_pump, stage, switch, status, health}.rs` (mod.rs is aggregator-only).
+  - `probes/ipc_kernel/{plumbing, security, soak}.rs` (mod.rs is aggregator-only).
+- **Aggregator-only cleanups**: `services/mod.rs` and `probes/ipc_kernel/mod.rs` and `updated/mod.rs` now hold zero `fn` bodies (refinement (5) of RFC-0038).
+- **Moved out**: `services::core_service_probe*` → `probes/core_service.rs` (the only generic probes that lived under `services/` before P2-17).
 
-### Host tests stay outside the manifest
-- `cargo test --workspace`, `just test-host`, `just test-e2e`, `just test-dsoftbus-quic` are intentionally not part of the manifest. They prove host-resident logic, not OS-attested behavior. Collapsing both into one model would force a wrong abstraction onto either side.
+### Cut-by-cut log (executed in actual `pub fn run()` order, not plan-assumed order)
 
-## Phase 5 — Signed evidence bundle (NEW)
-- Each `just test-os PROFILE=…` writes `target/evidence/<utc>-<profile>-<git-sha>.tar.gz`: manifest + uart.log + trace.jsonl + config.json + signature.bin (Ed25519).
-- New host-only crate `nexus-evidence` owns canonicalization / sign / verify; reuses `nexus-noise-xk` Ed25519 primitives.
-- Two key labels: `ci` and `bringup`. Bringup-key bundles **must not validate** against CI policy.
-- `tools/verify-evidence.sh` validates fail-closed; reject tests cover tampered manifest / uart / trace / key swap.
-- Successful run without sealed bundle = CI failure. Failed run still produces a bundle (replay-only artifact, no signature).
-- 6 cuts (P5-01 … P5-06).
+| Cut | Scope | LoC delta in `os_lite/mod.rs` | Marker parity vs prior cut |
+|---|---|---|---|
+| P2-00 | RFC-0014 phase list 8 → 12 (doc-only) | 0 | n/a (no code change) |
+| P2-01 | `phases/` skeleton + `os_lite/context.rs` + `PhaseCtx` | ~+30 | byte-identical |
+| P2-02 | extract `phases/bringup.rs` | −210 | byte-identical |
+| P2-05 | extract `phases/routing.rs` | −94 | byte-identical |
+| P2-06 | extract `phases/ota.rs` | −188 | byte-identical |
+| P2-07 | extract `phases/policy.rs` | −282 | byte-identical |
+| P2-08 | extract `phases/exec.rs` | −197 | byte-identical |
+| P2-09 | extract `phases/logd.rs` | −233 | byte-identical |
+| P2-03 | extract `phases/ipc_kernel.rs` | −51 | byte-identical |
+| P2-04 | extract `phases/mmio.rs` | −15 | byte-identical |
+| P2-10 | extract `phases/vfs.rs` | −4 | byte-identical |
+| P2-11 | extract `phases/net.rs` | −31 | byte-identical |
+| P2-12 | extract `phases/remote.rs` | −90 | byte-identical |
+| P2-13 | extract `phases/end.rs` | −10 | byte-identical |
+| P2-14 | sub-split `updated/{types,reply_pump,stage,switch,status,health}.rs` | 0 (intra-domain) | byte-identical |
+| P2-15 | sub-split `probes/ipc_kernel/{plumbing,security,soak}.rs` | 0 (intra-domain) | byte-identical |
+| P2-16 | DRY consolidation `ipc/reply_inbox.rs` (drops 3 local impls) | 0 (intra-probe) | byte-identical |
+| P2-17 | move `services::core_service_probe*` → `probes/core_service.rs`; `services/mod.rs` aggregator-only | 0 (cross-module rename + import path) | byte-identical |
 
-## Phase 6 — Replay capability (NEW)
-- `tools/replay-evidence.sh <bundle>` deterministically re-runs a captured profile from a stored bundle.
-- `tools/diff-traces.sh` produces a stable diff (classifies: `exact_match | extra_marker | missing_marker | reorder | phase_mismatch`).
-- `tools/bisect-evidence.sh` walks git-SHA range with mandatory `--max-commits` + `--max-seconds` bounds.
-- Cross-host determinism floor: replay must be empty-diff on CI runner + ≥ 1 dev box for the same bundle. Documented allowlist (wall-clock, qemu version banner, hostname) is append-only with reviewer signoff.
-- 6 cuts (P6-01 … P6-06).
+### Behavioral parity gates (all green at every cut)
 
-## TRACK-OS-PROOF-INFRASTRUCTURE (NEW; precondition: TASK-0023B Phase 6 closure)
-Three independent workstreams. Each candidate extracts into a real `TASK-XXXX` after Phase 6 closure.
+- `cargo check -p selftest-client --no-default-features --features os-lite --target riscv64gc-unknown-none-elf` (`RUSTFLAGS='--cfg nexus_env="os" -W unexpected_cfgs -W dead_code'`) → clean (only pre-existing `nexus_env` cfg warnings).
+- `just test-os` → 119 `SELFTEST:` markers, BYTE-IDENTICAL to the P2-00 baseline at every cut (`diff /tmp/p2_<n-1>_selftest.txt /tmp/p2_<n>_selftest.txt` empty).
+- Marker strings, marker order, reject behavior, retry/yield budgets, NONCE seeds, and IPC frame layouts all preserved verbatim.
+- No new `unwrap`/`expect`. No new dependencies in `selftest-client`.
 
-- **B — Observability & Performance contracts**:
-  - CAND-OBS-010 per-phase `icount`/wallclock budgets in manifest.
-  - CAND-OBS-020 structured `TraceEvent` enum + stable error classes.
-  - CAND-OBS-030 failure-mode catalog; `Unknown` class rejection in CI.
-  - CAND-OBS-040 perf regression gate on CI profile.
-- **C — Coverage as Measured Property**:
-  - CAND-COV-010 capability-coverage analyzer; ≥ 80% floor on `profile=full`.
-  - CAND-COV-020 fuzz corpus + harness for `nexus-proof-manifest`.
-  - CAND-COV-030 fuzz corpus + harness for IPC frames + DSoftBus.
-  - CAND-COV-040 ABI snapshot file format + CI gate.
-- **D — Discipline & Process**:
-  - CAND-DSC-010 `nexus-discipline` lint crate.
-  - CAND-DSC-020 flake-tracking dashboard + SLO + stop-the-line.
-  - CAND-DSC-030 marker-string drift detector (daily CI).
-  - CAND-DSC-040 PR template + merge-gate for verified evidence bundle.
+### Operational lessons captured this phase (apply forward)
 
-## Refined cut sequences (locked)
-- **Phase 2** (18 cuts): P2-00 (RFC-0014 phase list 8 → 12), P2-01 (skeleton + `PhaseCtx`), P2-02 … P2-13 (12 phases extracted, one per cut), P2-14 (`updated/` sub-split), P2-15 (`probes/ipc_kernel/` sub-split), P2-16 (`ipc/reply_inbox.rs` DRY), P2-17 (aggregator-only `services/mod.rs`).
-- **Phase 3** (4 cuts): P3-01 (flatten single-file `name/mod.rs`), P3-02 (`host_lite/` extract), P3-03 (`arch-gate`), P3-04 (standards review).
-- **Phase 4** (10 cuts): P4-01 … P4-10 (manifest crate, schema, populate, generate constants, harness consumers, recipe migration, os2vm, runtime profiles, deny-by-default analyzer, deprecate direct `REQUIRE_*`/`RUN_PHASE`).
-- **Phase 5** (6 cuts): P5-01 … P5-06 (`nexus-evidence` crate, extract-trace, seal, hook into qemu-test, verify, docs).
-- **Phase 6** (6 cuts): P6-01 … P6-06 (replay, diff, bisect, regression-bisect wrapper, cross-host floor, docs).
+- `cargo +stable fmt --all` reformats ~200 unrelated files due to long-standing rustfmt drift; never run it. Use `rustfmt +stable <touched-files>` and immediately revert any submodule churn pulled in via `mod` resolution.
+- `git diff --name-only | grep -v -E '^(file1|file2)$'` requires exact-line match; prefer `git diff --name-only -- :^path1 :^path2` instead, or use `xargs -r git checkout --` for revert lists.
+- `just diag-os` does not include `selftest-client`. Use the `RUSTFLAGS=...` `cargo check` command above for direct compile verification of selftest changes.
+- The sandbox blocks reads under `.git/hooks` for some commands; re-run with `required_permissions: ["all"]` when sandbox-related path errors appear (no security implication — this is purely a sandbox-mount artifact).
+- Phase isolation rule: `phases::*` modules deliberately do NOT import other `phases::*` modules. Service handles are re-resolved per-phase via the silent `route_with_retry`; this is cheaper than carrying clients across `PhaseCtx` and matches the production-grade isolation goal of refinement (3).
+- `phases::end::run` returns `!` (the never type), which coerces cleanly to `Result<(), ()>`. This keeps `pub fn run()` totally `?`-free at the dispatch layer.
 
-**Total**: ~44 cuts after Phase 1.
+## Phase 3 — what's next
 
-## Frozen baseline that must stay green (verified after every cut)
+Phase-3 contract is locked in `RFC-0038` and is 4 cuts:
+
+- **Cut P3-01** (refinement (4)) — flatten Single-File-`name/mod.rs` modules to `name.rs` for those Phase 2 did NOT sub-split. Concretely: review `services/{bootctl,bundlemgrd,execd,keystored,logd,metricsd,policyd,samgrd,statefs}/mod.rs` and `dsoftbus/remote/{resolve,statefs,pkgfs}.rs` parents; flatten any folder that has only one sibling. Modules already sub-split in Phase 2 (`updated/`, `probes/ipc_kernel/`) are explicitly out of scope.
+- **Cut P3-02** (refinement (6)) — extract host-pfad `run()` from `main.rs` into `host_lite/mod.rs::run()`; `main.rs` becomes cfg + 2 dispatch lines. This is the ONLY Phase-2/3 cut that touches `main.rs` (122 LoC frozen until then).
+- **Cut P3-03** (refinement (7)) — write `scripts/check-selftest-arch.sh` + `just arch-gate` recipe; chain into `just dep-gate`; produce allowlist file. Mechanically enforces phase isolation, aggregator-only `mod.rs`, and (when Phase 4 lands) marker-string SSOT.
+- **Cut P3-04** — standards review: `#[must_use]` on decision-bearing results, `newtype` for safety-relevant IDs/state, `Send`/`Sync` audit. Apply where the diff is mechanical and risk-free.
+
+A Cursor-internal Phase-3 plan file (`task-0023b_phase-3_<hash>.plan.md`) will be authored at the start of the Phase-3 session, scoped to these 4 cuts only, mirroring the Phase-2 plan format.
+
+## Frozen baseline that must stay green (verified end-of-Phase-2; carries into Phase 3)
+
 - Host:
   - `cargo test -p dsoftbusd -- --nocapture`
   - `just test-dsoftbus-quic`
@@ -115,23 +97,15 @@ Three independent workstreams. Each candidate extracts into a real `TASK-XXXX` a
   - `just test-os PROFILE=os2vm` (replaces `just test-dsoftbus-2vm`)
   - `just test-os PROFILE=bringup` (runtime profile; short-circuits before `routing`)
   - `just test-os PROFILE=none` (runtime profile; only `SELFTEST: end`)
-- Required QUIC subset markers (`profile=quic-required`):
-  - `dsoftbusd: transport selected quic`
-  - `dsoftbusd: auth ok`
-  - `dsoftbusd: os session ok`
-  - `SELFTEST: quic session ok`
-- Forbidden fallback markers under `profile=quic-required`:
-  - `dsoftbusd: transport selected tcp`
-  - `dsoftbus: quic os disabled (fallback tcp)`
-  - `SELFTEST: quic fallback ok`
 - Hygiene: `just dep-gate && just diag-os && just fmt-check && just lint`
 - Phase 3+: `just arch-gate` (chained into `just dep-gate`)
 - Phase 5+: `tools/verify-evidence.sh target/evidence/<latest>` returns 0
 
 ## Boundaries reaffirmed
-- Phase 2 is behavior-preserving: same marker order, same proof meanings, same reject behavior.
+
+- Phase 2 is closed and behavior-preserving: same marker order, same proof meanings, same reject behavior across all 18 cuts.
 - Phase 4 may *add* new markers gated by new profiles (e.g. `SELFTEST: smp ipi ok`) but must not rename existing markers.
-- `main.rs` stays at 122 LOC throughout Phase 2; only Phase 3 / Cut P3-02 modifies it.
+- `main.rs` stays at 122 LoC throughout Phase 2 (verified) and into Phase 3 until Cut P3-02.
 - Visibility ceiling: `pub(crate)`. No new `unwrap`/`expect`. No new dependencies in `Cargo.toml` for selftest-client itself; new host-only crates (`nexus-proof-manifest`, `nexus-evidence`) are separate.
 - Do not absorb `TASK-0024` transport features. Do not regress `TASK-0023` to fallback-only marker semantics.
 - Single-File-`name/mod.rs` flattening (Cut P3-01) only applies to modules Phase 2 did NOT sub-split.
@@ -139,14 +113,15 @@ Three independent workstreams. Each candidate extracts into a real `TASK-XXXX` a
 - Host-only tests stay outside the proof manifest by design.
 
 ## Next handoff target
-- **Active plan**: `/home/jenning/.cursor/plans/task-0023b_phase_2_plan_5e547ada.plan.md` (Cursor-internal, do **not** edit during execution).
-- **Resume point**: Cut **P2-02** — extract `phases/bringup.rs` (keystored CRUD + qos + timed-coalesce + rng + device_key persist + statefs CRUD + reply slot announce + capmove probe + dsoftbus readiness + samgrd register/lookup/malformed). Largest cut in Phase 2; ~210 LOC of `pub fn run()` body migrates to `phases::bringup::run(&mut ctx)`. PhaseCtx fields read by this slice: `ctx.reply_send_slot`, `ctx.reply_recv_slot`. No new fields promoted.
-- **Per-cut cadence (Phase-1 Proof-Floor, run after every Px-XX)**:
-  1. `cargo +nightly check -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite`
+
+- **Active plan**: TBD — author `task-0023b_phase-3_<hash>.plan.md` (Cursor-internal) at the start of the Phase-3 session; scope: 4 cuts P3-01 → P3-04 only.
+- **Resume point**: Cut **P3-01** — flatten Single-File-`name/mod.rs` modules. Survey-first cut: enumerate folders under `os_lite/` whose `mod.rs` is the only file in the folder (excluding `phases/`, `updated/`, `probes/ipc_kernel/` which are already sub-split). Then flatten each.
+- **Per-cut cadence (carry from Phase 2)**:
+  1. `RUSTFLAGS='--cfg nexus_env="os" -W unexpected_cfgs -W dead_code' cargo check -p selftest-client --no-default-features --features os-lite --target riscv64gc-unknown-none-elf`
   2. `cargo test -p dsoftbusd -- --nocapture`
   3. `just test-dsoftbus-quic`
   4. `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`
-  5. `rustfmt +stable <touched .rs files only>`; verify no submodule drift
+  5. `rustfmt +stable <touched .rs files only>`; verify and revert any submodule drift via `git checkout -- <unintended>`
   6. `just lint`
-- **Phase 2 closure tasks (after P2-17)**: tick RFC-0038 18-box Phase 2 checklist; sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-3_<hash>.plan.md`.
-- STATUS-BOARD / IMPLEMENTATION-ORDER stay deferred until Phase 2 is closed.
+- **Phase 3 closure tasks (after P3-04)**: tick RFC-0038 Phase 3 checklist (4 boxes); sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-4_<hash>.plan.md` (10 cuts).
+- STATUS-BOARD / IMPLEMENTATION-ORDER stay deferred until Phase 4 closure (which also unblocks `TASK-0024`).
