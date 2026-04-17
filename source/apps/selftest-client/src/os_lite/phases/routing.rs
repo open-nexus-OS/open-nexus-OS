@@ -1,14 +1,20 @@
-//! Phase: routing (extracted in Cut P2-05 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 2 of 12 — routing (policyd routing, bundlemgrd routing,
+//!   updated routing, updated log probe, bundlemgrd v1 list/image/malformed).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — routing slice.
 //!
-//! Owns the routing-slot announcement slice immediately following bringup:
-//!   policyd routing + bundlemgrd routing + updated routing + updated log probe +
-//!   bundlemgrd v1 list/image/malformed.
+//! Extracted in Cut P2-05 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. `policyd`, `bundlemgrd`, and `updated`
+//! handles are local to this phase and dropped at end-of-phase. Downstream
+//! phases (ota, policy) re-resolve via `route_with_retry`; that call is silent
+//! (no markers), so the marker ladder is preserved.
 //!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//! `policyd`, `bundlemgrd`, and `updated` handles are local to this phase and
-//! dropped at end-of-phase. Downstream phases (ota, policy) re-resolve via
-//! `route_with_retry`; that call is silent (no markers), so the marker ladder
-//! is preserved.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use nexus_ipc::{Client, Wait as IpcWait};
 

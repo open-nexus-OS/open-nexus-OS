@@ -1,3 +1,18 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Cross-VM remote service resolve / bundle list proofs —
+//!   `dsoftbusd_remote_resolve` and `dsoftbusd_remote_bundle_list` issue
+//!   bounded RPCs against the peer node's samgrd / bundlemgrd via the
+//!   dsoftbusd RPC bridge (RFC-0019 nonce-correlated request/reply).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU 2-VM marker ladder (`tools/os2vm.sh` / Node A); single-VM
+//!   smoke skips these proofs by design.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use nexus_ipc::{Client, Wait as IpcWait};

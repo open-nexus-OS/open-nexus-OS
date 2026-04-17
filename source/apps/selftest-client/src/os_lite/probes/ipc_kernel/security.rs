@@ -1,13 +1,20 @@
-//! TASK-0023B P2-15: kernel-IPC security probes.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Kernel-IPC security probes — assert kernel-attested identity /
+//!   cap-move semantics:
+//!     * `cap_move_reply_probe`    -- CAP_MOVE round-trip via samgrd ping.
+//!     * `sender_pid_probe`        -- kernel-attested sender PID matches `pid()`.
+//!     * `sender_service_id_probe` -- kernel-attested sender service_id matches.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup + ipc_kernel phases.
 //!
-//! Hosts probes that assert kernel-attested identity / cap-move semantics:
-//!   * `cap_move_reply_probe`    -- CAP_MOVE round-trip via samgrd ping.
-//!   * `sender_pid_probe`        -- kernel-attested sender PID matches `pid()`.
-//!   * `sender_service_id_probe` -- kernel-attested sender service_id matches.
+//! As of Cut P2-16, the previously-triplicated local `ReplyInboxV1` adapter
+//! is sourced from `crate::os_lite::ipc::reply_inbox` (single source of truth).
 //!
-//! Behavior is byte-for-byte identical to the pre-split implementation. As of
-//! P2-16, the previously-triplicated local `ReplyInboxV1` adapter is sourced
-//! from `super::super::super::ipc::reply_inbox` (single source of truth).
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;

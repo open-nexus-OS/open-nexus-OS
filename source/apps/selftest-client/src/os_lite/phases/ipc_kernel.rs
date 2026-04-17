@@ -1,13 +1,19 @@
-//! Phase: ipc_kernel (extracted in Cut P2-03 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 7 of 12 — ipc_kernel (orchestration of pure-kernel IPC probes
+//!   from RFC-0005: payload roundtrip, deadline timeout, kernel-loopback,
+//!   cap_move reply, sender_pid, sender_service_id, IPC soak).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — kernel IPC slice.
 //!
-//! Owns the kernel IPC v1 / v2 probe orchestration slice (RFC-0005):
-//!   ipc_payload_roundtrip + ipc_deadline_timeout_probe +
-//!   nexus_ipc_kernel_loopback_probe + cap_move_reply_probe +
-//!   sender_pid_probe + sender_service_id_probe + ipc_soak_probe.
+//! Extracted in Cut P2-03 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. This phase performs no service routing;
+//! it only invokes pure-kernel probes exposed via `probes::ipc_kernel::*`.
 //!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//! This phase performs no service routing; it only invokes pure-kernel probes
-//! exposed via `probes::ipc_kernel::*`.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use crate::markers::emit_line;
 use crate::os_lite::context::PhaseCtx;

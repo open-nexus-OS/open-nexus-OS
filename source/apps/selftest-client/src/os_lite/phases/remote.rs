@@ -1,13 +1,17 @@
-//! Phase: remote (extracted in Cut P2-12 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 11 of 12 — remote (TASK-0005 cross-VM remote proxy proof,
+//!   opt-in 2-VM harness: remote resolve / remote query / remote statefs rw
+//!   roundtrip / remote pkgfs read).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU 2-VM marker ladder (`tools/os2vm.sh` / Node A); single-VM
+//!   smoke skips this phase by design.
 //!
-//! Owns the TASK-0005 cross-VM remote proxy proof slice (opt-in 2-VM harness):
-//!   dsoftbusd_remote_resolve("bundlemgrd") -> remote resolve marker +
-//!   dsoftbusd_remote_bundle_list -> remote query marker +
-//!   dsoftbusd_remote_statefs_rw_roundtrip -> remote statefs rw marker +
-//!   dsoftbusd_remote_pkgfs_read_once("pkg:/system/build.prop", 64) ->
-//!     remote pkgfs read marker.
-//!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
+//! Extracted in Cut P2-12 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body.
 //!
 //! Gating:
 //!   Only Node A (`ctx.os2vm && ctx.local_ip.is_some()`) emits the markers;
@@ -17,6 +21,8 @@
 //!   Each remote RPC retries on a 4_000 ms wall-clock budget (RFC-0019
 //!   nonce-correlated request/reply via dsoftbusd) so that the test stays
 //!   bounded if the peer is slow to come up.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use nexus_abi::yield_;
 

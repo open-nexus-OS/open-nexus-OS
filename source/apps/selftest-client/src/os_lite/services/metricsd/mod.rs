@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: metricsd IPC client + selftest probes — counter / span / trace
+//!   roundtrips with deterministic ID source, plus oversize-payload rejects.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — logd phase (metrics anchors).
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
 use nexus_metrics::client::MetricsClient;

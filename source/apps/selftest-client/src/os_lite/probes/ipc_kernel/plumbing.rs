@@ -1,8 +1,19 @@
-//! TASK-0023B P2-15: kernel-IPC plumbing probes (no security claims).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Kernel-IPC plumbing probes (no security claims) — `qos_probe`,
+//!   `ipc_payload_roundtrip`, `ipc_deadline_timeout_probe`,
+//!   `nexus_ipc_kernel_loopback_probe`. Exercise the bootstrap endpoint and
+//!   `KernelClient` plumbing without asserting any cross-service security
+//!   property.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup + ipc_kernel phases.
 //!
-//! These probes exercise the bootstrap endpoint and `KernelClient` plumbing
-//! without asserting any cross-service security property. Marker emission is
-//! left to the orchestrating phase (`phases::ipc_kernel`).
+//! Marker emission is left to the orchestrating phase (`phases::ipc_kernel`).
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 //!
 //! Behavior is byte-for-byte identical to the pre-split implementation.
 

@@ -1,10 +1,22 @@
-//! Minimal cross-phase context for `os_lite::run()`.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Minimal cross-phase context (`PhaseCtx`) for `os_lite::run()`.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Indirect — every QEMU marker that depends on cross-phase
+//!   state (`reply_send_slot`, `reply_recv_slot`, `updated_pending`,
+//!   `local_ip`, `os2vm`) covers `PhaseCtx` by construction.
 //!
-//! Holds only state read by ≥ 2 phases or directly observable in the QEMU marker
-//! ladder. Service handles are intentionally NOT cached here in Phase 2 because
-//! the existing `pub fn run()` body already re-resolves logd/policyd/bundlemgrd
-//! per-phase via `route_with_retry`; promoting them would introduce risk without
-//! collapsing duplication. Later phases (P3+) may extend this struct.
+//! Holds only state read by ≥ 2 phases or directly observable in the QEMU
+//! marker ladder. Service handles are intentionally NOT cached here in Phase 2
+//! because the existing `pub fn run()` body already re-resolves
+//! logd/policyd/bundlemgrd per-phase via `route_with_retry`; promoting them
+//! would introduce risk without collapsing duplication. Later phases (P3+)
+//! may extend this struct.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 extern crate alloc;
 

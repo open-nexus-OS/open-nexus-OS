@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Keystored device-key probe — exercises device pubkey export and
+//!   asserts that private-key export is correctly rejected (deny-by-default).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup phase consumes
+//!   `device_key_selftest`.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 
 use super::super::ipc::routing::route_with_retry;

@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: MMIO selftest helpers — `MmioBus` adapter, virtio-net mapping
+//!   probe, MMIO-policy enforcement probe (USER|RW only, never executable),
+//!   and the W^X reject path consumed by `phases::mmio`.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — mmio phase.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line, emit_u64};

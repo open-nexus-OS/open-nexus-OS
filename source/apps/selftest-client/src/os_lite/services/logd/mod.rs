@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: logd IPC client + selftest probes — append/query roundtrip,
+//!   evidence-anchor and minidump-evidence anchors, oversize/forbidden
+//!   rejects, journaling readiness gate.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — logd phase.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use alloc::vec::Vec;

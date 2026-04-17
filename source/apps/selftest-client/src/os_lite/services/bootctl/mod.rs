@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: bootctl IPC client used by the OTA phase — slot status / mark-good
+//!   roundtrips that anchor the A/B switch and rollback proofs.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — ota phase.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use alloc::vec::Vec;

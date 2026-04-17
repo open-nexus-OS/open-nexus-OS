@@ -1,3 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: ELF header sanity probe over the embedded `HELLO_ELF` payload —
+//!   logs deterministic hex prefix to UART so the QEMU log records the same
+//!   header bytes regardless of build host.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup phase consumes
+//!   `log_hello_elf_header`.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 use exec_payloads::HELLO_ELF;
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};

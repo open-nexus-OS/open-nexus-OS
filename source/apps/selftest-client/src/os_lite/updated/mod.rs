@@ -1,9 +1,16 @@
-//! TASK-0023B P2-14: aggregator for the `updated` selftest helpers.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Aggregator for the `updated` (OTA) selftest helpers — re-exports
+//!   the same `pub(crate)` surface (`init_health_ok`, `updated_stage`,
+//!   `updated_log_probe`, `updated_switch`, `updated_get_status`,
+//!   `updated_boot_attempt`, `SlotId`) from focused submodules.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — ota phase.
 //!
-//! Pre-split this file held all OTA helper functions (~450 LOC). It now
-//! re-exports the same `pub(crate)` surface from focused submodules so all
-//! call-sites (`os_lite::updated::*`) keep working unchanged:
-//!
+//! Sub-split landed in TASK-0023B Cut P2-14:
 //!   * [`types`]      -- shared constants (`SYSTEM_TEST_NXS`) and `SlotId`.
 //!   * [`reply_pump`] -- shared `updated_send_with_reply` / `updated_expect_status`.
 //!   * [`stage`]      -- `updated_stage` + `updated_log_probe`.
@@ -13,6 +20,8 @@
 //!
 //! Behavior, marker emissions, and timing budgets are byte-for-byte identical
 //! to the pre-split module; only file layout changed.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 extern crate alloc;
 

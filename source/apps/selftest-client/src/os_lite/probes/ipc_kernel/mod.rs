@@ -1,21 +1,30 @@
-//! TASK-0023B P2-15: aggregator for kernel-IPC probes.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Aggregator for kernel-IPC probes. Re-exports the same
+//!   `pub(crate)` surface (`qos_probe`, `ipc_payload_roundtrip`,
+//!   `ipc_deadline_timeout_probe`, `nexus_ipc_kernel_loopback_probe`,
+//!   `cap_move_reply_probe`, `sender_pid_probe`, `sender_service_id_probe`,
+//!   `ipc_soak_probe`) from focused submodules.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — kernel IPC slice.
 //!
-//! Pre-split this file held all kernel-IPC probes (~393 LoC). It now
-//! re-exports the same `pub(crate)` surface from focused submodules so all
-//! orchestrating phases (`phases::bringup`, `phases::ipc_kernel`) keep
-//! working unchanged via `probes::ipc_kernel::*`:
+//! Sub-split landed in TASK-0023B Cut P2-15. Pre-split this file held all
+//! kernel-IPC probes (~393 LoC); it now contains only `mod` declarations and
+//! re-exports so the orchestrating phases (`phases::bringup`,
+//! `phases::ipc_kernel`) keep working unchanged via `probes::ipc_kernel::*`:
 //!
-//!   * [`plumbing`] -- bootstrap + `KernelClient` plumbing probes:
-//!     `qos_probe`, `ipc_payload_roundtrip`, `ipc_deadline_timeout_probe`,
-//!     `nexus_ipc_kernel_loopback_probe`.
-//!   * [`security`] -- kernel-attested identity / cap-move probes:
-//!     `cap_move_reply_probe`, `sender_pid_probe`, `sender_service_id_probe`.
-//!   * [`soak`]     -- bounded-iteration stress mix: `ipc_soak_probe`.
+//!   * [`plumbing`] -- bootstrap + `KernelClient` plumbing probes.
+//!   * [`security`] -- kernel-attested identity / cap-move probes.
+//!   * [`soak`]     -- bounded-iteration stress mix.
 //!
 //! Behavior, marker timing, and IPC retry budgets are byte-for-byte identical
-//! to the pre-split module; only file layout changed. The triplicated
-//! `ReplyInboxV1` adapter is preserved verbatim and slated for consolidation
-//! in P2-16 (move to `ipc/reply_inbox.rs`).
+//! to the pre-split module. The previously-triplicated `ReplyInboxV1` adapter
+//! was consolidated into `crate::os_lite::ipc::reply_inbox` in Cut P2-16.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 mod plumbing;
 mod security;

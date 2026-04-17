@@ -1,11 +1,16 @@
-//! TASK-0023B P2-14: stage / log-probe helpers for the updated submodule.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Stage / log-probe helpers for the `updated` submodule —
+//!     * `updated_stage`     -- send `OP_STAGE` with the bring-up test bundle.
+//!     * `updated_log_probe` -- send the unsupported-op probe (0x7f) used by
+//!       the routing phase to confirm `updated` is wired and replying.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — routing + ota phases.
 //!
-//! Hosts:
-//!   * `updated_stage`     -- send `OP_STAGE` with the bring-up test bundle.
-//!   * `updated_log_probe` -- send the unsupported-op probe (0x7f) used by the
-//!     routing phase to confirm `updated` is wired and replying.
-//!
-//! Behavior is byte-for-byte identical to the pre-split implementation.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 extern crate alloc;
 

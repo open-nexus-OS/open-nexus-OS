@@ -1,3 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: keystored IPC client + selftest probes — device-key bring-up,
+//!   pubkey export, sign-denied path, cap_move probe, and the silent
+//!   `resolve_keystored_client` helper consumed by both bringup and policy
+//!   phases.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup + policy phases.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use nexus_abi::{yield_, MsgHeader};

@@ -1,16 +1,22 @@
-//! Phase: bringup (extracted in Cut P2-02 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 1 of 12 — bringup (keystored, qos, timed-coalesce, rng,
+//!   device-key, statefs CRUD/persist, reply slot announce, dsoftbus
+//!   readiness gate, samgrd v1 register/lookup/unknown/malformed).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — first slice.
 //!
-//! Owns the first slice of `os_lite::run()`:
-//!   keystored bring-up + qos + timed-coalesce + rng + device-key +
-//!   statefs CRUD/persist + reply-slot announce + reply loopback +
-//!   keystored cap_move probe + dsoftbusd-readiness gate +
-//!   samgrd v1 register/lookup/unknown/malformed.
+//! Extracted in Cut P2-02 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. `keystored` is resolved here, used by
+//! `keystored_cap_move_probe`, then dropped at end-of-phase. The policy slice
+//! (later P2-07) re-resolves `keystored` for `keystored_sign_denied`;
+//! `resolve_keystored_client` emits no markers, so the marker ladder is
+//! unchanged.
 //!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//! `keystored` is resolved here, used by `keystored_cap_move_probe`, then
-//! dropped at end-of-phase. The policy slice (later P2-07) re-resolves
-//! `keystored` for `keystored_sign_denied`; `resolve_keystored_client` emits
-//! no markers, so the marker ladder is unchanged.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use nexus_abi::{yield_, MsgHeader};
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};

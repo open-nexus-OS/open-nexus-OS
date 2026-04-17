@@ -1,14 +1,22 @@
-//! Phase: policy (extracted in Cut P2-07 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 4 of 12 — policy (bundlemgrd-route-execd deny, identity-bound
+//!   allow/deny, MMIO-policy deny, ABI-filter profile distribution, audit-log
+//!   verification, keystored sign denied, policyd requester spoof denied,
+//!   policyd malformed-frame reject).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — policy / audit slice.
 //!
-//! Owns the policyd-driven slice: bundlemgrd-route-execd deny proof + identity-bound
-//! allow/deny + MMIO-policy deny + ABI-filter profile distribution + audit-log
-//! verification (logd query of allow/deny audit records) + keystored sign denied +
-//! policyd requester spoof denied + policyd malformed-frame reject.
+//! Extracted in Cut P2-07 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. `bundlemgrd`, `policyd`, `logd`,
+//! `keystored` handles are all local to this phase; downstream phases
+//! re-resolve via the silent `route_with_retry` / `resolve_keystored_client`
+//! (no marker change).
 //!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//! `bundlemgrd`, `policyd`, `logd`, `keystored` handles are all local to this
-//! phase; downstream phases re-resolve via the silent `route_with_retry` /
-//! `resolve_keystored_client` (no marker change).
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use nexus_abi::yield_;
 

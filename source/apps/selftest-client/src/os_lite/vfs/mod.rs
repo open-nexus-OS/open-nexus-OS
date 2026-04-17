@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Userspace VFS verification helper — `verify_vfs()` exercises the
+//!   cross-process VFS surface (vfsd / packagefsd / pkgfs) over kernel IPC v1
+//!   and emits the granular routing/lookup markers consumed by `phases::vfs`.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — vfs phase.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 use nexus_ipc::KernelClient;
 
 use crate::markers::emit_line;

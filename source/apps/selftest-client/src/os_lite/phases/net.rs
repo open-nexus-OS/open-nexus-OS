@@ -1,15 +1,22 @@
-//! Phase: net (extracted in Cut P2-11 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 10 of 12 — net (netstackd local-addr resolution + os2vm
+//!   classification, TASK-0004 ICMP ping proof, TASK-0003 DSoftBus OS
+//!   transport bring-up + QUIC-subset connect/ping markers; single-VM mode
+//!   only — 2-VM mode defers most network proofs to `phases::remote`).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — net / DSoftBus slice;
+//!   `REQUIRE_DSOFTBUS=1` gates the QUIC subset.
 //!
-//! Owns the netstackd-anchored slice:
-//!   netstackd_local_addr() -> ctx.local_ip + ctx.os2vm classification +
-//!   TASK-0004 ICMP ping proof (single-VM mode only) +
-//!   TASK-0003 DSoftBus OS transport bring-up via netstackd facade
-//!   (single-VM mode only; emits the QUIC-subset connect/ping markers).
+//! Extracted in Cut P2-11 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. `ctx.local_ip` and `ctx.os2vm` are
+//! written here and read by the remote phase (P2-12) to gate the cross-VM
+//! proxy proof.
 //!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//!
-//! `ctx.local_ip` and `ctx.os2vm` are written here and read by the remote
-//! phase (P2-12) to gate the cross-VM proxy proof.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use crate::markers::emit_line;
 use crate::os_lite::context::PhaseCtx;

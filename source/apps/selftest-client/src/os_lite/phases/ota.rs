@@ -1,15 +1,22 @@
-//! Phase: ota (extracted in Cut P2-06 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 3 of 12 — ota (TASK-0007 A/B normalize → stage → switch →
+//!   health → rollback cycle → bootctl persist).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — OTA state-machine slice.
 //!
-//! Owns the TASK-0007 OTA orchestration slice: A/B normalize → stage → switch
-//! (publish to slot B) → health → rollback cycle → bootctl persist.
-//!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//! Reply-pump correlation (RFC-0019 nonce-correlated `updated_pending`) is
-//! preserved by routing every `updated::*` call through the same
-//! `ctx.updated_pending` queue.
+//! Extracted in Cut P2-06 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. Reply-pump correlation (RFC-0019
+//! nonce-correlated `updated_pending`) is preserved by routing every
+//! `updated::*` call through the same `ctx.updated_pending` queue.
 //!
 //! `bundlemgrd` and `updated` handles are local to this phase; the policy
 //! slice (later P2-07) re-resolves them via the silent `route_with_retry`.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use nexus_abi::yield_;
 

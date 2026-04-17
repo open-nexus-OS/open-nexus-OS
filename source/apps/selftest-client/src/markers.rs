@@ -1,4 +1,4 @@
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: UART marker helpers for selftest-client (no-alloc, deterministic output)
@@ -6,7 +6,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Marker-driven via just test-os
-//! ADR: docs/adr/0017-service-architecture.md
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 #![allow(clippy::missing_docs_in_private_items)]
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Bounded reply-buffer helper used by selftest probes that need to
@@ -9,7 +9,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal (binary crate)
 //! TEST_COVERAGE: Indirect via QEMU `just test-os` (logd query/paged probes).
-//! ADR: docs/adr/0017-service-architecture.md, docs/rfcs/RFC-0038-*.md
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
 pub(crate) fn recv_large_bounded(
     recv_slot: u32,

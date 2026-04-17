@@ -1,7 +1,14 @@
-//! TASK-0023B P2-14: switch helper for the updated submodule.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Switch helper for the `updated` submodule — `updated_switch`
+//!   sends `OP_SWITCH` with the requested boot-attempt budget.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — ota phase.
 //!
-//! Hosts `updated_switch` -- send `OP_SWITCH` with the requested boot-attempt
-//! budget. Behavior is byte-for-byte identical to the pre-split implementation.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 extern crate alloc;
 

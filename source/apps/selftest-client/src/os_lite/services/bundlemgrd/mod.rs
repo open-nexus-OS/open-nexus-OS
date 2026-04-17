@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: bundlemgrd v1 IPC client used by the selftest — list-bundles /
+//!   list-images / route-execd-deny / malformed-frame reject probes.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — routing + policy phases.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use alloc::vec::Vec;

@@ -1,12 +1,16 @@
-//! TASK-0023B P2-14: shared reply pump for the updated submodule.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Shared reply pump for the `updated` submodule — RFC-0019
+//!   nonce-correlated shared-inbox reply consumer:
+//!     * `updated_send_with_reply` -- nonblocking, deadline-bounded request.
+//!     * `updated_expect_status`   -- response framing + status validation.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — ota phase.
 //!
-//! Hosts:
-//!   * `updated_send_with_reply` -- nonblocking, deadline-bounded request /
-//!     out-of-order shared-inbox reply correlation (RFC-0019).
-//!   * `updated_expect_status`   -- response framing + status validation.
-//!
-//! Behavior is byte-for-byte identical to the pre-split implementation.
-//! Marker strings are unchanged so the QEMU ladder is preserved.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 extern crate alloc;
 

@@ -1,12 +1,18 @@
-//! TASK-0023B P2-15: kernel-IPC soak probe.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Kernel-IPC soak probe — `ipc_soak_probe` runs a deterministic,
+//!   bounded stress mix (~96 iterations) that catches CAP_MOVE reply routing,
+//!   deadline/timeout, cap-table churn, and execd lifecycle regressions.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — ipc_kernel phase.
 //!
-//! Hosts `ipc_soak_probe` -- a deterministic, bounded stress mix that catches
-//! CAP_MOVE reply routing, deadline/timeout, cap-table churn, and execd
-//! lifecycle regressions over ~96 iterations.
+//! As of Cut P2-16, the previously-local `ReplyInboxV1` adapter is sourced
+//! from `crate::os_lite::ipc::reply_inbox` (single source of truth).
 //!
-//! Behavior is byte-for-byte identical to the pre-split implementation. As of
-//! P2-16, the previously-local `ReplyInboxV1` adapter is sourced from
-//! `super::super::super::ipc::reply_inbox` (single source of truth).
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;

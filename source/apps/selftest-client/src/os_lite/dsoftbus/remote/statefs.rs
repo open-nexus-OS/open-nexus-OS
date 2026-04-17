@@ -1,3 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Cross-VM remote statefs proof — `dsoftbusd_remote_statefs_rw_roundtrip`
+//!   exercises a put/get/delete cycle against the peer node's statefs via the
+//!   dsoftbusd RPC bridge (RFC-0019 nonce-correlated request/reply).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU 2-VM marker ladder (`tools/os2vm.sh` / Node A); single-VM
+//!   smoke skips this proof by design.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use nexus_ipc::{Client, Wait as IpcWait};

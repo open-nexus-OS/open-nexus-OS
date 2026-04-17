@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Kernel RNG entropy probe (TASK-0006). Exercises the rngd entropy
+//!   request path with bounded payloads and an oversized-request reject.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup phase consumes
+//!   `rng_entropy_selftest`.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use alloc::vec::Vec;

@@ -1,8 +1,15 @@
-//! TASK-0023B P2-14: init-health helper for the updated submodule.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Init-health helper for the `updated` submodule — `init_health_ok`
+//!   sends the bring-up health probe on the init control channel
+//!   (CTRL_SEND_SLOT=1 / CTRL_RECV_SLOT=2).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — ota phase (mark-good wait).
 //!
-//! Hosts `init_health_ok` -- bring-up health probe sent on the init control
-//! channel (CTRL_SEND_SLOT=1 / CTRL_RECV_SLOT=2). Behavior is byte-for-byte
-//! identical to the pre-split implementation.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use nexus_abi::{yield_, MsgHeader};
 

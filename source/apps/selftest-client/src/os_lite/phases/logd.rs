@@ -1,14 +1,22 @@
-//! Phase: logd (extracted in Cut P2-09 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 6 of 12 — logd (TASK-0014 Phase 0a sink hardening reject
+//!   matrix, metricsd rate-limit window, TASK-0014 Phase 0/1 metrics/tracing
+//!   semantics + sink evidence, TASK-0006 logd journaling APPEND + QUERY,
+//!   TASK-0006 nexus-log → logd sink proof, TASK-0006 core services log
+//!   proof with logd-stats delta + paged QUERY).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — logd / metrics / tracing slice.
 //!
-//! Owns the logd-anchored slice immediately following the exec phase:
-//!   TASK-0014 Phase 0a logd sink hardening reject matrix +
-//!   metricsd rate-limit window wait +
-//!   TASK-0014 Phase 0/1 metrics/tracing semantics + sink evidence
-//!     (security rejects, counters, gauges, histograms, spans, retention) +
-//!   TASK-0006 logd journaling proof (APPEND + QUERY) +
-//!   TASK-0006 nexus-log -> logd sink proof +
-//!   TASK-0006 core services log proof (samgrd / bundlemgrd / policyd /
-//!     dsoftbusd probe RPCs + logd-stats delta + paged QUERY).
+//! Extracted in Cut P2-09 of TASK-0023B. The logd-stats delta proof
+//! (`logd_stats_after - logd_stats_before` matches the locally-emitted log
+//! count) is sensitive to phase boundaries; this slice owns the entire
+//! logd-anchored window so the delta is preserved.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 //!
 //! Marker order and marker strings are byte-identical to the pre-cut body.
 //! `logd`, `metricsd`, `samgrd`, `bundlemgrd`, `policyd` handles are all

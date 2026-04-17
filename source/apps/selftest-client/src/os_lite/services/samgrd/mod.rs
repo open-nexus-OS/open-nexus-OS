@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: samgrd v1 IPC client + bring-up sequence used by the selftest
+//!   (register / lookup / unknown-id reject / malformed-frame reject), plus
+//!   the deterministic shared-inbox bootstrap used by reply-correlated probes.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup phase.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use alloc::vec::Vec;

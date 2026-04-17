@@ -1,4 +1,4 @@
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: OS selftest client for end-to-end system validation
@@ -28,7 +28,7 @@
 //!   - nexus-ipc: IPC communication
 //!   - nexus-init: Bootstrap services
 //!
-//! ADR: docs/adr/0017-service-architecture.md
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 #![cfg_attr(
     all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"),

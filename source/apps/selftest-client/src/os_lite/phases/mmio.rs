@@ -1,12 +1,18 @@
-//! Phase: mmio (extracted in Cut P2-04 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 8 of 12 — mmio (TASK-0010 userspace MMIO capability mapping:
+//!   mmio_map_probe / cap_query_mmio_probe / cap_query_vmo_probe).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — MMIO / cap-query slice.
 //!
-//! Owns the TASK-0010 userspace MMIO capability mapping slice:
-//!   mmio_map_probe (virtio-mmio magic register) +
-//!   cap_query_mmio_probe ((base, len) for address-bearing MMIO caps) +
-//!   cap_query_vmo_probe ((base, len) for VMO caps).
+//! Extracted in Cut P2-04 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. No service routing performed here;
+//! mmio probes only invoke kernel cap APIs.
 //!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//! No service routing performed here; mmio probes only invoke kernel cap APIs.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use crate::markers::emit_line;
 use crate::os_lite::context::PhaseCtx;

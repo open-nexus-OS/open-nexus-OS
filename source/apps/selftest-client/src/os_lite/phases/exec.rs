@@ -1,14 +1,21 @@
-//! Phase: exec (extracted in Cut P2-08 of TASK-0023B).
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Phase 5 of 12 — exec (exec-ELF E2E hello payload, exit lifecycle
+//!   exit0 payload, TASK-0018 Minidump v1 proof, forged metadata /
+//!   no-artifact / mismatched build_id reject paths, spoofed-requester deny,
+//!   malformed execd reject).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — exec / minidump slice.
 //!
-//! Owns the execd-driven slice: exec-ELF E2E (hello payload) + exit lifecycle
-//! (exit0 payload) + TASK-0018 Minidump v1 proof (crash payload + crash log
-//! verification + dump-present check) + forged metadata / no-artifact /
-//! mismatched build_id reject paths + spoofed-requester deny + malformed
-//! execd reject.
+//! Extracted in Cut P2-08 of TASK-0023B. Marker order and marker strings are
+//! byte-identical to the pre-cut body. Timing-sensitive yield budgets (256
+//! iterations to let the child print + 256 iterations to let crash logs reach
+//! logd) are preserved verbatim.
 //!
-//! Marker order and marker strings are byte-identical to the pre-cut body.
-//! Timing-sensitive yield budgets (256 iterations to let the child print +
-//! 256 iterations to let crash logs reach logd) are preserved verbatim.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 //!
 //! `execd_client`, `logd`, `statefsd` handles are local to this phase;
 //! downstream phases re-resolve via the silent `route_with_retry`.

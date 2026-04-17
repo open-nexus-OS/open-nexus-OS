@@ -1,4 +1,4 @@
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Service-routing helpers (`routing_v1_get`, `route_with_retry`)
@@ -10,7 +10,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal (binary crate)
 //! TEST_COVERAGE: QEMU marker ladder via `just test-os` (full ladder).
-//! ADR: docs/adr/0017-service-architecture.md, docs/rfcs/RFC-0038-*.md
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
 use nexus_abi::{yield_, MsgHeader};
 use nexus_ipc::KernelClient;

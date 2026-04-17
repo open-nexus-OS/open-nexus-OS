@@ -1,11 +1,16 @@
-//! TASK-0023B P2-14: status / boot-attempt helpers for the updated submodule.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Status / boot-attempt helpers for the `updated` submodule —
+//!     * `updated_get_status`   -- decode (active, pending, tries_left, healthy).
+//!     * `updated_boot_attempt` -- consume one boot attempt and return the slot
+//!       that ran (used to drive A/B health flow).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — ota phase.
 //!
-//! Hosts:
-//!   * `updated_get_status`   -- decode (active, pending, tries_left, healthy).
-//!   * `updated_boot_attempt` -- consume one boot attempt and return the slot
-//!     that ran (used to drive A/B health flow).
-//!
-//! Behavior is byte-for-byte identical to the pre-split implementation.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 extern crate alloc;
 

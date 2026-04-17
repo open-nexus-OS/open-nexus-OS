@@ -1,4 +1,4 @@
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: ICMP ping proof against `netstackd` IPC facade (TASK-0004).
@@ -9,7 +9,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal (binary crate)
 //! TEST_COVERAGE: QEMU marker `SELFTEST: icmp ping ok` via `just test-os`.
-//! ADR: docs/adr/0017-service-architecture.md, docs/rfcs/RFC-0038-*.md
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
 use nexus_abi::yield_;
 use nexus_ipc::KernelClient;

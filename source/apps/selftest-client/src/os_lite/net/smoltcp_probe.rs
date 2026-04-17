@@ -1,7 +1,18 @@
-// ——— smoltcp bring-up over virtio-net (bounded, deterministic-ish) ———
-//
-// NOTE: Feature-gated to avoid drift and unused-code warnings. The OS selftest uses
-// `netstackd` for networking by default; enable `smoltcp-probe` only for bring-up debugging.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Optional smoltcp bring-up probe over virtio-net (bounded,
+//!   deterministic-ish). Feature-gated (`smoltcp-probe`) to avoid drift and
+//!   unused-code warnings. The OS selftest uses `netstackd` for networking
+//!   by default; this probe is only enabled for low-level virtio/smoltcp
+//!   bring-up debugging.
+//! OWNERS: @runtime
+//! STATUS: Diagnostic / opt-in
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Not part of the default QEMU marker ladder; manual bring-up
+//!   debugging only (`--features smoltcp-probe`).
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 extern crate alloc;
 

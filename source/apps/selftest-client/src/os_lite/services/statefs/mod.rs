@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: statefs IPC client + selftest probes — namespaced KV CRUD,
+//!   persist/restore roundtrip, oversize-key/value rejects, and the cross-VM
+//!   roundtrip helper consumed by `phases::remote`.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — bringup + remote phases.
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 extern crate alloc;
 
 use alloc::string::String;

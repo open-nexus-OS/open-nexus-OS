@@ -1,4 +1,4 @@
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Shared `ReplyInboxV1` `nexus_ipc::Client` adapter for selftest
@@ -11,7 +11,7 @@
 //! API_STABILITY: Internal (binary crate)
 //! TEST_COVERAGE: QEMU marker ladder via `just test-os`
 //!   (cap_move_reply / sender_pid / sender_service_id / ipc_soak markers).
-//! ADR: docs/adr/0017-service-architecture.md, docs/rfcs/RFC-0019-*.md
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0019-*.md
 
 extern crate alloc;
 
