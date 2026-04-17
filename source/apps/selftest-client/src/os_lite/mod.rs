@@ -1,8 +1,5 @@
 extern crate alloc;
 
-use crate::markers::emit_line;
-use nexus_abi::yield_;
-
 mod context;
 mod dsoftbus;
 mod ipc;
@@ -21,7 +18,6 @@ pub fn run() -> core::result::Result<(), ()> {
     phases::routing::run(&mut ctx)?;
     phases::ota::run(&mut ctx)?;
     phases::policy::run(&mut ctx)?;
-
     phases::exec::run(&mut ctx)?;
     phases::logd::run(&mut ctx)?;
     phases::ipc_kernel::run(&mut ctx)?;
@@ -29,13 +25,7 @@ pub fn run() -> core::result::Result<(), ()> {
     phases::vfs::run(&mut ctx)?;
     phases::net::run(&mut ctx)?;
     phases::remote::run(&mut ctx)?;
-
-    emit_line("SELFTEST: end");
-
-    // Stay alive (cooperative).
-    loop {
-        let _ = yield_();
-    }
+    phases::end::run(&mut ctx)
 }
 
 // NOTE: Keep this file's marker surface centralized in `crate::markers`.
