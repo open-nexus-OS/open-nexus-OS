@@ -102,13 +102,7 @@ pub(crate) fn ipc_deadline_timeout_probe() -> core::result::Result<(), ()> {
     let mut out_buf = [0u8; 8];
     let sys_flags = 0; // blocking
     let deadline_ns = 1; // effectively always in the past
-    match ipc_recv_v1(
-        BOOTSTRAP_EP,
-        &mut out_hdr,
-        &mut out_buf,
-        sys_flags,
-        deadline_ns,
-    ) {
+    match ipc_recv_v1(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, sys_flags, deadline_ns) {
         Err(nexus_abi::IpcError::TimedOut) => Ok(()),
         _ => Err(()),
     }

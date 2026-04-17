@@ -38,9 +38,7 @@ pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
     static NONCE: AtomicU64 = AtomicU64::new(1);
     let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
 
-    let inbox = ReplyInboxV1 {
-        recv_slot: reply_recv_slot,
-    };
+    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
 
     // 2) Send a CAP_MOVE ping to samgrd, moving reply_send_slot as the reply cap.
     //    samgrd will reply by sending "PONG"+nonce on the moved cap and then closing it.
@@ -53,8 +51,7 @@ pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
     frame[2] = 1; // samgrd os-lite version
     frame[3] = 3; // OP_PING_CAP_MOVE
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    sam.send_with_cap_move(&frame, reply_send_clone)
-        .map_err(|_| ())?;
+    sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
     let _ = nexus_abi::cap_close(reply_send_clone);
 
     // 3) Receive on the reply inbox endpoint (nonce-correlated, bounded, yield-friendly).
@@ -94,12 +91,9 @@ pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
     frame[3] = 4; // OP_SENDER_PID
     frame[4..8].copy_from_slice(&me.to_le_bytes());
     frame[8..16].copy_from_slice(&nonce.to_le_bytes());
-    sam.send_with_cap_move(&frame, reply_send_clone)
-        .map_err(|_| ())?;
+    sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
 
-    let inbox = ReplyInboxV1 {
-        recv_slot: reply_recv_slot,
-    };
+    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
     let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
         if frame.len() == 17
             && frame[0] == b'S'

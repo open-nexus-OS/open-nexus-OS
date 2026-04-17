@@ -230,14 +230,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
     // Malformed request (wrong magic) should not return OK.
     samgrd
-        .send(
-            b"bad",
-            IpcWait::Timeout(core::time::Duration::from_millis(200)),
-        )
+        .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(200)))
         .map_err(|_| ())?;
-    let rsp = samgrd
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(200)))
-        .map_err(|_| ())?;
+    let rsp =
+        samgrd.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
     if rsp.len() == 13 && rsp[0] == b'S' && rsp[1] == b'M' && rsp[2] == 1 && rsp[4] != 0 {
         emit_line("SELFTEST: samgrd v1 malformed ok");
     } else {

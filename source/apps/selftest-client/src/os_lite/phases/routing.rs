@@ -76,10 +76,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line("SELFTEST: bundlemgrd v1 image FAIL");
     }
     bundlemgrd
-        .send(
-            b"bad",
-            IpcWait::Timeout(core::time::Duration::from_millis(100)),
-        )
+        .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
         .map_err(|_| ())?;
     let rsp = bundlemgrd
         .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))

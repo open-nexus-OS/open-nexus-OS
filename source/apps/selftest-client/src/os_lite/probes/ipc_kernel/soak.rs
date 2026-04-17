@@ -84,9 +84,7 @@ pub(crate) fn ipc_soak_probe() -> core::result::Result<(), ()> {
         }
         let _ = nexus_abi::cap_close(reply_send_clone);
 
-        let inbox = ReplyInboxV1 {
-            recv_slot: reply_recv_slot,
-        };
+        let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
         let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
             if frame.len() == 12 && frame[0..4] == *b"PONG" {
                 Some(u64::from_le_bytes([
