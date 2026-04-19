@@ -42,15 +42,15 @@ pub(crate) fn statefs_send_recv(
 
     if let Err(err) = client.send(&v2, IpcWait::Timeout(core::time::Duration::from_millis(2000))) {
         match err {
-            nexus_ipc::IpcError::WouldBlock => emit_line("SELFTEST: statefs send would-block"),
-            nexus_ipc::IpcError::Timeout => emit_line("SELFTEST: statefs send timeout"),
-            nexus_ipc::IpcError::Disconnected => emit_line("SELFTEST: statefs send disconnected"),
-            nexus_ipc::IpcError::NoSpace => emit_line("SELFTEST: statefs send no-space"),
-            nexus_ipc::IpcError::Kernel(_) => emit_line("SELFTEST: statefs send kernel-error"),
-            nexus_ipc::IpcError::Unsupported => emit_line("SELFTEST: statefs send unsupported"),
-            _ => emit_line("SELFTEST: statefs send other"),
+            nexus_ipc::IpcError::WouldBlock => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_WOULD_BLOCK),
+            nexus_ipc::IpcError::Timeout => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_TIMEOUT),
+            nexus_ipc::IpcError::Disconnected => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_DISCONNECTED),
+            nexus_ipc::IpcError::NoSpace => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_NO_SPACE),
+            nexus_ipc::IpcError::Kernel(_) => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_KERNEL_ERROR),
+            nexus_ipc::IpcError::Unsupported => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_UNSUPPORTED),
+            _ => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_OTHER),
         }
-        emit_line("SELFTEST: statefs send FAIL");
+        emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_FAIL);
         return Err(());
     }
     let start = nexus_abi::nsec().map_err(|_| ())?;
@@ -58,7 +58,7 @@ pub(crate) fn statefs_send_recv(
     loop {
         let now = nexus_abi::nsec().map_err(|_| ())?;
         if now >= deadline {
-            emit_line("SELFTEST: statefs recv timeout");
+            emit_line(crate::markers::M_SELFTEST_STATEFS_RECV_TIMEOUT);
             return Err(());
         }
         match client.recv(IpcWait::NonBlocking) {
@@ -102,7 +102,7 @@ pub(crate) fn statefs_put_get_list(client: &KernelClient) -> core::result::Resul
     let got = match statefs_proto::decode_get_response(&rsp) {
         Ok(bytes) => bytes,
         Err(err) => {
-            emit_bytes(b"SELFTEST: statefs persist get err=");
+            emit_bytes(crate::markers::M_SELFTEST_STATEFS_PERSIST_GET_ERR.as_bytes());
             emit_hex_u64(statefs_proto::status_from_error(err) as u64);
             emit_bytes(b" rsp_len=");
             emit_hex_u64(rsp.len() as u64);
@@ -138,11 +138,11 @@ pub(crate) fn statefs_unauthorized_access(client: &KernelClient) -> core::result
                 if status == statefs_proto::STATUS_ACCESS_DENIED {
                     return Ok(());
                 }
-                emit_bytes(b"SELFTEST: statefs unauthorized status=");
+                emit_bytes(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_STATUS.as_bytes());
                 emit_hex_u64(status as u64);
                 emit_line(")");
             } else {
-                emit_bytes(b"SELFTEST: statefs unauthorized rsp_len=");
+                emit_bytes(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_RSP_LEN.as_bytes());
                 emit_hex_u64(rsp.len() as u64);
                 emit_line(")");
             }
@@ -152,7 +152,7 @@ pub(crate) fn statefs_unauthorized_access(client: &KernelClient) -> core::result
 }
 
 pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(), ()> {
-    emit_line("SELFTEST: statefs persist begin");
+    emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_BEGIN);
     let key = "/state/selftest/persist";
     let value = b"persist-ok";
     let put = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
@@ -160,7 +160,7 @@ pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(),
     let status = match statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp) {
         Ok(status) => status,
         Err(_) => {
-            emit_bytes(b"SELFTEST: statefs persist put rsp_len=");
+            emit_bytes(crate::markers::M_SELFTEST_STATEFS_PERSIST_PUT_RSP_LEN.as_bytes());
             emit_hex_u64(rsp.len() as u64);
             emit_bytes(b" b0=");
             emit_hex_u64(*rsp.get(0).unwrap_or(&0) as u64);
@@ -171,19 +171,19 @@ pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(),
         }
     };
     if status != statefs_proto::STATUS_OK {
-        emit_bytes(b"SELFTEST: statefs persist put status=");
+        emit_bytes(crate::markers::M_SELFTEST_STATEFS_PERSIST_PUT_STATUS.as_bytes());
         emit_hex_u64(status as u64);
         emit_line(")");
         return Err(());
     }
-    emit_line("SELFTEST: statefs persist put ok");
+    emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_PUT_OK);
 
     let sync = statefs_proto::encode_sync_request();
     let rsp = statefs_send_recv(client, &sync)?;
     let status = match statefs_proto::decode_status_response(statefs_proto::OP_SYNC, &rsp) {
         Ok(status) => status,
         Err(_) => {
-            emit_bytes(b"SELFTEST: statefs persist sync rsp_len=");
+            emit_bytes(crate::markers::M_SELFTEST_STATEFS_PERSIST_SYNC_RSP_LEN.as_bytes());
             emit_hex_u64(rsp.len() as u64);
             emit_bytes(b" b0=");
             emit_hex_u64(*rsp.get(0).unwrap_or(&0) as u64);
@@ -194,19 +194,19 @@ pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(),
         }
     };
     if status != statefs_proto::STATUS_OK {
-        emit_bytes(b"SELFTEST: statefs persist sync status=");
+        emit_bytes(crate::markers::M_SELFTEST_STATEFS_PERSIST_SYNC_STATUS.as_bytes());
         emit_hex_u64(status as u64);
         emit_line(")");
         return Err(());
     }
-    emit_line("SELFTEST: statefs persist sync ok");
+    emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_SYNC_OK);
 
     let reopen = statefs_proto::encode_reopen_request();
     let rsp = statefs_send_recv(client, &reopen)?;
     let status = match statefs_proto::decode_status_response(statefs_proto::OP_REOPEN, &rsp) {
         Ok(status) => status,
         Err(_) => {
-            emit_bytes(b"SELFTEST: statefs persist reopen rsp_len=");
+            emit_bytes(crate::markers::M_SELFTEST_STATEFS_PERSIST_REOPEN_RSP_LEN.as_bytes());
             emit_hex_u64(rsp.len() as u64);
             emit_bytes(b" b0=");
             emit_hex_u64(*rsp.get(0).unwrap_or(&0) as u64);
@@ -217,18 +217,18 @@ pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(),
         }
     };
     if status != statefs_proto::STATUS_OK {
-        emit_bytes(b"SELFTEST: statefs persist reopen status=");
+        emit_bytes(crate::markers::M_SELFTEST_STATEFS_PERSIST_REOPEN_STATUS.as_bytes());
         emit_hex_u64(status as u64);
         emit_line(")");
         return Err(());
     }
-    emit_line("SELFTEST: statefs persist reopen ok");
+    emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_REOPEN_OK);
 
     let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key).map_err(|_| ())?;
     let rsp = statefs_send_recv(client, &get)?;
     let got = statefs_proto::decode_get_response(&rsp).map_err(|_| ())?;
     if got.as_slice() != value {
-        emit_line("SELFTEST: statefs persist get mismatch");
+        emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_GET_MISMATCH);
         return Err(());
     }
     Ok(())

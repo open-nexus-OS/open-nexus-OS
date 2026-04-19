@@ -27,14 +27,14 @@ pub(crate) fn updated_expect_status<'a>(
     op: u8,
 ) -> core::result::Result<&'a [u8], ()> {
     if rsp.len() < 7 {
-        emit_line("SELFTEST: updated rsp short");
+        emit_line(crate::markers::M_SELFTEST_UPDATED_RSP_SHORT);
         return Err(());
     }
     if rsp[0] != nexus_abi::updated::MAGIC0
         || rsp[1] != nexus_abi::updated::MAGIC1
         || rsp[2] != nexus_abi::updated::VERSION
     {
-        emit_bytes(b"SELFTEST: updated rsp magic ");
+        emit_bytes(crate::markers::M_SELFTEST_UPDATED_RSP_MAGIC.as_bytes());
         emit_hex_u64(rsp[0] as u64);
         emit_byte(b' ');
         emit_hex_u64(rsp[1] as u64);
@@ -44,7 +44,7 @@ pub(crate) fn updated_expect_status<'a>(
         return Err(());
     }
     if rsp[3] != (op | 0x80) || rsp[4] != nexus_abi::updated::STATUS_OK {
-        emit_bytes(b"SELFTEST: updated rsp status ");
+        emit_bytes(crate::markers::M_SELFTEST_UPDATED_RSP_STATUS.as_bytes());
         emit_hex_u64(rsp[3] as u64);
         emit_byte(b' ');
         emit_hex_u64(rsp[4] as u64);
@@ -53,7 +53,7 @@ pub(crate) fn updated_expect_status<'a>(
     }
     let len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
     if rsp.len() != 7 + len {
-        emit_line("SELFTEST: updated rsp len mismatch");
+        emit_line(crate::markers::M_SELFTEST_UPDATED_RSP_LEN_MISMATCH);
         return Err(());
     }
     Ok(&rsp[7..])
@@ -179,14 +179,14 @@ pub(crate) fn updated_send_with_reply(
                     if (i & 0x7f) == 0 {
                         let now = nexus_abi::nsec().map_err(|_| ())?;
                         if now >= deadline_ns {
-                            emit_line("SELFTEST: updated send timeout");
+                            emit_line(crate::markers::M_SELFTEST_UPDATED_SEND_TIMEOUT);
                             return Err(());
                         }
                     }
                     let _ = yield_();
                 }
                 Err(_) => {
-                    emit_line("SELFTEST: updated send fail");
+                    emit_line(crate::markers::M_SELFTEST_UPDATED_SEND_FAIL);
                     return Err(());
                 }
             }
@@ -237,7 +237,7 @@ pub(crate) fn updated_send_with_reply(
                     }
                     if !logged_noise {
                         logged_noise = true;
-                        emit_bytes(b"SELFTEST: updated rsp other op=0x");
+                        emit_bytes(crate::markers::M_SELFTEST_UPDATED_RSP_OTHER_OP_0X.as_bytes());
                         emit_hex_u64(buf[3] as u64);
                         if n >= 5 {
                             emit_bytes(b" st=0x");
@@ -258,6 +258,6 @@ pub(crate) fn updated_send_with_reply(
         }
         i = i.wrapping_add(1);
     }
-    emit_line("SELFTEST: updated recv timeout");
+    emit_line(crate::markers::M_SELFTEST_UPDATED_RECV_TIMEOUT);
     Err(())
 }

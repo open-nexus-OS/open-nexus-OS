@@ -61,14 +61,14 @@ pub(crate) fn execd_spawn_image(
                 if (i & 0x7f) == 0 {
                     let now = nexus_abi::nsec().map_err(|_| ())?;
                     if now >= deadline {
-                        emit_line("SELFTEST: execd spawn send timeout");
+                        emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_SEND_TIMEOUT);
                         return Err(());
                     }
                 }
                 let _ = yield_();
             }
             Err(_) => {
-                emit_line("SELFTEST: execd spawn send fail");
+                emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_SEND_FAIL);
                 return Err(());
             }
         }
@@ -83,7 +83,7 @@ pub(crate) fn execd_spawn_image(
         if (j & 0x7f) == 0 {
             let now = nexus_abi::nsec().map_err(|_| ())?;
             if now >= deadline {
-                emit_line("SELFTEST: execd spawn timeout");
+                emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_TIMEOUT);
                 return Err(());
             }
         }
@@ -110,10 +110,10 @@ pub(crate) fn execd_spawn_image(
                         Ok(pid)
                     }
                 } else if buf[4] == STATUS_DENIED {
-                    emit_line("SELFTEST: execd spawn denied");
+                    emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_DENIED);
                     Err(())
                 } else {
-                    emit_bytes(b"SELFTEST: execd spawn status 0x");
+                    emit_bytes(crate::markers::M_SELFTEST_EXECD_SPAWN_STATUS_0X.as_bytes());
                     emit_hex_u64(buf[4] as u64);
                     emit_byte(b'\n');
                     Err(())

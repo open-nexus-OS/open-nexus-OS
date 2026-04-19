@@ -1,7 +1,9 @@
-# Current Handoff: TASK-0023B Phase 3 — CLOSED
+# Current Handoff: TASK-0023B Phase 4 — CLOSED
 
-**Date**: 2026-04-17 (Phase 3 closure session, 4 cuts landed under Cursor-internal plan `task_0023b_phase_3_ee96d119.plan.md`)
-**Status**: `TASK-0023B` Phase 3 **complete**. All four cuts (P3-01 → P3-04) landed. RFC-0038 §"Stop conditions / acceptance" Phase 3 checklist ticked (4 boxes). QEMU `SELFTEST:` ladder is byte-identical (119 markers) across every cut versus the pre-Phase-3 baseline. `main.rs` shrunk 122 → **49 LoC** (dispatch-only); `scripts/check-selftest-arch.sh` + `just arch-gate` are now chained into `just dep-gate` and gating CI mechanically.
+**Date**: 2026-04-17 (Phase 4 closure session, 10 cuts landed under Cursor-internal plan `task-0023b_phase-4_57f4bce2.plan.md`)
+**Status**: `TASK-0023B` Phase 4 **complete**. All 10 cuts (P4-01 → P4-10) landed. RFC-0038 §"Stop conditions / acceptance" Phase 4 checklist ticked (10 boxes). `source/apps/selftest-client/proof-manifest.toml` is now the **single source of truth** for the marker ladder (433 entries), the harness profile catalog (`full / smp / dhcp / dhcp-strict / os2vm / quic-required`), and the runtime selftest profile catalog (`bringup / quick / ota / net / none`). `arch-gate` is **6/6 mechanical rules** (Rule 6 added in P4-10: no `REQUIRE_*` env literal in `test-*` / `ci-*` justfile recipe bodies). The `[marker_emission]` allowlist is empty (Rule 3 is allowlist-free). New host-only crate `nexus-proof-manifest` provides parser + CLI (`list-markers / list-env / list-forbidden / list-phases / verify / verify-uart`) consumed by `scripts/qemu-test.sh` and `tools/os2vm.sh`. `selftest-client/build.rs` generates `markers_generated.rs` from the manifest; 373 emit sites now reference `crate::markers::M_<KEY>` constants. Deny-by-default UART analyzer (`verify-uart`) wired into `qemu-test.sh` post-pass. Phase 4 closure unblocks `TASK-0024`.
+
+**Pre-Phase-4 status (Phase 3 closure, kept for reference)**: All four Phase-3 cuts (P3-01 → P3-04) landed 2026-04-17 under Cursor-internal plan `task_0023b_phase_3_ee96d119.plan.md`. RFC-0038 §"Stop conditions / acceptance" Phase 3 checklist ticked (4 boxes). QEMU `SELFTEST:` ladder is byte-identical (119 markers) across every Phase-3 cut versus the pre-Phase-3 baseline. `main.rs` shrunk 122 → **49 LoC** (dispatch-only); `scripts/check-selftest-arch.sh` + `just arch-gate` are now chained into `just dep-gate` and gating CI mechanically.
 
 **Working tree at handoff**: still has `uart.log` (test artifact — **do not commit**) plus the Phase-3 source/script changes (uncommitted; user owns the commit decision). Same 6 pre-existing modified files from start of session (`.cursor/handoff/current.md`, `.cursor/current_state.md`, `.cursor/next_task_prep.md`, `docs/rfcs/RFC-0038-*.md`, `tasks/TASK-0023B-*.md`, `uart.log`) plus the Phase-3 deliverables.
 
@@ -53,17 +55,51 @@
 - Bash chained `&&`/`;` revert sequences can desync when the failing command is `just <recipe>` (recipe failures print full output even when piped); always run a separate explicit revert + `git status` after a synthetic-violation test rather than relying on the chain.
 - `git mv` requires the source to be tracked; an untracked file (e.g. one created by an in-flight cut and not yet `git add`-ed) needs plain `mv`. The `Failed to mount ".git/hooks" read-only` sandbox error keeps surfacing — re-run with `required_permissions: ["all"]`.
 
-## Phase 4 — what's next
+## Phase 4 closure summary
 
-Phase-4 contract is locked in `RFC-0038` and is 10 cuts (manifest-driven). The Phase-4 plan file is `/home/jenning/.cursor/plans/task-0023b_phase-4_<hash>.plan.md` (to be authored at the start of the Phase-4 session). Phase 4 closure unblocks `TASK-0024`.
+### Cut-by-cut log
 
-Phase-4 scope summary:
+| Cut | Scope | Deliverables |
+|---|---|---|
+| P4-01 | Manifest skeleton + parser crate | `docs/testing/proof-manifest.md` schema doc; `proof-manifest.toml` skeleton (`[meta]` + 12 `[phase.X]` declarations); new host-only crate `nexus-proof-manifest` with `Manifest` + `ParseError` + 8 reject tests. |
+| P4-02 | RFC-0014 binding | RFC-0014 §appendix declares `proof-manifest.toml` normative; `docs/testing/proof-manifest.md` 1:1 phase-mapping table. No code touched. |
+| P4-03 | Populate manifest + generate constants | 179 gating markers added to `proof-manifest.toml`; parser extended with `[marker.…]` schema + `Marker.const_key()` + phase/profile reference validation; `selftest-client/build.rs` generates `markers_generated.rs`. |
+| P4-04 | Replace emit sites + tighten arch-gate | 254 additional diagnostic / fragment / FAIL-label markers back-filled (433 total); 373 emit sites across 29 files migrated to `crate::markers::M_<KEY>` (string + byte-string forms); `arch-gate` Rule 3 made allowlist-free; `[marker_emission]` allowlist emptied; synthetic-violation regression confirmed Rule 3 still fires. |
+| P4-05 | Host CLI + harness consumes manifest | `nexus-proof-manifest` CLI (`list-markers / list-env / list-forbidden / list-phases / verify`); harness profiles populated (`full / smp / dhcp / os2vm / quic-required`); `qemu-test.sh` sources env via `pm_apply_profile_env` + `pm_mirror_check`. |
+| P4-06 | `just` recipes migrated to PROFILE | `test-os PROFILE=…` is canonical; `test-smp / test-os-dhcp / test-dsoftbus-2vm / test-network` soft-deprecated for one cycle (deleted in P4-10); `ci-os-full / ci-os-smp / ci-os-dhcp / ci-os-quic / ci-os-os2vm / ci-network` added. |
+| P4-07 | `tools/os2vm.sh` consumes manifest | `--profile=<name>` flag (default `os2vm`); `pm_apply_profile_env` + `pm_mirror_subset_check` against the `os2vm` projection; manifest extended with five `dsoftbus:mux crossvm *` markers gated `emit_when = { profile = "os2vm" }`. |
+| P4-08 | Runtime profiles + dispatcher | 5 `runtime_only = true` profiles with explicit `phases = [...]` lists; 12 `dbg: phase X skipped` breadcrumb markers; `os_lite/profile.rs` (`Profile`, `PhaseId`, `from_kernel_cmdline_or_default`, `includes`, `skip_marker`); `run_or_skip!` macro in `os_lite/mod.rs`; `cargo:rerun-if-env-changed=SELFTEST_PROFILE`; `ci-os-runtime-bringup / quick / none` recipes. |
+| P4-09 | Deny-by-default analyzer | `nexus-proof-manifest verify-uart --profile=<name> --uart=<path>` (forbidden + unexpected = exit 1); wired into `qemu-test.sh` post-pass (`PM_VERIFY_UART=1` default); 6 integration tests cover clean / unexpected / forbidden / json / missing-file / missing-arg paths. |
+| P4-10 | Closure | Deleted four soft-deprecated aliases; added `ci-os-dhcp-strict` recipe + `[profile.dhcp-strict]` (extends `dhcp`); arch-gate Rule 6 ("no `REQUIRE_*` env literal in `test-*` / `ci-*` justfile bodies") + `[justfile_require_env]` allowlist (empty); manifest-driven workflow documented in `docs/testing/index.md`; `.cursor/{handoff,current_state,next_task_prep}` synced; `TASK-0024` `depends-on` updated; `STATUS-BOARD` + `IMPLEMENTATION-ORDER` refreshed; Phase-5 plan to be authored at the start of the Phase-5 session. |
 
-- `source/apps/selftest-client/proof-manifest.toml` becomes the SSOT for phase list, marker ladder, profile membership, and run configuration.
-- `build.rs` generates `markers_generated.rs` from the manifest. `arch-gate` rule 3 tightens to "only in `markers_generated.rs` + `markers.rs`" (the `[marker_emission]` allowlist shrinks to zero).
-- `scripts/qemu-test.sh` and `tools/os2vm.sh` consume the manifest via a host CLI (`nexus-proof-manifest list-markers --profile=…`).
-- Harness profiles (`full`, `smp`, `dhcp`, `os2vm`, `quic-required`) and runtime profiles (`bringup`, `quick`, `ota`, `net`, `none`) defined in manifest. `SELFTEST_PROFILE=…` env / kernel cmdline drives runtime phase skipping.
-- 10 cuts: P4-01 (schema + skeleton parser crate) → P4-02 (RFC-0014 binding doc) → P4-03 (populate manifest + generate constants) → P4-04 (replace marker emission, tighten arch-gate) → P4-05 (qemu-test.sh consumes manifest) → P4-06 (migrate `just test-*` → `PROFILE=`) → P4-07 (os2vm.sh consumes manifest) → P4-08 (runtime profiles + `os_lite/profile.rs`) → P4-09 (deny-by-default analyzer) → P4-10 (deprecate direct env-var usage).
+### Behavioral parity gates (verified at every cut)
+
+- QEMU `SELFTEST:` ladder for `PROFILE=full` byte-identical to the pre-Phase-4 baseline (mirror-check via `pm_mirror_check` enforces this on every `qemu-test.sh` run).
+- `cargo test -p nexus-proof-manifest` → 40 tests (lib + bin + cli_smoke 10 + cli_verify_uart 6 + parse_markers 5 + parse_skeleton 8 + profiles 6 + runtime_profiles 5).
+- `bash scripts/check-selftest-arch.sh` → 6/6 rules clean.
+- `RUSTFLAGS='--cfg nexus_env="os" -W unexpected_cfgs -W dead_code' cargo +nightly check -p selftest-client --no-default-features --features os-lite --target riscv64imac-unknown-none-elf` → clean (only pre-existing `nexus_env` cfg warnings).
+
+### Operational lessons captured this phase (apply forward)
+
+- Mass marker-literal migration is feasible with a one-shot Rust tool (`/tmp/migrate_markers.rs`) **provided** byte-string substitutions (`b"foo"` → `M_FOO.as_bytes()`) run before string substitutions (`"foo"` → `M_FOO`); the reverse order corrupts byte literals.
+- `println!(CONST)` is a compile error — the macro requires a string literal as the first argument. Migrating host-side emit sites required `println!("{}", CONST)`.
+- `markers_generated.rs` must be unconditionally included (not cfg-gated to OS only) because `host_lite.rs` also references the constants. The fix was a top-level `markers_generated.rs` shim that `include!`s the build-script output for both cfg branches.
+- Rule 6 parsing must skip comment-only lines from violation matching; otherwise `# `REQUIRE_*` mentions in explanatory comments trigger false positives.
+- `[profile.<name>]` `extends` chains must reject cycles at parse time (single-pass DFS); we hit this immediately when re-using `dhcp` as a parent for `dhcp-strict`.
+
+## Phase 5 — what's next
+
+Phase-5 contract is locked in `RFC-0038` and is 6 cuts (signed evidence bundles). The Phase-5 plan file is `/home/jenning/.cursor/plans/task-0023b_phase-5_<hash>.plan.md` (to be authored at the start of the Phase-5 session as a separate plan file).
+
+Phase-5 scope summary:
+
+- New host-only crate `nexus-evidence` with deterministic canonicalization spec + Ed25519 signing.
+- `tools/extract-trace.sh` produces `trace.jsonl` from `uart.log` using manifest phase tags.
+- `tools/seal-evidence.sh` builds + signs `target/evidence/<utc>-<profile>-<git-sha>.tar.gz`; `EVIDENCE_KEY=ci|bringup` selection.
+- Hook seal step into `scripts/qemu-test.sh` post-pass.
+- `tools/verify-evidence.sh` validates fail-closed; reject tests for tamper classes (manifest / uart / trace / key swap).
+- `docs/testing/evidence-bundle.md` documents bundle layout, key model, verify workflow.
+- 6 cuts: P5-01 (crate skeleton + canonicalization) → P5-02 (extract-trace) → P5-03 (seal-evidence) → P5-04 (qemu-test.sh integration) → P5-05 (verify-evidence + key separation) → P5-06 (docs).
 
 ## Frozen baseline that must stay green (verified end-of-Phase-3; carries into Phase 4)
 
@@ -99,15 +135,17 @@ Phase-4 scope summary:
 
 ## Next handoff target
 
-- **Active plan**: TBD — author `task-0023b_phase-4_<hash>.plan.md` (Cursor-internal) at the start of the Phase-4 session; scope: 10 cuts P4-01 → P4-10 only.
-- **Resume point**: Cut **P4-01** — write manifest schema doc (`docs/testing/proof-manifest.md`) + `proof-manifest.toml` skeleton (meta + 12 phase declarations) + new host-only crate `nexus-proof-manifest` with parser + reject tests.
-- **Per-cut cadence (extends Phase 3 with manifest-host tests)**:
-  1. `RUSTFLAGS='--cfg nexus_env="os" -W unexpected_cfgs -W dead_code' cargo check -p selftest-client --no-default-features --features os-lite --target riscv64gc-unknown-none-elf`
+- **Active plan**: TBD — author `task-0023b_phase-5_<hash>.plan.md` (Cursor-internal) at the start of the Phase-5 session as a separate plan file; scope: 6 cuts P5-01 → P5-06 only.
+- **Resume point**: Cut **P5-01** — `nexus-evidence` crate skeleton + canonicalization spec + unit tests for deterministic hashing.
+- **Per-cut cadence (Phase 5 carries the Phase-4 floor + adds evidence verify)**:
+  1. `RUSTFLAGS='--cfg nexus_env="os" -W unexpected_cfgs -W dead_code' cargo +nightly check -p selftest-client --no-default-features --features os-lite --target riscv64imac-unknown-none-elf`
   2. `cargo test -p dsoftbusd -- --nocapture`
   3. `just test-dsoftbus-quic`
-  4. `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` (or `PROFILE=…` once P4-06 lands)
-  5. `cargo test -p nexus-proof-manifest -- --nocapture` (from P4-01 onward)
-  6. `rustfmt +stable <touched .rs files only>`; verify and revert any submodule drift via `git checkout -- <unintended>`
-  7. `just dep-gate` (chains `arch-gate` first; both must pass)
-  8. `just lint`
-- **Phase 4 closure tasks (after P4-10)**: tick RFC-0038 Phase 4 checklist (10 boxes); sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-5_<hash>.plan.md` (6 cuts, signed-evidence); unblock `TASK-0024` (`depends-on` update); refresh `tasks/STATUS-BOARD.md`, `tasks/IMPLEMENTATION-ORDER.md`, `docs/testing/index.md`.
+  4. `just test-os PROFILE=full` (verify-uart wired; should be deterministic)
+  5. `cargo test -p nexus-proof-manifest -- --nocapture`
+  6. `cargo test -p nexus-evidence -- --nocapture` (from P5-01 onward)
+  7. `rustfmt +stable <touched .rs files only>`; verify and revert any submodule drift via `git checkout -- <unintended>`
+  8. `just dep-gate` (chains `arch-gate` first; both must pass; arch-gate is now 6/6 rules)
+  9. `just lint`
+  10. From P5-04 onward: `tools/verify-evidence.sh target/evidence/<latest>` returns 0
+- **Phase 5 closure tasks (after P5-06)**: tick RFC-0038 Phase 5 checklist (6 boxes); sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-6_<hash>.plan.md` (6 cuts, replay capability); refresh `tasks/STATUS-BOARD.md`, `tasks/IMPLEMENTATION-ORDER.md`.

@@ -32,17 +32,17 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         Ok(client) => client,
         Err(_) => return Err(()),
     };
-    emit_line("SELFTEST: ipc routing keystored ok");
-    emit_line("SELFTEST: keystored v1 ok");
+    emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_KEYSTORED_OK);
+    emit_line(crate::markers::M_SELFTEST_KEYSTORED_V1_OK);
     if probes::ipc_kernel::qos_probe().is_ok() {
-        emit_line("SELFTEST: qos ok");
+        emit_line(crate::markers::M_SELFTEST_QOS_OK);
     } else {
-        emit_line("SELFTEST: qos FAIL");
+        emit_line(crate::markers::M_SELFTEST_QOS_FAIL);
     }
     if timed::timed_coalesce_probe().is_ok() {
-        emit_line("SELFTEST: timed coalesce ok");
+        emit_line(crate::markers::M_SELFTEST_TIMED_COALESCE_OK);
     } else {
-        emit_line("SELFTEST: timed coalesce FAIL");
+        emit_line(crate::markers::M_SELFTEST_TIMED_COALESCE_FAIL);
     }
     // RNG and device identity key selftests (run early to keep QEMU marker deadlines short).
     probes::rng::rng_entropy_selftest();
@@ -51,38 +51,38 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // statefs (basic put/get/list + unauthorized access)
     if let Ok(statefsd) = route_with_retry("statefsd") {
         if services::statefs::statefs_put_get_list(&statefsd).is_ok() {
-            emit_line("SELFTEST: statefs put ok");
+            emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_OK);
         } else {
-            emit_line("SELFTEST: statefs put FAIL");
+            emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_FAIL);
         }
         if services::statefs::statefs_unauthorized_access(&statefsd).is_ok() {
-            emit_line("SELFTEST: statefs unauthorized access rejected");
+            emit_line(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_ACCESS_REJECTED);
         } else {
-            emit_line("SELFTEST: statefs unauthorized access rejected FAIL");
+            emit_line(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_ACCESS_REJECTED_FAIL);
         }
         if services::statefs::statefs_persist(&statefsd).is_ok() {
-            emit_line("SELFTEST: statefs persist ok");
+            emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_OK);
         } else {
-            emit_line("SELFTEST: statefs persist FAIL");
+            emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_FAIL);
         }
     } else {
-        emit_line("SELFTEST: statefs put FAIL");
-        emit_line("SELFTEST: statefs unauthorized access rejected FAIL");
-        emit_line("SELFTEST: statefs persist FAIL");
+        emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_ACCESS_REJECTED_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_FAIL);
     }
     if let Some(pubkey) = device_pubkey {
         if probes::device_key::device_key_reload_and_check(&pubkey).is_ok() {
-            emit_line("SELFTEST: device key persist ok");
+            emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PERSIST_OK);
         } else {
-            emit_line("SELFTEST: device key persist FAIL");
+            emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PERSIST_FAIL);
         }
     } else {
-        emit_line("SELFTEST: device key persist FAIL");
+        emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PERSIST_FAIL);
     }
     // @reply slots are deterministically distributed by init-lite to selftest-client.
     // The slot constants live in `context::PhaseCtx::bootstrap()`.
     let reply_ok = true;
-    emit_bytes(b"SELFTEST: reply slots ");
+    emit_bytes(crate::markers::M_SELFTEST_REPLY_SLOTS.as_bytes());
     emit_hex_u64(ctx.reply_send_slot as u64);
     emit_byte(b' ');
     emit_hex_u64(ctx.reply_recv_slot as u64);
@@ -126,24 +126,24 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             }
         }
         if ok {
-            emit_line("SELFTEST: reply loopback ok");
+            emit_line(crate::markers::M_SELFTEST_REPLY_LOOPBACK_OK);
         } else {
-            emit_line("SELFTEST: reply loopback FAIL");
+            emit_line(crate::markers::M_SELFTEST_REPLY_LOOPBACK_FAIL);
         }
     } else {
-        emit_line("SELFTEST: reply loopback FAIL");
+        emit_line(crate::markers::M_SELFTEST_REPLY_LOOPBACK_FAIL);
     }
 
     if reply_ok {
         if services::keystored::keystored_cap_move_probe(ctx.reply_send_slot, ctx.reply_recv_slot)
             .is_ok()
         {
-            emit_line("SELFTEST: keystored capmove ok");
+            emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_OK);
         } else {
-            emit_line("SELFTEST: keystored capmove FAIL");
+            emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_FAIL);
         }
     } else {
-        emit_line("SELFTEST: keystored capmove FAIL");
+        emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_FAIL);
     }
 
     // Readiness gate: ensure dsoftbusd is ready before running routing-dependent probes.
@@ -152,7 +152,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         let start = nexus_abi::nsec().unwrap_or(0);
         let deadline = start.saturating_add(5_000_000_000); // 5s (bounded)
         loop {
-            if services::logd::logd_query_contains_since_paged(&logd, 0, b"dsoftbusd: ready")
+            if services::logd::logd_query_contains_since_paged(&logd, 0, crate::markers::M_DSOFTBUSD_READY.as_bytes())
                 .unwrap_or(false)
             {
                 break;
@@ -174,17 +174,17 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         Err(_) => return Err(()),
     };
     let (sam_send_slot, sam_recv_slot) = samgrd.slots();
-    emit_bytes(b"SELFTEST: samgrd slots ");
+    emit_bytes(crate::markers::M_SELFTEST_SAMGRD_SLOTS.as_bytes());
     emit_hex_u64(sam_send_slot as u64);
     emit_byte(b' ');
     emit_hex_u64(sam_recv_slot as u64);
     emit_byte(b'\n');
     let samgrd = samgrd;
-    emit_line("SELFTEST: ipc routing samgrd ok");
+    emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_SAMGRD_OK);
     // Reply inbox for CAP_MOVE samgrd RPC.
     let (route_send, route_recv) = match routing_v1_get("vfsd") {
         Ok((st, send, recv)) if st == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 => {
-            emit_bytes(b"SELFTEST: routing vfsd st=0x");
+            emit_bytes(crate::markers::M_SELFTEST_ROUTING_VFSD_ST_0X.as_bytes());
             emit_hex_u64(st as u64);
             emit_bytes(b" send=0x");
             emit_hex_u64(send as u64);
@@ -195,38 +195,38 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         }
         _ => {
             // Fallback to deterministic slots distributed by init-lite to selftest-client.
-            emit_line("SELFTEST: routing vfsd fallback slots");
+            emit_line(crate::markers::M_SELFTEST_ROUTING_VFSD_FALLBACK_SLOTS);
             (0x03, 0x04)
         }
     };
     match services::samgrd::samgrd_v1_register(&samgrd, "vfsd", route_send, route_recv) {
-        Ok(0) => emit_line("SELFTEST: samgrd v1 register ok"),
+        Ok(0) => emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_REGISTER_OK),
         Ok(st) => {
-            emit_bytes(b"SELFTEST: samgrd v1 register FAIL st=0x");
+            emit_bytes(crate::markers::M_SELFTEST_SAMGRD_V1_REGISTER_FAIL_ST_0X.as_bytes());
             emit_hex_u64(st as u64);
             emit_byte(b'\n');
         }
-        Err(_) => emit_line("SELFTEST: samgrd v1 register FAIL err"),
+        Err(_) => emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_REGISTER_FAIL_ERR),
     }
     match services::samgrd::samgrd_v1_lookup(&samgrd, "vfsd") {
         Ok((st, got_send, got_recv)) => {
             if st == 0 && got_send == route_send && got_recv == route_recv {
-                emit_line("SELFTEST: samgrd v1 lookup ok");
+                emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_LOOKUP_OK);
             } else {
-                emit_line("SELFTEST: samgrd v1 lookup FAIL");
+                emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_LOOKUP_FAIL);
             }
         }
-        Err(_) => emit_line("SELFTEST: samgrd v1 lookup FAIL"),
+        Err(_) => emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_LOOKUP_FAIL),
     }
     match services::samgrd::samgrd_v1_lookup(&samgrd, "does.not.exist") {
         Ok((st, _send, _recv)) => {
             if st == 1 {
-                emit_line("SELFTEST: samgrd v1 unknown ok");
+                emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_UNKNOWN_OK);
             } else {
-                emit_line("SELFTEST: samgrd v1 unknown FAIL");
+                emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_UNKNOWN_FAIL);
             }
         }
-        Err(_) => emit_line("SELFTEST: samgrd v1 unknown FAIL"),
+        Err(_) => emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_UNKNOWN_FAIL),
     }
     // Malformed request (wrong magic) should not return OK.
     samgrd
@@ -235,9 +235,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let rsp =
         samgrd.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
     if rsp.len() == 13 && rsp[0] == b'S' && rsp[1] == b'M' && rsp[2] == 1 && rsp[4] != 0 {
-        emit_line("SELFTEST: samgrd v1 malformed ok");
+        emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_MALFORMED_OK);
     } else {
-        emit_line("SELFTEST: samgrd v1 malformed FAIL");
+        emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_MALFORMED_FAIL);
     }
 
     // `keystored` is intentionally dropped at end-of-phase; the policy slice

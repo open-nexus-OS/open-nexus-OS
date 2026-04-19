@@ -52,7 +52,7 @@ pub(crate) fn samgrd_v1_register(
     let mut logged_rsp = false;
     for _ in 0..64 {
         if !logged_start {
-            emit_line("SELFTEST: samgrd register send");
+            emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND);
             logged_start = true;
         }
         if let Err(err) = client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50)))
@@ -60,25 +60,25 @@ pub(crate) fn samgrd_v1_register(
             if !logged_send_fail {
                 match err {
                     nexus_ipc::IpcError::NoSpace => {
-                        emit_line("SELFTEST: samgrd register send nospace");
+                        emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND_NOSPACE);
                     }
                     nexus_ipc::IpcError::Timeout => {
-                        emit_line("SELFTEST: samgrd register send timeout");
+                        emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND_TIMEOUT);
                     }
                     nexus_ipc::IpcError::Disconnected => {
-                        emit_line("SELFTEST: samgrd register send disconnected");
+                        emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND_DISCONNECTED);
                     }
                     nexus_ipc::IpcError::WouldBlock => {
-                        emit_line("SELFTEST: samgrd register send wouldblock");
+                        emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND_WOULDBLOCK);
                     }
                     nexus_ipc::IpcError::Unsupported => {
-                        emit_line("SELFTEST: samgrd register send unsupported");
+                        emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND_UNSUPPORTED);
                     }
                     nexus_ipc::IpcError::Kernel(_) => {
-                        emit_line("SELFTEST: samgrd register send kernel");
+                        emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND_KERNEL);
                     }
                     _ => {
-                        emit_line("SELFTEST: samgrd register send fail");
+                        emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND_FAIL);
                     }
                 }
                 logged_send_fail = true;
@@ -98,7 +98,7 @@ pub(crate) fn samgrd_v1_register(
             ) {
                 Ok(n) => {
                     if !logged_rsp {
-                        emit_bytes(b"SELFTEST: samgrd register rsp len ");
+                        emit_bytes(crate::markers::M_SELFTEST_SAMGRD_REGISTER_RSP_LEN.as_bytes());
                         emit_hex_u64(n as u64);
                         emit_bytes(b" head=");
                         if n >= 8 {
@@ -169,7 +169,7 @@ pub(crate) fn samgrd_v1_lookup(
             ) {
                 Ok(n) => {
                     if !logged_rsp {
-                        emit_bytes(b"SELFTEST: samgrd lookup rsp len ");
+                        emit_bytes(crate::markers::M_SELFTEST_SAMGRD_LOOKUP_RSP_LEN.as_bytes());
                         emit_hex_u64(n as u64);
                         emit_bytes(b" head=");
                         if n >= 8 {

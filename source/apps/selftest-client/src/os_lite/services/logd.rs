@@ -56,7 +56,7 @@ pub(crate) fn logd_append_status_v2(
     const REPLY_SEND_SLOT: u32 = 0x18;
     let (send_slot, _recv_slot) = logd.slots();
     let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
-        emit_line("SELFTEST: logd append reply clone fail");
+        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_REPLY_CLONE_FAIL);
         ()
     })?;
     let hdr = nexus_abi::MsgHeader::new(
@@ -70,7 +70,7 @@ pub(crate) fn logd_append_status_v2(
         .map_err(|_| ())?;
     nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns).map_err(
         |_| {
-            emit_line("SELFTEST: logd append send fail");
+            emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_SEND_FAIL);
             ()
         },
     )?;
@@ -102,22 +102,22 @@ pub(crate) fn logd_append_status_v2(
         }
     }
     let Some(n) = rsp_len else {
-        emit_line("SELFTEST: logd append recv fail");
+        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_RECV_FAIL);
         return Err(());
     };
     let rsp = &rsp_buf[..n];
     if rsp.len() < 29 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
-        emit_line("SELFTEST: logd append rsp malformed");
+        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_RSP_MALFORMED);
         return Err(());
     }
     if rsp[3] != (OP_APPEND | 0x80) {
-        emit_line("SELFTEST: logd append rsp bad-op");
+        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_RSP_BAD_OP);
         return Err(());
     }
     let (status, got_nonce) =
         nexus_ipc::logd_wire::parse_append_response_v2_prefix(rsp).map_err(|_| ())?;
     if got_nonce != nonce {
-        emit_line("SELFTEST: logd append rsp bad-nonce");
+        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_RSP_BAD_NONCE);
         return Err(());
     }
     Ok(status)
@@ -127,7 +127,7 @@ pub(crate) fn logd_append_probe(logd: &KernelClient) -> core::result::Result<(),
     const STATUS_OK: u8 = 0;
     let status = logd_append_status_v2(logd, b"selftest", b"logd hello", b"")?;
     if status != STATUS_OK {
-        emit_line("SELFTEST: logd append rsp bad-status");
+        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_RSP_BAD_STATUS);
         return Err(());
     }
     Ok(())
@@ -288,7 +288,7 @@ pub(crate) fn logd_query_contains_since_paged(
         // Send with CAP_MOVE so replies arrive on the reply inbox.
         let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
             if !emitted {
-                emit_line("SELFTEST: logd query reply clone fail");
+                emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_REPLY_CLONE_FAIL);
                 emitted = true;
             }
             ()
@@ -306,7 +306,7 @@ pub(crate) fn logd_query_contains_since_paged(
         nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns)
             .map_err(|_| {
                 if !emitted {
-                    emit_line("SELFTEST: logd query send fail");
+                    emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_SEND_FAIL);
                     emitted = true;
                 }
                 ()
@@ -340,14 +340,14 @@ pub(crate) fn logd_query_contains_since_paged(
         }
         let Some(n) = rsp_len else {
             if !emitted {
-                emit_line("SELFTEST: logd query recv fail");
+                emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_RECV_FAIL);
             }
             return Err(());
         };
         let rsp = &rsp_buf[..n];
         let scan = nexus_ipc::logd_wire::scan_query_page_v2(rsp, nonce, needle).map_err(|_| {
             if !emitted {
-                emit_line("SELFTEST: logd query rsp parse fail");
+                emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_RSP_PARSE_FAIL);
                 emitted = true;
             }
             ()

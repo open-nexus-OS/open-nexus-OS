@@ -88,3 +88,7 @@ exec-payloads = { path = "../../../userspace/exec-payloads" }
 sha2 = "0.10"
 tar = { version = "0.4", default-features = false }
 updates = { path = "../../../userspace/updates" }
+# P4-03: marker manifest is the SSOT for the QEMU ladder; build.rs generates
+# `markers_generated.rs` from `proof-manifest.toml` so emit sites can reference
+# `M_<KEY>` constants instead of hard-coded marker literals.
+nexus-proof-manifest = { path = "../../libs/nexus-proof-manifest" }

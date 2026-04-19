@@ -29,7 +29,7 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
     let client = match KernelClient::new_for("keystored") {
         Ok(c) => c,
         Err(_) => {
-            emit_line("SELFTEST: device key pubkey FAIL (no route)");
+            emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_NO_ROUTE);
             return None;
         }
     };
@@ -40,26 +40,26 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
     {
         let req = [b'K', b'S', 1, 10]; // DEVICE_KEYGEN
         if client.send(&req, wait).is_err() {
-            emit_line("SELFTEST: device key pubkey FAIL (keygen send)");
+            emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_SEND);
             return None;
         }
         match client.recv(wait) {
             Ok(rsp) => {
                 if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
-                    emit_line("SELFTEST: device key pubkey FAIL (keygen malformed)");
+                    emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_MALFORMED);
                     return None;
                 }
                 // Status can be OK (0) or KEY_EXISTS (10)
                 let status = rsp[4];
                 if status != 0 && status != 10 {
-                    emit_bytes(b"SELFTEST: device key pubkey FAIL (keygen status=");
+                    emit_bytes(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_STATUS.as_bytes());
                     emit_hex_u64(status as u64);
                     emit_line(")");
                     return None;
                 }
             }
             Err(_) => {
-                emit_line("SELFTEST: device key pubkey FAIL (keygen recv)");
+                emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_RECV);
                 return None;
             }
         }
@@ -69,18 +69,18 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
     let pubkey = {
         let req = [b'K', b'S', 1, 11]; // GET_DEVICE_PUBKEY
         if client.send(&req, wait).is_err() {
-            emit_line("SELFTEST: device key pubkey FAIL (pubkey send)");
+            emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_SEND);
             return None;
         }
         match client.recv(wait) {
             Ok(rsp) => {
                 if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
-                    emit_line("SELFTEST: device key pubkey FAIL (pubkey malformed)");
+                    emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_MALFORMED);
                     return None;
                 }
                 let status = rsp[4];
                 if status != 0 {
-                    emit_bytes(b"SELFTEST: device key pubkey FAIL (pubkey status=");
+                    emit_bytes(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_STATUS.as_bytes());
                     emit_hex_u64(status as u64);
                     emit_line(")");
                     return None;
@@ -89,19 +89,19 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
                 // [K, S, ver, op|0x80, status, len:u16le, pubkey...]
                 let val_len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
                 if val_len != 32 || rsp.len() < 7 + 32 {
-                    emit_bytes(b"SELFTEST: device key pubkey FAIL (pubkey len=");
+                    emit_bytes(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_LEN.as_bytes());
                     emit_hex_u64(val_len as u64);
                     emit_line(")");
                     return None;
                 }
                 // SECURITY: We can log pubkey (it's public), but keep it brief
-                emit_line("SELFTEST: device key pubkey ok");
+                emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_OK);
                 let mut out = [0u8; 32];
                 out.copy_from_slice(&rsp[7..7 + 32]);
                 out
             }
             Err(_) => {
-                emit_line("SELFTEST: device key pubkey FAIL (pubkey recv)");
+                emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_RECV);
                 return None;
             }
         }
@@ -122,26 +122,26 @@ pub(crate) fn device_key_private_export_rejected_selftest(client: &KernelClient)
     let req = [b'K', b'S', 1, 13];
     let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
     if client.send(&req, wait).is_err() {
-        emit_line("SELFTEST: device key private export rejected FAIL (send)");
+        emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_SEND);
         return;
     }
     match client.recv(wait) {
         Ok(rsp) => {
             if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
-                emit_line("SELFTEST: device key private export rejected FAIL (malformed)");
+                emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_MALFORMED);
                 return;
             }
             let status = rsp[4];
             if status == 12 {
-                emit_line("SELFTEST: device key private export rejected ok");
+                emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_OK);
             } else {
-                emit_bytes(b"SELFTEST: device key private export status=");
+                emit_bytes(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_STATUS.as_bytes());
                 emit_hex_u64(status as u64);
                 emit_byte(b'\n');
-                emit_line("SELFTEST: device key private export rejected FAIL");
+                emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL);
             }
         }
-        Err(_) => emit_line("SELFTEST: device key private export rejected FAIL (recv)"),
+        Err(_) => emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_RECV),
     }
 }
 
@@ -149,63 +149,63 @@ pub(crate) fn device_key_reload_and_check(expected: &[u8; 32]) -> core::result::
     let client = match route_with_retry("keystored") {
         Ok(c) => c,
         Err(_) => {
-            emit_line("SELFTEST: reload route fail");
+            emit_line(crate::markers::M_SELFTEST_RELOAD_ROUTE_FAIL);
             return Err(());
         }
     };
     let wait = IpcWait::Timeout(core::time::Duration::from_millis(1000));
     let req = [b'K', b'S', 1, 14]; // DEVICE_RELOAD
     if client.send(&req, wait).is_err() {
-        emit_line("SELFTEST: reload send fail");
+        emit_line(crate::markers::M_SELFTEST_RELOAD_SEND_FAIL);
         return Err(());
     }
     let rsp = match client.recv(wait) {
         Ok(r) => r,
         Err(_) => {
-            emit_line("SELFTEST: reload recv fail");
+            emit_line(crate::markers::M_SELFTEST_RELOAD_RECV_FAIL);
             return Err(());
         }
     };
     if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
-        emit_line("SELFTEST: reload rsp malformed");
+        emit_line(crate::markers::M_SELFTEST_RELOAD_RSP_MALFORMED);
         return Err(());
     }
     if rsp[4] != 0 {
-        emit_bytes(b"SELFTEST: reload rsp status=");
+        emit_bytes(crate::markers::M_SELFTEST_RELOAD_RSP_STATUS.as_bytes());
         emit_hex_u64(rsp[4] as u64);
         emit_byte(b'\n');
         return Err(());
     }
-    emit_line("SELFTEST: reload ok");
+    emit_line(crate::markers::M_SELFTEST_RELOAD_OK);
     let req = [b'K', b'S', 1, 11]; // GET_DEVICE_PUBKEY
     if client.send(&req, wait).is_err() {
-        emit_line("SELFTEST: reload pubkey send fail");
+        emit_line(crate::markers::M_SELFTEST_RELOAD_PUBKEY_SEND_FAIL);
         return Err(());
     }
     let rsp = match client.recv(wait) {
         Ok(r) => r,
         Err(_) => {
-            emit_line("SELFTEST: reload pubkey recv fail");
+            emit_line(crate::markers::M_SELFTEST_RELOAD_PUBKEY_RECV_FAIL);
             return Err(());
         }
     };
     if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
-        emit_line("SELFTEST: reload pubkey rsp malformed");
+        emit_line(crate::markers::M_SELFTEST_RELOAD_PUBKEY_RSP_MALFORMED);
         return Err(());
     }
     if rsp[4] != 0 {
-        emit_bytes(b"SELFTEST: reload pubkey status=");
+        emit_bytes(crate::markers::M_SELFTEST_RELOAD_PUBKEY_STATUS.as_bytes());
         emit_hex_u64(rsp[4] as u64);
         emit_byte(b'\n');
         return Err(());
     }
     let val_len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
     if val_len != 32 || rsp.len() < 7 + 32 {
-        emit_line("SELFTEST: reload pubkey len mismatch");
+        emit_line(crate::markers::M_SELFTEST_RELOAD_PUBKEY_LEN_MISMATCH);
         return Err(());
     }
     if &rsp[7..7 + 32] != expected {
-        emit_line("SELFTEST: reload pubkey mismatch");
+        emit_line(crate::markers::M_SELFTEST_RELOAD_PUBKEY_MISMATCH);
         return Err(());
     }
     Ok(())

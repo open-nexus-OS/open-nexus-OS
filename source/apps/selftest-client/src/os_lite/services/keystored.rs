@@ -234,12 +234,12 @@ pub(crate) fn keystored_cap_move_probe(
     reply_recv_slot: u32,
 ) -> core::result::Result<(), ()> {
     // Use existing keystored v1 GET(miss) but receive reply via CAP_MOVE reply cap.
-    emit_line("SELFTEST: keystored capmove begin");
+    emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_BEGIN);
     let keystored = route_with_retry("keystored")?;
     let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
         Ok(slot) => slot,
         Err(_) => {
-            emit_line("SELFTEST: keystored capmove clone fail");
+            emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_CLONE_FAIL);
             return Err(());
         }
     };
@@ -263,7 +263,7 @@ pub(crate) fn keystored_cap_move_probe(
         )
         .is_err()
     {
-        emit_line("SELFTEST: keystored capmove send fail");
+        emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_SEND_FAIL);
         return Err(());
     }
 
@@ -308,6 +308,6 @@ pub(crate) fn keystored_cap_move_probe(
         }
         i = i.wrapping_add(1);
     }
-    emit_line("SELFTEST: keystored capmove no-reply");
+    emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_NO_REPLY);
     Err(())
 }

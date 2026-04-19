@@ -276,7 +276,7 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     // Create transport for encrypted communication
     let mut _transport = Transport::new(transport_keys);
 
-    // Handshake complete - server will emit "dsoftbusd: auth ok" after processing msg3
+    // Handshake complete - server will emit crate::markers::M_DSOFTBUSD_AUTH_OK after processing msg3
 
     // WRITE "PING" datagram frame.
     let ping_len = encode_quic_frame(QUIC_OP_PING, SESSION_NONCE, b"PING", &mut frame).ok_or(())?;

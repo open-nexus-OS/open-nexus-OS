@@ -33,7 +33,7 @@ pub(crate) fn updated_stage(
     let mut frame = Vec::with_capacity(8 + SYSTEM_TEST_NXS.len());
     frame.resize(8 + SYSTEM_TEST_NXS.len(), 0u8);
     let n = nexus_abi::updated::encode_stage_req(SYSTEM_TEST_NXS, &mut frame).ok_or(())?;
-    emit_line("SELFTEST: updated stage send");
+    emit_line(crate::markers::M_SELFTEST_UPDATED_STAGE_SEND);
     let rsp = updated_send_with_reply(
         client,
         reply_send_slot,

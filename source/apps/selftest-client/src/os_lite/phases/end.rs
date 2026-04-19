@@ -21,7 +21,7 @@ use crate::markers::emit_line;
 use crate::os_lite::context::PhaseCtx;
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
-    emit_line("SELFTEST: end");
+    emit_line(crate::markers::M_SELFTEST_END);
 
     // Stay alive (cooperative).
     loop {

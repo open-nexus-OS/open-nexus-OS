@@ -449,3 +449,30 @@ When writing this RFC, ensure:
     - `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os`
     - `RUN_PHASE=vfs RUN_TIMEOUT=190s just test-os`
 - [x] Follow-up task(s) created for Phase 2 with stop conditions: `tasks/TASK-0285-rfc0014-phase2-qemu-harness-phases-v1.md`
+
+## Appendix A: `proof-manifest.toml` is normative for the marker ladder (added 2026-04-17 by Cut P4-02 of `TASK-0023B`)
+
+This appendix formalises the §3 "drift acknowledgement" by declaring [`source/apps/selftest-client/proof-manifest.toml`](../../source/apps/selftest-client/proof-manifest.toml) **normative** for:
+
+- the **set** of UART markers the harness expects per phase,
+- the **order** of those markers within a phase,
+- the **forbidden** markers per profile (deny-by-default, from Cut P4-09),
+- the **env wiring** each harness profile uses (e.g. `REQUIRE_DSOFTBUS=1` for the `quic-required` profile, from Cut P4-05).
+
+Division of authority:
+
+- **This RFC** retains **semantic ownership** of the phase list (what each phase means, what acceptance criteria apply, what failure model the harness must surface). §3 v2 is the human-readable contract; the schema doc [`docs/testing/proof-manifest.md`](../testing/proof-manifest.md) "Phase mapping" table holds the 1:1 binding.
+- **The manifest** is the **executable form** of that contract. It is read by [`source/apps/selftest-client/build.rs`](../../source/apps/selftest-client/build.rs) (from Cut P4-03) to generate `markers_generated.rs`, by [`scripts/qemu-test.sh`](../../scripts/qemu-test.sh) (from Cut P4-05) via `nexus-proof-manifest list-markers --profile=…`, by [`tools/os2vm.sh`](../../tools/os2vm.sh) (from Cut P4-07) for the 2-VM harness, and by `nexus-proof-manifest verify-uart` (from Cut P4-09) for deny-by-default UART analysis.
+
+After Cut P4-05 closes, the previously-acknowledged §3 drift is closed by construction: the harness, the manifest, and §3 v2 are congruent because the harness reads its expectations from the manifest, and the manifest's phase set is gated 1:1 against §3 by reviewer rule + the schema doc's mapping table.
+
+Schema-evolution rules:
+
+- Adding a phase requires updating §3, the [phase mapping table](../testing/proof-manifest.md#phase-mapping-rfc-0014--manifest--source), and adding `[phase.X]` + `os_lite/phases/<x>.rs` in the same change.
+- Adding a marker requires only a `[marker."…"]` entry; no RFC change.
+- Renaming a marker requires a `schema_version` bump + coordinated harness/CI rollout (the analyzer from P4-09 hard-fails on unknown markers).
+- Deleting a phase requires updating §3 and bumping `schema_version`.
+
+Backwards compatibility:
+
+- The `RUN_PHASE=<name>` early-exit mechanism remains supported via a manifest-driven mapping (the harness translates `RUN_PHASE=` to the same `--profile=…` resolution path internally from Cut P4-05+). Operators using `RUN_PHASE=` continue to use the v1 names from `docs/testing/index.md` until P4-10 deprecates the env-driven path.

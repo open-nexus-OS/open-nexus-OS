@@ -23,7 +23,7 @@ use crate::markers::emit_line;
 pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
     const BOOTCTL_KEY: &str = "/state/boot/bootctl.v1";
     const BOOTCTL_VERSION: u8 = 1;
-    emit_line("SELFTEST: bootctl persist begin");
+    emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_BEGIN);
     let client = route_with_retry("statefsd")?;
     let (send_slot, recv_slot) = client.slots();
     // Deterministic: use SF v2 (nonce) and only accept the matching reply.
@@ -51,7 +51,7 @@ pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
                 if (i & 0x7f) == 0 {
                     let now = nexus_abi::nsec().map_err(|_| ())?;
                     if now >= deadline {
-                        emit_line("SELFTEST: bootctl persist send timeout");
+                        emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_SEND_TIMEOUT);
                         return Err(());
                     }
                 }
@@ -69,7 +69,7 @@ pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
         if (j & 0x7f) == 0 {
             let now = nexus_abi::nsec().map_err(|_| ())?;
             if now >= deadline {
-                emit_line("SELFTEST: bootctl persist recv timeout");
+                emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_RECV_TIMEOUT);
                 return Err(());
             }
         }

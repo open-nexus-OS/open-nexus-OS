@@ -20,7 +20,7 @@ use crate::os_lite::vfs;
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     if vfs::verify_vfs().is_err() {
-        emit_line("SELFTEST: vfs FAIL");
+        emit_line(crate::markers::M_SELFTEST_VFS_FAIL);
     }
     Ok(())
 }

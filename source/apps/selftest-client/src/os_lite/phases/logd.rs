@@ -40,62 +40,62 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // TASK-0014 Phase 0a: logd sink hardening reject matrix.
     if services::logd::logd_hardening_reject_probe(&logd).is_ok() {
-        emit_line("SELFTEST: logd hardening rejects ok");
+        emit_line(crate::markers::M_SELFTEST_LOGD_HARDENING_REJECTS_OK);
     } else {
-        emit_line("SELFTEST: logd hardening rejects FAIL");
+        emit_line(crate::markers::M_SELFTEST_LOGD_HARDENING_REJECTS_FAIL);
     }
     let _ = services::metricsd::wait_rate_limit_window();
 
     // TASK-0014 Phase 0/1: metrics/tracing semantics + sink evidence.
     if let Ok(metricsd) = MetricsClient::new() {
         if services::metricsd::metricsd_security_reject_probe(&metricsd).is_ok() {
-            emit_line("SELFTEST: metrics security rejects ok");
+            emit_line(crate::markers::M_SELFTEST_METRICS_SECURITY_REJECTS_OK);
         } else {
-            emit_line("SELFTEST: metrics security rejects FAIL");
+            emit_line(crate::markers::M_SELFTEST_METRICS_SECURITY_REJECTS_FAIL);
         }
         match services::metricsd::metricsd_semantic_probe(&metricsd, &logd) {
             Ok((counters_ok, gauges_ok, hist_ok, spans_ok, retention_ok)) => {
                 if counters_ok {
-                    emit_line("SELFTEST: metrics counters ok");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_COUNTERS_OK);
                 } else {
-                    emit_line("SELFTEST: metrics counters FAIL");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_COUNTERS_FAIL);
                 }
                 if gauges_ok {
-                    emit_line("SELFTEST: metrics gauges ok");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_GAUGES_OK);
                 } else {
-                    emit_line("SELFTEST: metrics gauges FAIL");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_GAUGES_FAIL);
                 }
                 if hist_ok {
-                    emit_line("SELFTEST: metrics histograms ok");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_HISTOGRAMS_OK);
                 } else {
-                    emit_line("SELFTEST: metrics histograms FAIL");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_HISTOGRAMS_FAIL);
                 }
                 if spans_ok {
-                    emit_line("SELFTEST: tracing spans ok");
+                    emit_line(crate::markers::M_SELFTEST_TRACING_SPANS_OK);
                 } else {
-                    emit_line("SELFTEST: tracing spans FAIL");
+                    emit_line(crate::markers::M_SELFTEST_TRACING_SPANS_FAIL);
                 }
                 if retention_ok {
-                    emit_line("SELFTEST: metrics retention ok");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_RETENTION_OK);
                 } else {
-                    emit_line("SELFTEST: metrics retention FAIL");
+                    emit_line(crate::markers::M_SELFTEST_METRICS_RETENTION_FAIL);
                 }
             }
             Err(_) => {
-                emit_line("SELFTEST: metrics counters FAIL");
-                emit_line("SELFTEST: metrics gauges FAIL");
-                emit_line("SELFTEST: metrics histograms FAIL");
-                emit_line("SELFTEST: tracing spans FAIL");
-                emit_line("SELFTEST: metrics retention FAIL");
+                emit_line(crate::markers::M_SELFTEST_METRICS_COUNTERS_FAIL);
+                emit_line(crate::markers::M_SELFTEST_METRICS_GAUGES_FAIL);
+                emit_line(crate::markers::M_SELFTEST_METRICS_HISTOGRAMS_FAIL);
+                emit_line(crate::markers::M_SELFTEST_TRACING_SPANS_FAIL);
+                emit_line(crate::markers::M_SELFTEST_METRICS_RETENTION_FAIL);
             }
         }
     } else {
-        emit_line("SELFTEST: metrics security rejects FAIL");
-        emit_line("SELFTEST: metrics counters FAIL");
-        emit_line("SELFTEST: metrics gauges FAIL");
-        emit_line("SELFTEST: metrics histograms FAIL");
-        emit_line("SELFTEST: tracing spans FAIL");
-        emit_line("SELFTEST: metrics retention FAIL");
+        emit_line(crate::markers::M_SELFTEST_METRICS_SECURITY_REJECTS_FAIL);
+        emit_line(crate::markers::M_SELFTEST_METRICS_COUNTERS_FAIL);
+        emit_line(crate::markers::M_SELFTEST_METRICS_GAUGES_FAIL);
+        emit_line(crate::markers::M_SELFTEST_METRICS_HISTOGRAMS_FAIL);
+        emit_line(crate::markers::M_SELFTEST_TRACING_SPANS_FAIL);
+        emit_line(crate::markers::M_SELFTEST_METRICS_RETENTION_FAIL);
     }
 
     // TASK-0006: logd journaling proof (APPEND + QUERY).
@@ -103,15 +103,15 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let append_ok = services::logd::logd_append_probe(&logd).is_ok();
     let query_ok = services::logd::logd_query_probe(&logd).unwrap_or(false);
     if append_ok && query_ok {
-        emit_line("SELFTEST: log query ok");
+        emit_line(crate::markers::M_SELFTEST_LOG_QUERY_OK);
     } else {
         if !append_ok {
-            emit_line("SELFTEST: logd append probe FAIL");
+            emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_PROBE_FAIL);
         }
         if !query_ok {
-            emit_line("SELFTEST: logd query probe FAIL");
+            emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_PROBE_FAIL);
         }
-        emit_line("SELFTEST: log query FAIL");
+        emit_line(crate::markers::M_SELFTEST_LOG_QUERY_FAIL);
     }
 
     // TASK-0006: nexus-log -> logd sink proof.
@@ -126,9 +126,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     if services::logd::logd_query_contains_since_paged(&logd, 0, b"nexus-log sink-logd probe")
         .unwrap_or(false)
     {
-        emit_line("SELFTEST: nexus-log sink-logd ok");
+        emit_line(crate::markers::M_SELFTEST_NEXUS_LOG_SINK_LOGD_OK);
     } else {
-        emit_line("SELFTEST: nexus-log sink-logd FAIL");
+        emit_line(crate::markers::M_SELFTEST_NEXUS_LOG_SINK_LOGD_FAIL);
     }
 
     // ============================================================
@@ -163,7 +163,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         )
         .unwrap_or(false);
     } else {
-        emit_line("SELFTEST: core log samgrd route FAIL");
+        emit_line(crate::markers::M_SELFTEST_CORE_LOG_SAMGRD_ROUTE_FAIL);
     }
     ok &= sam_probe && sam_found && sam_delta_ok;
 
@@ -185,7 +185,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         )
         .unwrap_or(false);
     } else {
-        emit_line("SELFTEST: core log bundlemgrd route FAIL");
+        emit_line(crate::markers::M_SELFTEST_CORE_LOG_BUNDLEMGRD_ROUTE_FAIL);
     }
     // bundlemgrd: rely on stats delta + probe; query paging can be brittle on boot.
     ok &= bnd_probe && bnd_delta_ok;
@@ -209,7 +209,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         )
         .unwrap_or(false);
     } else {
-        emit_line("SELFTEST: core log policyd route FAIL");
+        emit_line(crate::markers::M_SELFTEST_CORE_LOG_POLICYD_ROUTE_FAIL);
     }
     // Mix of (1) and (2): for policyd we validate via logd stats delta (logd-backed) to avoid
     // brittle false negatives from QUERY paging/limits.
@@ -228,38 +228,38 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let delta_ok = total >= total0.saturating_add(2);
     ok &= delta_ok;
     if ok {
-        emit_line("SELFTEST: core services log ok");
+        emit_line(crate::markers::M_SELFTEST_CORE_SERVICES_LOG_OK);
     } else {
         // Diagnostic detail (deterministic, no secrets).
         if !sam_probe {
-            emit_line("SELFTEST: core log samgrd probe FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_SAMGRD_PROBE_FAIL);
         }
         if !sam_found {
-            emit_line("SELFTEST: core log samgrd query FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_SAMGRD_QUERY_FAIL);
         }
         if !sam_delta_ok {
-            emit_line("SELFTEST: core log samgrd delta FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_SAMGRD_DELTA_FAIL);
         }
         if !bnd_probe {
-            emit_line("SELFTEST: core log bundlemgrd probe FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_BUNDLEMGRD_PROBE_FAIL);
         }
         // bundlemgrd query is not required for success (see delta-based check above).
         if !bnd_delta_ok {
-            emit_line("SELFTEST: core log bundlemgrd delta FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_BUNDLEMGRD_DELTA_FAIL);
         }
         if !pol_probe {
-            emit_line("SELFTEST: core log policyd probe FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_POLICYD_PROBE_FAIL);
         }
         if !pol_found {
-            emit_line("SELFTEST: core log policyd query FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_POLICYD_QUERY_FAIL);
         }
         if !pol_delta_ok {
-            emit_line("SELFTEST: core log policyd delta FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_POLICYD_DELTA_FAIL);
         }
         if !delta_ok {
-            emit_line("SELFTEST: core log stats delta FAIL");
+            emit_line(crate::markers::M_SELFTEST_CORE_LOG_STATS_DELTA_FAIL);
         }
-        emit_line("SELFTEST: core services log FAIL");
+        emit_line(crate::markers::M_SELFTEST_CORE_SERVICES_LOG_FAIL);
     }
 
     let _ = logd;

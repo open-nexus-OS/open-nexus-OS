@@ -36,7 +36,7 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
     const MMIO_VA: usize = 0x2000_e000;
 
     fn emit_mmio_err(stage: &str, err: nexus_abi::AbiError) {
-        emit_bytes(b"SELFTEST: mmio ");
+        emit_bytes(crate::markers::M_SELFTEST_MMIO.as_bytes());
         emit_bytes(stage.as_bytes());
         emit_bytes(b" err=");
         // Stable enum-to-string mapping (no alloc).
@@ -65,7 +65,7 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
     }
     let magic0 = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
     if magic0 != VIRTIO_MMIO_MAGIC {
-        emit_bytes(b"SELFTEST: mmio magic0=0x");
+        emit_bytes(crate::markers::M_SELFTEST_MMIO_MAGIC0_0X.as_bytes());
         emit_hex_u64(magic0 as u64);
         emit_byte(b'\n');
         return Err(());
@@ -85,11 +85,11 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
         let info = match dev.probe() {
             Ok(info) => info,
             Err(_) => {
-                emit_line("SELFTEST: virtio-net probe FAIL");
+                emit_line(crate::markers::M_SELFTEST_VIRTIO_NET_PROBE_FAIL);
                 return Err(());
             }
         };
-        emit_bytes(b"SELFTEST: virtio-net mmio ver=");
+        emit_bytes(crate::markers::M_SELFTEST_VIRTIO_NET_MMIO_VER.as_bytes());
         emit_u64(info.version as u64);
         emit_byte(b'\n');
     }

@@ -29,29 +29,29 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         Ok(client) => client,
         Err(_) => return Err(()),
     };
-    emit_line("SELFTEST: ipc routing policyd ok");
+    emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_POLICYD_OK);
     let bundlemgrd = match route_with_retry("bundlemgrd") {
         Ok(client) => client,
         Err(_) => return Err(()),
     };
     let (bnd_send, bnd_recv) = bundlemgrd.slots();
-    emit_bytes(b"SELFTEST: bundlemgrd slots ");
+    emit_bytes(crate::markers::M_SELFTEST_BUNDLEMGRD_SLOTS.as_bytes());
     emit_hex_u64(bnd_send as u64);
     emit_byte(b' ');
     emit_hex_u64(bnd_recv as u64);
     emit_byte(b'\n');
-    emit_line("SELFTEST: ipc routing bundlemgrd ok");
+    emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_BUNDLEMGRD_OK);
     let updated = match route_with_retry("updated") {
         Ok(client) => client,
         Err(_) => return Err(()),
     };
     let (upd_send, upd_recv) = updated.slots();
-    emit_bytes(b"SELFTEST: updated slots ");
+    emit_bytes(crate::markers::M_SELFTEST_UPDATED_SLOTS.as_bytes());
     emit_hex_u64(upd_send as u64);
     emit_byte(b' ');
     emit_hex_u64(upd_recv as u64);
     emit_byte(b'\n');
-    emit_line("SELFTEST: ipc routing updated ok");
+    emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_UPDATED_OK);
     if updated::updated_log_probe(
         &updated,
         ctx.reply_send_slot,
@@ -60,20 +60,20 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     )
     .is_ok()
     {
-        emit_line("SELFTEST: updated probe ok");
+        emit_line(crate::markers::M_SELFTEST_UPDATED_PROBE_OK);
     } else {
-        emit_line("SELFTEST: updated probe FAIL");
+        emit_line(crate::markers::M_SELFTEST_UPDATED_PROBE_FAIL);
     }
     let (st, count) = services::bundlemgrd::bundlemgrd_v1_list(&bundlemgrd)?;
     if st == 0 && count == 1 {
-        emit_line("SELFTEST: bundlemgrd v1 list ok");
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_LIST_OK);
     } else {
-        emit_line("SELFTEST: bundlemgrd v1 list FAIL");
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_LIST_FAIL);
     }
     if services::bundlemgrd::bundlemgrd_v1_fetch_image(&bundlemgrd).is_ok() {
-        emit_line("SELFTEST: bundlemgrd v1 image ok");
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_IMAGE_OK);
     } else {
-        emit_line("SELFTEST: bundlemgrd v1 image FAIL");
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_IMAGE_FAIL);
     }
     bundlemgrd
         .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
@@ -82,9 +82,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
         .map_err(|_| ())?;
     if rsp.len() == 8 && rsp[0] == b'B' && rsp[1] == b'N' && rsp[2] == 1 && rsp[4] != 0 {
-        emit_line("SELFTEST: bundlemgrd v1 malformed ok");
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_MALFORMED_OK);
     } else {
-        emit_line("SELFTEST: bundlemgrd v1 malformed FAIL");
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_MALFORMED_FAIL);
     }
 
     // `policyd`/`bundlemgrd`/`updated` are dropped at end-of-phase. Downstream

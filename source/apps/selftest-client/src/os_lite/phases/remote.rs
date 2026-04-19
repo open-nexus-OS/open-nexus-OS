@@ -51,9 +51,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             let _ = yield_();
         }
         if ok {
-            emit_line("SELFTEST: remote resolve ok");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_RESOLVE_OK);
         } else {
-            emit_line("SELFTEST: remote resolve FAIL");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_RESOLVE_FAIL);
         }
 
         let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -71,9 +71,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             let _ = yield_();
         }
         if let Some(_count) = got {
-            emit_line("SELFTEST: remote query ok");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_QUERY_OK);
         } else {
-            emit_line("SELFTEST: remote query FAIL");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_QUERY_FAIL);
         }
 
         let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -91,9 +91,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             let _ = yield_();
         }
         if statefs_ok {
-            emit_line("SELFTEST: remote statefs rw ok");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_STATEFS_RW_OK);
         } else {
-            emit_line("SELFTEST: remote statefs rw FAIL");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_STATEFS_RW_FAIL);
         }
 
         let start_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -116,9 +116,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             let _ = yield_();
         }
         if pkg_ok {
-            emit_line("SELFTEST: remote pkgfs read ok");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_PKGFS_READ_OK);
         } else {
-            emit_line("SELFTEST: remote pkgfs read FAIL");
+            emit_line(crate::markers::M_SELFTEST_REMOTE_PKGFS_READ_FAIL);
         }
     }
 

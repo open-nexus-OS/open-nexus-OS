@@ -12,6 +12,13 @@
 
 use nexus_abi::debug_putc;
 
+// P4-04: marker literals live in the sibling `markers_generated` module
+// (built unconditionally so the host pfad reuses the same SSOT). Re-export
+// here so `crate::markers::M_*` is the canonical reference path from emit
+// sites under `os_lite/**`.
+#[allow(unused_imports)]
+pub(crate) use crate::markers_generated::*;
+
 /// Emit a single byte over UART.
 pub fn emit_byte(byte: u8) {
     let _ = debug_putc(byte);

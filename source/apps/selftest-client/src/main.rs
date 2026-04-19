@@ -28,6 +28,9 @@
 mod host_lite;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 mod markers;
+// P4-04: marker-literal SSOT shared between host and OS pfads. Pure
+// `const &str` table, no platform deps; safe to compile in any target.
+mod markers_generated;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 mod os_lite;
 

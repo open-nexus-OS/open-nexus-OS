@@ -28,17 +28,18 @@ help:
     @echo "  just build-kernel        # cross-compile kernel (riscv)"
     @echo "  just build-nexus-log-os  # cross-compile nexus-log (userspace sink)"
     @echo "  just build-init-lite-os  # cross-compile init-lite userspace payload"
-    @echo "  just test-os             # run kernel selftests in QEMU"
-    @echo "  just test-smp            # deterministic SMP dual-mode proof ladder (SMP=2 gate + SMP=1 parity)"
+    @echo "  just test-os             # run kernel selftests in QEMU (PROFILE=full default)"
+    @echo "  just test-os PROFILE=smp # SMP-gated QEMU smoke (REQUIRE_SMP enforced via manifest)"
+    @echo "  just ci-os-smp           # canonical SMP CI recipe (SMP=2 gate + SMP=1 parity)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
-    @echo "  just test-os-dhcp         # QEMU smoke with DHCP requested (bounded, deterministic fallback allowed)"
-    @echo "  just test-os-dhcp-strict  # QEMU smoke with strict DHCP gate (requires net: dhcp bound)"
-    @echo "  just test-dsoftbus-2vm    # TASK-0005: 2-VM DSoftBus harness"
-    @echo "  just test-dsoftbus-2vm-pcap # 2-VM DSoftBus harness + PCAP capture"
+    @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
+    @echo "  just ci-os-dhcp-strict    # QEMU smoke with strict DHCP gate (requires net: dhcp bound)"
+    @echo "  just ci-os-os2vm          # 2-VM DSoftBus QEMU harness via PROFILE=os2vm"
+    @echo "  just test-dsoftbus-2vm-pcap # 2-VM DSoftBus harness + PCAP capture (legacy; keep for diagnostics)"
     @echo "  just test-dsoftbus-mux    # TASK-0020: requirement-named mux host suites"
     @echo "  just test-dsoftbus-quic   # TASK-0021: host QUIC transport + selection suites"
     @echo "  just test-dsoftbus-host   # full userspace/dsoftbus host regression"
-    @echo "  just test-network         # run DHCP + DSoftBus just targets with debug warning scan"
+    @echo "  just ci-network           # PROFILE-driven aggregate (replaces legacy test-network)"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
     @echo "  INIT_LITE_LOG_TOPICS=svc-meta just qemu  # opt-in init-lite log topics"
@@ -83,31 +84,29 @@ qemu *args:
     RUN_TIMEOUT=${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER="${RUN_UNTIL_MARKER:-SELFTEST: dsoftbus ping ok}" scripts/run-qemu-rv64.sh {{args}}
     @echo "[hint] Default stop marker is 'SELFTEST: dsoftbus ping ok'. Set RUN_UNTIL_MARKER=1 for full readiness ladder or QEMU_TRACE=1 for tracing."
 
-test-os:
-    scripts/qemu-test.sh
+# TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
+# `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
+# list-env --profile=…`). Default `full` is env-equivalent to the legacy
+# bare `just test-os` invocation, so QEMU ladder stays byte-identical.
+# Migration target: invoke `just test-os PROFILE=<full|smp|dhcp|quic-required|os2vm>`
+# everywhere; the legacy `test-smp` / `test-os-dhcp` / `test-dsoftbus-2vm` /
+# `test-network` recipes are soft-deprecated for one cycle (deleted in P4-10).
+test-os PROFILE='full':
+    scripts/qemu-test.sh --profile={{PROFILE}}
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
 
-# Deterministic SMP ladder:
-# - SMP=2 with REQUIRE_SMP=1 (enforces SMP-only marker contract)
-# - SMP=1 parity run (preserve single-hart baseline behavior)
-test-smp:
-    SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
-    SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os
-
-# QEMU smoke variants (networking / DSoftBus gates).
-#
-# IMPORTANT: run these sequentially (not in parallel) to avoid blk.img lock contention.
-test-os-dhcp:
-    # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp:start","message":"start target","data":{"target":"test-os-dhcp"},"timestamp":int(time.time()*1000)})+"\n")'
-    # #endregion
-    bash -lc 'set -o pipefail; REQUIRE_QEMU_DHCP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os 2>&1 | tee "/home/jenning/open-nexus-OS/.cursor/test-os-dhcp.output.log"; rc=${PIPESTATUS[0]}; RC="$rc" python -c '\''import json,os,time,pathlib; p=pathlib.Path("/home/jenning/open-nexus-OS/.cursor/test-os-dhcp.output.log"); lines=p.read_text(encoding="utf-8",errors="ignore").splitlines() if p.exists() else []; warns=[ln.strip() for ln in lines if ("warning:" in ln.lower() or "[warn" in ln.lower())]; dbg="/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log"; open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H6","location":"justfile:test-os-dhcp:warning-scan","message":"captured warning lines","data":{"target":"test-os-dhcp","warningCount":len(warns),"warningSample":warns[:8],"exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n"); open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp:end","message":"target completed","data":{"target":"test-os-dhcp","exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n")'\''; exit $rc'
-
-test-os-dhcp-strict:
-    # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp-strict:start","message":"start target","data":{"target":"test-os-dhcp-strict"},"timestamp":int(time.time()*1000)})+"\n")'
-    # #endregion
-    bash -lc 'set -o pipefail; REQUIRE_QEMU_DHCP=1 REQUIRE_QEMU_DHCP_STRICT=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os 2>&1 | tee "/home/jenning/open-nexus-OS/.cursor/test-os-dhcp-strict.output.log"; rc=${PIPESTATUS[0]}; RC="$rc" python -c '\''import json,os,time,pathlib; p=pathlib.Path("/home/jenning/open-nexus-OS/.cursor/test-os-dhcp-strict.output.log"); lines=p.read_text(encoding="utf-8",errors="ignore").splitlines() if p.exists() else []; warns=[ln.strip() for ln in lines if ("warning:" in ln.lower() or "[warn" in ln.lower())]; dbg="/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log"; open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H7","location":"justfile:test-os-dhcp-strict:warning-scan","message":"captured warning lines","data":{"target":"test-os-dhcp-strict","warningCount":len(warns),"warningSample":warns[:8],"exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n"); open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H3","location":"justfile:test-os-dhcp-strict:end","message":"target completed","data":{"target":"test-os-dhcp-strict","exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n")'\''; exit $rc'
+# Deterministic SMP ladder retired in TASK-0023B P4-10:
+# `test-smp`/`test-os-dhcp`/`test-os-dhcp-strict` were soft-deprecated in
+# P4-06 and have been deleted. The canonical recipes are now PROFILE-driven:
+#   - SMP gate         : `just ci-os-smp`         (SMP=2 strict + SMP=1 parity)
+#   - DHCP soft        : `just ci-os-dhcp`        (PROFILE=dhcp)
+#   - DHCP strict      : `just ci-os-dhcp-strict` (PROFILE=dhcp-strict)
+#   - 2-VM DSoftBus    : `just ci-os-os2vm`       (PROFILE=os2vm)
+#   - QUIC required    : `just ci-os-quic`        (PROFILE=quic-required)
+#   - Aggregate matrix : `just ci-network`        (replaces legacy test-network)
+# All `REQUIRE_*` env knobs are sourced from `proof-manifest.toml` via
+# `nexus-proof-manifest list-env --profile=<name>`; arch-gate Rule 6 prevents
+# any new `REQUIRE_*` literal from leaking back into a `test-*` recipe.
 
 # Run only until device-MMIO proofs are complete (faster local iteration).
 test-mmio:
@@ -115,6 +114,63 @@ test-mmio:
 
 test-init:
     scripts/host-init-test.sh
+
+# -----------------------------------------------------------------------------
+# TASK-0023B P4-06 — CI matrix: profile-driven QEMU smoke recipes.
+#
+# These are the canonical `ci-*` entry points; all CI plumbing should call
+# `just ci-<flavor>` rather than the soft-deprecated `test-os-dhcp` /
+# `test-dsoftbus-2vm` / `test-network` family. Each recipe forwards a
+# manifest profile to `qemu-test.sh`, which sources its env via
+# `nexus-proof-manifest list-env --profile=<flavor>` (single source of truth).
+# -----------------------------------------------------------------------------
+ci-os-full:
+    just test-os PROFILE=full
+
+ci-os-smp:
+    SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=smp
+
+ci-os-dhcp:
+    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=dhcp
+
+# TASK-0023B P4-10: strict DHCP gate via PROFILE=dhcp-strict (manifest extends
+# `dhcp` with REQUIRE_QEMU_DHCP_STRICT=1). Replaces the legacy
+# `test-os-dhcp-strict` recipe deleted in P4-10.
+ci-os-dhcp-strict:
+    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=dhcp-strict
+
+ci-os-quic:
+    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=quic-required
+
+ci-os-os2vm:
+    RUN_OS2VM=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} just test-os PROFILE=os2vm
+
+# Aggregate: profile-driven network matrix (replacement for `test-network`).
+ci-network:
+    just ci-os-dhcp
+    just ci-os-quic
+    just ci-os-os2vm
+
+# -----------------------------------------------------------------------------
+# TASK-0023B P4-08 — runtime-profile QEMU smoke recipes.
+#
+# These recipes set `SELFTEST_PROFILE=<name>` at build time so
+# `os_lite::profile::Profile::from_kernel_cmdline_or_default` resolves to a
+# subset profile. The QEMU runner stays on the harness-side `full` profile
+# (full env wiring); the OS binary itself decides which phases to actually
+# execute, emitting `dbg: phase X skipped` for the others. Manifest /
+# dispatcher contract is locked by `cargo test -p nexus-proof-manifest
+# --test runtime_profiles`. Per-profile UART verification (deny-by-default
+# on unexpected markers) lands in P4-09.
+# -----------------------------------------------------------------------------
+ci-os-runtime-bringup:
+    SELFTEST_PROFILE=bringup just test-os PROFILE=full
+
+ci-os-runtime-quick:
+    SELFTEST_PROFILE=quick just test-os PROFILE=full
+
+ci-os-runtime-none:
+    SELFTEST_PROFILE=none just test-os PROFILE=full
 
 # -----------------------------------------------------------------------------
 # Opt-in OS 2-VM harness (TASK-0005)
@@ -126,13 +182,8 @@ os2vm:
 os2vm-pcap:
     @RUN_OS2VM=1 OS2VM_PCAP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} tools/os2vm.sh
 
-# Friendlier aliases for DSoftBus bring-up.
-test-dsoftbus-2vm:
-    # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H4","location":"justfile:test-dsoftbus-2vm:start","message":"start target","data":{"target":"test-dsoftbus-2vm"},"timestamp":int(time.time()*1000)})+"\n")'
-    # #endregion
-    bash -lc 'set -o pipefail; just os2vm 2>&1 | tee "/home/jenning/open-nexus-OS/.cursor/test-dsoftbus-2vm.output.log"; rc=${PIPESTATUS[0]}; RC="$rc" python -c '\''import json,os,time,pathlib; p=pathlib.Path("/home/jenning/open-nexus-OS/.cursor/test-dsoftbus-2vm.output.log"); lines=p.read_text(encoding="utf-8",errors="ignore").splitlines() if p.exists() else []; warns=[ln.strip() for ln in lines if ("warning:" in ln.lower() or "[warn" in ln.lower())]; dbg="/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log"; open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H8","location":"justfile:test-dsoftbus-2vm:warning-scan","message":"captured warning lines","data":{"target":"test-dsoftbus-2vm","warningCount":len(warns),"warningSample":warns[:8],"exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n"); open(dbg,"a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H4","location":"justfile:test-dsoftbus-2vm:end","message":"target completed","data":{"target":"test-dsoftbus-2vm","exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n")'\''; exit $rc'
-
+# `test-dsoftbus-2vm` removed in TASK-0023B P4-10; use `just ci-os-os2vm`.
+# The PCAP variant is preserved for diagnostic captures (Wireshark workflows).
 test-dsoftbus-2vm-pcap:
     just os2vm-pcap
 
@@ -163,14 +214,8 @@ test-dsoftbus-host:
     python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:end","message":"target completed","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)})+"\n")'
     # #endregion
 
-test-network:
-    # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-ad620f.log","a",encoding="utf-8").write(json.dumps({"sessionId":"ad620f","runId":"pre-fix","hypothesisId":"H1","location":"justfile:test-network:start","message":"start network aggregate","data":{"target":"test-network","targets":["test-os-dhcp","test-os-dhcp-strict","test-dsoftbus-mux","test-dsoftbus-quic","test-dsoftbus-host","test-dsoftbus-2vm"]},"timestamp":int(time.time()*1000)})+"\n")'
-    # #endregion
-    bash -lc 'set -euo pipefail; targets=("test-os-dhcp" "test-os-dhcp-strict" "test-dsoftbus-mux" "test-dsoftbus-quic" "test-dsoftbus-host" "test-dsoftbus-2vm"); for target in "${targets[@]}"; do out="/home/jenning/open-nexus-OS/.cursor/${target}.output.log"; just "$target" 2>&1 | tee "$out"; rc=${PIPESTATUS[0]}; TARGET="$target" OUT="$out" RC="$rc" python -c '\''import json,os,time,pathlib; target=os.environ["TARGET"]; out=pathlib.Path(os.environ["OUT"]); lines=out.read_text(encoding="utf-8",errors="ignore").splitlines() if out.exists() else []; warns=[ln.strip() for ln in lines if ("warning:" in ln.lower() or "[warn" in ln.lower())]; hypo={"test-os-dhcp":"H2","test-os-dhcp-strict":"H2","test-dsoftbus-mux":"H4","test-dsoftbus-quic":"H4","test-dsoftbus-host":"H4","test-dsoftbus-2vm":"H3"}.get(target,"H1"); open("/home/jenning/open-nexus-OS/.cursor/debug-ad620f.log","a",encoding="utf-8").write(json.dumps({"sessionId":"ad620f","runId":"pre-fix","hypothesisId":hypo,"location":"justfile:test-network:warning-scan","message":"target finished with warning scan","data":{"target":target,"warningCount":len(warns),"warningSample":warns[:12],"exitCode":int(os.environ["RC"])},"timestamp":int(time.time()*1000)})+"\n")'\''; if [[ "$rc" -ne 0 ]]; then exit "$rc"; fi; done'
-    # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-ad620f.log","a",encoding="utf-8").write(json.dumps({"sessionId":"ad620f","runId":"pre-fix","hypothesisId":"H1","location":"justfile:test-network:end","message":"network aggregate completed","data":{"target":"test-network"},"timestamp":int(time.time()*1000)})+"\n")'
-    # #endregion
+# `test-network` removed in TASK-0023B P4-10; use `just ci-network` for the
+# PROFILE-driven aggregate matrix (dhcp + quic-required + os2vm).
 
 # -----------------------------------------------------------------------------
 # Host test suites
@@ -231,7 +276,7 @@ test-all:
     just miri-fs
     just arch-check
     just build-kernel
-    just test-smp
+    just ci-os-smp
     # #region agent log
     python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-ad620f.log","a",encoding="utf-8").write(json.dumps({"sessionId":"ad620f","runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:end","message":"aggregate gate completed","data":{"target":"test-all"},"timestamp":int(time.time()*1000)})+"\n")'
     # #endregion

@@ -307,12 +307,12 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     let magic = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
     let device_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x008) as *const u32) };
     if magic != VIRTIO_MMIO_MAGIC || device_id != VIRTIO_DEVICE_ID_NET {
-        emit_line("SELFTEST: smoltcp no virtio-net");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_NO_VIRTIO_NET);
         return Err(());
     }
     let dev = VirtioNetMmio::new(MmioBus { base: MMIO_VA });
     if dev.probe().is_err() {
-        emit_line("SELFTEST: smoltcp probe FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_PROBE_FAIL);
         return Err(());
     }
     // Do NOT reset/re-negotiate here: mmio_map_probe already brought the device up, and
@@ -344,7 +344,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     let q_vmo = match nexus_abi::vmo_create(TOTAL_Q_PAGES * 4096) {
         Ok(v) => v,
         Err(_) => {
-            emit_line("SELFTEST: smoltcp qvmo FAIL");
+            emit_line(crate::markers::M_SELFTEST_SMOLTCP_QVMO_FAIL);
             return Err(());
         }
     };
@@ -356,13 +356,13 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         let va = QUEUE_VA + page * 4096;
         let off = page * 4096;
         if nexus_abi::vmo_map_page(q_vmo, va, off, flags).is_err() {
-            emit_line("SELFTEST: smoltcp qmap FAIL");
+            emit_line(crate::markers::M_SELFTEST_SMOLTCP_QMAP_FAIL);
             return Err(());
         }
     }
     let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(q_vmo, &mut q_info).is_err() {
-        emit_line("SELFTEST: smoltcp qquery FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_QQUERY_FAIL);
         return Err(());
     }
     let q_base_pa = q_info.base;
@@ -394,7 +394,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         )
         .is_err()
     {
-        emit_line("SELFTEST: smoltcp q0 FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_Q0_FAIL);
         return Err(());
     }
     if dev
@@ -409,7 +409,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         )
         .is_err()
     {
-        emit_line("SELFTEST: smoltcp q1 FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_Q1_FAIL);
         return Err(());
     }
 
@@ -417,7 +417,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     let buf_vmo = match nexus_abi::vmo_create((N * 2) * 4096) {
         Ok(v) => v,
         Err(_) => {
-            emit_line("SELFTEST: smoltcp bvmo FAIL");
+            emit_line(crate::markers::M_SELFTEST_SMOLTCP_BVMO_FAIL);
             return Err(());
         }
     };
@@ -425,13 +425,13 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         let va = BUF_VA + page * 4096;
         let off = page * 4096;
         if nexus_abi::vmo_map_page(buf_vmo, va, off, flags).is_err() {
-            emit_line("SELFTEST: smoltcp bmap FAIL");
+            emit_line(crate::markers::M_SELFTEST_SMOLTCP_BMAP_FAIL);
             return Err(());
         }
     }
     let mut bq = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(buf_vmo, &mut bq).is_err() {
-        emit_line("SELFTEST: smoltcp bquery FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_BQUERY_FAIL);
         return Err(());
     }
 
@@ -477,7 +477,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     });
     // Route to the QEMU usernet gateway.
     if iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2)).is_err() {
-        emit_line("SELFTEST: smoltcp route FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_ROUTE_FAIL);
         return Err(());
     }
 
@@ -488,7 +488,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     let tx_buf = smoltcp::socket::icmp::PacketBuffer::new(tx_meta, vec![0u8; 256]);
     let mut icmp = smoltcp::socket::icmp::Socket::new(rx_buf, tx_buf);
     if icmp.bind(smoltcp::socket::icmp::Endpoint::Ident(0x1234)).is_err() {
-        emit_line("SELFTEST: smoltcp bind FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_BIND_FAIL);
         return Err(());
     }
     let mut sockets = smoltcp::iface::SocketSet::new(vec![]);
@@ -530,9 +530,9 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         let _ = yield_();
     }
     if send_err {
-        emit_line("SELFTEST: smoltcp send FAIL");
+        emit_line(crate::markers::M_SELFTEST_SMOLTCP_SEND_FAIL);
     }
-    emit_bytes(b"SELFTEST: smoltcp diag rx=");
+    emit_bytes(crate::markers::M_SELFTEST_SMOLTCP_DIAG_RX.as_bytes());
     emit_u64(q.rx_packets as u64);
     emit_bytes(b" tx=");
     emit_u64(q.tx_packets as u64);

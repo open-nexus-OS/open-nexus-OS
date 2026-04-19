@@ -170,10 +170,10 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - DSoftBus mux requirement suites (`TASK-0020`): `just test-dsoftbus-mux`
 - DSoftBus QUIC host requirement suites (`TASK-0021`): `just test-dsoftbus-quic`
 - DSoftBus full host regression: `just test-dsoftbus-host`
-- QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
-- QEMU smoke (DHCP requested): `just test-os-dhcp`
-- QEMU smoke (Strict DHCP gate): `just test-os-dhcp-strict`
-- DSoftBus 2-VM harness (TASK-0005): `just test-dsoftbus-2vm` (or `just os2vm`)
+- QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
+- QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
+- QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)
+- DSoftBus 2-VM harness (TASK-0005): `just ci-os-os2vm` (PROFILE-driven; or `just os2vm` for the raw 2-VM driver)
 - Crashdump v1 host proofs (TASK-0018):
   - `cargo test -p crash -- --nocapture`
   - `cargo test -p execd -- --nocapture`
@@ -186,6 +186,58 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - Make convenience wrapper: `make verify`
   - Delegates to `just` gates (`diag-host`, `test-host`, `test-e2e`, `dep-gate`, `diag-os`, `test-os`).
   - Optional SMP dual-mode extension: `REQUIRE_SMP_VERIFY=1 make verify`.
+
+### Manifest-driven workflow (TASK-0023B Phase 4)
+
+The QEMU marker ladder, harness profile catalog, and runtime selftest profile catalog all live in **`source/apps/selftest-client/proof-manifest.toml`**. This file is the single source of truth (SSOT). `scripts/qemu-test.sh`, `tools/os2vm.sh`, the `selftest-client` build, and the `nexus-proof-manifest` host CLI all read from it; nothing else is allowed to declare markers, profile env, or phase order.
+
+**Profile catalog**
+
+| Kind     | Profile         | Driver                          | Purpose |
+|---       |---              |---                              |---|
+| Harness  | `full`          | `scripts/qemu-test.sh`          | Default 12-phase ladder (`just test-os` / `just ci-os-full`). |
+| Harness  | `smp`           | `scripts/qemu-test.sh`          | SMP-only marker contract; consumed by `just ci-os-smp` (SMP=2 strict + SMP=1 parity). |
+| Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
+| Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |
+| Harness  | `quic-required` | `scripts/qemu-test.sh`          | QUIC required; `transport selected tcp` is forbidden (`just ci-os-quic`). |
+| Harness  | `os2vm`         | `tools/os2vm.sh`                | Cross-VM DSoftBus harness (`just ci-os-os2vm`). |
+| Runtime  | `bringup`       | `os_lite::profile` (in-OS)      | Boots `bringup` + `end` phases only (`SELFTEST_PROFILE=bringup`). |
+| Runtime  | `quick`         | `os_lite::profile` (in-OS)      | `bringup` → `ipc_kernel` → `mmio` → `end`. |
+| Runtime  | `ota`           | `os_lite::profile` (in-OS)      | `bringup` → `ipc_kernel` → `ota` → `end`. |
+| Runtime  | `net`           | `os_lite::profile` (in-OS)      | `bringup` → `ipc_kernel` → `mmio` → `routing` → `net` → `end`. |
+| Runtime  | `none`          | `os_lite::profile` (in-OS)      | `bringup` + `end` only — empty middle. |
+
+Harness profiles live under `[profile.<name>]` with `runner` + optional `extends` + `env` keys. Runtime profiles set `runtime_only = true` and declare `phases = [...]` (subset of the 12 declared `[phase.X]` entries); skipped phases emit a single `dbg: phase X skipped` breadcrumb instead of any `SELFTEST:` markers.
+
+**Adding a new marker**
+
+1. Append a `[marker."<literal>"]` entry to `proof-manifest.toml` with `phase = "<name>"` and any `emit_when = { profile = "..." }` / `forbidden_when = { profile = "..." }` gates.
+2. Re-run `cargo build -p selftest-client` (the `build.rs` regenerates `markers_generated.rs` with a `pub(crate) const M_<KEY>: &str = "<literal>";` constant).
+3. In the emitting site, reference the constant: `crate::markers::emit_line(crate::markers::M_<KEY>);`. Do not hand-write the literal — `arch-gate` Rule 3 fails the build if any `SELFTEST:` / `dsoftbusd:` / `dsoftbus:` literal appears outside `markers.rs` + `markers_generated.rs`.
+4. Add a `cargo test -p nexus-proof-manifest` reject test if the marker carries new gating semantics.
+
+**Adding a new harness profile**
+
+1. Append `[profile.<name>]` with `runner = "scripts/qemu-test.sh"` (or your driver), optional `extends = "<parent>"`, and `env = { ... }`. Use `extends` for inheritance — child entries shadow parent keys; cycles are rejected at parse time.
+2. Add a `just ci-<flavor>` recipe in the `# CI matrix` section of `justfile` that invokes `just test-os PROFILE=<name>` (or your alternate runner). Do **not** put `REQUIRE_*` env literals in the recipe body — `arch-gate` Rule 6 will fail. All env wiring belongs in the manifest.
+3. Verify: `nexus-proof-manifest list-env --profile=<name>` prints the resolved env; `nexus-proof-manifest list-markers --profile=<name>` prints the expected marker ladder.
+
+**Adding a new runtime profile**
+
+1. Append `[profile.<name>]` with `runtime_only = true` and `phases = ["...", "..."]` (subset of declared phases). The parser rejects unknown phase names and rejects `runner` keys on runtime-only profiles.
+2. Add a `Profile::<Name>` variant to `source/apps/selftest-client/src/os_lite/profile.rs` and wire it into `Profile::from_kernel_cmdline_or_default` + `Profile::includes`.
+3. Add a `ci-os-runtime-<name>` recipe that sets `SELFTEST_PROFILE=<name>` at build time (the env is read via `option_env!`, so the value is baked into the binary; `build.rs` already advertises `cargo:rerun-if-env-changed=SELFTEST_PROFILE`).
+
+**Adding a new phase**
+
+1. Update [RFC-0014](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) and append a `[phase.<name>] order = N` entry to `proof-manifest.toml`.
+2. Add `source/apps/selftest-client/src/os_lite/phases/<name>.rs` and register it in `os_lite/phases/mod.rs`.
+3. Extend `PhaseId` in `os_lite/profile.rs` and the `run_or_skip!` chain in `os_lite/mod.rs` (declarative; no logic).
+4. Add a `dbg: phase <name> skipped` marker entry to `proof-manifest.toml` so runtime profiles can declaratively skip the phase.
+
+**Deny-by-default analyzer (P4-09)**
+
+After every QEMU pass `scripts/qemu-test.sh` invokes `nexus-proof-manifest verify-uart --profile=<name> --uart=uart.log`. Any marker that is not in the profile's expected set, or that the profile lists as forbidden, fails the run with exit 1. Set `PM_VERIFY_UART=0` only as a temporary escape hatch (will be required by P4-10 closure / Phase-5).
 
 ### Phase-gated QEMU smoke (triage helper)
 

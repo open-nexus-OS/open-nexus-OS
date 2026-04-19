@@ -23,53 +23,53 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // Kernel IPC v1 payload copy roundtrip (RFC-0005):
     // send payload via `SYSCALL_IPC_SEND_V1`, then recv it back via `SYSCALL_IPC_RECV_V1`.
     if probes::ipc_kernel::ipc_payload_roundtrip().is_ok() {
-        emit_line("SELFTEST: ipc payload roundtrip ok");
+        emit_line(crate::markers::M_SELFTEST_IPC_PAYLOAD_ROUNDTRIP_OK);
     } else {
-        emit_line("SELFTEST: ipc payload roundtrip FAIL");
+        emit_line(crate::markers::M_SELFTEST_IPC_PAYLOAD_ROUNDTRIP_FAIL);
     }
 
     // Kernel IPC v1 deadline semantics (RFC-0005): a past deadline should time out immediately.
     if probes::ipc_kernel::ipc_deadline_timeout_probe().is_ok() {
-        emit_line("SELFTEST: ipc deadline timeout ok");
+        emit_line(crate::markers::M_SELFTEST_IPC_DEADLINE_TIMEOUT_OK);
     } else {
-        emit_line("SELFTEST: ipc deadline timeout FAIL");
+        emit_line(crate::markers::M_SELFTEST_IPC_DEADLINE_TIMEOUT_FAIL);
     }
 
     // Exercise `nexus-ipc` kernel backend (NOT service routing) deterministically:
     // send to bootstrap endpoint and receive our own message back.
     if probes::ipc_kernel::nexus_ipc_kernel_loopback_probe().is_ok() {
-        emit_line("SELFTEST: nexus-ipc kernel loopback ok");
+        emit_line(crate::markers::M_SELFTEST_NEXUS_IPC_KERNEL_LOOPBACK_OK);
     } else {
-        emit_line("SELFTEST: nexus-ipc kernel loopback FAIL");
+        emit_line(crate::markers::M_SELFTEST_NEXUS_IPC_KERNEL_LOOPBACK_FAIL);
     }
 
     // IPC v1 capability move (CAP_MOVE): request/reply without pre-shared reply endpoints.
     if probes::ipc_kernel::cap_move_reply_probe().is_ok() {
-        emit_line("SELFTEST: ipc cap move reply ok");
+        emit_line(crate::markers::M_SELFTEST_IPC_CAP_MOVE_REPLY_OK);
     } else {
-        emit_line("SELFTEST: ipc cap move reply FAIL");
+        emit_line(crate::markers::M_SELFTEST_IPC_CAP_MOVE_REPLY_FAIL);
     }
 
     // IPC sender attribution: kernel writes sender pid into MsgHeader.dst on receive.
     if probes::ipc_kernel::sender_pid_probe().is_ok() {
-        emit_line("SELFTEST: ipc sender pid ok");
+        emit_line(crate::markers::M_SELFTEST_IPC_SENDER_PID_OK);
     } else {
-        emit_line("SELFTEST: ipc sender pid FAIL");
+        emit_line(crate::markers::M_SELFTEST_IPC_SENDER_PID_FAIL);
     }
 
     // IPC sender identity binding: kernel returns sender service_id via ipc_recv_v2 metadata.
     if probes::ipc_kernel::sender_service_id_probe().is_ok() {
-        emit_line("SELFTEST: ipc sender service_id ok");
+        emit_line(crate::markers::M_SELFTEST_IPC_SENDER_SERVICE_ID_OK);
     } else {
-        emit_line("SELFTEST: ipc sender service_id FAIL");
+        emit_line(crate::markers::M_SELFTEST_IPC_SENDER_SERVICE_ID_FAIL);
     }
 
     // IPC production-grade smoke: deterministic soak of mixed operations.
     // Keep this strictly bounded and allocation-light (avoid kernel heap exhaustion).
     if probes::ipc_kernel::ipc_soak_probe().is_ok() {
-        emit_line("SELFTEST: ipc soak ok");
+        emit_line(crate::markers::M_SELFTEST_IPC_SOAK_OK);
     } else {
-        emit_line("SELFTEST: ipc soak FAIL");
+        emit_line(crate::markers::M_SELFTEST_IPC_SOAK_FAIL);
     }
 
     Ok(())

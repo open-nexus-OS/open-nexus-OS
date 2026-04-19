@@ -10,6 +10,123 @@ QEMU_LOG=${QEMU_LOG:-"$ROOT/qemu.log"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
+
+# ---------------------------------------------------------------------------
+# TASK-0023B P4-05: harness profile dispatch.
+#
+# `--profile=<name>` reads `[profile.<name>]` from
+# `source/apps/selftest-client/proof-manifest.toml` via the host CLI
+# (`nexus-proof-manifest list-env --profile=<name>`) and forwards the
+# resolved env dictionary to the rest of this script. Bash arrays
+# (`expected_sequence`, `PHASES`, `PHASE_START_MARKER`) currently mirror
+# the manifest; a mirror-check (`pm_mirror_check`) fails fast on drift.
+# Full array-purge migration lands incrementally in P4-06+.
+# ---------------------------------------------------------------------------
+PROFILE=""
+PM_CLI_DEFAULT="$ROOT/target/debug/nexus-proof-manifest"
+NEXUS_PROOF_MANIFEST_BIN=${NEXUS_PROOF_MANIFEST_BIN:-}
+NEXUS_PROOF_MANIFEST_PATH=${NEXUS_PROOF_MANIFEST_PATH:-"$ROOT/source/apps/selftest-client/proof-manifest.toml"}
+PM_MIRROR_CHECK=${PM_MIRROR_CHECK:-1}
+
+# Pre-scan argv for `--profile=<name>`; preserve the rest for downstream
+# parsers (RUN_PHASE etc still come from env per legacy contract).
+new_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --profile=*) PROFILE="${arg#--profile=}" ;;
+    *) new_args+=("$arg") ;;
+  esac
+done
+if [[ ${#new_args[@]} -gt 0 ]]; then
+  set -- "${new_args[@]}"
+else
+  set --
+fi
+
+# Resolve the CLI binary lazily (build on first invocation if missing).
+pm_cli() {
+  if [[ -n "$NEXUS_PROOF_MANIFEST_BIN" && -x "$NEXUS_PROOF_MANIFEST_BIN" ]]; then
+    echo "$NEXUS_PROOF_MANIFEST_BIN"
+    return 0
+  fi
+  if [[ -x "$PM_CLI_DEFAULT" ]]; then
+    echo "$PM_CLI_DEFAULT"
+    return 0
+  fi
+  # Try cargo-target candidates produced by sandboxed builds.
+  for cand in \
+    "$ROOT/target/debug/nexus-proof-manifest" \
+    /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
+    if [[ -x "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  echo "[info] building nexus-proof-manifest CLI..." >&2
+  (cd "$ROOT" && cargo build -p nexus-proof-manifest --bin nexus-proof-manifest --quiet) 1>&2
+  for cand in \
+    "$ROOT/target/debug/nexus-proof-manifest" \
+    /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
+    if [[ -x "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  echo "[error] could not locate nexus-proof-manifest binary" >&2
+  return 1
+}
+
+# Source env from the manifest profile chain (extends-aware).
+pm_apply_profile_env() {
+  local profile=$1
+  local cli
+  cli=$(pm_cli) || return 1
+  local env_lines
+  if ! env_lines=$("$cli" list-env --profile="$profile" --manifest="$NEXUS_PROOF_MANIFEST_PATH" 2>&1); then
+    echo "[error] proof-manifest list-env failed for profile '$profile':" >&2
+    echo "$env_lines" >&2
+    return 1
+  fi
+  while IFS='=' read -r k v; do
+    [[ -z "$k" ]] && continue
+    # Strip surrounding single-quotes added by `shell_quote`.
+    if [[ "$v" == \'*\' ]]; then
+      v="${v#\'}"
+      v="${v%\'}"
+    fi
+    export "$k=$v"
+    echo "[info] proof-manifest($profile): $k=$v" >&2
+  done <<< "$env_lines"
+}
+
+# Mirror-check: confirm the in-script `expected_sequence` array (declared
+# below for the `full` profile) matches the manifest's expected-marker
+# projection for the same profile. Drift = hard fail.
+pm_mirror_check() {
+  local profile=${1:-full}
+  [[ "$PM_MIRROR_CHECK" != "1" ]] && return 0
+  local cli
+  cli=$(pm_cli) || return 1
+  local manifest_seq
+  manifest_seq=$("$cli" list-markers --profile="$profile" --manifest="$NEXUS_PROOF_MANIFEST_PATH") || return 1
+  local script_seq
+  script_seq=$(printf '%s\n' "${expected_sequence[@]}")
+  # Manifest is a superset (it also tracks diagnostic / FAIL markers that
+  # qemu-test.sh does not gate on). Drift check: every script-side marker
+  # MUST appear in the manifest's `full` projection.
+  local missing
+  missing=$(comm -23 <(printf '%s\n' "$script_seq" | sort -u) <(printf '%s\n' "$manifest_seq" | sort -u))
+  if [[ -n "$missing" ]]; then
+    echo "[error] proof-manifest mirror-check: in-script expected_sequence has markers absent from manifest profile=$profile:" >&2
+    printf '         %s\n' $missing >&2
+    return 1
+  fi
+}
+
+if [[ -n "$PROFILE" ]]; then
+  pm_apply_profile_env "$PROFILE" || exit 1
+fi
+
 REQUIRE_SMP=${REQUIRE_SMP:-0}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
@@ -320,6 +437,12 @@ expected_sequence=(
   "SELFTEST: vfs ebadf ok"
   "SELFTEST: end"
 )
+
+# TASK-0023B P4-05: drift gate. The in-script `expected_sequence` above
+# is a curated subset of the manifest's `full` projection; if a marker
+# the script gates on disappears from (or is renamed in) the manifest,
+# we want to know NOW, not after a fleet failure.
+pm_mirror_check full || exit 1
 
 if [[ "$REQUIRE_SMP" == "1" ]]; then
   if [[ "${SMP:-1}" -lt 2 ]]; then
@@ -984,4 +1107,31 @@ trim_log "$UART_LOG" "$UART_LOG_MAX"
 if [[ "$qemu_status" -ne 0 && "$RUN_UNTIL_MARKER" != "1" ]]; then
   echo "[warn] QEMU exited with status $qemu_status" >&2
 fi
+
+# TASK-0023B P4-09: deny-by-default analyzer post-pass.
+# Profile MUST be set (defaults to `full` if --profile= was not given);
+# any UART marker that the manifest does not expect for the profile, or
+# that the profile lists as forbidden, fails this script. Skip if the
+# CLI is unavailable (e.g. minimal sandboxed bring-up that hasn't built
+# nexus-proof-manifest yet) — non-strict by env opt-out for now; will
+# become hard-required in P4-10.
+PM_VERIFY_UART=${PM_VERIFY_UART:-1}
+if [[ "$PM_VERIFY_UART" == "1" ]]; then
+  PM_PROFILE_FOR_VERIFY=${PROFILE:-full}
+  cli=$(pm_cli 2>/dev/null || true)
+  if [[ -n "$cli" && -x "$cli" && -f "$UART_LOG" ]]; then
+    if "$cli" verify-uart \
+        --profile="$PM_PROFILE_FOR_VERIFY" \
+        --manifest="$NEXUS_PROOF_MANIFEST_PATH" \
+        --uart="$UART_LOG"; then
+      echo "[info] verify-uart: profile=$PM_PROFILE_FOR_VERIFY clean" >&2
+    else
+      echo "[error] verify-uart failed for profile=$PM_PROFILE_FOR_VERIFY" >&2
+      exit 1
+    fi
+  else
+    echo "[warn] verify-uart skipped (CLI not available); set PM_VERIFY_UART=0 to silence" >&2
+  fi
+fi
+
 echo "QEMU selftest completed (markers verified)." >&2

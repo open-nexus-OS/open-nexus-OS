@@ -6,35 +6,11 @@
 # Each section is consumed by scripts/check-selftest-arch.sh.
 # All paths are relative to source/apps/selftest-client/src/.
 #
-# Phase 4 (manifest-driven markers) shrinks [marker_emission] to empty (rule 3
-# then tightens to: only `markers_generated.rs` + `markers.rs`).
-
-[marker_emission]
-# Phase-2 baseline: capability and probe files that emit `SELFTEST: …`,
-# `dsoftbusd: …`, or `dsoftbus: …` literals directly. Phase 4 replaces these
-# literals with constants generated from `proof-manifest.toml`; at that point
-# this section shrinks to zero entries.
-#
-# `host_lite.rs` is the host-pfad symmetric counterpart to `os_lite::run` and
-# emits the host-slice markers via `println!` (QEMU UART is not reachable from
-# the host build). Phase 4 manifest work covers both host and OS emissions.
-host_lite.rs
-os_lite/dsoftbus/quic_os.rs
-os_lite/dsoftbus/remote/pkgfs.rs
-os_lite/mmio.rs
-os_lite/net/smoltcp_probe.rs
-os_lite/probes/device_key.rs
-os_lite/probes/rng.rs
-os_lite/services/bootctl.rs
-os_lite/services/bundlemgrd.rs
-os_lite/services/execd.rs
-os_lite/services/keystored.rs
-os_lite/services/logd.rs
-os_lite/services/samgrd.rs
-os_lite/services/statefs.rs
-os_lite/updated/reply_pump.rs
-os_lite/updated/stage.rs
-os_lite/vfs.rs
+# Cut P4-04 emptied the [marker_emission] allowlist when emit sites migrated
+# to `crate::markers::M_<KEY>` constants generated from `proof-manifest.toml`.
+# Rule 3 in `scripts/check-selftest-arch.sh` is now allowlist-free: the only
+# files that may carry marker literals are `markers.rs` and
+# `markers_generated.rs` (the latter produced by `build.rs`).
 
 [mod_rs_fn]
 # `os_lite/mod.rs` hosts the dispatch `pub fn run()` which is the OS entry
@@ -51,3 +27,11 @@ os_lite/mod.rs
 # Kept under selftest-client for bisect convenience; tracked for Phase 4
 # cleanup if it survives the manifest migration.
 os_lite/net/smoltcp_probe.rs
+
+[justfile_require_env]
+# TASK-0023B P4-10 — Rule 6 escape hatch.
+# Each entry is a `just` recipe name (no leading colon) that is permitted
+# to mention REQUIRE_* literals in its body. Currently empty: the canonical
+# `ci-os-*` recipes consume REQUIRE_* via `nexus-proof-manifest list-env
+# --profile=<name>` (the manifest is the SSOT). New entries here MUST come
+# with a comment explaining why the recipe cannot use a manifest profile.

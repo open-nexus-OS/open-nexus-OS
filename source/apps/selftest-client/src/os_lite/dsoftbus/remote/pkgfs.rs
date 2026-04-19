@@ -157,12 +157,12 @@ pub(crate) fn dsoftbusd_remote_pkgfs_read_once(
     if kind != 0 {
         return Err(());
     }
-    emit_line("SELFTEST: remote pkgfs stat ok");
+    emit_line(crate::markers::M_SELFTEST_REMOTE_PKGFS_STAT_OK);
     let handle = match dsoftbusd_remote_pkgfs_open(path) {
         Ok(v) => v,
         Err(()) => return Err(()),
     };
-    emit_line("SELFTEST: remote pkgfs open ok");
+    emit_line(crate::markers::M_SELFTEST_REMOTE_PKGFS_OPEN_OK);
     let read_bytes = match dsoftbusd_remote_pkgfs_read(handle, 0, read_len) {
         Ok(v) => v,
         Err(()) => {
@@ -174,10 +174,10 @@ pub(crate) fn dsoftbusd_remote_pkgfs_read_once(
         let _ = dsoftbusd_remote_pkgfs_close(handle);
         return Err(());
     }
-    emit_line("SELFTEST: remote pkgfs read step ok");
+    emit_line(crate::markers::M_SELFTEST_REMOTE_PKGFS_READ_STEP_OK);
     if dsoftbusd_remote_pkgfs_close(handle).is_err() {
         return Err(());
     }
-    emit_line("SELFTEST: remote pkgfs close ok");
+    emit_line(crate::markers::M_SELFTEST_REMOTE_PKGFS_CLOSE_OK);
     Ok(read_bytes)
 }

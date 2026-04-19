@@ -35,9 +35,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // is required (REQUIRE_QEMU_DHCP=1) based on the `net: dhcp bound` marker.
     if !ctx.os2vm {
         if net::icmp_ping::icmp_ping_probe().is_ok() {
-            emit_line("SELFTEST: icmp ping ok");
+            emit_line(crate::markers::M_SELFTEST_ICMP_PING_OK);
         } else {
-            emit_line("SELFTEST: icmp ping FAIL");
+            emit_line(crate::markers::M_SELFTEST_ICMP_PING_FAIL);
         }
     }
 
@@ -46,11 +46,11 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // so skip this local-only probe to avoid false FAIL markers and long waits.
     if !ctx.os2vm {
         if dsoftbus::quic_os::dsoftbus_os_transport_probe().is_ok() {
-            emit_line("SELFTEST: dsoftbus os connect ok");
-            emit_line("SELFTEST: dsoftbus ping ok");
+            emit_line(crate::markers::M_SELFTEST_DSOFTBUS_OS_CONNECT_OK);
+            emit_line(crate::markers::M_SELFTEST_DSOFTBUS_PING_OK);
         } else {
-            emit_line("SELFTEST: dsoftbus os connect FAIL");
-            emit_line("SELFTEST: dsoftbus ping FAIL");
+            emit_line(crate::markers::M_SELFTEST_DSOFTBUS_OS_CONNECT_FAIL);
+            emit_line(crate::markers::M_SELFTEST_DSOFTBUS_PING_FAIL);
         }
     }
 

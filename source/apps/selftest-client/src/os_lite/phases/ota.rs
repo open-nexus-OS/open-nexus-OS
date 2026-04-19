@@ -112,9 +112,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     )
     .is_ok()
     {
-        emit_line("SELFTEST: ota stage ok");
+        emit_line(crate::markers::M_SELFTEST_OTA_STAGE_OK);
     } else {
-        emit_line("SELFTEST: ota stage FAIL");
+        emit_line(crate::markers::M_SELFTEST_OTA_STAGE_FAIL);
     }
     if updated::updated_switch(
         &updated,
@@ -125,19 +125,19 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     )
     .is_ok()
     {
-        emit_line("SELFTEST: ota switch ok");
+        emit_line(crate::markers::M_SELFTEST_OTA_SWITCH_OK);
     } else {
-        emit_line("SELFTEST: ota switch FAIL");
+        emit_line(crate::markers::M_SELFTEST_OTA_SWITCH_FAIL);
     }
     if services::bundlemgrd::bundlemgrd_v1_fetch_image_slot(&bundlemgrd, Some(b'b')).is_ok() {
-        emit_line("SELFTEST: ota publish b ok");
+        emit_line(crate::markers::M_SELFTEST_OTA_PUBLISH_B_OK);
     } else {
-        emit_line("SELFTEST: ota publish b FAIL");
+        emit_line(crate::markers::M_SELFTEST_OTA_PUBLISH_B_FAIL);
     }
     if updated::init_health_ok().is_ok() {
-        emit_line("SELFTEST: ota health ok");
+        emit_line(crate::markers::M_SELFTEST_OTA_HEALTH_OK);
     } else {
-        emit_line("SELFTEST: ota health FAIL");
+        emit_line(crate::markers::M_SELFTEST_OTA_HEALTH_FAIL);
     }
     // Second cycle to force rollback (tries_left=1).
     if updated::updated_stage(
@@ -174,22 +174,22 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             );
             match (expected_rollback, got) {
                 (Some(expected), Ok(Some(slot))) if slot == expected => {
-                    emit_line("SELFTEST: ota rollback ok")
+                    emit_line(crate::markers::M_SELFTEST_OTA_ROLLBACK_OK)
                 }
-                (None, Ok(Some(_slot))) => emit_line("SELFTEST: ota rollback ok"),
-                _ => emit_line("SELFTEST: ota rollback FAIL"),
+                (None, Ok(Some(_slot))) => emit_line(crate::markers::M_SELFTEST_OTA_ROLLBACK_OK),
+                _ => emit_line(crate::markers::M_SELFTEST_OTA_ROLLBACK_FAIL),
             }
         } else {
-            emit_line("SELFTEST: ota rollback FAIL");
+            emit_line(crate::markers::M_SELFTEST_OTA_ROLLBACK_FAIL);
         }
     } else {
-        emit_line("SELFTEST: ota rollback FAIL");
+        emit_line(crate::markers::M_SELFTEST_OTA_ROLLBACK_FAIL);
     }
 
     if services::bootctl::bootctl_persist_check().is_ok() {
-        emit_line("SELFTEST: bootctl persist ok");
+        emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_OK);
     } else {
-        emit_line("SELFTEST: bootctl persist FAIL");
+        emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_FAIL);
     }
 
     let _ = (bundlemgrd, updated);

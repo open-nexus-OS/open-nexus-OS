@@ -22,7 +22,7 @@ use crate::markers::{emit_byte, emit_bytes, emit_line};
 pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<(u8, u16), ()> {
     let mut req = [0u8; 4];
     nexus_abi::bundlemgrd::encode_list(&mut req);
-    emit_line("SELFTEST: bundlemgrd list send");
+    emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SEND);
     let mut sent = false;
     let mut logged_send_err = false;
     for _ in 0..256 {
@@ -33,7 +33,7 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
             }
             Err(err) => {
                 if !logged_send_err {
-                    emit_bytes(b"SELFTEST: bundlemgrd list send err ");
+                    emit_bytes(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SEND_ERR.as_bytes());
                     match err {
                         nexus_ipc::IpcError::NoSpace => emit_bytes(b"nospace"),
                         nexus_ipc::IpcError::WouldBlock => emit_bytes(b"wouldblock"),
@@ -62,16 +62,16 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
         let _ = yield_();
     }
     if !sent {
-        emit_line("SELFTEST: bundlemgrd list send fail");
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SEND_FAIL);
         return Err(());
     }
-    emit_line("SELFTEST: bundlemgrd list sent");
-    emit_line("SELFTEST: bundlemgrd list recv");
+    emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SENT);
+    emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_RECV);
     for _ in 0..512 {
         match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(10))) {
             Ok(rsp) => {
                 if let Some(decoded) = nexus_abi::bundlemgrd::decode_list_rsp(&rsp) {
-                    emit_line("SELFTEST: bundlemgrd list recv ok");
+                    emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_RECV_OK);
                     return Ok(decoded);
                 }
                 let _ = yield_();
@@ -80,7 +80,7 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
                 let _ = yield_();
             }
             Err(err) => {
-                emit_bytes(b"SELFTEST: bundlemgrd list recv err ");
+                emit_bytes(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_RECV_ERR.as_bytes());
                 match err {
                     nexus_ipc::IpcError::NoSpace => emit_bytes(b"nospace"),
                     nexus_ipc::IpcError::Disconnected => emit_bytes(b"disconnected"),

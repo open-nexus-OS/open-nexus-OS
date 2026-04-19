@@ -38,15 +38,15 @@ pub(crate) fn rng_entropy_selftest() {
     let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
         Ok(c) => c,
         Err(_) => {
-            emit_line("SELFTEST: rng entropy FAIL (no slots)");
+            emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_FAIL_NO_SLOTS);
             return;
         }
     };
 
     let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
-    emit_line("SELFTEST: rng entropy send");
+    emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_SEND);
     if client.send(&req, wait).is_err() {
-        emit_line("SELFTEST: rng entropy FAIL (send)");
+        emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_FAIL_SEND);
         return;
     }
 
@@ -58,7 +58,7 @@ pub(crate) fn rng_entropy_selftest() {
     loop {
         let now = nexus_abi::nsec().unwrap_or(0);
         if now >= deadline || spins >= MAX_SPINS {
-            emit_line("SELFTEST: rng entropy FAIL (recv)");
+            emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_FAIL_RECV);
             return;
         }
         match client.recv(IpcWait::NonBlocking) {
@@ -69,11 +69,11 @@ pub(crate) fn rng_entropy_selftest() {
                     continue;
                 }
                 if rsp[3] != (1 | 0x80) {
-                    emit_line("SELFTEST: rng entropy FAIL (wrong op)");
+                    emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_FAIL_WRONG_OP);
                     return;
                 }
                 if rsp[4] != 0 {
-                    emit_bytes(b"SELFTEST: rng entropy FAIL (status=");
+                    emit_bytes(crate::markers::M_SELFTEST_RNG_ENTROPY_FAIL_STATUS.as_bytes());
                     emit_hex_u64(rsp[4] as u64);
                     emit_line(")");
                     return;
@@ -84,13 +84,13 @@ pub(crate) fn rng_entropy_selftest() {
                 }
                 let entropy_len = rsp.len() - 9;
                 if entropy_len != 32 {
-                    emit_bytes(b"SELFTEST: rng entropy FAIL (len=");
+                    emit_bytes(crate::markers::M_SELFTEST_RNG_ENTROPY_FAIL_LEN.as_bytes());
                     emit_hex_u64(entropy_len as u64);
                     emit_line(")");
                     return;
                 }
                 // SECURITY: Do NOT log entropy bytes!
-                emit_line("SELFTEST: rng entropy ok");
+                emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_OK);
                 return;
             }
             Err(_) => {
@@ -118,14 +118,14 @@ pub(crate) fn rng_entropy_oversized_selftest() {
     let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
         Ok(c) => c,
         Err(_) => {
-            emit_line("SELFTEST: rng entropy oversized FAIL (no slots)");
+            emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_FAIL_NO_SLOTS);
             return;
         }
     };
 
     let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
     if client.send(&req, wait).is_err() {
-        emit_line("SELFTEST: rng entropy oversized FAIL (send)");
+        emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_FAIL_SEND);
         return;
     }
 
@@ -136,7 +136,7 @@ pub(crate) fn rng_entropy_oversized_selftest() {
     loop {
         let now = nexus_abi::nsec().unwrap_or(0);
         if now >= deadline || spins >= MAX_SPINS {
-            emit_line("SELFTEST: rng entropy oversized FAIL (recv)");
+            emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_FAIL_RECV);
             return;
         }
         match client.recv(IpcWait::NonBlocking) {
@@ -145,7 +145,7 @@ pub(crate) fn rng_entropy_oversized_selftest() {
                     continue;
                 }
                 if rsp[3] != (1 | 0x80) {
-                    emit_line("SELFTEST: rng entropy oversized FAIL (wrong op)");
+                    emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_FAIL_WRONG_OP);
                     return;
                 }
                 let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
@@ -153,12 +153,12 @@ pub(crate) fn rng_entropy_oversized_selftest() {
                     continue;
                 }
                 if rsp[4] != 1 {
-                    emit_bytes(b"SELFTEST: rng entropy oversized FAIL (status=");
+                    emit_bytes(crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_FAIL_STATUS.as_bytes());
                     emit_hex_u64(rsp[4] as u64);
                     emit_line(")");
                     return;
                 }
-                emit_line("SELFTEST: rng entropy oversized ok");
+                emit_line(crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_OK);
                 return;
             }
             Err(_) => {

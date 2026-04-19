@@ -15,6 +15,123 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+
+# ---------------------------------------------------------------------------
+# TASK-0023B P4-07: harness profile dispatch (manifest = SSOT).
+#
+# Optional `--profile=<name>` flag (defaults to `os2vm` for backward
+# compatibility with the legacy invocation): sources env + expected-marker
+# context from `source/apps/selftest-client/proof-manifest.toml` via the
+# host CLI (`nexus-proof-manifest list-env --profile=<name>`).
+#
+# Mirror-check: confirms the in-script `mux_markers` array (declared in
+# `phase_mux`) is a subset of the manifest's `os2vm` marker projection;
+# drift (rename / removal) hard-fails BEFORE we boot any QEMU.
+# Full bash-array purge is deferred to a follow-up cut; this one closes the
+# env-wiring side per the plan's incremental rollout guidance.
+# ---------------------------------------------------------------------------
+PM_PROFILE="os2vm"
+PM_CLI_DEFAULT="$ROOT/target/debug/nexus-proof-manifest"
+NEXUS_PROOF_MANIFEST_BIN=${NEXUS_PROOF_MANIFEST_BIN:-}
+NEXUS_PROOF_MANIFEST_PATH=${NEXUS_PROOF_MANIFEST_PATH:-"$ROOT/source/apps/selftest-client/proof-manifest.toml"}
+PM_MIRROR_CHECK=${PM_MIRROR_CHECK:-1}
+
+new_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --profile=*) PM_PROFILE="${arg#--profile=}" ;;
+    *) new_args+=("$arg") ;;
+  esac
+done
+if [[ ${#new_args[@]} -gt 0 ]]; then
+  set -- "${new_args[@]}"
+else
+  set --
+fi
+
+pm_cli() {
+  if [[ -n "$NEXUS_PROOF_MANIFEST_BIN" && -x "$NEXUS_PROOF_MANIFEST_BIN" ]]; then
+    echo "$NEXUS_PROOF_MANIFEST_BIN"
+    return 0
+  fi
+  if [[ -x "$PM_CLI_DEFAULT" ]]; then
+    echo "$PM_CLI_DEFAULT"
+    return 0
+  fi
+  for cand in \
+    "$ROOT/target/debug/nexus-proof-manifest" \
+    /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
+    if [[ -x "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  echo "[info] building nexus-proof-manifest CLI..." >&2
+  (cd "$ROOT" && cargo build -p nexus-proof-manifest --bin nexus-proof-manifest --quiet) 1>&2
+  for cand in \
+    "$ROOT/target/debug/nexus-proof-manifest" \
+    /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
+    if [[ -x "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  echo "[error] could not locate nexus-proof-manifest binary" >&2
+  return 1
+}
+
+pm_apply_profile_env() {
+  local profile=$1
+  local cli
+  cli=$(pm_cli) || return 1
+  local env_lines
+  if ! env_lines=$("$cli" list-env --profile="$profile" --manifest="$NEXUS_PROOF_MANIFEST_PATH" 2>&1); then
+    echo "[error] proof-manifest list-env failed for profile '$profile':" >&2
+    echo "$env_lines" >&2
+    return 1
+  fi
+  while IFS='=' read -r k v; do
+    [[ -z "$k" ]] && continue
+    if [[ "$v" == \'*\' ]]; then v="${v#\'}"; v="${v%\'}"; fi
+    export "$k=$v"
+    echo "[info] proof-manifest($profile): $k=$v" >&2
+  done <<< "$env_lines"
+}
+
+# Apply profile-resolved env BEFORE the rest of the script reads its
+# environment defaults (e.g. REQUIRE_DSOFTBUS_REMOTE_PKGFS).
+if pm_apply_profile_env "$PM_PROFILE"; then
+  :
+else
+  echo "[warn] proof-manifest profile env not applied; continuing with raw env" >&2
+fi
+
+# ---------------------------------------------------------------------------
+# Mirror-check helper: validates that the in-script mux_markers subset is
+# present in the manifest's profile projection. Used by phase_mux below.
+# ---------------------------------------------------------------------------
+pm_mirror_subset_check() {
+  local profile=${1:-os2vm}
+  local label=$2
+  shift 2
+  [[ "$PM_MIRROR_CHECK" != "1" ]] && return 0
+  local cli
+  cli=$(pm_cli) || return 1
+  local manifest_seq
+  manifest_seq=$("$cli" list-markers --profile="$profile" --manifest="$NEXUS_PROOF_MANIFEST_PATH") || return 1
+  local missing=""
+  local m
+  for m in "$@"; do
+    if ! grep -qxF "$m" <<< "$manifest_seq"; then
+      missing+=" '${m}'"
+    fi
+  done
+  if [[ -n "$missing" ]]; then
+    echo "[error] proof-manifest mirror-check ($label, profile=$profile): markers missing from manifest:$missing" >&2
+    return 1
+  fi
+}
+
 if [[ "${RUN_OS2VM:-0}" != "1" ]]; then
   echo "[error] RUN_OS2VM is not set to 1. Refusing to run 2-VM harness." >&2
   echo "[info] Usage: RUN_OS2VM=1 RUN_TIMEOUT=180s tools/os2vm.sh" >&2
@@ -1230,6 +1347,10 @@ phase_mux() {
     "SELFTEST: mux crossvm bulk ok"
     "SELFTEST: mux crossvm backpressure ok"
   )
+  # TASK-0023B P4-07: mirror-check ensures these markers still exist in
+  # the manifest's `os2vm` projection. Drift = hard fail (don't burn QEMU
+  # walltime on a contract that's already broken at SSOT level).
+  pm_mirror_subset_check "$PM_PROFILE" "phase_mux" "${mux_markers[@]}" || return 1
   local marker=""
   local rc=0
   local a_mux_fail_total=0

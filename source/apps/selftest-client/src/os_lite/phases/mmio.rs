@@ -21,20 +21,20 @@ use crate::os_lite::mmio;
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // TASK-0010: userspace MMIO capability mapping proof (virtio-mmio magic register).
     if mmio::mmio_map_probe().is_ok() {
-        emit_line("SELFTEST: mmio map ok");
+        emit_line(crate::markers::M_SELFTEST_MMIO_MAP_OK);
     } else {
-        emit_line("SELFTEST: mmio map FAIL");
+        emit_line(crate::markers::M_SELFTEST_MMIO_MAP_FAIL);
     }
     // Pre-req for virtio DMA: userland can query (base,len) for address-bearing caps.
     if mmio::cap_query_mmio_probe().is_ok() {
-        emit_line("SELFTEST: cap query mmio ok");
+        emit_line(crate::markers::M_SELFTEST_CAP_QUERY_MMIO_OK);
     } else {
-        emit_line("SELFTEST: cap query mmio FAIL");
+        emit_line(crate::markers::M_SELFTEST_CAP_QUERY_MMIO_FAIL);
     }
     if mmio::cap_query_vmo_probe().is_ok() {
-        emit_line("SELFTEST: cap query vmo ok");
+        emit_line(crate::markers::M_SELFTEST_CAP_QUERY_VMO_OK);
     } else {
-        emit_line("SELFTEST: cap query vmo FAIL");
+        emit_line(crate::markers::M_SELFTEST_CAP_QUERY_VMO_FAIL);
     }
     Ok(())
 }

@@ -36,23 +36,23 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // Exec-ELF E2E via execd service (spawns hello payload).
     let execd_client = route_with_retry("execd")?;
-    emit_line("SELFTEST: ipc routing execd ok");
+    emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_EXECD_OK);
     emit_line("HELLOHDR");
     probes::elf::log_hello_elf_header();
     let _hello_pid = services::execd::execd_spawn_image(&execd_client, "selftest-client", 1)?;
-    // Allow the child to run and print "child: hello-elf" before we emit the marker.
+    // Allow the child to run and print crate::markers::M_CHILD_HELLO_ELF before we emit the marker.
     for _ in 0..256 {
         let _ = yield_();
     }
-    emit_line("execd: elf load ok");
-    emit_line("SELFTEST: e2e exec-elf ok");
+    emit_line(crate::markers::M_EXECD_ELF_LOAD_OK);
+    emit_line(crate::markers::M_SELFTEST_E2E_EXEC_ELF_OK);
 
     // Exit lifecycle: spawn exit0 payload, wait for termination, and print markers.
     let exit_pid = services::execd::execd_spawn_image(&execd_client, "selftest-client", 2)?;
-    // Wait for exit; child prints "child: exit0 start" itself.
+    // Wait for exit; child prints crate::markers::M_CHILD_EXIT0_START itself.
     let status = services::execd::wait_for_pid(&execd_client, exit_pid).unwrap_or(-1);
     services::execd::emit_line_with_pid_status(exit_pid, status);
-    emit_line("SELFTEST: child exit ok");
+    emit_line(crate::markers::M_SELFTEST_CHILD_EXIT_OK);
 
     // TASK-0018: Minidump v1 proof. Spawn a deterministic non-zero exit (42), then
     // verify execd appended crash metadata and wrote a bounded minidump path.
@@ -60,7 +60,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let crash_pid = services::execd::execd_spawn_image(&execd_client, "selftest-client", 3)?;
     if let Some(statefsd) = statefsd.as_ref() {
         if services::statefs::grant_statefs_caps_to_child(statefsd, crash_pid).is_err() {
-            emit_line("SELFTEST: minidump cap grant FAIL");
+            emit_line(crate::markers::M_SELFTEST_MINIDUMP_CAP_GRANT_FAIL);
         }
     }
     let crash_status = services::execd::wait_for_pid(&execd_client, crash_pid).unwrap_or(-1);
@@ -85,13 +85,13 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             {
                 dump_written = true;
             } else {
-                emit_line("SELFTEST: minidump report FAIL");
+                emit_line(crate::markers::M_SELFTEST_MINIDUMP_REPORT_FAIL);
             }
         } else {
-            emit_line("SELFTEST: minidump locate FAIL");
+            emit_line(crate::markers::M_SELFTEST_MINIDUMP_LOCATE_FAIL);
         }
     } else {
-        emit_line("SELFTEST: minidump route FAIL");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_ROUTE_FAIL);
     }
     // Give cooperative scheduling a deterministic window to deliver the crash append to logd.
     for _ in 0..256 {
@@ -110,33 +110,33 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             .unwrap_or(false);
     let crash_logged = saw_crash && saw_name && saw_event && saw_build_id && saw_dump_path;
     if crash_status == 42 && crash_logged {
-        emit_line("SELFTEST: crash report ok");
+        emit_line(crate::markers::M_SELFTEST_CRASH_REPORT_OK);
     } else {
         if !saw_crash {
-            emit_line("SELFTEST: crash report missing 'crash'");
+            emit_line(crate::markers::M_SELFTEST_CRASH_REPORT_MISSING_CRASH);
         }
         if !saw_name {
-            emit_line("SELFTEST: crash report missing 'demo.minidump'");
+            emit_line(crate::markers::M_SELFTEST_CRASH_REPORT_MISSING_DEMO_MINIDUMP);
         }
         if !saw_event {
-            emit_line("SELFTEST: crash report missing 'event=crash.v1'");
+            emit_line(crate::markers::M_SELFTEST_CRASH_REPORT_MISSING_EVENT_CRASH_V1);
         }
         if !saw_build_id {
-            emit_line("SELFTEST: crash report missing 'build_id='");
+            emit_line(crate::markers::M_SELFTEST_CRASH_REPORT_MISSING_BUILD_ID);
         }
         if !saw_dump_path {
-            emit_line("SELFTEST: crash report missing 'dump_path=/state/crash/'");
+            emit_line(crate::markers::M_SELFTEST_CRASH_REPORT_MISSING_DUMP_PATH_STATE_CRASH);
         }
-        emit_line("SELFTEST: crash report FAIL");
+        emit_line(crate::markers::M_SELFTEST_CRASH_REPORT_FAIL);
     }
     let dump_present = route_with_retry("statefsd")
         .ok()
         .and_then(|statefsd| services::statefs::statefs_has_crash_dump(&statefsd).ok())
         .unwrap_or(false);
     if crash_status == 42 && dump_written && crash_logged && dump_present {
-        emit_line("SELFTEST: minidump ok");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_OK);
     } else {
-        emit_line("SELFTEST: minidump FAIL");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_FAIL);
     }
 
     // Negative Soll-Verhalten: forged metadata publish must be rejected fail-closed.
@@ -150,9 +150,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     )
     .unwrap_or(0xff);
     if forged_status != 0 {
-        emit_line("SELFTEST: minidump forged metadata rejected");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_FORGED_METADATA_REJECTED);
     } else {
-        emit_line("SELFTEST: minidump forged metadata FAIL");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_FORGED_METADATA_FAIL);
     }
     let no_artifact_status = services::execd::execd_report_exit_with_dump_status_legacy(
         &execd_client,
@@ -163,9 +163,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     )
     .unwrap_or(0xff);
     if no_artifact_status != 0 {
-        emit_line("SELFTEST: minidump no-artifact metadata rejected");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_NO_ARTIFACT_METADATA_REJECTED);
     } else {
-        emit_line("SELFTEST: minidump no-artifact metadata FAIL");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_NO_ARTIFACT_METADATA_FAIL);
     }
     let mismatch_status = if let Some(statefsd) = statefsd.as_ref() {
         if let Ok((_, _, dump_bytes)) = services::statefs::locate_minidump_for_crash(
@@ -190,9 +190,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         0xff
     };
     if mismatch_status != 0 {
-        emit_line("SELFTEST: minidump mismatched build_id rejected");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_MISMATCHED_BUILD_ID_REJECTED);
     } else {
-        emit_line("SELFTEST: minidump mismatched build_id FAIL");
+        emit_line(crate::markers::M_SELFTEST_MINIDUMP_MISMATCHED_BUILD_ID_FAIL);
     }
 
     // Security: spoofed requester must be denied because execd binds identity to sender_service_id.
@@ -204,9 +204,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         && rsp[3] == (1 | 0x80)
         && rsp[4] == 4
     {
-        emit_line("SELFTEST: exec denied ok");
+        emit_line(crate::markers::M_SELFTEST_EXEC_DENIED_OK);
     } else {
-        emit_line("SELFTEST: exec denied FAIL");
+        emit_line(crate::markers::M_SELFTEST_EXEC_DENIED_FAIL);
     }
 
     // Malformed execd request should return a structured error response.
@@ -225,9 +225,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     )
     .map_err(|_| ())?;
     if rsp.len() == 9 && rsp[0] == b'E' && rsp[1] == b'X' && rsp[2] == 1 && rsp[4] != 0 {
-        emit_line("SELFTEST: execd malformed ok");
+        emit_line(crate::markers::M_SELFTEST_EXECD_MALFORMED_OK);
     } else {
-        emit_line("SELFTEST: execd malformed FAIL");
+        emit_line(crate::markers::M_SELFTEST_EXECD_MALFORMED_FAIL);
     }
 
     let _ = (logd, execd_client, statefsd);

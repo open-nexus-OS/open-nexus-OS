@@ -26,25 +26,51 @@ mod mmio;
 mod net;
 mod phases;
 mod probes;
+mod profile;
 mod services;
 mod timed;
 mod updated;
 mod vfs;
 
 pub fn run() -> core::result::Result<(), ()> {
+    use profile::{PhaseId, Profile};
     let mut ctx = context::PhaseCtx::bootstrap()?;
-    phases::bringup::run(&mut ctx)?;
-    phases::routing::run(&mut ctx)?;
-    phases::ota::run(&mut ctx)?;
-    phases::policy::run(&mut ctx)?;
-    phases::exec::run(&mut ctx)?;
-    phases::logd::run(&mut ctx)?;
-    phases::ipc_kernel::run(&mut ctx)?;
-    phases::mmio::run(&mut ctx)?;
-    phases::vfs::run(&mut ctx)?;
-    phases::net::run(&mut ctx)?;
-    phases::remote::run(&mut ctx)?;
-    phases::end::run(&mut ctx)
+
+    // P4-08: runtime profile dispatch. `Full` (the default) is byte-identical
+    // to the pre-P4-08 ladder; non-Full profiles emit a single
+    // `dbg: phase X skipped` breadcrumb in place of the phase body.
+    let active = Profile::from_kernel_cmdline_or_default(Profile::Full);
+
+    macro_rules! run_or_skip {
+        ($phase:ident, $id:ident) => {
+            if active.includes(PhaseId::$id) {
+                phases::$phase::run(&mut ctx)?;
+            } else {
+                crate::markers::emit_line(Profile::skip_marker(PhaseId::$id));
+            }
+        };
+    }
+
+    // Phase order intentionally matches the original ladder (NOT the
+    // numeric `[phase.X].order` field) so that under `Profile::Full` the
+    // emitted UART transcript is byte-identical to the pre-P4-08 baseline.
+    run_or_skip!(bringup, Bringup);
+    run_or_skip!(routing, Routing);
+    run_or_skip!(ota, Ota);
+    run_or_skip!(policy, Policy);
+    run_or_skip!(exec, Exec);
+    run_or_skip!(logd, Logd);
+    run_or_skip!(ipc_kernel, IpcKernel);
+    run_or_skip!(mmio, Mmio);
+    run_or_skip!(vfs, Vfs);
+    run_or_skip!(net, Net);
+    run_or_skip!(remote, Remote);
+    if active.includes(PhaseId::End) {
+        phases::end::run(&mut ctx)
+    } else {
+        crate::markers::emit_line(Profile::skip_marker(PhaseId::End));
+        Ok(())
+    }
 }
 
 // NOTE: Keep this file's marker surface centralized in `crate::markers`.

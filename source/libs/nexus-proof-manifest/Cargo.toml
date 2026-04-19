@@ -1,0 +1,37 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Host-only crate that owns the schema and parser for
+# `source/apps/selftest-client/proof-manifest.toml` — the SSOT for the
+# `selftest-client` marker ladder, harness profiles, and (later) runtime
+# selftest profiles. Standing up an isolated crate avoids pulling forbidden
+# `os-lite` deps (`getrandom`, `parking_lot`, `parking_lot_core`) into the
+# OS graph; this crate is consumed only via `[build-dependencies]` and from
+# host-side tools (`scripts/qemu-test.sh`, `tools/os2vm.sh`).
+[package]
+name = "nexus-proof-manifest"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+# IndexMap preserves TOML declaration order for `[marker."…"]` entries; the
+# generated `markers_generated.rs` reflects that order so that downstream
+# tooling (CLI from P4-05, deny-by-default analyzer from P4-09) sees a
+# stable, deterministic enumeration.
+indexmap = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+
+[lib]
+path = "src/lib.rs"
+
+# CLI binary; integration tests under `tests/cli_*.rs` invoke this via
+# `env!("CARGO_BIN_EXE_nexus-proof-manifest")`, which cargo populates
+# for any test target in the same package.
+[[bin]]
+name = "nexus-proof-manifest"
+path = "src/bin/nexus-proof-manifest.rs"

@@ -7,7 +7,6 @@ depends-on:
   - TASK-0003
   - TASK-0020
   - TASK-0022
-  - TASK-0023B
 follow-up-tasks:
   - TASK-0044
 links:
@@ -18,7 +17,7 @@ links:
   - Depends-on (DSoftBus core in OS): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Depends-on (OS networking UDP): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Depends-on (mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Depends-on (selftest-client refactor): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
+  - Related (proof manifest infra needed for new QUIC-required markers; Phase 4 closed 2026-04-17): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
   - Testing contract: scripts/qemu-test.sh
 ---
 

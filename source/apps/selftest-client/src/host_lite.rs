@@ -33,22 +33,22 @@ pub(crate) fn run() -> anyhow::Result<()> {
     use policy::PolicyDoc;
     use std::path::Path;
 
-    println!("SELFTEST: e2e samgr ok");
-    println!("SELFTEST: e2e bundlemgr ok");
+    println!("{}", crate::markers_generated::M_SELFTEST_E2E_SAMGR_OK);
+    println!("{}", crate::markers_generated::M_SELFTEST_E2E_BUNDLEMGR_OK);
     // Signed install markers (optional until full wiring is complete)
-    println!("SELFTEST: signed install ok");
+    println!("{}", crate::markers_generated::M_SELFTEST_SIGNED_INSTALL_OK);
 
     let policy = PolicyDoc::load_dir(Path::new("recipes/policy"))?;
     let allowed_caps = ["ipc.core", "time.read"];
     if let Err(err) = policy.check(&allowed_caps, "samgrd") {
         anyhow::bail!("unexpected policy deny for samgrd: {err}");
     }
-    println!("SELFTEST: policy allow ok");
+    println!("{}", crate::markers_generated::M_SELFTEST_POLICY_ALLOW_OK);
 
     let denied_caps = ["net.client"];
     match policy.check(&denied_caps, "demo.testsvc") {
         Ok(_) => anyhow::bail!("unexpected policy allow for demo.testsvc"),
-        Err(_) => println!("SELFTEST: policy deny ok"),
+        Err(_) => println!("{}", crate::markers_generated::M_SELFTEST_POLICY_DENY_OK),
     }
 
     #[cfg(all(nexus_env = "os", feature = "os-lite"))]
@@ -60,15 +60,15 @@ pub(crate) fn run() -> anyhow::Result<()> {
         install_demo_exit0_bundle().context("install exit0 bundle")?;
         execd::exec_elf("demo.hello", &["hello"], &["K=V"], RestartPolicy::Never)
             .map_err(|err| anyhow::anyhow!("exec_elf demo.hello failed: {err}"))?;
-        println!("SELFTEST: e2e exec-elf ok");
+        println!("{}", crate::markers_generated::M_SELFTEST_E2E_EXEC_ELF_OK);
         execd::exec_elf("demo.exit0", &[], &[], RestartPolicy::Never)
             .map_err(|err| anyhow::anyhow!("exec_elf demo.exit0 failed: {err}"))?;
         wait_for_execd_exit();
-        println!("SELFTEST: child exit ok");
+        println!("{}", crate::markers_generated::M_SELFTEST_CHILD_EXIT_OK);
         verify_vfs_paths().context("verify vfs namespace")?;
     }
 
-    println!("SELFTEST: end");
+    println!("{}", crate::markers_generated::M_SELFTEST_END);
     Ok(())
 }
 

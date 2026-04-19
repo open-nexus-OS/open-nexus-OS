@@ -8,12 +8,21 @@
 # Rules (all relative to source/apps/selftest-client/src/):
 #   1. os_lite/mod.rs <= 80 LoC
 #   2. phases/*.rs MUST NOT import other phases::* modules
-#   3. Marker strings ("SELFTEST: …", "dsoftbusd: …", "dsoftbus: …") only in
-#      phases/* and crate::markers, with [marker_emission] allowlist for the
-#      Phase-2 baseline (Phase 4 shrinks the allowlist to zero).
+#   3. Marker strings ("SELFTEST: …", "dsoftbusd: …", "dsoftbus: …") live
+#      ONLY in `markers.rs` + `markers_generated.rs` (the manifest SSOT;
+#      P4-04 emptied the [marker_emission] allowlist when emit sites
+#      migrated to `crate::markers::M_<KEY>` constants generated from
+#      `proof-manifest.toml`). Any literal anywhere else is a hard fail.
 #   4. mod.rs files contain no `fn` definitions outside re-exports, with
 #      [mod_rs_fn] allowlist for the documented OS entry-point pattern.
 #   5. No .rs file >= 500 LoC outside [size_500] allowlist.
+#   6. (TASK-0023B P4-10) No `REQUIRE_*` env literal hard-coded inside any
+#      `test-*` or `ci-*` recipe body in the workspace `justfile`. All
+#      `REQUIRE_*` env wiring must flow through
+#      `nexus-proof-manifest list-env --profile=<name>` (i.e. live in
+#      `proof-manifest.toml`). Allowlist `[justfile_require_env]` exists
+#      for documented escapes (e.g. `RUN_OS2VM=1` is not REQUIRE_* and
+#      thus never matches).
 #
 # Allowlists live in source/apps/selftest-client/.arch-allowlist.txt.
 
@@ -64,32 +73,31 @@ else
     echo "    none"
 fi
 
-# ---- Rule 3: marker strings only in phases/* + markers.rs (allowlisted) -----
-echo "==> Rule 3: marker strings outside phases/*+markers.rs (allowlist-aware)"
-marker_allow=$(allowlist_section "marker_emission")
+# ---- Rule 3: marker strings only in markers.rs + markers_generated.rs -------
+# P4-04 onward: `proof-manifest.toml` is the SSOT; `build.rs` generates
+# `markers_generated.rs`; emit sites reference `crate::markers::M_<KEY>`.
+# No allowlist — any literal anywhere else fails the gate.
+echo "==> Rule 3: marker strings outside markers.rs / markers_generated.rs"
 candidates=$(rg -l '"(SELFTEST: |dsoftbusd: |dsoftbus: )' "$SC" 2>/dev/null || true)
 new_violators=""
 while IFS= read -r f; do
     [[ -z "$f" ]] && continue
     rel="${f#$SC/}"
     case "$rel" in
-        os_lite/phases/*) continue ;;
-        markers.rs)       continue ;;
+        markers.rs)            continue ;;
+        markers_generated.rs)  continue ;;
     esac
     # Filter out files where every hit is a code comment (`//`).
     real_hits=$(rg -n '"(SELFTEST: |dsoftbusd: |dsoftbus: )' "$f" \
         | rg -v '^[^:]*:[0-9]+:[[:space:]]*//' || true)
     [[ -z "$real_hits" ]] && continue
-    if printf '%s\n' "$marker_allow" | grep -qxF "$rel"; then
-        continue
-    fi
     new_violators+="${rel}"$'\n'
 done <<< "$candidates"
 if [[ -n "$new_violators" ]]; then
-    fail "marker strings in non-allowlisted files (add to [marker_emission] or move to phases/*):"
+    fail "marker literals outside markers.rs / markers_generated.rs (use crate::markers::M_<KEY>):"
     printf '    %s\n' $new_violators
 else
-    echo "    none beyond [marker_emission] baseline"
+    echo "    none (manifest SSOT clean)"
 fi
 
 # ---- Rule 4: mod.rs files contain no fn definitions (allowlisted) -----------
@@ -135,6 +143,49 @@ else
     echo "    none beyond [size_500] baseline"
 fi
 
+# ---- Rule 6: no REQUIRE_* env literal in justfile test-*/ci-* recipes ------
+# TASK-0023B P4-10 closure: profile dispatch is the SSOT. A hard-coded
+# REQUIRE_QEMU_DHCP_STRICT=1 (or similar) inside a `just ci-os-foo` body
+# bypasses the manifest and re-introduces the dual-truth surface that
+# `proof-manifest.toml` was created to eliminate.
+echo "==> Rule 6: no REQUIRE_* env literal in justfile test-*/ci-* recipe bodies"
+JUSTFILE="$ROOT/justfile"
+require_allow=$(allowlist_section "justfile_require_env")
+require_violations=""
+if [[ -f "$JUSTFILE" ]]; then
+    # Walk the justfile recipe-by-recipe. A recipe header matches
+    # `^(test|ci)-[A-Za-z0-9_-]+(\s.*)?:`; the body is every subsequent
+    # line that starts with whitespace until the next non-indented line.
+    current=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^(test|ci)-[A-Za-z0-9_-]+([[:space:]].*)?:[[:space:]]*$ ]]; then
+            current="${line%%:*}"
+            current="${current%% *}"
+            continue
+        fi
+        # End of recipe body: a non-indented, non-empty line that isn't a comment.
+        if [[ -n "$current" && -n "$line" && ! "$line" =~ ^[[:space:]] && ! "$line" =~ ^# ]]; then
+            current=""
+        fi
+        # Skip comment-only lines (`#` or `    # …`) — they don't execute.
+        if [[ "$line" =~ ^[[:space:]]*# ]]; then
+            continue
+        fi
+        if [[ -n "$current" && "$line" =~ REQUIRE_[A-Z0-9_]+ ]]; then
+            if printf '%s\n' "$require_allow" | grep -qxF "$current"; then
+                continue
+            fi
+            require_violations+="${current}: ${line}"$'\n'
+        fi
+    done < "$JUSTFILE"
+fi
+if [[ -n "$require_violations" ]]; then
+    fail "REQUIRE_* env literals in justfile recipes (move to proof-manifest.toml or allowlist):"
+    printf '    %s\n' "$require_violations"
+else
+    echo "    none (manifest-driven REQUIRE_* SSOT clean)"
+fi
+
 if [[ "$failed" -eq 1 ]]; then
     echo ""
     echo "[FAIL] selftest-client architecture gate"
@@ -144,4 +195,4 @@ if [[ "$failed" -eq 1 ]]; then
 fi
 
 echo ""
-echo "[PASS] selftest-client architecture gate (5/5 rules clean)"
+echo "[PASS] selftest-client architecture gate (6/6 rules clean)"
