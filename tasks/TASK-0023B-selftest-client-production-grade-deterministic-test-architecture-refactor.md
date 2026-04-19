@@ -25,8 +25,8 @@ links:
 - **Scope**: Refactor `source/apps/selftest-client/src/main.rs` and the surrounding selftest-client architecture into a scalable deterministic-test structure, then promote the result into a manifest-driven, profile-aware, evidence-producing, replayable proof system.
 - **Deliver** (phased):
   - Phase 1 (✅ done) — structural extraction; `main.rs` minimal; `os_lite/mod.rs` shrunk from ~6771 → 1226 LOC.
-  - Phase 2 — two-axis architecture (`os_lite/phases/` orchestration verbs alongside capability nouns); `pub fn run()` collapses to ~13 lines; RFC-0014 phase list expanded from 8 → 12 (congruent with code phases).
-  - Phase 3 — `host_lite/` symmetry, single-file `name/mod.rs` flatten, mechanical `arch-gate`, Rust-standards review.
+  - Phase 2 (✅ done, 2026-04-17) — two-axis architecture (`os_lite/phases/` orchestration verbs alongside capability nouns); `pub fn run()` collapsed from ~1100 → **14 lines**; `os_lite/mod.rs` 1256 → **31 LoC**; RFC-0014 phase list expanded 8 → 12 (congruent with code phases); QEMU `SELFTEST:` ladder byte-identical (119 markers) across all 18 cuts (P2-00 → P2-17). Anchored by post-closure docs supplement: ADR-0027 (architectural contract), `selftest-client/README.md` (onboarding), CONTEXT headers across all 49 source files (commits `65d299d` + `f52cf60`); both proof gates (`just test-all`, `just test-network`) green at handoff.
+  - Phase 3 (✅ done, 2026-04-17) — flattened 13 single-file `name/mod.rs` modules to `name.rs`; extracted host-pfad `run()` into sibling `host_lite.rs::run()` (`main.rs` shrunk 122 → 49 LoC, dispatch-only); landed `scripts/check-selftest-arch.sh` + `just arch-gate` (chained into `just dep-gate`) enforcing 5 mechanical rules with `[marker_emission]`/`[mod_rs_fn]`/`[size_500]` allowlists in `source/apps/selftest-client/.arch-allowlist.txt`; mechanical standards review (`#[must_use]` redundant on `Result` fns since core::result::Result is already `#[must_use]`; Slot newtype deferred to Phase 4 with `TODO(TASK-0023B Phase 4)` note in `context.rs`; Send/Sync intent comment added to `context.rs` documenting single-HART/single-task invariant). 119-marker `SELFTEST:` ladder byte-identical across all four cuts (P3-01 → P3-04).
   - Phase 4 — `proof-manifest.toml` as **single source of truth** for markers and run profiles (SMP, DHCP, OS2VM, QUIC-required, host-only-aggregator); generated harness expectations; runtime selftest-profiles via `SELFTEST_PROFILE`.
   - Phase 5 — signed evidence bundles per QEMU run (`evidence-bundle.tar.gz`: manifest + UART + trace + config + signature).
   - Phase 6 — replay capability (`replay-evidence` + `diff-traces` + `bisect-evidence`).
@@ -278,24 +278,32 @@ Phase-1 proof floor:
 - `cd /home/jenning/open-nexus-OS && just test-dsoftbus-quic`
 - `cd /home/jenning/open-nexus-OS && REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os`
 
-### Phase 2 - maintainability/extensibility optimization
+### Phase 2 - maintainability/extensibility optimization (✅ closed 2026-04-17)
 
-Scope:
+Scope (all delivered):
 
-- Introduce two-axis structure: capability nouns (existing `services/`, `ipc/`, `probes/`, `dsoftbus/`, `net/`, `mmio/`, `vfs/`, `timed/`, `updated/`) + new orchestration verbs under `os_lite/phases/`.
-- Collapse `pub fn run()` to ~13 lines (one call per phase).
-- Sub-split high-density modules (`updated/`, `probes/ipc_kernel/`).
-- Consolidate the 3× duplicated `ReplyInboxV1` impls to `ipc/reply_inbox.rs`.
-- Reduce `services/mod.rs` to aggregator-only by moving `core_service_probe*` to `probes/core_service.rs`.
-- **Extend RFC-0014 phase list from 8 → 12** (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`) so harness phases and code phases are congruent. Phase 4 then encodes this in the manifest.
-- Keep behavior unchanged; still no new transport features.
-- Optimize toward a production-grade end state, not merely a smaller file.
+- Introduced two-axis structure: capability nouns (existing `services/`, `ipc/`, `probes/`, `dsoftbus/`, `net/`, `mmio/`, `vfs/`, `timed/`, `updated/`) + new orchestration verbs under `os_lite/phases/{bringup, routing, ota, policy, exec, logd, ipc_kernel, mmio, vfs, net, remote, end}.rs`.
+- Collapsed `pub fn run()` to **14 lines** (`PhaseCtx::bootstrap()?` + 12 phase calls); `os_lite/mod.rs` 1256 → **31 LoC**.
+- Sub-split high-density modules (`updated/` 451 → 30 LoC across 7 files; `probes/ipc_kernel/` 393 → 28 LoC across 4 files).
+- Consolidated the 3× duplicated `ReplyInboxV1` impls into `ipc/reply_inbox.rs` (single source of truth).
+- Reduced `services/mod.rs` to aggregator-only (51 → 23 LoC) by moving `core_service_probe*` to `probes/core_service.rs`.
+- **Extended RFC-0014 phase list 8 → 12** (`bringup → ipc_kernel → mmio → routing → ota → policy → exec → logd → vfs → net → remote → end`); harness phases and code phases are now congruent (precondition for Phase 4 manifest).
+- Behavior unchanged: marker order, marker strings, reject behavior, retry/yield budgets, NONCE seeds, IPC frame layouts all preserved verbatim across all 18 cuts (`diff` of `grep -E '^SELFTEST: '` empty between every adjacent cut and against P2-00 baseline; 119 markers total).
+- Plan deviation: cuts executed in actual `pub fn run()` order (P2-02 → P2-05 → P2-06 → P2-07 → P2-08 → P2-09 → P2-03 → P2-04 → P2-10 → P2-11 → P2-12 → P2-13 → P2-14 → P2-15 → P2-16 → P2-17) rather than the plan's assumed numerical order. Closure executed under Cursor-internal plan `task-0023b_phase_2_plan_5e547ada.plan.md`.
 
-Preferred order: see `.cursor/next_task_prep.md` (17-cut sequence Cut P2-01 .. P2-17).
+Post-closure docs supplement (commits `65d299d` + `f52cf60`, 2026-04-17, no code-behavior change):
 
-Phase-2 proof floor:
+- `docs/adr/0027-selftest-client-two-axis-architecture.md` — architectural contract anchoring the two-axis decision (rejected alternatives, consequences, invariants).
+- `source/apps/selftest-client/README.md` — onboarding guide (std vs. os-lite flavors, folder map, marker-ladder contract, decision tree for new proofs, determinism rules, common pitfalls).
+- All 49 Rust source files in `source/apps/selftest-client/src/` updated to docs-standard CONTEXT headers (2026 copyright, SPDX, OWNERS/STATUS/API_STABILITY/TEST_COVERAGE, ADR-0027 reference). 17 pre-existing headers repointed from ADR-0017 to ADR-0027.
+- Style commit `f52cf60` cleared pre-existing rustfmt drift in 6 files (`phases/{bringup,routing}.rs`, `probes/ipc_kernel/{plumbing,security,soak}.rs`, `updated/stage.rs`); pure formatting.
+- Verification at handoff: `just test-all` exit 0 (440 s, 119 markers, QEMU clean shutdown), `just test-network` exit 0 (185 s, all 2-VM phases `status=ok`, `result=success`). Logs in `.cursor/test-all.output.log` and `.cursor/test-network.output.log`.
 
-- Same commands as Phase 1 (must stay green).
+Cut sequence: see `.cursor/next_task_prep.md` ("Phase-2 plan (18 cuts) — CLOSED" table).
+
+Phase-2 proof floor (carried into Phase 3):
+
+- Same commands as Phase 1 (must stay green per cut).
 
 ### Phase 3 - closure review and standards check
 

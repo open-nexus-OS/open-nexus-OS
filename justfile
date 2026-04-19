@@ -48,6 +48,7 @@ help:
     @echo "  just lint                # run clippy checks"
     @echo "  just fmt-check           # verify rustfmt formatting"
     @echo "  just arch-check          # userspace/kernel layering guard"
+    @echo "  just arch-gate           # selftest-client structural gate (ADR-0027)"
     @echo "  just deny-check          # cargo-deny license/advisory check"
     @echo "  just test-all            # host tests + miri + arch-check + kernel selftests"
     @echo
@@ -274,6 +275,16 @@ deny-check:
     @cargo deny check --config config/deny.toml
 
 # -----------------------------------------------------------------------------
+# Architecture Gate (TASK-0023B P3-03 / RFC-0038 refinement (7) / ADR-0027)
+# -----------------------------------------------------------------------------
+
+# Mechanical structural enforcement for selftest-client (5 rules; allowlists in
+# source/apps/selftest-client/.arch-allowlist.txt). Cheap; runs before dep-gate
+# so structural drift fails fast.
+arch-gate:
+    bash scripts/check-selftest-arch.sh
+
+# -----------------------------------------------------------------------------
 # Dependency Hygiene Gate (RFC-0009)
 # -----------------------------------------------------------------------------
 
@@ -283,7 +294,8 @@ forbidden_crates := "parking_lot parking_lot_core getrandom"
 
 # Check OS dependency graph for forbidden crates (RFC-0009 Phase 2 enforcement).
 # Fails with exit code 1 if any forbidden crate is found.
-dep-gate:
+# Chains arch-gate first so the cheap structural check fails fast (TASK-0023B P3-03).
+dep-gate: arch-gate
     #!/usr/bin/env bash
     set -euo pipefail
     echo "==> RFC-0009 Dependency Hygiene Gate"

@@ -1,0 +1,53 @@
+# source/apps/selftest-client/.arch-allowlist.txt
+#
+# Architecture-gate baseline allowlists for selftest-client.
+# Maintained as part of TASK-0023B Phase 3 (Cut P3-03) per RFC-0038 refinement (7).
+#
+# Each section is consumed by scripts/check-selftest-arch.sh.
+# All paths are relative to source/apps/selftest-client/src/.
+#
+# Phase 4 (manifest-driven markers) shrinks [marker_emission] to empty (rule 3
+# then tightens to: only `markers_generated.rs` + `markers.rs`).
+
+[marker_emission]
+# Phase-2 baseline: capability and probe files that emit `SELFTEST: …`,
+# `dsoftbusd: …`, or `dsoftbus: …` literals directly. Phase 4 replaces these
+# literals with constants generated from `proof-manifest.toml`; at that point
+# this section shrinks to zero entries.
+#
+# `host_lite.rs` is the host-pfad symmetric counterpart to `os_lite::run` and
+# emits the host-slice markers via `println!` (QEMU UART is not reachable from
+# the host build). Phase 4 manifest work covers both host and OS emissions.
+host_lite.rs
+os_lite/dsoftbus/quic_os.rs
+os_lite/dsoftbus/remote/pkgfs.rs
+os_lite/mmio.rs
+os_lite/net/smoltcp_probe.rs
+os_lite/probes/device_key.rs
+os_lite/probes/rng.rs
+os_lite/services/bootctl.rs
+os_lite/services/bundlemgrd.rs
+os_lite/services/execd.rs
+os_lite/services/keystored.rs
+os_lite/services/logd.rs
+os_lite/services/samgrd.rs
+os_lite/services/statefs.rs
+os_lite/updated/reply_pump.rs
+os_lite/updated/stage.rs
+os_lite/vfs.rs
+
+[mod_rs_fn]
+# `os_lite/mod.rs` hosts the dispatch `pub fn run()` which is the OS entry
+# point (called from `main.rs::os_entry` via
+# `nexus_service_entry::declare_entry!`). Documented in ADR-0027's "Decision"
+# section as the canonical entry-point pattern; not extracted to a separate
+# file because that fn IS the aggregator's reason to exist (12 phase calls
+# in declarative order).
+os_lite/mod.rs
+
+[size_500]
+# `smoltcp_probe.rs` is bounded smoltcp-over-virtio bring-up debug code,
+# cfg-gated by feature `smoltcp-probe` (off by default per Cargo.toml).
+# Kept under selftest-client for bisect convenience; tracked for Phase 4
+# cleanup if it survives the manifest migration.
+os_lite/net/smoltcp_probe.rs

@@ -1,10 +1,10 @@
 # Next Task Preparation (Drift-Free)
 
 ## Candidate next execution
-- **task**: begin `TASK-0023B` **Phase 3** under a new Cursor-internal plan `task-0023b_phase-3_<hash>.plan.md` (to be authored at the start of the Phase-3 session).
-- **focus (immediate)**: Cut **P3-01** — survey `os_lite/` for Single-File-`name/mod.rs` modules that Phase 2 did NOT sub-split (`phases/`, `updated/`, `probes/ipc_kernel/` are out of scope), then flatten each to `name.rs`.
-- **mode**: switch to plan mode first (author the Phase-3 plan), then agent mode to execute the 4 cuts (P3-01 → P3-04) sequentially with the Phase-2 Proof-Floor after each.
-- **closed in current session**: all 18 Phase-2 cuts (P2-00 → P2-17). RFC-0038 §"Stop conditions / acceptance" Phase 2 checklist ticked (8 boxes). `os_lite/mod.rs` 1256 → 31 LoC; `pub fn run()` body ~1100 → 14 lines; QEMU `SELFTEST:` ladder byte-identical (119 markers) at every cut.
+- **task**: begin `TASK-0023B` **Phase 4** under a new Cursor-internal plan `task-0023b_phase-4_<hash>.plan.md` (to be authored at the start of the Phase-4 session).
+- **focus (immediate)**: Cut **P4-01** — write manifest schema doc (`docs/testing/proof-manifest.md`) + `proof-manifest.toml` skeleton (meta + 12 phase declarations) + new host-only crate `nexus-proof-manifest` with parser + reject tests.
+- **mode**: switch to plan mode first (author the Phase-4 plan), then agent mode to execute the 10 cuts (P4-01 → P4-10) sequentially with the Phase-3 Proof-Floor (now including `just arch-gate` chained into `just dep-gate`) after each.
+- **closed in current session**: all 4 Phase-3 cuts (P3-01 → P3-04). RFC-0038 §"Stop conditions / acceptance" Phase 3 checklist ticked (4 boxes). `main.rs` 122 → 49 LoC (dispatch-only, rustfmt-canonical floor); `host_lite.rs` (78 LoC) holds host-pfad `run()` symmetric to `os_lite::run()`; 13 single-file `name/mod.rs` flattened to `name.rs`; mechanical `arch-gate` (5 rules) + `.arch-allowlist.txt` baseline; standards review (Send/Sync intent comment, `Slot(u32)` newtype deferred). QEMU `SELFTEST:` ladder byte-identical (119 markers) across all 4 cuts.
 
 ## Phase-2 closure record (chronological)
 
@@ -27,10 +27,20 @@ Cuts executed in **actual** `pub fn run()` order (top-to-bottom), not the plan's
 
 Sub-splits (post-extraction): **P2-14** (updated/ → 6 files), **P2-15** (probes/ipc_kernel/ → 3 files), **P2-16** (DRY `ipc/reply_inbox.rs`), **P2-17** (services/mod.rs aggregator-only via `probes/core_service.rs`). Closure: this file + `handoff/current.md` + `current_state.md` + RFC-0038 checklist.
 
-## Current structural state (post-Phase-2 closure, verified green)
-- `source/apps/selftest-client/src/main.rs` = **122** lines (frozen — first move is Cut P3-02).
-- `source/apps/selftest-client/src/os_lite/mod.rs` = **31** lines (12 `mod` decls + 14-line `pub fn run()` dispatch).
+Post-closure docs supplement (commits `65d299d` + `f52cf60`, 2026-04-17, no code-behavior change):
+- `docs/adr/0027-selftest-client-two-axis-architecture.md` — architectural contract anchoring the Phase-2 decision (nouns + verbs, `PhaseCtx` minimality, phase isolation, aggregator-only `mod.rs`, rejected alternatives, consequences). Phase-3 PRs should reference ADR-0027 directly.
+- `source/apps/selftest-client/README.md` — onboarding guide (std vs. os-lite flavors, folder map, marker-ladder contract, decision tree for adding new proofs, determinism rules, common pitfalls).
+- CONTEXT headers on all 49 Rust source files in `source/apps/selftest-client/src/` (2026 copyright, SPDX, OWNERS/STATUS/API_STABILITY/TEST_COVERAGE, ADR-0027 reference). 17 pre-existing headers repointed from ADR-0017 to ADR-0027.
+- `f52cf60` — pure rustfmt cleanup of 6 files (`phases/{bringup,routing}.rs`, `probes/ipc_kernel/{plumbing,security,soak}.rs`, `updated/stage.rs`) for pre-existing drift exposed by `just test-all` running `fmt-check` first.
+- **Verification**: `just test-all` exit 0 (440 s), `just test-network` exit 0 (185 s); logs in `.cursor/test-all.output.log` and `.cursor/test-network.output.log`. Working tree clean except for `uart.log` (test artifact — do not commit).
+
+## Current structural state (post-Phase-3 closure, verified green)
+- `source/apps/selftest-client/src/main.rs` = **49** lines (CONTEXT + cfgs + 2 dispatch fns + 3 mod decls — zero logic; rustfmt-canonical floor).
+- `source/apps/selftest-client/src/host_lite.rs` = **78** lines (host slice — std + no-std-host `pub(crate) fn run()`; sibling-flattened from `host_lite/mod.rs` per the P3-01 single-file rule).
+- `source/apps/selftest-client/src/os_lite/mod.rs` = **50** lines (12 `mod` decls + 14-line `pub fn run()` dispatch; within the 80-LoC arch-gate ceiling; minor expansion from 31 LoC for CONTEXT clarification — structurally unchanged).
 - `pub fn run()` body = **14 lines** (`PhaseCtx::bootstrap()?` + 12 phase calls).
+- 13 single-file `name/mod.rs` flattened to `name.rs` (P3-01): `os_lite/services/{bootctl,bundlemgrd,execd,keystored,logd,metricsd,policyd,samgrd,statefs}/mod.rs`, `os_lite/{mmio,vfs,timed}/mod.rs`, `os_lite/dsoftbus/quic_os/mod.rs`. Pure `git mv`, history preserved.
+- `scripts/check-selftest-arch.sh` (167 LoC, executable) + `source/apps/selftest-client/.arch-allowlist.txt` (50 LoC, 3 sections) + `justfile` `arch-gate` recipe chained into `dep-gate` (P3-03).
 - New in Phase 2:
   - `os_lite/context.rs` (52 LOC): `PhaseCtx { reply_send_slot, reply_recv_slot, updated_pending, local_ip, os2vm }` + silent `bootstrap()`.
   - `os_lite/phases/{mod, bringup, routing, ota, policy, exec, logd, ipc_kernel, mmio, vfs, net, remote, end}.rs` (12 phase files, LoC range 18→259).
@@ -82,14 +92,16 @@ Two-axis structure: **capability nouns** (existing) + **orchestration phases** (
 - `phases/*` MUST NOT import other `phases::*`.
 - Allowed downstream imports for `phases/*`: `services::*`, `ipc::*`, `probes::*`, `dsoftbus::*`, `net::*`, `mmio::*`, `vfs::*`, `timed::*`, `updated::*`.
 
-## Refined Phase-3 plan (4 cuts)
+## Phase-3 plan (4 cuts) — CLOSED 2026-04-17
 
-| Cut | Scope | Risk |
+Behavior-preserving structural completion executed under Cursor-internal plan `task_0023b_phase_3_ee96d119.plan.md`. Marker order, marker strings, reject behavior held frozen across all 4 cuts (119 markers byte-identical vs pre-Phase-3 baseline at every cut). Phase-2 Proof-Floor cadence applied after every cut.
+
+| Cut | Scope | Status |
 |---|---|---|
-| P3-01 | Flatten Single-File-`name/mod.rs` → `name.rs` for modules Phase 2 did NOT sub-split. Candidates today: `services/{keystored, execd, metricsd, statefs, bootctl}/mod.rs`, `mmio/mod.rs`, `vfs/mod.rs`, `timed/mod.rs`. (Final list depends on Phase-2 sub-split outcomes.) | low (mechanical) |
-| P3-02 | Extract host-pfad `run()` from `main.rs` into `host_lite/mod.rs::run()`. `main.rs` becomes cfg + `os_entry()` + `main()` only. | medium (host build path) |
-| P3-03 | Write `scripts/check-selftest-arch.sh` + `just arch-gate` recipe; chain into `just dep-gate`; produce allowlist file. Mechanical anti-re-monolithization gate. | low |
-| P3-04 | Standards review (`#[must_use]` on decision-bearing results, `newtype` for safety-relevant IDs, `Send`/`Sync` audit). Apply only where mechanical and risk-free. | low |
+| P3-01 | Flatten 13 single-file `name/mod.rs` to `name.rs`: `services/{bootctl,bundlemgrd,execd,keystored,logd,metricsd,policyd,samgrd,statefs}/mod.rs`, `{mmio,vfs,timed}/mod.rs`, `dsoftbus/quic_os/mod.rs`. Pure `git mv`, no parent edits, history preserved. | done |
+| P3-02 | Extract host-pfad `run()` from `main.rs` to `host_lite.rs::run()` (then sibling-flattened from `host_lite/mod.rs` per the P3-01 rule). `main.rs` shrunk 122 → 49 LoC (rustfmt-canonical floor; zero logic). Both std + no-std-host cfg branches preserved. | done |
+| P3-03 | `scripts/check-selftest-arch.sh` (167 LoC) enforces 5 mechanical rules; `just arch-gate` recipe chained into `just dep-gate`; `source/apps/selftest-client/.arch-allowlist.txt` (3 sections) baselines current escapes. Synthetic-violation tests confirmed rules 2/3/4 fire with `file:line`. | done |
+| P3-04 | Standards review: `#[must_use]` redundant on `Result` fns (`core::result::Result` already `#[must_use]`); `Slot(u32)` newtype deferred to Phase 4 with explicit `TODO(TASK-0023B Phase 4)` note in `os_lite/context.rs` (~16 call sites across 8 files; non-mechanical); Send/Sync intent comment added to `os_lite/context.rs` documenting single-HART/single-task runtime invariant (no marker traits introduced). | done |
 
 ### Architecture-gate rules (Cut P3-03)
 
@@ -256,7 +268,7 @@ Goal: failures reproducible from stored bundles; CI bisects become trace-diff-dr
 - Do not absorb `TASK-0024` transport features into `TASK-0023B`. `TASK-0024` is unblocked at **Phase 4 closure**, not earlier.
 - Phase-2/3 slicing is behavior-preserving: same marker order, same proof meanings, same reject behavior.
 - Phase 4 may add new markers via manifest (e.g. `SELFTEST: smp ipi ok` under `profile=smp`) but must not rename existing markers.
-- `main.rs` remains 122 LOC through Phase 2; only Cut P3-02 modifies it.
+- `main.rs` is dispatch-only at 49 LoC after Cut P3-02; Phase 4 cuts must not touch it (changes belong in manifest + `os_lite/`).
 - Visibility ceiling: `pub(crate)` (binary crate boundary).
 - No new `unwrap`/`expect`. No new dependencies in selftest-client `Cargo.toml`. New host-only crates (`nexus-proof-manifest`, `nexus-evidence`) are separate.
 - Single-File-`name/mod.rs` flattening (Cut P3-01) only applies where Phase 2 did NOT introduce siblings.
@@ -290,8 +302,7 @@ Goal: failures reproducible from stored bundles; CI bisects become trace-diff-dr
 - `tasks/IMPLEMENTATION-ORDER.md`
 
 ## Ready condition
-- **Active plan (Cursor-internal, do not edit during execution)**: TBD — `/home/jenning/.cursor/plans/task-0023b_phase-3_<hash>.plan.md` to be authored at the start of the Phase-3 session, scoped to 4 cuts only (P3-01 → P3-04), mirroring the Phase-2 plan format.
-- **Resume command (when user says "go")**: switch to **plan mode** to author the Phase-3 plan; then switch to agent mode, mark P3-01 todo `in_progress`, and execute the survey-first flatten cut. After each cut: `cargo +nightly check -p selftest-client --target riscv64imac-unknown-none-elf --no-default-features --features os-lite` → `cargo test -p dsoftbusd` → `just test-dsoftbus-quic` → `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` (`grep -E '^SELFTEST: '` `diff`-empty vs pre-cut baseline) → `rustfmt +stable <touched .rs>` → `just lint`. After P3-03 lands, also `just arch-gate`.
-- **Phase 3 closure trigger**: tick RFC-0038 Phase-3 checklist; sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-4_<hash>.plan.md` (10 cuts, manifest-driven).
-- **Phase 4 closure trigger**: unblock `TASK-0024` (update its `depends-on`), update STATUS-BOARD / IMPLEMENTATION-ORDER, refresh `docs/testing/index.md`.
+- **Active plan (Cursor-internal, do not edit during execution)**: TBD — `/home/jenning/.cursor/plans/task-0023b_phase-4_<hash>.plan.md` to be authored at the start of the Phase-4 session, scoped to 10 cuts only (P4-01 → P4-10), manifest-driven, mirroring the Phase-2 / Phase-3 plan format.
+- **Resume command (when user says "go")**: switch to **plan mode** to author the Phase-4 plan; then switch to agent mode, mark P4-01 todo `in_progress`, and execute the manifest schema + `nexus-proof-manifest` parser cut. After each cut: `RUSTFLAGS='--cfg nexus_env="os" -W unexpected_cfgs -W dead_code' cargo check -p selftest-client --no-default-features --features os-lite --target riscv64gc-unknown-none-elf` → `cargo test -p dsoftbusd -- --nocapture` → `just test-dsoftbus-quic` → `REQUIRE_DSOFTBUS=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os` (or `just test-os PROFILE=…` once P4-06 lands; `grep -E '^SELFTEST: '` `diff`-empty vs pre-cut baseline) → `cargo test -p nexus-proof-manifest -- --nocapture` (from P4-01 onward) → `rustfmt +stable <touched .rs>` → `just dep-gate` (chains `arch-gate` first; both must pass) → `just lint`.
+- **Phase 4 closure trigger**: tick RFC-0038 Phase-4 checklist (10 boxes); sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; open `task-0023b_phase-5_<hash>.plan.md` (6 cuts, signed evidence); unblock `TASK-0024` (update its `depends-on`); refresh `tasks/STATUS-BOARD.md`, `tasks/IMPLEMENTATION-ORDER.md`, `docs/testing/index.md`.
 - **Phase 6 closure trigger**: extract first `TRACK-OS-PROOF-INFRASTRUCTURE` candidate into a real `TASK-XXXX`.
