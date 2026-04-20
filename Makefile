@@ -70,13 +70,21 @@ ifeq ($(MODE),container)
 		  else \
 		    RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) test --workspace --exclude neuron --exclude neuron-boot --no-run; \
 		  fi && \
-		  echo "[1b/2] cross-compile OS services (riscv64) — full DEFAULT_SERVICE_LIST"; \
+		  echo "[1b/2] cross-compile OS services (riscv64, --release) — full DEFAULT_SERVICE_LIST"; \
+		  # CRITICAL: services MUST be --release so they land under \
+		  #   target/riscv64imac-unknown-none-elf/release/<svc> \
+		  # which matches the INIT_LITE_SERVICE_<NAME>_ELF paths set in step \
+		  # [1d/2] below and the paths qemu-test.sh / run-qemu-rv64.sh expect. \
+		  # Without --release init-lite's build.rs `std::fs::copy` fails in \
+		  # fresh checkouts (CI) with "No such file or directory" on the \
+		  # release path. Locally it can mask itself when prior `just test-os` \
+		  # runs already populated `release/`. \
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build \
 		    -p keystored -p rngd -p policyd -p logd -p metricsd \
 		    -p samgrd -p bundlemgrd -p statefsd -p updated -p timed \
 		    -p packagefsd -p vfsd -p execd -p netstackd -p dsoftbusd \
 		    -p selftest-client \
-		    --target riscv64imac-unknown-none-elf --no-default-features --features os-lite && \
+		    --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --release && \
 		  echo "[1c/2] RFC-0009 dep-gate (OS graph)"; \
 		  forbidden="parking_lot parking_lot_core getrandom"; \
 		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd"; \
@@ -112,15 +120,23 @@ else
 	else \
 	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo test --workspace --exclude neuron --exclude neuron-boot --no-run; \
 	fi
-	@echo "==> Cross-compiling OS services (riscv64) — full DEFAULT_SERVICE_LIST set so init-lite can embed all of them"
+	@echo "==> Cross-compiling OS services (riscv64, --release) — full DEFAULT_SERVICE_LIST set so init-lite can embed all of them"
 	@# Must match scripts/run-qemu-rv64.sh DEFAULT_SERVICE_LIST so `make test` /
 	@# `make run` with NEXUS_SKIP_BUILD=1 finds every service ELF up-front.
+	@# CRITICAL: --release is required so artifacts land under
+	@#   target/$(RV_TARGET)/release/<svc>
+	@# matching the INIT_LITE_SERVICE_<NAME>_ELF paths set further below
+	@# and the paths qemu-test.sh + run-qemu-rv64.sh expect. Without --release
+	@# init-lite's build.rs `std::fs::copy` fails on fresh checkouts (CI)
+	@# with "No such file or directory" on the release path; locally a
+	@# previous `just test-os` can mask the bug because it had already
+	@# populated `release/`.
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build \
 	  -p keystored -p rngd -p policyd -p logd -p metricsd \
 	  -p samgrd -p bundlemgrd -p statefsd -p updated -p timed \
 	  -p packagefsd -p vfsd -p execd -p netstackd -p dsoftbusd \
 	  -p selftest-client \
-	  --target $(RV_TARGET) --no-default-features --features os-lite
+	  --target $(RV_TARGET) --no-default-features --features os-lite --release
 	@$(MAKE) dep-gate
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p nexus-init --lib --target $(RV_TARGET) --no-default-features --features os-lite
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p nexus-log --features sink-userspace --target $(RV_TARGET) --release
