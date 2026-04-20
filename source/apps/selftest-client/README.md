@@ -138,6 +138,8 @@ cargo test -p selftest-client          # default features = std
 just diag-host                         # workspace-wide host check
 ```
 
+> The `Makefile` spur (`make build` / `make test` / `make run`) is the self-contained "container CI / QEMU-last" path; the project [`README.md`](../../../README.md#make-spur-build--test--run-no-just-dependency) documents its build → test → run discipline and the `NEXUS_SKIP_BUILD=1` artifact contract.
+
 ---
 
 ## The marker ladder is the contract

@@ -56,6 +56,39 @@ SANDBOX_CACHE_MIN_AGE_SECS=${SANDBOX_CACHE_MIN_AGE_SECS:-1800}
 BUILD_TMPDIR_DEFAULT=${BUILD_TMPDIR_DEFAULT:-"$ROOT/.tmp/build"}
 BUILD_TMP_MIN_FREE_MB=${BUILD_TMP_MIN_FREE_MB:-256}
 
+# When NEXUS_SKIP_BUILD=1, every per-component `cargo build` below is
+# replaced with a "must-already-exist" artifact check. The Makefile sets
+# this for `make test` and `make run` so they consume the artifacts that
+# `make build` produced (one source of truth for compilation). The
+# `just`-driven dev path leaves it unset (=0) and keeps the historical
+# lazy-build convenience.
+NEXUS_SKIP_BUILD=${NEXUS_SKIP_BUILD:-0}
+
+# require_or_build <artifact-path> <human-name> -- <cargo args...>
+# When NEXUS_SKIP_BUILD=1: artifact MUST exist or we fail with a clear
+# hint to run `make build`. Otherwise: invoke `cargo` with the trailing
+# args (the historical eager-build path) and let cargo's incremental
+# cache do the right thing.
+require_or_build() {
+  local artifact=$1
+  local label=$2
+  shift 2
+  if [[ "$1" == "--" ]]; then
+    shift
+  fi
+  if [[ "$NEXUS_SKIP_BUILD" == "1" ]]; then
+    if [[ ! -e "$artifact" ]]; then
+      echo "[error] NEXUS_SKIP_BUILD=1 but $label artifact is missing:" >&2
+      echo "          $artifact" >&2
+      echo "        Run 'make build' (or unset NEXUS_SKIP_BUILD) and retry." >&2
+      exit 1
+    fi
+    echo "[skip-build] $label: $artifact" >&2
+    return 0
+  fi
+  (cd "$ROOT" && "$@")
+}
+
 join_by() {
   local IFS="$1"
   shift
@@ -212,9 +245,8 @@ prepare_service_payloads() {
     else
       cargo_args+=(--no-default-features --features os-lite)
     fi
-    (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}")
-
     local elf_path="$TARGET_ROOT/$TARGET/release/$svc"
+    require_or_build "$elf_path" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}"
     set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$elf_path"
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     if [[ -z "${!stack_var:-}" ]]; then
@@ -661,14 +693,17 @@ trap cleanup_blk_lock EXIT
 rm -f "$QEMU_BLK_IMG"
 truncate -s 64M "$QEMU_BLK_IMG"
 
-# Always rebuild init-lite and kernel to pick up changes
-(cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release)
+# Always rebuild init-lite and kernel to pick up changes (unless
+# NEXUS_SKIP_BUILD=1, in which case the artifacts MUST already exist).
+require_or_build "$INIT_ELF" "init-lite" -- \
+  env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release
 kernel_build() {
   local -a cargo_args=(build -p neuron-boot --target "$TARGET" --release)
   if [[ -n "$NEURON_BOOT_FEATURES" ]]; then
     cargo_args+=(--features "$NEURON_BOOT_FEATURES")
   fi
-  (cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}")
+  require_or_build "$KERNEL_ELF" "neuron-boot" -- \
+    env EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}"
 }
 
 kernel_build

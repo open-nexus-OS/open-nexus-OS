@@ -47,19 +47,42 @@ export PATH="$PWD/tools/qemu-src/build:$PATH"
 
 ## Day-to-day development
 
-Use the `justfile` for the primary developer workflow (host-first tests and diagnostics; QEMU-last smoke):
+The repo intentionally has **two complementary entrypoint spurs**, neither of which calls into the other:
+
+- `just …` — developer ergonomics for host-first iteration and granular QEMU profile matrix. Lazy-build (every recipe rebuilds what it needs).
+- `make …` — self-contained "container CI / QEMU-last" pipeline. Strict build → test → run discipline.
+
+Pick whichever fits the flow you're in.
+
+### `just` spur (dev / per-task iteration)
 
 - **Host tests**: `just test-host`, `just test-e2e`
 - **Miri**: `just miri-strict`, `just miri-fs`
 - **Architecture guard**: `just arch-check`
 - **QEMU smoke**: `RUN_UNTIL_MARKER=1 just test-os` (wraps `scripts/qemu-test.sh`)
+- **Aggregate release gate**: `just test-all` (fmt + clippy + deny + host + e2e + miri + arch + kernel + SMP CI)
 
-`make` remains the orchestration entrypoint for setup/build/run (and is used by CI for build verification).
+### Make spur (build → test → run, no `just` dependency)
 
-Test entrypoints:
+The `Makefile` is the self-contained "build once, then test/run against the artifacts" path. It is intentionally **not** a thin shim over `just`; it owns its own build step.
 
-- `make test`: quick host-first workspace tests (kernel crates excluded).
-- `make verify`: full verification gate (delegates to `just` diagnostics/tests + QEMU smoke; optional SMP dual-mode with `REQUIRE_SMP_VERIFY=1`).
+```sh
+make build           # compile only: host workspace + host test binaries + cross OS services + neuron-boot (with EMBED_INIT_ELF)
+make test            # host-first nextest run + SMP=2 then SMP=1 QEMU ladder against the `make build` artifacts
+make run             # one QEMU smoke (smart smp/full profile pick) against the `make build` artifacts
+```
+
+| Target | Owns the build? | Runs QEMU? | Notes |
+|---|---|---|---|
+| `make build` | yes (single source of truth for compilation) | no | `MODE=container` (default, podman) or `MODE=host` (direct cargo). Builds **and** pre-compiles host test binaries. |
+| `make test` | no — requires `make build` to have run | yes — SMP=2 (`--profile=smp`) then SMP=1 (`--profile=full`) | Host tests run via `cargo nextest` (instant if `make build` ran), then the QEMU ladder. |
+| `make run` | no — requires `make build` to have run | yes — single boot, profile auto-picked from `SMP` env (or `PROFILE=…`) | For fast local iteration use `RUN_UNTIL_MARKER=1 make run` (default). |
+
+`make test` and `make run` set `NEXUS_SKIP_BUILD=1` when invoking `scripts/qemu-test.sh` / `scripts/run-qemu-rv64.sh`. The script then skips its per-component `cargo build` calls and **fails fast** with a clear `[error] NEXUS_SKIP_BUILD=1 but … artifact is missing — run 'make build' first` message if any artifact is absent. This makes "I forgot `make build`" a loud one-line error instead of a silent 30-second rebuild.
+
+If you want the historical eager-rebuild behavior in a one-shot run, use `NEXUS_SKIP_BUILD=0 make run` or chain `make build run`.
+
+`make verify` was retired; the canonical aggregate gate is `just test-all`.
 
 ## Current engineering focus
 
