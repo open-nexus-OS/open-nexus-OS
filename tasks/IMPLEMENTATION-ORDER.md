@@ -69,14 +69,15 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0023 complete, TASK-0023B Phases 1–4 closed (Phases 5–6 remaining), TASK-0024 unblocked at Phase 4 closure
+## Current: TASK-0023 complete, TASK-0023B Phases 1–5 closed (Phase 6 remaining), TASK-0024 unblocked at Phase 4 closure
 
-Execute in numerical order. Current queue head is **TASK-0023B (Draft, in-flight; Phases 1–4 closed 2026-04-17; Phase 5 = signed evidence bundles, Phase 6 = replay capability)**.
+Execute in numerical order. Current queue head is **TASK-0023B (Draft, in-flight; Phases 1–5 closed 2026-04-17; Phase 6 = replay capability + bounded bisect + cross-host floor)**.
 Latest completed closure slices before this queue head: **TASK-0020 (Done)**, **TASK-0021 (Done)**, **TASK-0023 (Done)**.
 Current TASK-0020 closure checkpoint: requirement-based host contract/integration suites are green, canonical OS harnesses are green, mux marker ladders are proven in single-VM and 2-VM paths, deterministic perf and hardening soak gates are green, and a machine-readable release evidence bundle is emitted per run.
 Current TASK-0023 closure checkpoint: host gate proofs (`just test-dsoftbus-quic`, `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_feasibility_contract -- --nocapture`) and OS QUIC marker proof (now `just test-os PROFILE=quic-required`) are green; required markers are `dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, and `SELFTEST: quic session ok`, with fallback markers forbidden in this profile.
-Current TASK-0023B Phase-4 closure checkpoint (2026-04-17): `proof-manifest.toml` is the SSOT for the marker ladder + harness profiles (`full / smp / dhcp / dhcp-strict / os2vm / quic-required`) + runtime profiles (`bringup / quick / ota / net / none`); new host-only crate `nexus-proof-manifest` (parser + CLI) drives `scripts/qemu-test.sh` + `tools/os2vm.sh`; `selftest-client/build.rs` generates `markers_generated.rs`; `arch-gate` is 6/6 mechanical rules; `just test-os PROFILE=…` is canonical; `TASK-0024` `depends-on` updated to drop the Phase-4 blocker. Phases 5–6 (signed evidence + replay) remain.
-Current pre-feature queue policy: complete `TASK-0023B` Phases 5–6 (proof-infrastructure closure) before implementing additional transport features in `TASK-0024`.
+Current TASK-0023B Phase-4 closure checkpoint (2026-04-17): `proof-manifest.toml` is the SSOT for the marker ladder + harness profiles (`full / smp / dhcp / dhcp-strict / os2vm / quic-required`) + runtime profiles (`bringup / quick / ota / net / none`); new host-only crate `nexus-proof-manifest` (parser + CLI) drives `scripts/qemu-test.sh` + `tools/os2vm.sh`; `selftest-client/build.rs` generates `markers_generated.rs`; `arch-gate` is 6/6 mechanical rules; `just test-os PROFILE=…` is canonical; `TASK-0024` `depends-on` updated to drop the Phase-4 blocker.
+Current TASK-0023B Phase-5 closure checkpoint (2026-04-17): every `just test-os PROFILE=…` run writes `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` (manifest tar + uart.log + trace.jsonl + config.json + signature.bin when seal is required); new host-only crate `nexus-evidence` owns canonicalization + Ed25519 sign/verify + secret scan; 102-byte signature wire format with `KeyLabel::{Ci, Bringup}` baked in; CI key (env) vs bringup key (file, mode 0600) separation enforced; deny-by-default secret scanner refuses to seal bundles with leaked key material; `tools/{seal,verify,gen-bringup-key,gen-ci-key}-evidence.sh` shipped; post-pass evidence pipeline wired into `scripts/qemu-test.sh` + `tools/os2vm.sh`; `CI=1` ⇒ seal mandatory + rejects `NEXUS_EVIDENCE_DISABLE=1`. P5-00 prepended at session start: `proof-manifest.toml` split into a `proof-manifest/` directory tree with `[meta] schema_version = "2"` + `[include]` glob expansion. Phase 6 (replay + bisect + cross-host floor) remains.
+Current pre-feature queue policy: complete `TASK-0023B` Phase 6 (proof-infrastructure closure) before implementing additional transport features in `TASK-0024`.
 Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0020 production closure scope.
 
 | Task | Title | Prereqs | Status |
@@ -91,7 +92,7 @@ Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Done |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Done |
 | TASK-0023 | DSoftBus QUIC v2 OS enablement (session path closure) | TASK-0003, TASK-0020, TASK-0022 | Done |
-| TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | TASK-0023 | Draft (Phases 1–4 closed 2026-04-17; Phases 5–6 remaining) |
+| TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | TASK-0023 | Draft (Phases 1–5 closed 2026-04-17; Phase 6 remaining) |
 | TASK-0024 | DSoftBus QUIC-v2 OS follow-up (reliability/recovery/congestion hardening) | TASK-0003, TASK-0020, TASK-0022 | Draft (Phase-4 dependency on TASK-0023B dropped at Phase-4 closure 2026-04-17) |
 
 ---

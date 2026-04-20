@@ -1,0 +1,52 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `vfs` (RFC-0014 order = 9).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."SELFTEST: ipc routing ok"]
+phase = "vfs"
+
+[marker."SELFTEST: ipc routing packagefsd ok"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs stat ok"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs read ok"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs real data ok"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs ebadf ok"]
+phase = "vfs"
+
+[marker."dbg: phase vfs skipped"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs client new FAIL"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs FAIL"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs open FAIL"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs read FAIL"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs real data FAIL"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs stat FAIL"]
+phase = "vfs"

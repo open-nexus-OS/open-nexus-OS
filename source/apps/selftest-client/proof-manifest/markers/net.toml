@@ -1,0 +1,199 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `net` (RFC-0014 order = 10).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# NOTE on `emit_when`: the OS-side ladder is single-path — every QEMU
+# profile (full|smp|dhcp|quic-required|os2vm) runs the same selftest
+# sequence and emits the same dsoftbus markers. The differentiator
+# between profiles lives in (a) `forbidden_when` clauses on fallback
+# markers (e.g. `dsoftbusd: transport selected tcp` is forbidden under
+# `quic-required`) and (b) script-side `REQUIRE_*` env gates that
+# enforce "this marker MUST appear" for the active profile. The
+# dsoftbus readiness/auth/quic markers below are therefore declared
+# **profile-unconditional**: they belong in every profile's expected
+# set so the deny-by-default `verify-uart` analyzer does not flag them
+# as "unexpected" under non-quic profiles.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."net: virtio-net up"]
+phase = "net"
+
+[marker."SELFTEST: net iface ok"]
+phase = "net"
+
+[marker."net: smoltcp iface up"]
+phase = "net"
+
+[marker."blk: virtio-blk up"]
+phase = "net"
+
+[marker."SELFTEST: net tcp listen ok"]
+phase = "net"
+
+[marker."netstackd: facade up"]
+phase = "net"
+
+[marker."SELFTEST: net ping ok"]
+phase = "net"
+proves = "smoltcp ICMP echo round-trip succeeded over the configured iface"
+
+[marker."SELFTEST: net udp dns ok"]
+phase = "net"
+proves = "netstackd UDP socket bound and DNS round-trip completed"
+
+[marker."dsoftbusd: entry"]
+phase = "net"
+
+[marker."dsoftbusd: waiting for local ip"]
+phase = "net"
+
+[marker."dsoftbusd: local ip ok"]
+phase = "net"
+
+[marker."dsoftbusd: ip phase done"]
+phase = "net"
+
+[marker."dsoftbusd: udp bind begin"]
+phase = "net"
+
+[marker."dsoftbusd: udp bind ok"]
+phase = "net"
+
+[marker."dsoftbusd: connect portB ok"]
+phase = "net"
+
+[marker."dsoftbusd: connect ip loopback ok"]
+phase = "net"
+
+[marker."dsoftbusd: discovery up (udp loopback)"]
+phase = "net"
+
+[marker."dsoftbusd: discovery announce sent"]
+phase = "net"
+
+[marker."dsoftbusd: discovery peer found device=local"]
+phase = "net"
+
+[marker."dsoftbusd: os transport up (udp+tcp)"]
+phase = "net"
+
+[marker."dsoftbusd: transport selected quic"]
+phase = "net"
+
+[marker."dsoftbusd: session connect peer=node-b"]
+phase = "net"
+
+[marker."dsoftbusd: identity bound peer=node-b"]
+phase = "net"
+
+[marker."dsoftbusd: dual-node session ok"]
+phase = "net"
+
+[marker."dsoftbusd: ready"]
+phase = "net"
+
+[marker."dsoftbusd: auth ok"]
+phase = "net"
+
+[marker."dsoftbusd: os session ok"]
+phase = "net"
+
+[marker."SELFTEST: quic session ok"]
+phase = "net"
+
+[marker."dsoftbus:mux session up"]
+phase = "net"
+
+[marker."dsoftbus:mux data ok"]
+phase = "net"
+
+[marker."SELFTEST: mux pri control ok"]
+phase = "net"
+
+[marker."SELFTEST: mux bulk ok"]
+phase = "net"
+
+[marker."SELFTEST: mux backpressure ok"]
+phase = "net"
+
+[marker."SELFTEST: dsoftbus os connect ok"]
+phase = "net"
+
+[marker."SELFTEST: dsoftbus ping ok"]
+phase = "net"
+
+[marker."dsoftbusd: transport selected tcp"]
+phase = "net"
+proves = "QUIC path actually used (TCP fallback banned under quic-required)"
+forbidden_when = { profile = "quic-required" }
+
+[marker."dsoftbus: quic os disabled (fallback tcp)"]
+phase = "net"
+forbidden_when = { profile = "quic-required" }
+
+[marker."SELFTEST: quic fallback ok"]
+phase = "net"
+forbidden_when = { profile = "quic-required" }
+
+[marker."dbg: phase net skipped"]
+phase = "net"
+
+[marker."SELFTEST: dsoftbus os connect FAIL"]
+phase = "net"
+
+[marker."SELFTEST: dsoftbus ping FAIL"]
+phase = "net"
+
+[marker."SELFTEST: icmp ping FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp bind FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp bmap FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp bquery FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp bvmo FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp diag rx="]
+phase = "net"
+
+[marker."SELFTEST: smoltcp no virtio-net"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp probe FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp q0 FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp q1 FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp qmap FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp qquery FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp qvmo FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp route FAIL"]
+phase = "net"
+
+[marker."SELFTEST: smoltcp send FAIL"]
+phase = "net"

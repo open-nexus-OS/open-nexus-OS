@@ -1,0 +1,28 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `end` (RFC-0014 order = 12).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."SELFTEST: end"]
+phase = "end"
+
+[marker."dbg: phase end skipped"]
+phase = "end"
+
+[marker."SELFTEST: e2e bundlemgr ok"]
+phase = "end"
+
+[marker."SELFTEST: e2e samgr ok"]
+phase = "end"
+
+[marker."SELFTEST: signed install ok"]
+phase = "end"

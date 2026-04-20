@@ -1,0 +1,58 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `ipc_kernel` (RFC-0014 order = 2).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."SELFTEST: ipc payload roundtrip ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc deadline timeout ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: nexus-ipc kernel loopback ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc sender pid ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc sender service_id ok"]
+phase = "ipc_kernel"
+
+[marker."dbg: phase ipc_kernel skipped"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc cap move reply FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc cap move reply ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc deadline timeout FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc payload roundtrip FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc sender pid FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc sender service_id FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc soak FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc soak ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: nexus-ipc kernel loopback FAIL"]
+phase = "ipc_kernel"

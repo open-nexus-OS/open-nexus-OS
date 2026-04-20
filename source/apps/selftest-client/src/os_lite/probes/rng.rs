@@ -153,7 +153,9 @@ pub(crate) fn rng_entropy_oversized_selftest() {
                     continue;
                 }
                 if rsp[4] != 1 {
-                    emit_bytes(crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_FAIL_STATUS.as_bytes());
+                    emit_bytes(
+                        crate::markers::M_SELFTEST_RNG_ENTROPY_OVERSIZED_FAIL_STATUS.as_bytes(),
+                    );
                     emit_hex_u64(rsp[4] as u64);
                     emit_line(")");
                     return;

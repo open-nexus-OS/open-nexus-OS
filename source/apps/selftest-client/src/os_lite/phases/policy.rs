@@ -98,7 +98,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
                 }
 
                 if profile.check_net_bind(80) == nexus_abi::abi_filter::RuleAction::Deny {
-                    emit_line(crate::markers::M_ABI_FILTER_DENY_SUBJECT_SELFTEST_CLIENT_SYSCALL_NET_BIND);
+                    emit_line(
+                        crate::markers::M_ABI_FILTER_DENY_SUBJECT_SELFTEST_CLIENT_SYSCALL_NET_BIND,
+                    );
                     emit_line(crate::markers::M_SELFTEST_ABI_NETBIND_DENY_OK);
                 } else {
                     emit_line(crate::markers::M_SELFTEST_ABI_NETBIND_DENY_FAIL);

@@ -1,0 +1,46 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `mmio` (RFC-0014 order = 3).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."SELFTEST: mmio map ok"]
+phase = "mmio"
+
+[marker."SELFTEST: cap query mmio ok"]
+phase = "mmio"
+
+[marker."SELFTEST: cap query vmo ok"]
+phase = "mmio"
+
+[marker."dbg: phase mmio skipped"]
+phase = "mmio"
+
+[marker."SELFTEST: cap query mmio FAIL"]
+phase = "mmio"
+
+[marker."SELFTEST: cap query vmo FAIL"]
+phase = "mmio"
+
+[marker."SELFTEST: mmio "]
+phase = "mmio"
+
+[marker."SELFTEST: mmio magic0=0x"]
+phase = "mmio"
+
+[marker."SELFTEST: mmio map FAIL"]
+phase = "mmio"
+
+[marker."SELFTEST: virtio-net mmio ver="]
+phase = "mmio"
+
+[marker."SELFTEST: virtio-net probe FAIL"]
+phase = "mmio"

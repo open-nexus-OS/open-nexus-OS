@@ -152,8 +152,12 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         let start = nexus_abi::nsec().unwrap_or(0);
         let deadline = start.saturating_add(5_000_000_000); // 5s (bounded)
         loop {
-            if services::logd::logd_query_contains_since_paged(&logd, 0, crate::markers::M_DSOFTBUSD_READY.as_bytes())
-                .unwrap_or(false)
+            if services::logd::logd_query_contains_since_paged(
+                &logd,
+                0,
+                crate::markers::M_DSOFTBUSD_READY.as_bytes(),
+            )
+            .unwrap_or(false)
             {
                 break;
             }

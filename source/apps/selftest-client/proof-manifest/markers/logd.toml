@@ -1,0 +1,169 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `logd` (RFC-0014 order = 8).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."logd: reject invalid_args"]
+phase = "logd"
+
+[marker."logd: reject over_limit"]
+phase = "logd"
+
+[marker."logd: reject rate_limited"]
+phase = "logd"
+
+[marker."SELFTEST: logd hardening rejects ok"]
+phase = "logd"
+
+[marker."metricsd: reject invalid_args"]
+phase = "logd"
+
+[marker."metricsd: reject over_limit"]
+phase = "logd"
+
+[marker."metricsd: reject rate_limited"]
+phase = "logd"
+
+[marker."SELFTEST: metrics security rejects ok"]
+phase = "logd"
+
+[marker."SELFTEST: metrics counters ok"]
+phase = "logd"
+
+[marker."SELFTEST: metrics gauges ok"]
+phase = "logd"
+
+[marker."SELFTEST: metrics histograms ok"]
+phase = "logd"
+
+[marker."SELFTEST: tracing spans ok"]
+phase = "logd"
+
+[marker."SELFTEST: metrics retention ok"]
+phase = "logd"
+
+[marker."SELFTEST: log query ok"]
+phase = "logd"
+
+[marker."SELFTEST: nexus-log sink-logd ok"]
+phase = "logd"
+
+[marker."SELFTEST: core services log ok"]
+phase = "logd"
+
+[marker."dbg: phase logd skipped"]
+phase = "logd"
+
+[marker."SELFTEST: core log bundlemgrd delta FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log bundlemgrd probe FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log bundlemgrd route FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log policyd delta FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log policyd probe FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log policyd query FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log policyd route FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log samgrd delta FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log samgrd probe FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log samgrd query FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log samgrd route FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core log stats delta FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: core services log FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: logd append probe FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: logd append recv fail"]
+phase = "logd"
+
+[marker."SELFTEST: logd append reply clone fail"]
+phase = "logd"
+
+[marker."SELFTEST: logd append rsp bad-nonce"]
+phase = "logd"
+
+[marker."SELFTEST: logd append rsp bad-op"]
+phase = "logd"
+
+[marker."SELFTEST: logd append rsp bad-status"]
+phase = "logd"
+
+[marker."SELFTEST: logd append rsp malformed"]
+phase = "logd"
+
+[marker."SELFTEST: logd append send fail"]
+phase = "logd"
+
+[marker."SELFTEST: logd hardening rejects FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: logd query probe FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: logd query recv fail"]
+phase = "logd"
+
+[marker."SELFTEST: logd query reply clone fail"]
+phase = "logd"
+
+[marker."SELFTEST: logd query rsp parse fail"]
+phase = "logd"
+
+[marker."SELFTEST: logd query send fail"]
+phase = "logd"
+
+[marker."SELFTEST: log query FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: metrics counters FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: metrics gauges FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: metrics histograms FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: metrics retention FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: metrics security rejects FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: nexus-log sink-logd FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: tracing spans FAIL"]
+phase = "logd"

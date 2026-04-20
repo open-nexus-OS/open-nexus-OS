@@ -1,0 +1,47 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: 12 RFC-0014 v2 phase declarations for the selftest-client
+# proof-manifest. `[phase.X].order` is 1-based and unique. The parser
+# rejects duplicate names + colliding orders.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable (any change requires RFC-0014 update +
+#                schema_version bump per docs/testing/proof-manifest.md)
+
+[phase.bringup]
+order = 1
+
+[phase.ipc_kernel]
+order = 2
+
+[phase.mmio]
+order = 3
+
+[phase.routing]
+order = 4
+
+[phase.ota]
+order = 5
+
+[phase.policy]
+order = 6
+
+[phase.exec]
+order = 7
+
+[phase.logd]
+order = 8
+
+[phase.vfs]
+order = 9
+
+[phase.net]
+order = 10
+
+[phase.remote]
+order = 11
+
+[phase.end]
+order = 12

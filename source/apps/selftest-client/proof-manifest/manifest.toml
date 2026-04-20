@@ -1,0 +1,27 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Schema-v2 root for the selftest-client proof-manifest.
+# `[include]` directives split markers by phase, profiles by kind. The
+# parser (`source/libs/nexus-proof-manifest/src/lib.rs::parse_path`)
+# resolves globs lexicographically against this file's directory and
+# rejects duplicates across files.
+#
+# History:
+#   - P4-01..P4-10: single-file `proof-manifest.toml` (schema v1).
+#   - P5-00 (this cut): split into per-phase files under `proof-manifest/`
+#     with schema_version = "2"; v1 monolith deleted.
+#
+# Schema reference: docs/testing/proof-manifest.md §"Schema v2"
+# OWNERS: @runtime
+# STATUS: Functional (schema v2 since TASK-0023B P5-00)
+# API_STABILITY: Stable shape; new markers / profiles are additive only.
+
+[meta]
+schema_version = "2"
+default_profile = "full"
+
+[include]
+phases = "phases.toml"
+markers = "markers/*.toml"
+profiles = "profiles/*.toml"

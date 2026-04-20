@@ -1,0 +1,82 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `ota` (RFC-0014 order = 5).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."SELFTEST: ota stage ok"]
+phase = "ota"
+
+[marker."bundlemgrd: slot b active"]
+phase = "ota"
+
+[marker."SELFTEST: ota switch ok"]
+phase = "ota"
+
+[marker."SELFTEST: ota health ok"]
+phase = "ota"
+
+[marker."SELFTEST: ota rollback ok"]
+phase = "ota"
+
+[marker."SELFTEST: bootctl persist ok"]
+phase = "ota"
+
+[marker."dbg: phase ota skipped"]
+phase = "ota"
+
+[marker."SELFTEST: bootctl persist FAIL"]
+phase = "ota"
+
+[marker."SELFTEST: ota health FAIL"]
+phase = "ota"
+
+[marker."SELFTEST: ota publish b FAIL"]
+phase = "ota"
+
+[marker."SELFTEST: ota publish b ok"]
+phase = "ota"
+
+[marker."SELFTEST: ota rollback FAIL"]
+phase = "ota"
+
+[marker."SELFTEST: ota stage FAIL"]
+phase = "ota"
+
+[marker."SELFTEST: ota switch FAIL"]
+phase = "ota"
+
+[marker."SELFTEST: updated recv timeout"]
+phase = "ota"
+
+[marker."SELFTEST: updated rsp len mismatch"]
+phase = "ota"
+
+[marker."SELFTEST: updated rsp magic "]
+phase = "ota"
+
+[marker."SELFTEST: updated rsp other op=0x"]
+phase = "ota"
+
+[marker."SELFTEST: updated rsp short"]
+phase = "ota"
+
+[marker."SELFTEST: updated rsp status "]
+phase = "ota"
+
+[marker."SELFTEST: updated send fail"]
+phase = "ota"
+
+[marker."SELFTEST: updated send timeout"]
+phase = "ota"
+
+[marker."SELFTEST: updated stage send"]
+phase = "ota"

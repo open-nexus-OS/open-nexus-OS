@@ -1,0 +1,110 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `policy` (RFC-0014 order = 6).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."SELFTEST: policy allow ok"]
+phase = "policy"
+
+[marker."SELFTEST: policy deny ok"]
+phase = "policy"
+
+[marker."abi-filter: deny (subject=selftest-client syscall=statefs.put)"]
+phase = "policy"
+proves = "abi-filter deny audit line emitted"
+
+[marker."SELFTEST: abi filter deny ok"]
+phase = "policy"
+
+[marker."SELFTEST: abi filter allow ok"]
+phase = "policy"
+
+[marker."abi-filter: deny (subject=selftest-client syscall=net.bind)"]
+phase = "policy"
+
+[marker."SELFTEST: abi netbind deny ok"]
+phase = "policy"
+
+[marker."SELFTEST: mmio policy deny ok"]
+phase = "policy"
+
+[marker."SELFTEST: policyd requester spoof denied ok"]
+phase = "policy"
+
+[marker."SELFTEST: policy malformed ok"]
+phase = "policy"
+
+[marker."dbg: phase policy skipped"]
+phase = "policy"
+
+[marker."SELFTEST: abi filter allow FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: abi filter deny FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: abi netbind deny FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: bundlemgrd route execd denied FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: bundlemgrd route execd denied ok"]
+phase = "policy"
+
+[marker."SELFTEST: bundlemgrd route execd denied st=0x"]
+phase = "policy"
+
+[marker."SELFTEST: keystored sign denied FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: keystored sign denied ok"]
+phase = "policy"
+
+[marker."SELFTEST: logd has audit records"]
+phase = "policy"
+
+[marker."SELFTEST: logd has NO audit records"]
+phase = "policy"
+
+[marker."SELFTEST: logd record count="]
+phase = "policy"
+
+[marker."SELFTEST: logd slots "]
+phase = "policy"
+
+[marker."SELFTEST: mmio policy deny FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: policy allow audit FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: policy allow audit ok"]
+phase = "policy"
+
+[marker."SELFTEST: policy allow FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: policy deny audit FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: policy deny audit ok"]
+phase = "policy"
+
+[marker."SELFTEST: policy deny FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: policyd requester spoof denied FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: policy malformed FAIL"]
+phase = "policy"

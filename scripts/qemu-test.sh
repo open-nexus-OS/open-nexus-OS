@@ -14,8 +14,10 @@ RUN_PHASE=${RUN_PHASE:-}
 # ---------------------------------------------------------------------------
 # TASK-0023B P4-05: harness profile dispatch.
 #
-# `--profile=<name>` reads `[profile.<name>]` from
-# `source/apps/selftest-client/proof-manifest.toml` via the host CLI
+# `--profile=<name>` reads `[profile.<name>]` from the proof-manifest
+# (P5-00: now a v2 split tree under
+# `source/apps/selftest-client/proof-manifest/`; root is
+# `manifest.toml`) via the host CLI
 # (`nexus-proof-manifest list-env --profile=<name>`) and forwards the
 # resolved env dictionary to the rest of this script. Bash arrays
 # (`expected_sequence`, `PHASES`, `PHASE_START_MARKER`) currently mirror
@@ -25,7 +27,11 @@ RUN_PHASE=${RUN_PHASE:-}
 PROFILE=""
 PM_CLI_DEFAULT="$ROOT/target/debug/nexus-proof-manifest"
 NEXUS_PROOF_MANIFEST_BIN=${NEXUS_PROOF_MANIFEST_BIN:-}
-NEXUS_PROOF_MANIFEST_PATH=${NEXUS_PROOF_MANIFEST_PATH:-"$ROOT/source/apps/selftest-client/proof-manifest.toml"}
+# P5-00: the legacy single-file `proof-manifest.toml` has been deleted;
+# point at the v2 root manifest under `proof-manifest/manifest.toml`.
+# Override via NEXUS_PROOF_MANIFEST_PATH if you need to test against an
+# alternative tree (e.g. a vendor fork).
+NEXUS_PROOF_MANIFEST_PATH=${NEXUS_PROOF_MANIFEST_PATH:-"$ROOT/source/apps/selftest-client/proof-manifest/manifest.toml"}
 PM_MIRROR_CHECK=${PM_MIRROR_CHECK:-1}
 
 # Pre-scan argv for `--profile=<name>`; preserve the rest for downstream
@@ -1118,12 +1124,27 @@ fi
 PM_VERIFY_UART=${PM_VERIFY_UART:-1}
 if [[ "$PM_VERIFY_UART" == "1" ]]; then
   PM_PROFILE_FOR_VERIFY=${PROFILE:-full}
+  # #region agent log (H1: profile-vs-SMP mismatch capture)
+  agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:verify-uart-pre" \
+    "verify-uart preconditions: PROFILE used vs SMP harts in image" \
+    "{\"profile_for_verify\":\"$PM_PROFILE_FOR_VERIFY\",\"profile_arg_was_set\":\"${PROFILE:-<unset>}\",\"smp\":\"${SMP:-<unset>}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"makelevel\":\"${MAKELEVEL:-}\"}"
+  # #endregion
   cli=$(pm_cli 2>/dev/null || true)
   if [[ -n "$cli" && -x "$cli" && -f "$UART_LOG" ]]; then
-    if "$cli" verify-uart \
+    verify_out=$("$cli" verify-uart \
         --profile="$PM_PROFILE_FOR_VERIFY" \
         --manifest="$NEXUS_PROOF_MANIFEST_PATH" \
-        --uart="$UART_LOG"; then
+        --uart="$UART_LOG" 2>&1) && verify_rc=0 || verify_rc=$?
+    # Echo to stderr exactly like before so callers see the message verbatim.
+    printf '%s\n' "$verify_out" >&2
+    # #region agent log (H1: verify-uart result + first 6 unexpected/forbidden lines)
+    # Extract the first 6 violation literals (substring after "  - ") for diagnostics; keep payload bounded.
+    violations=$(printf '%s\n' "$verify_out" | awk '/^  - /{ sub(/^  - /, ""); print; n++; if (n>=6) exit }' | tr '\n' '|' | sed 's/|$//')
+    agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:verify-uart-post" \
+      "verify-uart result for profile vs hardware SMP" \
+      "{\"profile_for_verify\":\"$PM_PROFILE_FOR_VERIFY\",\"smp\":\"${SMP:-<unset>}\",\"verify_rc\":$verify_rc,\"first_violations\":\"${violations//\"/\\\"}\"}"
+    # #endregion
+    if [[ "$verify_rc" == "0" ]]; then
       echo "[info] verify-uart: profile=$PM_PROFILE_FOR_VERIFY clean" >&2
     else
       echo "[error] verify-uart failed for profile=$PM_PROFILE_FOR_VERIFY" >&2
@@ -1131,6 +1152,112 @@ if [[ "$PM_VERIFY_UART" == "1" ]]; then
     fi
   else
     echo "[warn] verify-uart skipped (CLI not available); set PM_VERIFY_UART=0 to silence" >&2
+  fi
+fi
+
+# TASK-0023B P5-05: post-pass evidence bundle (assemble + seal).
+#
+# Runs after verify-uart succeeds; failure here is fatal because a
+# successful run that fails to seal would silently drop the audit
+# trail on the floor. Knobs:
+#
+#   NEXUS_EVIDENCE_DISABLE=1   skip the seal step (rejected when CI=1)
+#   NEXUS_EVIDENCE_SEAL=1      force mandatory seal even outside CI
+#   CI=1                       implies NEXUS_EVIDENCE_SEAL=1; also
+#                              rejects NEXUS_EVIDENCE_DISABLE=1
+#
+# Label resolution mirrors tools/seal-evidence.sh: if
+# NEXUS_EVIDENCE_CI_PRIVATE_KEY_BASE64 is set the bundle is sealed
+# with --label=ci, otherwise with --label=bringup. Bundles land at
+# target/evidence/<utc>-<profile>-<gitsha>.tar.gz (gitignored).
+seal_required=0
+if [[ "${CI:-0}" == "1" || "${NEXUS_EVIDENCE_SEAL:-0}" == "1" ]]; then
+  seal_required=1
+fi
+if [[ "${NEXUS_EVIDENCE_DISABLE:-0}" == "1" ]]; then
+  if [[ "$seal_required" == "1" ]]; then
+    echo "[error] NEXUS_EVIDENCE_DISABLE=1 is rejected when CI=1 (or NEXUS_EVIDENCE_SEAL=1) — refusing to drop the audit trail" >&2
+    exit 1
+  fi
+  echo "[warn] NEXUS_EVIDENCE_DISABLE=1: skipping post-pass evidence bundle (local dev only)" >&2
+else
+  evidence_profile=${PROFILE:-full}
+  evidence_dir="$ROOT/target/evidence"
+  mkdir -p "$evidence_dir"
+  utc_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  git_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "no-git")
+  evidence_out="$evidence_dir/${utc_stamp}-${evidence_profile}-${git_sha}.tar.gz"
+
+  # Locate (or build) the nexus-evidence CLI. Mirrors pm_cli().
+  ne_cli=""
+  for cand in \
+    "${NEXUS_EVIDENCE_BIN:-}" \
+    "$ROOT/target/debug/nexus-evidence" \
+    "$ROOT/target/release/nexus-evidence" \
+    /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-evidence \
+    /tmp/cursor-sandbox-cache/*/cargo-target/release/nexus-evidence; do
+    if [[ -n "$cand" && -x "$cand" ]]; then
+      ne_cli="$cand"
+      break
+    fi
+  done
+  if [[ -z "$ne_cli" ]]; then
+    echo "[info] building nexus-evidence CLI..." >&2
+    (cd "$ROOT" && cargo build -p nexus-evidence --bin nexus-evidence --quiet) 1>&2
+    for cand in \
+      "$ROOT/target/debug/nexus-evidence" \
+      /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-evidence; do
+      if [[ -x "$cand" ]]; then
+        ne_cli="$cand"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$ne_cli" || ! -x "$ne_cli" ]]; then
+    echo "[error] nexus-evidence binary not found — cannot assemble bundle" >&2
+    exit 1
+  fi
+
+  # Collect a small set of run-side metadata. Anything not available
+  # locally is left empty; the bundle schema tolerates missing values
+  # but the CI gate requires the host-info string to be non-empty so
+  # sealed runs can be partitioned by runner class.
+  rustc_ver=$(rustc -V 2>/dev/null || echo "")
+  qemu_ver=$("${QEMU:-qemu-system-riscv64}" --version 2>/dev/null | head -n1 || echo "")
+  host_info="$(uname -srm 2>/dev/null || echo unknown)"
+
+  echo "[info] assembling evidence bundle: $evidence_out" >&2
+  if ! "$ne_cli" assemble \
+      --uart="$UART_LOG" \
+      --manifest="$NEXUS_PROOF_MANIFEST_PATH" \
+      --profile="$evidence_profile" \
+      --out="$evidence_out" \
+      --kernel-cmdline="${KERNEL_CMDLINE:-}" \
+      --host-info="$host_info" \
+      --build-sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
+      --rustc-version="$rustc_ver" \
+      --qemu-version="$qemu_ver" \
+      --wall-clock="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --env="PROFILE=$evidence_profile" \
+      --env="REQUIRE_SMP=${REQUIRE_SMP:-0}" \
+      --env="REQUIRE_QEMU_DHCP=${REQUIRE_QEMU_DHCP:-0}" \
+      --env="REQUIRE_DSOFTBUS=${REQUIRE_DSOFTBUS:-0}"; then
+    echo "[error] nexus-evidence assemble failed" >&2
+    exit 1
+  fi
+
+  if [[ "$seal_required" == "1" ]]; then
+    seal_label="bringup"
+    if [[ -n "${NEXUS_EVIDENCE_CI_PRIVATE_KEY_BASE64:-}" ]]; then
+      seal_label="ci"
+    fi
+    echo "[info] sealing evidence bundle (label=$seal_label)" >&2
+    if ! NEXUS_EVIDENCE_BIN="$ne_cli" "$ROOT/tools/seal-evidence.sh" "$evidence_out" --label="$seal_label"; then
+      echo "[error] tools/seal-evidence.sh failed for $evidence_out" >&2
+      exit 1
+    fi
+  else
+    echo "[info] evidence bundle assembled unsigned (set NEXUS_EVIDENCE_SEAL=1 to seal)" >&2
   fi
 fi
 

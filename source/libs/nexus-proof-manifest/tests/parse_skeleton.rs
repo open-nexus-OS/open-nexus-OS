@@ -116,12 +116,16 @@ foo = 1
 fn on_disk_manifest_parses() {
     // Cross-check: the actual on-disk skeleton in the selftest-client tree
     // must parse cleanly under the same parser the build will use.
-    let path =
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/selftest-client/proof-manifest.toml");
-    let src = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
-    let m = parse(&src).expect("on-disk skeleton must parse");
+    // P5-00: on-disk manifest is now a v2 split tree.
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/selftest-client/proof-manifest/manifest.toml"
+    );
+    let m = nexus_proof_manifest::parse_path(std::path::Path::new(path))
+        .unwrap_or_else(|e| panic!("on-disk skeleton must parse: {e}"));
     assert_eq!(m.phases.len(), 12);
     assert_eq!(m.meta.default_profile, "full");
+    assert_eq!(m.meta.schema_version, "2");
 }
 
 #[test]

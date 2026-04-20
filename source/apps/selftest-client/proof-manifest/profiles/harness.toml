@@ -1,0 +1,47 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Harness-side profile catalog (consumed by `scripts/qemu-test.sh`
+# and `tools/os2vm.sh` via `nexus-proof-manifest list-env --profile=<name>`).
+# Each profile declares a `runner`, optional `extends` parent, and a flat
+# `env` dictionary forwarded to the harness. Runtime-only profiles
+# (bringup/quick/ota/net/none) live in `runtime.toml`.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; new harness profiles are additive
+
+[profile.full]
+runner = "scripts/qemu-test.sh"
+env = {}
+
+[profile.smp]
+runner = "scripts/qemu-test.sh"
+extends = "full"
+# SMP="2" is the hardware contract for this profile (the kernel emits
+# `KSELFTEST: smp online ok` etc. only with >=2 harts; those literals
+# are declared in `markers/bringup.toml` with `emit_when={profile="smp"}`).
+# Forwarding it via `list-env` keeps the SMP fact co-located with the
+# marker-set that depends on it, so `just test-os smp` and
+# `make`-based runs both DTRT without a second source of truth.
+env = { REQUIRE_SMP = "1", SMP = "2" }
+
+[profile.dhcp]
+runner = "scripts/qemu-test.sh"
+extends = "full"
+env = { REQUIRE_QEMU_DHCP = "1" }
+
+[profile.dhcp-strict]
+runner = "scripts/qemu-test.sh"
+extends = "dhcp"
+env = { REQUIRE_QEMU_DHCP_STRICT = "1" }
+
+[profile.os2vm]
+runner = "tools/os2vm.sh"
+extends = "full"
+env = { REQUIRE_DSOFTBUS = "1", REQUIRE_DSOFTBUS_REMOTE_PKGFS = "1", REQUIRE_DSOFTBUS_REMOTE_STATEFS = "1" }
+
+[profile.quic-required]
+runner = "scripts/qemu-test.sh"
+extends = "full"
+env = { REQUIRE_DSOFTBUS = "1" }

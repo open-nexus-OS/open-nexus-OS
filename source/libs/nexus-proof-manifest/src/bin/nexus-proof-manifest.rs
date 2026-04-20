@@ -8,7 +8,12 @@
 //! ad-hoc `expected_sequence` / `REQUIRE_*` bash arrays with manifest
 //! lookups so the manifest is the executable SSOT.
 //!
-//! Subcommands (all default to the workspace `proof-manifest.toml`):
+//! P5-00 update: `--manifest=<path>` accepts both v1 single-file and v2
+//! split-tree roots. The default path is now the v2 root manifest under
+//! `source/apps/selftest-client/proof-manifest/manifest.toml`. The CLI
+//! dispatches via [`nexus_proof_manifest::parse_path`].
+//!
+//! Subcommands (all default to the v2 root manifest):
 //!
 //!   list-markers   --profile=<name> [--phase=<name>] [--format=lines|json]
 //!   list-env       --profile=<name>                  [--format=shell|json]
@@ -31,7 +36,7 @@
 //! TEST_COVERAGE: integration tests under `tests/cli_*.rs`
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use nexus_proof_manifest::{parse, Manifest};
+use nexus_proof_manifest::{parse_path, Manifest};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -67,8 +72,9 @@ subcommands:
   verify-uart    --profile=<name> --uart=<path>    [--format=lines|json]
 
 options shared by all subcommands:
-  --manifest=<path>   path to proof-manifest.toml
-                      (default: source/apps/selftest-client/proof-manifest.toml)
+  --manifest=<path>   path to proof-manifest root (v1 single-file or v2
+                      split-tree `manifest.toml`); see schema_version
+                      (default: source/apps/selftest-client/proof-manifest/manifest.toml)
   --uart=<path>       path to UART transcript (verify-uart only)
   --format=<fmt>      output format; defaults vary per subcommand
 
@@ -126,38 +132,35 @@ fn parse_opts(args: &[String]) -> Result<Opts, CliError> {
 }
 
 fn load_manifest(path: Option<&std::path::Path>) -> Result<Manifest, CliError> {
-    let p: PathBuf = path
-        .map(PathBuf::from)
-        .unwrap_or_else(default_manifest_path);
-    let src = std::fs::read_to_string(&p)
-        .map_err(|e| CliError::Io(format!("read {}: {e}", p.display())))?;
-    parse(&src).map_err(|e| CliError::Manifest(e.to_string()))
+    let p: PathBuf = path.map(PathBuf::from).unwrap_or_else(default_manifest_path);
+    parse_path(&p).map_err(|e| match e {
+        nexus_proof_manifest::ParseError::Io { path: _, detail } => CliError::Io(detail),
+        other => CliError::Manifest(other.to_string()),
+    })
 }
 
+/// P5-00: default manifest path is now the v2 root file under
+/// `proof-manifest/`. The legacy `proof-manifest.toml` monolith has been
+/// deleted. Callers may still override with `--manifest=<path>`; the
+/// parser dispatches v1/v2 by `[meta].schema_version`.
 fn default_manifest_path() -> PathBuf {
-    PathBuf::from("source/apps/selftest-client/proof-manifest.toml")
+    PathBuf::from("source/apps/selftest-client/proof-manifest/manifest.toml")
 }
 
 fn require_profile(opts: &Opts) -> Result<&str, CliError> {
-    opts.profile
-        .as_deref()
-        .ok_or_else(|| CliError::Usage("--profile=<name> required".into()))
+    opts.profile.as_deref().ok_or_else(|| CliError::Usage("--profile=<name> required".into()))
 }
 
 fn cmd_list_markers(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
     let profile = require_profile(opts)?;
     if !m.profiles.contains_key(profile) {
-        return Err(CliError::Manifest(format!(
-            "profile `{profile}` not declared"
-        )));
+        return Err(CliError::Manifest(format!("profile `{profile}` not declared")));
     }
     let format = opts.format.as_deref().unwrap_or("lines");
     let phase_filter = opts.phase.as_deref();
 
-    let active: Vec<_> = m
-        .expected_markers(profile)
-        .filter(|m| phase_filter.is_none_or(|p| m.phase == p))
-        .collect();
+    let active: Vec<_> =
+        m.expected_markers(profile).filter(|m| phase_filter.is_none_or(|p| m.phase == p)).collect();
 
     match format {
         "lines" => {
@@ -190,9 +193,7 @@ fn cmd_list_markers(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
 
 fn cmd_list_env(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
     let profile = require_profile(opts)?;
-    let env = m
-        .resolve_env_chain(profile)
-        .map_err(|e| CliError::Manifest(e.to_string()))?;
+    let env = m.resolve_env_chain(profile).map_err(|e| CliError::Manifest(e.to_string()))?;
     let format = opts.format.as_deref().unwrap_or("shell");
     match format {
         "shell" => {
@@ -222,9 +223,7 @@ fn cmd_list_env(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
 fn cmd_list_forbidden(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
     let profile = require_profile(opts)?;
     if !m.profiles.contains_key(profile) {
-        return Err(CliError::Manifest(format!(
-            "profile `{profile}` not declared"
-        )));
+        return Err(CliError::Manifest(format!("profile `{profile}` not declared")));
     }
     let format = opts.format.as_deref().unwrap_or("lines");
     let forbidden: Vec<_> = m.forbidden_markers(profile).collect();
@@ -298,9 +297,7 @@ fn cmd_list_phases(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
 fn cmd_verify_uart(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
     let profile = require_profile(opts)?;
     if !m.profiles.contains_key(profile) {
-        return Err(CliError::Manifest(format!(
-            "profile `{profile}` not declared"
-        )));
+        return Err(CliError::Manifest(format!("profile `{profile}` not declared")));
     }
     let uart_path = opts
         .uart
@@ -310,14 +307,10 @@ fn cmd_verify_uart(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
         .map_err(|e| CliError::Io(format!("read {}: {e}", uart_path.display())))?;
 
     // Build the per-profile sets up-front so the scan is O(lines * markers).
-    let expected: std::collections::BTreeSet<String> = m
-        .expected_markers(profile)
-        .map(|mk| mk.literal.clone())
-        .collect();
-    let forbidden: std::collections::BTreeSet<String> = m
-        .forbidden_markers(profile)
-        .map(|mk| mk.literal.clone())
-        .collect();
+    let expected: std::collections::BTreeSet<String> =
+        m.expected_markers(profile).map(|mk| mk.literal.clone()).collect();
+    let forbidden: std::collections::BTreeSet<String> =
+        m.forbidden_markers(profile).map(|mk| mk.literal.clone()).collect();
     let universe: Vec<&str> = m.markers.iter().map(|mk| mk.literal.as_str()).collect();
 
     // Walk the UART log; for each line, find every manifest literal it

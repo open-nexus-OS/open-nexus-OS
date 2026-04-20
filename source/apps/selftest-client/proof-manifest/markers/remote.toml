@@ -1,0 +1,95 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `remote` (RFC-0014 order = 11).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."dsoftbusd: cross-vm session ok"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."dsoftbusd: remote packagefs served"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: remote pkgfs stat ok"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: remote pkgfs open ok"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: remote pkgfs read step ok"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: remote pkgfs close ok"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: remote pkgfs read ok"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."dsoftbusd: remote statefs served"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: remote statefs rw ok"]
+phase = "remote"
+emit_when = { profile = "os2vm" }
+
+[marker."dsoftbus:mux crossvm session up"]
+phase = "remote"
+proves = "Cross-VM dsoftbus mux session established (sender + receiver agreed on session id)."
+emit_when = { profile = "os2vm" }
+
+[marker."dsoftbus:mux crossvm data ok"]
+phase = "remote"
+proves = "Cross-VM mux carried application data end-to-end (echo round-trip succeeded)."
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: mux crossvm pri control ok"]
+phase = "remote"
+proves = "Priority control plane traffic preempted bulk traffic over cross-VM mux."
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: mux crossvm bulk ok"]
+phase = "remote"
+proves = "Cross-VM mux sustained bulk transfer to completion."
+emit_when = { profile = "os2vm" }
+
+[marker."SELFTEST: mux crossvm backpressure ok"]
+phase = "remote"
+proves = "Cross-VM mux applied backpressure when receiver fell behind (no unbounded queueing)."
+emit_when = { profile = "os2vm" }
+
+[marker."dbg: phase remote skipped"]
+phase = "remote"
+
+[marker."SELFTEST: remote pkgfs read FAIL"]
+phase = "remote"
+
+[marker."SELFTEST: remote query FAIL"]
+phase = "remote"
+
+[marker."SELFTEST: remote query ok"]
+phase = "remote"
+
+[marker."SELFTEST: remote resolve FAIL"]
+phase = "remote"
+
+[marker."SELFTEST: remote resolve ok"]
+phase = "remote"
+
+[marker."SELFTEST: remote statefs rw FAIL"]
+phase = "remote"

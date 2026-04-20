@@ -1,22 +1,35 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: Host-only schema + parser for `proof-manifest.toml`, the SSOT
+//! CONTEXT: Host-only schema + parser for the `proof-manifest`, the SSOT
 //! that promotes the `selftest-client` marker ladder, harness profiles, and
-//! (later) runtime selftest profiles to a single declarative artifact.
+//! runtime selftest profiles to a single declarative artifact.
 //!
 //! Cut P4-01 introduced the skeleton (`[meta]` + 12 `[phase.*]` blocks +
-//! placeholder `[profile.full]`). Cut P4-03 extends the schema with
+//! placeholder `[profile.full]`). Cut P4-03 extended the schema with
 //! `[marker."<literal>"]` entries (with `phase`, optional `proves`,
 //! `introduced_in`, `emit_when`, `emit_when_not`, `forbidden_when`).
-//! Cuts P4-05 (profile bodies) and P4-08 (runtime profiles) extend
-//! `Profile` further; this module's API names are stable across cuts.
+//! Cuts P4-05 (profile bodies) and P4-08 (runtime profiles) extended
+//! `Profile` further. Cut **P5-00** introduces schema **v2**: a per-phase
+//! split layout with `[include]` directives in the root manifest. The
+//! parser dispatches on `[meta].schema_version`:
+//!   - `"1"` (legacy single-file): consumed via [`parse`] from an inline
+//!     `&str`, or via [`parse_path`] from a single TOML file. `[include]`
+//!     is rejected.
+//!   - `"2"` (per-phase split): only valid via [`parse_path`]; the root
+//!     manifest contains `[meta]` + `[include]` and nothing else; included
+//!     files are categorically restricted (`phases`/`markers`/`profiles`).
+//!
+//! Phase-4 invariant carried forward: field names on [`Manifest`],
+//! [`Phase`], [`Profile`], [`Marker`], [`ProfileGate`] are append-only.
+//! The set of [`ParseError`] variants is append-only across cuts.
 //!
 //! OWNERS: @runtime
-//! STATUS: Functional (schema through P4-03)
-//! API_STABILITY: Unstable (Phase 4 evolves shape between cuts)
+//! STATUS: Functional (schema v1 + v2 from P5-00)
+//! API_STABILITY: Unstable (Phase 5 evolves shape between cuts)
 //! TEST_COVERAGE: see `tests/parse_skeleton.rs` (P4-01) +
-//!                `tests/parse_markers.rs` (P4-03)
+//!                `tests/parse_markers.rs` (P4-03) +
+//!                `tests/parse_v2.rs` (P5-00)
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 #![forbid(unsafe_code)]
@@ -27,15 +40,16 @@ mod error;
 pub use error::ParseError;
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use serde::Deserialize;
 
-/// Parsed view of a `proof-manifest.toml` file at the P4-03 schema level.
+/// Parsed view of a `proof-manifest` (single file v1 or split v2).
 ///
-/// Phase-4 invariant: field names are append-only between cuts. P4-05 will
-/// extend `Profile` with `runner`, `env`, etc.; P4-08 will add
-/// `runtime_only` and `phases`. Existing field names never rename.
+/// Phase-4 invariant: field names are append-only between cuts. Phase 5
+/// adds [`Self::source_files`] for v2 build-script `cargo:rerun-if-changed=`
+/// emission; existing field names never rename.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     /// Top-level `[meta]` table.
@@ -48,6 +62,14 @@ pub struct Manifest {
     /// generated `markers_generated.rs` constant emission and for the
     /// harness's marker-ladder traversal.
     pub markers: Vec<Marker>,
+    /// Absolute paths to every TOML file the parser read while building
+    /// this `Manifest`. For v1 single-file inputs this is one entry (or
+    /// empty for inline-string parses); for v2 inputs this is the root
+    /// manifest plus every file resolved via `[include]`. Used by
+    /// `selftest-client/build.rs` to emit one `cargo:rerun-if-changed=`
+    /// per source file. Order is deterministic (root first, then
+    /// includes in lexicographic glob-expansion order).
+    pub source_files: Vec<PathBuf>,
 }
 
 /// `[meta]` table contents (closed schema; unknown keys reject).
@@ -134,7 +156,11 @@ pub struct ProfileGate {
     pub profile: String,
 }
 
-/// Parse a `proof-manifest.toml` source string into a [`Manifest`].
+/// Parse an inline `proof-manifest` source string into a [`Manifest`].
+///
+/// This entry point handles **schema v1 only** (legacy single-file form).
+/// Schema-v2 manifests live across multiple files on disk and require
+/// [`parse_path`] for `[include]` resolution.
 ///
 /// Returns a [`ParseError`] for any schema violation. The parser uses a
 /// closed schema: any top-level key other than `meta`, `phase`,
@@ -144,10 +170,46 @@ pub struct ProfileGate {
 ///
 /// See [`ParseError`] for the full list of rejection categories.
 pub fn parse(source: &str) -> Result<Manifest, ParseError> {
+    parse_with_sources(source, Vec::new())
+}
+
+/// Parse a `proof-manifest` from a file path, dispatching on
+/// `[meta].schema_version` (`"1"` for legacy single-file, `"2"` for
+/// per-phase split with `[include]` directives).
+///
+/// `Manifest::source_files` records every file the parser read so that
+/// `selftest-client/build.rs` can emit one `cargo:rerun-if-changed=` per
+/// source file. For v1 inputs this is just `[path]`; for v2 inputs this
+/// is `[root, ...includes]` in deterministic, lexicographically-sorted
+/// glob-expansion order.
+///
+/// # Errors
+///
+/// See [`ParseError`] for the full list of rejection categories.
+pub fn parse_path(path: &Path) -> Result<Manifest, ParseError> {
+    let src = read_to_string(path)?;
+    let peek = peek_schema_version(&src)?;
+    match peek.as_str() {
+        "1" => {
+            // v1: same body as `parse`, but record the source file so the
+            // build script can rerun on disk edits.
+            parse_with_sources(&src, vec![path.to_path_buf()])
+        }
+        "2" => parse_v2_root(path, &src),
+        other => Err(ParseError::SchemaVersionUnsupported(other.to_string())),
+    }
+}
+
+/// Internal: parse `source` as v1, recording `sources` on the resulting
+/// [`Manifest`] for downstream `cargo:rerun-if-changed=` emission.
+fn parse_with_sources(source: &str, sources: Vec<PathBuf>) -> Result<Manifest, ParseError> {
     let raw: RawManifest = toml::from_str(source).map_err(|e| ParseError::Toml(e.to_string()))?;
 
     if let Some(unknown) = raw.first_unknown_top_level_key() {
         return Err(ParseError::UnknownTopLevelKey(unknown));
+    }
+    if raw.include.is_some() {
+        return Err(ParseError::IncludeInV1Source);
     }
 
     // -- meta ---------------------------------------------------------------
@@ -163,11 +225,38 @@ pub fn parse(source: &str) -> Result<Manifest, ParseError> {
         .default_profile
         .filter(|s| !s.is_empty())
         .ok_or(ParseError::MissingDefaultProfile)?;
+    if schema_version == "2" {
+        // Inline v2 sources are not allowed: v2 only makes sense across
+        // multiple files on disk. Surface as a stable schema-mismatch rather
+        // than letting the closed-schema reject fire on `[include]`.
+        return Err(ParseError::IncludeInV1Source);
+    }
+    if schema_version != "1" {
+        return Err(ParseError::SchemaVersionUnsupported(schema_version));
+    }
 
+    finish_parse(
+        raw.phase.unwrap_or_default(),
+        raw.profile.unwrap_or_default(),
+        raw.marker.unwrap_or_default(),
+        Meta { schema_version, default_profile },
+        sources,
+    )
+}
+
+/// Take pre-merged `phase` / `profile` / `marker` raw maps (already
+/// duplicate-checked across files for v2) and finish validation.
+fn finish_parse(
+    raw_phases: BTreeMap<String, RawPhase>,
+    raw_profiles: BTreeMap<String, toml::Value>,
+    raw_markers: IndexMap<String, RawMarker>,
+    meta: Meta,
+    source_files: Vec<PathBuf>,
+) -> Result<Manifest, ParseError> {
     // -- phases -------------------------------------------------------------
     let mut phases: BTreeMap<String, Phase> = BTreeMap::new();
     let mut order_seen: BTreeMap<u8, String> = BTreeMap::new();
-    for (name, body) in raw.phase.unwrap_or_default() {
+    for (name, body) in raw_phases {
         if phases.contains_key(&name) {
             return Err(ParseError::DuplicatePhase(name));
         }
@@ -184,15 +273,10 @@ pub fn parse(source: &str) -> Result<Manifest, ParseError> {
 
     // -- profiles -----------------------------------------------------------
     let mut profiles: BTreeMap<String, Profile> = BTreeMap::new();
-    for (name, value) in raw.profile.unwrap_or_default() {
-        let raw_profile: RawProfile = value
-            .try_into()
-            .map_err(|e: toml::de::Error| {
-                ParseError::ProfileBodyInvalid {
-                    profile: name.clone(),
-                    detail: e.to_string(),
-                }
-            })?;
+    for (name, value) in raw_profiles {
+        let raw_profile: RawProfile = value.try_into().map_err(|e: toml::de::Error| {
+            ParseError::ProfileBodyInvalid { profile: name.clone(), detail: e.to_string() }
+        })?;
         if raw_profile.runtime_only && raw_profile.runner.is_some() {
             return Err(ParseError::ProfileRuntimeOnlyWithRunner(name));
         }
@@ -243,27 +327,18 @@ pub fn parse(source: &str) -> Result<Manifest, ParseError> {
     // -- markers ------------------------------------------------------------
     let mut markers: Vec<Marker> = Vec::new();
     let mut seen_marker: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (literal, raw_marker) in raw.marker.unwrap_or_default() {
+    for (literal, raw_marker) in raw_markers {
         if !seen_marker.insert(literal.clone()) {
             return Err(ParseError::DuplicateMarker(literal));
         }
-        let phase = raw_marker
-            .phase
-            .ok_or_else(|| ParseError::MarkerMissingPhase(literal.clone()))?;
+        let phase =
+            raw_marker.phase.ok_or_else(|| ParseError::MarkerMissingPhase(literal.clone()))?;
         if !phases.contains_key(&phase) {
-            return Err(ParseError::MarkerUnknownPhase {
-                marker: literal.clone(),
-                phase,
-            });
+            return Err(ParseError::MarkerUnknownPhase { marker: literal.clone(), phase });
         }
         check_profile_ref(&literal, &raw_marker.emit_when, "emit_when", &profiles)?;
         check_profile_ref(&literal, &raw_marker.emit_when_not, "emit_when_not", &profiles)?;
-        check_profile_ref(
-            &literal,
-            &raw_marker.forbidden_when,
-            "forbidden_when",
-            &profiles,
-        )?;
+        check_profile_ref(&literal, &raw_marker.forbidden_when, "forbidden_when", &profiles)?;
         markers.push(Marker {
             literal,
             phase,
@@ -275,12 +350,249 @@ pub fn parse(source: &str) -> Result<Manifest, ParseError> {
         });
     }
 
-    Ok(Manifest {
-        meta: Meta { schema_version, default_profile },
-        phases,
-        profiles,
-        markers,
-    })
+    Ok(Manifest { meta, phases, profiles, markers, source_files })
+}
+
+/// Read a UTF-8 file, mapping I/O errors to a stable [`ParseError::Io`].
+fn read_to_string(path: &Path) -> Result<String, ParseError> {
+    std::fs::read_to_string(path)
+        .map_err(|e| ParseError::Io { path: path.display().to_string(), detail: e.to_string() })
+}
+
+/// Peek `[meta].schema_version` from a raw TOML source without running
+/// the closed-schema validator. Used by [`parse_path`] to dispatch v1/v2
+/// before the full structural reject pipeline runs.
+fn peek_schema_version(source: &str) -> Result<String, ParseError> {
+    #[derive(Deserialize)]
+    struct Peek {
+        meta: Option<PeekMeta>,
+    }
+    #[derive(Deserialize)]
+    struct PeekMeta {
+        #[serde(default)]
+        schema_version: Option<String>,
+    }
+    let peek: Peek = toml::from_str(source).map_err(|e| ParseError::Toml(e.to_string()))?;
+    let meta = peek.meta.ok_or(ParseError::MissingMeta)?;
+    meta.schema_version.filter(|s| !s.is_empty()).ok_or(ParseError::MissingSchemaVersion)
+}
+
+// ---------------------------------------------------------------------------
+// P5-00: schema-v2 (`[include]` directives) resolver
+// ---------------------------------------------------------------------------
+
+/// Categories supported by `[include]` in v2 root manifests. The order
+/// here is the order the resolver loads files in, which is also the order
+/// `Manifest::source_files` records after the root entry.
+const INCLUDE_CATEGORIES: [&str; 3] = ["phases", "markers", "profiles"];
+
+/// Parse a v2 root manifest (`source` already known to declare
+/// `schema_version = "2"`). Resolves `[include]` globs deterministically
+/// against the root file's parent directory, parses each included file
+/// under its categorical restriction, and merges into a flat
+/// [`Manifest`].
+fn parse_v2_root(root_path: &Path, source: &str) -> Result<Manifest, ParseError> {
+    let raw: RawManifest = toml::from_str(source).map_err(|e| ParseError::Toml(e.to_string()))?;
+
+    if let Some(unknown) = raw.first_unknown_top_level_key() {
+        return Err(ParseError::UnknownTopLevelKey(unknown));
+    }
+    // v2 root must contain only [meta] + [include]; phases/markers/profiles
+    // belong in included files. This is the "MixedSchemaInRoot" gate.
+    if raw.phase.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(ParseError::MixedSchemaInRoot("phase".into()));
+    }
+    if raw.profile.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(ParseError::MixedSchemaInRoot("profile".into()));
+    }
+    if raw.marker.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(ParseError::MixedSchemaInRoot("marker".into()));
+    }
+
+    // -- meta ---------------------------------------------------------------
+    let raw_meta = raw.meta.ok_or(ParseError::MissingMeta)?;
+    if let Some(unknown) = raw_meta.first_unknown_key() {
+        return Err(ParseError::UnknownMetaKey(unknown));
+    }
+    let schema_version = raw_meta
+        .schema_version
+        .filter(|s| !s.is_empty())
+        .ok_or(ParseError::MissingSchemaVersion)?;
+    debug_assert_eq!(schema_version, "2", "parse_v2_root invoked on non-v2 source");
+    let default_profile = raw_meta
+        .default_profile
+        .filter(|s| !s.is_empty())
+        .ok_or(ParseError::MissingDefaultProfile)?;
+    let meta = Meta { schema_version, default_profile };
+
+    // -- include resolution -------------------------------------------------
+    let include = raw.include.ok_or_else(|| {
+        // A v2 manifest with no [include] is structurally pointless: the
+        // root file declares schema_version="2" but provides no content.
+        // Surface this as IncludeGlobEmpty for the canonical category, so
+        // operators see a clear "include is missing" error rather than an
+        // empty manifest silently passing.
+        ParseError::IncludeGlobEmpty {
+            category: "phases",
+            pattern: "<missing [include] table>".into(),
+        }
+    })?;
+    if let Some(unknown) = include.first_unknown_key() {
+        return Err(ParseError::UnknownTopLevelKey(format!("include.{unknown}")));
+    }
+
+    let root_dir = root_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut source_files: Vec<PathBuf> = vec![root_path.to_path_buf()];
+    let mut merged_phases: BTreeMap<String, RawPhase> = BTreeMap::new();
+    let mut merged_phase_origin: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut merged_profiles: BTreeMap<String, toml::Value> = BTreeMap::new();
+    let mut merged_profile_origin: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut merged_markers: IndexMap<String, RawMarker> = IndexMap::new();
+    let mut merged_marker_origin: BTreeMap<String, PathBuf> = BTreeMap::new();
+
+    for category in INCLUDE_CATEGORIES {
+        let pattern = match category {
+            "phases" => include.phases.as_deref(),
+            "markers" => include.markers.as_deref(),
+            "profiles" => include.profiles.as_deref(),
+            _ => unreachable!(),
+        };
+        let Some(pattern) = pattern else { continue };
+
+        let files = expand_include_glob(root_dir, category, pattern)?;
+        for file in files {
+            let file_src = read_to_string(&file)?;
+            let raw_part: RawManifest = toml::from_str(&file_src)
+                .map_err(|e| ParseError::Toml(format!("{}: {e}", file.display())))?;
+            // Each included file must NOT itself be a v2 root.
+            if raw_part.meta.is_some() || raw_part.include.is_some() {
+                return Err(ParseError::NestedInclude(file.display().to_string()));
+            }
+            // Closed-schema check on included files: top-level keys other
+            // than the four schema-defined ones reject. This catches typos
+            // like `[markers]` (plural) before they silently parse.
+            if let Some(unknown) = raw_part.first_unknown_top_level_key() {
+                return Err(ParseError::UnknownTopLevelKey(format!(
+                    "{} (in {})",
+                    unknown,
+                    file.display()
+                )));
+            }
+            // Categorical restriction: the include directive declared
+            // intent; the file must honor it. This makes per-phase splits
+            // unambiguous to read and impossible to accidentally cross.
+            check_include_category(&file, category, &raw_part)?;
+
+            match category {
+                "phases" => {
+                    for (name, phase) in raw_part.phase.unwrap_or_default() {
+                        if let Some(prev) = merged_phase_origin.get(&name) {
+                            return Err(ParseError::DuplicatePhaseAcrossFiles {
+                                phase: name,
+                                first: prev.display().to_string(),
+                                second: file.display().to_string(),
+                            });
+                        }
+                        merged_phase_origin.insert(name.clone(), file.clone());
+                        merged_phases.insert(name, phase);
+                    }
+                }
+                "profiles" => {
+                    for (name, value) in raw_part.profile.unwrap_or_default() {
+                        if let Some(prev) = merged_profile_origin.get(&name) {
+                            return Err(ParseError::DuplicateProfileAcrossFiles {
+                                profile: name,
+                                first: prev.display().to_string(),
+                                second: file.display().to_string(),
+                            });
+                        }
+                        merged_profile_origin.insert(name.clone(), file.clone());
+                        merged_profiles.insert(name, value);
+                    }
+                }
+                "markers" => {
+                    for (literal, marker) in raw_part.marker.unwrap_or_default() {
+                        if let Some(prev) = merged_marker_origin.get(&literal) {
+                            return Err(ParseError::DuplicateMarkerAcrossFiles {
+                                marker: literal,
+                                first: prev.display().to_string(),
+                                second: file.display().to_string(),
+                            });
+                        }
+                        merged_marker_origin.insert(literal.clone(), file.clone());
+                        merged_markers.insert(literal, marker);
+                    }
+                }
+                _ => unreachable!(),
+            }
+            source_files.push(file);
+        }
+    }
+
+    finish_parse(merged_phases, merged_profiles, merged_markers, meta, source_files)
+}
+
+/// Reject if an included file declares a section outside its category.
+fn check_include_category(
+    file: &Path,
+    category: &'static str,
+    part: &RawManifest,
+) -> Result<(), ParseError> {
+    let allowed_section = match category {
+        "phases" => "phase",
+        "profiles" => "profile",
+        "markers" => "marker",
+        _ => unreachable!(),
+    };
+    let report = |key: &str| ParseError::IncludeFileWrongCategory {
+        file: file.display().to_string(),
+        category,
+        key: key.to_string(),
+    };
+    if allowed_section != "phase" && part.phase.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(report("phase"));
+    }
+    if allowed_section != "profile" && part.profile.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(report("profile"));
+    }
+    if allowed_section != "marker" && part.marker.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(report("marker"));
+    }
+    Ok(())
+}
+
+/// Resolve an `[include].<category>` glob pattern against `root_dir`,
+/// returning a deterministic, lexicographically-sorted file list.
+/// Empty matches are an error (callers must declare globs that actually
+/// match something).
+fn expand_include_glob(
+    root_dir: &Path,
+    category: &'static str,
+    pattern: &str,
+) -> Result<Vec<PathBuf>, ParseError> {
+    let pat_path = root_dir.join(pattern);
+    let pat_str = pat_path
+        .to_str()
+        .ok_or_else(|| ParseError::IncludeGlobEmpty { category, pattern: pattern.to_string() })?;
+    let entries = glob::glob(pat_str).map_err(|e| ParseError::IncludeGlobEmpty {
+        category,
+        pattern: format!("{pattern} ({e})"),
+    })?;
+    let mut files: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|e| ParseError::Io { path: pat_str.to_string(), detail: e.to_string() })?;
+        // Skip directories: a glob like `markers/*` may match dirs on some
+        // filesystems; we only consume files.
+        if path.is_file() {
+            files.push(path);
+        }
+    }
+    files.sort();
+    if files.is_empty() {
+        return Err(ParseError::IncludeGlobEmpty { category, pattern: pattern.to_string() });
+    }
+    Ok(files)
 }
 
 impl Manifest {
@@ -341,18 +653,14 @@ impl Manifest {
     /// (declared profile must NOT match) clauses; profile-unconditional
     /// markers always pass through.
     pub fn expected_markers<'a>(&'a self, profile: &'a str) -> impl Iterator<Item = &'a Marker> {
-        self.markers
-            .iter()
-            .filter(move |m| marker_active(m, profile))
+        self.markers.iter().filter(move |m| marker_active(m, profile))
     }
 
     /// Markers forbidden under `profile` (`forbidden_when.profile` matches).
     pub fn forbidden_markers<'a>(&'a self, profile: &'a str) -> impl Iterator<Item = &'a Marker> {
-        self.markers.iter().filter(move |m| {
-            m.forbidden_when
-                .as_ref()
-                .is_some_and(|g| g.profile == profile)
-        })
+        self.markers
+            .iter()
+            .filter(move |m| m.forbidden_when.as_ref().is_some_and(|g| g.profile == profile))
     }
 }
 
@@ -408,11 +716,7 @@ impl Marker {
         let mut out = String::with_capacity(self.literal.len() + 4);
         let mut last_was_underscore = false;
         for b in self.literal.bytes() {
-            let c = if b.is_ascii_alphanumeric() {
-                b.to_ascii_uppercase() as char
-            } else {
-                '_'
-            };
+            let c = if b.is_ascii_alphanumeric() { b.to_ascii_uppercase() as char } else { '_' };
             if c == '_' {
                 if !last_was_underscore && !out.is_empty() {
                     out.push('_');
@@ -464,6 +768,10 @@ fn into_gate(raw: RawProfileGate) -> ProfileGate {
 struct RawManifest {
     #[serde(default)]
     meta: Option<RawMeta>,
+    /// P5-00: schema-v2 `[include]` directives. Only legal in v2 root
+    /// manifests; rejected in v1 (`ParseError::IncludeInV1Source`).
+    #[serde(default)]
+    include: Option<RawInclude>,
     #[serde(default)]
     phase: Option<BTreeMap<String, RawPhase>>,
     #[serde(default)]
@@ -472,6 +780,27 @@ struct RawManifest {
     marker: Option<IndexMap<String, RawMarker>>,
     #[serde(flatten)]
     extra: BTreeMap<String, toml::Value>,
+}
+
+/// P5-00: `[include]` directive table. Each field is an optional glob
+/// pattern (relative to the root manifest's directory) that matches files
+/// containing **only** the named category. Unknown keys reject.
+#[derive(Debug, Deserialize)]
+struct RawInclude {
+    #[serde(default)]
+    phases: Option<String>,
+    #[serde(default)]
+    markers: Option<String>,
+    #[serde(default)]
+    profiles: Option<String>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, toml::Value>,
+}
+
+impl RawInclude {
+    fn first_unknown_key(&self) -> Option<String> {
+        self.extra.keys().next().cloned()
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]

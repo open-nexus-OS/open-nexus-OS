@@ -21,8 +21,9 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 #
 # Optional `--profile=<name>` flag (defaults to `os2vm` for backward
 # compatibility with the legacy invocation): sources env + expected-marker
-# context from `source/apps/selftest-client/proof-manifest.toml` via the
-# host CLI (`nexus-proof-manifest list-env --profile=<name>`).
+# context from the proof-manifest (P5-00: now a v2 split tree under
+# `source/apps/selftest-client/proof-manifest/`; root is `manifest.toml`)
+# via the host CLI (`nexus-proof-manifest list-env --profile=<name>`).
 #
 # Mirror-check: confirms the in-script `mux_markers` array (declared in
 # `phase_mux`) is a subset of the manifest's `os2vm` marker projection;
@@ -33,7 +34,9 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PM_PROFILE="os2vm"
 PM_CLI_DEFAULT="$ROOT/target/debug/nexus-proof-manifest"
 NEXUS_PROOF_MANIFEST_BIN=${NEXUS_PROOF_MANIFEST_BIN:-}
-NEXUS_PROOF_MANIFEST_PATH=${NEXUS_PROOF_MANIFEST_PATH:-"$ROOT/source/apps/selftest-client/proof-manifest.toml"}
+# P5-00: legacy single-file `proof-manifest.toml` deleted; default to the
+# v2 root manifest under `proof-manifest/manifest.toml`.
+NEXUS_PROOF_MANIFEST_PATH=${NEXUS_PROOF_MANIFEST_PATH:-"$ROOT/source/apps/selftest-client/proof-manifest/manifest.toml"}
 PM_MIRROR_CHECK=${PM_MIRROR_CHECK:-1}
 
 new_args=()
@@ -2262,6 +2265,125 @@ fi
 if [[ "$RUN_PHASE" != "end" ]]; then
   echo "[info] RUN_PHASE target '$RUN_PHASE' reached."
 fi
+
+# TASK-0023B P5-05: post-pass evidence bundles for both nodes.
+# Mirrors scripts/qemu-test.sh; see that script for the env knob
+# semantics (NEXUS_EVIDENCE_SEAL / NEXUS_EVIDENCE_DISABLE / CI).
+# The 2-VM harness produces TWO UART logs ($UART_A, $UART_B), so we
+# emit a separate bundle per node with `-a` / `-b` suffixed in the
+# filename. A failure in either bundle is fatal (`set_failure +
+# resolve_exit_code` so on_exit prints a structured summary).
+if [[ "$RESULT" == "success" && "$RUN_PHASE" == "end" ]]; then
+  os2vm_seal_required=0
+  if [[ "${CI:-0}" == "1" || "${NEXUS_EVIDENCE_SEAL:-0}" == "1" ]]; then
+    os2vm_seal_required=1
+  fi
+  if [[ "${NEXUS_EVIDENCE_DISABLE:-0}" == "1" ]]; then
+    if [[ "$os2vm_seal_required" == "1" ]]; then
+      echo "[error] NEXUS_EVIDENCE_DISABLE=1 is rejected when CI=1 (or NEXUS_EVIDENCE_SEAL=1) — refusing to drop the audit trail" >&2
+      set_failure "OS2VM_E_EVIDENCE_DISABLED" "evidence" "host" "NEXUS_EVIDENCE_DISABLE=1 forbidden in CI"
+      FINAL_EXIT_CODE=$(resolve_exit_code)
+      exit "$FINAL_EXIT_CODE"
+    fi
+    echo "[warn] NEXUS_EVIDENCE_DISABLE=1: skipping post-pass evidence bundles (local dev only)" >&2
+  else
+    os2vm_evidence_dir="$ROOT/target/evidence"
+    mkdir -p "$os2vm_evidence_dir"
+    os2vm_utc=$(date -u +%Y%m%dT%H%M%SZ)
+    os2vm_git=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "no-git")
+    os2vm_profile=${PROFILE:-os2vm}
+
+    os2vm_ne_cli=""
+    for cand in \
+      "${NEXUS_EVIDENCE_BIN:-}" \
+      "$ROOT/target/debug/nexus-evidence" \
+      "$ROOT/target/release/nexus-evidence" \
+      /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-evidence \
+      /tmp/cursor-sandbox-cache/*/cargo-target/release/nexus-evidence; do
+      if [[ -n "$cand" && -x "$cand" ]]; then
+        os2vm_ne_cli="$cand"
+        break
+      fi
+    done
+    if [[ -z "$os2vm_ne_cli" ]]; then
+      echo "[info] building nexus-evidence CLI..." >&2
+      (cd "$ROOT" && cargo build -p nexus-evidence --bin nexus-evidence --quiet) 1>&2
+      for cand in \
+        "$ROOT/target/debug/nexus-evidence" \
+        /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-evidence; do
+        if [[ -x "$cand" ]]; then
+          os2vm_ne_cli="$cand"
+          break
+        fi
+      done
+    fi
+    if [[ -z "$os2vm_ne_cli" || ! -x "$os2vm_ne_cli" ]]; then
+      echo "[error] nexus-evidence binary not found — cannot assemble bundle" >&2
+      set_failure "OS2VM_E_EVIDENCE_BIN" "evidence" "host" "nexus-evidence CLI missing"
+      FINAL_EXIT_CODE=$(resolve_exit_code)
+      exit "$FINAL_EXIT_CODE"
+    fi
+
+    os2vm_rustc=$(rustc -V 2>/dev/null || echo "")
+    os2vm_qemu=$("${QEMU:-qemu-system-riscv64}" --version 2>/dev/null | head -n1 || echo "")
+    os2vm_host="$(uname -srm 2>/dev/null || echo unknown)"
+    os2vm_build_sha=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)
+    os2vm_wallclock=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    os2vm_assemble_node() {
+      local node="$1"; local uart_path="$2"
+      local out="$os2vm_evidence_dir/${os2vm_utc}-${os2vm_profile}-${os2vm_git}-${node}.tar.gz"
+      if [[ ! -f "$uart_path" ]]; then
+        echo "[warn] node $node uart log missing ($uart_path); skipping evidence bundle for this node" >&2
+        return 0
+      fi
+      echo "[info] assembling evidence bundle (node $node): $out" >&2
+      if ! "$os2vm_ne_cli" assemble \
+          --uart="$uart_path" \
+          --manifest="$NEXUS_PROOF_MANIFEST_PATH" \
+          --profile="$os2vm_profile" \
+          --out="$out" \
+          --host-info="$os2vm_host node=$node" \
+          --build-sha="$os2vm_build_sha" \
+          --rustc-version="$os2vm_rustc" \
+          --qemu-version="$os2vm_qemu" \
+          --wall-clock="$os2vm_wallclock" \
+          --env="PROFILE=$os2vm_profile" \
+          --env="OS2VM_NODE=$node"; then
+        echo "[error] nexus-evidence assemble failed for node $node" >&2
+        return 1
+      fi
+      if [[ "$os2vm_seal_required" == "1" ]]; then
+        local label="bringup"
+        if [[ -n "${NEXUS_EVIDENCE_CI_PRIVATE_KEY_BASE64:-}" ]]; then
+          label="ci"
+        fi
+        echo "[info] sealing evidence bundle (node $node, label=$label)" >&2
+        if ! NEXUS_EVIDENCE_BIN="$os2vm_ne_cli" "$ROOT/tools/seal-evidence.sh" "$out" --label="$label"; then
+          echo "[error] tools/seal-evidence.sh failed for $out" >&2
+          return 1
+        fi
+      fi
+      return 0
+    }
+
+    if ! os2vm_assemble_node "a" "${UART_A:-$ROOT/uart-a.txt}"; then
+      set_failure "OS2VM_E_EVIDENCE_NODE_A" "evidence" "A" "evidence pipeline failed for node A"
+      FINAL_EXIT_CODE=$(resolve_exit_code)
+      exit "$FINAL_EXIT_CODE"
+    fi
+    if ! os2vm_assemble_node "b" "${UART_B:-$ROOT/uart-b.txt}"; then
+      set_failure "OS2VM_E_EVIDENCE_NODE_B" "evidence" "B" "evidence pipeline failed for node B"
+      FINAL_EXIT_CODE=$(resolve_exit_code)
+      exit "$FINAL_EXIT_CODE"
+    fi
+
+    if [[ "$os2vm_seal_required" != "1" ]]; then
+      echo "[info] evidence bundles assembled unsigned (set NEXUS_EVIDENCE_SEAL=1 to seal)" >&2
+    fi
+  fi
+fi
+
 FINAL_EXIT_CODE=$(resolve_exit_code)
 exit "$FINAL_EXIT_CODE"
 

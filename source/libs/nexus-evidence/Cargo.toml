@@ -1,0 +1,79 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Host-only crate that owns the evidence-bundle schema, the
+# canonical hash, and (from P5-03 onward) Ed25519 signing/verification
+# for the `selftest-client` Phase-5 deliverable. The crate is consumed
+# only by host-side tools (`scripts/qemu-test.sh`, `tools/{os2vm,seal,
+# verify}-evidence.sh`) and by the future `nexus-evidence` CLI binary.
+#
+# Hard non-goals (Phase 5 invariant): this crate MUST NOT enter the
+# `selftest-client --features os-lite` graph. Forbidden runtime deps
+# (`getrandom`, `parking_lot`, `parking_lot_core`) remain forbidden in
+# the OS slice; they are permitted here because this crate is host-only
+# and never linked into a no_std / `riscv64*-none` target.
+#
+# Cut layout (incremental):
+#   - P5-01 (this cut): schema types + canonical hash. No assembly,
+#     no signing, no CLI.
+#   - P5-02: `Bundle::assemble`, trace extractor, config builder, CLI
+#     binary (`assemble`/`inspect`/`canonical-hash`).
+#   - P5-03: Ed25519 sign/verify + `seal`/`verify` CLI subcommands +
+#     5 tamper-class tests.
+#   - P5-04: CI/bringup key separation + secret scanner.
+#   - P5-05: `qemu-test.sh` post-pass seal integration + CI gates.
+#
+# Spec: docs/testing/evidence-bundle.md (normative).
+[package]
+name = "nexus-evidence"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# Host-only manifest parser; bundles seal a verbatim copy of the
+# manifest used for the run, so this crate must understand the schema
+# to validate trace markers against declared phases.
+nexus-proof-manifest = { path = "../nexus-proof-manifest" }
+serde = { version = "1", features = ["derive"] }
+# Canonical config-artifact serialization uses serde_json with sorted
+# `BTreeMap` env keys; serde_json default writers are deterministic for
+# `BTreeMap` values, which is what the canonical hash depends on.
+serde_json = "1"
+# SHA-256 implementation for the per-artifact hash and the root hash.
+# `sha2` is a pure-Rust crate with no `getrandom` / `parking_lot`
+# transitive deps in its default feature set.
+sha2 = "0.10"
+hex = "0.4"
+# Tar packing/unpacking for bundle on-disk layout (P5-02). Pure Rust;
+# no `getrandom` / `parking_lot` transitive deps.
+tar = "0.4"
+# Gzip compression for the outer `<utc>-<profile>-<git-sha>.tar.gz`
+# wrapper (P5-02). `flate2` defaults to the pure-Rust `miniz_oxide`
+# backend; no native `zlib` / `getrandom` deps pulled.
+flate2 = "1"
+# Ed25519 signing/verification (P5-03). Default features pull
+# `rand_core` (host-side OS entropy is fine here — `nexus-evidence`
+# is host-only and never enters the `selftest-client --features
+# os-lite` graph). Key generation is delegated to `tools/gen-{ci,
+# bringup}-key.sh` (P5-04) and to ad-hoc tests; the runtime sealing
+# path takes raw key bytes and never invokes a CSPRNG.
+ed25519-dalek = "2"
+
+[dev-dependencies]
+# Used by `tests/canonical_hash.rs` to print sha256 digests in failure
+# diagnostics; `hex` is already a runtime dep, but listing it here too
+# documents the test-side need (no behavior change).
+hex = "0.4"
+
+[lib]
+path = "src/lib.rs"
+
+# CLI binary added in P5-02 (`assemble` / `inspect` / `canonical-hash`
+# subcommands; sealing/verification land in P5-03/P5-04). The binary
+# is consumed by `scripts/qemu-test.sh` and `tools/{seal,verify}-
+# evidence.sh` (both wired in P5-05).
+[[bin]]
+name = "nexus-evidence"
+path = "src/bin/nexus-evidence.rs"

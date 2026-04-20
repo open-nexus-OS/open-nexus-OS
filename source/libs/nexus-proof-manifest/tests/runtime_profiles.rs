@@ -45,10 +45,7 @@ fn accept_runtime_only_profile_with_phase_subset() {
     let p = m.profiles.get("quick").expect("quick profile present");
     assert!(p.runtime_only);
     assert!(p.runner.is_none());
-    assert_eq!(
-        p.phases,
-        vec!["bringup".to_string(), "ipc_kernel".to_string(), "end".to_string()]
-    );
+    assert_eq!(p.phases, vec!["bringup".to_string(), "ipc_kernel".to_string(), "end".to_string()]);
 }
 
 #[test]
@@ -63,10 +60,7 @@ fn reject_phases_field_on_harness_profile() {
     match err {
         ParseError::ProfileBodyInvalid { profile, detail } => {
             assert_eq!(profile, "busted");
-            assert!(
-                detail.contains("phases"),
-                "detail should mention `phases`: {detail}"
-            );
+            assert!(detail.contains("phases"), "detail should mention `phases`: {detail}");
         }
         other => panic!("expected ProfileBodyInvalid, got {other:?}"),
     }
@@ -95,25 +89,19 @@ fn on_disk_manifest_declares_all_five_runtime_profiles() {
     // The on-disk manifest is the SSOT consumed by both the harness
     // (`qemu-test.sh`) and the runtime dispatcher (`os_lite::profile`).
     // If a profile name disappears, every consumer must update in lockstep.
+    // P5-00: on-disk manifest is now a v2 split tree.
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(3)
         .expect("repo root")
-        .join("source/apps/selftest-client/proof-manifest.toml");
-    let src = std::fs::read_to_string(&path).expect("read on-disk manifest");
-    let m = parse(&src).expect("on-disk manifest parses");
+        .join("source/apps/selftest-client/proof-manifest/manifest.toml");
+    let m = nexus_proof_manifest::parse_path(&path).expect("on-disk manifest parses");
 
     for name in ["bringup", "quick", "ota", "net", "none"] {
-        let p = m
-            .profiles
-            .get(name)
-            .unwrap_or_else(|| panic!("missing runtime profile `{name}`"));
+        let p = m.profiles.get(name).unwrap_or_else(|| panic!("missing runtime profile `{name}`"));
         assert!(p.runtime_only, "{name} must be runtime_only");
         assert!(p.runner.is_none(), "{name} must NOT carry a runner");
-        assert!(
-            !p.phases.is_empty(),
-            "{name} must declare a non-empty phases subset"
-        );
+        assert!(!p.phases.is_empty(), "{name} must declare a non-empty phases subset");
         for ph in &p.phases {
             assert!(
                 m.phases.contains_key(ph),
@@ -136,13 +124,13 @@ fn on_disk_manifest_declares_all_twelve_skip_markers() {
     // marker per [phase.X] (12 in total). Generated as `M_DBG_PHASE_*`
     // constants in `markers_generated.rs` and consumed by
     // `os_lite::profile::Profile::skip_marker`.
+    // P5-00: on-disk manifest is now a v2 split tree.
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(3)
         .expect("repo root")
-        .join("source/apps/selftest-client/proof-manifest.toml");
-    let src = std::fs::read_to_string(&path).expect("read on-disk manifest");
-    let m = parse(&src).expect("on-disk manifest parses");
+        .join("source/apps/selftest-client/proof-manifest/manifest.toml");
+    let m = nexus_proof_manifest::parse_path(&path).expect("on-disk manifest parses");
 
     for ph in [
         "bringup",

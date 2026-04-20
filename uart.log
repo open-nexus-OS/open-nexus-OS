@@ -68,10 +68,10 @@ W0: calling kmain
 PT: pool idx=0
 PT: pool idx=1
 PT: pool idx=2
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: pool idx=3
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: pool idx=4
 PT: pool idx=5
@@ -86,11 +86,11 @@ PT: pool idx=13
 PT: pool idx=14
 PT: pool idx=15
 [INFO mm] map kernel segments ok
-AS: activating satp=0x800010000008059b
+AS: activating satp=0x800010000008059c
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x800010000008059b
+[INFO as] AS: trampoline enter val=0x800010000008059c
 AS: post-satp OK
 CAP: new enter
 CAP: with_capacity slots=96
@@ -112,10 +112,10 @@ SYSCALL install ep_create=0x0000000080226c34
 PT: pool idx=16
 PT: pool idx=17
 PT: pool idx=18
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: pool idx=19
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: pool idx=20
 PT: pool idx=21
@@ -137,19 +137,19 @@ PT: pool idx=32
 PT: pool idx=33
 [INFO selftest] KSELFTEST: as map ok
 PT: pool idx=34
-[INFO sys] SPAWN: entry=0x80221742 sp=0x40000000 as=2 slot=0 gp=0x803d7510
+[INFO sys] SPAWN: entry=0x80221742 sp=0x40000000 as=2 slot=0 gp=0x803d8510
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x80221742 sp(x2)=0x40000000 gp(x3)=0x803d7510
+[INFO task] SPAWN-FRAME: sepc=0x80221742 sp(x2)=0x40000000 gp(x3)=0x803d8510
 [DEBUG sched] enqueue: pid=1 qos=Normal
-[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x800010000008059b
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x800010000008059c
 [INFO selftest] KSELFTEST: direct-run begin
-AS: activating satp=0x80002000000805ab
+AS: activating satp=0x80002000000805ac
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000803d8000
+AS: sp check va=0x00000000803d9000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x80002000000805ab
+[INFO as] AS: trampoline enter val=0x80002000000805ac
 AS: post-satp OK
 [INFO selftest] KSELFTEST: direct-run set SUM
 [INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
@@ -159,11 +159,11 @@ AS: post-satp OK
 [INFO selftest] KSELFTEST: child exit
 [INFO selftest] KSELFTEST: direct call return
 [INFO selftest] KSELFTEST: returned from child entry
-AS: activating satp=0x800010000008059b
+AS: activating satp=0x800010000008059c
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000803d8000
+AS: sp check va=0x00000000803d9000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x800010000008059b
+[INFO as] AS: trampoline enter val=0x800010000008059c
 AS: post-satp OK
 [INFO selftest] KSELFTEST: spawn ok
 SYSCALL install debug_putc=0x0000000080227f42
@@ -242,10 +242,10 @@ CAP: new exit
 PT: pool idx=35
 PT: pool idx=36
 PT: pool idx=37
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: pool idx=38
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: pool idx=39
 PT: pool idx=40
@@ -271,10 +271,10 @@ CAP: new exit
 PT: pool idx=52
 PT: pool idx=53
 PT: pool idx=54
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: pool idx=55
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: pool idx=56
 PT: pool idx=57
@@ -299,10 +299,10 @@ CAP: new exit
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -327,10 +327,10 @@ SYSCALL install ep_create=0x0000000080226c34
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -348,26 +348,26 @@ PT: heap alloc
 [INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x12fb2 flags=0x5
 [INFO selftest] KSELFTEST: map flags bits=0x1b
 PT: heap alloc
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fb8 memsz=0x111ac0 flags=0x4
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fb8 memsz=0x112948 flags=0x4
 [INFO selftest] KSELFTEST: map flags bits=0x13
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10524a78 memsz=0x80589 flags=0x6
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10525900 memsz=0x80701 flags=0x6
 [INFO selftest] KSELFTEST: map flags bits=0x17
 PT: heap alloc
 PT: heap alloc
 [INFO selftest] KSELFTEST: text page entry=0x000000002018005b va=0x0000000010400000
-[INFO selftest] KSELFTEST: data page entry=0x00000000201c90d7 va=0x0000000010524000
-[INFO selftest] KSELFTEST: derived gp=0x10525278 from .sdata/.data
-[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10525278
-[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10525278
+[INFO selftest] KSELFTEST: data page entry=0x00000000201c94d7 va=0x0000000010525000
+[INFO selftest] KSELFTEST: derived gp=0x10526100 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10526100
+[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10526100
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10525278
+[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10526100
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [INFO selftest] KSELFTEST: spawn ok pid=17
 [INFO selftest] KSELFTEST: init frame:
   sepc=0x0000000010400000
-  gp=0x0000000010525278
+  gp=0x0000000010526100
   sp=0x0000000020008000
   sstatus=0x0000000000040020
   SPP=0 (U-mode=0, S-mode=1)
@@ -378,12 +378,12 @@ CAP: new exit
 [INFO kmain] KMAIN: skip S-mode task pid=15 (SPP=1)
 [INFO kmain] KMAIN: skip S-mode task pid=16 (SPP=1)
 [INFO kmain] KMAIN: switch to U-mode pid=17 sepc=0x10400000 sp=0x20008000
-ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x0000000080404db0 sp=0x0000000020008000 gp=0x0000000010525278 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
-AS: activating satp=0x80006000000803e6
+ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x0000000080405db0 sp=0x0000000020008000 gp=0x0000000010526100 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
+AS: activating satp=0x80006000000803e7
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x80006000000803e6
+[INFO as] AS: trampoline enter val=0x80006000000803e7
 AS: post-satp OK
 UB!init-lite entry
 init: entry
@@ -393,10 +393,10 @@ init: start keystored
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -425,10 +425,10 @@ init: start rngd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -457,10 +457,10 @@ init: start policyd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -489,10 +489,10 @@ init: start logd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -521,10 +521,10 @@ init: start metricsd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -553,10 +553,10 @@ init: start samgrd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -585,10 +585,10 @@ init: start bundlemgrd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -617,10 +617,10 @@ init: start statefsd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -649,10 +649,10 @@ init: start updated
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -682,10 +682,10 @@ init: start timed
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -714,10 +714,10 @@ init: start packagefsd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -746,10 +746,10 @@ init: start vfsd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -778,10 +778,10 @@ init: start execd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -810,10 +810,10 @@ init: start netstackd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -842,10 +842,10 @@ init: start dsoftbusd
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -874,10 +874,10 @@ init: start selftest-client
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -895,11 +895,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81879000 entry=0x000000002061e453 name_len=0xf info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x8187a000 entry=0x000000002061e853 name_len=0xf info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x3ffd0 sp(x2)=0x20008000 gp(x3)=0x4e290
+[INFO task] SPAWN-FRAME: sepc=0x406b0 sp(x2)=0x20008000 gp(x3)=0x4f118
 [DEBUG sched] enqueue: pid=33 qos=Normal
 init: up selftest-client
 init: ready
@@ -907,27 +907,27 @@ init: ready
 init: probe key_req self-xfer pid=0x0000000000000011 cap=0x0000000000000035
 init: probe key_req self-xfer SEND ok slot=0x0000000000000036
 init: probe key_req self-xfer RECV ok slot=0x0000000000000036
-AS: activating satp=0x800070000008041b
+AS: activating satp=0x800070000008041c
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x800070000008041b
+[INFO as] AS: trampoline enter val=0x800070000008041c
 AS: post-satp OK
 UBkeystored: ready
 [DEBUG sched] enqueue: pid=18 qos=Normal
-AS: activating satp=0x800080000008042f
+AS: activating satp=0x8000800000080430
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x800080000008042f
+[INFO as] AS: trampoline enter val=0x8000800000080430
 AS: post-satp OK
 UBrngd: ready
 [DEBUG sched] enqueue: pid=19 qos=Normal
-AS: activating satp=0x8000900000080443
+AS: activating satp=0x8000900000080444
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x8000900000080443
+[INFO as] AS: trampoline enter val=0x8000900000080444
 AS: post-satp OK
 UBpolicyd: ready
 abi-profile: ready (server=policyd|abi-filterd)
@@ -935,54 +935,54 @@ policyd: audit emit FAIL
 policyd: mmio blk deny priv
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [DEBUG sched] enqueue: pid=20 qos=Normal
-AS: activating satp=0x8000a00000080457
+AS: activating satp=0x8000a00000080458
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
-[INFO as] AS: trampoline enter val=0x8000a00000080457
+[INFO as] AS: trampoline enter val=0x8000a00000080458
 AS: post-satp OK
 UB[DEBUG sched] enqueue: pid=21 qos=Normal
-AS: activating satp=0x8000b0000008046b
+AS: activating satp=0x8000b0000008046c
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UB[DEBUG sched] enqueue: pid=22 qos=Normal
-AS: activating satp=0x8000c0000008047f
+AS: activating satp=0x8000c00000080480
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UBsamgrd: ready
 samgrd: mode os-lite
 [DEBUG sched] enqueue: pid=23 qos=Normal
-AS: activating satp=0x8000d00000080493
+AS: activating satp=0x8000d00000080494
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UBbundlemgrd: ready
 [DEBUG sched] enqueue: pid=24 qos=Normal
-AS: activating satp=0x8000e000000804a7
+AS: activating satp=0x8000e000000804a8
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UBstatefsd: entry
 [DEBUG sched] enqueue: pid=25 qos=Normal
-AS: activating satp=0x8000f0000008041a
+AS: activating satp=0x8000f0000008041b
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UBupdated: entry
-AS: activating satp=0x80010000000804d0
+AS: activating satp=0x80010000000804d1
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
-UBAS: activating satp=0x80011000000804e4
+UBAS: activating satp=0x80011000000804e5
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UBpackagefsd: ready
-AS: activating satp=0x80012000000804f8
+AS: activating satp=0x80012000000804f9
 AS: pc check va=0x0000000080209000
-AS: sp check va=0x00000000805ef000
+AS: sp check va=0x00000000805f0000
 AS: ensure_rx_guard pc=0x00000000802097a4
 UBvfsd: ready
 UBexecd: entry
@@ -1097,13 +1097,13 @@ dsoftbusd: entry
 dsoftbusd: waiting for local ip
 keystored: statefs backend ok
 virtio-blk: mmio modern
-virtio-blk: q_pa=0x0000000081885000 pfn=0x00081885
+virtio-blk: q_pa=0x0000000081886000 pfn=0x00081886
 virtio-blk: q_max=00000400
 virtio-blk: status=0000000b
 virtio-blk: pfn_rb=00000000
 virtio-blk: q_layout desc=20080000 avail=20080080 used=20080098
 virtio-blk: status_ok=0000000f
-virtio-blk: buf_pa=0x0000000081886000
+virtio-blk: buf_pa=0x0000000081887000
 virtio-blk: cap=0000000000020000 sectors
 logd: route fallback
 logd: ready
@@ -1325,10 +1325,10 @@ HELLOHDR
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -1348,8 +1348,8 @@ PT: heap alloc
 [INFO exec] EXEC-ELF gp=0x10930 src=entry+0x800
 PT: heap alloc
 PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x8188a000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(81898fff) top->0xNone sp->0xSome(81897000)
+[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x8188b000 pages=15 sp=0x20000000
+[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(81899fff) top->0xNone sp->0xSome(81898000)
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -1361,10 +1361,10 @@ SELFTEST: e2e exec-elf ok
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -1384,8 +1384,8 @@ PT: heap alloc
 [INFO exec] EXEC-ELF gp=0x1800 src=entry+0x800
 PT: heap alloc
 PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x8189a000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818a8fff) top->0xNone sp->0xSome(818a7000)
+[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x8189b000 pages=15 sp=0x20000000
+[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818a9fff) top->0xNone sp->0xSome(818a8000)
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -1397,10 +1397,10 @@ SELFTEST: child exit ok
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803da000..0x8059a000 data_end=0x805e9000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x803db000..0x8059b000 data_end=0x805ea000
 PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x805e8000 end=0x805f1000 data_end=0x805e9000 guard=0 map_from=0x805e9000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x805e9000..0x805f1000
+[INFO mm] AS-MAP: KSTACK check: start=0x805e9000 end=0x805f2000 data_end=0x805ea000 guard=0 map_from=0x805ea000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x805ea000..0x805f2000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 PT: heap alloc
 PT: heap alloc
@@ -1420,8 +1420,8 @@ PT: heap alloc
 [INFO exec] EXEC-ELF gp=0x1800 src=entry+0x800
 PT: heap alloc
 PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818aa000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818b8fff) top->0xNone sp->0xSome(818b7000)
+[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818ab000 pages=15 sp=0x20000000
+[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818b9fff) top->0xNone sp->0xSome(818b8000)
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit

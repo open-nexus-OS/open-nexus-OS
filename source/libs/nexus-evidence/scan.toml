@@ -1,0 +1,21 @@
+# scan.toml — substring allowlist for nexus-evidence secret scanner.
+#
+# CONTEXT: P5-04 ships the scanner deny-by-default with an empty
+# allowlist. Real false-positives (e.g. long base64-looking blobs that
+# the host genuinely emits to UART) are added here case-by-case as
+# they surface against fresh QEMU runs.
+#
+# Format:
+#   [allowlist]
+#   substrings = [
+#     "fragment-1",
+#     "fragment-2",
+#   ]
+#
+# Each substring suppresses the high-entropy heuristic on any line
+# that *contains* that substring. PEM blocks, bringup-key paths, and
+# PRIVATE_KEY env assignments are NOT suppressible by this allowlist —
+# those rules are unconditional rejects.
+
+[allowlist]
+substrings = []

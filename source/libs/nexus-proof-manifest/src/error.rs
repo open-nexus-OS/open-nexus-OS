@@ -123,6 +123,96 @@ pub enum ParseError {
     /// A `[profile.X]` `extends` chain forms a cycle (direct or transitive).
     /// Wrapped String is one of the profiles participating in the cycle.
     ProfileExtendsCycle(String),
+
+    // -- P5-00 (schema v2: per-phase split layout) -----------------------------
+    /// `[meta] schema_version` is set to a value the parser does not handle.
+    /// Wrapped String is the offending value (e.g. `"3"`). Phase-5 supports
+    /// `"1"` (legacy single-file) and `"2"` (per-phase split via `[include]`).
+    SchemaVersionUnsupported(String),
+
+    /// A v2 `[include]` glob pattern resolved to zero files. Wrapped fields:
+    /// the include category (`phases`/`markers`/`profiles`) and the literal
+    /// glob string (relative to the root manifest's directory).
+    IncludeGlobEmpty {
+        /// The include category whose glob did not match any file.
+        category: &'static str,
+        /// The literal glob pattern, verbatim from the root manifest.
+        pattern: String,
+    },
+
+    /// A v2 included file is **itself** a v2 manifest (carries `[meta]` /
+    /// `[include]`). Nested includes are forbidden: include depth is 1.
+    /// Wrapped String is the offending file path.
+    NestedInclude(String),
+
+    /// A v2 included file contains a TOML section that does not match its
+    /// declared category. Wrapped fields: file path, category the include
+    /// directive declared (`phases`/`markers`/`profiles`), the offending
+    /// top-level key.
+    IncludeFileWrongCategory {
+        /// The included file whose contents violate its category contract.
+        file: String,
+        /// The include category the file was loaded under.
+        category: &'static str,
+        /// The first top-level key in the file that is not allowed under
+        /// the declared category.
+        key: String,
+    },
+
+    /// A v2 root manifest declares `schema_version = "2"` but **also**
+    /// inlines a phase / marker / profile section that should live in an
+    /// included file. Wrapped String is the offending top-level key
+    /// (`phase` / `marker` / `profile`).
+    MixedSchemaInRoot(String),
+
+    /// A v2 `[include]` resolution discovered the same `[marker."…"]`
+    /// literal in two distinct files. Wrapped fields: marker literal, the
+    /// two file paths participating in the duplication.
+    DuplicateMarkerAcrossFiles {
+        /// The marker literal that appears in two files.
+        marker: String,
+        /// File the marker was first seen in.
+        first: String,
+        /// File the duplicate was discovered in.
+        second: String,
+    },
+
+    /// A v2 `[include]` resolution discovered the same `[phase.X]`
+    /// declaration in two distinct files. Wrapped fields analogous to
+    /// [`Self::DuplicateMarkerAcrossFiles`].
+    DuplicatePhaseAcrossFiles {
+        /// The phase name that appears in two files.
+        phase: String,
+        /// File the phase was first seen in.
+        first: String,
+        /// File the duplicate was discovered in.
+        second: String,
+    },
+
+    /// A v2 `[include]` resolution discovered the same `[profile.X]`
+    /// declaration in two distinct files. Wrapped fields analogous to
+    /// [`Self::DuplicateMarkerAcrossFiles`].
+    DuplicateProfileAcrossFiles {
+        /// The profile name that appears in two files.
+        profile: String,
+        /// File the profile was first seen in.
+        first: String,
+        /// File the duplicate was discovered in.
+        second: String,
+    },
+
+    /// A v1 inline source contains an `[include]` table; only v2 root
+    /// manifests on disk may use `[include]`.
+    IncludeInV1Source,
+
+    /// I/O failure while reading the root manifest or one of its included
+    /// files. Wrapped fields: file path, lossy upstream error message.
+    Io {
+        /// Path the parser tried to read.
+        path: String,
+        /// Verbatim io::Error message.
+        detail: String,
+    },
 }
 
 impl fmt::Display for ParseError {
@@ -174,6 +264,46 @@ impl fmt::Display for ParseError {
             Self::ProfileExtendsCycle(p) => write!(
                 f,
                 "proof-manifest: profile `{p}` extends chain forms a cycle"
+            ),
+            Self::SchemaVersionUnsupported(v) => write!(
+                f,
+                "proof-manifest: unsupported [meta].schema_version `{v}` (parser handles `1` + `2`)"
+            ),
+            Self::IncludeGlobEmpty { category, pattern } => write!(
+                f,
+                "proof-manifest: [include].{category} = `{pattern}` matched zero files"
+            ),
+            Self::NestedInclude(p) => write!(
+                f,
+                "proof-manifest: included file `{p}` itself carries [meta]/[include] (nested include forbidden)"
+            ),
+            Self::IncludeFileWrongCategory { file, category, key } => write!(
+                f,
+                "proof-manifest: included file `{file}` (category `{category}`) declares disallowed top-level key `{key}`"
+            ),
+            Self::MixedSchemaInRoot(k) => write!(
+                f,
+                "proof-manifest: schema v2 root must not declare top-level `{k}`; move it into a [include] file"
+            ),
+            Self::DuplicateMarkerAcrossFiles { marker, first, second } => write!(
+                f,
+                "proof-manifest: marker `{marker}` declared in both `{first}` and `{second}`"
+            ),
+            Self::DuplicatePhaseAcrossFiles { phase, first, second } => write!(
+                f,
+                "proof-manifest: phase `{phase}` declared in both `{first}` and `{second}`"
+            ),
+            Self::DuplicateProfileAcrossFiles { profile, first, second } => write!(
+                f,
+                "proof-manifest: profile `{profile}` declared in both `{first}` and `{second}`"
+            ),
+            Self::IncludeInV1Source => write!(
+                f,
+                "proof-manifest: [include] is only valid in v2 manifests (schema_version = \"2\")"
+            ),
+            Self::Io { path, detail } => write!(
+                f,
+                "proof-manifest: io error reading `{path}`: {detail}"
             ),
         }
     }

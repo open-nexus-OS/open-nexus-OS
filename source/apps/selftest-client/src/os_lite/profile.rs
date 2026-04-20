@@ -112,14 +112,12 @@ impl Profile {
             Profile::Bringup | Profile::None => {
                 matches!(p, PhaseId::Bringup | PhaseId::End)
             }
-            Profile::Quick => matches!(
-                p,
-                PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Mmio | PhaseId::End
-            ),
-            Profile::Ota => matches!(
-                p,
-                PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Ota | PhaseId::End
-            ),
+            Profile::Quick => {
+                matches!(p, PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Mmio | PhaseId::End)
+            }
+            Profile::Ota => {
+                matches!(p, PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Ota | PhaseId::End)
+            }
             Profile::Net => matches!(
                 p,
                 PhaseId::Bringup

@@ -1,0 +1,113 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `routing` (RFC-0014 order = 4).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."SELFTEST: ipc routing keystored ok"]
+phase = "routing"
+proves = "selftest -> keystored IPC routing"
+
+[marker."SELFTEST: keystored v1 ok"]
+phase = "routing"
+
+[marker."SELFTEST: qos ok"]
+phase = "routing"
+proves = "kernel ipc qos pass-through"
+
+[marker."SELFTEST: timed coalesce ok"]
+phase = "routing"
+
+[marker."rngd: mmio window mapped ok"]
+phase = "routing"
+
+[marker."SELFTEST: rng entropy ok"]
+phase = "routing"
+
+[marker."SELFTEST: rng entropy oversized ok"]
+phase = "routing"
+
+[marker."SELFTEST: device key pubkey ok"]
+phase = "routing"
+
+[marker."SELFTEST: device key private export rejected ok"]
+phase = "routing"
+proves = "keystored refuses private-key export"
+
+[marker."SELFTEST: statefs put ok"]
+phase = "routing"
+
+[marker."SELFTEST: statefs unauthorized access rejected"]
+phase = "routing"
+proves = "statefsd authority enforcement"
+
+[marker."SELFTEST: statefs persist ok"]
+phase = "routing"
+
+[marker."SELFTEST: device key persist ok"]
+phase = "routing"
+
+[marker."SELFTEST: ipc routing samgrd ok"]
+phase = "routing"
+
+[marker."SELFTEST: samgrd v1 register ok"]
+phase = "routing"
+
+[marker."SELFTEST: samgrd v1 lookup ok"]
+phase = "routing"
+
+[marker."SELFTEST: samgrd v1 unknown ok"]
+phase = "routing"
+
+[marker."SELFTEST: samgrd v1 malformed ok"]
+phase = "routing"
+
+[marker."SELFTEST: ipc routing policyd ok"]
+phase = "routing"
+
+[marker."SELFTEST: ipc routing bundlemgrd ok"]
+phase = "routing"
+
+[marker."SELFTEST: ipc routing updated ok"]
+phase = "routing"
+
+[marker."SELFTEST: bundlemgrd v1 list ok"]
+phase = "routing"
+
+[marker."SELFTEST: bundlemgrd v1 image ok"]
+phase = "routing"
+
+[marker."SELFTEST: bundlemgrd v1 malformed ok"]
+phase = "routing"
+
+[marker."dbg: phase routing skipped"]
+phase = "routing"
+
+[marker."SELFTEST: bundlemgrd slots "]
+phase = "routing"
+
+[marker."SELFTEST: bundlemgrd v1 image FAIL"]
+phase = "routing"
+
+[marker."SELFTEST: bundlemgrd v1 list FAIL"]
+phase = "routing"
+
+[marker."SELFTEST: bundlemgrd v1 malformed FAIL"]
+phase = "routing"
+
+[marker."SELFTEST: updated probe FAIL"]
+phase = "routing"
+
+[marker."SELFTEST: updated probe ok"]
+phase = "routing"
+
+[marker."SELFTEST: updated slots "]
+phase = "routing"

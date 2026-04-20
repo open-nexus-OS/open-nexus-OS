@@ -1,0 +1,33 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Runtime-only profile catalog (consumed by
+# `os_lite::profile::Profile::from_kernel_cmdline_or_default`). Each
+# profile sets `runtime_only = true` and lists the ordered subset of
+# `[phase.*]` names that `os_lite::run()` will execute. Phases not listed
+# emit a single deterministic `dbg: phase X skipped` breadcrumb (one
+# constant per phase, declared in markers/end.toml under phase = "end").
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; new runtime profiles are additive
+
+[profile.bringup]
+runtime_only = true
+phases = ["bringup", "end"]
+
+[profile.quick]
+runtime_only = true
+phases = ["bringup", "ipc_kernel", "mmio", "end"]
+
+[profile.ota]
+runtime_only = true
+phases = ["bringup", "ipc_kernel", "ota", "end"]
+
+[profile.net]
+runtime_only = true
+phases = ["bringup", "ipc_kernel", "mmio", "routing", "net", "end"]
+
+[profile.none]
+runtime_only = true
+phases = ["bringup", "end"]

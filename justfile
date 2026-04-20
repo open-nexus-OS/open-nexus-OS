@@ -28,8 +28,8 @@ help:
     @echo "  just build-kernel        # cross-compile kernel (riscv)"
     @echo "  just build-nexus-log-os  # cross-compile nexus-log (userspace sink)"
     @echo "  just build-init-lite-os  # cross-compile init-lite userspace payload"
-    @echo "  just test-os             # run kernel selftests in QEMU (PROFILE=full default)"
-    @echo "  just test-os PROFILE=smp # SMP-gated QEMU smoke (REQUIRE_SMP enforced via manifest)"
+    @echo "  just test-os             # run kernel selftests in QEMU (default profile=full)"
+    @echo "  just test-os smp         # SMP-gated QEMU smoke (REQUIRE_SMP enforced via manifest)"
     @echo "  just ci-os-smp           # canonical SMP CI recipe (SMP=2 gate + SMP=1 parity)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
@@ -88,11 +88,15 @@ qemu *args:
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
 # list-env --profile=…`). Default `full` is env-equivalent to the legacy
 # bare `just test-os` invocation, so QEMU ladder stays byte-identical.
-# Migration target: invoke `just test-os PROFILE=<full|smp|dhcp|quic-required|os2vm>`
-# everywhere; the legacy `test-smp` / `test-os-dhcp` / `test-dsoftbus-2vm` /
-# `test-network` recipes are soft-deprecated for one cycle (deleted in P4-10).
-test-os PROFILE='full':
-    scripts/qemu-test.sh --profile={{PROFILE}}
+# Migration target: invoke `just test-os <full|smp|dhcp|quic-required|os2vm>`
+# (positional arg; just 1.47 parses `PROFILE=foo` after the recipe name as
+# another recipe name, not a parameter override) everywhere; the legacy
+# `test-smp` / `test-os-dhcp` / `test-dsoftbus-2vm` / `test-network` recipes
+# were deleted in P4-10. Default `full` keeps `just test-os` (no arg)
+# byte-equivalent to the pre-Phase-4 invocation, so the QEMU ladder stays
+# byte-identical for the canonical run.
+test-os profile='full':
+    scripts/qemu-test.sh --profile={{profile}}
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
 
 # Deterministic SMP ladder retired in TASK-0023B P4-10:
@@ -125,25 +129,25 @@ test-init:
 # `nexus-proof-manifest list-env --profile=<flavor>` (single source of truth).
 # -----------------------------------------------------------------------------
 ci-os-full:
-    just test-os PROFILE=full
+    just test-os full
 
 ci-os-smp:
-    SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=smp
+    SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os smp
 
 ci-os-dhcp:
-    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=dhcp
+    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os dhcp
 
 # TASK-0023B P4-10: strict DHCP gate via PROFILE=dhcp-strict (manifest extends
 # `dhcp` with REQUIRE_QEMU_DHCP_STRICT=1). Replaces the legacy
 # `test-os-dhcp-strict` recipe deleted in P4-10.
 ci-os-dhcp-strict:
-    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=dhcp-strict
+    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os dhcp-strict
 
 ci-os-quic:
-    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os PROFILE=quic-required
+    RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os quic-required
 
 ci-os-os2vm:
-    RUN_OS2VM=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} just test-os PROFILE=os2vm
+    RUN_OS2VM=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} just test-os os2vm
 
 # Aggregate: profile-driven network matrix (replacement for `test-network`).
 ci-network:
@@ -164,13 +168,13 @@ ci-network:
 # on unexpected markers) lands in P4-09.
 # -----------------------------------------------------------------------------
 ci-os-runtime-bringup:
-    SELFTEST_PROFILE=bringup just test-os PROFILE=full
+    SELFTEST_PROFILE=bringup just test-os full
 
 ci-os-runtime-quick:
-    SELFTEST_PROFILE=quick just test-os PROFILE=full
+    SELFTEST_PROFILE=quick just test-os full
 
 ci-os-runtime-none:
-    SELFTEST_PROFILE=none just test-os PROFILE=full
+    SELFTEST_PROFILE=none just test-os full
 
 # -----------------------------------------------------------------------------
 # Opt-in OS 2-VM harness (TASK-0005)

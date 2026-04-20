@@ -42,12 +42,24 @@ pub(crate) fn statefs_send_recv(
 
     if let Err(err) = client.send(&v2, IpcWait::Timeout(core::time::Duration::from_millis(2000))) {
         match err {
-            nexus_ipc::IpcError::WouldBlock => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_WOULD_BLOCK),
-            nexus_ipc::IpcError::Timeout => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_TIMEOUT),
-            nexus_ipc::IpcError::Disconnected => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_DISCONNECTED),
-            nexus_ipc::IpcError::NoSpace => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_NO_SPACE),
-            nexus_ipc::IpcError::Kernel(_) => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_KERNEL_ERROR),
-            nexus_ipc::IpcError::Unsupported => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_UNSUPPORTED),
+            nexus_ipc::IpcError::WouldBlock => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_WOULD_BLOCK)
+            }
+            nexus_ipc::IpcError::Timeout => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_TIMEOUT)
+            }
+            nexus_ipc::IpcError::Disconnected => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_DISCONNECTED)
+            }
+            nexus_ipc::IpcError::NoSpace => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_NO_SPACE)
+            }
+            nexus_ipc::IpcError::Kernel(_) => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_KERNEL_ERROR)
+            }
+            nexus_ipc::IpcError::Unsupported => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_UNSUPPORTED)
+            }
             _ => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_OTHER),
         }
         emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_FAIL);

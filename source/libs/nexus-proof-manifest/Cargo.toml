@@ -1,12 +1,17 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# CONTEXT: Host-only crate that owns the schema and parser for
-# `source/apps/selftest-client/proof-manifest.toml` — the SSOT for the
-# `selftest-client` marker ladder, harness profiles, and (later) runtime
-# selftest profiles. Standing up an isolated crate avoids pulling forbidden
-# `os-lite` deps (`getrandom`, `parking_lot`, `parking_lot_core`) into the
-# OS graph; this crate is consumed only via `[build-dependencies]` and from
+# CONTEXT: Host-only crate that owns the schema and parser for the
+# selftest-client proof-manifest — the SSOT for the marker ladder, harness
+# profiles, and runtime selftest profiles. Phase-4 (P4-01..P4-10) shipped
+# as a single file (`source/apps/selftest-client/proof-manifest.toml`,
+# schema v1). Phase-5 cut P5-00 split it into a per-phase tree under
+# `source/apps/selftest-client/proof-manifest/` (schema v2, root file
+# `manifest.toml`, `[include]`-resolved). The parser handles both.
+#
+# Standing up an isolated crate avoids pulling forbidden `os-lite` deps
+# (`getrandom`, `parking_lot`, `parking_lot_core`) into the OS graph;
+# this crate is consumed only via `[build-dependencies]` and from
 # host-side tools (`scripts/qemu-test.sh`, `tools/os2vm.sh`).
 [package]
 name = "nexus-proof-manifest"
@@ -23,6 +28,11 @@ serde = { version = "1", features = ["derive"] }
 # tooling (CLI from P4-05, deny-by-default analyzer from P4-09) sees a
 # stable, deterministic enumeration.
 indexmap = { version = "2", features = ["serde"] }
+# TASK-0023B P5-00: schema-v2 `[include]` directives expand a relative
+# glob pattern into a deterministic, lexicographically-sorted file list.
+# Host-only dep; no `getrandom`/`parking_lot`. The selftest-client OS-side
+# graph never reaches this crate (consumed only via build.rs / CLI).
+glob = "0.3"
 
 [dev-dependencies]
 

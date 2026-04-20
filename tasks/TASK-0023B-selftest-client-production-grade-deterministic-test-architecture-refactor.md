@@ -28,8 +28,8 @@ links:
   - Phase 2 (✅ done, 2026-04-17) — two-axis architecture (`os_lite/phases/` orchestration verbs alongside capability nouns); `pub fn run()` collapsed from ~1100 → **14 lines**; `os_lite/mod.rs` 1256 → **31 LoC**; RFC-0014 phase list expanded 8 → 12 (congruent with code phases); QEMU `SELFTEST:` ladder byte-identical (119 markers) across all 18 cuts (P2-00 → P2-17). Anchored by post-closure docs supplement: ADR-0027 (architectural contract), `selftest-client/README.md` (onboarding), CONTEXT headers across all 49 source files (commits `65d299d` + `f52cf60`); both proof gates (`just test-all`, `just test-network`) green at handoff.
   - Phase 3 (✅ done, 2026-04-17) — flattened 13 single-file `name/mod.rs` modules to `name.rs`; extracted host-pfad `run()` into sibling `host_lite.rs::run()` (`main.rs` shrunk 122 → 49 LoC, dispatch-only); landed `scripts/check-selftest-arch.sh` + `just arch-gate` (chained into `just dep-gate`) enforcing 5 mechanical rules with `[marker_emission]`/`[mod_rs_fn]`/`[size_500]` allowlists in `source/apps/selftest-client/.arch-allowlist.txt`; mechanical standards review (`#[must_use]` redundant on `Result` fns since core::result::Result is already `#[must_use]`; Slot newtype deferred to Phase 4 with `TODO(TASK-0023B Phase 4)` note in `context.rs`; Send/Sync intent comment added to `context.rs` documenting single-HART/single-task invariant). 119-marker `SELFTEST:` ladder byte-identical across all four cuts (P3-01 → P3-04).
   - Phase 4 (✅ done, 2026-04-17) — `proof-manifest.toml` is the single source of truth for the marker ladder (433 entries), harness profiles (`full / smp / dhcp / dhcp-strict / os2vm / quic-required`), and runtime selftest profiles (`bringup / quick / ota / net / none`). New host-only crate `nexus-proof-manifest` (parser + CLI: `list-markers / list-env / list-forbidden / list-phases / verify / verify-uart`); `selftest-client/build.rs` generates `markers_generated.rs`; 373 emit sites across 29 files migrated to `crate::markers::M_<KEY>` constants; `[marker_emission]` allowlist now empty. `arch-gate` is 6/6 mechanical rules — Rule 6 forbids `REQUIRE_*` env literals in `test-*` / `ci-*` justfile recipes. `scripts/qemu-test.sh` consumes the manifest (env wiring + mirror-check + `verify-uart` deny-by-default post-pass); `tools/os2vm.sh` consumes the manifest (subset mirror-check). New `os_lite/profile.rs` + `run_or_skip!` macro implement runtime phase skipping with `dbg: phase X skipped` breadcrumbs. `just test-os PROFILE=…` is canonical; `test-smp / test-os-dhcp / test-os-dhcp-strict / test-dsoftbus-2vm / test-network` deleted (replaced by `ci-os-smp / ci-os-dhcp / ci-os-dhcp-strict / ci-os-os2vm / ci-network`). QEMU `SELFTEST:` ladder for `PROFILE=full` byte-identical to the pre-Phase-4 baseline.
-  - Phase 5 — signed evidence bundles per QEMU run (`evidence-bundle.tar.gz`: manifest + UART + trace + config + signature).
-  - Phase 6 — replay capability (`replay-evidence` + `diff-traces` + `bisect-evidence`).
+  - Phase 5 (✅ done, 2026-04-17) — signed evidence bundles per QEMU run; **7** cuts (P5-00 → P5-06). P5-00 prepended at session start: `proof-manifest.toml` (1433 LoC) split into a `proof-manifest/` directory tree (`manifest.toml` + `phases.toml` + `markers/*.toml` + `profiles/*.toml`) with `[meta] schema_version = "2"` + `[include]` glob expansion (lex-sorted, conflict-checked); v1 single-file back-compat retained. New host-only crate `source/libs/nexus-evidence/` owns canonicalization + Ed25519 sign/verify + secret scan; 102-byte signature wire format (`magic="NXSE" || version=0x01 || label || hash[32] || sig[64]`); `KeyLabel::{Ci, Bringup}` baked into the signature so `verify --policy=ci` rejects bringup-signed bundles. `Bundle::seal` returns `Result<Bundle, EvidenceError>` (callers must handle `EvidenceError::SecretLeak`). Reproducible `tar.gz` packing (`mtime=0`, `uid=0`, `gid=0`, mode `0o644`, lex-sorted entries, fixed gzip OS byte). CI key resolved from env (`NEXUS_EVIDENCE_CI_PRIVATE_KEY_BASE64`); bringup key from `~/.config/nexus/bringup-key/private.ed25519` with mandatory mode `0600` check. Deny-by-default secret scanner refuses to seal bundles containing PEM private keys, bringup-key paths, `*PRIVATE_KEY*=…` env-style assignments, or ≥64-char base64 high-entropy blobs (with `Bundle::seal_with(&allowlist)` escape hatch for tests). Post-pass evidence pipeline wired into `scripts/qemu-test.sh` (single bundle) and `tools/os2vm.sh` (per-node A/B bundles); CI gate: `CI=1` ⇒ seal mandatory + rejects `NEXUS_EVIDENCE_DISABLE=1`. `tools/{seal,verify,gen-bringup-key,gen-ci-key}-evidence.sh` shipped + `keys/evidence-ci.pub.ed25519` placeholder + `keys/README.md` rotation procedure. 40 tests across 6 integration files in `nexus-evidence` (5 assemble + 6 canonical_hash + 4 key_separation + 5 qemu_seal_gate + 7 scan + 13 sign_verify); `cargo clippy -p nexus-evidence --all-targets -- -D warnings` clean; `just dep-gate` clean (zero new forbidden deps; `ed25519-dalek` was already in OS graph via `userspace/updates`); `nexus-evidence` itself stays host-only. QEMU `SELFTEST:` ladder for `PROFILE=full` byte-identical to pre-Phase-5 baseline.
+  - Phase 6 — replay capability (`replay-evidence` + `diff-traces` + `bisect-evidence` + cross-host floor + docs).
 - **Out of scope** (this task):
   - New transport features / QUIC recovery / data-plane hardening (owned by `TASK-0024`).
   - Protocol semantic changes.
@@ -420,40 +420,46 @@ Phase-4 hard gates (mechanically enforced):
 - Manifest parser rejects unknown keys (forward-compat checked by reject tests).
 - A profile with no declared markers is rejected at build time.
 
-### Phase 5 — Signed evidence bundle per QEMU run
+### Phase 5 — Signed evidence bundle per QEMU run (✅ done, 2026-04-17)
 
 Scope (Apple-grade evidence foundation, A2):
 
 - Each `just test-os PROFILE=…` run writes `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` containing:
-  - `proof-manifest.toml` (verbatim copy used for the run),
+  - `manifest.tar` (deterministic tar of the `proof-manifest/` v2 directory tree used for the run),
   - `uart.log` (unfiltered serial output),
-  - `trace.jsonl` (extracted marker ladder with timestamps + phase tags),
+  - `trace.jsonl` (extracted marker ladder with timestamps + phase tags; substring-against-all-manifest-literals; deny-by-default for orphan `SELFTEST:` / `dsoftbusd:` lines),
   - `config.json` (profile name, env vars, kernel cmdline, QEMU args, host info, build SHA, rustc version, qemu version),
-  - `signature.bin` (Ed25519 signature over a deterministic canonical hash of the above using a CI-held key; dev runs use a labeled "bring-up evidence key").
-- Verification tool `tools/verify-evidence.sh <bundle>` re-derives the canonical hash and validates signature; fails closed.
-- New host-only crate `nexus-evidence` owns hashing, sign, verify, canonicalization; reuses `nexus-noise-xk` Ed25519 primitives.
+  - `signature.bin` (102-byte: `magic="NXSE" || version=0x01 || label || hash[32] || sig[64]` Ed25519 signature over the canonical hash; CI label or bringup label baked into the signature byte so `verify --policy=ci` rejects bringup-signed bundles).
+- Verification tool `tools/verify-evidence.sh <bundle> [--policy=ci|bringup]` re-derives the canonical hash and validates the signature; fails closed across 5 tamper classes.
+- Host-only crate `source/libs/nexus-evidence/` owns canonicalization (`H(meta) || H(manifest_bytes) || H(uart_normalized) || H(sorted(trace)) || H(sorted(config))`), Ed25519 sign/verify, secret scanner, and reproducible `tar.gz` packing (`mtime=0`, `uid=0`, `gid=0`, mode `0o644`, lex-sorted entries, fixed gzip OS byte). Uses `ed25519-dalek` (already in OS graph via `userspace/updates`); `nexus-evidence` itself stays host-only.
 
-Cuts (6):
+Cuts (7; P5-00 prepended at session start):
 
-- **P5-01**: `nexus-evidence` crate skeleton + canonicalization spec + unit tests (deterministic hash over `(manifest_bytes, sorted(trace_entries), sorted(config_entries))`).
-- **P5-02**: `tools/extract-trace.sh` produces `trace.jsonl` from `uart.log` using manifest phase tags. Reject test: an out-of-order marker ladder produces a `trace.jsonl` with an `out_of_order: true` annotation but no signature is generated for failed runs (fail-closed at sign time).
-- **P5-03**: `tools/seal-evidence.sh` builds `evidence-bundle.tar.gz`, signs with the active key, writes to `target/evidence/`. CI key vs bring-up key is selected by env (`EVIDENCE_KEY=ci|bringup`); bringup key is labeled and refuses to verify against CI policy in P5-05.
-- **P5-04**: hook `tools/seal-evidence.sh` into `scripts/qemu-test.sh` after the existing pass/fail decision; failed runs still produce a bundle but with `signature.bin` absent (replay-only artifact).
-- **P5-05**: `tools/verify-evidence.sh` + Bring-up vs CI key separation; reject tests for: tampered manifest, tampered uart, tampered trace, swapped key.
-- **P5-06**: `docs/testing/evidence-bundle.md` documents bundle layout, key model, verify workflow, and how to consume bundles in PR review.
+- **P5-00 (✅ done)**: `proof-manifest.toml` (1433 LoC) split into a `source/apps/selftest-client/proof-manifest/` directory tree (`manifest.toml` + `phases.toml` + `markers/*.toml` + `profiles/*.toml`); `[meta] schema_version = "2"`; `nexus-proof-manifest` parser extended with `[include]` glob expansion (lex-sorted, conflict-checked); v1 single-file back-compat retained. `scripts/qemu-test.sh`, `tools/os2vm.sh`, `selftest-client/build.rs`, and the CLI repointed to `proof-manifest/manifest.toml`. `PROFILE=full` ladder byte-identical.
+- **P5-01 (✅ done)**: `nexus-evidence` skeleton + `Bundle` + per-artifact subtypes + `canonical_hash` + 6 integration tests in `tests/canonical_hash.rs`. Spec authored in `docs/testing/evidence-bundle.md`.
+- **P5-02 (✅ done)**: `Bundle::assemble` + `extract_trace` (substring-against-all-manifest-literals; `[ts=…ms]` timestamp prefix; deny-by-default for orphan markers) + `gather_config` + reproducible `tar.gz` packing in `bundle_io.rs`. `nexus-evidence` CLI ships `assemble / inspect / canonical-hash`. 5 integration tests in `tests/assemble.rs`.
+- **P5-03 (✅ done)**: Ed25519 sign/verify with `KeyLabel::{Ci, Bringup}` baked into the signature byte; CLI extended with `seal / verify / keygen`; `tools/seal-evidence.sh` + `tools/verify-evidence.sh` shell wrappers; placeholder `keys/evidence-ci.pub.ed25519` checked in. 13 integration tests in `tests/sign_verify.rs` covering 5 tamper classes (manifest / uart / trace / config / key-label swap).
+- **P5-04 (✅ done)**: Key separation via `nexus_evidence::key::from_env_or_dir` (CI: `NEXUS_EVIDENCE_CI_PRIVATE_KEY_BASE64`; bringup: `~/.config/nexus/bringup-key/private.ed25519` with mandatory `0600` perm check). Deny-by-default secret scanner in `src/scan.rs` (PEM blocks, `bringup-key/private` paths, `*PRIVATE_KEY*=…` env-style assignments, ≥64-char base64 high-entropy blobs) wired into `Bundle::seal` (now returns `Result<Bundle, EvidenceError>`); `Bundle::seal_with(&allowlist)` escape hatch for tests. `.gitignore` rejects `**/private.ed25519`. `tools/{gen-bringup-key.sh, gen-ci-key.sh}` + `keys/README.md` rotation procedure. 11 integration tests (7 scan + 4 key_separation).
+- **P5-05 (✅ done)**: Post-pass evidence pipeline wired into `scripts/qemu-test.sh` (single bundle) and `tools/os2vm.sh` (per-node A/B bundles `…-a.tar.gz` / `…-b.tar.gz`). Env knobs: `NEXUS_EVIDENCE_SEAL=1`, `CI=1` (implies seal + rejects `NEXUS_EVIDENCE_DISABLE=1`), `NEXUS_EVIDENCE_DISABLE=1`. Label resolution: CI key when env set, bringup otherwise. Failure to assemble or seal is fatal. 5 integration tests in `tests/qemu_seal_gate.rs`.
+- **P5-06 (✅ done)**: `docs/testing/evidence-bundle.md` final pass (§3a Assembly, §3b Signing & verification, §3c Key separation, §3d Secret scanner, §5 Operational gates with the env-knob matrix and CI hard gates). RFC-0038 §"Stop conditions / acceptance" Phase 5 ticked (7 boxes). `.cursor/{handoff,current_state,next_task_prep}` + `tasks/{STATUS-BOARD,IMPLEMENTATION-ORDER}` synced.
 
-Phase-5 proof floor:
+Phase-5 proof floor (all green at closure):
 
 - All Phase-4 proofs.
-- `cd /home/jenning/open-nexus-OS && cargo test -p nexus-evidence -- --nocapture` (canonicalization + reject tests).
-- `cd /home/jenning/open-nexus-OS && just test-os PROFILE=full` writes a verifiable bundle; `tools/verify-evidence.sh target/evidence/<latest>` returns 0.
-- Tamper test: editing 1 byte in `uart.log` inside the bundle causes verify to fail with a stable, classified error (`EvidenceError::SignatureMismatch`).
+- `cargo test -p nexus-evidence -- --nocapture` → 40 tests across 6 integration files (5 assemble + 6 canonical_hash + 4 key_separation + 5 qemu_seal_gate + 7 scan + 13 sign_verify); 0 failures.
+- `cargo clippy -p nexus-evidence --all-targets -- -D warnings` → clean.
+- `just test-os PROFILE=full` writes a verifiable bundle; `tools/verify-evidence.sh target/evidence/<latest>` returns 0 (or `--policy=ci` in CI).
+- Tamper tests across 5 classes (manifest / uart / trace / config / key-label swap) cause verify to fail with stable, classified errors (`EvidenceError::SignatureMismatch` or `KeyLabelMismatch`).
+- `just dep-gate` clean (zero new forbidden deps; `ed25519-dalek` was already in OS graph via `userspace/updates`); `nexus-evidence` itself stays host-only.
 
-Phase-5 hard gates:
+Phase-5 hard gates (mechanically enforced at closure):
 
-- A run that fails to seal an evidence bundle is itself a CI failure (no silent skip).
-- Bringup-key bundles must not validate against CI policy (label check in `verify-evidence.sh`).
-- No secret material (private keys, session keys, raw key bytes) appears in `uart.log`, `trace.jsonl`, or `config.json` (reject test scans for known patterns).
+- A successful run that fails to seal an evidence bundle is itself a CI failure when `CI=1` (or `NEXUS_EVIDENCE_SEAL=1`); `NEXUS_EVIDENCE_DISABLE=1` is rejected when seal is mandatory.
+- Bringup-signed bundles do not validate against `--policy=ci` (label byte in signature wire format).
+- Secret scanner is deny-by-default and runs *before* signing in `Bundle::seal`; bundles containing PEM private keys, bringup-key paths, `*PRIVATE_KEY*=…` env-style assignments, or ≥64-char base64 high-entropy blobs refuse to seal.
+- Reproducible `tar.gz` (byte-identical for same inputs): `mtime=0` + `uid=0` + `gid=0` + mode `0o644` + lex-sorted entries + fixed gzip OS byte.
+- Bringup key file with mode ≠ `0600` rejected (`EvidenceError::KeyMaterialPermissions`).
+- `PROFILE=full` marker ladder byte-identical to pre-Phase-5 baseline (`pm_mirror_check` enforces on every run).
 
 ### Phase 6 — Replay capability
 
@@ -552,7 +558,7 @@ Phase-6 hard gates:
 8. Any discovered logic bugs or fake-success markers have been converted into honest behavior/proof markers rather than preserved.
 9. `TASK-0024` blocked on this task until **Phase 4 closure**, then unblocked.
 10. **Phase 4 closure**: `proof-manifest.toml` is the single source of truth; `scripts/qemu-test.sh` and `tools/os2vm.sh` consume it; all `just test-*` recipes route through `just test-os PROFILE=…`; `SELFTEST_PROFILE` runtime switch works for `bringup|quick|ota|net|none|full`; arch-gate enforces no marker string literals outside the generated file + `markers.rs`.
-11. **Phase 5 closure**: every QEMU run produces a `target/evidence/<utc>-<profile>-<sha>.tar.gz`; `tools/verify-evidence.sh` validates signature; tamper test fails closed; bringup-key bundles cannot validate against CI policy.
+11. **Phase 5 closure** (✅ done, 2026-04-17): every successful `just test-os PROFILE=…` run produces a `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` (manifest tar + uart.log + trace.jsonl + config.json + signature.bin when seal is required); `tools/verify-evidence.sh target/evidence/<latest>` validates signature across 5 tamper classes; bringup-signed bundles do not validate under `--policy=ci`; deny-by-default secret scanner refuses to seal bundles with leaked key material; CI gate (`CI=1`) makes seal mandatory and rejects `NEXUS_EVIDENCE_DISABLE=1`. P5-00 prepended at session start: `proof-manifest.toml` split into a `proof-manifest/` directory tree (`manifest.toml` + `phases.toml` + `markers/*.toml` + `profiles/*.toml`) with `[meta] schema_version = "2"` + `[include]` glob expansion. 40 tests across 6 integration files in `nexus-evidence` clean; `just dep-gate` clean; `PROFILE=full` ladder byte-identical to pre-Phase-5 baseline.
 12. **Phase 6 closure**: `tools/replay-evidence.sh` produces an empty diff for a known-good bundle on at least 2 host configurations; `tools/bisect-evidence.sh` correctly identifies a synthetic regression in a bounded run; `docs/testing/replay-and-bisect.md` documents the workflow and the determinism allowlist.
 
 ## Plan (small PRs)

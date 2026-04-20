@@ -52,7 +52,9 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
                 // Status can be OK (0) or KEY_EXISTS (10)
                 let status = rsp[4];
                 if status != 0 && status != 10 {
-                    emit_bytes(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_STATUS.as_bytes());
+                    emit_bytes(
+                        crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_STATUS.as_bytes(),
+                    );
                     emit_hex_u64(status as u64);
                     emit_line(")");
                     return None;
@@ -80,7 +82,9 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
                 }
                 let status = rsp[4];
                 if status != 0 {
-                    emit_bytes(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_STATUS.as_bytes());
+                    emit_bytes(
+                        crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_STATUS.as_bytes(),
+                    );
                     emit_hex_u64(status as u64);
                     emit_line(")");
                     return None;
@@ -89,7 +93,9 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
                 // [K, S, ver, op|0x80, status, len:u16le, pubkey...]
                 let val_len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
                 if val_len != 32 || rsp.len() < 7 + 32 {
-                    emit_bytes(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_LEN.as_bytes());
+                    emit_bytes(
+                        crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_LEN.as_bytes(),
+                    );
                     emit_hex_u64(val_len as u64);
                     emit_line(")");
                     return None;
@@ -128,7 +134,9 @@ pub(crate) fn device_key_private_export_rejected_selftest(client: &KernelClient)
     match client.recv(wait) {
         Ok(rsp) => {
             if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
-                emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_MALFORMED);
+                emit_line(
+                    crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_MALFORMED,
+                );
                 return;
             }
             let status = rsp[4];
@@ -141,7 +149,9 @@ pub(crate) fn device_key_private_export_rejected_selftest(client: &KernelClient)
                 emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL);
             }
         }
-        Err(_) => emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_RECV),
+        Err(_) => {
+            emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_RECV)
+        }
     }
 }
 

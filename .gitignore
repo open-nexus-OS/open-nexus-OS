@@ -23,6 +23,22 @@ neuron-boot.map
 uart_syspipe*.txt
 uart_syspipe.txt
 
+# TASK-0023B Phase 5 — sealed evidence bundles (P5-02 onward).
+# `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` is a per-run
+# audit artifact; never staged, never committed.
+target/evidence/
+
+# TASK-0023B Phase 5 — Ed25519 private-key material (P5-04). The CI
+# private key is stored as a CI secret (env var
+# NEXUS_EVIDENCE_CI_PRIVATE_KEY_BASE64) and the bringup private key
+# lives at ~/.config/nexus/bringup-key/private.ed25519. Belt-and-
+# braces: refuse to track any *.private.ed25519 / *.priv.* file
+# anywhere in the tree.
+keys/*.private.ed25519
+keys/*.priv.ed25519
+**/private.ed25519
+**/*.priv.ed25519
+
 # 2-VM harness artifacts (TASK-0005 / RFC-0010)
 uart-*.txt
 host-*.txt

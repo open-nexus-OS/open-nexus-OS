@@ -32,13 +32,14 @@ fn accept_on_disk_manifest_marker_count_and_const_keys() {
     // must parse, declare its full marker set, and produce unique
     // `const_key()` values so that `markers_generated.rs` cannot have
     // colliding `M_*` constants.
+    // P5-00: on-disk manifest is now a v2 split tree; parse via parse_path
+    // so the CLI dispatch path is exercised end-to-end.
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../apps/selftest-client/proof-manifest.toml"
+        "/../../apps/selftest-client/proof-manifest/manifest.toml"
     );
-    let src = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("read {path}: {e}"));
-    let m = parse(&src).expect("populated on-disk manifest must parse");
+    let m = nexus_proof_manifest::parse_path(std::path::Path::new(path))
+        .unwrap_or_else(|e| panic!("populated on-disk manifest must parse: {e}"));
 
     // Lower bound: P4-03 declares 179 gating markers; P4-04 back-fills the
     // remaining ~254 diagnostic / fragment / FAIL labels so that

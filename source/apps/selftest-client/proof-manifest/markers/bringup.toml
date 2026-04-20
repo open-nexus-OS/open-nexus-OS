@@ -1,0 +1,488 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Markers in phase `bringup` (RFC-0014 order = 1).
+# Loaded via `[include] markers = "markers/*.toml"` in
+# `proof-manifest/manifest.toml`. The parser visits files in
+# lexicographic order; within a file, `[marker."…"]` order is preserved
+# verbatim.
+#
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Stable; literals are the contract surface (referenced as
+#                `M_<KEY>` constants from `markers_generated.rs`)
+
+[marker."neuron vers."]
+phase = "bringup"
+proves = "kernel banner reached"
+
+[marker."KSELFTEST: spawn reasons ok"]
+phase = "bringup"
+proves = "kernel selftest: spawn-reason classification"
+
+[marker."KSELFTEST: resource sentinel ok"]
+phase = "bringup"
+proves = "kernel selftest: resource sentinel"
+
+[marker."init: start"]
+phase = "bringup"
+
+[marker."init: start keystored"]
+phase = "bringup"
+
+[marker."init: up keystored"]
+phase = "bringup"
+
+[marker."init: start rngd"]
+phase = "bringup"
+
+[marker."init: up rngd"]
+phase = "bringup"
+
+[marker."init: start policyd"]
+phase = "bringup"
+
+[marker."init: up policyd"]
+phase = "bringup"
+
+[marker."init: start logd"]
+phase = "bringup"
+
+[marker."init: up logd"]
+phase = "bringup"
+
+[marker."init: start metricsd"]
+phase = "bringup"
+
+[marker."init: up metricsd"]
+phase = "bringup"
+
+[marker."init: start samgrd"]
+phase = "bringup"
+
+[marker."init: up samgrd"]
+phase = "bringup"
+
+[marker."init: start bundlemgrd"]
+phase = "bringup"
+
+[marker."init: up bundlemgrd"]
+phase = "bringup"
+
+[marker."init: start packagefsd"]
+phase = "bringup"
+
+[marker."init: up packagefsd"]
+phase = "bringup"
+
+[marker."init: start vfsd"]
+phase = "bringup"
+
+[marker."init: up vfsd"]
+phase = "bringup"
+
+[marker."init: start execd"]
+phase = "bringup"
+
+[marker."init: up execd"]
+phase = "bringup"
+
+[marker."init: start netstackd"]
+phase = "bringup"
+
+[marker."init: up netstackd"]
+phase = "bringup"
+
+[marker."init: start dsoftbusd"]
+phase = "bringup"
+
+[marker."init: up dsoftbusd"]
+phase = "bringup"
+
+[marker."init: ready"]
+phase = "bringup"
+
+[marker."keystored: ready"]
+phase = "bringup"
+
+[marker."rngd: ready"]
+phase = "bringup"
+
+[marker."policyd: ready"]
+phase = "bringup"
+
+[marker."abi-profile: ready (server=policyd|abi-filterd)"]
+phase = "bringup"
+
+[marker."samgrd: ready"]
+phase = "bringup"
+
+[marker."bundlemgrd: ready"]
+phase = "bringup"
+
+[marker."statefsd: ready"]
+phase = "bringup"
+
+[marker."updated: ready (statefs)"]
+phase = "bringup"
+
+[marker."packagefsd: ready"]
+phase = "bringup"
+
+[marker."vfsd: ready"]
+phase = "bringup"
+
+[marker."execd: ready"]
+phase = "bringup"
+
+[marker."timed: ready"]
+phase = "bringup"
+
+[marker."netstackd: ready"]
+phase = "bringup"
+
+[marker."logd: ready"]
+phase = "bringup"
+
+[marker."metricsd: ready"]
+phase = "bringup"
+
+[marker."bundlemgrd: slot a active"]
+phase = "bringup"
+proves = "bundlemgrd boot-slot accounting"
+
+[marker."KINIT: cpu1 online"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: smp online ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: ipi counterfactual ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: ipi resched ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: test_reject_invalid_ipi_target_cpu ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: test_reject_offline_cpu_resched ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: work stealing ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: test_reject_steal_above_bound ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: test_reject_steal_higher_qos ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."dbg: phase bringup skipped"]
+phase = "bringup"
+
+[marker."SELFTEST: bootctl persist begin"]
+phase = "bringup"
+
+[marker."SELFTEST: bootctl persist recv timeout"]
+phase = "bringup"
+
+[marker."SELFTEST: bootctl persist send timeout"]
+phase = "bringup"
+
+[marker."SELFTEST: device key persist FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: device key private export rejected FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: device key private export rejected FAIL (malformed)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key private export rejected FAIL (recv)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key private export rejected FAIL (send)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key private export status="]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (keygen malformed)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (keygen recv)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (keygen send)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (keygen status="]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (no route)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (pubkey len="]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (pubkey malformed)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (pubkey recv)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (pubkey send)"]
+phase = "bringup"
+
+[marker."SELFTEST: device key pubkey FAIL (pubkey status="]
+phase = "bringup"
+
+[marker."SELFTEST: icmp ping ok"]
+phase = "bringup"
+
+[marker."SELFTEST: keystored capmove begin"]
+phase = "bringup"
+
+[marker."SELFTEST: keystored capmove clone fail"]
+phase = "bringup"
+
+[marker."SELFTEST: keystored capmove FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: keystored capmove no-reply"]
+phase = "bringup"
+
+[marker."SELFTEST: keystored capmove ok"]
+phase = "bringup"
+
+[marker."SELFTEST: keystored capmove send fail"]
+phase = "bringup"
+
+[marker."SELFTEST: qos FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: reload ok"]
+phase = "bringup"
+
+[marker."SELFTEST: reload pubkey len mismatch"]
+phase = "bringup"
+
+[marker."SELFTEST: reload pubkey mismatch"]
+phase = "bringup"
+
+[marker."SELFTEST: reload pubkey recv fail"]
+phase = "bringup"
+
+[marker."SELFTEST: reload pubkey rsp malformed"]
+phase = "bringup"
+
+[marker."SELFTEST: reload pubkey send fail"]
+phase = "bringup"
+
+[marker."SELFTEST: reload pubkey status="]
+phase = "bringup"
+
+[marker."SELFTEST: reload recv fail"]
+phase = "bringup"
+
+[marker."SELFTEST: reload route fail"]
+phase = "bringup"
+
+[marker."SELFTEST: reload rsp malformed"]
+phase = "bringup"
+
+[marker."SELFTEST: reload rsp status="]
+phase = "bringup"
+
+[marker."SELFTEST: reload send fail"]
+phase = "bringup"
+
+[marker."SELFTEST: reply loopback FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: reply loopback ok"]
+phase = "bringup"
+
+[marker."SELFTEST: reply slots "]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy FAIL (len="]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy FAIL (no slots)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy FAIL (recv)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy FAIL (send)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy FAIL (status="]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy FAIL (wrong op)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy oversized FAIL (no slots)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy oversized FAIL (recv)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy oversized FAIL (send)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy oversized FAIL (status="]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy oversized FAIL (wrong op)"]
+phase = "bringup"
+
+[marker."SELFTEST: rng entropy send"]
+phase = "bringup"
+
+[marker."SELFTEST: routing vfsd fallback slots"]
+phase = "bringup"
+
+[marker."SELFTEST: routing vfsd st=0x"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd lookup rsp len "]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register rsp len "]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send disconnected"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send fail"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send kernel"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send nospace"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send timeout"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send unsupported"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd register send wouldblock"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd slots "]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd v1 lookup FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd v1 malformed FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd v1 register FAIL err"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd v1 register FAIL st=0x"]
+phase = "bringup"
+
+[marker."SELFTEST: samgrd v1 unknown FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist begin"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist get err="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist get mismatch"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist put ok"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist put rsp_len="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist put status="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist reopen ok"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist reopen rsp_len="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist reopen status="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist sync ok"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist sync rsp_len="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs persist sync status="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs put FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs recv timeout"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send disconnected"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send kernel-error"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send no-space"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send other"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send timeout"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send unsupported"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs send would-block"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs unauthorized access rejected FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs unauthorized rsp_len="]
+phase = "bringup"
+
+[marker."SELFTEST: statefs unauthorized status="]
+phase = "bringup"
+
+[marker."SELFTEST: timed coalesce FAIL"]
+phase = "bringup"

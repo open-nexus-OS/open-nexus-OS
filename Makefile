@@ -107,9 +107,16 @@ else
 	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo test --workspace --exclude neuron --exclude neuron-boot; \
 	fi
 endif
-	@echo "==> Running deterministic SMP ladder (default, SMP=$(SMP))"
-	@SMP=$${SMP:-$(SMP)} REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh
-	@SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh
+	@echo "==> Running deterministic SMP ladder (smp profile, SMP=$(SMP))"
+	@# TASK-0023B P5 follow-up: the `smp` manifest profile carries
+	@# REQUIRE_SMP=1 + SMP=2 in its env (see proof-manifest/profiles/harness.toml).
+	@# `qemu-test.sh --profile=smp` therefore enables the SMP marker
+	@# subset (`emit_when={profile="smp"}` in markers/bringup.toml);
+	@# without --profile=smp the `KSELFTEST: smp online ok` family
+	@# would be reported as "unexpected" by verify-uart. Then the
+	@# parity ladder runs with the default `full` profile under SMP=1.
+	@RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh --profile=smp
+	@SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh --profile=full
 
 verify:
 	@echo "==> Running full verification (delegates to just workflow)"
@@ -119,10 +126,14 @@ verify:
 	@just test-e2e
 	@just dep-gate
 	@just diag-os
-	@RUN_UNTIL_MARKER=1 just test-os
+	@# `just test-os` defaults to `--profile=full` (positional arg since P4-10).
+	@RUN_UNTIL_MARKER=1 just test-os full
+	@# Same SMP-vs-profile contract as `make test`: SMP ladder MUST
+	@# pass --profile=smp so the SMP-only markers (KSELFTEST: ...) are
+	@# expected; the parity ladder uses --profile=full under SMP=1.
 	@if [ "$${REQUIRE_SMP_VERIFY:-0}" = "1" ]; then \
-	  SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} ./scripts/qemu-test.sh && \
-	  SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} ./scripts/qemu-test.sh; \
+	  RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} ./scripts/qemu-test.sh --profile=smp && \
+	  SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-90s} ./scripts/qemu-test.sh --profile=full; \
 	fi
 
 run:
@@ -130,10 +141,20 @@ run:
 	@rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal
 	@rustup component add rust-src --toolchain "$(NIGHTLY)" >/dev/null 2>&1 || true
 	@$(CARGO_BIN) +$(NIGHTLY) build --target riscv64imac-unknown-none-elf -p neuron-boot --release
-	@run_until_marker=$${RUN_UNTIL_MARKER:-1}; \
+	@# TASK-0023B P5 follow-up: pick the manifest profile that matches
+	@# the requested SMP topology so `verify-uart` does not flag
+	@# SMP-only markers as "unexpected". `SMP` env wins if explicit;
+	@# otherwise we default to the `smp` profile (which carries SMP=2)
+	@# preserving the historical `make run` behavior.
+	@profile=$${PROFILE:-}; \
+	if [ -z "$$profile" ]; then \
+	  smp_eff=$${SMP:-$(SMP)}; \
+	  if [ "$$smp_eff" -ge 2 ] 2>/dev/null; then profile=smp; else profile=full; fi; \
+	fi; \
+	run_until_marker=$${RUN_UNTIL_MARKER:-1}; \
 	if [ "$$run_until_marker" != "0" ]; then \
-	  echo "==> RUN_UNTIL_MARKER=$$run_until_marker: using scripts/qemu-test.sh (marker-driven early exit)"; \
-	  SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} RUN_UNTIL_MARKER=$$run_until_marker ./scripts/qemu-test.sh; \
+	  echo "==> RUN_UNTIL_MARKER=$$run_until_marker, --profile=$$profile (SMP from manifest if profile=smp; else SMP=$${SMP:-$(SMP)})"; \
+	  RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} RUN_UNTIL_MARKER=$$run_until_marker ./scripts/qemu-test.sh --profile=$$profile; \
 	else \
 	  UART_LOG=$${UART_LOG:-uart.log}; \
 	  SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh; \
