@@ -16,7 +16,21 @@
 *.log
 build/*.log
 
-# Auto-generated runtime artefacts
+# Auto-generated runtime artefacts.
+#
+# Special case: `uart.log` is BOTH tracked (HEAD carries a snapshot) and
+# listed here. Rationale:
+#   * `make test`/`make run`/`scripts/qemu-test.sh` rewrite the working-tree
+#     copy on every QEMU run, so without the ignore line every run would
+#     show as `M uart.log` and pollute `git add .` flows.
+#   * The HEAD copy is task-closure evidence: the canonical marker ladder
+#     captured at the moment the responsible task was closed.
+#
+# Policy: do NOT stage `uart.log` on every run. Only refresh the tracked
+# snapshot when closing a task that legitimately changes the marker ladder
+# or boot output. Use `git add -f uart.log` deliberately in that closure
+# commit. The mtime-only "M" noise during day-to-day work is intentional
+# and must be ignored.
 uart.log
 uart_ecall_chars.log
 neuron-boot.map

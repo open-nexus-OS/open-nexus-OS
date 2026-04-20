@@ -39,7 +39,10 @@ initial-setup:
 	@command -v meson >/dev/null 2>&1 || echo "[warn] meson not found (required for QEMU build)"
 	@echo "==> Installing Rust targets"
 	@rustup target add riscv64imac-unknown-none-elf
-	@echo "==> Installing git hooks"
+	@echo "==> Running pre-commit gate (fmt + clippy + cargo-deny)"
+	@# Note: this does NOT install a git hook. It just runs the same gate
+	@# that a pre-commit hook would. To wire it as an actual hook, do:
+	@#   ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit
 	@./scripts/fmt-clippy-deny.sh
 	@echo "==> QEMU modern virtio-mmio patch: run ./tools/qemu/build-modern.sh"
 

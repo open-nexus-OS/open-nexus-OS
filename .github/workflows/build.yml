@@ -120,12 +120,28 @@ jobs:
         run: rustup toolchain install "${DENY_TOOLCHAIN}" --profile minimal
       - name: Install cargo-deny (pinned)
         run: cargo +"${DENY_TOOLCHAIN}" install --locked cargo-deny --version "${CARGO_DENY_VERSION}"
-      - name: Make initial-setup
-        run: make initial-setup
+      # NOTE: we deliberately do NOT call `make initial-setup` here.
+      # `initial-setup` is for local developer onboarding (interactive
+      # `sudo apt-get install`, podman rootless probe, pre-commit gate
+      # rerun). The `Install deps` and `Install Rust toolchains and
+      # targets` steps above already cover the CI-only subset.
       - name: Make build (host mode)
         env:
           CARGO_BIN: cargo
         run: make build MODE=host
+      # b84e4c2 contract: `make build` produces neuron-boot + init-lite
+      # under target/riscv64imac-unknown-none-elf/release/. Upload them
+      # so `os-smoke` can consume them via NEXUS_SKIP_BUILD=1 instead
+      # of re-doing a cold build.
+      - name: Upload OS build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: os-build-${{ github.sha }}
+          path: |
+            target/riscv64imac-unknown-none-elf/release/neuron-boot
+            target/riscv64imac-unknown-none-elf/release/init-lite
+          if-no-files-found: error
+          retention-days: 7
 
   os-smoke:
     name: os smoke (QEMU selftest)
@@ -154,10 +170,23 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-os-smoke-${{ hashFiles('**/Cargo.lock') }}
-      - name: OS smoke (QEMU selftests)
+      # b84e4c2 contract: consume the prebuilt artifacts from `build-os`
+      # via NEXUS_SKIP_BUILD=1 instead of doing an independent cold build.
+      # The `--profile=smp` selection matches `make test`'s SMP ladder so
+      # the verify-uart marker subset is consistent with local `make test`.
+      - name: Download OS build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: os-build-${{ github.sha }}
+          path: target/riscv64imac-unknown-none-elf/release/
+      - name: Mark prebuilt artifacts as executable
+        run: chmod +x target/riscv64imac-unknown-none-elf/release/{neuron-boot,init-lite}
+      - name: OS smoke (QEMU selftests, prebuilt)
         env:
+          NEXUS_SKIP_BUILD: "1"
+          RUN_UNTIL_MARKER: "1"
           RUN_TIMEOUT: 30m
-        run: just test-os
+        run: ./scripts/qemu-test.sh --profile=smp
       - name: Upload uart log
         if: always()
         uses: actions/upload-artifact@v4
