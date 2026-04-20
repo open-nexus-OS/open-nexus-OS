@@ -95,10 +95,13 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] No follow-up scope is silently absorbed into unrelated tasks.
 
 ## TASK-0023B class stop conditions (selftest-client deterministic refactor)
-- [ ] Phase sequence is completed in order with no skipped closure gate:
-  - [ ] Phase 1 structural extraction,
-  - [ ] Phase 2 maintainability/extensibility cleanup,
-  - [ ] Phase 3 standards/closure review.
+- [x] Phase sequence is completed in order with no skipped closure gate:
+  - [x] Phase 1 structural extraction,
+  - [x] Phase 2 maintainability/extensibility cleanup,
+  - [x] Phase 3 standards/closure review,
+  - [x] Phase 4 proof-manifest as marker SSOT + profile-aware harness,
+  - [x] Phase 5 manifest schema-v2 split + signed evidence bundles,
+  - [x] Phase 6 replay/diff/bisect tooling + cross-host floor (functionally closed 2026-04-20; external CI-runner replay artifact for P6-05 is the single remaining environmental step — see `docs/testing/replay-and-bisect.md` §7-§11).
 - [ ] Behavior-preserving refactor contract holds:
   - [ ] marker ordering semantics remain unchanged,
   - [ ] marker meanings remain unchanged,
@@ -144,8 +147,10 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] QEMU proofs were run in parallel and produced contention artifacts.
 - [ ] Wire layout, retry budgets, ACL/audit behavior, or marker semantics changed silently.
 
-## Active progress snapshot (TASK-0023B queue-head refresh, 2026-04-16)
+## Active progress snapshot (TASK-0023B closure refresh, 2026-04-20)
 - [x] `TASK-0023` is archived as a frozen handoff baseline.
-- [x] Active `.cursor` workfiles now point to `TASK-0023B` / `RFC-0038`.
-- [x] Refactor-specific stop conditions now cover phase order, marker honesty, and `main.rs` minimality.
+- [x] Active `.cursor` workfiles point to `TASK-0023B` / `RFC-0038`.
+- [x] Refactor-specific stop conditions cover phase order, marker honesty, and `main.rs` minimality.
 - [x] Queue order is synchronized: `TASK-0023B` before `TASK-0024`.
+- [x] All six TASK-0023B phases functionally closed; `RFC-0038` advanced to `Done`; `TASK-0023B` advanced to `In Review`.
+- [ ] External CI-runner replay artifact for P6-05 captured + status flip applied per `docs/testing/replay-and-bisect.md` §7-§11. After that, `TASK-0023B` moves to `Done` and queue head advances to `TASK-0024`.

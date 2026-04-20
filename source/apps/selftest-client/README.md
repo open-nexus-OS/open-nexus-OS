@@ -295,11 +295,23 @@ If you add a new file, copy this block. If you split a file, the new pieces inhe
 
 ## Status
 
-This crate's structure is the result of TASK-0023B Phase 2 (closed). Phases 4 and 5 are now landed:
+TASK-0023B is **In Review** as of 2026-04-20. RFC-0038 is marked **Done**. All six phases are functionally closed:
 
+* **Phase 1** — capability extractions (nouns moved out of the monolithic `os_lite/run()`).
+* **Phase 2** — two-axis structure landed in 18 cuts (`P2-00..P2-17`); `os_lite/mod.rs` shrank 1256 → 31 LoC, `pub fn run()` body is 14 lines of phase dispatch.
+* **Phase 3** — flatten + `host_lite/` extraction + `arch-gate` mechanical enforcement + standards review.
 * **Phase 4** — proof-manifest as marker SSOT + profile-aware harness (`emit_when` / `forbidden_when` semantics, `verify-uart` deny-by-default gating).
 * **Phase 5** — manifest split into per-phase / per-profile files (schema v2, [`P5-00`]) + signed evidence bundles assembled and verified post-pass (`P5-01..P5-06`, [`nexus-evidence`](../../libs/nexus-evidence/)).
+* **Phase 6** — replay capability (`tools/replay-evidence.sh`, `tools/diff-traces.sh`, `tools/bisect-evidence.sh`, `scripts/regression-bisect.sh`, [`docs/testing/replay-and-bisect.md`](../../../docs/testing/replay-and-bisect.md)). Proof floor verified locally:
+  * empty-diff replay vs good bundle on native + containerized CI-like host (`.cursor/replay-dev-a.json`, `.cursor/replay-ci-like.json`),
+  * synthetic bad-bundle classified diff with non-zero exit (`.cursor/replay-synthetic-bad.json`; reproducer in [`docs/testing/replay-and-bisect.md`](../../../docs/testing/replay-and-bisect.md) §10),
+  * 3-commit good→drift→regress bisect smoke (`.cursor/bisect-good-drift-regress.json`; fixture in [`docs/testing/bisect-good-drift-regress.json`](../../../docs/testing/bisect-good-drift-regress.json)),
+  * all hard gates: `--max-seconds`/`--max-commits` mandatory, `PROFILE` env override rejected.
 
-Phase 6 (replay capability) remains tracked in RFC-0038 and the active task file. Behavioral parity — byte-identical marker ladder vs. pre-refactor baseline, byte-identical canonical hash for identical OS runs — is the non-negotiable invariant for every cut.
+Behavioral parity — byte-identical marker ladder vs. pre-refactor baseline, byte-identical canonical hash for identical OS runs — is the non-negotiable invariant that held across every cut.
+
+### Remaining environmental closure step (P6-05)
+
+One closure step remains and is **environmental only**, not a code/doc/design gap: replay the sealed reference bundle `target/evidence/20260420T133203Z-full-b84e4c2.tar.gz` on the external project CI runner using the copy-paste recipe in [`docs/testing/replay-and-bisect.md`](../../../docs/testing/replay-and-bisect.md) §7-§8, archive `.cursor/replay-ci.{json,log}`, then flip the P6-05 status line in `tasks/TASK-0023B-...md`, tick the Phase-6 checkbox in [`RFC-0038`](../../../docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md), and mirror the status in `tasks/STATUS-BOARD.md`, `tasks/IMPLEMENTATION-ORDER.md`, and `.cursor/{current_state,handoff/current,next_task_prep}.md`. The exact set of lines to flip is documented in [`docs/testing/replay-and-bisect.md`](../../../docs/testing/replay-and-bisect.md) §11.
 
 If you find yourself wanting to "just add it to `os_lite/mod.rs`", stop and re-read the noun/verb decision tree above. The whole point of the current shape is that you don't have to.

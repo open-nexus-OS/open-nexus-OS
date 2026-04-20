@@ -1,0 +1,1 @@
+{"checked_commits": [{"sha": "c0aaaaaa", "verdict": "good"}, {"sha": "c1bbbbbb", "verdict": "drift"}, {"sha": "c2cccccc", "verdict": "bad"}], "drift_commits": ["c1bbbbbb"], "first_bad_commit": "c2cccccc", "max_commits": 3, "max_seconds": 30, "mode": "synthetic"}

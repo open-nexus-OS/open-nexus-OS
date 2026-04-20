@@ -130,7 +130,7 @@ Drift accumulates between deliberate decisions. A `unwrap` slips into a daemon. 
 
 ## Sequencing
 
-- **Precondition for all candidates**: `TASK-0023B` Phase 6 closure.
+- **Precondition for all candidates**: `TASK-0023B` Phase 6 closure. **Status (2026-04-20)**: Phase 6 is functionally closed; `TASK-0023B` is `In Review`; `RFC-0038` is `Done`. The single remaining environmental closure step (external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11) is not blocking for *track-level extraction planning*, but candidate `TASK-XXXX` extraction must wait until that artifact lands and the documented status flip is applied across task / RFC / status docs.
 - **B vs C vs D ordering**: independent. B and D are higher-leverage in the short term (they actively prevent regression). C is higher-leverage in the medium term (it makes the proof system measurable, which feeds external claims).
 - **No cross-dependencies between candidates within a workstream** unless explicitly noted; e.g. CAND-COV-020 and CAND-COV-030 can land in either order.
 

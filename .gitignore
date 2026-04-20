@@ -54,3 +54,9 @@ tmp*.txt
 
 # Temporary debug/extract files
 tmp*.rs
+
+# TASK-0023B Phase 6 — replay/bisect scratch (legacy; current tooling
+# uses target/replay-worktree and target/replay-cache which are already
+# covered by /target/). Keep .tmp/ ignored to absorb any leftover
+# scratch from earlier replay runs.
+.tmp/

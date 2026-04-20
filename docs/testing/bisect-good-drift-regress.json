@@ -1,0 +1,8 @@
+{
+  "_doc": "Phase-6 proof-floor: 3-commit good->drift->regress synthetic bisect smoke. C0 is good baseline, C1 is allowlisted drift (timestamp/qemu_version-class noise that the cross-host allowlist absorbs), C2 is the regressing commit. The bisect tool MUST identify C2 as first_bad and record C1 as drift, NOT as the regression.",
+  "commits": [
+    { "sha": "c0aaaaaa", "verdict": "good",  "_note": "baseline matches recorded trace" },
+    { "sha": "c1bbbbbb", "verdict": "drift", "_note": "wall_clock_utc / qemu_version drift, allowlist-absorbed" },
+    { "sha": "c2cccccc", "verdict": "bad",   "_note": "real regression: missing marker in trace" }
+  ]
+}

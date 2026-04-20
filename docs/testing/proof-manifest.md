@@ -3,7 +3,7 @@
 
 # Proof Manifest schema (`source/apps/selftest-client/proof-manifest.toml`)
 
-- Status: Phase-4 of [TASK-0023B](../../tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md), Cut P4-01 (skeleton only).
+- Status: TASK-0023B is `In Review` 2026-04-20; all six phases functionally closed (P1 extraction → P2 two-axis → P3 arch-gate → P4 manifest SSOT → P5 schema-v2 split + signed evidence → P6 replay/diff/bisect). RFC-0038 is `Done`. Single remaining environmental closure step: external CI-runner replay artifact for P6-05, see [`docs/testing/replay-and-bisect.md`](replay-and-bisect.md) §7-§11.
 - Owners: @runtime
 - Anchor RFC: [RFC-0038](../rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md)
 - Phase-list contract: [RFC-0014 v2](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) §3 (extended 8 → 12 in Cut P2-00).

@@ -69,9 +69,9 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Current: TASK-0023 complete, TASK-0023B Phases 1–5 closed (Phase 6 remaining), TASK-0024 unblocked at Phase 4 closure
+## Current: TASK-0023 complete, TASK-0023B Phases 1–5 closed + Phase 6 functionally closed (only external CI-runner artifact pending), TASK-0024 unblocked at Phase 4 closure
 
-Execute in numerical order. Current queue head is **TASK-0023B (Draft, in-flight; Phases 1–5 closed 2026-04-17; Phase 6 = replay capability + bounded bisect + cross-host floor)**.
+Execute in numerical order. Current queue head is **TASK-0023B (Draft, in-flight; Phases 1–5 closed 2026-04-17; Phase 6 functionally closed 2026-04-20: P6-01/02/03/04/06 delivered + P6-05 mechanically done — native + containerized CI-like exact-match replays, synthetic bad-bundle classified diff, and 3-commit good→drift→regress bisect smoke all recorded under `.cursor/replay-*.json` / `.cursor/bisect-*.json`; external CI-runner replay artifact = the single remaining environmental closure step)**.
 Latest completed closure slices before this queue head: **TASK-0020 (Done)**, **TASK-0021 (Done)**, **TASK-0023 (Done)**.
 Current TASK-0020 closure checkpoint: requirement-based host contract/integration suites are green, canonical OS harnesses are green, mux marker ladders are proven in single-VM and 2-VM paths, deterministic perf and hardening soak gates are green, and a machine-readable release evidence bundle is emitted per run.
 Current TASK-0023 closure checkpoint: host gate proofs (`just test-dsoftbus-quic`, `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_feasibility_contract -- --nocapture`) and OS QUIC marker proof (now `just test-os PROFILE=quic-required`) are green; required markers are `dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, and `SELFTEST: quic session ok`, with fallback markers forbidden in this profile.
@@ -92,7 +92,7 @@ Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0
 | TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Done |
 | TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Done |
 | TASK-0023 | DSoftBus QUIC v2 OS enablement (session path closure) | TASK-0003, TASK-0020, TASK-0022 | Done |
-| TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | TASK-0023 | Draft (Phases 1–5 closed 2026-04-17; Phase 6 remaining) |
+| TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | TASK-0023 | In Review 2026-04-20 (Phases 1–5 closed 2026-04-17; Phase 6 functionally closed 2026-04-20; RFC-0038 advanced to `Done`; only external CI-runner replay artifact for P6-05 remaining — see `docs/testing/replay-and-bisect.md` §7-§11) |
 | TASK-0024 | DSoftBus QUIC-v2 OS follow-up (reliability/recovery/congestion hardening) | TASK-0003, TASK-0020, TASK-0022 | Draft (Phase-4 dependency on TASK-0023B dropped at Phase-4 closure 2026-04-17) |
 
 ---

@@ -17,7 +17,7 @@ links:
   - Depends-on (DSoftBus core in OS): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Depends-on (OS networking UDP): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Depends-on (mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Related (proof manifest infra needed for new QUIC-required markers; Phase 4 closed 2026-04-17): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
+  - Related (proof manifest + evidence + replay infra; TASK-0023B is `In Review` 2026-04-20, all six phases functionally closed, RFC-0038 is `Done` — only external CI-runner replay artifact for P6-05 remaining, see `docs/testing/replay-and-bisect.md` §7-§11): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
   - Testing contract: scripts/qemu-test.sh
 ---
 

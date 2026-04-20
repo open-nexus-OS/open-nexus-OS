@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-20
+
+#### TASK-0023B Phase 6 functional closure + RFC-0038 → Done (`TASK-0023B`, `RFC-0038`)
+
+- `TASK-0023B` advanced from `Draft` to `In Review` after Phase 6 (replay capability) reached functional closure across all six cuts.
+- `RFC-0038` advanced from `Draft` to `Done`. One environmental closure step remains and is documented inline in the RFC header: external CI-runner replay artifact for P6-05; recipe lives in `docs/testing/replay-and-bisect.md` §7-§11.
+- Phase 6 deliverables (cuts P6-01 → P6-06) shipped:
+  - `tools/replay-evidence.sh` — bounded `--max-seconds` replay with hard env-override gate (`PROFILE` / `SELFTEST_PROFILE` / `RUN_PHASE` / `REQUIRE_*` / `KERNEL_CMDLINE` rejected), persistent worktree (`target/replay-worktree`) + Cargo cache reuse, automatic `NEXUS_SKIP_BUILD=1` warm-replay (cold ~67s, warm ~14s on dev box), structured logs, deterministic `nexus-evidence` / `nexus-proof-manifest` binary resolution.
+  - `tools/diff-traces.sh` + `docs/testing/trace-diff-format.md` + `docs/testing/trace-diff-fixtures.json` — phase-aware classifier with `exact_match` / `extra_marker` / `missing_marker` / `reorder` / `phase_mismatch` classes.
+  - `tools/bisect-evidence.sh` — bounded binary-search bisect with mandatory `--max-commits` + `--max-seconds`; synthetic mode extended to `good | drift | bad` so allowlist-absorbed drift is reported separately from regressions.
+  - `scripts/regression-bisect.sh` — CI-friendly wrapper.
+  - `docs/testing/replay-and-bisect.md` — operator workflow, append-only allowlist policy, evidence-map (§9), synthetic bad-bundle reproducer (§10), and the explicit remaining environmental step (§11).
+- Phase-6 proof floor verified locally with reproducible artifacts:
+  - empty-diff replay vs good bundle on native (`.cursor/replay-dev-a.json`) and containerized CI-like host (`.cursor/replay-ci-like.json`),
+  - synthetic bad-bundle (tampered + re-sealed) classified diff with non-zero exit (`.cursor/replay-synthetic-bad.{log,json}` — `status: "diff", classes: ["missing_marker"]`),
+  - 3-commit good→drift→regress bisect smoke (`.cursor/bisect-good-drift-regress.json` — `first_bad_commit: c2cccccc`, `drift_commits: [c1bbbbbb]`),
+  - all hard gates verified (`--max-seconds`/`--max-commits` mandatory exits; `PROFILE` env override rejected with explicit error).
+- Status synchronized across:
+  - `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`
+  - `docs/rfcs/README.md`
+  - `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`
+  - `tasks/STATUS-BOARD.md`
+  - `tasks/IMPLEMENTATION-ORDER.md`
+  - `docs/adr/0027-selftest-client-two-axis-architecture.md` (Current state section refreshed; ADR remains `Accepted` because Phase 4-6 work consumes the two-axis structure rather than altering it)
+  - `docs/testing/index.md` (RFC-0038 added to Related RFCs; topic guides extended with §9-§11 anchors)
+  - `source/apps/selftest-client/README.md` (Status section rewritten with full P1-P6 closure table + remaining environmental closure step)
+  - `.cursor/handoff/current.md`, `.cursor/current_state.md`, `.cursor/next_task_prep.md`
+- Sequencing: queue head moves to `TASK-0024` (DSoftBus QUIC recovery / UDP-sec) once the external CI-runner replay artifact for P6-05 is captured and the documented status flip is applied.
+
 ### Changed - 2026-04-15
 
 #### TASK-0023 gate-prep sync (`TASK-0023`)

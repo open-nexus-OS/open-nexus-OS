@@ -9,6 +9,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0017**: Device MMIO access model v1 — capability-gated MMIO mapping + init/policy distribution (Done)
 - **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
 - **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (Complete)
+- **RFC-0038**: Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1 — proof-manifest SSOT, signed evidence bundles, replay/bisect tooling (Done; one environmental closure step remaining — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11)
 
 ## Philosophy
 
@@ -155,6 +156,10 @@ Hard rule:
 
 - `docs/testing/device-mmio-access.md` — Device MMIO access tests today + extension plan.
 - `docs/testing/network-distributed-debugging.md` — SSOT for network/distributed triage (`qemu-test` proof knobs, `os2vm` phases, packet capture, typed error matrix).
+- `docs/testing/replay-and-bisect.md` — Phase-6 replay/bisect workflow, bounded budgets, determinism allowlist operations, **proof-floor evidence map (§9)**, **synthetic bad-bundle reproducer (§10)**, and **single remaining environmental closure step (external CI-runner replay artifact, §11)**.
+- `docs/testing/trace-diff-format.md` — deterministic trace diff classes and machine-readable output contract.
+- `docs/testing/bisect-good-drift-regress.json` — fixture for the Phase-6 3-commit `good→drift→regress` synthetic bisect smoke (`tools/bisect-evidence.sh ... --synthetic-map=docs/testing/bisect-good-drift-regress.json ...`).
+- `docs/testing/trace-diff-fixtures.json` — fixture corpus for `tools/diff-traces.sh` (exact / extra / missing / reorder / phase-mismatch classes).
 
 ## Scaffold sanity
 

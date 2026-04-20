@@ -224,11 +224,13 @@ already re-resolved handles per slice).
 - **QEMU smoke gating**: [docs/adr/0025-qemu-smoke-proof-gating.md](0025-qemu-smoke-proof-gating.md) — orthogonal: ADR-0025 governs which proofs are required vs optional via env vars; ADR-0027 governs the internal layout that produces those proofs.
 - **Onboarding**: [source/apps/selftest-client/README.md](../../source/apps/selftest-client/README.md)
 
-## Current state (2026-04-17)
+## Current state (2026-04-20)
 
 - TASK-0023B Phase 1 closed (capability extractions).
 - TASK-0023B Phase 2 closed (two-axis structure landed in 18 cuts P2-00 → P2-17).
-- TASK-0023B Phase 3 in planning (4 cuts: flatten / `host_lite/` extraction
-  / `arch-gate` mechanical enforcement / standards review).
-- TASK-0023B Phase 4-6 contract locked in RFC-0038 (manifest / signed
-  evidence / replay).
+- TASK-0023B Phase 3 closed (flatten / `host_lite/` extraction / `arch-gate` mechanical enforcement / standards review).
+- TASK-0023B Phase 4 closed (proof-manifest as marker SSOT, profile-aware harness, deny-by-default `verify-uart` analyzer).
+- TASK-0023B Phase 5 closed (manifest split into per-phase / per-profile schema-v2 layout + signed `nexus-evidence` bundles assembled and verified post-pass).
+- TASK-0023B Phase 6 functionally closed (`tools/replay-evidence.sh`, `tools/diff-traces.sh`, `tools/bisect-evidence.sh`, `scripts/regression-bisect.sh`, `docs/testing/replay-and-bisect.md`). Proof floor verified locally: empty-diff replay vs good bundle (`.cursor/replay-dev-a.json`, `.cursor/replay-ci-like.json`), synthetic bad-bundle classified diff with non-zero exit (`.cursor/replay-synthetic-bad.json`), 3-commit good→drift→regress bisect smoke (`.cursor/bisect-good-drift-regress.json`), and all hard gates (`--max-seconds`/`--max-commits` mandatory, `PROFILE` env override rejected). Single remaining environmental item: external project-CI replay artifact for the same sealed bundle per `docs/testing/replay-and-bisect.md` §7-§11; no further architectural decision is required for this ADR.
+
+> ADR scope: this ADR governs the two-axis selftest-client structure. The Phase 4-6 manifest / evidence / replay surfaces consume that structure but do not change it; their cross-host determinism contract is owned by RFC-0038 §"Phase 6 — Replay capability" and operationally by `docs/testing/replay-and-bisect.md`. ADR-0027 stays `Accepted` because none of the Phase 4-6 work invalidated the original architectural choice.

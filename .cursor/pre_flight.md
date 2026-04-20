@@ -126,12 +126,14 @@ This is the anti-fake-success gate.
   - [ ] `RFC-0038` remains architecture/contract seed,
   - [ ] queue order still keeps `TASK-0024` after `TASK-0023B`.
 
-## Active progress snapshot (TASK-0023B queue-head refresh, 2026-04-16)
+## Active progress snapshot (TASK-0023B closure refresh, 2026-04-20)
 - [x] `TASK-0023` handoff archived under `.cursor/handoff/archive/`.
 - [x] `current` handoff switched from `TASK-0023` closure to `TASK-0023B` kickoff context.
-- [x] `.cursor/current_state.md` and `.cursor/next_task_prep.md` now point to `TASK-0023B` as queue head.
-- [x] `.cursor/context_bundles.md` now contains dedicated `TASK-0023B` context/touched bundles.
+- [x] `.cursor/current_state.md` and `.cursor/next_task_prep.md` point to `TASK-0023B` as queue head.
+- [x] `.cursor/context_bundles.md` contains dedicated `TASK-0023B` context/touched bundles.
 - [x] Quality-gate files are synchronized to the phased refactor and marker-honesty contract.
+- [x] All six `TASK-0023B` phases functionally closed (P1-P6); `RFC-0038` advanced from `Draft` to `Done`; `TASK-0023B` advanced from `Draft` to `In Review`.
+- [ ] External CI-runner replay artifact for P6-05 captured (recipe in `docs/testing/replay-and-bisect.md` §7-§11). After capture: flip `TASK-0023B` to `Done`, tick RFC-0038 Phase-6 checkbox, advance queue head to `TASK-0024`.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).

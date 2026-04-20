@@ -1,0 +1,68 @@
+{
+  "cases": [
+    {
+      "name": "exact_match",
+      "expect_exit": 0,
+      "expect_classes": ["exact_match"],
+      "original": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"},
+        {"marker": "SELFTEST: b ok", "phase": "routing"}
+      ],
+      "replay": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"},
+        {"marker": "SELFTEST: b ok", "phase": "routing"}
+      ]
+    },
+    {
+      "name": "extra_marker",
+      "expect_exit": 1,
+      "expect_classes": ["extra_marker"],
+      "original": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"}
+      ],
+      "replay": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"},
+        {"marker": "SELFTEST: b ok", "phase": "routing"}
+      ]
+    },
+    {
+      "name": "missing_marker",
+      "expect_exit": 1,
+      "expect_classes": ["missing_marker"],
+      "original": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"},
+        {"marker": "SELFTEST: b ok", "phase": "routing"}
+      ],
+      "replay": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"}
+      ]
+    },
+    {
+      "name": "reorder",
+      "expect_exit": 1,
+      "expect_classes": ["reorder"],
+      "original": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"},
+        {"marker": "SELFTEST: b ok", "phase": "routing"}
+      ],
+      "replay": [
+        {"marker": "SELFTEST: b ok", "phase": "routing"},
+        {"marker": "SELFTEST: a ok", "phase": "bringup"}
+      ]
+    },
+    {
+      "name": "phase_mismatch",
+      "expect_exit": 1,
+      "expect_classes": ["phase_mismatch", "extra_marker", "missing_marker"],
+      "original": [
+        {"marker": "SELFTEST: a ok", "phase": "bringup"},
+        {"marker": "SELFTEST: b ok", "phase": "routing"}
+      ],
+      "replay": [
+        {"marker": "SELFTEST: a ok", "phase": "policy"},
+        {"marker": "SELFTEST: b ok", "phase": "routing"}
+      ]
+    }
+  ]
+}
+

@@ -1,7 +1,7 @@
-# Current Handoff: TASK-0023B Phase 5 — CLOSED
+# Current Handoff: TASK-0023B Phase 6 — Functionally Closed
 
-**Date**: 2026-04-17 (Phase 5 closure session, 7 cuts landed under Cursor-internal plan `task-0023b_phase-5_<hash>.plan.md`)
-**Status**: `TASK-0023B` Phase 5 **complete**. All 7 cuts (P5-00 → P5-06) landed. RFC-0038 §"Stop conditions / acceptance" Phase 5 checklist ticked (7 boxes; P5-00 was added at session start to split the proof-manifest into per-phase files before any new code touched it). Every `just test-os PROFILE=…` run now writes `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` containing manifest tar + uart.log + trace.jsonl + config.json (+ signature.bin when seal is required); the bundle is sealed with Ed25519 by either the CI key (env-injected via `NEXUS_EVIDENCE_CI_PRIVATE_KEY_BASE64`) or the bringup key (file-based at `~/.config/nexus/bringup-key/private.ed25519`, mode 0600). Deny-by-default secret scanner refuses to seal bundles that would commit key material to the audit stream. Successful runs that fail to seal are CI failures (no silent skip); `NEXUS_EVIDENCE_DISABLE=1` is rejected when `CI=1` (or `NEXUS_EVIDENCE_SEAL=1`).
+**Date**: 2026-04-20 (Phase 6 functionally closed; only external CI-runner replay artifact remains as an environmental step)
+**Status**: `TASK-0023B` Phase 6 is **functionally closed**. Delivered: P6-01 (`tools/replay-evidence.sh`), P6-02 (`tools/diff-traces.sh` + format spec + fixtures), P6-03 (`tools/bisect-evidence.sh` bounded + binary-search core, with `good|drift|bad` synthetic mode), P6-04 (`scripts/regression-bisect.sh`), P6-06 (`docs/testing/replay-and-bisect.md`), and P6-05 mechanically done — exact-match replays on native + containerized CI-like host (`.cursor/replay-dev-a.json`, `.cursor/replay-ci-like.json`), synthetic bad-bundle classified diff (`.cursor/replay-synthetic-bad.json`, exit 1, `missing_marker` for the injected probe), and 3-commit good→drift→regress bisect smoke (`.cursor/bisect-good-drift-regress.json`, `first_bad_commit: c2cccccc`, `drift_commits: [c1bbbbbb]`). All Phase-6 hard gates verified locally (`--max-seconds`/`--max-commits` mandatory exits; `PROFILE` env override rejected by replay). Only the external CI-runner replay run against the same sealed bundle remains; recipe in `docs/testing/replay-and-bisect.md` §7-§8.
 
 **Working tree at handoff**: still has `uart.log` (test artifact — **do not commit**) plus the Phase-5 source/script changes (uncommitted; user owns the commit decision). New: `keys/evidence-ci.pub.ed25519` + `keys/README.md` (placeholder CI public key, rotation procedure documented), the `nexus-evidence` crate at `source/libs/nexus-evidence/`, `tools/{gen-bringup-key.sh, gen-ci-key.sh, seal-evidence.sh, verify-evidence.sh}`, and the proof-manifest split layout under `source/apps/selftest-client/proof-manifest/`.
 
@@ -45,9 +45,9 @@
 - The 102-byte signature wire format is now an external contract. The `magic` + `version` + `label` prefix lets verifiers reject malformed / wrong-version / wrong-label bundles before invoking the (relatively expensive) Ed25519 verify. Future format changes need an RFC tick + version bump.
 - `scripts/qemu-test.sh` and `tools/os2vm.sh` both use the same env-knob matrix (`CI=1` ⇒ seal mandatory; `NEXUS_EVIDENCE_DISABLE=1` rejected when seal is mandatory). Locking the matrix in `tests/qemu_seal_gate.rs` (5 tests over `bash -c` of the actual gate snippet) caught one drift bug during Phase-5 development.
 
-## Phase 6 — what's next
+## Phase 6 — current state
 
-Phase-6 contract is locked in `RFC-0038` and is 6 cuts (replay capability). The Phase-6 plan file is `/home/jenning/.cursor/plans/task-0023b_phase-6_<hash>.plan.md` (to be authored at the start of the Phase-6 session as a separate plan file).
+Phase-6 contract is locked in `RFC-0038` and is 6 cuts (replay capability). Active execution plan file: `/home/jenning/.cursor/plans/task-0023b-phase6-cut-loop_1d8498c9.plan.md`.
 
 Phase-6 scope summary:
 
@@ -57,7 +57,8 @@ Phase-6 scope summary:
 - `scripts/regression-bisect.sh` — typical CI-failure flow wrapper.
 - Cross-host determinism floor (CI runner + 1 dev box) for the same bundle; documented allowlist for non-deterministic surfaces.
 - `docs/testing/replay-and-bisect.md` documents workflow + allowlist + extension procedure.
-- 6 cuts: P6-01 (replay skeleton) → P6-02 (diff format + tool) → P6-03 (bisect tool) → P6-04 (regression-bisect wrapper) → P6-05 (cross-host floor) → P6-06 (docs).
+- Completed cuts: P6-01 / P6-02 / P6-03 / P6-04 / P6-06.
+- Open cut: P6-05 (external CI-runner evidence capture; native + containerized CI-like pass already recorded).
 
 ## Frozen baseline that must stay green (verified end-of-Phase-5; carries into Phase 6)
 
@@ -92,8 +93,8 @@ Phase-6 scope summary:
 
 ## Next handoff target
 
-- **Active plan**: TBD — author `task-0023b_phase-6_<hash>.plan.md` (Cursor-internal) at the start of the Phase-6 session as a separate plan file; scope: 6 cuts P6-01 → P6-06 only.
-- **Resume point**: Cut **P6-01** — `tools/replay-evidence.sh` skeleton (extract bundle, validate signature, pin git-SHA, set env, invoke `just test-os PROFILE=<recorded>`).
+- **Active plan**: `/home/jenning/.cursor/plans/task-0023b-phase6-cut-loop_1d8498c9.plan.md`.
+- **Resume point**: Cut **P6-05** — execute replay on external CI runner for `target/evidence/20260420T133203Z-full-b84e4c2.tar.gz` and compare against existing `.cursor/replay-dev-a.json` and `.cursor/replay-ci-like.json`.
 - **Per-cut cadence (Phase 6 carries the Phase-5 floor + adds replay determinism)**:
   1. `RUSTFLAGS='--cfg nexus_env="os" -W unexpected_cfgs -W dead_code' cargo +nightly check -p selftest-client --no-default-features --features os-lite --target riscv64imac-unknown-none-elf`
   2. `cargo test -p dsoftbusd -- --nocapture`
@@ -106,4 +107,21 @@ Phase-6 scope summary:
   9. `just lint` + `cargo clippy -p nexus-evidence --all-targets -- -D warnings`
   10. From P6-01 onward: `tools/verify-evidence.sh target/evidence/<latest>` returns 0
   11. From P6-01 onward: `tools/replay-evidence.sh target/evidence/<latest>` produces a fresh bundle whose `trace.jsonl` exact-matches the original (modulo the documented allowlist).
-- **Phase 6 closure tasks (after P6-06)**: tick RFC-0038 Phase 6 checklist (6 boxes); sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; refresh `tasks/STATUS-BOARD.md` + `tasks/IMPLEMENTATION-ORDER.md`; mark TASK-0023B as **CLOSED** (all 6 phases complete).
+- **Phase 6 closure tasks (after external CI replay artifact capture)**: tick RFC-0038 Phase 6 checklist (6 boxes); sync `.cursor/{handoff/current.md, next_task_prep.md, current_state.md}`; refresh `tasks/STATUS-BOARD.md` + `tasks/IMPLEMENTATION-ORDER.md`; mark TASK-0023B as **CLOSED** (all 6 phases complete).
+
+### Phase-6 proof-floor evidence (verified locally)
+
+| Floor item | Evidence |
+| --- | --- |
+| Empty diff vs good bundle (native) | `.cursor/replay-dev-a.json` — `trace_diff.status == "exact_match"` |
+| Empty diff vs good bundle (CI-like container) | `.cursor/replay-ci-like.json` — `trace_diff.status == "exact_match"` |
+| Synthetic bad-bundle classified diff + non-zero exit | `.cursor/replay-synthetic-bad.{log,json}` — `status: "diff", classes: ["missing_marker"]`, exit 1 |
+| 3-commit good→drift→regress bisect | `.cursor/bisect-good-drift-regress.json` — `first_bad_commit: c2cccccc`, `drift_commits: [c1bbbbbb]` |
+| Performance floor | warm replay ~14s vs cold ~67s (script log shows `NEXUS_SKIP_BUILD=1` on second run) |
+| Hard gate: `--max-seconds` mandatory | `tools/replay-evidence.sh <bundle>` exits 2 with usage |
+| Hard gate: env override rejected | `PROFILE=full tools/replay-evidence.sh ... --max-seconds=30` exits 1 with explicit `[replay][error]` |
+| Hard gate: `--max-commits` mandatory | `tools/bisect-evidence.sh <good> <bad> --max-seconds=30` exits 1 |
+
+### Single remaining Phase-6 item (environmental, not a code/doc gap)
+
+- [ ] External project CI runner replays `target/evidence/20260420T133203Z-full-b84e4c2.tar.gz` per `docs/testing/replay-and-bisect.md` §7-§8, archives `.cursor/replay-ci.json` + `.cursor/replay-ci.log`, then flips P6-05 line in `tasks/TASK-0023B-...md`, ticks Phase-6 checkbox in `docs/rfcs/RFC-0038-...md`, and mirrors status in STATUS-BOARD / IMPLEMENTATION-ORDER / `.cursor/{current_state,handoff/current,next_task_prep}.md`.
