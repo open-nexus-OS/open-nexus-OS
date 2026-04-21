@@ -42,7 +42,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
-## Done (Tasks 0001–0014)
+## Done (Tasks 0001–0023B)
 
 | Task | Title | Completed |
 |------|-------|-----------|
@@ -66,57 +66,164 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | — |
 | ✅ TASK-0013B | IPC liveness hardening v1: bounded retry/correlation | — |
 | ✅ TASK-0014 | Observability v2: metrics + tracing | — |
+| ✅ TASK-0015 | DSoftBusd refactor v1: modular OS daemon structure | — |
+| ✅ TASK-0016 | DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) | — |
+| ✅ TASK-0016B | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | — |
+| ✅ TASK-0017 | DSoftBus Remote-StateFS v1 | — |
+| ✅ TASK-0018 | Crashdumps v1: minidump + host symbolization | — |
+| ✅ TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | — |
+| ✅ TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | — |
+| ✅ TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | — |
+| ✅ TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — |
+| ✅ TASK-0023 | DSoftBus QUIC v2 OS enablement (session path closure) | — |
+| ✅ TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | 2026-04-20 |
 
 ---
 
-## Current: TASK-0023 complete, TASK-0023B Phases 1–5 closed + Phase 6 functionally closed (only external CI-runner artifact pending), TASK-0024 unblocked at Phase 4 closure
+## UI Fast Lane — Ziel: 119–122C
 
-Execute in numerical order. Current queue head is **TASK-0023B (Draft, in-flight; Phases 1–5 closed 2026-04-17; Phase 6 functionally closed 2026-04-20: P6-01/02/03/04/06 delivered + P6-05 mechanically done — native + containerized CI-like exact-match replays, synthetic bad-bundle classified diff, and 3-commit good→drift→regress bisect smoke all recorded under `.cursor/replay-*.json` / `.cursor/bisect-*.json`; external CI-runner replay artifact = the single remaining environmental closure step)**.
-Latest completed closure slices before this queue head: **TASK-0020 (Done)**, **TASK-0021 (Done)**, **TASK-0023 (Done)**.
-Current TASK-0020 closure checkpoint: requirement-based host contract/integration suites are green, canonical OS harnesses are green, mux marker ladders are proven in single-VM and 2-VM paths, deterministic perf and hardening soak gates are green, and a machine-readable release evidence bundle is emitted per run.
-Current TASK-0023 closure checkpoint: host gate proofs (`just test-dsoftbus-quic`, `cargo test -p dsoftbus --test quic_selection_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture`, `cargo test -p dsoftbus --test quic_feasibility_contract -- --nocapture`) and OS QUIC marker proof (now `just test-os PROFILE=quic-required`) are green; required markers are `dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, and `SELFTEST: quic session ok`, with fallback markers forbidden in this profile.
-Current TASK-0023B Phase-4 closure checkpoint (2026-04-17): `proof-manifest.toml` is the SSOT for the marker ladder + harness profiles (`full / smp / dhcp / dhcp-strict / os2vm / quic-required`) + runtime profiles (`bringup / quick / ota / net / none`); new host-only crate `nexus-proof-manifest` (parser + CLI) drives `scripts/qemu-test.sh` + `tools/os2vm.sh`; `selftest-client/build.rs` generates `markers_generated.rs`; `arch-gate` is 6/6 mechanical rules; `just test-os PROFILE=…` is canonical; `TASK-0024` `depends-on` updated to drop the Phase-4 blocker.
-Current TASK-0023B Phase-5 closure checkpoint (2026-04-17): every `just test-os PROFILE=…` run writes `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` (manifest tar + uart.log + trace.jsonl + config.json + signature.bin when seal is required); new host-only crate `nexus-evidence` owns canonicalization + Ed25519 sign/verify + secret scan; 102-byte signature wire format with `KeyLabel::{Ci, Bringup}` baked in; CI key (env) vs bringup key (file, mode 0600) separation enforced; deny-by-default secret scanner refuses to seal bundles with leaked key material; `tools/{seal,verify,gen-bringup-key,gen-ci-key}-evidence.sh` shipped; post-pass evidence pipeline wired into `scripts/qemu-test.sh` + `tools/os2vm.sh`; `CI=1` ⇒ seal mandatory + rejects `NEXUS_EVIDENCE_DISABLE=1`. P5-00 prepended at session start: `proof-manifest.toml` split into a `proof-manifest/` directory tree with `[meta] schema_version = "2"` + `[include]` glob expansion. Phase 6 (replay + bisect + cross-host floor) remains.
-Current pre-feature queue policy: complete `TASK-0023B` Phase 6 (proof-infrastructure closure) before implementing additional transport features in `TASK-0024`.
-Production closure contract checkpoint: RFC-0034 is done for legacy TASK-0001..0020 production closure scope.
+Statt aller Tasks 24–118 sequenziell werden nur die für die UI-Kette notwendigen Tasks abgearbeitet.
+Alle anderen Tasks kommen nach 122C in den **Defer-Bucket** und werden danach ergänzt.
 
-| Task | Title | Prereqs | Status |
-|------|-------|---------|--------|
-| **TASK-0015** | DSoftBusd refactor v1: modular OS daemon structure without behavior change | — | Done |
-| **TASK-0016** | DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams | TASK-0005 | Done |
-| **TASK-0016B** | Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening | TASK-0003, TASK-0010 | Done |
-| TASK-0017 | DSoftBus Remote-StateFS v1 | TASK-0005 | Done |
-| TASK-0018 | Crashdumps v1: minidump + host symbolization | TASK-0006, TASK-0009 | Done |
-| TASK-0019 | Security v2 (OS): userland ABI syscall guardrails | TASK-0006, TASK-0008, TASK-0009 | Done |
-| TASK-0020 | DSoftBus Streams v2: multiplexing + flow control + keepalive | TASK-0005 | Done |
-| TASK-0021 | DSoftBus QUIC v1: host QUIC transport + OS UDP scaffold + TCP fallback | TASK-0003, TASK-0005, TASK-0020 | Done |
-| TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — | Done |
-| TASK-0023 | DSoftBus QUIC v2 OS enablement (session path closure) | TASK-0003, TASK-0020, TASK-0022 | Done |
-| TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | TASK-0023 | In Review 2026-04-20 (Phases 1–5 closed 2026-04-17; Phase 6 functionally closed 2026-04-20; RFC-0038 advanced to `Done`; only external CI-runner replay artifact for P6-05 remaining — see `docs/testing/replay-and-bisect.md` §7-§11) |
-| TASK-0024 | DSoftBus QUIC-v2 OS follow-up (reliability/recovery/congestion hardening) | TASK-0003, TASK-0020, TASK-0022 | Draft (Phase-4 dependency on TASK-0023B dropped at Phase-4 closure 2026-04-17) |
+**Gesamtumfang Fast Lane: ~40 Tasks statt ~98.**
 
 ---
 
-## Queue (TASK-0015+)
+### Schritt 1 — Fundamente (Pre-54)
 
-Continue in numerical order after TASK-0014.
+Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich wird übersprungen.
 
-Notable upcoming tasks:
-- **TASK-0019–0024 (+0023B)**: Security and DSoftBus follow-ons (ABI guardrails, streams/QUIC, refactor-before-feature expansion)
-- **TASK-0018**: crashdump v1 closed with final hardening (identity/report fail-closed checks, deterministic marker proofs)
-- **TASK-0019**: ABI syscall guardrails v2 completed (proof gates green; closed as done)
-- **TASK-0016B**: completed networking-structure closure slice for `netstackd` (supports follow-on networking tasks)
-- **TASK-0025–0028**: StateFS hardening + ABI filters v2
-- **TASK-0029**: Supply chain v1 (SBOM + signing policy)
-- **TASK-0031**: Zero-copy VMOs v1 (enables driver + graphics tracks)
-- **TASK-0039**: Sandboxing v1
-- **TASK-0054+**: UI stack
-- **TASK-0054B / 0054C / 0054D**: early kernel/UI perf floor (zero-copy bulk stance + IPC fastpath + MM reuse)
-- **TASK-0055B / 0055C / 0055D / 0056B / 0076B**: early visible UI path (scanout -> visible present -> dev presets/shell modes -> visible input -> visible DSL mount)
-- **TASK-0056C**: present/input perf polish (click-to-frame latency + coalescing + skip paths)
-- **TASK-0060B / 0062B**: glass compositor + animation perf scenes / fluidity gates
-- **TASK-0080B / 0080C**: bootstrap SystemUI DSL shell + real launcher before the broader SystemUI migration
-- **TASK-0067B / 0100B / 0122B / 0122C**: visible clipboard/audio surfaces + shared DSL app platform/integration kit
+| Task | Title | Warum nötig |
+|------|-------|-------------|
+| TASK-0029 | Supply Chain v1: SBOM + repro metadata + signature allowlist | Harte Dep von TASK-0031 (VMOs) |
+| TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Kritisch: VMO-backed Surfaces für windowd-Compositor |
+| TASK-0032 | PackageFS v2: RO image index + fastpath | App-Asset-Laden für Launcher |
+| TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | App-Isolation |
+| TASK-0045 | DevX nx-cli v1 | `nx dsl build/lint/fmt` für DSL-Workflow |
+| TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | UI-Profil-Broker für windowd + input |
+| TASK-0047 | Policy as Code v1: unified policy engine | Asset-Zugriff + Permissions für UI-Services |
+
+**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), `0025–0027` (StateFS hardening/encryption), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — minimaler QoS-Slice kommt via 0054B), `0043–0044` (Security sandbox quotas / QUIC tuning), `0048–0053` (Crashdump v2 / Recovery / Security v3).
+
+---
+
+### Schritt 2 — Sichtbare UI (54–56B)
+
+Vom CPU-Renderer bis zum ersten echten sichtbaren Input in QEMU.
+
+| Task | Title |
+|------|-------|
+| TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots |
+| TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync |
+| TASK-0055B | UI v1c: visible QEMU scanout bootstrap (simplefb window + first visible frame) |
+| TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU |
+| TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing |
+| TASK-0056B | UI v2a: visible input — cursor + focus + click |
+
+**Defer aus diesem Bereich:** `0054B/C/D` (Kernel UI/IPC/MM perf floor — Perf-Polish nach Baseline), `0055D` (dev display presets), `0056C` (present/input perf latency).
+
+---
+
+### Schritt 3 — UI-Inhalt (57–65)
+
+Text, Layout, Gesten, Animation, Window Management, App-Lifecycle.
+
+| Task | Title |
+|------|-------|
+| TASK-0057 | UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG pipeline |
+| TASK-0058 | UI v3a: layout wrapping + deterministic box model |
+| TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput |
+| TASK-0061 | UI v4b: gestures + a11y semantics |
+| TASK-0062 | UI v5a: reactive runtime + animation/transitions |
+| TASK-0063 | UI v5b: virtualized list + theme tokens |
+| TASK-0064 | UI v6a: window management + scene transitions |
+| TASK-0065 | UI v6b: app lifecycle + notifications + navigation |
+
+**Defer aus diesem Bereich:** `0060` (tiled compositor/clip-stack/atlases), `0060B` (glass/backdrop-cache), `0062B` (animation frame-budget perf-scenes), `0066` (WM split/snap).
+
+---
+
+### Schritt 4 — Shell-Infra (70–74)
+
+WM-Overlays, Settings-Panel, Design System, App Shell.
+
+| Task | Title |
+|------|-------|
+| TASK-0070 | UI v8b: WM resize/move + shortcuts + settings overlays |
+| TASK-0072 | UI v9b: prefsd + settings panels + quick settings |
+| TASK-0073 | UI v10a: design system primitives + goldens |
+| TASK-0074 | UI v10b: app shell adoption + modals |
+
+**Defer aus diesem Bereich:** `0067` (DnD/clipboard v2 — kommt via 0122C), `0068` (screenshot/share), `0069` (notifications v2 advanced), `0071` (searchd/command palette).
+
+---
+
+### Schritt 5 — DSL-Fundament (75–80C)
+
+Vollständige DSL-Kette: Lexer → Interpreter → AOT → State/Nav → Bootstrap-Shell. Voraussetzung für 119+.
+
+| Task | Title |
+|------|-------|
+| TASK-0075 | DSL v0.1a: lexer/parser → AST + Scene-IR + lowering + nx dsl CLI |
+| TASK-0076 | DSL v0.1b: interpreter + snapshots + OS demo hook |
+| TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame in windowd/SystemUI |
+| TASK-0077 | DSL v0.2a: state/nav/i18n core |
+| TASK-0078 | DSL v0.2b: service stubs + CLI demo |
+| TASK-0078B | DSL v0.2b: QuerySpec v1 foundation (paging + hash) |
+| TASK-0079 | DSL v0.3a: AOT codegen + incremental assets |
+| TASK-0080B | SystemUI DSL bootstrap shell (host-first): desktop bg + launcher + app launch |
+| TASK-0080C | SystemUI DSL bootstrap shell: OS-wiring + QEMU markers |
+
+**Defer aus diesem Bereich:** `0077B` (DSL DevX ergonomics), `0080` (DSL v0.3b perf-bench/OS AOT demo).
+
+---
+
+### Schritt 6 — SystemUI DSL Migration (119–122C)
+
+| Task | Title |
+|------|-------|
+| TASK-0119 | SystemUI→DSL Phase 1a: Launcher + Quick Settings DSL pages (host) |
+| TASK-0120 | SystemUI→DSL Phase 1b: OS wiring + postflight markers |
+| TASK-0121 | SystemUI→DSL Phase 2a: Settings + Notifications Center (host) |
+| TASK-0122 | SystemUI→DSL Phase 2b: OS wiring + feature flags + selftests + docs |
+| TASK-0122B | DSL App Platform v1: shared app shell + launch/open contract + host proofs |
+| TASK-0122C | DSL App Integration Kit v1: picker + clipboard + share + print bridges |
+
+---
+
+## Defer-Bucket (nach 122C ergänzen)
+
+Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
+
+**DSoftBus / Networking:**
+`0024`, `0030`, `0044` (DSoftBus follow-ons)
+
+**StateFS / Storage:**
+`0025`, `0026`, `0027` (StateFS hardening + encryption)
+
+**Security / Compliance:**
+`0028`, `0043`, `0052`, `0053` (ABI filters, sandbox quotas, ingress policy, signed recovery)
+
+**OTA / Updates / Supply Chain:**
+`0033`, `0034`, `0035`, `0036`, `0037` (PackageFS VMO-splice, delta updates, OTA v2)
+
+**Observability / Debug:**
+`0038`, `0040`, `0041`, `0048`, `0049` (Tracing v2, remote observability, lock profiling, crashdump v2)
+
+**Recovery:**
+`0050`, `0051` (Recovery v1a/v1b)
+
+**SMP v2 (voll):**
+`0042` (nur minimaler QoS-Slice via TASK-0054B vorgezogen)
+
+**UI Perf-Polish:**
+`0054B`, `0054C`, `0054D`, `0055D`, `0056C`, `0060`, `0060B`, `0062B`
+
+**Advanced UI Features:**
+`0066`, `0067`, `0068`, `0069`, `0071`, `0077B`, `0080`
+
+**Apps + Plattform (81–118):**
+`0081–0118` (MIME registry, browser, kamera, office apps etc. — nach DSL App Platform 0122B/C)
 
 ---
 
