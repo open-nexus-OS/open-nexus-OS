@@ -126,14 +126,61 @@ This is the anti-fake-success gate.
   - [ ] `RFC-0038` remains architecture/contract seed,
   - [ ] queue order still keeps `TASK-0024` after `TASK-0023B`.
 
-## Active progress snapshot (TASK-0023B closure refresh, 2026-04-20)
-- [x] `TASK-0023` handoff archived under `.cursor/handoff/archive/`.
-- [x] `current` handoff switched from `TASK-0023` closure to `TASK-0023B` kickoff context.
-- [x] `.cursor/current_state.md` and `.cursor/next_task_prep.md` point to `TASK-0023B` as queue head.
-- [x] `.cursor/context_bundles.md` contains dedicated `TASK-0023B` context/touched bundles.
-- [x] Quality-gate files are synchronized to the phased refactor and marker-honesty contract.
+## Task-0029 manual addendum (when applicable)
+- [ ] Production-grade BASELINE scope respected — no scope creep into `TASK-0197 / 0198 / 0289`. The 10 hard gates from TASK-0029 §"Production-grade tier" are mechanically reviewed at every cut:
+  - [ ] no sigchain envelope around `(manifest, sbom, repro, signature)`,
+  - [ ] no transparency / Merkle translog,
+  - [ ] no SLSA-style provenance records,
+  - [ ] no anti-downgrade / rollback indices,
+  - [ ] no `updated/` or `storemgrd/` install-path changes,
+  - [ ] no boot anchor / measured-boot work,
+  - [ ] schema-extensibility ratchet preserved on the `keystored` capnp bump (`@N` IDs + reserved gap; `reason: Text`; `alg: Text`),
+  - [ ] `meta/` layout-extensibility ratchet preserved (v2 can append `meta/sigchain.nxb` without re-pack),
+  - [ ] format-policy compliance (SBOM = CycloneDX JSON; no parallel TOML/YAML/protobuf carrier),
+  - [ ] no marker drift (stable-label markers; publisher/key/fingerprint values to logd only).
+- [ ] Single-allowlist-authority is preserved — only `keystored` answers "is this publisher+alg+key allowed". `bundlemgrd` and `policyd` carry zero parallel allowlist logic.
+- [ ] Identity is channel-bound: `bundlemgrd` derives caller identity from `sender_service_id`, never from a payload string.
+- [ ] Audit-or-fail invariant: every install-time allow/deny decision emits a logd audit event. If logd is unreachable, install fails closed.
+- [ ] `bundlemgrd` install path enforces the contract order: verify (`keystored::verify`) → policy (`policyd` → `keystored::is_key_allowed`) → payload digest match → audit emit. Any failure → reject with stable error label + audit event + deterministic deny marker.
+- [ ] Determinism floor: `SOURCE_DATE_EPOCH` everywhere; reuse `nexus-evidence` reproducible-tar primitives; two consecutive packs of the same inputs are byte-identical (proven by host test).
+- [ ] `nexus-evidence::scan` deny-by-default secret scanner runs before pack — PEM blocks, `*PRIVATE_KEY*=…` env-style strings, ≥64-char base64 high-entropy blobs refuse to seal.
+- [ ] Bounded inputs — explicit size caps on SBOM JSON, repro metadata, bundle entries; reject before parsing if exceeded.
+- [ ] Required host reject suite is green (TASK-0029 §"Reject-path proof (host)"):
+  - [ ] `test_reject_unknown_publisher` → `policy.publisher_unknown`,
+  - [ ] `test_reject_unknown_key` → `policy.key_unknown`,
+  - [ ] `test_reject_unsupported_alg` → `policy.alg_unsupported`,
+  - [ ] `test_reject_payload_digest_mismatch` → `integrity.payload_digest_mismatch`,
+  - [ ] `test_reject_sbom_secret_leak` → pack refuses,
+  - [ ] `test_reject_repro_schema_invalid` → `repro-verify` rejects,
+  - [ ] `test_reject_audit_unreachable` → `bundlemgrd` install fails closed.
+- [ ] QEMU markers (gated, only when OS install path is wired) registered in `source/apps/selftest-client/proof-manifest/markers/` and attached to a profile under `proof-manifest/profiles/`; `verify-uart` deny-by-default enforces the ladder. Stable labels only; no variable data in the marker string:
+  - [ ] `bundlemgrd: sign policy allow ok`,
+  - [ ] `bundlemgrd: sign policy deny ok`,
+  - [ ] `SELFTEST: sign policy allow ok`,
+  - [ ] `SELFTEST: sign policy deny ok`,
+  - [ ] `SELFTEST: sign policy unknown publisher rejected ok`,
+  - [ ] `SELFTEST: sign policy unknown key rejected ok`,
+  - [ ] `SELFTEST: sign policy payload tamper rejected ok`.
+- [ ] Any QEMU evidence bundle produced for the task seals cleanly under both `--policy=bringup` and `--policy=ci` (reuses TASK-0023B Phase-5 pipeline).
+- [ ] `tools/nexus-idl/schemas/keystored.capnp` ABI diff is reviewed as part of task review (CAUTION zone per `.cursorrules`); reserved-field gaps (`@3..@7` request, `@2..@5` response) documented inline in the schema.
+- [ ] `nexus-evidence/` stayed READ-ONLY (no API change in v1).
+- [ ] No kernel changes.
+- [ ] `just dep-gate && just diag-os && just diag-host && just fmt-check && just lint && just arch-gate` green.
+
+## Active progress snapshot (TASK-0029 kickoff prep, 2026-04-21)
+- [x] Prior `current` handoff archived under `.cursor/handoff/archive/TASK-0023B-...md`.
+- [x] `current` handoff switched to `TASK-0029` kickoff context.
+- [x] `.cursor/current_state.md` and `.cursor/next_task_prep.md` point to `TASK-0029` as queue head.
+- [x] `.cursor/context_bundles.md` contains dedicated `TASK-0029` context/touched bundles.
+- [x] Quality-gate files (this file + `stop_conditions.md`) extended with the TASK-0029 addendum / class.
+- [x] `tasks/TASK-0029-...md` audited end-to-end (security section added, red flags resolved, plan tightened, production-grade tier defined with 10 hard gates).
+- [x] `docs/rfcs/RFC-0039-...md` authored from template; bidirectional link with TASK-0029; indexed in `docs/rfcs/README.md`.
+- [ ] 5 open questions in RFC-0039 §"Open questions" pinned; `Draft` → `Ready` flip applied to both task and RFC.
+- [ ] Cursor-internal plan authored in `~/.cursor/plans/task-0029-...plan.md`; first cut started.
+
+## Carry-over (TASK-0023B Phase-6 environmental closure)
 - [x] All six `TASK-0023B` phases functionally closed (P1-P6); `RFC-0038` advanced from `Draft` to `Done`; `TASK-0023B` advanced from `Draft` to `In Review`.
-- [ ] External CI-runner replay artifact for P6-05 captured (recipe in `docs/testing/replay-and-bisect.md` §7-§11). After capture: flip `TASK-0023B` to `Done`, tick RFC-0038 Phase-6 checkbox, advance queue head to `TASK-0024`.
+- [ ] External CI-runner replay artifact for P6-05 captured (recipe in `docs/testing/replay-and-bisect.md` §7-§8). After capture: flip `TASK-0023B` to `Done`, tick RFC-0038 Phase-6 checkbox, sync STATUS-BOARD / IMPLEMENTATION-ORDER. Independent of TASK-0029 execution.
 
 ## Legacy manual profiles (reference only)
 - [ ] TASK-0019 closeout checks are archived and tracked in task-local evidence (`Done`).

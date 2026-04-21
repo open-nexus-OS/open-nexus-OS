@@ -385,6 +385,46 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `tasks/STATUS-BOARD.md`
 - `tasks/IMPLEMENTATION-ORDER.md`
 
+### @task_0029_context
+- `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md`
+- `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md`
+- `docs/adr/0020-manifest-format-capnproto.md`
+- `docs/adr/0021-structured-data-formats-json-vs-capnp.md`
+- `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`
+- `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
+- `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
+- `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
+- `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/security/signing-and-policy.md`
+- `docs/packaging/nxb.md`
+- `docs/packaging/system-set.md`
+- `docs/standards/SECURITY_STANDARDS.md`
+- `tools/nexus-idl/schemas/keystored.capnp`
+- `source/libs/nexus-evidence/` (READ-ONLY — reuse `scan` + reproducible-tar primitives)
+- `source/apps/selftest-client/proof-manifest/` (markers + profile registration)
+- `.cursor/rules/12-debug-discipline.mdc`
+- `scripts/qemu-test.sh`
+
+### @task_0029_touched
+- `tools/nxb-pack/` (embed SBOM + repro using `nexus-evidence` reproducible-tar primitives)
+- `tools/sbom/` (new: CycloneDX 1.5 JSON generator)
+- `tools/repro/` (new: repro metadata capture + `repro-verify`)
+- `source/services/bundlemgrd/` (install-time enforcement; routes via `policyd`)
+- `source/services/keystored/` (allowlist check + key registry API impl)
+- `source/services/policyd/` (allow/deny decision + audit context)
+- `tools/nexus-idl/schemas/keystored.capnp` (**ABI** — CAUTION zone)
+- `recipes/signing/` (new allowlist TOML)
+- `tests/` (host tests, including `test_reject_*` set)
+- `docs/supplychain/` (new docs: `sbom.md`, `repro.md`, `sign-policy.md`)
+- `docs/testing/index.md` (host commands + gated OS markers)
+- `scripts/qemu-test.sh` (gated marker update only)
+- `source/apps/selftest-client/proof-manifest/markers/` (new markers)
+- `source/apps/selftest-client/proof-manifest/profiles/` (profile registration)
+- `tasks/STATUS-BOARD.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
+- `docs/rfcs/README.md` (RFC-0039 index entry on closure)
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -464,6 +504,9 @@ Kontext strikt: @core_context @task_0023_context @quality_gates @task_0023_touch
 
 ## Standard instruction line (TASK-0023B)
 Kontext strikt: @core_context @task_0023b_context @quality_gates @task_0023b_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0029)
+Kontext strikt: @core_context @task_0029_context @quality_gates @task_0029_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.
