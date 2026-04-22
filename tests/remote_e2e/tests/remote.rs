@@ -72,12 +72,12 @@ fn remote_roundtrip_and_negative_handshake() {
     let manifest = manifest_nxb();
     connection.push_artifact(handle, ArtifactKind::Manifest, &manifest).expect("upload manifest");
     connection.push_artifact(handle, ArtifactKind::Payload, &[0x00]).expect("upload payload");
-    assert!(connection
-        .install_bundle("demo", handle, manifest.len() as u32)
-        .expect("remote install ok"));
-    let version =
-        connection.query_bundle("demo").expect("query remote bundle").expect("bundle installed");
-    assert_eq!(version, "1.0.0");
+    assert!(
+        !connection
+            .install_bundle("demo", handle, manifest.len() as u32)
+            .expect("remote install request succeeds"),
+        "remote install must fail closed without keystore policy backend"
+    );
 
     // Tamper with the static key to ensure authentication fails
     let mut corrupted_static = *remote.noise_static();

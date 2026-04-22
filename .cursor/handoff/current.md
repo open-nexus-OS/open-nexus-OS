@@ -1,7 +1,7 @@
 # Current Handoff: TASK-0029 (Supply-Chain v1) — Closure Remediation
 
 **Date**: 2026-04-22
-**Active task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `In Review`
+**Active task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `Done`
 **Contract seed (RFC)**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` — `Done`
 **Tier**: `production-grade` BASELINE for the Updates / Packaging / Recovery group (per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`). Full closure of that tier is reached only at `TASK-0197 + TASK-0198 + TASK-0289`; v1 must stay on that trajectory without locking the wrong contract (10 explicit hard gates in TASK-0029 §"Production-grade tier").
 
@@ -17,11 +17,11 @@
 ### Remaining closure deltas (task-level)
 
 - No RFC-level closure delta remains (`RFC-0039` is `Done`).
-- `TASK-0029` remains intentionally at `In Review` pending explicit task-level finalization.
+- `TASK-0029` task-level finalization is complete (`Done`).
 
 ## Immediate execution order (current chat)
 
-1. Keep RFC/task/checklist text synchronized (`RFC-0039` = `Done`, `TASK-0029` = `In Review`).
+1. Keep RFC/task/checklist text synchronized (`RFC-0039` = `Done`, `TASK-0029` = `Done`).
 2. Fix contract deltas in code (manifest digests, authority boundary, sender identity, bounded inputs).
 3. Clear full quality gate set (`dep-gate`, `diag-os`, `diag-host`, `fmt-check`, `lint`, `arch-gate`).
 4. Re-run canonical host + QEMU proofs and capture clean evidence pointers.

@@ -1,6 +1,6 @@
 ---
 title: TASK-0029 Supply-Chain v1: bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (host-first, OS-gated)
-status: In Review
+status: Done
 owner: @runtime @security
 created: 2025-12-22
 updated: 2026-04-22

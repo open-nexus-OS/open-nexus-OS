@@ -26,6 +26,8 @@ use capnp::message::{Builder, HeapAllocator, ReaderOptions};
 #[cfg(test)]
 use capnp::serialize;
 #[cfg(test)]
+use ed25519_dalek::{Signer, SigningKey};
+#[cfg(test)]
 use nexus_idl_runtime::bundlemgr_capnp::{
     install_request, install_response, query_request, query_response, InstallError,
 };
@@ -35,6 +37,12 @@ use nexus_idl_runtime::manifest_capnp::bundle_manifest;
 use nexus_idl_runtime::policyd_capnp::{check_request, check_response};
 #[cfg(test)]
 use nexus_ipc::{Client, Wait};
+#[cfg(test)]
+use repro::capture_bundle_repro_json_with_manifest_digest;
+#[cfg(test)]
+use sbom::{generate_bundle_sbom_json, BundleSbomInput};
+#[cfg(test)]
+use sha2::{Digest, Sha256};
 #[cfg(test)]
 use tempfile::TempDir;
 
@@ -55,20 +63,51 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     .context("write policy")?;
     std::env::set_var("NEXUS_POLICY_DIR", temp.path());
 
+    let anchors = TempDir::new().context("temp anchors dir")?;
+    std::env::set_var("NEXUS_ANCHORS_DIR", anchors.path());
+    let signing_key = SigningKey::from_bytes(&[3u8; 32]);
+    let verifying_key = signing_key.verifying_key();
+    std::fs::write(anchors.path().join("policy-e2e.pub"), hex::encode(verifying_key.to_bytes()))
+        .context("write anchor key")?;
+
+    let publisher_hex = keystore::device_id(&verifying_key);
+    let allowlist_path = temp.path().join("publishers.toml");
+    std::fs::write(
+        &allowlist_path,
+        format!(
+            "version = 1\n\n[[publishers]]\nid = \"{publisher}\"\nenabled = true\nallowed_algs = [\"ed25519\"]\nkeys = [\"{pubkey}\"]\n",
+            publisher = publisher_hex,
+            pubkey = publisher_hex
+        ),
+    )
+    .context("write signing allowlist")?;
+    std::env::set_var("NEXUS_SIGNING_ALLOWLIST", &allowlist_path);
+
+    let publisher_bytes: [u8; 16] = hex::decode(&publisher_hex)
+        .context("decode publisher id")?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("publisher id must be 16 bytes"))?;
+    let payload: [u8; 0] = [];
+    let signature: [u8; 64] = signing_key.sign(&payload).to_bytes();
+
     let (samgr_client, mut samgr_server) = samgrd::loopback_transport();
     let samgr_handle = thread::spawn(move || {
         samgrd::run_with_transport(&mut samgr_server).expect("samgrd exits cleanly");
     });
     drop(samgr_client);
 
-    // Keystore is not required for host-side manifest installation in this test,
-    // because signature verification is skipped when no keystore is wired.
-
     let (bundle_client, mut bundle_server) = bundlemgrd::loopback_transport();
     let store = bundlemgrd::ArtifactStore::new();
     let store_clone = store.clone();
+    let (keystore_client, keystore_server) = nexus_ipc::loopback_channel();
+    let keystore_handle = thread::spawn(move || {
+        let mut transport = keystored::IpcTransport::new(keystore_server);
+        keystored::run_with_transport_default_anchors(&mut transport)
+            .expect("keystored exits cleanly");
+    });
     let bundle_handle = thread::spawn(move || {
-        bundlemgrd::run_with_transport(&mut bundle_server, store_clone, None, None)
+        let keystore = Some(bundlemgrd::KeystoreHandle::from_loopback(keystore_client));
+        bundlemgrd::run_with_transport(&mut bundle_server, store_clone, keystore, None)
             .expect("bundlemgrd exits cleanly");
     });
 
@@ -84,8 +123,8 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     policy_ready_rx.recv_timeout(Duration::from_secs(2)).context("wait policyd ready")?;
 
     // Install manifests and query required capabilities from bundlemgrd
-    let allowed_manifest = allowed_manifest();
-    let denied_manifest = denied_manifest();
+    let allowed_manifest = allowed_manifest(&publisher_hex, &publisher_bytes, &signature)?;
+    let denied_manifest = denied_manifest(&publisher_hex, &publisher_bytes, &signature)?;
     store.insert(1, allowed_manifest.clone());
     store.stage_payload(1, Vec::new());
     store.insert(2, denied_manifest.clone());
@@ -121,8 +160,11 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     drop(policy_client);
     policy_handle.join().expect("policyd thread joins");
     bundle_handle.join().expect("bundlemgrd thread joins");
+    keystore_handle.join().expect("keystored thread joins");
     samgr_handle.join().expect("samgrd thread joins");
     std::env::remove_var("NEXUS_POLICY_DIR");
+    std::env::remove_var("NEXUS_ANCHORS_DIR");
+    std::env::remove_var("NEXUS_SIGNING_ALLOWLIST");
     Ok(())
 }
 
@@ -210,17 +252,30 @@ fn query_caps(client: &nexus_ipc::LoopbackClient, name: &str) -> Result<Vec<Stri
 }
 
 #[cfg(test)]
-fn allowed_manifest() -> Vec<u8> {
-    build_manifest_nxb("samgrd", &["ipc.core"], &[0x11; 64])
+fn allowed_manifest(
+    publisher_hex: &str,
+    publisher: &[u8; 16],
+    signature: &[u8; 64],
+) -> Result<Vec<u8>> {
+    build_signed_manifest_nxb("samgrd", &["ipc.core"], publisher_hex, publisher, signature)
 }
 
 #[cfg(test)]
-fn denied_manifest() -> Vec<u8> {
-    build_manifest_nxb("demo.testsvc", &["net.client"], &[0x22; 64])
+fn denied_manifest(
+    publisher_hex: &str,
+    publisher: &[u8; 16],
+    signature: &[u8; 64],
+) -> Result<Vec<u8>> {
+    build_signed_manifest_nxb("demo.testsvc", &["net.client"], publisher_hex, publisher, signature)
 }
 
 #[cfg(test)]
-fn build_manifest_nxb(name: &str, caps: &[&str], signature: &[u8; 64]) -> Vec<u8> {
+fn build_manifest_nxb(
+    name: &str,
+    caps: &[&str],
+    publisher: &[u8; 16],
+    signature: &[u8; 64],
+) -> Vec<u8> {
     let mut message = Builder::new_default();
     {
         let mut m = message.init_root::<bundle_manifest::Builder<'_>>();
@@ -228,7 +283,7 @@ fn build_manifest_nxb(name: &str, caps: &[&str], signature: &[u8; 64]) -> Vec<u8
         m.set_name(name);
         m.set_semver("1.0.0");
         m.set_min_sdk("0.1.0");
-        m.set_publisher(&[0u8; 16]);
+        m.set_publisher(publisher);
         m.set_signature(signature);
         let mut abilities = m.reborrow().init_abilities(1);
         abilities.set(0, "core");
@@ -240,6 +295,93 @@ fn build_manifest_nxb(name: &str, caps: &[&str], signature: &[u8; 64]) -> Vec<u8
     let mut out = Vec::new();
     serialize::write_message(&mut out, &message).expect("serialize manifest");
     out
+}
+
+#[cfg(test)]
+fn build_signed_manifest_nxb(
+    name: &str,
+    caps: &[&str],
+    publisher_hex: &str,
+    publisher: &[u8; 16],
+    signature: &[u8; 64],
+) -> Result<Vec<u8>> {
+    let payload = Vec::new();
+    let base_manifest = build_manifest_nxb(name, caps, publisher, signature);
+    let binding_manifest = manifest_with_digests(&base_manifest, &payload, None, None)?;
+    let binding_sha = sha256_hex(&binding_manifest);
+    let sbom = generate_bundle_sbom_json(&BundleSbomInput {
+        bundle_name: name.to_string(),
+        bundle_version: "1.0.0".to_string(),
+        publisher_hex: publisher_hex.to_string(),
+        payload_sha256: sha256_hex(&payload),
+        payload_size: payload.len() as u64,
+        manifest_sha256: binding_sha.clone(),
+        source_date_epoch: 0,
+        components: Vec::new(),
+    })
+    .context("generate sbom")?;
+    let repro = capture_bundle_repro_json_with_manifest_digest(&binding_sha, &payload, &sbom)
+        .context("generate repro metadata")?;
+    manifest_with_digests(&base_manifest, &payload, Some(&sbom), Some(&repro))
+}
+
+#[cfg(test)]
+fn manifest_with_digests(
+    manifest: &[u8],
+    payload: &[u8],
+    sbom: Option<&[u8]>,
+    repro_json: Option<&[u8]>,
+) -> Result<Vec<u8>> {
+    let mut cursor = Cursor::new(manifest);
+    let message =
+        serialize::read_message(&mut cursor, ReaderOptions::new()).context("read manifest")?;
+    let src = message.get_root::<bundle_manifest::Reader<'_>>().context("manifest root")?;
+    let mut out_builder = Builder::new_default();
+    {
+        let mut dst = out_builder.init_root::<bundle_manifest::Builder<'_>>();
+        dst.set_schema_version(src.get_schema_version());
+        dst.set_name(src.get_name().context("name")?.to_str().context("name utf8")?);
+        dst.set_semver(src.get_semver().context("semver")?.to_str().context("semver utf8")?);
+        dst.set_min_sdk(src.get_min_sdk().context("minSdk")?.to_str().context("minSdk utf8")?);
+        dst.set_publisher(src.get_publisher().context("publisher")?);
+        dst.set_signature(src.get_signature().context("signature")?);
+        dst.set_payload_digest(&hex::decode(sha256_hex(payload)).context("payload digest decode")?);
+        dst.set_payload_size(payload.len() as u64);
+        if let Some(sbom_bytes) = sbom {
+            dst.set_sbom_digest(
+                &hex::decode(sha256_hex(sbom_bytes)).context("sbom digest decode")?,
+            );
+        } else {
+            dst.set_sbom_digest(&[]);
+        }
+        if let Some(repro_bytes) = repro_json {
+            dst.set_repro_digest(
+                &hex::decode(sha256_hex(repro_bytes)).context("repro digest decode")?,
+            );
+        } else {
+            dst.set_repro_digest(&[]);
+        }
+        let src_abilities = src.get_abilities().context("abilities")?;
+        let mut dst_abilities = dst.reborrow().init_abilities(src_abilities.len());
+        for idx in 0..src_abilities.len() {
+            dst_abilities.set(idx, src_abilities.get(idx).context("ability entry")?);
+        }
+        let src_caps = src.get_capabilities().context("caps")?;
+        let mut dst_caps = dst.reborrow().init_capabilities(src_caps.len());
+        for idx in 0..src_caps.len() {
+            dst_caps.set(idx, src_caps.get(idx).context("cap entry")?);
+        }
+    }
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &out_builder).context("serialize manifest with digests")?;
+    Ok(out)
+}
+
+#[cfg(test)]
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 
 ## Candidate next execution
 
-- **task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `In Review` (intentionally held for task-level finalization).
+- **task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `Done` (task-level finalization completed).
 - **contract seed (RFC)**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` — `Done` (closure state synced).
 - **mode**: final task-level review/report sync while keeping scope frozen.
 - **tier**: `production-grade` BASELINE for the Updates / Packaging / Recovery group (per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`). Full closure of that tier remains `TASK-0197 + TASK-0198 + TASK-0289`.
@@ -100,7 +100,7 @@ Reorder if cross-cut blockers emerge — keep C-03 → C-04 → C-05 ordering (A
 
 ## Closure delta queue (before `Done`)
 
-1. Keep `TASK-0029` at `In Review` and only finalize task status when explicit task-level closure approval is given.
+1. `TASK-0029` closure is finalized (`Done`); no remaining task-level status delta.
 
 ## Carry-over (TASK-0023B Phase-6 environmental closure)
 

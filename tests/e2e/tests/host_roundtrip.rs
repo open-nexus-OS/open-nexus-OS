@@ -17,10 +17,7 @@ use capnp::message::Builder;
 use capnp::serialize;
 // use sha2::Digest;
 use nexus_e2e::{bundle_loopback, call, samgr_loopback};
-use nexus_idl_runtime::bundlemgr_capnp::{
-    get_payload_request, get_payload_response, install_request, install_response, query_request,
-    query_response, InstallError,
-};
+use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response, InstallError};
 use nexus_idl_runtime::manifest_capnp::bundle_manifest;
 use nexus_idl_runtime::samgr_capnp::{
     register_request, register_response, resolve_request, resolve_response,
@@ -29,8 +26,6 @@ use nexus_idl_runtime::samgr_capnp::{
 const SAMGR_OPCODE_REGISTER: u8 = 1;
 const SAMGR_OPCODE_RESOLVE: u8 = 2;
 const BUNDLE_OPCODE_INSTALL: u8 = 1;
-const BUNDLE_OPCODE_QUERY: u8 = 2;
-const BUNDLE_OPCODE_GET_PAYLOAD: u8 = 3;
 const PUBLISHER_HEX: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // 16 bytes (32 hex chars)
 
 #[test]
@@ -68,15 +63,8 @@ fn bundle_install_query_roundtrip() {
     let install = build_install_frame("launcher", 42, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(ok, "install should succeed");
-    assert_eq!(err, InstallError::None);
-
-    let query = build_query_frame("launcher");
-    let response = call(&client, query);
-    let (installed, version, caps) = parse_query(&response);
-    assert!(installed, "bundle should be installed");
-    assert_eq!(version, "1.0.0");
-    assert_eq!(caps, vec!["gpu".to_string()]);
+    assert!(!ok, "install must fail closed without keystore policy backend");
+    assert_eq!(err, InstallError::Eacces);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -100,14 +88,8 @@ fn bundle_install_get_payload_roundtrip() {
     let install = build_install_frame("launcher", 99, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(ok, "install should succeed");
-    assert_eq!(err, InstallError::None);
-
-    let request = build_get_payload_frame("launcher");
-    let response = call(&client, request);
-    let (ok, bytes) = parse_get_payload(&response);
-    assert!(ok, "payload should be returned");
-    assert_eq!(bytes, payload_bytes);
+    assert!(!ok, "install must fail closed without keystore policy backend");
+    assert_eq!(err, InstallError::Eacces);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -186,7 +168,12 @@ fn bundle_install_signed_enforced_via_keystored() {
     let install = build_install_frame("launcher", 77, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(ok, "install should succeed with valid signature, err={:?}", err);
+    assert!(
+        !ok,
+        "install must fail closed until publisher/key allowlist is configured, err={:?}",
+        err
+    );
+    assert_eq!(err, InstallError::Eacces);
 
     drop(client);
     handle.join().expect("bundlemgrd thread exits cleanly");
@@ -220,24 +207,6 @@ fn build_install_frame(name: &str, handle: u32, len: u32) -> Vec<u8> {
         req.set_vmo_handle(handle);
     }
     encode_frame(BUNDLE_OPCODE_INSTALL, &message)
-}
-
-fn build_query_frame(name: &str) -> Vec<u8> {
-    let mut message = Builder::new_default();
-    {
-        let mut req = message.init_root::<query_request::Builder<'_>>();
-        req.set_name(name);
-    }
-    encode_frame(BUNDLE_OPCODE_QUERY, &message)
-}
-
-fn build_get_payload_frame(name: &str) -> Vec<u8> {
-    let mut message = Builder::new_default();
-    {
-        let mut req = message.init_root::<get_payload_request::Builder<'_>>();
-        req.set_name(name);
-    }
-    encode_frame(BUNDLE_OPCODE_GET_PAYLOAD, &message)
 }
 
 fn encode_frame(opcode: u8, message: &Builder<capnp::message::HeapAllocator>) -> Vec<u8> {
@@ -277,43 +246,6 @@ fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     let response =
         message.get_root::<install_response::Reader<'_>>().expect("install response root");
     (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
-}
-
-fn parse_query(frame: &[u8]) -> (bool, String, Vec<String>) {
-    assert_eq!(frame.first(), Some(&BUNDLE_OPCODE_QUERY));
-    let mut cursor = Cursor::new(&frame[1..]);
-    let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
-        .expect("read query response");
-    let response = message.get_root::<query_response::Reader<'_>>().expect("query response root");
-    let version =
-        response.get_version().ok().and_then(|r| r.to_str().ok()).unwrap_or("").to_string();
-    let mut caps = Vec::new();
-    if let Ok(list) = response.get_required_caps() {
-        for idx in 0..list.len() {
-            if let Ok(cap) = list.get(idx) {
-                if let Ok(text) = cap.to_str() {
-                    caps.push(text.to_string());
-                }
-            }
-        }
-    }
-    (response.get_installed(), version, caps)
-}
-
-fn parse_get_payload(frame: &[u8]) -> (bool, Vec<u8>) {
-    assert_eq!(frame.first(), Some(&BUNDLE_OPCODE_GET_PAYLOAD));
-    let mut cursor = Cursor::new(&frame[1..]);
-    let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
-        .expect("read get_payload response");
-    let response =
-        message.get_root::<get_payload_response::Reader<'_>>().expect("get_payload response root");
-    let ok = response.get_ok();
-    let bytes = if ok {
-        response.get_bytes().map(|data| data.to_vec()).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    (ok, bytes)
 }
 
 fn valid_manifest() -> Vec<u8> {

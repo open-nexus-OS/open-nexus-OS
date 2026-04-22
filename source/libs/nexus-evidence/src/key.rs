@@ -187,9 +187,7 @@ impl std::fmt::Debug for SigningKey {
     /// and `tracing` records). See SECURITY_STANDARDS.md §"secret
     /// hygiene".
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SigningKey")
-            .field("inner", &"<redacted>")
-            .finish()
+        f.debug_struct("SigningKey").field("inner", &"<redacted>").finish()
     }
 }
 
@@ -368,27 +366,19 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
 impl SigningKey {
     /// Construct from raw 32-byte secret-key seed material.
     pub fn from_seed(seed: [u8; 32]) -> SigningKey {
-        SigningKey {
-            inner: DalekSigning::from_bytes(&seed),
-        }
+        SigningKey { inner: DalekSigning::from_bytes(&seed) }
     }
 
     /// Derive the matching public key.
     pub fn verifying_key(&self) -> VerifyingKey {
-        VerifyingKey {
-            inner: self.inner.verifying_key(),
-        }
+        VerifyingKey { inner: self.inner.verifying_key() }
     }
 
     /// Sign a 32-byte canonical hash, producing a [`Signature`]
     /// blob carrying the supplied `label`.
     pub fn sign_hash(&self, hash: [u8; 32], label: KeyLabel) -> Signature {
         let dalek_sig: DalekSig = self.inner.sign(&hash);
-        Signature {
-            label,
-            hash,
-            sig: dalek_sig.to_bytes(),
-        }
+        Signature { label, hash, sig: dalek_sig.to_bytes() }
     }
 }
 
@@ -405,9 +395,7 @@ impl VerifyingKey {
     pub fn from_bytes(bytes: [u8; 32]) -> Result<VerifyingKey, EvidenceError> {
         DalekVerifying::from_bytes(&bytes)
             .map(|inner| VerifyingKey { inner })
-            .map_err(|e| EvidenceError::SignatureMalformed {
-                detail: format!("bad_pubkey {}", e),
-            })
+            .map_err(|e| EvidenceError::SignatureMalformed { detail: format!("bad_pubkey {}", e) })
     }
 
     /// Encode back to 32 bytes (round-trip with [`Self::from_bytes`]).
@@ -428,10 +416,8 @@ impl VerifyingKey {
             });
         }
         let dalek_sig = DalekSig::from_bytes(&sig.sig);
-        self.inner
-            .verify(&sig.hash, &dalek_sig)
-            .map_err(|_| EvidenceError::SignatureMismatch {
-                detail: "ed25519_verify_failed".to_string(),
-            })
+        self.inner.verify(&sig.hash, &dalek_sig).map_err(|_| EvidenceError::SignatureMismatch {
+            detail: "ed25519_verify_failed".to_string(),
+        })
     }
 }

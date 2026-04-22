@@ -105,12 +105,7 @@ runner = "scripts/qemu-test.sh"
         fs::write(&uart_path, uart_text).unwrap();
         let out_path = root.path.join("bundle.tar.gz");
 
-        Self {
-            _root: root,
-            manifest_path,
-            uart_path,
-            out_path,
-        }
+        Self { _root: root, manifest_path, uart_path, out_path }
     }
 
     fn opts(&self, profile: &str, wall_clock: &str) -> AssembleOpts {

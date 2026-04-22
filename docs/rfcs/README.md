@@ -168,5 +168,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md
 - RFC-0038: Selftest-client production-grade deterministic test architecture refactor v1 (Done 2026-04-20; `TASK-0023B` is `In Review` with all six phases functionally closed — proof-manifest SSOT + schema-v2 split, signed evidence bundles, replay/diff/bisect tooling with bounded budgets, cross-host determinism allowlist; one environmental closure step remaining for P6-05: external CI-runner replay artifact, see `docs/testing/replay-and-bisect.md` §7-§11)
   - docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
-- RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX JSON per ADR-0021) + repro metadata + single-authority publisher/key allowlist (Done; proof checklist complete and green; execution task `TASK-0029` remains `In Review` for task-level finalization; v2/v3 boundaries unchanged: `TASK-0197`/`TASK-0198`/`TASK-0289`)
+- RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX JSON per ADR-0021) + repro metadata + single-authority publisher/key allowlist (Done; proof checklist complete and green; execution task `TASK-0029` is `Done`; v2/v3 boundaries unchanged: `TASK-0197`/`TASK-0198`/`TASK-0289`)
   - docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md

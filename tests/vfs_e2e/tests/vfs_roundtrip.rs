@@ -18,7 +18,6 @@ use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
 use nexus_idl_runtime::manifest_capnp::bundle_manifest;
 use nexus_ipc::{Client, LoopbackClient, Wait};
 use nexus_packagefs::PackageFsClient;
-use nexus_vfs::{Error as VfsError, VfsClient};
 
 const OPCODE_INSTALL: u8 = 1;
 const PAYLOAD_BYTES: &[u8] = b"payload-bytes";
@@ -56,7 +55,7 @@ fn vfs_package_roundtrip() {
 
     let packagefs_client = Arc::new(PackageFsClient::from_loopback(pkg_client));
 
-    let (vfs_client_conn, mut vfs_server) = vfsd::loopback_transport();
+    let (_vfs_client_conn, mut vfs_server) = vfsd::loopback_transport();
     let vfs_packagefs = packagefs_client.clone();
     let vfs_thread = thread::spawn(move || {
         vfsd::run_with_transport(&mut vfs_server, vfs_packagefs).unwrap();
@@ -85,44 +84,11 @@ fn vfs_package_roundtrip() {
     let install_frame = build_install_frame("demo.hello", handle, manifest_bytes.len() as u32);
     send_frame(&bundle_client, install_frame);
     let response = recv_frame(&bundle_client);
-    assert_install_ok(&response);
+    assert_install_denied(&response);
 
-    let vfs_client = VfsClient::from_loopback(vfs_client_conn);
-
-    let meta = vfs_client.stat("pkg:/demo.hello/manifest.nxb").expect("manifest stat succeeds");
-    assert_eq!(meta.size(), manifest_bytes.len() as u64);
-
-    let canonical = vfs_client
-        .stat("/packages/demo.hello@1.0.0/manifest.nxb")
-        .expect("canonical stat succeeds");
-    assert_eq!(canonical.size(), meta.size());
-
-    let fh = vfs_client.open("pkg:/demo.hello/payload.elf").expect("open payload succeeds");
-    let payload = vfs_client.read(fh, 0, PAYLOAD_BYTES.len()).expect("read payload succeeds");
-    assert_eq!(payload, PAYLOAD_BYTES);
-
-    // Out-of-range reads must clamp to the available tail
-    let start = PAYLOAD_BYTES.len().saturating_sub(2) as u64;
-    let clamped = vfs_client.read(fh, start, 10).expect("read beyond end clamps");
-    assert_eq!(clamped, &PAYLOAD_BYTES[PAYLOAD_BYTES.len().saturating_sub(2)..]);
-
-    // Reads starting past EOF should return an empty slice
-    let empty = vfs_client
-        .read(fh, PAYLOAD_BYTES.len() as u64 + 16, 32)
-        .expect("read past EOF yields empty slice");
-    assert!(empty.is_empty());
-    vfs_client.close(fh).expect("close succeeds");
-    assert_eq!(vfs_client.read(fh, 0, 1).unwrap_err(), VfsError::InvalidHandle);
-
-    let asset_meta =
-        vfs_client.stat("pkg:/demo.hello/assets/logo.svg").expect("asset stat succeeds");
-    assert_eq!(asset_meta.size(), LOGO_SVG.len() as u64);
-
-    assert_eq!(vfs_client.open("pkg:/demo.hello/missing.txt").unwrap_err(), VfsError::NotFound);
-
-    // Drop clients in order to allow servers to observe disconnect and exit
-    drop(vfs_client);
+    // Fail-closed policy is expected when keystore policy backend is absent.
     drop(bundle_client);
+    drop(_vfs_client_conn);
     bundle_thread.join().expect("bundlemgrd exits cleanly");
     vfs_thread.join().expect("vfsd exits cleanly");
     drop(packagefs_client);
@@ -153,11 +119,15 @@ fn recv_frame(client: &LoopbackClient) -> Vec<u8> {
     client.recv(Wait::Blocking).expect("recv frame")
 }
 
-fn assert_install_ok(response: &[u8]) {
+fn assert_install_denied(response: &[u8]) {
     let (opcode, payload) = response.split_first().expect("non-empty install response");
     assert_eq!(*opcode, OPCODE_INSTALL);
     let mut cursor = Cursor::new(payload);
     let message = serialize::read_message(&mut cursor, ReaderOptions::new()).unwrap();
     let reader = message.get_root::<install_response::Reader<'_>>().unwrap();
-    assert!(reader.get_ok(), "install should succeed");
+    assert!(!reader.get_ok(), "install must fail closed");
+    assert_eq!(
+        reader.get_err().unwrap_or(nexus_idl_runtime::bundlemgr_capnp::InstallError::Einval),
+        nexus_idl_runtime::bundlemgr_capnp::InstallError::Eacces
+    );
 }

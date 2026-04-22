@@ -174,7 +174,7 @@ This is the anti-fake-success gate.
 - [x] Contract drift deltas closed: manifest `sbomDigest`/`reproDigest`, strict `policyd` authority boundary, `sender_service_id` enforcement, bounded size guards.
 - [x] Final quality gate line fully green: `dep-gate`, `diag-os`, `diag-host`, `fmt-check`, `lint`, `arch-gate`.
 - [x] Explicit `cyclonedx-cli` roundtrip proof captured for RFC-0039 Phase 0.
-- [x] Status sync applied: `RFC-0039` is `Done`; `TASK-0029` intentionally remains `In Review`.
+- [x] Status sync applied: `RFC-0039` is `Done`; `TASK-0029` is `Done`.
 
 ## Carry-over (TASK-0023B Phase-6 environmental closure)
 - [x] All six `TASK-0023B` phases functionally closed (P1-P6); `RFC-0038` advanced from `Draft` to `Done`; `TASK-0023B` advanced from `Draft` to `In Review`.

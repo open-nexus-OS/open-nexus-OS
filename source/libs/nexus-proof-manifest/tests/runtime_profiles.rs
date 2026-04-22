@@ -45,14 +45,7 @@ fn accept_runtime_only_profile_with_phase_subset() {
     let p = m.profiles.get("quick").expect("quick profile present");
     assert!(p.runtime_only);
     assert!(p.runner.is_none());
-    assert_eq!(
-        p.phases,
-        vec![
-            "bringup".to_string(),
-            "ipc_kernel".to_string(),
-            "end".to_string()
-        ]
-    );
+    assert_eq!(p.phases, vec!["bringup".to_string(), "ipc_kernel".to_string(), "end".to_string()]);
 }
 
 #[test]
@@ -67,10 +60,7 @@ fn reject_phases_field_on_harness_profile() {
     match err {
         ParseError::ProfileBodyInvalid { profile, detail } => {
             assert_eq!(profile, "busted");
-            assert!(
-                detail.contains("phases"),
-                "detail should mention `phases`: {detail}"
-            );
+            assert!(detail.contains("phases"), "detail should mention `phases`: {detail}");
         }
         other => panic!("expected ProfileBodyInvalid, got {other:?}"),
     }
@@ -108,16 +98,10 @@ fn on_disk_manifest_declares_all_five_runtime_profiles() {
     let m = nexus_proof_manifest::parse_path(&path).expect("on-disk manifest parses");
 
     for name in ["bringup", "quick", "ota", "net", "none"] {
-        let p = m
-            .profiles
-            .get(name)
-            .unwrap_or_else(|| panic!("missing runtime profile `{name}`"));
+        let p = m.profiles.get(name).unwrap_or_else(|| panic!("missing runtime profile `{name}`"));
         assert!(p.runtime_only, "{name} must be runtime_only");
         assert!(p.runner.is_none(), "{name} must NOT carry a runner");
-        assert!(
-            !p.phases.is_empty(),
-            "{name} must declare a non-empty phases subset"
-        );
+        assert!(!p.phases.is_empty(), "{name} must declare a non-empty phases subset");
         for ph in &p.phases {
             assert!(
                 m.phases.contains_key(ph),
@@ -129,14 +113,8 @@ fn on_disk_manifest_declares_all_five_runtime_profiles() {
     // Sanity: harness profiles must NOT carry `phases`.
     for name in ["full", "smp", "dhcp", "os2vm", "quic-required"] {
         let p = m.profiles.get(name).expect("harness profile present");
-        assert!(
-            p.phases.is_empty(),
-            "{name}: harness profile must not carry `phases`"
-        );
-        assert!(
-            !p.runtime_only,
-            "{name}: harness profile must not be runtime_only"
-        );
+        assert!(p.phases.is_empty(), "{name}: harness profile must not carry `phases`");
+        assert!(!p.runtime_only, "{name}: harness profile must not be runtime_only");
     }
 }
 

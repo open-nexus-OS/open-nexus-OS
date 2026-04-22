@@ -31,7 +31,7 @@ Definition:
 ### Current closure deltas (resolved for RFC closure)
 
 - RFC status closure sync is complete (`In Review` → `Done`).
-- Execution task `TASK-0029` intentionally remains `In Review` until separate task-level finalization.
+- Execution task `TASK-0029` is now `Done` (task-level finalization completed).
 
 ## Scope boundaries (anti-drift)
 

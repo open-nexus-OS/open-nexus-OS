@@ -224,14 +224,38 @@ fn reject_if_secret_leak(bytes: &[u8], allowlist: &ScanAllowlist) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct RustflagsRestore(Option<String>);
+
+    impl Drop for RustflagsRestore {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var("RUSTFLAGS", value),
+                None => std::env::remove_var("RUSTFLAGS"),
+            }
+        }
+    }
+
+    fn with_rustflags<T>(value: String, f: impl FnOnce() -> T) -> T {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        let restore = RustflagsRestore(std::env::var("RUSTFLAGS").ok());
+        std::env::set_var("RUSTFLAGS", value);
+        let out = f();
+        drop(restore);
+        out
+    }
 
     #[test]
     fn verify_accepts_valid_schema_and_digests() {
         let manifest = b"manifest";
         let payload = b"payload";
         let sbom = b"sbom";
-        let bytes =
-            capture_bundle_repro_json(manifest, payload, sbom).expect("capture should work");
+        let bytes = with_rustflags(String::new(), || {
+            capture_bundle_repro_json(manifest, payload, sbom).expect("capture should work")
+        });
         let expected = ReproVerifyInput {
             payload_sha256: sha256_hex(payload),
             manifest_sha256: sha256_hex(manifest),
@@ -270,8 +294,9 @@ mod tests {
         let manifest = b"manifest";
         let payload = b"payload";
         let sbom = b"sbom";
-        let bytes =
-            capture_bundle_repro_json(manifest, payload, sbom).expect("capture should work");
+        let bytes = with_rustflags(String::new(), || {
+            capture_bundle_repro_json(manifest, payload, sbom).expect("capture should work")
+        });
         let expected = ReproVerifyInput {
             payload_sha256: sha256_hex(b"other"),
             manifest_sha256: sha256_hex(manifest),
@@ -284,10 +309,9 @@ mod tests {
 
     #[test]
     fn capture_rejects_oversized_rustflags() {
-        std::env::set_var("RUSTFLAGS", "x".repeat(MAX_RUSTFLAGS_LEN + 1));
-        let err =
-            capture_bundle_repro_json(b"manifest", b"payload", b"sbom").expect_err("size cap");
-        std::env::remove_var("RUSTFLAGS");
+        let err = with_rustflags("x".repeat(MAX_RUSTFLAGS_LEN + 1), || {
+            capture_bundle_repro_json(b"manifest", b"payload", b"sbom").expect_err("size cap")
+        });
         assert!(matches!(err, ReproError::InputTooLarge { field: "rustflags", .. }));
     }
 }

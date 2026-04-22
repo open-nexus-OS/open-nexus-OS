@@ -15,3 +15,11 @@ bundlemgrd = { path = "../../source/services/bundlemgrd", features = ["idl-capnp
 keystored = { path = "../../source/services/keystored", features = ["idl-capnp"] }
 samgrd = { path = "../../source/services/samgrd", features = ["idl-capnp"] }
 tempfile = "3"
+
+[dev-dependencies]
+ed25519-dalek = "2"
+hex = "0.4"
+keystore = { path = "../../userspace/keystore" }
+repro = { path = "../../tools/repro" }
+sbom = { path = "../../tools/sbom" }
+sha2 = "0.10"

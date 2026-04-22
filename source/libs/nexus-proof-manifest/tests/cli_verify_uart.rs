@@ -64,10 +64,7 @@ impl Fixture {
         let dir = tempdir::Dir::new();
         let manifest = dir.path.join("proof-manifest.toml");
         std::fs::write(&manifest, FIXTURE_TOML).expect("write fixture");
-        Self {
-            _dir: dir,
-            manifest,
-        }
+        Self { _dir: dir, manifest }
     }
 
     fn write_uart(&self, name: &str, body: &str) -> PathBuf {
@@ -108,10 +105,7 @@ mod tempdir {
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(BIN)
-        .args(args)
-        .output()
-        .expect("invoke nexus-proof-manifest CLI");
+    let out = Command::new(BIN).args(args).output().expect("invoke nexus-proof-manifest CLI");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -203,15 +197,9 @@ fn json_format_emits_structured_violations() {
     ]);
     assert_ne!(code, 0);
     let trimmed = stdout.trim();
-    assert!(
-        trimmed.starts_with('{') && trimmed.ends_with('}'),
-        "stdout=`{trimmed}`"
-    );
+    assert!(trimmed.starts_with('{') && trimmed.ends_with('}'), "stdout=`{trimmed}`");
     assert!(trimmed.contains("\"forbidden\":["), "stdout=`{trimmed}`");
-    assert!(
-        trimmed.contains("transport selected tcp"),
-        "stdout=`{trimmed}`"
-    );
+    assert!(trimmed.contains("transport selected tcp"), "stdout=`{trimmed}`");
 }
 
 #[test]
@@ -229,11 +217,8 @@ fn missing_uart_file_exits_two() {
 #[test]
 fn missing_uart_arg_exits_one() {
     let f = Fixture::new();
-    let (code, _stdout, stderr) = run(&[
-        "verify-uart",
-        "--profile=full",
-        &format!("--manifest={}", f.manifest.display()),
-    ]);
+    let (code, _stdout, stderr) =
+        run(&["verify-uart", "--profile=full", &format!("--manifest={}", f.manifest.display())]);
     assert_eq!(code, 1, "expected usage error exit code; stderr=`{stderr}`");
     assert!(stderr.contains("--uart="), "stderr=`{stderr}`");
 }

@@ -195,7 +195,7 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Remaining closure deltas are fixed in code: manifest digest fields + strict authority boundary + sender identity + bounded inputs.
 - [x] Final quality gates (`fmt-check`/`lint` + full gate set) are green and referenced from task/RFC closure notes.
 - [x] Explicit `cyclonedx-cli` roundtrip proof for RFC-0039 Phase 0 captured and documented.
-- [x] Status sync applied: `RFC-0039` is `Done`; `TASK-0029` remains intentionally `In Review`.
+- [x] Status sync applied: `RFC-0039` is `Done`; `TASK-0029` is `Done`.
 
 ## Carry-over (TASK-0023B Phase-6 environmental closure)
 - [x] `TASK-0023B` is `In Review`; `RFC-0038` advanced to `Done` modulo Phase-6 checkbox.

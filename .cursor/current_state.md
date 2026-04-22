@@ -9,7 +9,7 @@
   - Explicit size caps and reject coverage were added for SBOM/repro/install ingestion.
   - Full quality gate chain is green: `dep-gate && diag-os && diag-host && fmt-check && lint && arch-gate`.
   - RFC Phase-0 `cyclonedx-cli` roundtrip proof was captured successfully (`validate -> convert -> convert -> validate`, v1.5).
-  - Status sync applied per user direction: `RFC-0039` set to `Done`; `TASK-0029` intentionally remains `In Review`.
+  - Status sync applied per user direction: `RFC-0039` set to `Done`; `TASK-0029` set to `Done`.
 - **prev_decision (2026-04-21)**: `TASK-0029` (Supply-Chain v1) prepared for execution. Task audited end-to-end against current repo reality and architectural decisions:
   - `depends-on` extended with `TASK-0007` (manifest.nxb baseline, `Done`); `owner: @runtime @security`; ADR-0020 + ADR-0021 + TRACK-PRODUCTION-GATES + security/debug-discipline rules linked from header.
   - Context rewritten — `manifest.nxb` already canonical capnp (closing the prior "RED manifest format drift" flag); `nxs-pack` + `updated/` exist in tree but their SBOM/sigchain enforcement paths are owned by `TASK-0197 / 0198` (out of v1 scope).
@@ -54,8 +54,8 @@ This step is independent of TASK-0029 execution and does not block kicking it of
 
 ## Active focus (execution)
 
-- **active_task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `In Review` (final closure/report sync).
-- **contract seed**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` — `Done` (contract/proof closure complete; task status intentionally left at `In Review`).
+- **active_task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `Done` (final closure completed).
+- **contract seed**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` — `Done` (contract/proof closure complete; task status finalized to `Done`).
 - **active_plan**: `~/.cursor/plans/task0029_supply_chain_kickoff_bc589506.plan.md` executed; current step is final delta reporting.
 - **tier**: `production-grade` BASELINE for the Updates / Packaging / Recovery group. Full closure is still only at `TASK-0197 + TASK-0198 + TASK-0289`; v1 must not pre-empt those scopes.
 
