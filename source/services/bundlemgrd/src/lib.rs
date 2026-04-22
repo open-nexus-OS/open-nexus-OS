@@ -9,10 +9,9 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable (v1.0)
-//! TEST_COVERAGE: 3 E2E tests (tests/e2e/bundlemgrd_roundtrip.rs)
-//!   - install/query roundtrip
-//!   - get_payload roundtrip
-//!   - invalid signature rejection
+//! TEST_COVERAGE: 3 E2E tests + 11 host unit tests
+//!   - E2E: install/query roundtrip, get_payload roundtrip, invalid signature rejection (`tests/e2e/bundlemgrd_roundtrip.rs`)
+//!   - Unit: supply-chain allow/deny/tamper/oversize reject paths (`source/services/bundlemgrd/src/std_server.rs`)
 //!
 //! PUBLIC API: service_main_loop(), run_with_transport(), loopback_transport()
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystored client, packagefs client

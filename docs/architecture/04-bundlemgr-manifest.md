@@ -3,7 +3,7 @@
 
 # Bundle Manager Manifest Schema
 
-**Status**: Updated 2026-01-15 (unified to manifest.nxb)  
+**Status**: Updated 2026-04-22 (v1.2 supply-chain fields)  
 **Canonical source**: ADR-0020, `tools/nexus-idl/schemas/manifest.capnp`
 
 **Scope:** this page documents the unified manifest format used across the repo.  
@@ -26,30 +26,38 @@ As of TASK-0007 v1.0, the repository uses a **single source of truth** for bundl
 `.nxb` bundles use a deterministic directory layout:
 
 ```text
-
 bundle.nxb/
-├── manifest.nxb (Cap'n Proto binary)
-└── payload.elf (ELF64/RISC-V)
-
-```text
+├── manifest.nxb          (Cap'n Proto binary; canonical contract)
+├── payload.elf           (ELF64/RISC-V)
+└── meta/
+    ├── sbom.json         (CycloneDX JSON 1.5; interop artifact)
+    └── repro.env.json    (schema-versioned JSON repro metadata)
+```
 
 **Do not** treat TOML ordering/whitespace as a stable on-disk contract. TOML is an **input format** only.
 
-## Required fields
+## Required fields (BundleManifest)
 
-| Field      | Type            | Description                                  |
+| Field | Type | Description |
 |------------|-----------------|----------------------------------------------|
-| `name`     | `string`        | Unique bundle identifier (non-empty).        |
-| `version`  | `string` (semver) | Human readable bundle version.              |
-| `abilities` | `array<string>` | Declared abilities provided by the bundle.   |
-| `caps`     | `array<string>` | Capabilities required by the bundle.         |
-| `min_sdk`  | `string` (semver) | Minimum supported NEURON SDK version.       |
-| `publisher` | `string` (hex)  | 32 lowercase hex chars identifying publisher |
-| `sig`      | `string` (hex)  | Detached signature (64 bytes; hex)           |
+| `name` | `Text` | Unique bundle identifier (non-empty). |
+| `semver` | `Text` | Human-readable bundle version (SemVer). |
+| `abilities` | `List(Text)` | Declared abilities provided by the bundle. |
+| `capabilities` | `List(Text)` | Capabilities required by the bundle. |
+| `minSdk` | `Text` | Minimum supported NEURON SDK version. |
+| `publisher` | `Data` | 16 bytes (canonical TOML form: 32 lowercase hex chars). |
+| `signature` | `Data` | Detached Ed25519 signature (64 bytes). |
+| `payloadDigest` | `Data` | SHA-256 of `payload.elf` (32 bytes). |
+| `payloadSize` | `UInt64` | Size of `payload.elf` in bytes. |
+| `sbomDigest` | `Data` | SHA-256 of `meta/sbom.json` (32 bytes). |
+| `reproDigest` | `Data` | SHA-256 of `meta/repro.env.json` (32 bytes). |
 
-Unknown keys are not fatal—the parser records a warning string for each
-unexpected entry so build tooling can surface them. String fields are trimmed
-and must not be empty, and arrays must contain non-empty string items.
+Validation is strict at the manifest parser boundary:
+
+- core textual fields must be valid and non-empty,
+- `publisher` must be 16 bytes,
+- `signature` must be 64 bytes,
+- digest fields must be either empty (legacy input path) or exactly 32 bytes.
 
 ## Errors
 
@@ -59,9 +67,9 @@ The parser returns `bundlemgr::Error` with the following variants:
 - `MissingField(&'static str)` – a required field was not present (schema evolution).
 - `InvalidField { field, reason }` – a field could not be interpreted (for example, semver parse failure).
 
-This structured error model allows callers to present precise feedback and
-continue execution when warnings (rather than errors) occur.
+This structured error model allows callers to present precise feedback while
+failing closed on malformed contract bytes.
 
 ## Notes on drift
 
-`docs/bundle-format.md` documents a legacy tar-based bundle concept and is explicitly marked as drifted. For current OS work, follow `docs/packaging/nxb.md` and tasks that define stop conditions and proof.
+`docs/bundle-format.md` documents a legacy tar-based bundle concept and is explicitly marked as drifted. For current OS work, follow `docs/packaging/nxb.md`, `RFC-0039`, and the owning task stop conditions/proofs.

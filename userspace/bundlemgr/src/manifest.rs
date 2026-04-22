@@ -65,6 +65,12 @@ pub struct Manifest {
     pub publisher: String,
     /// Detached Ed25519 signature covering the bundle payload (64 bytes).
     pub signature: Vec<u8>,
+    /// SHA-256 digest of `payload.elf` (hex, 64 chars) if present.
+    pub payload_digest: Option<String>,
+    /// SHA-256 digest of `meta/sbom.json` (hex, 64 chars) if present.
+    pub sbom_digest: Option<String>,
+    /// SHA-256 digest of `meta/repro.env.json` (hex, 64 chars) if present.
+    pub repro_digest: Option<String>,
     /// Non-fatal warnings produced during parsing.
     pub warnings: Vec<String>,
 }
@@ -165,6 +171,19 @@ impl Manifest {
             });
         }
 
+        let payload_digest = parse_optional_sha256(
+            m.get_payload_digest().map_err(|err| Error::Decode(err.to_string()))?,
+            "payloadDigest",
+        )?;
+        let sbom_digest = parse_optional_sha256(
+            m.get_sbom_digest().map_err(|err| Error::Decode(err.to_string()))?,
+            "sbomDigest",
+        )?;
+        let repro_digest = parse_optional_sha256(
+            m.get_repro_digest().map_err(|err| Error::Decode(err.to_string()))?,
+            "reproDigest",
+        )?;
+
         Ok(Self {
             name,
             version,
@@ -173,7 +192,23 @@ impl Manifest {
             min_sdk,
             publisher: publisher_hex,
             signature: signature.to_vec(),
+            payload_digest,
+            sbom_digest,
+            repro_digest,
             warnings: Vec::new(),
         })
     }
+}
+
+fn parse_optional_sha256(value: &[u8], field: &'static str) -> Result<Option<String>> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.len() != 32 {
+        return Err(Error::InvalidField {
+            field,
+            reason: format!("must be 32 bytes when present, got {}", value.len()),
+        });
+    }
+    Ok(Some(hex::encode(value)))
 }

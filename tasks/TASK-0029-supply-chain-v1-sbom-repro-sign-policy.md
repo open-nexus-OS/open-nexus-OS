@@ -1,9 +1,9 @@
 ---
 title: TASK-0029 Supply-Chain v1: bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (host-first, OS-gated)
-status: In Progress
+status: In Review
 owner: @runtime @security
 created: 2025-12-22
-updated: 2026-04-21
+updated: 2026-04-22
 depends-on:
   - TASK-0006
   - TASK-0007
@@ -147,6 +147,8 @@ This task is security-relevant (signing, key registry, install-time policy, supp
 - `test_reject_unknown_key` — install bundle signed by allowed publisher with key not in registry → stable `policy.key_unknown` error.
 - `test_reject_unsupported_alg` — install bundle signed with algorithm not in allowlist → stable `policy.alg_unsupported` error.
 - `test_reject_payload_digest_mismatch` — install bundle whose `payload.elf` was mutated post-sign → stable `integrity.payload_digest_mismatch` error.
+- `test_reject_sbom_digest_mismatch` — install bundle whose `meta/sbom.json` bytes no longer match manifest digest → stable `integrity.sbom_digest_mismatch` error.
+- `test_reject_repro_digest_mismatch` — install bundle whose `meta/repro.env.json` bytes no longer match manifest digest → stable `integrity.repro_digest_mismatch` error.
 - `test_reject_sbom_secret_leak` — pack bundle whose generated SBOM contains a PEM block / private-key path → pack step refuses (reuse `nexus-evidence::scan` semantics).
 - `test_reject_repro_schema_invalid` — `repro-verify` rejects a metadata file with missing/extra schema fields.
 - `test_reject_audit_unreachable` — `bundlemgrd` install path with logd capability unwired MUST fail (no silent allow).
@@ -271,6 +273,16 @@ Notes:
 - `scripts/qemu-test.sh` (gated marker update)
 - `source/apps/selftest-client/proof-manifest/` (new markers + profile registration; do NOT touch `[meta]` schema)
 
+## Resolved open questions (pinned for v1)
+
+These decisions are frozen for TASK-0029 implementation and mirrored in `RFC-0039`.
+
+1. **SBOM granularity**: v1 is payload-centric. `meta/sbom.json` covers bundle identity, payload digest/material, and declared package metadata; it does not freeze a full build-host crate-graph closure.
+2. **Repro artefact format**: only `meta/repro.env.json` is part of the bundle contract. Any human-readable `.txt` rendering is CLI output only and never install-time input.
+3. **`publishers.toml` reload model**: `keystored` loads the allowlist once at startup in v1. Live/signal reload is explicitly deferred to supply-chain v2 follow-ups.
+4. **Publisher key cardinality**: v1 supports multiple keys per publisher to permit key rotation without ABI or file-format churn.
+5. **Audit emission semantics**: `bundlemgrd` uses synchronous, bounded audit emit/ack before final success. If logd is unreachable or the audit path times out, install fails closed.
+
 ## Plan (small PRs)
 
 1. **SBOM generator (host tool)**
@@ -323,6 +335,45 @@ Notes:
 - `docs/supplychain/repro.md`: schema, `SOURCE_DATE_EPOCH`, verifier usage.
 - `docs/supplychain/sign-policy.md`: publisher allowlist format, key rotation, failure modes.
 - `docs/testing/index.md`: how to run host tests; expected OS markers once enabled.
+
+## Implementation checkpoint (2026-04-22)
+
+- C-01 complete: deterministic SBOM generation + embedding in `tools/nxb-pack`.
+- C-02 complete: repro metadata capture + verify flow (`tools/repro`).
+- C-03/C-04/C-05 complete: `keystored` ABI + allowlist runtime + policy/enforcement chain in `bundlemgrd`.
+- C-06 complete: all required host reject-path tests are green.
+- C-07 complete for wiring: marker registrations and `supply-chain` profile wiring are in `proof-manifest`.
+- C-08 docs/state sync complete in this task file, RFC, testing index, and status views.
+
+Host proof snapshot (green):
+
+```bash
+cargo test -p nxb-pack -- supply_chain
+cargo test -p sbom -- determinism
+cargo test -p repro -- verify
+cargo test -p keystored -- is_key_allowed
+cargo test -p bundlemgrd -- supply_chain
+cargo test -p bundlemgrd test_reject_unknown_publisher
+cargo test -p bundlemgrd test_reject_unknown_key
+cargo test -p bundlemgrd test_reject_unsupported_alg
+cargo test -p bundlemgrd test_reject_payload_digest_mismatch
+cargo test -p bundlemgrd test_reject_sbom_digest_mismatch
+cargo test -p bundlemgrd test_reject_repro_digest_mismatch
+cargo test -p bundlemgrd test_reject_sbom_secret_leak
+cargo test -p bundlemgrd test_reject_repro_schema_invalid
+cargo test -p bundlemgrd test_reject_audit_unreachable
+# CycloneDX schema + roundtrip proof
+cargo run -p nxb-pack -- --hello target/supplychain-proof
+build/tools/cyclonedx-cli validate --input-file target/supplychain-proof/meta/sbom.json --input-version v1_5 --fail-on-errors
+build/tools/cyclonedx-cli convert --input-file target/supplychain-proof/meta/sbom.json --input-format json --output-file target/supplychain-proof/meta/sbom.roundtrip.xml --output-format xml --output-version v1_5
+build/tools/cyclonedx-cli convert --input-file target/supplychain-proof/meta/sbom.roundtrip.xml --input-format xml --output-file target/supplychain-proof/meta/sbom.roundtrip.json --output-format json --output-version v1_5
+build/tools/cyclonedx-cli validate --input-file target/supplychain-proof/meta/sbom.roundtrip.json --input-version v1_5 --fail-on-errors
+```
+
+OS/QEMU note:
+
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os supply-chain` is green.
+- `verify-uart` is clean for `profile=supply-chain`; evidence bundle emitted under `target/evidence/`.
 
 ## Follow-ups (separate tasks)
 

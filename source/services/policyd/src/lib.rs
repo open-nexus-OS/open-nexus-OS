@@ -22,6 +22,8 @@ pub use os_lite::*;
 #[cfg(any(test, feature = "os-lite"))]
 pub mod lite_protocol;
 
+pub mod supply_chain;
+
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
 mod std_server;
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]

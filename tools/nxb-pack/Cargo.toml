@@ -11,4 +11,10 @@ exec-payloads = { path = "../../userspace/exec-payloads" }
 capnp = "0.24"
 hex = "0.4"
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
+sbom = { path = "../sbom" }
+repro = { path = "../repro" }
+sha2 = "0.10"
 toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

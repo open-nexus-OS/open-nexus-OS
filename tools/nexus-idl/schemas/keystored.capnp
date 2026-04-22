@@ -23,3 +23,16 @@ struct DeviceIdRequest {
 struct DeviceIdResponse {
   id @0 :Text;
 }
+
+struct IsKeyAllowedRequest {
+  publisher @0 :Text;
+  alg @1 :Text;
+  pubkey @2 :Data;
+  # @3..@7 reserved-for-v2
+}
+
+struct IsKeyAllowedResponse {
+  allowed @0 :Bool;
+  reason @1 :Text;
+  # @2..@5 reserved-for-v2
+}

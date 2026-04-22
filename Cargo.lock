@@ -259,6 +259,9 @@ dependencies = [
  "nexus-metrics",
  "nexus-packagefs",
  "nexus-service-entry",
+ "policyd",
+ "repro",
+ "sbom",
  "sha2",
 ]
 
@@ -1106,6 +1109,7 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "ed25519-dalek",
+ "hex",
  "keystore",
  "nexus-abi",
  "nexus-idl-runtime",
@@ -1113,6 +1117,7 @@ dependencies = [
  "nexus-service-entry",
  "statefs",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -1553,6 +1558,10 @@ dependencies = [
  "exec-payloads",
  "hex",
  "nexus-idl-runtime",
+ "repro",
+ "sbom",
+ "sha2",
+ "tempfile",
  "toml",
 ]
 
@@ -2004,6 +2013,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "repro"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "nexus-evidence",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "resmgr"
 version = "0.1.0"
 
@@ -2204,6 +2225,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sbom"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "nexus-evidence",
+ "serde",
+ "serde_json",
+ "sha1",
+ "thiserror",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2346,6 +2379,17 @@ name = "settingsd"
 version = "0.1.0"
 dependencies = [
  "settings",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

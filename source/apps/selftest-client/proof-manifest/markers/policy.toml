@@ -18,6 +18,34 @@ phase = "policy"
 [marker."SELFTEST: policy deny ok"]
 phase = "policy"
 
+[marker."bundlemgrd: sign policy allow ok"]
+phase = "policy"
+emit_when = { profile = "supply-chain" }
+
+[marker."bundlemgrd: sign policy deny ok"]
+phase = "policy"
+emit_when = { profile = "supply-chain" }
+
+[marker."SELFTEST: sign policy allow ok"]
+phase = "policy"
+emit_when = { profile = "supply-chain" }
+
+[marker."SELFTEST: sign policy deny ok"]
+phase = "policy"
+emit_when = { profile = "supply-chain" }
+
+[marker."SELFTEST: sign policy unknown publisher rejected ok"]
+phase = "policy"
+emit_when = { profile = "supply-chain" }
+
+[marker."SELFTEST: sign policy unknown key rejected ok"]
+phase = "policy"
+emit_when = { profile = "supply-chain" }
+
+[marker."SELFTEST: sign policy payload tamper rejected ok"]
+phase = "policy"
+emit_when = { profile = "supply-chain" }
+
 [marker."abi-filter: deny (subject=selftest-client syscall=statefs.put)"]
 phase = "policy"
 proves = "abi-filter deny audit line emitted"

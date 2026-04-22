@@ -95,7 +95,7 @@ Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich
 
 | Task | Title | Warum nötig |
 |------|-------|-------------|
-| TASK-0029 | Supply Chain v1: SBOM + repro metadata + signature allowlist | Harte Dep von TASK-0031 (VMOs) |
+| TASK-0029 | Supply Chain v1: SBOM + repro metadata + signature allowlist | Harte Dep von TASK-0031 (VMOs); host closure + docs sync landed, QEMU supply-chain marker profile verified |
 | TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Kritisch: VMO-backed Surfaces für windowd-Compositor |
 | TASK-0032 | PackageFS v2: RO image index + fastpath | App-Asset-Laden für Launcher |
 | TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | App-Isolation |

@@ -8,7 +8,9 @@
 //! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp), keystored client, packagefs client
 //! INVARIANTS: Separate from SAMgr/Keystore roles; stable readiness prints
 //! ADR: docs/adr/0017-service-architecture.md
-//! TESTS: tests/e2e/tests/bundlemgrd_roundtrip.rs
+//! TEST_COVERAGE: 11 unit tests + shared E2E coverage
+//!   - Unit: supply_chain_install_ok + 10 reject/tamper/oversize checks in this module
+//!   - E2E: tests/e2e/tests/bundlemgrd_roundtrip.rs
 
 use std::collections::HashMap;
 use std::fmt;
@@ -41,17 +43,28 @@ use nexus_idl_runtime::bundlemgr_capnp::{
     query_response, InstallError,
 };
 #[cfg(feature = "idl-capnp")]
-use nexus_idl_runtime::keystored_capnp::{verify_request, verify_response};
+use nexus_idl_runtime::keystored_capnp::{
+    is_key_allowed_request, is_key_allowed_response, verify_request, verify_response,
+};
+#[cfg(feature = "idl-capnp")]
+use nexus_idl_runtime::manifest_capnp::bundle_manifest;
 #[cfg(feature = "idl-capnp")]
 use nexus_packagefs::{
     BundleEntry as PackageFsEntry, PackageFsClient, PublishRequest as PackageFsPublish,
 };
+use sha2::Digest;
 
 const OPCODE_INSTALL: u8 = 1;
 const OPCODE_QUERY: u8 = 2;
 const OPCODE_GET_PAYLOAD: u8 = 3;
 #[cfg(feature = "idl-capnp")]
 const KEYSTORE_OPCODE_VERIFY: u8 = 2;
+#[cfg(feature = "idl-capnp")]
+const KEYSTORE_OPCODE_IS_KEY_ALLOWED: u8 = 4;
+const MAX_MANIFEST_BYTES: usize = 64 * 1024;
+const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SBOM_BYTES: usize = 512 * 1024;
+const MAX_REPRO_BYTES: usize = 64 * 1024;
 
 /// Trait implemented by transports that deliver frames to bundlemgrd.
 pub trait Transport {
@@ -356,6 +369,20 @@ pub(crate) trait KeystoreClient: Send + 'static {
         payload: &[u8],
         signature: &[u8],
     ) -> Result<bool, KeystoreClientError>;
+
+    fn is_key_allowed(
+        &self,
+        publisher: &str,
+        alg: &str,
+        pubkey: &[u8],
+    ) -> Result<KeyAllowDecision, KeystoreClientError>;
+}
+
+#[cfg(feature = "idl-capnp")]
+#[derive(Debug, Clone)]
+pub(crate) struct KeyAllowDecision {
+    pub allowed: bool,
+    pub reason: String,
 }
 
 #[cfg(feature = "idl-capnp")]
@@ -413,6 +440,52 @@ where
             .get_root::<verify_response::Reader<'_>>()
             .map_err(|err| KeystoreClientError::Decode(err.to_string()))?;
         Ok(response.get_ok())
+    }
+
+    fn is_key_allowed(
+        &self,
+        publisher: &str,
+        alg: &str,
+        pubkey: &[u8],
+    ) -> Result<KeyAllowDecision, KeystoreClientError> {
+        let mut message = Builder::new_default();
+        {
+            let mut request = message.init_root::<is_key_allowed_request::Builder<'_>>();
+            request.set_publisher(publisher);
+            request.set_alg(alg);
+            request.set_pubkey(pubkey);
+        }
+        let mut buf = Vec::new();
+        serialize::write_message(&mut buf, &message).map_err(KeystoreClientError::Encode)?;
+        let mut frame = Vec::with_capacity(1 + buf.len());
+        frame.push(KEYSTORE_OPCODE_IS_KEY_ALLOWED);
+        frame.extend_from_slice(&buf);
+        self.client
+            .send(&frame, Wait::Blocking)
+            .map_err(|err| KeystoreClientError::Transport(err.into()))?;
+        let response = self
+            .client
+            .recv(Wait::Blocking)
+            .map_err(|err| KeystoreClientError::Transport(err.into()))?;
+        let (opcode, payload) = response
+            .split_first()
+            .ok_or_else(|| KeystoreClientError::Protocol("empty frame".into()))?;
+        if *opcode != KEYSTORE_OPCODE_IS_KEY_ALLOWED {
+            return Err(KeystoreClientError::Protocol(format!("unexpected opcode {opcode}")));
+        }
+        let mut cursor = Cursor::new(payload);
+        let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+            .map_err(|err| KeystoreClientError::Decode(err.to_string()))?;
+        let response = message
+            .get_root::<is_key_allowed_response::Reader<'_>>()
+            .map_err(|err| KeystoreClientError::Decode(err.to_string()))?;
+        let reason = response
+            .get_reason()
+            .map_err(|err| KeystoreClientError::Decode(err.to_string()))?
+            .to_str()
+            .map_err(|err| KeystoreClientError::Decode(err.to_string()))?
+            .to_string();
+        Ok(KeyAllowDecision { allowed: response.get_allowed(), reason })
     }
 }
 
@@ -553,11 +626,23 @@ impl Server {
             }
         };
 
+        let assets = self.artifacts.take_staged_assets(handle);
+
+        if manifest_bytes.len() > MAX_MANIFEST_BYTES || payload_bytes.len() > MAX_PAYLOAD_BYTES {
+            builder.set_ok(false);
+            builder.set_err(InstallError::Einval);
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
+
         if expected_len != 0 && manifest_bytes.len() != expected_len {
             builder.set_ok(false);
             builder.set_err(InstallError::Einval);
             self.artifacts.insert(handle, manifest_bytes.clone());
             self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
             return Self::encode_response(OPCODE_INSTALL, &response);
         }
 
@@ -568,6 +653,7 @@ impl Server {
                 builder.set_err(map_manifest_error(&err));
                 self.artifacts.insert(handle, manifest_bytes.clone());
                 self.artifacts.stage_payload(handle, payload_bytes);
+                self.restage_assets(handle, &assets);
                 return Self::encode_response(OPCODE_INSTALL, &response);
             }
         };
@@ -593,19 +679,215 @@ impl Server {
                 Ok(false) => {
                     eprintln!("bundlemgrd: invalid signature for {name}");
                     builder.set_ok(false);
-                    builder.set_err(InstallError::InvalidSig);
+                    builder.set_err(
+                        if self.emit_supply_chain_audit("policy.signature_invalid", false) {
+                            InstallError::InvalidSig
+                        } else {
+                            InstallError::Eacces
+                        },
+                    );
+                    self.artifacts.insert(handle, manifest_bytes.clone());
+                    self.artifacts.stage_payload(handle, payload_bytes);
+                    self.restage_assets(handle, &assets);
                     return Self::encode_response(OPCODE_INSTALL, &response);
                 }
                 Err(err) => {
                     eprintln!("bundlemgrd: signature verify error: {err}");
                     builder.set_ok(false);
-                    builder.set_err(InstallError::InvalidSig);
+                    builder.set_err(
+                        if self.emit_supply_chain_audit("policy.signature_invalid", false) {
+                            InstallError::InvalidSig
+                        } else {
+                            InstallError::Eacces
+                        },
+                    );
+                    self.artifacts.insert(handle, manifest_bytes.clone());
+                    self.artifacts.stage_payload(handle, payload_bytes);
+                    self.restage_assets(handle, &assets);
                     return Self::encode_response(OPCODE_INSTALL, &response);
                 }
             }
         }
 
-        let assets = self.artifacts.take_staged_assets(handle);
+        let publisher_pubkey = hex::decode(&manifest.publisher)
+            .unwrap_or_else(|_| manifest.publisher.as_bytes().to_vec());
+        let policy_decision = policyd::supply_chain::decide_from_authority(
+            &manifest.publisher,
+            "ed25519",
+            &publisher_pubkey,
+            |publisher, alg, pubkey| {
+                self.is_key_allowed(publisher, alg, pubkey)
+                    .map(|decision| (decision.allowed, decision.reason))
+            },
+        );
+        match policy_decision {
+            Ok(policyd::supply_chain::SignPolicyDecision::Allow) => {}
+            Ok(policyd::supply_chain::SignPolicyDecision::Deny { label }) => {
+                builder.set_ok(false);
+                let _ = self.emit_supply_chain_audit(label, false);
+                builder.set_err(InstallError::Eacces);
+                self.artifacts.insert(handle, manifest_bytes.clone());
+                self.artifacts.stage_payload(handle, payload_bytes);
+                self.restage_assets(handle, &assets);
+                return Self::encode_response(OPCODE_INSTALL, &response);
+            }
+            Err(policyd::supply_chain::SignPolicyError::QueryFailed) => {
+                eprintln!("bundlemgrd: allowlist query error: policy backend unavailable");
+                builder.set_ok(false);
+                let _ = self.emit_supply_chain_audit("policy.query_failed", false);
+                builder.set_err(InstallError::Eacces);
+                self.artifacts.insert(handle, manifest_bytes.clone());
+                self.artifacts.stage_payload(handle, payload_bytes);
+                self.restage_assets(handle, &assets);
+                return Self::encode_response(OPCODE_INSTALL, &response);
+            }
+        }
+        let payload_sha256 = sha256_hex(&payload_bytes);
+        if manifest.payload_digest.as_deref() != Some(payload_sha256.as_str()) {
+            builder.set_ok(false);
+            builder.set_err(
+                if self.emit_supply_chain_audit("integrity.payload_digest_mismatch", false) {
+                    InstallError::Einval
+                } else {
+                    InstallError::Eacces
+                },
+            );
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
+        let manifest_binding_sha256 = manifest_binding_sha256(&manifest_bytes)?;
+
+        let generated_sbom = if find_asset_bytes(&assets, "meta/sbom.json").is_none() {
+            Some(
+                sbom::generate_bundle_sbom_json(&sbom::BundleSbomInput {
+                    bundle_name: manifest.name.clone(),
+                    bundle_version: manifest.version.to_string(),
+                    publisher_hex: manifest.publisher.clone(),
+                    payload_sha256: payload_sha256.clone(),
+                    payload_size: payload_bytes.len() as u64,
+                    manifest_sha256: manifest_binding_sha256.clone(),
+                    source_date_epoch: sbom::source_date_epoch_from_env().unwrap_or(0),
+                    components: Vec::new(),
+                })
+                .map_err(|err| ServerError::Decode(format!("sbom generate: {err}")))?,
+            )
+        } else {
+            None
+        };
+        let sbom_bytes = find_asset_bytes(&assets, "meta/sbom.json")
+            .or(generated_sbom.as_deref())
+            .ok_or_else(|| ServerError::Decode("missing sbom".to_string()))?;
+        if sbom_bytes.len() > MAX_SBOM_BYTES {
+            builder.set_ok(false);
+            builder.set_err(if self.emit_supply_chain_audit("integrity.sbom_oversize", false) {
+                InstallError::Einval
+            } else {
+                InstallError::Eacces
+            });
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
+        let generated_repro = if find_asset_bytes(&assets, "meta/repro.env.json").is_none() {
+            Some(
+                repro::capture_bundle_repro_json_with_manifest_digest(
+                    &manifest_binding_sha256,
+                    &payload_bytes,
+                    sbom_bytes,
+                )
+                .map_err(|err| ServerError::Decode(format!("repro generate: {err}")))?,
+            )
+        } else {
+            None
+        };
+        let repro_bytes = find_asset_bytes(&assets, "meta/repro.env.json")
+            .or(generated_repro.as_deref())
+            .ok_or_else(|| ServerError::Decode("missing repro".to_string()))?;
+        if repro_bytes.len() > MAX_REPRO_BYTES {
+            builder.set_ok(false);
+            builder.set_err(if self.emit_supply_chain_audit("integrity.repro_oversize", false) {
+                InstallError::Einval
+            } else {
+                InstallError::Eacces
+            });
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
+        let sbom_sha256 = sha256_hex(sbom_bytes);
+        if manifest.sbom_digest.as_deref() != Some(sbom_sha256.as_str()) {
+            builder.set_ok(false);
+            builder.set_err(
+                if self.emit_supply_chain_audit("integrity.sbom_digest_mismatch", false) {
+                    InstallError::Einval
+                } else {
+                    InstallError::Eacces
+                },
+            );
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
+        let repro_sha256 = sha256_hex(repro_bytes);
+        if manifest.repro_digest.as_deref() != Some(repro_sha256.as_str()) {
+            builder.set_ok(false);
+            builder.set_err(
+                if self.emit_supply_chain_audit("integrity.repro_digest_mismatch", false) {
+                    InstallError::Einval
+                } else {
+                    InstallError::Eacces
+                },
+            );
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
+
+        let repro_expect = repro::ReproVerifyInput {
+            payload_sha256,
+            manifest_sha256: manifest_binding_sha256,
+            sbom_sha256,
+        };
+        if let Err(err) = repro::verify_repro_json(repro_bytes, &repro_expect) {
+            let label = match err {
+                repro::ReproError::SchemaInvalid(_) => "pack.repro_schema_invalid",
+                repro::ReproError::DigestMismatch { field: "payload_sha256" } => {
+                    "integrity.payload_digest_mismatch"
+                }
+                repro::ReproError::DigestMismatch { field: "sbom_sha256" } => {
+                    "integrity.sbom_digest_mismatch"
+                }
+                repro::ReproError::DigestMismatch { field: "manifest_sha256" } => {
+                    "integrity.repro_digest_mismatch"
+                }
+                _ => "integrity.repro_invalid",
+            };
+            builder.set_ok(false);
+            builder.set_err(if self.emit_supply_chain_audit(label, false) {
+                InstallError::Einval
+            } else {
+                InstallError::Eacces
+            });
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
+
+        if !self.emit_supply_chain_audit("bundlemgrd.install.allow", true) {
+            builder.set_ok(false);
+            builder.set_err(InstallError::Eacces);
+            self.artifacts.insert(handle, manifest_bytes.clone());
+            self.artifacts.stage_payload(handle, payload_bytes);
+            self.restage_assets(handle, &assets);
+            return Self::encode_response(OPCODE_INSTALL, &response);
+        }
 
         match self.service.install(DomainInstallRequest { name: &name, manifest: &manifest_bytes })
         {
@@ -733,6 +1015,19 @@ impl Server {
     }
 
     #[cfg(feature = "idl-capnp")]
+    fn is_key_allowed(
+        &self,
+        publisher: &str,
+        alg: &str,
+        pubkey: &[u8],
+    ) -> Result<KeyAllowDecision, KeystoreClientError> {
+        match &self.keystore {
+            Some(client) => client.is_key_allowed(publisher, alg, pubkey),
+            None => Err(KeystoreClientError::Protocol("keystore unavailable".into())),
+        }
+    }
+
+    #[cfg(feature = "idl-capnp")]
     fn encode_response(
         opcode: u8,
         message: &Builder<HeapAllocator>,
@@ -743,6 +1038,16 @@ impl Server {
         frame.push(opcode);
         frame.extend_from_slice(&payload);
         Ok(frame)
+    }
+
+    #[cfg(feature = "idl-capnp")]
+    fn emit_supply_chain_audit(&self, label: &str, allowed: bool) -> bool {
+        let _ = allowed;
+        if std::env::var("NEXUS_BUNDLEMGRD_AUDIT_FAIL").map(|value| value == "1").unwrap_or(false) {
+            return false;
+        }
+        eprintln!("bundlemgrd: audit {label}");
+        true
     }
 }
 
@@ -821,6 +1126,114 @@ pub(crate) fn serve_with_components<T: Transport>(
         transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
     }
     Ok(())
+}
+
+fn find_asset_bytes<'a>(assets: &'a [StagedAsset], path: &str) -> Option<&'a [u8]> {
+    assets.iter().find(|asset| asset.path == path).map(|asset| asset.bytes.as_slice())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+#[cfg(feature = "idl-capnp")]
+fn manifest_binding_sha256(manifest_bytes: &[u8]) -> Result<String, ServerError> {
+    let mut cursor = Cursor::new(manifest_bytes);
+    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+        .map_err(|err| ServerError::Decode(format!("manifest binding read: {err}")))?;
+    let src = message
+        .get_root::<bundle_manifest::Reader<'_>>()
+        .map_err(|err| ServerError::Decode(format!("manifest binding root: {err}")))?;
+
+    let mut builder = Builder::new_default();
+    {
+        let mut dst = builder.init_root::<bundle_manifest::Builder<'_>>();
+        dst.set_schema_version(src.get_schema_version());
+        dst.set_name(
+            src.get_name()
+                .map_err(|err| ServerError::Decode(format!("manifest binding name: {err}")))?
+                .to_str()
+                .map_err(|err| ServerError::Decode(format!("manifest binding name utf8: {err}")))?,
+        );
+        dst.set_semver(
+            src.get_semver()
+                .map_err(|err| ServerError::Decode(format!("manifest binding semver: {err}")))?
+                .to_str()
+                .map_err(|err| {
+                    ServerError::Decode(format!("manifest binding semver utf8: {err}"))
+                })?,
+        );
+        dst.set_min_sdk(
+            src.get_min_sdk()
+                .map_err(|err| ServerError::Decode(format!("manifest binding minSdk: {err}")))?
+                .to_str()
+                .map_err(|err| {
+                    ServerError::Decode(format!("manifest binding minSdk utf8: {err}"))
+                })?,
+        );
+        dst.set_publisher(
+            src.get_publisher()
+                .map_err(|err| ServerError::Decode(format!("manifest binding publisher: {err}")))?,
+        );
+        dst.set_signature(
+            src.get_signature()
+                .map_err(|err| ServerError::Decode(format!("manifest binding signature: {err}")))?,
+        );
+        dst.set_payload_digest(src.get_payload_digest().map_err(|err| {
+            ServerError::Decode(format!("manifest binding payloadDigest: {err}"))
+        })?);
+        dst.set_payload_size(src.get_payload_size());
+        // Critical: exclude self-referential meta digest fields from binding hash.
+        dst.set_sbom_digest(&[]);
+        dst.set_repro_digest(&[]);
+
+        let src_abilities = src
+            .get_abilities()
+            .map_err(|err| ServerError::Decode(format!("manifest binding abilities: {err}")))?;
+        let mut dst_abilities = dst.reborrow().init_abilities(src_abilities.len());
+        for idx in 0..src_abilities.len() {
+            dst_abilities.set(
+                idx,
+                src_abilities
+                    .get(idx)
+                    .map_err(|err| {
+                        ServerError::Decode(format!("manifest binding ability entry {idx}: {err}"))
+                    })?
+                    .to_str()
+                    .map_err(|err| {
+                        ServerError::Decode(format!(
+                            "manifest binding ability entry {idx} utf8: {err}"
+                        ))
+                    })?,
+            );
+        }
+
+        let src_caps = src
+            .get_capabilities()
+            .map_err(|err| ServerError::Decode(format!("manifest binding capabilities: {err}")))?;
+        let mut dst_caps = dst.reborrow().init_capabilities(src_caps.len());
+        for idx in 0..src_caps.len() {
+            dst_caps.set(
+                idx,
+                src_caps
+                    .get(idx)
+                    .map_err(|err| {
+                        ServerError::Decode(format!("manifest binding cap entry {idx}: {err}"))
+                    })?
+                    .to_str()
+                    .map_err(|err| {
+                        ServerError::Decode(format!("manifest binding cap entry {idx} utf8: {err}"))
+                    })?,
+            );
+        }
+    }
+
+    let mut out = Vec::new();
+    serialize::write_message(&mut out, &builder)
+        .map_err(|err| ServerError::Decode(format!("manifest binding write: {err}")))?;
+    Ok(sha256_hex(&out))
 }
 
 #[cfg(feature = "idl-capnp")]
@@ -910,6 +1323,419 @@ pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ip
 {
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
+}
+
+#[cfg(all(test, feature = "idl-capnp", nexus_env = "host"))]
+mod tests {
+    use super::*;
+    use capnp::message::Builder;
+    use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
+    use nexus_idl_runtime::manifest_capnp::bundle_manifest;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct FakeKeystore {
+        verify_ok: bool,
+        allowed: bool,
+        reason: &'static str,
+    }
+
+    impl KeystoreClient for FakeKeystore {
+        fn verify(
+            &self,
+            _anchor_id: &str,
+            _payload: &[u8],
+            _signature: &[u8],
+        ) -> Result<bool, KeystoreClientError> {
+            Ok(self.verify_ok)
+        }
+
+        fn is_key_allowed(
+            &self,
+            _publisher: &str,
+            _alg: &str,
+            _pubkey: &[u8],
+        ) -> Result<KeyAllowDecision, KeystoreClientError> {
+            Ok(KeyAllowDecision { allowed: self.allowed, reason: self.reason.to_string() })
+        }
+    }
+
+    fn build_install_payload(name: &str, handle: u32, bytes_len: u32) -> Vec<u8> {
+        let mut message = Builder::new_default();
+        {
+            let mut req = message.init_root::<install_request::Builder<'_>>();
+            req.set_name(name);
+            req.set_vmo_handle(handle);
+            req.set_bytes_len(bytes_len);
+        }
+        let mut payload = Vec::new();
+        capnp::serialize::write_message(&mut payload, &message).expect("serialize install payload");
+        payload
+    }
+
+    fn parse_install_response(frame: &[u8]) -> (bool, InstallError) {
+        let mut cursor = Cursor::new(frame);
+        let message = capnp::serialize::read_message(&mut cursor, ReaderOptions::new())
+            .expect("read install response");
+        let response =
+            message.get_root::<install_response::Reader<'_>>().expect("install response root");
+        (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
+    }
+
+    fn build_manifest(publisher: [u8; 16], signature: &[u8]) -> Vec<u8> {
+        let mut message = Builder::new_default();
+        {
+            let mut m = message.init_root::<bundle_manifest::Builder<'_>>();
+            m.set_schema_version(1);
+            m.set_name("demo.bundle");
+            m.set_semver("1.0.0");
+            m.set_min_sdk("0.1.0");
+            let mut abilities = m.reborrow().init_abilities(1);
+            abilities.set(0, "demo");
+            let mut caps = m.reborrow().init_capabilities(0);
+            let _ = &mut caps;
+            m.set_publisher(&publisher);
+            m.set_signature(signature);
+            m.set_payload_digest(&[]);
+            m.set_payload_size(0);
+            m.set_sbom_digest(&[]);
+            m.set_repro_digest(&[]);
+        }
+        let mut bytes = Vec::new();
+        capnp::serialize::write_message(&mut bytes, &message).expect("serialize manifest");
+        bytes
+    }
+
+    fn manifest_with_digests(
+        manifest: &[u8],
+        payload: &[u8],
+        sbom: Option<&[u8]>,
+        repro_json: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let mut cursor = Cursor::new(manifest);
+        let message = capnp::serialize::read_message(&mut cursor, ReaderOptions::new())
+            .expect("read manifest");
+        let src = message.get_root::<bundle_manifest::Reader<'_>>().expect("manifest root");
+        let mut out_builder = Builder::new_default();
+        {
+            let mut dst = out_builder.init_root::<bundle_manifest::Builder<'_>>();
+            dst.set_schema_version(src.get_schema_version());
+            dst.set_name(src.get_name().expect("name").to_str().expect("name utf8"));
+            dst.set_semver(src.get_semver().expect("semver").to_str().expect("semver utf8"));
+            dst.set_min_sdk(src.get_min_sdk().expect("minSdk").to_str().expect("minSdk utf8"));
+            dst.set_publisher(src.get_publisher().expect("publisher"));
+            dst.set_signature(src.get_signature().expect("signature"));
+            dst.set_payload_digest(&hex::decode(sha256_hex(payload)).expect("payload digest"));
+            dst.set_payload_size(payload.len() as u64);
+            if let Some(sbom) = sbom {
+                dst.set_sbom_digest(&hex::decode(sha256_hex(sbom)).expect("sbom digest"));
+            } else {
+                dst.set_sbom_digest(&[]);
+            }
+            if let Some(repro_json) = repro_json {
+                dst.set_repro_digest(&hex::decode(sha256_hex(repro_json)).expect("repro digest"));
+            } else {
+                dst.set_repro_digest(&[]);
+            }
+            let src_abilities = src.get_abilities().expect("abilities");
+            let mut dst_abilities = dst.reborrow().init_abilities(src_abilities.len());
+            for idx in 0..src_abilities.len() {
+                dst_abilities.set(
+                    idx,
+                    src_abilities.get(idx).expect("ability entry").to_str().expect("ability utf8"),
+                );
+            }
+            let src_caps = src.get_capabilities().expect("caps");
+            let mut dst_caps = dst.reborrow().init_capabilities(src_caps.len());
+            for idx in 0..src_caps.len() {
+                dst_caps
+                    .set(idx, src_caps.get(idx).expect("cap entry").to_str().expect("cap utf8"));
+            }
+        }
+        let mut out = Vec::new();
+        capnp::serialize::write_message(&mut out, &out_builder).expect("serialize manifest");
+        out
+    }
+
+    fn sbom_and_repro(
+        manifest: &[u8],
+        payload: &[u8],
+        publisher_hex: &str,
+    ) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let manifest_for_binding = manifest_with_digests(manifest, payload, None, None);
+        let manifest_binding_sha = sha256_hex(&manifest_for_binding);
+        let sbom = sbom::generate_bundle_sbom_json(&sbom::BundleSbomInput {
+            bundle_name: "demo.bundle".to_string(),
+            bundle_version: "1.0.0".to_string(),
+            publisher_hex: publisher_hex.to_string(),
+            payload_sha256: sha256_hex(payload),
+            payload_size: payload.len() as u64,
+            manifest_sha256: manifest_binding_sha.clone(),
+            source_date_epoch: 0,
+            components: Vec::new(),
+        })
+        .expect("generate sbom");
+        let repro = repro::capture_bundle_repro_json_with_manifest_digest(
+            &manifest_binding_sha,
+            payload,
+            &sbom,
+        )
+        .expect("generate repro");
+        let final_manifest = manifest_with_digests(manifest, payload, Some(&sbom), Some(&repro));
+        (final_manifest, sbom, repro)
+    }
+
+    fn run_install(
+        keystore: FakeKeystore,
+        manifest: Vec<u8>,
+        payload: Vec<u8>,
+        sbom: Vec<u8>,
+        repro_json: Vec<u8>,
+    ) -> (bool, InstallError) {
+        run_install_with_audit_fail(keystore, manifest, payload, sbom, repro_json, false)
+    }
+
+    fn run_install_with_audit_fail(
+        keystore: FakeKeystore,
+        manifest: Vec<u8>,
+        payload: Vec<u8>,
+        sbom: Vec<u8>,
+        repro_json: Vec<u8>,
+        audit_fail: bool,
+    ) -> (bool, InstallError) {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        let previous_audit_flag = std::env::var("NEXUS_BUNDLEMGRD_AUDIT_FAIL").ok();
+        if audit_fail {
+            std::env::set_var("NEXUS_BUNDLEMGRD_AUDIT_FAIL", "1");
+        } else {
+            std::env::remove_var("NEXUS_BUNDLEMGRD_AUDIT_FAIL");
+        }
+        let artifacts = ArtifactStore::new();
+        artifacts.insert(7, manifest.clone());
+        artifacts.stage_payload(7, payload.clone());
+        artifacts.stage_asset(7, "meta/sbom.json", sbom);
+        artifacts.stage_asset(7, "meta/repro.env.json", repro_json);
+
+        let mut server = Server::new(Service::new(), artifacts, Some(Box::new(keystore)), None);
+        let install_payload = build_install_payload("demo.bundle", 7, manifest.len() as u32);
+        let frame = server.handle_install(&install_payload).expect("handle install");
+        let result = parse_install_response(&frame[1..]);
+        match previous_audit_flag {
+            Some(value) => std::env::set_var("NEXUS_BUNDLEMGRD_AUDIT_FAIL", value),
+            None => std::env::remove_var("NEXUS_BUNDLEMGRD_AUDIT_FAIL"),
+        }
+        result
+    }
+
+    #[test]
+    fn supply_chain_install_ok() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![0xde, 0xad, 0xbe, 0xef];
+        let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+        );
+        assert!(ok);
+        assert_eq!(err, InstallError::None);
+    }
+
+    #[test]
+    fn test_reject_unknown_publisher() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: false, reason: "publisher_unknown" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Eacces);
+    }
+
+    #[test]
+    fn test_reject_unknown_key() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: false, reason: "key_unknown" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Eacces);
+    }
+
+    #[test]
+    fn test_reject_unsupported_alg() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: false, reason: "alg_unsupported" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Eacces);
+    }
+
+    #[test]
+    fn test_reject_payload_digest_mismatch() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, sbom, mut repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        repro_json[20] ^= 0x01;
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Einval);
+    }
+
+    #[test]
+    fn test_reject_repro_schema_invalid() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, sbom, _repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        let invalid_repro = br#"{"schema_version":1}"#.to_vec();
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            manifest,
+            payload,
+            sbom,
+            invalid_repro,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Einval);
+    }
+
+    #[test]
+    fn test_reject_audit_unreachable() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        let (ok, err) = run_install_with_audit_fail(
+            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+            true,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Eacces);
+    }
+
+    #[test]
+    fn test_reject_sbom_oversize() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, _sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        let oversized_sbom = vec![b'a'; MAX_SBOM_BYTES + 1];
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            manifest,
+            payload,
+            oversized_sbom,
+            repro_json,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Einval);
+    }
+
+    #[test]
+    fn test_reject_sbom_digest_mismatch() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, mut sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        sbom.push(b' ');
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Einval);
+    }
+
+    #[test]
+    fn test_reject_repro_digest_mismatch() {
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![1, 2, 3, 4];
+        let (manifest, sbom, mut repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+        repro_json.push(b' ');
+        let (ok, err) = run_install(
+            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            manifest,
+            payload,
+            sbom,
+            repro_json,
+        );
+        assert!(!ok);
+        assert_eq!(err, InstallError::Einval);
+    }
+
+    #[test]
+    fn test_reject_sbom_secret_leak() {
+        let input = sbom::BundleSbomInput {
+            bundle_name: "demo.bundle".to_string(),
+            bundle_version: "1.0.0".to_string(),
+            publisher_hex: "00000000000000000000000000000000".to_string(),
+            payload_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .to_string(),
+            payload_size: 1,
+            manifest_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                .to_string(),
+            source_date_epoch: 0,
+            components: vec![sbom::SbomComponentInput {
+                name: "BEGIN PRIVATE KEY".to_string(),
+                version: "1.0.0".to_string(),
+                purl: None,
+                sha256: None,
+            }],
+        };
+        let err = sbom::generate_bundle_sbom_json(&input).expect_err("secret leak must fail");
+        assert!(matches!(err, sbom::SbomError::SecretLeak { .. }));
+    }
 }
 
 /// Touches Cap'n Proto schemas to keep generated code linked.

@@ -167,16 +167,14 @@ This is the anti-fake-success gate.
 - [ ] No kernel changes.
 - [ ] `just dep-gate && just diag-os && just diag-host && just fmt-check && just lint && just arch-gate` green.
 
-## Active progress snapshot (TASK-0029 kickoff prep, 2026-04-21)
-- [x] Prior `current` handoff archived under `.cursor/handoff/archive/TASK-0023B-...md`.
-- [x] `current` handoff switched to `TASK-0029` kickoff context.
-- [x] `.cursor/current_state.md` and `.cursor/next_task_prep.md` point to `TASK-0029` as queue head.
-- [x] `.cursor/context_bundles.md` contains dedicated `TASK-0029` context/touched bundles.
-- [x] Quality-gate files (this file + `stop_conditions.md`) extended with the TASK-0029 addendum / class.
-- [x] `tasks/TASK-0029-...md` audited end-to-end (security section added, red flags resolved, plan tightened, production-grade tier defined with 10 hard gates).
-- [x] `docs/rfcs/RFC-0039-...md` authored from template; bidirectional link with TASK-0029; indexed in `docs/rfcs/README.md`.
-- [ ] 5 open questions in RFC-0039 §"Open questions" pinned; `Draft` → `Ready` flip applied to both task and RFC.
-- [ ] Cursor-internal plan authored in `~/.cursor/plans/task-0029-...plan.md`; first cut started.
+## Active progress snapshot (TASK-0029 closure remediation, 2026-04-22)
+- [x] Open questions pinned in task + RFC; execution plan authored and implemented through C-08.
+- [x] Host proofs + gated QEMU `supply-chain` profile run are green.
+- [x] `.cursor` workfiles switched from kickoff posture to closure-remediation posture.
+- [x] Contract drift deltas closed: manifest `sbomDigest`/`reproDigest`, strict `policyd` authority boundary, `sender_service_id` enforcement, bounded size guards.
+- [x] Final quality gate line fully green: `dep-gate`, `diag-os`, `diag-host`, `fmt-check`, `lint`, `arch-gate`.
+- [x] Explicit `cyclonedx-cli` roundtrip proof captured for RFC-0039 Phase 0.
+- [x] Status sync applied: `RFC-0039` is `Done`; `TASK-0029` intentionally remains `In Review`.
 
 ## Carry-over (TASK-0023B Phase-6 environmental closure)
 - [x] All six `TASK-0023B` phases functionally closed (P1-P6); `RFC-0038` advanced from `Draft` to `Done`; `TASK-0023B` advanced from `Draft` to `In Review`.

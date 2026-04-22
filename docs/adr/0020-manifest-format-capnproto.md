@@ -14,7 +14,7 @@
 
 The repository had **three conflicting manifest formats** (historical drift):
 
-1. **`docs/packaging/nxb.md`**: Documents `manifest.nxb` (binary, not implemented)
+1. **`docs/packaging/nxb.md`**: Documents `manifest.nxb` (binary contract; implementation is now active)
 2. **`tools/nxb-pack`**: Generated `manifest.json` (JSON) *(fixed as part of this unification)*
 3. **`bundlemgr` parser**: Parses TOML (`Manifest::parse_str`)
 
@@ -85,16 +85,20 @@ struct BundleManifest {
   abilities @3 :List(Text);
   capabilities @4 :List(Text);
   minSdk @5 :Text;  # Minimum SDK version
-  publisher @6 :Data;  # 32 bytes (hex decoded)
+  publisher @6 :Data;  # 16 bytes (hex decoded from 32 lowercase hex chars)
   signature @7 :Data;  # 64 bytes (Ed25519)
   
-  # v1.1 additions (for digest verification)
+  # v1.1 additions (for payload digest verification)
   payloadDigest @8 :Data;  # SHA-256 (32 bytes)
   payloadSize @9 :UInt64;
+
+  # v1.2 additions (supply-chain metadata binding)
+  sbomDigest @10 :Data;  # SHA-256(meta/sbom.json), 32 bytes
+  reproDigest @11 :Data; # SHA-256(meta/repro.env.json), 32 bytes
   
   # Future extensions (v2+)
-  # dependencies @10 :List(Dependency);
-  # permissions @11 :List(Permission);
+  # dependencies @12 :List(Dependency);
+  # permissions @13 :List(Permission);
 }
 
 ```text
@@ -171,7 +175,7 @@ struct BundleManifest {
 
 ```text
 
-### Phase 2: v1.1 Fields (TASK-0034 or later)
+### Phase 2: v1.1 Fields (TASK-0034)
 
 6. **Add digest/size fields** to schema (already defined above)
 7. **Update `nxb-pack`** to compute SHA-256(payload.elf)
@@ -180,6 +184,12 @@ struct BundleManifest {
 ---
 
 ## Migration Strategy
+
+### Phase 3: v1.2 Fields (TASK-0029 supply-chain v1)
+
+9. Add `sbomDigest` + `reproDigest` fields for manifest-bound supply-chain metadata.
+10. Extend pack/verify flow so `meta/sbom.json` and `meta/repro.env.json` are integrity-bound through `manifest.nxb`.
+11. Keep Cap'n Proto as canonical signed contract while preserving JSON interoperability artifacts under `meta/` per ADR-0021.
 
 ### Backward Compatibility
 
@@ -251,7 +261,8 @@ struct BundleManifest {
 - **ADR-0009**: Bundle Manager Architecture (defines manifest role)
 - **ADR-0017**: Service Architecture (host-first testing)
 - **TASK-0007**: Updates & Packaging v1.0 (first use of manifest.nxb)
-- **TASK-0034**: Delta updates v1 (adds digest/size fields in v1.1)
+- **TASK-0034**: Delta updates v1 (adds payload digest/size fields in v1.1)
+- **TASK-0029**: Supply-chain v1 (adds SBOM/repro digest bindings in v1.2)
 
 ---
 
@@ -268,4 +279,4 @@ struct BundleManifest {
 
 **Approved by**: @runtime  
 **Date**: 2026-01-15  
-**Implementation tracking**: TASK-0007 (v1.0), TASK-0034 (v1.1)
+**Implementation tracking**: TASK-0007 (v1.0), TASK-0034 (v1.1), TASK-0029 (v1.2)

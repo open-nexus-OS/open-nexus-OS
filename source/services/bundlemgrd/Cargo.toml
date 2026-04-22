@@ -16,6 +16,9 @@ std = [
     "dep:memchr",
     "dep:sha2",
     "dep:hex",
+    "dep:repro",
+    "dep:sbom",
+    "dep:policyd",
     "dep:nexus-packagefs",
 ]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
@@ -39,6 +42,9 @@ keystored = { path = "../keystored", features = ["idl-capnp"], optional = true }
 memchr = { version = "2", optional = true }
 sha2 = { version = "0.10", optional = true }
 hex = { version = "0.4", optional = true }
+repro = { path = "../../../tools/repro", optional = true }
+sbom = { path = "../../../tools/sbom", optional = true }
+policyd = { path = "../policyd", default-features = false, features = ["std", "idl-capnp"], optional = true }
 nexus-packagefs = { path = "../../../userspace/nexus-packagefs", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }

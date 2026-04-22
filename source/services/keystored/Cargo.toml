@@ -11,7 +11,9 @@ std = [
     "dep:nexus-idl-runtime",
     "dep:nexus-ipc",
     "nexus-ipc/std",
-    "dep:thiserror"
+    "dep:thiserror",
+    "dep:toml",
+    "dep:hex",
 ]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 os-lite = [
@@ -31,6 +33,8 @@ nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = 
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 thiserror = { version = "2", optional = true }
+toml = { version = "0.8", optional = true }
+hex = { version = "0.4", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }

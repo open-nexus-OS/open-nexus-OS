@@ -4,7 +4,9 @@
 //! IDL (target): list, route_status, fetch_image, set_active_slot
 //! DEPS: nexus-ipc, nexus-abi, nexus-log
 //! READINESS: emit "bundlemgrd: ready" once service loop is live
-//! TESTS: scripts/qemu-test.sh (selftest markers)
+//! TEST_COVERAGE: 5 unit tests + QEMU marker-ladder coverage
+//!   - Unit: frame parsing, slot switch, malformed rejects, sender-identity reject
+//!   - QEMU: scripts/qemu-test.sh (selftest markers via proof-manifest)
 
 extern crate alloc;
 
@@ -120,7 +122,6 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
-                let _ = sender_service_id;
                 if reply.is_some() && !logged_capmove {
                     logged_capmove = true;
                 }
@@ -130,7 +131,12 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                         line.text("core service log probe: bundlemgrd");
                     });
                 }
-                let rsp = handle_frame_vec(frame.as_slice());
+                let rsp = if is_allowed_sender(sender_service_id) {
+                    handle_frame_vec(frame.as_slice())
+                } else {
+                    emit_line("bundlemgrd: sender denied");
+                    denied_frame_response(frame.as_slice())
+                };
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);
                 } else {
@@ -401,6 +407,27 @@ fn rsp2(op: u8, status: u8, route_status: u8) -> [u8; 8] {
     out
 }
 
+fn is_allowed_sender(sender_service_id: u64) -> bool {
+    let selftest = nexus_abi::service_id_from_name(b"selftest-client");
+    let updated = nexus_abi::service_id_from_name(b"updated");
+    let samgrd = nexus_abi::service_id_from_name(b"samgrd");
+    sender_service_id == selftest || sender_service_id == updated || sender_service_id == samgrd
+}
+
+fn denied_frame_response(frame: &[u8]) -> alloc::vec::Vec<u8> {
+    use alloc::vec::Vec;
+
+    let fixed =
+        if frame.len() >= 4 && frame[0] == MAGIC0 && frame[1] == MAGIC1 && frame[2] == VERSION {
+            rsp(frame[3], STATUS_UNSUPPORTED, 0)
+        } else {
+            rsp(OP_LIST, STATUS_MALFORMED, 0)
+        };
+    let mut out = Vec::with_capacity(fixed.len());
+    out.extend_from_slice(&fixed);
+    out
+}
+
 fn append_probe_to_logd() -> bool {
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
@@ -605,5 +632,14 @@ mod tests {
         // name_len present but missing bytes
         let rsp = handle_frame_vec(&build_req(OP_ROUTE_STATUS, &[3, b'a', b'b']));
         assert_eq!(rsp[4], STATUS_MALFORMED);
+    }
+
+    #[test]
+    fn test_reject_unauthorized_sender_frame() {
+        let req = build_req(OP_LIST, &[]);
+        let rsp = denied_frame_response(&req);
+        assert_eq!(rsp.len(), 8);
+        assert_eq!(rsp[3], OP_LIST | 0x80);
+        assert_eq!(rsp[4], STATUS_UNSUPPORTED);
     }
 }

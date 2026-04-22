@@ -73,7 +73,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 ### Domain libraries (host-first)
 
 - `03-samgr.md` — `userspace/samgr` (host-first registry library; OS uses `samgrd`)
-- `04-bundlemgr-manifest.md` — `userspace/bundlemgr` TOML manifest parser (developer/tests; OS packaging contract is `manifest.nxb`)
+- `04-bundlemgr-manifest.md` — canonical `manifest.nxb`/`BundleManifest` contract (Cap'n Proto) plus host parser constraints
 - **Updates contract (v1.0)**: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` + `docs/packaging/system-set.md` (**Complete**)
 - **Boot gates contract (v1.0)**: `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (**Complete**)
 

@@ -4,14 +4,15 @@
 
 Related docs:
 
-- Packaging contract (`.nxb` directory; `manifest.nxb` + `payload.elf`): `docs/packaging/nxb.md`
-- Host-first manifest parsing (TOML schema): `docs/architecture/04-bundlemgr-manifest.md`
+- Packaging contract (`.nxb` directory; `manifest.nxb` + `payload.elf` + `meta/`): `docs/packaging/nxb.md`
+- Host/OS manifest parsing contract (Cap'n Proto `BundleManifest`): `docs/architecture/04-bundlemgr-manifest.md`
 - Execution path context: `docs/architecture/10-execd-and-loader.md`
 - Service architecture (direction): `docs/adr/0017-service-architecture.md`
 - Policy/trust gating narrative: `docs/security/signing-and-policy.md`
+- Supply-chain v1 contract (SBOM/repro/sign-policy): `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md`
 - Testing + marker discipline: `docs/testing/index.md` and `scripts/qemu-test.sh`
 
-**Scope note:** `docs/architecture/04-bundlemgr-manifest.md` is the host-first TOML parser; this page is the OS daemon authority.
+**Scope note:** `docs/architecture/04-bundlemgr-manifest.md` documents the canonical Cap'n Proto manifest contract; this page documents daemon authority/responsibilities.
 
 ## Responsibilities
 

@@ -37,6 +37,8 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Contract**: canonical `.nxb` layout and `bundlemgrd` ↔ `execd` handshake
 - **Canonical doc**: `docs/packaging/nxb.md`
 - **Related**: `docs/adr/0009-bundle-manager-architecture.md`, `docs/adr/0007-executable-payloads-architecture.md`
+- **Supply-chain extension**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md`
+- **Proof**: host reject suites + gated QEMU supply-chain marker ladder (`just test-os supply-chain`)
 - **Drift warning**: `docs/bundle-format.md` is explicitly legacy/drifted; don’t treat it as the OS contract.
 
 ### Updates (`.nxs` system-set + A/B skeleton)

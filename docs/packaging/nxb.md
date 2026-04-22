@@ -1,6 +1,6 @@
 # Nexus bundle packaging (`.nxb`)
 
-**Status**: Active (updated 2026-01-15)  
+**Status**: Active (updated 2026-04-22)  
 **Canonical source**: ADR-0020 (manifest format decision)
 
 The loader v1.1 milestone wires `bundlemgrd` and `execd` together so installed
@@ -10,20 +10,21 @@ the OS image.
 
 ## Layout
 
-An `.nxb` directory contains two files:
+An `.nxb` directory contains canonical contract bytes plus interop metadata:
 
 ```text
-
 <bundle>.nxb/
 ├── manifest.nxb
-└── payload.elf
-
-```text
+├── payload.elf
+└── meta/
+    ├── sbom.json
+    └── repro.env.json
+```
 
 - **`manifest.nxb`**: Canonical, deterministic bundle manifest (Cap'n Proto binary).
   - **Format**: Cap'n Proto (`tools/nexus-idl/schemas/manifest.capnp`)
   - **Deterministic**: Same manifest data → same binary output (signable)
-  - **Versionable**: Schema v1.0 (core fields), v1.1 (digest/size), v2.0+ (future)
+  - **Versionable**: Schema v1.0 (core fields), v1.1 (`payloadDigest`/`payloadSize`), v1.2 (`sbomDigest`/`reproDigest`)
   - **Replaces**: Old JSON/TOML formats (drift resolved in TASK-0007)
   
 - **`payload.elf`**: ELF64/RISC-V binary. In v1.1 the same payload is staged
@@ -31,31 +32,42 @@ An `.nxb` directory contains two files:
   in `bundlemgrd`'s artifact store so the daemon can serve it to `execd` during
   `getPayload`.
 
+- **`meta/sbom.json`**: CycloneDX JSON 1.5 SBOM (interop artifact).
+  - Format policy: JSON is intentional for SBOM interoperability (ADR-0021).
+  - Integrity binding: SHA-256 is stored in `manifest.nxb` (`sbomDigest`).
+
+- **`meta/repro.env.json`**: Reproducibility metadata snapshot.
+  - Includes deterministic build context (`SOURCE_DATE_EPOCH`, toolchain, digests).
+  - Integrity binding: SHA-256 is stored in `manifest.nxb` (`reproDigest`).
+
+### Why JSON under `meta/` while manifest is Cap'n Proto?
+
+- Cap'n Proto is the canonical contract format for runtime/signing/persistence bytes.
+- SBOM and repro metadata are interoperability artifacts and therefore JSON by ADR-0021 policy.
+- Integrity is still enforced through manifest digest fields, so JSON does not weaken trust binding.
+
 ## Authoring bundles
 
 The helper `tools/nxb-pack` crate creates the directory for you:
 
 ```bash
-
 # From TOML source (human-editable)
-
 cargo run -p nxb-pack -- --toml manifest.toml path/to/app.elf out/demo.hello.nxb
 
 # Quick mode (generates default manifest)
-
 cargo run -p nxb-pack -- path/to/app.elf out/demo.hello.nxb
-
-```text
+```
 
 **Workflow**:
 1. **Input**: `manifest.toml` (TOML, human-editable)
 2. **Compile**: `nxb-pack` → `manifest.nxb` (Cap'n Proto binary)
-3. **Package**: Copy `payload.elf` + `manifest.nxb` to output directory
+3. **Generate**: `meta/sbom.json` + `meta/repro.env.json`
+4. **Bind digests**: write `payloadDigest`, `sbomDigest`, `reproDigest` into manifest
+5. **Package**: emit deterministic directory layout
 
 **Example `manifest.toml`**:
 
 ```toml
-
 name = "demo.hello"
 version = "1.0.0"
 abilities = ["ohos.ability.MainAbility"]
@@ -63,8 +75,7 @@ caps = ["ohos.permission.INTERNET"]
 min_sdk = "1.0.0"
 publisher = "00000000000000000000000000000000"
 sig = "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-
-```text
+```
 
 **Output `manifest.nxb`**: Binary Cap'n Proto encoding (deterministic, signable)
 

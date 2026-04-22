@@ -124,6 +124,19 @@ Scope note:
 - `tools/os2vm.sh` remains required only when new distributed behavior is explicitly claimed.
 - Advanced QUIC tuning/perf breadth remains follow-up scope (`TASK-0044`).
 
+### TASK-0029 supply-chain v1 matrix
+
+`TASK-0029` closes host-first supply-chain baseline for bundle SBOM/repro metadata and sign-policy enforcement.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Deterministic SBOM embedding (`meta/sbom.json`) | host determinism assertions | `cargo test -p sbom -- determinism` and `cargo test -p nxb-pack -- supply_chain` |
+| CycloneDX contract compliance (schema + roundtrip) | host interoperability assertions | `cargo run -p nxb-pack -- --hello target/supplychain-proof` then `build/tools/cyclonedx-cli validate/convert/convert/validate` (v1.5) |
+| Repro metadata capture + verify (`meta/repro.env.json`) | host schema/digest assertions | `cargo test -p repro -- verify` |
+| Single-authority allowlist + install enforcement order | host authority-chain assertions | `cargo test -p keystored -- is_key_allowed` and `cargo test -p bundlemgrd -- supply_chain` |
+| Mandatory deny-by-default reject paths (`test_reject_*`) | host fail-closed assertions | `cargo test -p bundlemgrd -- test_reject_unknown_publisher test_reject_unknown_key test_reject_unsupported_alg test_reject_payload_digest_mismatch test_reject_sbom_digest_mismatch test_reject_repro_digest_mismatch test_reject_sbom_secret_leak test_reject_repro_schema_invalid test_reject_audit_unreachable` |
+| QEMU supply-chain marker ladder | single-VM gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os supply-chain` |
+
 ### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
 
 Legacy tasks remain `Done`; production closure uses follow-on requirement suites to prove Soll behavior (not implementation internals).
@@ -196,7 +209,7 @@ seen and ensure log caps are in effect. `just test-os` wraps
 
 The QEMU marker ladder, harness profile catalog, and runtime selftest profile catalog all live in **`source/apps/selftest-client/proof-manifest.toml`**. This file is the single source of truth (SSOT). `scripts/qemu-test.sh`, `tools/os2vm.sh`, the `selftest-client` build, and the `nexus-proof-manifest` host CLI all read from it; nothing else is allowed to declare markers, profile env, or phase order.
 
-**Profile catalog**
+#### Profile catalog
 
 | Kind     | Profile         | Driver                          | Purpose |
 |---       |---              |---                              |---|
@@ -205,6 +218,7 @@ The QEMU marker ladder, harness profile catalog, and runtime selftest profile ca
 | Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
 | Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |
 | Harness  | `quic-required` | `scripts/qemu-test.sh`          | QUIC required; `transport selected tcp` is forbidden (`just ci-os-quic`). |
+| Harness  | `supply-chain`  | `scripts/qemu-test.sh`          | Supply-chain marker ladder required (`just test-os supply-chain`). |
 | Harness  | `os2vm`         | `tools/os2vm.sh`                | Cross-VM DSoftBus harness (`just ci-os-os2vm`). |
 | Runtime  | `bringup`       | `os_lite::profile` (in-OS)      | Boots `bringup` + `end` phases only (`SELFTEST_PROFILE=bringup`). |
 | Runtime  | `quick`         | `os_lite::profile` (in-OS)      | `bringup` → `ipc_kernel` → `mmio` → `end`. |
@@ -214,33 +228,33 @@ The QEMU marker ladder, harness profile catalog, and runtime selftest profile ca
 
 Harness profiles live under `[profile.<name>]` with `runner` + optional `extends` + `env` keys. Runtime profiles set `runtime_only = true` and declare `phases = [...]` (subset of the 12 declared `[phase.X]` entries); skipped phases emit a single `dbg: phase X skipped` breadcrumb instead of any `SELFTEST:` markers.
 
-**Adding a new marker**
+#### Adding a new marker
 
 1. Append a `[marker."<literal>"]` entry to `proof-manifest.toml` with `phase = "<name>"` and any `emit_when = { profile = "..." }` / `forbidden_when = { profile = "..." }` gates.
 2. Re-run `cargo build -p selftest-client` (the `build.rs` regenerates `markers_generated.rs` with a `pub(crate) const M_<KEY>: &str = "<literal>";` constant).
 3. In the emitting site, reference the constant: `crate::markers::emit_line(crate::markers::M_<KEY>);`. Do not hand-write the literal — `arch-gate` Rule 3 fails the build if any `SELFTEST:` / `dsoftbusd:` / `dsoftbus:` literal appears outside `markers.rs` + `markers_generated.rs`.
 4. Add a `cargo test -p nexus-proof-manifest` reject test if the marker carries new gating semantics.
 
-**Adding a new harness profile**
+#### Adding a new harness profile
 
 1. Append `[profile.<name>]` with `runner = "scripts/qemu-test.sh"` (or your driver), optional `extends = "<parent>"`, and `env = { ... }`. Use `extends` for inheritance — child entries shadow parent keys; cycles are rejected at parse time.
 2. Add a `just ci-<flavor>` recipe in the `# CI matrix` section of `justfile` that invokes `just test-os PROFILE=<name>` (or your alternate runner). Do **not** put `REQUIRE_*` env literals in the recipe body — `arch-gate` Rule 6 will fail. All env wiring belongs in the manifest.
 3. Verify: `nexus-proof-manifest list-env --profile=<name>` prints the resolved env; `nexus-proof-manifest list-markers --profile=<name>` prints the expected marker ladder.
 
-**Adding a new runtime profile**
+#### Adding a new runtime profile
 
 1. Append `[profile.<name>]` with `runtime_only = true` and `phases = ["...", "..."]` (subset of declared phases). The parser rejects unknown phase names and rejects `runner` keys on runtime-only profiles.
 2. Add a `Profile::<Name>` variant to `source/apps/selftest-client/src/os_lite/profile.rs` and wire it into `Profile::from_kernel_cmdline_or_default` + `Profile::includes`.
 3. Add a `ci-os-runtime-<name>` recipe that sets `SELFTEST_PROFILE=<name>` at build time (the env is read via `option_env!`, so the value is baked into the binary; `build.rs` already advertises `cargo:rerun-if-env-changed=SELFTEST_PROFILE`).
 
-**Adding a new phase**
+#### Adding a new phase
 
 1. Update [RFC-0014](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) and append a `[phase.<name>] order = N` entry to `proof-manifest.toml`.
 2. Add `source/apps/selftest-client/src/os_lite/phases/<name>.rs` and register it in `os_lite/phases/mod.rs`.
 3. Extend `PhaseId` in `os_lite/profile.rs` and the `run_or_skip!` chain in `os_lite/mod.rs` (declarative; no logic).
 4. Add a `dbg: phase <name> skipped` marker entry to `proof-manifest.toml` so runtime profiles can declaratively skip the phase.
 
-**Deny-by-default analyzer (P4-09)**
+#### Deny-by-default analyzer (P4-09)
 
 After every QEMU pass `scripts/qemu-test.sh` invokes `nexus-proof-manifest verify-uart --profile=<name> --uart=uart.log`. Any marker that is not in the profile's expected set, or that the profile lists as forbidden, fails the run with exit 1. Set `PM_VERIFY_UART=0` only as a temporary escape hatch (will be required by P4-10 closure / Phase-5).
 

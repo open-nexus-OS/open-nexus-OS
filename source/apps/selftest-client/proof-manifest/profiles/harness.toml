@@ -45,3 +45,8 @@ env = { REQUIRE_DSOFTBUS = "1", REQUIRE_DSOFTBUS_REMOTE_PKGFS = "1", REQUIRE_DSO
 runner = "scripts/qemu-test.sh"
 extends = "full"
 env = { REQUIRE_DSOFTBUS = "1" }
+
+[profile.supply-chain]
+runner = "scripts/qemu-test.sh"
+extends = "full"
+env = { REQUIRE_SUPPLY_CHAIN = "1" }

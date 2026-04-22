@@ -11,6 +11,7 @@
 #   - schemaVersion field tracks schema evolution
 #   - v1.0: Core fields (name, version, abilities, caps, publisher, signature)
 #   - v1.1: Add payloadDigest + payloadSize (TASK-0034)
+#   - v1.2: Add sbomDigest + reproDigest (TASK-0029)
 #   - v2.0+: Future extensions (dependencies, permissions, etc.)
 #
 # USAGE:
@@ -65,6 +66,13 @@ struct BundleManifest {
   # Used for download progress + storage checks
   payloadSize @9 :UInt64;
 
+  # v1.2 additions (TASK-0029)
+  # SHA-256 digest of meta/sbom.json (32 bytes)
+  sbomDigest @10 :Data;
+
+  # SHA-256 digest of meta/repro.env.json (32 bytes)
+  reproDigest @11 :Data;
+
   # Future extensions (v2.0+)
   # Example placeholders (not implemented yet):
   #
@@ -78,10 +86,10 @@ struct BundleManifest {
   #   reason @1 :Text;  # User-facing explanation
   # }
   #
-  # dependencies @10 :List(Dependency);
-  # permissions @11 :List(Permission);
-  # icon @12 :Data;  # PNG/JPEG bytes
-  # metadata @13 :Map(Text, Text);  # Key-value pairs
+  # dependencies @12 :List(Dependency);
+  # permissions @13 :List(Permission);
+  # icon @14 :Data;  # PNG/JPEG bytes
+  # metadata @15 :Map(Text, Text);  # Key-value pairs
 }
 
 # Validation rules (enforced by parser):
@@ -95,5 +103,7 @@ struct BundleManifest {
 # 7. signature: Exactly 64 bytes
 # 8. payloadDigest: Exactly 32 bytes (if present)
 # 9. payloadSize: > 0 (if present)
+# 10. sbomDigest: Exactly 32 bytes (if present)
+# 11. reproDigest: Exactly 32 bytes (if present)
 #
 # Parser MUST reject manifests violating these rules.

@@ -189,13 +189,13 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] No follow-up scope (`TASK-0197 / 0198 / 0289`) silently absorbed; touched-paths allowlist enforced.
 - [ ] Architecture contract stays synchronized: `tasks/TASK-0029-...md` (execution SSOT), `docs/rfcs/RFC-0039-...md` (contract seed). Both flipped from `Draft` to `Ready` before code lands; `Done` only after all proofs above are green and `docs/rfcs/README.md` index entry reflects closure.
 
-## Active progress snapshot (TASK-0029 kickoff prep, 2026-04-21)
-- [x] Prior `TASK-0023B` handoff archived under `.cursor/handoff/archive/`.
-- [x] Active `.cursor` workfiles point to `TASK-0029` / `RFC-0039`.
-- [x] TASK-0029 + RFC-0039 audited / authored end-to-end (security section, 10 hard gates, schema-extensibility ratchet, format-policy compliance per ADR-0021).
-- [x] Bidirectional task ↔ RFC link in place; RFC-0039 indexed in `docs/rfcs/README.md`.
-- [ ] 5 open questions in RFC-0039 §"Open questions" pinned; `Draft` → `Ready` flip applied to both task and RFC.
-- [ ] Cursor-internal plan authored in `~/.cursor/plans/task-0029-...plan.md`; first cut started (suggested: C-01 SBOM generator, host-only).
+## Active progress snapshot (TASK-0029 closure remediation, 2026-04-22)
+- [x] Active `.cursor` workfiles and RFC status sections now reflect post-implementation closure state.
+- [x] C-01..C-08 implementation slices are landed; host reject suite and QEMU supply-chain profile proofs exist.
+- [x] Remaining closure deltas are fixed in code: manifest digest fields + strict authority boundary + sender identity + bounded inputs.
+- [x] Final quality gates (`fmt-check`/`lint` + full gate set) are green and referenced from task/RFC closure notes.
+- [x] Explicit `cyclonedx-cli` roundtrip proof for RFC-0039 Phase 0 captured and documented.
+- [x] Status sync applied: `RFC-0039` is `Done`; `TASK-0029` remains intentionally `In Review`.
 
 ## Carry-over (TASK-0023B Phase-6 environmental closure)
 - [x] `TASK-0023B` is `In Review`; `RFC-0038` advanced to `Done` modulo Phase-6 checkbox.

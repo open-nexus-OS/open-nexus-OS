@@ -1,0 +1,12 @@
+# Supply-chain v1 publisher allowlist (load-once at keystored startup).
+# Keys are hex-encoded bytes matched against IsKeyAllowedRequest.pubkey.
+version = 1
+
+[[publishers]]
+id = "00000000000000000000000000000000"
+enabled = true
+allowed_algs = ["ed25519"]
+keys = [
+  "00000000000000000000000000000000",
+  "11111111111111111111111111111111",
+]

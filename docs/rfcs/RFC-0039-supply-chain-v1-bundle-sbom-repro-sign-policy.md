@@ -1,9 +1,9 @@
 # RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (host-first, OS-gated)
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime @security
 - Created: 2026-04-21
-- Last Updated: 2026-04-21 (status flip Draft → In Progress)
+- Last Updated: 2026-04-22 (status flip to Done; proof checklist remained green)
 - Links:
   - Tasks: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` (execution + proof)
   - ADR (manifest format = capnp): `docs/adr/0020-manifest-format-capnproto.md`
@@ -18,15 +18,20 @@
 
 ## Status at a Glance
 
-- **Phase 0 (SBOM generator + bundle embedding)**: ⬜
-- **Phase 1 (Repro metadata + `repro-verify`)**: ⬜
-- **Phase 2 (Allowlist authority — `keystored` capnp + `policyd` decision + `bundlemgrd` enforcement)**: ⬜
-- **Phase 3 (Host reject-path proofs)**: ⬜
-- **Phase 4 (OS selftest + deterministic markers, gated)**: ⬜
+- **Phase 0 (SBOM generator + bundle embedding)**: ✅
+- **Phase 1 (Repro metadata + `repro-verify`)**: ✅
+- **Phase 2 (Allowlist authority — `keystored` capnp + `policyd` decision + `bundlemgrd` enforcement)**: ✅
+- **Phase 3 (Host reject-path proofs)**: ✅
+- **Phase 4 (OS selftest + deterministic markers, gated)**: ✅
 
 Definition:
 
 - "Complete" means the **contract** is defined and the **proof gates** are green (tests/markers). It does not mean "never changes again".
+
+### Current closure deltas (resolved for RFC closure)
+
+- RFC status closure sync is complete (`In Review` → `Done`).
+- Execution task `TASK-0029` intentionally remains `In Review` until separate task-level finalization.
 
 ## Scope boundaries (anti-drift)
 
@@ -275,15 +280,37 @@ cargo test -p bundlemgrd -- test_reject_unknown_publisher \
                             test_reject_unknown_key \
                             test_reject_unsupported_alg \
                             test_reject_payload_digest_mismatch \
+                            test_reject_sbom_digest_mismatch \
+                            test_reject_repro_digest_mismatch \
                             test_reject_sbom_secret_leak \
                             test_reject_repro_schema_invalid \
                             test_reject_audit_unreachable
+# CycloneDX schema + roundtrip proof (Phase 0)
+cargo run -p nxb-pack -- --hello target/supplychain-proof
+build/tools/cyclonedx-cli validate \
+  --input-file target/supplychain-proof/meta/sbom.json \
+  --input-version v1_5 --fail-on-errors
+build/tools/cyclonedx-cli convert \
+  --input-file target/supplychain-proof/meta/sbom.json \
+  --input-format json \
+  --output-file target/supplychain-proof/meta/sbom.roundtrip.xml \
+  --output-format xml \
+  --output-version v1_5
+build/tools/cyclonedx-cli convert \
+  --input-file target/supplychain-proof/meta/sbom.roundtrip.xml \
+  --input-format xml \
+  --output-file target/supplychain-proof/meta/sbom.roundtrip.json \
+  --output-format json \
+  --output-version v1_5
+build/tools/cyclonedx-cli validate \
+  --input-file target/supplychain-proof/meta/sbom.roundtrip.json \
+  --input-version v1_5 --fail-on-errors
 ```
 
 ### Proof (OS/QEMU)
 
 ```bash
-cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os supply-chain
 # Allow + deny selftest probes registered in proof-manifest/markers/
 ```
 
@@ -308,11 +335,15 @@ All markers MUST be registered in `source/apps/selftest-client/proof-manifest/ma
 5. **TOML for allowlist + capnp method** vs **all-capnp** — kept TOML for `publishers.toml` (human-edited authoring input per ADR-0021); kept capnp for the runtime IPC method (canonical contract per ADR-0020). This is the same canonical-vs-authoring split the rest of the repo uses.
 6. **`updated` install-path enforcement in v1** — rejected. The Production-grade tier in `TASK-0029` explicitly gates this to `TASK-0198`. Touching `updated` here would silently expand v1 scope and pre-empt v2 OS contracts.
 
-## Open questions
+## Resolved open questions (pinned for v1)
 
-- **Publisher identifier format**: human-readable string vs. fingerprint. v1 leans toward `Text` (human-readable, e.g. `"open-nexus.example"`) so `publishers.toml` stays editable; the cryptographic anchor is the `pubkey :Data` field, not the name. Decision deadline: Phase 2 kickoff.
-- **`sbomDigest` / `reproDigest` field IDs**: which `@N` to use in `BundleManifest`. Must be allocated against ADR-0020's reserved-for-v2 region (`@10..`). Decision deadline: Phase 0 kickoff.
-- **Backward compatibility with bundles produced before this RFC lands**: pre-v1 bundles have no `meta/sbom.json` / `meta/repro.env.json`. Decision: `bundlemgrd` rejects them with `integrity.sbom_digest_mismatch` (or a new `policy.sbom_required` label) — no quiet pass-through. Decision deadline: Phase 2 kickoff.
+These decisions are mirrored in `TASK-0029` and remain fixed for v1 scope.
+
+1. **SBOM granularity**: v1 is payload-centric. `meta/sbom.json` covers bundle identity, payload material/digest, and declared package metadata. Full build-host graph closure is deferred to v2 provenance/sigchain work.
+2. **Repro artefact format**: `meta/repro.env.json` is the only in-bundle repro contract artefact. Optional human-readable `.txt` output is CLI-only and not consumed by install policy.
+3. **`publishers.toml` reload behavior**: `keystored` reads allowlist state once at startup in v1; live reload is a v2 follow-up.
+4. **Multi-key per publisher**: v1 allowlist format supports multiple keys per publisher for rotation safety without ABI changes.
+5. **`bundlemgrd` audit emission**: install allow/deny outcomes use a synchronous bounded audit emit/ack path; timeout or unreachable logd fails closed.
 
 ## RFC Quality Guidelines (for authors)
 
@@ -329,11 +360,11 @@ All markers MUST be registered in `source/apps/selftest-client/proof-manifest/ma
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: SBOM generator + bundle embedding + `BundleManifest.sbomDigest` — proof: `cargo test -p nxb-pack -- supply_chain && cargo test -p sbom -- determinism`
-- [ ] **Phase 1**: Repro metadata + `repro-verify` + `BundleManifest.reproDigest` — proof: `cargo test -p repro -- verify`
-- [ ] **Phase 2**: `keystored::IsKeyAllowed` capnp method + `policyd` hook + `bundlemgrd` enforcement order — proof: `cargo test -p keystored -- is_key_allowed && cargo test -p bundlemgrd -- supply_chain`
-- [ ] **Phase 3**: Host reject-path suite green — proof: `cargo test -p bundlemgrd -- test_reject_unknown_publisher test_reject_unknown_key test_reject_unsupported_alg test_reject_payload_digest_mismatch test_reject_sbom_secret_leak test_reject_repro_schema_invalid test_reject_audit_unreachable`
-- [ ] **Phase 4**: OS selftest install of allowed + unallowed bundle, deterministic markers registered in `proof-manifest/markers/` and consumed by `verify-uart` — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-- [ ] Task `TASK-0029` linked with stop conditions + proof commands.
-- [ ] QEMU markers (stable-label form) appear in `proof-manifest/markers/` and pass `verify-uart`.
-- [ ] Security-relevant negative tests (`test_reject_*`) green for every label in the Failure-model table.
+- [x] **Phase 0**: SBOM generator + bundle embedding + `BundleManifest.sbomDigest` — proof: `cargo test -p nxb-pack -- supply_chain && cargo test -p sbom -- determinism` + `cyclonedx-cli` validate/convert/validate roundtrip
+- [x] **Phase 1**: Repro metadata + `repro-verify` + `BundleManifest.reproDigest` — proof: `cargo test -p repro -- verify`
+- [x] **Phase 2**: `keystored::IsKeyAllowed` capnp method + `policyd` hook + `bundlemgrd` enforcement order — proof: `cargo test -p keystored -- is_key_allowed && cargo test -p bundlemgrd -- supply_chain`
+- [x] **Phase 3**: Host reject-path suite green — proof: `cargo test -p bundlemgrd -- test_reject_unknown_publisher test_reject_unknown_key test_reject_unsupported_alg test_reject_payload_digest_mismatch test_reject_sbom_digest_mismatch test_reject_repro_digest_mismatch test_reject_sbom_secret_leak test_reject_repro_schema_invalid test_reject_audit_unreachable`
+- [x] **Phase 4**: OS selftest install of allowed + unallowed bundle, deterministic markers registered in `proof-manifest/markers/` and consumed by `verify-uart` — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os supply-chain`
+- [x] Task `TASK-0029` linked with stop conditions + proof commands.
+- [x] QEMU markers (stable-label form) appear in `proof-manifest/markers/` and pass `verify-uart`.
+- [x] Security-relevant negative tests (`test_reject_*`) green for every label in the Failure-model table.

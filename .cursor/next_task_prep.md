@@ -2,10 +2,10 @@
 
 ## Candidate next execution
 
-- **task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `Draft`
-- **contract seed (RFC)**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` — `Draft`
-- **mode**: kickoff. Author the Cursor-internal plan in `~/.cursor/plans/` (single-cut cadence, host-first, OS-gated). Suggested 8-cut shape in `.cursor/handoff/current.md`.
-- **tier**: `production-grade` BASELINE for the Updates / Packaging / Recovery group (per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`). Full closure of that tier is reached only at `TASK-0197 + TASK-0198 + TASK-0289`; v1 must stay on that trajectory without locking the wrong contract.
+- **task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `In Review` (intentionally held for task-level finalization).
+- **contract seed (RFC)**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` — `Done` (closure state synced).
+- **mode**: final task-level review/report sync while keeping scope frozen.
+- **tier**: `production-grade` BASELINE for the Updates / Packaging / Recovery group (per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`). Full closure of that tier remains `TASK-0197 + TASK-0198 + TASK-0289`.
 
 ## Drift check vs `current_state.md`
 
@@ -98,15 +98,9 @@ These are mechanically enforceable in review/CI and exist so v1 stays *baseline*
 
 Reorder if cross-cut blockers emerge — keep C-03 → C-04 → C-05 ordering (ABI before runtime before enforcement).
 
-## Open questions to pin before `Ready`
+## Closure delta queue (before `Done`)
 
-(Decision-level for v1, not blockers — pin answers before code lands.)
-
-1. SBOM granularity for v1: bundle-internal payload-only, or include build-host crate graph?
-2. Repro metadata format: schema-versioned JSON only (current default), or also a plain `.txt` summary for `cyclonedx-cli`-free debugging?
-3. `publishers.toml` reload semantics: load-once-at-startup (current default) or signal-driven reload?
-4. Multiple keys per publisher in v1, or single-key-per-publisher with v2 multi-key extension?
-5. `bundlemgrd` audit emission: synchronous (block install on logd ack) or fire-and-fail-closed-on-error?
+1. Keep `TASK-0029` at `In Review` and only finalize task status when explicit task-level closure approval is given.
 
 ## Carry-over (TASK-0023B Phase-6 environmental closure)
 
@@ -136,11 +130,7 @@ This does **not** block kicking off TASK-0029.
 - `tasks/STATUS-BOARD.md`
 - `tasks/IMPLEMENTATION-ORDER.md`
 
-## Ready condition
+## Done condition (current)
 
-- **Status flip** (`Draft` → `Ready`) is allowed once the 5 open questions above are decided.
-- **First action when "go"**:
-  1. Pin the 5 open-question answers in TASK-0029 + RFC-0039 (1 short paragraph each).
-  2. Flip both statuses to `Ready`.
-  3. Author `~/.cursor/plans/task-0029-...plan.md` with the 8-cut shape (or revised shape if open-question answers reshape it).
-  4. Start at C-01 (SBOM generator) — host-only, no service touch yet, lowest risk.
+- Status flip to `Done/Complete` only after closure-delta queue is green and gate set is fully green:
+  - `just dep-gate && just diag-os && just diag-host && just fmt-check && just lint && just arch-gate`
