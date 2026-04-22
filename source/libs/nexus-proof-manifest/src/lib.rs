@@ -239,7 +239,10 @@ fn parse_with_sources(source: &str, sources: Vec<PathBuf>) -> Result<Manifest, P
         raw.phase.unwrap_or_default(),
         raw.profile.unwrap_or_default(),
         raw.marker.unwrap_or_default(),
-        Meta { schema_version, default_profile },
+        Meta {
+            schema_version,
+            default_profile,
+        },
         sources,
     )
 }
@@ -274,9 +277,13 @@ fn finish_parse(
     // -- profiles -----------------------------------------------------------
     let mut profiles: BTreeMap<String, Profile> = BTreeMap::new();
     for (name, value) in raw_profiles {
-        let raw_profile: RawProfile = value.try_into().map_err(|e: toml::de::Error| {
-            ParseError::ProfileBodyInvalid { profile: name.clone(), detail: e.to_string() }
-        })?;
+        let raw_profile: RawProfile =
+            value
+                .try_into()
+                .map_err(|e: toml::de::Error| ParseError::ProfileBodyInvalid {
+                    profile: name.clone(),
+                    detail: e.to_string(),
+                })?;
         if raw_profile.runtime_only && raw_profile.runner.is_some() {
             return Err(ParseError::ProfileRuntimeOnlyWithRunner(name));
         }
@@ -331,14 +338,28 @@ fn finish_parse(
         if !seen_marker.insert(literal.clone()) {
             return Err(ParseError::DuplicateMarker(literal));
         }
-        let phase =
-            raw_marker.phase.ok_or_else(|| ParseError::MarkerMissingPhase(literal.clone()))?;
+        let phase = raw_marker
+            .phase
+            .ok_or_else(|| ParseError::MarkerMissingPhase(literal.clone()))?;
         if !phases.contains_key(&phase) {
-            return Err(ParseError::MarkerUnknownPhase { marker: literal.clone(), phase });
+            return Err(ParseError::MarkerUnknownPhase {
+                marker: literal.clone(),
+                phase,
+            });
         }
         check_profile_ref(&literal, &raw_marker.emit_when, "emit_when", &profiles)?;
-        check_profile_ref(&literal, &raw_marker.emit_when_not, "emit_when_not", &profiles)?;
-        check_profile_ref(&literal, &raw_marker.forbidden_when, "forbidden_when", &profiles)?;
+        check_profile_ref(
+            &literal,
+            &raw_marker.emit_when_not,
+            "emit_when_not",
+            &profiles,
+        )?;
+        check_profile_ref(
+            &literal,
+            &raw_marker.forbidden_when,
+            "forbidden_when",
+            &profiles,
+        )?;
         markers.push(Marker {
             literal,
             phase,
@@ -350,13 +371,21 @@ fn finish_parse(
         });
     }
 
-    Ok(Manifest { meta, phases, profiles, markers, source_files })
+    Ok(Manifest {
+        meta,
+        phases,
+        profiles,
+        markers,
+        source_files,
+    })
 }
 
 /// Read a UTF-8 file, mapping I/O errors to a stable [`ParseError::Io`].
 fn read_to_string(path: &Path) -> Result<String, ParseError> {
-    std::fs::read_to_string(path)
-        .map_err(|e| ParseError::Io { path: path.display().to_string(), detail: e.to_string() })
+    std::fs::read_to_string(path).map_err(|e| ParseError::Io {
+        path: path.display().to_string(),
+        detail: e.to_string(),
+    })
 }
 
 /// Peek `[meta].schema_version` from a raw TOML source without running
@@ -374,7 +403,9 @@ fn peek_schema_version(source: &str) -> Result<String, ParseError> {
     }
     let peek: Peek = toml::from_str(source).map_err(|e| ParseError::Toml(e.to_string()))?;
     let meta = peek.meta.ok_or(ParseError::MissingMeta)?;
-    meta.schema_version.filter(|s| !s.is_empty()).ok_or(ParseError::MissingSchemaVersion)
+    meta.schema_version
+        .filter(|s| !s.is_empty())
+        .ok_or(ParseError::MissingSchemaVersion)
 }
 
 // ---------------------------------------------------------------------------
@@ -418,12 +449,18 @@ fn parse_v2_root(root_path: &Path, source: &str) -> Result<Manifest, ParseError>
         .schema_version
         .filter(|s| !s.is_empty())
         .ok_or(ParseError::MissingSchemaVersion)?;
-    debug_assert_eq!(schema_version, "2", "parse_v2_root invoked on non-v2 source");
+    debug_assert_eq!(
+        schema_version, "2",
+        "parse_v2_root invoked on non-v2 source"
+    );
     let default_profile = raw_meta
         .default_profile
         .filter(|s| !s.is_empty())
         .ok_or(ParseError::MissingDefaultProfile)?;
-    let meta = Meta { schema_version, default_profile };
+    let meta = Meta {
+        schema_version,
+        default_profile,
+    };
 
     // -- include resolution -------------------------------------------------
     let include = raw.include.ok_or_else(|| {
@@ -529,7 +566,13 @@ fn parse_v2_root(root_path: &Path, source: &str) -> Result<Manifest, ParseError>
         }
     }
 
-    finish_parse(merged_phases, merged_profiles, merged_markers, meta, source_files)
+    finish_parse(
+        merged_phases,
+        merged_profiles,
+        merged_markers,
+        meta,
+        source_files,
+    )
 }
 
 /// Reject if an included file declares a section outside its category.
@@ -573,15 +616,20 @@ fn expand_include_glob(
     let pat_path = root_dir.join(pattern);
     let pat_str = pat_path
         .to_str()
-        .ok_or_else(|| ParseError::IncludeGlobEmpty { category, pattern: pattern.to_string() })?;
+        .ok_or_else(|| ParseError::IncludeGlobEmpty {
+            category,
+            pattern: pattern.to_string(),
+        })?;
     let entries = glob::glob(pat_str).map_err(|e| ParseError::IncludeGlobEmpty {
         category,
         pattern: format!("{pattern} ({e})"),
     })?;
     let mut files: Vec<PathBuf> = Vec::new();
     for entry in entries {
-        let path = entry
-            .map_err(|e| ParseError::Io { path: pat_str.to_string(), detail: e.to_string() })?;
+        let path = entry.map_err(|e| ParseError::Io {
+            path: pat_str.to_string(),
+            detail: e.to_string(),
+        })?;
         // Skip directories: a glob like `markers/*` may match dirs on some
         // filesystems; we only consume files.
         if path.is_file() {
@@ -590,7 +638,10 @@ fn expand_include_glob(
     }
     files.sort();
     if files.is_empty() {
-        return Err(ParseError::IncludeGlobEmpty { category, pattern: pattern.to_string() });
+        return Err(ParseError::IncludeGlobEmpty {
+            category,
+            pattern: pattern.to_string(),
+        });
     }
     Ok(files)
 }
@@ -653,14 +704,18 @@ impl Manifest {
     /// (declared profile must NOT match) clauses; profile-unconditional
     /// markers always pass through.
     pub fn expected_markers<'a>(&'a self, profile: &'a str) -> impl Iterator<Item = &'a Marker> {
-        self.markers.iter().filter(move |m| marker_active(m, profile))
+        self.markers
+            .iter()
+            .filter(move |m| marker_active(m, profile))
     }
 
     /// Markers forbidden under `profile` (`forbidden_when.profile` matches).
     pub fn forbidden_markers<'a>(&'a self, profile: &'a str) -> impl Iterator<Item = &'a Marker> {
-        self.markers
-            .iter()
-            .filter(move |m| m.forbidden_when.as_ref().is_some_and(|g| g.profile == profile))
+        self.markers.iter().filter(move |m| {
+            m.forbidden_when
+                .as_ref()
+                .is_some_and(|g| g.profile == profile)
+        })
     }
 }
 
@@ -716,7 +771,11 @@ impl Marker {
         let mut out = String::with_capacity(self.literal.len() + 4);
         let mut last_was_underscore = false;
         for b in self.literal.bytes() {
-            let c = if b.is_ascii_alphanumeric() { b.to_ascii_uppercase() as char } else { '_' };
+            let c = if b.is_ascii_alphanumeric() {
+                b.to_ascii_uppercase() as char
+            } else {
+                '_'
+            };
             if c == '_' {
                 if !last_was_underscore && !out.is_empty() {
                     out.push('_');
@@ -757,7 +816,9 @@ fn check_profile_ref(
 }
 
 fn into_gate(raw: RawProfileGate) -> ProfileGate {
-    ProfileGate { profile: raw.profile }
+    ProfileGate {
+        profile: raw.profile,
+    }
 }
 
 // ---------------------------------------------------------------------------

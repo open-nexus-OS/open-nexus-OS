@@ -45,6 +45,10 @@ serde_json = "1"
 # `sha2` is a pure-Rust crate with no `getrandom` / `parking_lot`
 # transitive deps in its default feature set.
 sha2 = "0.10"
+# Host-side manifest parsing helpers used to load v2 split manifests
+# (`[include]` globs) without requiring parser-internal APIs.
+toml = "0.8"
+glob = "0.3"
 hex = "0.4"
 # Tar packing/unpacking for bundle on-disk layout (P5-02). Pure Rust;
 # no `getrandom` / `parking_lot` transitive deps.

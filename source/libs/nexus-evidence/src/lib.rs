@@ -52,8 +52,10 @@ pub use trace::extract_trace;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use glob::glob;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use toml::Value as TomlValue;
 
 /// A complete evidence bundle for a single QEMU run.
 ///
@@ -230,10 +232,11 @@ fn sha256(bytes: &[u8]) -> [u8; 32] {
 /// Field-by-field rationale:
 ///   - `uart_path`: read raw, line-ending-normalized at hash-time
 ///     only.
-///   - `manifest_path`: handed to [`nexus_proof_manifest::parse_path`]
-///     so the parser auto-dispatches v1 vs v2. The crate then packs
-///     every file in `manifest.source_files` into the inner
-///     `manifest.tar` (deterministic order, mtime=0).
+///   - `manifest_path`: parsed via [`nexus_proof_manifest::parse`] after
+///     normalizing v2 split-layout manifests into a deterministic v1-style
+///     source for compatibility. The crate then packs every resolved
+///     manifest source file into the inner `manifest.tar` (deterministic
+///     order, mtime=0).
 ///   - `gather_opts`: caller-supplied host-introspection results
 ///     (see [`GatherOpts`]). The crate does NOT shell out itself.
 #[derive(Debug, Clone)]
@@ -246,6 +249,21 @@ pub struct AssembleOpts {
     /// Already-collected host inputs and resolved env. The
     /// `profile` field MUST match `gather_opts.profile`.
     pub gather_opts: GatherOpts,
+}
+
+/// Parse the proof-manifest from disk via the host parser crate.
+///
+/// Keeping this in a dedicated helper makes the evidence assembly path's
+/// parser dependency explicit and easier to smoke-test.
+fn parse_manifest_from_path(path: &Path) -> Result<nexus_proof_manifest::Manifest, EvidenceError> {
+    let source =
+        std::fs::read_to_string(path).map_err(|e| EvidenceError::CanonicalizationFailed {
+            detail: format!("read manifest {}: {e}", path.display()),
+        })?;
+    let normalized = normalize_manifest_source(path, &source)?;
+    nexus_proof_manifest::parse(&normalized).map_err(|e| EvidenceError::CanonicalizationFailed {
+        detail: format!("parse_manifest({}): {e}", path.display()),
+    })
 }
 
 impl Bundle {
@@ -273,24 +291,27 @@ impl Bundle {
         })?;
         let uart_text = String::from_utf8_lossy(&uart_bytes).into_owned();
 
-        let manifest = nexus_proof_manifest::parse_path(&opts.manifest_path).map_err(|e| {
-            EvidenceError::CanonicalizationFailed {
-                detail: format!("parse_manifest({}): {}", opts.manifest_path.display(), e),
-            }
-        })?;
+        let manifest = parse_manifest_from_path(&opts.manifest_path)?;
 
         let profile = opts.gather_opts.profile.clone();
         let trace_entries = extract_trace(&uart_text, &manifest, &profile)?;
         let config = gather_config(opts.gather_opts)?;
 
-        let manifest_files = collect_manifest_files(&manifest, &opts.manifest_path)?;
+        let manifest_files = collect_manifest_files(&opts.manifest_path)?;
         let manifest_tar_bytes = pack_manifest_tree(&manifest_files)?;
 
         Ok(Bundle {
-            meta: BundleMeta { schema_version: 1, profile },
-            manifest: ManifestArtifact { bytes: manifest_tar_bytes },
+            meta: BundleMeta {
+                schema_version: 1,
+                profile,
+            },
+            manifest: ManifestArtifact {
+                bytes: manifest_tar_bytes,
+            },
             uart: UartArtifact { bytes: uart_bytes },
-            trace: TraceArtifact { entries: trace_entries },
+            trace: TraceArtifact {
+                entries: trace_entries,
+            },
             config,
             signature: None,
         })
@@ -366,7 +387,10 @@ impl Bundle {
         verifying_key: &VerifyingKey,
         policy: Option<KeyLabel>,
     ) -> Result<(), EvidenceError> {
-        let sig = self.signature.as_ref().ok_or(EvidenceError::SignatureMissing)?;
+        let sig = self
+            .signature
+            .as_ref()
+            .ok_or(EvidenceError::SignatureMissing)?;
         if let Some(want) = policy {
             if sig.label != want {
                 return Err(EvidenceError::KeyLabelMismatch {
@@ -384,7 +408,10 @@ impl Bundle {
     /// may change between cuts.
     pub fn summary(&self) -> String {
         let mut s = String::new();
-        s.push_str(&format!("bundle_schema_version: {}\n", self.meta.schema_version));
+        s.push_str(&format!(
+            "bundle_schema_version: {}\n",
+            self.meta.schema_version
+        ));
         s.push_str(&format!("profile: {}\n", self.meta.profile));
         s.push_str(&format!("manifest_bytes: {}\n", self.manifest.bytes.len()));
         s.push_str(&format!("uart_bytes: {}\n", self.uart.bytes.len()));
@@ -394,7 +421,11 @@ impl Bundle {
             self.config.profile,
             self.config.env.len(),
             self.config.qemu_args.len(),
-            if self.config.build_sha.is_empty() { "<unset>" } else { &self.config.build_sha }
+            if self.config.build_sha.is_empty() {
+                "<unset>"
+            } else {
+                &self.config.build_sha
+            }
         ));
         s.push_str(&format!(
             "signature: {}\n",
@@ -403,7 +434,10 @@ impl Bundle {
                 None => "absent".to_string(),
             }
         ));
-        s.push_str(&format!("canonical_hash: {}\n", hex::encode(canonical_hash(self))));
+        s.push_str(&format!(
+            "canonical_hash: {}\n",
+            hex::encode(canonical_hash(self))
+        ));
         s
     }
 }
@@ -423,18 +457,16 @@ impl EvidenceError {
     }
 }
 
-/// Collect (relative-path, bytes) pairs for every file the manifest
-/// parser read while building `manifest`. Paths are relativised
+/// Collect (relative-path, bytes) pairs for every manifest source file.
+/// Paths are relativised
 /// against the manifest root's parent directory so that v2 manifests
 /// pack under their natural layout (`manifest.toml`, `phases.toml`,
 /// `markers/<phase>.toml`, ...).
-fn collect_manifest_files(
-    manifest: &nexus_proof_manifest::Manifest,
-    manifest_path: &Path,
-) -> Result<Vec<(String, Vec<u8>)>, EvidenceError> {
+fn collect_manifest_files(manifest_path: &Path) -> Result<Vec<(String, Vec<u8>)>, EvidenceError> {
     let root_dir = manifest_path.parent().unwrap_or_else(|| Path::new(""));
-    let mut out = Vec::with_capacity(manifest.source_files.len());
-    for src in &manifest.source_files {
+    let sources = resolve_manifest_source_files(manifest_path)?;
+    let mut out = Vec::with_capacity(sources.len());
+    for src in &sources {
         let bytes = std::fs::read(src).map_err(|e| EvidenceError::CanonicalizationFailed {
             detail: format!("read manifest source {}: {}", src.display(), e),
         })?;
@@ -442,6 +474,174 @@ fn collect_manifest_files(
         out.push((rel.to_string_lossy().into_owned(), bytes));
     }
     Ok(out)
+}
+
+fn normalize_manifest_source(manifest_path: &Path, source: &str) -> Result<String, EvidenceError> {
+    let root = parse_toml_root(manifest_path, source)?;
+    if !is_schema_v2(&root) {
+        return Ok(source.to_string());
+    }
+    if root.get("phase").is_some() || root.get("profile").is_some() || root.get("marker").is_some()
+    {
+        return Err(EvidenceError::CanonicalizationFailed {
+            detail: format!(
+                "manifest {} mixes schema-v2 [include] with inline phase/profile/marker sections",
+                manifest_path.display()
+            ),
+        });
+    }
+
+    let default_profile = root
+        .get("meta")
+        .and_then(TomlValue::as_table)
+        .and_then(|m| m.get("default_profile"))
+        .and_then(TomlValue::as_str)
+        .ok_or_else(|| EvidenceError::CanonicalizationFailed {
+            detail: format!(
+                "manifest {} missing [meta].default_profile",
+                manifest_path.display()
+            ),
+        })?;
+
+    let include = root
+        .get("include")
+        .and_then(TomlValue::as_table)
+        .ok_or_else(|| EvidenceError::CanonicalizationFailed {
+            detail: format!(
+                "manifest {} missing [include] table for schema v2",
+                manifest_path.display()
+            ),
+        })?;
+
+    let root_dir = manifest_path.parent().unwrap_or_else(|| Path::new(""));
+    let mut merged = String::new();
+    merged.push_str("[meta]\n");
+    merged.push_str("schema_version = \"1\"\n");
+    merged.push_str(&format!("default_profile = {:?}\n\n", default_profile));
+
+    for category in ["phases", "markers", "profiles"] {
+        let pattern = include_pattern(include, category, manifest_path)?;
+        let files = expand_include_glob(root_dir, category, pattern, manifest_path)?;
+        for file in files {
+            let file_source = std::fs::read_to_string(&file).map_err(|e| {
+                EvidenceError::CanonicalizationFailed {
+                    detail: format!("read include {}: {e}", file.display()),
+                }
+            })?;
+            merged.push_str(&file_source);
+            if !file_source.ends_with('\n') {
+                merged.push('\n');
+            }
+        }
+    }
+    Ok(merged)
+}
+
+fn resolve_manifest_source_files(manifest_path: &Path) -> Result<Vec<PathBuf>, EvidenceError> {
+    let source = std::fs::read_to_string(manifest_path).map_err(|e| {
+        EvidenceError::CanonicalizationFailed {
+            detail: format!("read manifest {}: {e}", manifest_path.display()),
+        }
+    })?;
+    let root = parse_toml_root(manifest_path, &source)?;
+    let mut files = vec![manifest_path.to_path_buf()];
+    if !is_schema_v2(&root) {
+        return Ok(files);
+    }
+    let include = root
+        .get("include")
+        .and_then(TomlValue::as_table)
+        .ok_or_else(|| EvidenceError::CanonicalizationFailed {
+            detail: format!(
+                "manifest {} missing [include] table for schema v2",
+                manifest_path.display()
+            ),
+        })?;
+    let root_dir = manifest_path.parent().unwrap_or_else(|| Path::new(""));
+    for category in ["phases", "markers", "profiles"] {
+        let pattern = include_pattern(include, category, manifest_path)?;
+        files.extend(expand_include_glob(
+            root_dir,
+            category,
+            pattern,
+            manifest_path,
+        )?);
+    }
+    Ok(files)
+}
+
+fn parse_toml_root(path: &Path, source: &str) -> Result<TomlValue, EvidenceError> {
+    toml::from_str(source).map_err(|e| EvidenceError::CanonicalizationFailed {
+        detail: format!("parse manifest root {}: {e}", path.display()),
+    })
+}
+
+fn is_schema_v2(root: &TomlValue) -> bool {
+    root.get("meta")
+        .and_then(TomlValue::as_table)
+        .and_then(|m| m.get("schema_version"))
+        .and_then(TomlValue::as_str)
+        == Some("2")
+}
+
+fn include_pattern<'a>(
+    include: &'a toml::value::Table,
+    category: &'static str,
+    manifest_path: &Path,
+) -> Result<&'a str, EvidenceError> {
+    include
+        .get(category)
+        .and_then(TomlValue::as_str)
+        .ok_or_else(|| EvidenceError::CanonicalizationFailed {
+            detail: format!(
+                "manifest {} missing [include].{} for schema v2",
+                manifest_path.display(),
+                category
+            ),
+        })
+}
+
+fn expand_include_glob(
+    root_dir: &Path,
+    category: &'static str,
+    pattern: &str,
+    manifest_path: &Path,
+) -> Result<Vec<PathBuf>, EvidenceError> {
+    let joined = root_dir.join(pattern);
+    let joined_str = joined.to_string_lossy().to_string();
+    let mut files = Vec::new();
+    for entry in glob(&joined_str).map_err(|e| EvidenceError::CanonicalizationFailed {
+        detail: format!(
+            "expand include glob {} in {}: {e}",
+            pattern,
+            manifest_path.display()
+        ),
+    })? {
+        match entry {
+            Ok(path) => files.push(path),
+            Err(e) => {
+                return Err(EvidenceError::CanonicalizationFailed {
+                    detail: format!(
+                        "resolve include {} in {}: {e}",
+                        pattern,
+                        manifest_path.display()
+                    ),
+                })
+            }
+        }
+    }
+    files.sort();
+    if files.is_empty() {
+        return Err(EvidenceError::CanonicalizationFailed {
+            detail: format!(
+                "include glob empty for {} in {}: {}",
+                category,
+                manifest_path.display(),
+                pattern
+            ),
+        });
+    }
+    Ok(files)
 }
 
 // ---------------------------------------------------------------------------
@@ -465,7 +665,10 @@ pub mod test_support {
     /// empty; all strings are empty; signature is `None`.
     pub fn empty_bundle() -> Bundle {
         Bundle {
-            meta: BundleMeta { schema_version: 1, profile: String::new() },
+            meta: BundleMeta {
+                schema_version: 1,
+                profile: String::new(),
+            },
             manifest: ManifestArtifact { bytes: Vec::new() },
             uart: UartArtifact { bytes: Vec::new() },
             trace: TraceArtifact::default(),

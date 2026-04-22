@@ -33,7 +33,10 @@ fn manifest_path() -> PathBuf {
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(BIN).args(args).output().expect("invoke nexus-proof-manifest CLI");
+    let out = Command::new(BIN)
+        .args(args)
+        .output()
+        .expect("invoke nexus-proof-manifest CLI");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -48,7 +51,10 @@ fn manifest_arg() -> String {
 #[test]
 fn verify_subcommand_accepts_on_disk_manifest() {
     let (code, stdout, stderr) = run(&["verify", &manifest_arg()]);
-    assert_eq!(code, 0, "verify failed: stdout=`{stdout}` stderr=`{stderr}`");
+    assert_eq!(
+        code, 0,
+        "verify failed: stdout=`{stdout}` stderr=`{stderr}`"
+    );
 }
 
 #[test]
@@ -83,18 +89,31 @@ fn list_env_os2vm_carries_three_remote_flags() {
         "REQUIRE_DSOFTBUS_REMOTE_PKGFS=1",
         "REQUIRE_DSOFTBUS_REMOTE_STATEFS=1",
     ] {
-        assert!(stdout.lines().any(|l| l == needle), "missing `{needle}` in stdout=`{stdout}`");
+        assert!(
+            stdout.lines().any(|l| l == needle),
+            "missing `{needle}` in stdout=`{stdout}`"
+        );
     }
 }
 
 #[test]
 fn list_env_json_format_emits_object() {
-    let (code, stdout, stderr) =
-        run(&["list-env", "--profile=os2vm", "--format=json", &manifest_arg()]);
+    let (code, stdout, stderr) = run(&[
+        "list-env",
+        "--profile=os2vm",
+        "--format=json",
+        &manifest_arg(),
+    ]);
     assert_eq!(code, 0, "stderr=`{stderr}`");
     let trimmed = stdout.trim();
-    assert!(trimmed.starts_with('{') && trimmed.ends_with('}'), "stdout=`{trimmed}`");
-    assert!(trimmed.contains("\"REQUIRE_DSOFTBUS\":\"1\""), "stdout=`{trimmed}`");
+    assert!(
+        trimmed.starts_with('{') && trimmed.ends_with('}'),
+        "stdout=`{trimmed}`"
+    );
+    assert!(
+        trimmed.contains("\"REQUIRE_DSOFTBUS\":\"1\""),
+        "stdout=`{trimmed}`"
+    );
 }
 
 #[test]
@@ -120,7 +139,11 @@ fn list_forbidden_quic_required_returns_three_markers() {
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
     // The on-disk manifest forbids exactly three markers under quic-required:
     // tcp transport selection, quic-disabled fallback, fallback-ok signal.
-    assert_eq!(lines.len(), 3, "expected 3 forbidden markers for quic-required, got {lines:?}");
+    assert_eq!(
+        lines.len(),
+        3,
+        "expected 3 forbidden markers for quic-required, got {lines:?}"
+    );
     assert!(lines.iter().any(|l| l.contains("quic")), "{lines:?}");
 }
 

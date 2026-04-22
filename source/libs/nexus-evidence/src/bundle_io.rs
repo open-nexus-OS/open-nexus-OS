@@ -63,7 +63,9 @@ pub fn write_unsigned(bundle: &Bundle, path: &Path) -> Result<(), EvidenceError>
 /// callers that need the raw bytes.
 pub fn write_unsigned_to_writer<W: Write>(bundle: &Bundle, sink: W) -> Result<(), EvidenceError> {
     // gzip wrapper with mtime=0 in the header for reproducibility.
-    let gz = flate2::GzBuilder::new().mtime(0).write(sink, Compression::default());
+    let gz = flate2::GzBuilder::new()
+        .mtime(0)
+        .write(sink, Compression::default());
     let mut tar = Builder::new(gz);
 
     // Sorted entries (lexicographic on filename) for deterministic
@@ -86,7 +88,9 @@ pub fn write_unsigned_to_writer<W: Write>(bundle: &Bundle, sink: W) -> Result<()
         append_entry(&mut tar, name, data)?;
     }
 
-    let gz = tar.into_inner().map_err(|e| io_err("finish_outer_tar", e))?;
+    let gz = tar
+        .into_inner()
+        .map_err(|e| io_err("finish_outer_tar", e))?;
     let _ = gz.finish().map_err(|e| io_err("finish_gzip", e))?;
     Ok(())
 }
@@ -110,7 +114,8 @@ pub fn read_unsigned(path: &Path) -> Result<Bundle, EvidenceError> {
     let f = File::open(path).map_err(|e| io_err("open_outer_tar_gz", e))?;
     let mut gz = flate2::read::GzDecoder::new(f);
     let mut decompressed = Vec::new();
-    gz.read_to_end(&mut decompressed).map_err(|e| io_err("decompress_gzip", e))?;
+    gz.read_to_end(&mut decompressed)
+        .map_err(|e| io_err("decompress_gzip", e))?;
     read_unsigned_from_bytes(&decompressed)
 }
 
@@ -126,12 +131,20 @@ pub fn read_unsigned_from_bytes(tar_bytes: &[u8]) -> Result<Bundle, EvidenceErro
     let mut config_json: Option<Vec<u8>> = None;
     let mut signature_bin: Option<Vec<u8>> = None;
 
-    for entry in archive.entries().map_err(|e| io_err("read_tar_entries", e))? {
+    for entry in archive
+        .entries()
+        .map_err(|e| io_err("read_tar_entries", e))?
+    {
         let mut entry = entry.map_err(|e| io_err("read_tar_entry", e))?;
-        let name =
-            entry.path().map_err(|e| io_err("read_tar_path", e))?.to_string_lossy().into_owned();
+        let name = entry
+            .path()
+            .map_err(|e| io_err("read_tar_path", e))?
+            .to_string_lossy()
+            .into_owned();
         let mut buf = Vec::new();
-        entry.read_to_end(&mut buf).map_err(|e| io_err("read_tar_entry_body", e))?;
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| io_err("read_tar_entry_body", e))?;
         match name.as_str() {
             "meta.json" => meta_json = Some(buf),
             "manifest.tar" => manifest_tar = Some(buf),
@@ -148,8 +161,12 @@ pub fn read_unsigned_from_bytes(tar_bytes: &[u8]) -> Result<Bundle, EvidenceErro
     }
 
     let meta = parse_meta(meta_json.ok_or(missing("meta.json"))?.as_slice())?;
-    let manifest = ManifestArtifact { bytes: manifest_tar.ok_or(missing("manifest.tar"))? };
-    let uart = UartArtifact { bytes: uart_log.ok_or(missing("uart.log"))? };
+    let manifest = ManifestArtifact {
+        bytes: manifest_tar.ok_or(missing("manifest.tar"))?,
+    };
+    let uart = UartArtifact {
+        bytes: uart_log.ok_or(missing("uart.log"))?,
+    };
     let trace = parse_trace(trace_jsonl.ok_or(missing("trace.jsonl"))?.as_slice())?;
     let config = parse_config(config_json.ok_or(missing("config.json"))?.as_slice())?;
 
@@ -158,7 +175,14 @@ pub fn read_unsigned_from_bytes(tar_bytes: &[u8]) -> Result<Bundle, EvidenceErro
         None => None,
     };
 
-    Ok(Bundle { meta, manifest, uart, trace, config, signature })
+    Ok(Bundle {
+        meta,
+        manifest,
+        uart,
+        trace,
+        config,
+        signature,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -196,19 +220,27 @@ fn serialize_trace(trace: &TraceArtifact) -> Result<Vec<u8>, EvidenceError> {
 }
 
 fn parse_meta(bytes: &[u8]) -> Result<BundleMeta, EvidenceError> {
-    let meta: BundleMeta = serde_json::from_slice(bytes)
-        .map_err(|e| EvidenceError::MalformedConfig { detail: format!("parse_meta: {}", e) })?;
+    let meta: BundleMeta =
+        serde_json::from_slice(bytes).map_err(|e| EvidenceError::MalformedConfig {
+            detail: format!("parse_meta: {}", e),
+        })?;
     if meta.schema_version != 1 {
-        return Err(EvidenceError::SchemaVersionUnsupported { version: meta.schema_version });
+        return Err(EvidenceError::SchemaVersionUnsupported {
+            version: meta.schema_version,
+        });
     }
     Ok(meta)
 }
 
 fn parse_config(bytes: &[u8]) -> Result<ConfigArtifact, EvidenceError> {
-    let config: ConfigArtifact = serde_json::from_slice(bytes)
-        .map_err(|e| EvidenceError::MalformedConfig { detail: format!("parse_config: {}", e) })?;
+    let config: ConfigArtifact =
+        serde_json::from_slice(bytes).map_err(|e| EvidenceError::MalformedConfig {
+            detail: format!("parse_config: {}", e),
+        })?;
     if config.profile.is_empty() {
-        return Err(EvidenceError::MalformedConfig { detail: "empty_profile".into() });
+        return Err(EvidenceError::MalformedConfig {
+            detail: "empty_profile".into(),
+        });
     }
     let _: &BTreeMap<String, String> = &config.env;
     Ok(config)
@@ -235,17 +267,24 @@ fn append_entry<W: Write>(
     data: &[u8],
 ) -> Result<(), EvidenceError> {
     let mut header = Header::new_gnu();
-    header.set_path(name).map_err(|e| io_err("set_tar_path", e))?;
+    header
+        .set_path(name)
+        .map_err(|e| io_err("set_tar_path", e))?;
     header.set_size(data.len() as u64);
     header.set_mode(0o644);
     header.set_mtime(0);
     header.set_uid(0);
     header.set_gid(0);
-    header.set_username("").map_err(|e| io_err("set_tar_uname", e))?;
-    header.set_groupname("").map_err(|e| io_err("set_tar_gname", e))?;
+    header
+        .set_username("")
+        .map_err(|e| io_err("set_tar_uname", e))?;
+    header
+        .set_groupname("")
+        .map_err(|e| io_err("set_tar_gname", e))?;
     header.set_entry_type(tar::EntryType::Regular);
     header.set_cksum();
-    tar.append(&header, data).map_err(|e| io_err("append_tar_entry", e))?;
+    tar.append(&header, data)
+        .map_err(|e| io_err("append_tar_entry", e))?;
     Ok(())
 }
 
@@ -254,7 +293,9 @@ fn missing(name: &'static str) -> EvidenceError {
 }
 
 fn io_err(label: &str, e: impl std::fmt::Display) -> EvidenceError {
-    EvidenceError::CanonicalizationFailed { detail: format!("{}: {}", label, e) }
+    EvidenceError::CanonicalizationFailed {
+        detail: format!("{}: {}", label, e),
+    }
 }
 
 // ---------------------------------------------------------------------------

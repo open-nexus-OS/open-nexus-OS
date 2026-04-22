@@ -85,7 +85,10 @@ fn main() -> ExitCode {
             return ExitCode::from(0);
         }
         other => {
-            eprintln!("nexus-evidence: unknown subcommand `{}`\n\n{}", other, USAGE);
+            eprintln!(
+                "nexus-evidence: unknown subcommand `{}`\n\n{}",
+                other, USAGE
+            );
             return ExitCode::from(1);
         }
     };
@@ -252,7 +255,11 @@ fn cmd_verify(rest: &[String]) -> Result<(), CliError> {
     println!(
         "nexus-evidence: verify ok: {} (label={}, policy={})",
         path.display(),
-        bundle.signature.as_ref().map(|s| s.label.as_str()).unwrap_or("?"),
+        bundle
+            .signature
+            .as_ref()
+            .map(|s| s.label.as_str())
+            .unwrap_or("?"),
         policy.map(|p| p.as_str()).unwrap_or("any"),
     );
     Ok(())
@@ -278,7 +285,10 @@ fn cmd_keygen(rest: &[String]) -> Result<(), CliError> {
     let raw = hex::decode(seed_hex.trim())
         .map_err(|e| CliError::Usage(format!("--seed hex decode: {}", e)))?;
     if raw.len() != 32 {
-        return Err(CliError::Usage(format!("--seed must decode to 32 bytes, got {}", raw.len())));
+        return Err(CliError::Usage(format!(
+            "--seed must decode to 32 bytes, got {}",
+            raw.len()
+        )));
     }
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&raw);
@@ -357,7 +367,10 @@ fn decode_key_bytes(bytes: &[u8], want_len: usize, label: &str) -> Result<Vec<u8
             .map_err(|e| CliError::Usage(format!("{} hex decode: {}", label, e)));
     }
     let decoded = decode_base64(&trimmed).ok_or_else(|| {
-        CliError::Usage(format!("{} encoding not recognised (raw|hex|base64)", label))
+        CliError::Usage(format!(
+            "{} encoding not recognised (raw|hex|base64)",
+            label
+        ))
     })?;
     if decoded.len() != want_len {
         return Err(CliError::Usage(format!(
@@ -468,7 +481,10 @@ fn positional_with_kv(
 
 fn io_or_evidence(_sub: &'static str) -> impl Fn(EvidenceError) -> CliError {
     move |e| match &e {
-        EvidenceError::MissingArtifact { .. } => CliError::Io { code: 2, msg: format!("{}", e) },
+        EvidenceError::MissingArtifact { .. } => CliError::Io {
+            code: 2,
+            msg: format!("{}", e),
+        },
         _ => CliError::Evidence(e),
     }
 }

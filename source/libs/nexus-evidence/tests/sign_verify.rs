@@ -80,14 +80,17 @@ fn round_trip_bringup_label() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let sealed = populated_bundle("full").seal(&signing, KeyLabel::Bringup).expect("seal");
+    let sealed = populated_bundle("full")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
     write_unsigned(&sealed, &path).unwrap();
     let read = read_unsigned(&path).unwrap();
 
     assert!(read.signature.is_some(), "signature.bin must round-trip");
     assert_eq!(read.signature.as_ref().unwrap().label, KeyLabel::Bringup);
     read.verify(&verifying, None).expect("bringup verify");
-    read.verify(&verifying, Some(KeyLabel::Bringup)).expect("bringup policy ok");
+    read.verify(&verifying, Some(KeyLabel::Bringup))
+        .expect("bringup policy ok");
 }
 
 #[test]
@@ -98,12 +101,15 @@ fn round_trip_ci_label() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let sealed = populated_bundle("full").seal(&signing, KeyLabel::Ci).expect("seal");
+    let sealed = populated_bundle("full")
+        .seal(&signing, KeyLabel::Ci)
+        .expect("seal");
     write_unsigned(&sealed, &path).unwrap();
     let read = read_unsigned(&path).unwrap();
 
     assert_eq!(read.signature.as_ref().unwrap().label, KeyLabel::Ci);
-    read.verify(&verifying, Some(KeyLabel::Ci)).expect("ci verify");
+    read.verify(&verifying, Some(KeyLabel::Ci))
+        .expect("ci verify");
 }
 
 #[test]
@@ -111,7 +117,9 @@ fn tamper_class_a_manifest_bytes_change() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let mut sealed = populated_bundle("full").seal(&signing, KeyLabel::Bringup).expect("seal");
+    let mut sealed = populated_bundle("full")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
     // Tamper: flip one manifest byte after sealing.
     sealed.manifest.bytes[0] ^= 0x01;
 
@@ -128,7 +136,9 @@ fn tamper_class_b_uart_bytes_change() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let mut sealed = populated_bundle("full").seal(&signing, KeyLabel::Bringup).expect("seal");
+    let mut sealed = populated_bundle("full")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
     sealed.uart.bytes.extend_from_slice(b"injected line\n");
 
     let err = sealed.verify(&verifying, None).unwrap_err();
@@ -140,7 +150,9 @@ fn tamper_class_c_trace_entry_added() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let mut sealed = populated_bundle("full").seal(&signing, KeyLabel::Bringup).expect("seal");
+    let mut sealed = populated_bundle("full")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
     sealed.trace.entries.push(TraceEntry {
         marker: "SELFTEST: forged ok".into(),
         phase: "bringup".into(),
@@ -157,7 +169,9 @@ fn tamper_class_d_config_field_change() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let mut sealed = populated_bundle("full").seal(&signing, KeyLabel::Bringup).expect("seal");
+    let mut sealed = populated_bundle("full")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
     // Mutate a hashed config field (not wall_clock_utc, which is
     // intentionally excluded from the canonical hash).
     sealed.config.kernel_cmdline.push_str(" hacker=1");
@@ -171,8 +185,12 @@ fn tamper_class_e_signature_swap_between_bundles() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let bundle_a = populated_bundle("full").seal(&signing, KeyLabel::Bringup).expect("seal");
-    let mut bundle_b = populated_bundle("smp").seal(&signing, KeyLabel::Bringup).expect("seal");
+    let bundle_a = populated_bundle("full")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
+    let mut bundle_b = populated_bundle("smp")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
     // Swap A's signature into B. The signature is structurally
     // valid (same key, same label) but commits to A's hash, not
     // B's.
@@ -188,10 +206,18 @@ fn policy_ci_rejects_bringup_signed_bundle() {
     let signing = SigningKey::from_seed(fixed_seed_a());
     let verifying = signing.verifying_key();
 
-    let sealed = populated_bundle("full").seal(&signing, KeyLabel::Bringup).expect("seal");
+    let sealed = populated_bundle("full")
+        .seal(&signing, KeyLabel::Bringup)
+        .expect("seal");
     let err = sealed.verify(&verifying, Some(KeyLabel::Ci)).unwrap_err();
     assert!(
-        matches!(err, EvidenceError::KeyLabelMismatch { expected: "ci", got: "bringup" }),
+        matches!(
+            err,
+            EvidenceError::KeyLabelMismatch {
+                expected: "ci",
+                got: "bringup"
+            }
+        ),
         "expected KeyLabelMismatch ci<-bringup, got {:?}",
         err
     );
@@ -203,7 +229,9 @@ fn cross_key_rejection_bundle_signed_by_b_verified_by_a() {
     let signing_b = SigningKey::from_seed(fixed_seed_b());
     let verifying_a = signing_a.verifying_key();
 
-    let sealed = populated_bundle("full").seal(&signing_b, KeyLabel::Ci).expect("seal");
+    let sealed = populated_bundle("full")
+        .seal(&signing_b, KeyLabel::Ci)
+        .expect("seal");
     let err = sealed.verify(&verifying_a, None).unwrap_err();
     assert!(
         matches!(err, EvidenceError::SignatureMismatch { .. }),
@@ -221,7 +249,13 @@ fn signature_unsupported_version_rejected() {
     bytes[4] = 0xFE;
     let err = nexus_evidence::Signature::from_bytes(&bytes).unwrap_err();
     assert!(
-        matches!(err, EvidenceError::UnsupportedSignatureVersion { got: 0xFE, supported: 0x01 }),
+        matches!(
+            err,
+            EvidenceError::UnsupportedSignatureVersion {
+                got: 0xFE,
+                supported: 0x01
+            }
+        ),
         "expected UnsupportedSignatureVersion 0xFE -> 0x01, got {:?}",
         err
     );

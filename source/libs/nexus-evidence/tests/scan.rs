@@ -65,7 +65,11 @@ fn pem_private_key_in_uart_rejected() {
     assert!(
         matches!(
             err,
-            EvidenceError::SecretLeak { artifact: "uart.log", pattern: "pem_private_key", .. }
+            EvidenceError::SecretLeak {
+                artifact: "uart.log",
+                pattern: "pem_private_key",
+                ..
+            }
         ),
         "expected pem_private_key in uart.log, got {:?}",
         err
@@ -81,7 +85,11 @@ fn bringup_key_path_in_config_rejected() {
     assert!(
         matches!(
             err,
-            EvidenceError::SecretLeak { artifact: "config.json", pattern: "bringup_key_path", .. }
+            EvidenceError::SecretLeak {
+                artifact: "config.json",
+                pattern: "bringup_key_path",
+                ..
+            }
         ),
         "expected bringup_key_path in config.json, got {:?}",
         err
@@ -122,7 +130,11 @@ fn high_entropy_blob_in_uart_rejected_then_allowlisted() {
     assert!(
         matches!(
             err,
-            EvidenceError::SecretLeak { artifact: "uart.log", pattern: "high_entropy_blob", .. }
+            EvidenceError::SecretLeak {
+                artifact: "uart.log",
+                pattern: "high_entropy_blob",
+                ..
+            }
         ),
         "expected high_entropy_blob, got {:?}",
         err
@@ -140,7 +152,13 @@ fn seal_refuses_bundle_with_pem_block() {
     let signing = SigningKey::from_seed(fixed_seed());
     let err = b.seal(&signing, KeyLabel::Bringup).unwrap_err();
     assert!(
-        matches!(err, EvidenceError::SecretLeak { pattern: "pem_private_key", .. }),
+        matches!(
+            err,
+            EvidenceError::SecretLeak {
+                pattern: "pem_private_key",
+                ..
+            }
+        ),
         "seal must refuse PEM-bearing bundle, got {:?}",
         err
     );
