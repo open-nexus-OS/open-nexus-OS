@@ -27,6 +27,21 @@ phase = "ipc_kernel"
 [marker."SELFTEST: ipc sender service_id ok"]
 phase = "ipc_kernel"
 
+[marker."vmo: producer sent handle"]
+phase = "ipc_kernel"
+
+[marker."vmo: consumer mapped ok"]
+phase = "ipc_kernel"
+
+[marker."vmo: sha256 ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: vmo share ok"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: vmo share FAIL"]
+phase = "ipc_kernel"
+
 [marker."dbg: phase ipc_kernel skipped"]
 phase = "ipc_kernel"
 

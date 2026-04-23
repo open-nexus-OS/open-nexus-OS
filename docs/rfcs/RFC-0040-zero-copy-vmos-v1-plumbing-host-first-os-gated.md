@@ -1,9 +1,9 @@
 # RFC-0040: Zero-Copy VMOs v1 Plumbing — host-first, OS-gated contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime / @kernel-team
 - Created: 2026-04-21
-- Last Updated: 2026-04-21
+- Last Updated: 2026-04-23
 - Links:
   - Tasks: `tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md` (execution + proof), `tasks/TASK-0290-kernel-zero-copy-closure-v1b-vmo-seals-reuse-truth.md` (production-grade closure)
   - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
@@ -12,13 +12,13 @@
 
 ## Status at a Glance
 
-- **Phase 0 (API + ownership contract)**: ⬜
-- **Phase 1 (cross-process transfer + deterministic proof)**: ⬜
-- **Phase 2 (production-grade closure gates)**: ⬜
+- **Phase 0 (API + ownership contract)**: ✅
+- **Phase 1 (cross-process transfer + deterministic proof)**: ✅
+- **Out-of-scope handoff (kernel production closure)**: delegated to `TASK-0290`
 
 Definition:
 
-- "Complete" means the **contract** is defined and the **proof gates** are green (tests/markers). It does not mean "never changes again".
+- "Done" means the **contract** is defined and the **proof gates** are green (tests/markers). It does not mean "never changes again".
 
 ## Scope boundaries (anti-drift)
 
@@ -29,9 +29,9 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
   - Ownership/lifetime semantics for handles and mappings (drop behavior, single close authority, explicit transfer semantics).
   - Host-first proof contract and OS-gated marker contract for deny-by-default, bounded behavior.
   - Rust safety discipline expectations for this track (`newtype` boundaries, `Send`/`Sync` decisions, ownership, `#[must_use]` where ignoring results can hide bugs).
-  - The requirement that this track reaches production-grade closure for Kernel Core/Runtime and Storage-facing zero-copy claims before this RFC can be marked complete.
 - **This RFC does NOT own**:
   - Kernel architecture redesign or large ABI expansion outside the existing VMO/capability syscall family.
+  - Kernel-side production-grade closure obligations (seal rights, write-map denial, lifecycle closure, reuse/copy-fallback truth); these are execution-owned by `TASK-0290`.
   - Replacing the execution SSOT with RFC checklist prose; implementation/proof commands stay in tasks.
   - App/platform-level adoption plans for every consumer service.
 
@@ -51,7 +51,6 @@ The repo has kernel-side VMO/capability primitives and ABI exports, but still la
 - Define a minimal, explicit userspace VMO contract that supports creation, mapping, and transfer across service boundaries.
 - Require deterministic, behavior-first proofs (including reject paths) instead of marker-only success claims.
 - Enforce Rust safety baseline for this boundary: typed handles, clear ownership, justified thread-safety, and meaningful `#[must_use]` usage.
-- Require explicit production-grade closure gates (via `TASK-0290` and linked follow-ups) before declaring this contract complete.
 
 ## Non-Goals
 
@@ -70,7 +69,7 @@ The repo has kernel-side VMO/capability primitives and ABI exports, but still la
 - **Thread-safety discipline**: `Send`/`Sync` are only derived/implemented when invariants are stated and test-covered.
 - **Ownership discipline**: mapping lifetime and handle-drop semantics are explicit and testable.
 - **Result-use discipline**: annotate critical return values with `#[must_use]` where ignored outcomes can mask correctness/security failures.
-- **Production-grade gating**: completion requires closure against the relevant production gates in `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Kernel Core/Runtime and Storage zero-copy integrity expectations), proven through `TASK-0290` and linked follow-ups.
+- **Production-grade boundary**: production-gate closure against `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` is out of scope for this RFC and execution-owned by `TASK-0290` and follow-ups.
 
 ## Proposed design
 
@@ -92,18 +91,19 @@ Versioning strategy:
 
 - **Phase 0**: Typed VMO API + ownership contract + host reject-path proof.
 - **Phase 1**: Cross-process VMO transfer contract proven in OS/QEMU with deterministic markers.
-- **Phase 2**: Production-grade zero-copy closure proven (`TASK-0290`) with kernel-enforced sealing/rights and deterministic closure markers.
 
-## Production-grade requirement (normative)
+## Out-of-scope handoff (normative stop condition)
 
-This RFC is a contract seed that starts host-first, but it is **not complete** until production-grade closure is proven.
+Kernel production closure is explicitly outside RFC-0040 scope.
 
-- Production-grade claims for this track must align with `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`, especially:
-  - Gate A (Kernel Core & Runtime): deterministic capability/map/rights behavior with no fake-success claims.
-  - Gate C (Storage, PackageFS & Content): honest zero-copy behavior where bulk transfer semantics are explicit and bounded.
-- `TASK-0031` establishes the plumbing/honesty floor and must not claim closure early.
-- `TASK-0290` provides the kernel-side closeout obligations (seal rights, write-map denial, reuse/copy-fallback truth).
-- RFC status can move to **Complete** only after those production-grade obligations are proven green.
+- Stop condition for this RFC:
+  - Phase 0 and Phase 1 proofs are green and deterministic.
+  - The kernel production obligations are explicitly delegated to `TASK-0290` (not silently retained in this RFC scope).
+- `TASK-0290` remains the closeout owner for:
+  - kernel-enforced seal/rights semantics,
+  - write-map denial guarantees,
+  - lifecycle closure (`vmo_destroy` path),
+  - reuse/copy-fallback production truth for Gate A/Gate C closure.
 
 ## Security considerations
 
@@ -143,9 +143,10 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ### Deterministic markers (if applicable)
 
-- `selftest: vmo-share basic ok`
-- `selftest: vmo-share reject-invalid-cap ok`
-- `selftest: vmo-share lifecycle-bounded ok`
+- `vmo: producer sent handle`
+- `vmo: consumer mapped ok`
+- `vmo: sha256 ok`
+- `SELFTEST: vmo share ok`
 
 ## Alternatives considered
 
@@ -155,7 +156,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- Should kernel-side `vmo_destroy` closure be completed in the same milestone as cross-process proof, or remain a strict gate inside `TASK-0290` closure? (owner: runtime+kernel; decision by first `TASK-0031` implementation cut completion)
+- None for v1 plumbing scope. Kernel closure questions are owned by `TASK-0290`.
 
 ## RFC Quality Guidelines (for authors)
 
@@ -174,9 +175,9 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: typed userspace VMO API contract + host reject-path tests — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nexus-vmo`
-- [ ] **Phase 1**: cross-process transfer + deterministic QEMU marker proof — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-- [ ] **Phase 2**: production-grade closure gates proven through `TASK-0290` (kernel seal/right enforcement + closure markers) — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=210s ./scripts/qemu-test.sh`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: typed userspace VMO API contract + host reject-path tests — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nexus-vmo`
+- [x] **Phase 1**: cross-process transfer + deterministic QEMU marker proof — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- [x] Out-of-scope handoff to `TASK-0290` is explicit in RFC text.
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

@@ -64,6 +64,23 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IPC_SENDER_SERVICE_ID_FAIL);
     }
 
+    // TASK-0031 VMO share floor: producer transfer -> consumer RO map -> sha256 verify.
+    let vmo = probes::ipc_kernel::vmo_share_probe();
+    if vmo.producer_sent {
+        emit_line(crate::markers::M_VMO_PRODUCER_SENT_HANDLE);
+    }
+    if vmo.consumer_mapped {
+        emit_line(crate::markers::M_VMO_CONSUMER_MAPPED_OK);
+    }
+    if vmo.sha_ok {
+        emit_line(crate::markers::M_VMO_SHA256_OK);
+    }
+    if vmo.producer_sent && vmo.consumer_mapped && vmo.sha_ok {
+        emit_line(crate::markers::M_SELFTEST_VMO_SHARE_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_VMO_SHARE_FAIL);
+    }
+
     // IPC production-grade smoke: deterministic soak of mixed operations.
     // Keep this strictly bounded and allocation-light (avoid kernel heap exhaustion).
     if probes::ipc_kernel::ipc_soak_probe().is_ok() {

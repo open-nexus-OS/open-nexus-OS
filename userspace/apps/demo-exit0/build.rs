@@ -26,6 +26,10 @@ fn main() {
     let minidump = build_elf(&build_minidump_text());
     let out_path = out_dir.join("demo-minidump.elf");
     fs::write(&out_path, minidump).expect("write demo-minidump");
+
+    let vmo_consumer = build_elf(&build_vmo_consumer_text());
+    let out_path = out_dir.join("demo-vmo-consumer.elf");
+    fs::write(&out_path, vmo_consumer).expect("write demo-vmo-consumer");
 }
 
 fn build_elf(text: &[u8]) -> Vec<u8> {
@@ -315,12 +319,140 @@ fn build_minidump_text() -> Vec<u8> {
     text
 }
 
+fn build_vmo_consumer_text() -> Vec<u8> {
+    const SYSCALL_YIELD: i32 = 0;
+    const SYSCALL_EXIT: i32 = 11;
+    const SYSCALL_MAP: i32 = 4;
+    const VMO_SLOT: i32 = 23;
+    const MAP_FLAGS: i32 = 0x13; // VALID | READ | USER
+    const MAP_VA: u32 = 0x2100_0000;
+    const RETRIES: i32 = 128;
+    const EXPECTED: &[u8] = b"task-0031-vmo-share-probe";
+
+    let mut data = Vec::new();
+    let expected_off = 0usize;
+    data.extend_from_slice(EXPECTED);
+    while (data.len() & 0x3) != 0 {
+        data.push(0);
+    }
+
+    let mut ins = Vec::<u32>::new();
+    let count = Cell::new(0usize);
+    let mut emit = |op: u32| {
+        ins.push(op);
+        count.set(count.get() + 1);
+    };
+
+    // s0 = data base (PC-relative)
+    emit(encode_auipc(8, 0));
+    let patch_data_base_idx = count.get();
+    emit(0); // addi s0, s0, code_size
+
+    emit(encode_addi(9, 0, RETRIES)); // s1 retries
+
+    let retry_idx = count.get();
+    emit(encode_addi(10, 0, VMO_SLOT)); // a0 slot(handle)
+    let (map_hi, map_lo) = split_hi_lo_u32(MAP_VA);
+    emit(encode_lui(11, map_hi)); // a1 = map va hi
+    emit(encode_addi(11, 11, map_lo)); // a1 += lo
+    emit(encode_addi(12, 0, 0)); // a2 offset
+    emit(encode_addi(13, 0, MAP_FLAGS)); // a3 flags
+    emit(encode_addi(17, 0, SYSCALL_MAP));
+    emit(0x00000073); // ecall
+    let blt_map_fail_idx = count.get();
+    emit(0); // blt a0, x0, map_fail
+    let jal_mapped_idx = count.get();
+    emit(0); // jal x0, mapped
+
+    let map_fail_idx = count.get();
+    emit(encode_addi(17, 0, SYSCALL_YIELD));
+    emit(0x00000073); // ecall
+    emit(encode_addi(9, 9, -1)); // retries--
+    let beq_fail_idx = count.get();
+    emit(0); // beq s1, x0, fail
+    let jal_retry_idx = count.get();
+    emit(0); // jal x0, retry
+
+    let mapped_idx = count.get();
+    // s2 = mapped va
+    emit(encode_lui(18, map_hi));
+    emit(encode_addi(18, 18, map_lo));
+    // s3 = expected ptr
+    let patch_expected_ptr_idx = count.get();
+    emit(0); // addi s3, s0, expected_off
+    emit(encode_addi(20, 0, EXPECTED.len() as i32)); // s4 = remaining
+
+    let cmp_loop_idx = count.get();
+    emit(encode_lbu(5, 18, 0)); // t0 = *s2
+    emit(encode_lbu(6, 19, 0)); // t1 = *s3
+    let bne_cmp_fail_idx = count.get();
+    emit(0); // bne t0, t1, fail
+    emit(encode_addi(18, 18, 1)); // s2++
+    emit(encode_addi(19, 19, 1)); // s3++
+    emit(encode_addi(20, 20, -1)); // s4--
+    let bne_cmp_loop_idx = count.get();
+    emit(0); // bne s4, x0, cmp_loop
+
+    // success: exit(0)
+    emit(encode_addi(10, 0, 0));
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073);
+    emit(0x0000006f);
+
+    let fail_idx = count.get();
+    emit(encode_addi(10, 0, 41));
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073);
+    emit(0x0000006f);
+
+    let code_size = count.get() * 4;
+    assert!(code_size < 2048, "vmo consumer payload code too large");
+
+    ins[patch_data_base_idx] = encode_addi(8, 8, code_size as i32);
+    ins[patch_expected_ptr_idx] = encode_addi(19, 8, expected_off as i32);
+
+    let patch_blt = |ins: &mut [u32], idx: usize, target: usize| {
+        let off = ((target as i32 - idx as i32) * 4) as i32;
+        ins[idx] = encode_blt(10, 0, off);
+    };
+    let patch_beq = |ins: &mut [u32], rs1: u8, rs2: u8, idx: usize, target: usize| {
+        let off = ((target as i32 - idx as i32) * 4) as i32;
+        ins[idx] = encode_beq(rs1, rs2, off);
+    };
+    let patch_bne = |ins: &mut [u32], rs1: u8, rs2: u8, idx: usize, target: usize| {
+        let off = ((target as i32 - idx as i32) * 4) as i32;
+        ins[idx] = encode_bne(rs1, rs2, off);
+    };
+    let patch_jal = |ins: &mut [u32], idx: usize, target: usize| {
+        let off = ((target as i32 - idx as i32) * 4) as i32;
+        ins[idx] = encode_jal(0, off);
+    };
+
+    patch_blt(&mut ins, blt_map_fail_idx, map_fail_idx);
+    patch_jal(&mut ins, jal_mapped_idx, mapped_idx);
+    patch_beq(&mut ins, 9, 0, beq_fail_idx, fail_idx);
+    patch_jal(&mut ins, jal_retry_idx, retry_idx);
+    patch_bne(&mut ins, 5, 6, bne_cmp_fail_idx, fail_idx);
+    patch_bne(&mut ins, 20, 0, bne_cmp_loop_idx, cmp_loop_idx);
+
+    let mut text = Vec::with_capacity(code_size + data.len());
+    for op in ins {
+        text.extend_from_slice(&op.to_le_bytes());
+    }
+    text.extend_from_slice(&data);
+    text
+}
+
 fn push(out: &mut Vec<u8>, instr: u32) {
     out.extend_from_slice(&instr.to_le_bytes());
 }
 
 fn encode_auipc(rd: u8, imm20: i32) -> u32 {
     ((imm20 as u32) << 12) | ((rd as u32) << 7) | 0x17
+}
+
+fn encode_lui(rd: u8, imm20: i32) -> u32 {
+    ((imm20 as u32) << 12) | ((rd as u32) << 7) | 0x37
 }
 
 fn encode_addi(rd: u8, rs1: u8, imm: i32) -> u32 {
@@ -371,6 +503,13 @@ fn encode_blt(rs1: u8, rs2: u8, offset: i32) -> u32 {
 
 fn encode_bne(rs1: u8, rs2: u8, offset: i32) -> u32 {
     encode_branch(0b001, rs1, rs2, offset)
+}
+
+fn split_hi_lo_u32(value: u32) -> (i32, i32) {
+    let signed = value as i64;
+    let hi = ((signed + 0x800) >> 12) as i32;
+    let lo = (signed - ((hi as i64) << 12)) as i32;
+    (hi, lo)
 }
 
 fn build_msg_header(len: u32) -> [u8; 16] {

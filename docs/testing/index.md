@@ -137,6 +137,16 @@ Scope note:
 | Mandatory deny-by-default reject paths (`test_reject_*`) | host fail-closed assertions | `cargo test -p bundlemgrd -- test_reject_unknown_publisher test_reject_unknown_key test_reject_unsupported_alg test_reject_payload_digest_mismatch test_reject_sbom_digest_mismatch test_reject_repro_digest_mismatch test_reject_sbom_secret_leak test_reject_repro_schema_invalid test_reject_audit_unreachable` |
 | QEMU supply-chain marker ladder | single-VM gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os supply-chain` |
 
+### TASK-0031 zero-copy VMO plumbing matrix
+
+`TASK-0031` is the host-first VMO plumbing and honesty floor. Production-grade kernel closure remains in `TASK-0290`.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Typed VMO API (+ `from_bytes`, `from_file_range`, `VmoSlice`) and deterministic accounting counters (copy fallback vs control/data plane bytes, map reuse hit/miss) | host contract assertions | `cargo test -p nexus-vmo -- --nocapture` |
+| Deny-by-default reject paths (`test_reject_unauthorized_transfer`, `test_reject_oversized_mapping`, `test_ro_mapping_enforced`, short file-range, host slot-transfer reject) | host reject assertions | `cargo test -p nexus-vmo -- reject --nocapture` |
+| Producer transfer -> spawned consumer task RO map/verify -> marker ladder (`vmo:*`, `SELFTEST: vmo share ok`) | single-VM OS-gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
+
 ### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
 
 Legacy tasks remain `Done`; production closure uses follow-on requirement suites to prove Soll behavior (not implementation internals).

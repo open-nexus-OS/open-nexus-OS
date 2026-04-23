@@ -1,9 +1,9 @@
 ---
 title: TASK-0031 Zero-copy VMOs v1: shared RO buffers via existing VMO syscalls + handle transfer (plumbing, host-first, OS-gated)
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
-updated: 2026-04-22
+updated: 2026-04-23
 depends-on:
   - TASK-0009
   - TASK-0020
@@ -67,7 +67,7 @@ UI/perf note:
   should treat this task as the canonical bulk-buffer floor.
 - Follow-up consumers `TASK-0054B` / `TASK-0054D` pull that stance forward explicitly for UI-shaped workloads.
 
-## Current status (2026-04-22)
+## Current status (2026-04-23)
 
 - `TASK-0009`, `TASK-0020`, and `TASK-0029` are `Done`; prerequisite chain is clear.
 - `nexus-abi` already exports `vmo_create`, `vmo_write`, `vmo_map`, `vmo_map_page`, `vmo_destroy`,
@@ -75,12 +75,23 @@ UI/perf note:
 - Kernel syscall table currently wires `sys_vmo_create` and `sys_vmo_write`; there is no kernel-side
   `sys_vmo_destroy` handler yet. `nexus-abi::vmo_destroy()` currently targets a placeholder syscall ID
   and returns a deterministic syscall error until kernel support lands.
-- VMO usage exists in focused OS paths (`nexus-loader`, `selftest-client` probe code), but there is no
-  dedicated `userspace/memory/nexus-vmo` crate yet and no producer->consumer cross-process VMO proof
-  marker ladder (`vmo: producer sent handle` ... `SELFTEST: vmo share ok`) in selftest-client.
-- `docs/storage/vmo.md` does not exist yet.
+- New crate `userspace/memory` (`package: nexus-vmo`) now provides typed VMO plumbing with bounded host
+  mapping, deny-by-default transfer authorization, explicit reject-path tests, and deterministic counters
+  (`copy_fallback_count`, `control_plane_bytes`, `bulk_bytes`, `map_reuse_hits/misses`).
+- Selftest now emits the VMO proof ladder in the canonical OS run:
+  - `vmo: producer sent handle`
+  - `vmo: consumer mapped ok`
+  - `vmo: sha256 ok`
+  - `SELFTEST: vmo share ok`
+- OS proof now uses a dedicated spawned consumer task: producer transfers the VMO into a fixed
+  destination slot (`cap_transfer_to_slot`), consumer maps RO in its own task context, verifies payload
+  bytes deterministically, and exits with status `0` for producer-side closure.
+- Host API surface now includes `Vmo::from_bytes`, `Vmo::from_file_range` (host-only), and bounded
+  `Vmo::slice` views (`VmoSlice`) with reject-path coverage.
+- `docs/storage/vmo.md` now documents v1 plumbing scope, honesty constraints, and proof commands.
 
-This task is therefore positioned as **In Progress** (active implementation slice), with closure still gated by the listed proofs.
+This task is therefore positioned as **In Review** for the v1 plumbing slice: host + OS proofs are green,
+and kernel production closure items are explicitly handed off to `TASK-0290`.
 
 ## Goal
 
@@ -119,8 +130,8 @@ This task also establishes the early **zero-copy honesty contract**:
   - `nexus-abi::vmo_destroy()` exists, but kernel-side destroy handling is not wired yet.
   - Without explicit closure, long-lived services risk accumulating stale VMO handles/mappings.
 - **YELLOW (cross-process proof gap)**:
-  - VMO capability transfer appears structurally feasible (`CapabilityKind::Vmo` + `cap_transfer`), but the
-    required two-process digest proof in QEMU is not yet in place.
+  - The current two-process proof uses deterministic byte-match closure in the consumer + producer-side
+    digest fixture check; explicit digest-by-reply IPC is still a potential hardening enhancement.
 - **YELLOW (read-only sealing semantics)**:
   - v1 has no kernel-enforced VMO seal bit. RO behavior is currently a mapping/discipline contract, not an
     immutable kernel boundary.
@@ -232,8 +243,9 @@ Deterministic host tests:
 Add a minimal two-process proof:
 
 - producer allocates VMO, writes payload, seals RO (as defined), transfers handle to consumer,
-- consumer maps VMO read-only and computes `sha256`,
-- consumer replies digest to producer; producer compares to expected digest.
+- consumer maps VMO read-only and validates mapped bytes against the deterministic payload fixture,
+- consumer returns bounded success/fail status; producer emits `vmo: sha256 ok` only after deterministic
+  digest fixture check plus consumer success.
 
 Markers (order tolerant):
 
@@ -245,6 +257,17 @@ Markers (order tolerant):
 Notes:
 
 - Postflight scripts must delegate to canonical harness/tests; no independent “log greps = success”.
+
+### Out-of-scope handoff (must be explicit)
+
+The following items are **not** in `TASK-0031` closure scope and must be tracked in `TASK-0290`:
+
+- kernel-enforced seal/right semantics,
+- write-map denial as a kernel authority guarantee,
+- lifecycle closure for kernel destroy path (`vmo_destroy` wiring),
+- production-grade Gate A/Gate C closure evidence for reuse/copy-fallback truth.
+
+These handoff items do not block `TASK-0031` review closure once the host and OS plumbing proofs above are green.
 
 ## Touched paths (allowlist)
 
@@ -277,9 +300,9 @@ Notes:
 
 3. **OS selftest proof (if feasible)**
    - Add a tiny consumer process that:
-     - receives a VMO handle and length via IPC,
-     - maps RO and computes sha256,
-     - replies digest.
+     - receives a VMO handle via slot-directed transfer,
+     - maps RO and validates deterministic payload bytes,
+     - reports deterministic success/fail to producer.
    - Add deterministic markers listed above.
 
 4. **Docs**

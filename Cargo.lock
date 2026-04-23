@@ -1530,6 +1530,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-vmo"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+]
+
+[[package]]
 name = "notif"
 version = "0.1.0"
 
@@ -2308,6 +2315,7 @@ dependencies = [
  "nexus-proof-manifest",
  "nexus-service-entry",
  "nexus-vfs",
+ "nexus-vmo",
  "packagefsd",
  "policy",
  "policyd",

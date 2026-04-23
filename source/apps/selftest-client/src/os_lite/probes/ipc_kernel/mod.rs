@@ -5,7 +5,7 @@
 //!   `pub(crate)` surface (`qos_probe`, `ipc_payload_roundtrip`,
 //!   `ipc_deadline_timeout_probe`, `nexus_ipc_kernel_loopback_probe`,
 //!   `cap_move_reply_probe`, `sender_pid_probe`, `sender_service_id_probe`,
-//!   `ipc_soak_probe`) from focused submodules.
+//!   `vmo_share_probe`, `ipc_soak_probe`) from focused submodules.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -29,9 +29,11 @@
 mod plumbing;
 mod security;
 mod soak;
+mod vmo;
 
 pub(crate) use plumbing::{
     ipc_deadline_timeout_probe, ipc_payload_roundtrip, nexus_ipc_kernel_loopback_probe, qos_probe,
 };
 pub(crate) use security::{cap_move_reply_probe, sender_pid_probe, sender_service_id_probe};
 pub(crate) use soak::ipc_soak_probe;
+pub(crate) use vmo::vmo_share_probe;

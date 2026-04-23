@@ -20,6 +20,10 @@ pub const DEMO_EXIT42_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dem
 /// Prebuilt ELF payload for minidump-path crash proof (code 42).
 pub const DEMO_MINIDUMP_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-minidump.elf"));
 
+/// Prebuilt ELF payload for cross-process VMO consumer proof.
+pub const DEMO_VMO_CONSUMER_ELF: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/demo-vmo-consumer.elf"));
+
 /// Manifest used by selftests when staging `demo.exit0` through bundlemgrd.
 pub const DEMO_EXIT0_MANIFEST_TOML: &str = r#"name = \"demo.exit0\"
 version = \"0.0.1\"

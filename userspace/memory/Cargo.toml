@@ -1,0 +1,15 @@
+[package]
+name = "nexus-vmo"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "Host-first VMO plumbing with bounded, honest zero-copy semantics"
+
+[features]
+default = ["std"]
+std = []
+os-lite = []
+
+[dependencies]
+nexus-abi = { path = "../../source/libs/nexus-abi" }
