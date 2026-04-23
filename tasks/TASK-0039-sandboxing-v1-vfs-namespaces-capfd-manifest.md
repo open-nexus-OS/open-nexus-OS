@@ -1,6 +1,6 @@
 ---
 title: TASK-0039 Sandboxing v1 (userspace): per-subject VFS namespaces + CapFd rights + manifest permissions (host-first, OS-gated)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -8,9 +8,12 @@ depends-on:
   - TASK-0008
   - TASK-0019
   - TASK-0028
-follow-up-tasks: []
+follow-up-tasks:
+  - TASK-0043
+  - TASK-0189
 links:
   - Vision: docs/agents/VISION.md
+  - Contract seed (this task): docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md
   - Playbook: docs/agents/PLAYBOOK.md
   - IPC/caps model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - VFS today: source/services/vfsd/src/os_lite.rs
@@ -71,9 +74,9 @@ Deliver a userspace sandboxing v1 system where:
   - Therefore the real security boundary depends on **capability distribution at spawn**:
     - “apps” must not receive direct caps to filesystem services; they should only get `vfsd` (and optionally a broker).
     - `execd/init` must be the single authority for initial cap grants.
-- **YELLOW (manifest source of truth)**:
-  - Packaging still has drift (`manifest.nxb` vs `manifest.json` in tools). App permission metadata must be embedded
-    in a deterministic, signed location; otherwise sandbox policy is spoofable.
+- **RESOLVED (manifest source of truth)**:
+  - Packaging baseline is aligned on `manifest.nxb`. App permission metadata still must remain in a deterministic,
+    signed location and must not reintroduce format fallback drift.
 - **YELLOW (CapFd authenticity)**:
   - CapFds must be non-forgeable and replay-resistant (nonce + MAC) using a key managed by a trusted service (`keystored` or a dedicated broker key).
 
@@ -157,11 +160,27 @@ Deliver a userspace sandboxing v1 system where:
 
 #### Hardening markers (QEMU)
 
-- `vfsd: namespace ready (subject=<app>)` — namespace created
-- `vfsd: capfd grant (subject=<app> path=<p>)` — CapFd issued
-- `vfsd: access denied (subject=<app> path=<p>)` — confinement enforced
+- `vfsd: namespace ready` — namespace created
+- `vfsd: capfd grant ok` — CapFd issued
+- `vfsd: access denied` — confinement enforced
 - `SELFTEST: sandbox deny ok` — escape attempt blocked
 - `SELFTEST: capfd read ok` — legitimate access works
+
+## Production-grade gate mapping (TRACK alignment)
+
+This task is part of **Gate B (Security, Policy & Identity)** in
+`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
+
+Inside `TASK-0039` scope:
+
+- deny-by-default userspace namespace confinement contract,
+- deterministic reject-path behavior for traversal/forgery/replay/unauthorized access,
+- explicit capability-distribution authority at spawn (`execd/init` -> app).
+
+Follow-up production-grade breadth remains explicit and unabsorbed:
+
+- `TASK-0043` for quotas/egress/ABI-audit hardening breadth,
+- `TASK-0189` for sandbox profile distribution and policy plumbing hardening.
 
 ## Contract sources (single source of truth)
 

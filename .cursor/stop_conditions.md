@@ -193,6 +193,38 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] kernel closure obligations remain in `TASK-0286/0287/0290`,
   - [ ] no hidden scope absorption into `TASK-0032`.
 
+## TASK-0039 class stop conditions (Sandboxing v1 userspace confinement)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0039` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0042` remains linked and contract-aligned,
+  - [ ] follow-up routes stay explicit (`TASK-0043`, `TASK-0189`).
+- [ ] Behavior-first proof shape is explicit and honest:
+  - [ ] target behavior is explicit,
+  - [ ] main break point is explicit,
+  - [ ] primary proof validates Soll behavior (not implementation internals),
+  - [ ] secondary proof only closes real blind spots.
+- [ ] Security and fail-closed behavior are proven:
+  - [ ] traversal escape rejects,
+  - [ ] forged/replayed CapFd rejects,
+  - [ ] unauthorized namespace path rejects,
+  - [ ] capability-distribution boundary enforces no direct fs-service caps to app subjects.
+- [ ] Rust API discipline is reviewed where safety-relevant:
+  - [ ] newtype usage for subject/namespace/capability identifiers where useful,
+  - [ ] `#[must_use]` on decision-bearing outcomes where useful,
+  - [ ] ownership + revocation semantics remain explicit,
+  - [ ] `Send`/`Sync` expectations are reviewed without unsafe blanket shortcuts.
+- [ ] Deterministic host proof is green:
+  - [ ] required `test_reject_*` suites are green for traversal/forgery/replay/unauthorized path.
+- [ ] Deterministic OS marker proof is green (when OS proof path is claimed):
+  - [ ] `vfsd: namespace ready`
+  - [ ] `vfsd: capfd grant ok`
+  - [ ] `vfsd: access denied`
+  - [ ] `SELFTEST: sandbox deny ok`
+  - [ ] `SELFTEST: capfd read ok`
+- [ ] Production-grade scope honesty remains explicit:
+  - [ ] no kernel-enforced sandbox claim in v1 scope,
+  - [ ] follow-up hardening remains routed to `TASK-0043` / `TASK-0189`.
+
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0021-class QUIC scaffold stop conditions: use archived closure evidence in `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Done`).
 - [ ] TASK-0019-class ABI guardrail stop conditions: use archived closeout evidence in `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (`Done`).
@@ -250,9 +282,14 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 
 ## Active progress snapshot (TASK-0032 closure alignment, 2026-04-23)
 - [x] `TASK-0032` status is `Done` with synchronized proof evidence.
-- [x] `RFC-0041` status is `Complete` with checklist/proof sync.
+- [x] `RFC-0041` status is `Done` with checklist/proof sync.
 - [x] Follow-up routing and Gate-C production dependencies remain explicit (`TASK-0033`, `TASK-0286`, `TASK-0287`, `TASK-0290`).
 - [x] `.cursor` workfiles updated from prep posture to post-closure posture.
+
+## Active progress snapshot (TASK-0039 kickoff alignment, 2026-04-23)
+- [x] `TASK-0039` status is `In Progress`.
+- [x] `RFC-0042` status is `In Progress`.
+- [x] Gate-B production mapping + follow-up routing (`TASK-0043`, `TASK-0189`) are explicit.
 
 ## Legacy progress snapshot (TASK-0029 closure remediation, 2026-04-22)
 - [x] Active `.cursor` workfiles and RFC status sections now reflect post-implementation closure state.

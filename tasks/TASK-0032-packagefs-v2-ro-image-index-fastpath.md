@@ -1,6 +1,6 @@
 ---
 title: TASK-0032 packagefs v2: read-only package image + precomputed index (O(1) lookup) + host tooling (host-first, OS-gated)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on:

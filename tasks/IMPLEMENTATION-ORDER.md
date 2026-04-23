@@ -79,12 +79,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | 2026-04-20 |
 | ✅ TASK-0029 | Supply-Chain v1: SBOM + repro metadata + signature allowlist policy | 2026-04-22 |
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | 2026-04-23 |
-
-## In Review
-
-| Task | Title | Status date |
-|------|-------|-------------|
-| 🔎 TASK-0032 | PackageFS v2: RO image index + fastpath | 2026-04-23 |
+| ✅ TASK-0032 | PackageFS v2: RO image index + fastpath | 2026-04-23 |
 
 ---
 

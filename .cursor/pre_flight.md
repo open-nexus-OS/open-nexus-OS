@@ -227,12 +227,48 @@ This is the anti-fake-success gate.
   - [ ] mount success marker only after real validation + index load,
   - [ ] no silent fallback to unvalidated data path.
 
+## Task-0039 manual addendum (when applicable)
+- [ ] Scope honesty is preserved:
+  - [ ] kernel remains untouched in v1 sandbox scope,
+  - [ ] userspace confinement boundary is explicitly documented (no kernel-enforced claims),
+  - [ ] follow-up hardening scope stays explicit (`TASK-0043`, `TASK-0189`).
+- [ ] Contract seed alignment is current:
+  - [ ] `RFC-0042` exists and is linked from `TASK-0039`,
+  - [ ] Gate-B production mapping is explicit and consistent with `TRACK-PRODUCTION-GATES-KERNEL-SERVICES`.
+- [ ] Behavior-first proof shape is explicit:
+  - [ ] target behavior is stated in 1-3 lines,
+  - [ ] main break point is explicit,
+  - [ ] primary proof validates Soll behavior (not implementation coupling),
+  - [ ] secondary proof only closes a real blind spot.
+- [ ] Security and reject discipline are explicit and tested:
+  - [ ] traversal escape reject,
+  - [ ] forged/replayed CapFd reject,
+  - [ ] unauthorized path reject,
+  - [ ] direct-cap bypass prevention at spawn-time authority boundary.
+- [ ] Rust API discipline is reviewed where safety-relevant:
+  - [ ] newtypes for identity-bearing handles where boundaries cross components,
+  - [ ] `#[must_use]` on decision-bearing results where useful,
+  - [ ] ownership and revocation semantics are explicit,
+  - [ ] `Send`/`Sync` assumptions reviewed without unsafe blanket shortcuts.
+- [ ] Deterministic marker contract is stable-label only when OS path is claimed:
+  - [ ] `vfsd: namespace ready`
+  - [ ] `vfsd: capfd grant ok`
+  - [ ] `vfsd: access denied`
+  - [ ] `SELFTEST: sandbox deny ok`
+  - [ ] `SELFTEST: capfd read ok`
+
 ## Active progress snapshot (TASK-0032 closure, 2026-04-23)
 - [x] `TASK-0032` execution SSOT is synchronized to landed implementation and proof evidence (`Done`).
-- [x] `RFC-0041` contract seed is synchronized to closure state (`Complete`).
+- [x] `RFC-0041` contract seed is synchronized to closure state (`Done`).
 - [x] Required TASK-0032 reject suite is green (`test_reject_pkgimg_*`).
 - [x] Required TASK-0032 marker ladder is proven in single-VM QEMU path.
 - [x] Build hygiene gates are green for touched OS/host code (`diag-host`, `dep-gate`, `diag-os`).
+
+## Active progress snapshot (TASK-0039 kickoff, 2026-04-23)
+- [x] `TASK-0039` moved to `In Progress`.
+- [x] `RFC-0042` seed contract created and moved to `In Progress`.
+- [x] Security section + red-flag posture are synchronized to current architecture reality.
+- [x] Gate-B production mapping and follow-up ownership (`TASK-0043`, `TASK-0189`) are explicit.
 
 ## Legacy progress snapshot (TASK-0031 prep alignment, 2026-04-21)
 - [x] Active SSOT switched to `TASK-0031`.
