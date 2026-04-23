@@ -172,7 +172,11 @@ fn align_up(value: usize, alignment: usize) -> usize {
         return value;
     }
     let rem = value % alignment;
-    if rem == 0 { value } else { value + (alignment - rem) }
+    if rem == 0 {
+        value
+    } else {
+        value + (alignment - rem)
+    }
 }
 
 fn sanitize_component(label: &str, value: &str, caps: &PkgImgCaps) -> Result<String, PkgImgError> {
@@ -233,9 +237,7 @@ fn read_u32(bytes: &[u8], off: &mut usize) -> Result<u32, PkgImgError> {
 
 fn read_u64(bytes: &[u8], off: &mut usize) -> Result<u64, PkgImgError> {
     let data = read_exact(bytes, off, 8)?;
-    Ok(u64::from_le_bytes([
-        data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-    ]))
+    Ok(u64::from_le_bytes([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]]))
 }
 
 /// Builds a deterministic `pkgimg` v2 image from file specs.
@@ -271,7 +273,10 @@ pub fn build_pkgimg(specs: &[PkgImgFileSpec], caps: PkgImgCaps) -> Result<Vec<u8
         let data_off = data.len() as u64;
         data.extend_from_slice(bytes);
 
-        if bundle.len() > u16::MAX as usize || version.len() > u16::MAX as usize || path.len() > u16::MAX as usize {
+        if bundle.len() > u16::MAX as usize
+            || version.len() > u16::MAX as usize
+            || path.len() > u16::MAX as usize
+        {
             return Err(PkgImgError::IndexCapExceeded);
         }
         write_u16(&mut index, bundle.len() as u16);
@@ -336,16 +341,20 @@ pub fn parse_pkgimg(image: &[u8], caps: PkgImgCaps) -> Result<ParsedPkgImg, PkgI
     if index_len > caps.max_index_bytes {
         return Err(PkgImgError::IndexCapExceeded);
     }
-    let index_end = index_offset
-        .checked_add(index_len)
-        .ok_or(PkgImgError::Malformed("index overflow"))?;
-    let data_end = data_offset
-        .checked_add(data_len)
-        .ok_or(PkgImgError::Malformed("data overflow"))?;
-    if index_offset < SUPERBLOCK_LEN || data_offset < SUPERBLOCK_LEN || index_end > image.len() || data_end > image.len() || index_end > data_offset {
+    let index_end =
+        index_offset.checked_add(index_len).ok_or(PkgImgError::Malformed("index overflow"))?;
+    let data_end =
+        data_offset.checked_add(data_len).ok_or(PkgImgError::Malformed("data overflow"))?;
+    if index_offset < SUPERBLOCK_LEN
+        || data_offset < SUPERBLOCK_LEN
+        || index_end > image.len()
+        || data_end > image.len()
+        || index_end > data_offset
+    {
         return Err(PkgImgError::EntryOutOfBounds);
     }
-    let index_bytes = image.get(index_offset..index_end).ok_or(PkgImgError::Malformed("index slice"))?;
+    let index_bytes =
+        image.get(index_offset..index_end).ok_or(PkgImgError::Malformed("index slice"))?;
     let digest = Sha256::digest(index_bytes);
     if digest.as_slice() != expected_hash {
         return Err(PkgImgError::IndexHashMismatch);
@@ -370,9 +379,12 @@ pub fn parse_pkgimg(image: &[u8], caps: PkgImgCaps) -> Result<ParsedPkgImg, PkgI
         let bundle_raw = read_exact(index_bytes, &mut idx_off, bundle_len)?;
         let version_raw = read_exact(index_bytes, &mut idx_off, version_len)?;
         let path_raw = read_exact(index_bytes, &mut idx_off, path_len)?;
-        let bundle_str = core::str::from_utf8(bundle_raw).map_err(|_| PkgImgError::Malformed("bundle utf8"))?;
-        let version_str = core::str::from_utf8(version_raw).map_err(|_| PkgImgError::Malformed("version utf8"))?;
-        let path_str = core::str::from_utf8(path_raw).map_err(|_| PkgImgError::Malformed("path utf8"))?;
+        let bundle_str =
+            core::str::from_utf8(bundle_raw).map_err(|_| PkgImgError::Malformed("bundle utf8"))?;
+        let version_str = core::str::from_utf8(version_raw)
+            .map_err(|_| PkgImgError::Malformed("version utf8"))?;
+        let path_str =
+            core::str::from_utf8(path_raw).map_err(|_| PkgImgError::Malformed("path utf8"))?;
         let bundle = sanitize_component("bundle", bundle_str, &caps)?;
         let version = sanitize_component("version", version_str, &caps)?;
         let path = sanitize_path(path_str, &caps)?;
@@ -390,7 +402,13 @@ pub fn parse_pkgimg(image: &[u8], caps: PkgImgCaps) -> Result<ParsedPkgImg, PkgI
             return Err(PkgImgError::DuplicateEntry);
         }
         let next_idx = entries.len();
-        entries.push(PkgImgEntry { bundle: bundle.clone(), version: version.clone(), path: path.clone(), data_offset: data_off, data_len: len });
+        entries.push(PkgImgEntry {
+            bundle: bundle.clone(),
+            version: version.clone(),
+            path: path.clone(),
+            data_offset: data_off,
+            data_len: len,
+        });
         index.insert(key, next_idx);
     }
     if idx_off != index_bytes.len() {
@@ -441,17 +459,11 @@ mod tests {
         let file = b"ro.nexus.build=dev\n";
         let probes = [(0usize, 2usize), (3, 5), (8, 64), (file.len(), 1)];
         for (off, len) in probes {
-            let got = parsed
-                .read_at("system", "1.0.0", "build.prop", off, len)
-                .expect("slice");
+            let got = parsed.read_at("system", "1.0.0", "build.prop", off, len).expect("slice");
             let expected_end = core::cmp::min(file.len(), off + len);
             assert_eq!(got, &file[off..expected_end]);
         }
-        assert!(
-            parsed
-                .read_at("system", "1.0.0", "build.prop", file.len() + 1, 1)
-                .is_none()
-        );
+        assert!(parsed.read_at("system", "1.0.0", "build.prop", file.len() + 1, 1).is_none());
     }
 
     #[test]

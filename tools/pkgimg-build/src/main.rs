@@ -25,11 +25,7 @@ fn parse_bundle_and_version(name: &str) -> Option<(String, String)> {
     Some((bundle.to_string(), version.to_string()))
 }
 
-fn collect_files(
-    root: &Path,
-    rel: &Path,
-    out: &mut Vec<(PathBuf, Vec<u8>)>,
-) -> Result<(), String> {
+fn collect_files(root: &Path, rel: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) -> Result<(), String> {
     let dir = root.join(rel);
     let entries = fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
     for entry in entries {

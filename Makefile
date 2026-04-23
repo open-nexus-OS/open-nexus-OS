@@ -5,12 +5,13 @@ NIGHTLY ?= nightly-2025-01-15
 CARGO_BIN ?= cargo
 SMP ?= 2
 HOST_RUSTFLAGS := --check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"
+TARGET_DIR := target
+export CARGO_TARGET_DIR := $(CURDIR)/$(TARGET_DIR)
 
 # Canonical artifact paths that `make build` must produce and that
 # `make test` / `make run` consume via NEXUS_SKIP_BUILD=1
 # (see scripts/run-qemu-rv64.sh).
 RV_TARGET := riscv64imac-unknown-none-elf
-TARGET_DIR := target
 INIT_ELF := $(TARGET_DIR)/$(RV_TARGET)/release/init-lite
 KERNEL_ELF := $(TARGET_DIR)/$(RV_TARGET)/release/neuron-boot
 UID := $(shell id -u)

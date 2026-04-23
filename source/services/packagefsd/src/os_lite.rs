@@ -1,10 +1,10 @@
-extern crate alloc;
-
 //! CONTEXT: OS-lite packagefs daemon path using bundlemgr authority + pkgimg v2 validation.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Covered by single-VM QEMU marker ladder and selftest VFS phase.
+
+extern crate alloc;
 
 use core::fmt;
 
@@ -137,7 +137,11 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
     run_loop(&server, &registry, mount_mode)
 }
 
-fn run_loop(server: &KernelServer, registry: &BundleRegistry, mount_mode: MountMode) -> LiteResult<()> {
+fn run_loop(
+    server: &KernelServer,
+    registry: &BundleRegistry,
+    mount_mode: MountMode,
+) -> LiteResult<()> {
     let mut response = Vec::with_capacity(256);
     loop {
         match server.recv(Wait::Blocking) {

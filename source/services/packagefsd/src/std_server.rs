@@ -12,8 +12,8 @@ use capnp::message::ReaderOptions;
 use capnp::serialize;
 use log::{error, info};
 use parking_lot::Mutex;
-use thiserror::Error;
 use storage::pkgimg::{parse_pkgimg, PkgImgCaps};
+use thiserror::Error;
 
 use nexus_idl_runtime::packagefs_capnp::{
     publish_bundle, publish_response, resolve_path, resolve_response,
