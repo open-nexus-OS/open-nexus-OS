@@ -164,6 +164,35 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] early production-grade claims are blocked until `TASK-0290` closure proofs are green,
   - [ ] track-gate alignment remains explicit (`TRACK-PRODUCTION-GATES-KERNEL-SERVICES`).
 
+## TASK-0032 class stop conditions (PackageFS v2 RO image index fastpath)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0032` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0041` remains linked and contract-aligned,
+  - [ ] follow-up routes stay explicit (`TASK-0033`, `TASK-0286`, `TASK-0287`, `TASK-0290`).
+- [ ] Behavior-first proof shape is explicit and honest:
+  - [ ] target behavior is explicit,
+  - [ ] main break point is explicit,
+  - [ ] primary proof is minimal and contract-driven,
+  - [ ] secondary proof only closes real blind spots.
+- [ ] Security and fail-closed behavior are proven:
+  - [ ] malformed magic/version reject,
+  - [ ] index hash mismatch reject,
+  - [ ] out-of-range index entry reject,
+  - [ ] path traversal/invalid path reject,
+  - [ ] parser bounds-cap reject.
+- [ ] Deterministic host proof is green:
+  - [ ] deterministic image build + verify proof,
+  - [ ] stat/open/read contract proof against fixture image,
+  - [ ] required `test_reject_*` suite is green.
+- [ ] Deterministic OS marker proof is green (when OS proof path is claimed):
+  - [ ] `packagefsd: v2 mounted (pkgimg)`
+  - [ ] `SELFTEST: pkgimg mount ok`
+  - [ ] `SELFTEST: pkgimg stat/read ok`
+- [ ] Production-grade dependency split remains explicit:
+  - [ ] zero-copy splice remains `TASK-0033` scope,
+  - [ ] kernel closure obligations remain in `TASK-0286/0287/0290`,
+  - [ ] no hidden scope absorption into `TASK-0032`.
+
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0021-class QUIC scaffold stop conditions: use archived closure evidence in `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Done`).
 - [ ] TASK-0019-class ABI guardrail stop conditions: use archived closeout evidence in `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (`Done`).
@@ -219,11 +248,11 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] No follow-up scope (`TASK-0197 / 0198 / 0289`) silently absorbed; touched-paths allowlist enforced.
 - [ ] Architecture contract stays synchronized: `tasks/TASK-0029-...md` (execution SSOT), `docs/rfcs/RFC-0039-...md` (contract seed). Both flipped from `Draft` to `Ready` before code lands; `Done` only after all proofs above are green and `docs/rfcs/README.md` index entry reflects closure.
 
-## Active progress snapshot (TASK-0031 prep alignment, 2026-04-21)
-- [x] Active SSOT switched to `TASK-0031`.
-- [x] `RFC-0040` seed exists and is linked in task + README.
-- [x] RFC includes a normative production-grade closure requirement tied to track gates.
-- [x] `.cursor` workfiles updated to `TASK-0031` prep posture.
+## Active progress snapshot (TASK-0032 prep alignment, 2026-04-23)
+- [x] Active SSOT switched to `TASK-0032`.
+- [x] `RFC-0041` seed exists and is linked in task + README.
+- [x] Follow-up routing and Gate-C production dependencies are explicit in task/RFC text.
+- [x] `.cursor` workfiles updated to `TASK-0032` prep posture.
 
 ## Legacy progress snapshot (TASK-0029 closure remediation, 2026-04-22)
 - [x] Active `.cursor` workfiles and RFC status sections now reflect post-implementation closure state.

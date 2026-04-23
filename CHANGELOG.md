@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-23
+
+#### TASK-0032 prep sync + queue/workfile alignment (`TASK-0029`, `TASK-0031`, `TASK-0032`, `RFC-0041`)
+
+- Added `TASK-0029` and `TASK-0031` to the cumulative Done table in `tasks/IMPLEMENTATION-ORDER.md`.
+- Created RFC seed contract for the active SSOT task:
+  - `docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md`
+- Linked the new seed from `tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md` and updated `docs/rfcs/README.md` index entries.
+- Synced active task prep workfiles for `TASK-0032` posture:
+  - `.cursor/context_bundles.md`
+  - `.cursor/pre_flight.md`
+  - `.cursor/stop_conditions.md`
+
 ### Changed - 2026-04-20
 
 #### TASK-0023B Phase 6 functional closure + RFC-0038 → Done (`TASK-0023B`, `RFC-0038`)

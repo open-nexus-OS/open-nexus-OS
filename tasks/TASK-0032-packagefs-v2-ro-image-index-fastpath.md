@@ -1,30 +1,39 @@
 ---
 title: TASK-0032 packagefs v2: read-only package image + precomputed index (O(1) lookup) + host tooling (host-first, OS-gated)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on:
   - TASK-0007
   - TASK-0009
   - TASK-0010
-follow-up-tasks: []
+follow-up-tasks:
+  - TASK-0033
+  - TASK-0286
+  - TASK-0287
+  - TASK-0290
 links:
   - Vision: docs/agents/VISION.md
+  - Contract seed (this task): docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md
   - Packaging baseline: docs/packaging/nxb.md
+  - Production gate policy: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - Depends-on (packaging drift fix): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Depends-on (block device model): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Depends-on (MMIO access, if blk-backed on OS): tasks/TASK-0010-device-mmio-access-model.md
   - Related (VMO plumbing): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - Related (VMO splice follow-up): tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md
+  - Architecture baseline: docs/architecture/12-storage-vfs-packagefs.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
 ## Context
 
-Current `packagefsd` implementations:
+Current `packagefsd` implementation already has a split posture:
 
-- **host (`std_server.rs`)**: stores bundle file bytes in memory (not scalable).
-- **os-lite (`os_lite.rs`)**: has an explicit TODO note to move to a “read-only bundle image”, and already
-  fetches a `bundleimg` blob from `bundlemgrd` (`encode_fetch_image` / `decode_fetch_image_rsp`).
+- **host (`std_server.rs`)**: in-memory registry of published entries; path sanitize logic exists, but no
+  on-disk RO image/index contract yet.
+- **os-lite (`os_lite.rs`)**: fetches image bytes from `bundlemgrd` and decodes `bundleimg` entries into
+  an in-memory registry; current format is functional bring-up, but not a versioned production contract.
 
 We want packagefs to scale by serving packages from a **read-only image** with a **precomputed index**
 for fast lookup.
@@ -55,23 +64,51 @@ Key properties:
 - No fake markers: “v2 mounted” only after the image was validated and index loaded.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
+## Security section (mandatory)
+
+### Threat model (this task)
+
+- Corrupted or malicious package image bytes delivered to packagefs mount path.
+- Path traversal payloads (`..`, empty segments, malformed UTF-8) in index/file paths.
+- Out-of-range `(offset,len)` index entries causing OOB reads or silent truncation.
+- Authority drift where packagefs accepts identity/policy decisions from payloads instead of channel authority.
+
+### Security invariants
+
+- Mount is fail-closed: invalid header/index/hash/range rejects mount deterministically.
+- Parser is bounded: hard caps for image size, index bytes, entry count, path length, and file length.
+- Read path is read-only and deterministic; no write semantics introduced.
+- Identity/policy remains authority-bound (`sender_service_id`/service channel), never payload-derived.
+- No secrets or unstable variable data in success markers.
+
+### Required negative proofs (`test_reject_*`)
+
+- `test_reject_pkgimg_bad_magic_or_version`
+- `test_reject_pkgimg_index_hash_mismatch`
+- `test_reject_pkgimg_entry_out_of_bounds`
+- `test_reject_pkgimg_path_traversal_or_empty_segment`
+- `test_reject_pkgimg_index_cap_exceeded`
+
 ## Red flags / decision points
 
-- **RED (manifest format drift)**:
-  - Docs say `.nxb` contains `manifest.nxb`, but `tools/nxb-pack` currently writes `manifest.json`.
-  - The image builder must not cement `manifest.json` as canonical. It must either:
-    - operate on `manifest.nxb` only, or
-    - explicitly support both formats during a transition and document it.
+- **RESOLVED (manifest format drift)**:
+  - Baseline is now aligned: `docs/packaging/nxb.md` and `tools/nxb-pack` both use `manifest.nxb`.
+  - `pkgimg-build` must keep `manifest.nxb` canonical and must not reintroduce `manifest.json` fallback silently.
 - **YELLOW (OS storage path)**:
   - If we want OS to mount from `virtio-blk`, this is **no longer blocked by MMIO** (TASK-0010 is Done),
     but it *is* gated on selecting a single blk authority and proving deterministic reads end-to-end.
   - Short-term OS path can continue to fetch the image bytes from `bundlemgrd` (already exists), which avoids
     direct block device access in v2.
+  - Exit criteria for this yellow item in TASK-0032: keep `bundlemgrd.fetch_image` as authority path and make
+    blk-backed mount explicit follow-up work (do not silently scope-creep here).
 
 ## Contract sources (single source of truth)
 
 - `docs/packaging/nxb.md` (bundle layout direction)
+- `docs/architecture/12-storage-vfs-packagefs.md` (service boundary and ownership)
+- `source/services/packagefsd/src/std_server.rs` (host in-memory baseline)
 - `source/services/packagefsd/src/os_lite.rs` (existing `fetch_image` path and `bundleimg` decoder)
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate-C production-grade closure language)
 - QEMU marker contract: `scripts/qemu-test.sh`
 
 ## Stop conditions (Definition of Done)
@@ -95,13 +132,28 @@ Once OS can provide the image (via existing `bundlemgrd.fetch_image` or blk-back
 - `SELFTEST: pkgimg mount ok`
 - `SELFTEST: pkgimg stat/read ok`
 
+## Production-grade gate mapping (TRACK alignment)
+
+This task is part of **Gate C (Storage, PackageFS & Content)** and keeps the following production-grade
+obligations *inside TASK-0032*:
+
+- deterministic, bounded, integrity-checked image format contract,
+- deterministic reject behavior for malformed/corrupt image/index/path/range inputs,
+- stable `stat/open/read` semantics with reproducible proofs.
+
+The following production-grade closure items remain explicit follow-ups and are **not** silently absorbed:
+
+- `TASK-0033`: VMO splice/zero-copy data-path for large payload reads.
+- `TASK-0286` + `TASK-0287`: kernel resource/accounting truth needed for full quota/resource claims.
+- `TASK-0290`: kernel zero-copy closure truth (seal/rights/reuse/copy-fallback evidence).
+
 ## Touched paths (allowlist)
 
 - `userspace/storage/` (new `package-image` format crate)
 - `tools/pkgimg-build/` (new host tool) and optionally `tools/nxb-pack/` integration
 - `source/services/packagefsd/` (v2 image-backed path; host + os-lite)
 - `source/apps/selftest-client/` (gated markers)
-- `docs/storage/packagefs.md` (new/updated)
+- `docs/architecture/12-storage-vfs-packagefs.md` (new/updated for pkgimg v2)
 - `docs/testing/index.md`
 - `scripts/qemu-test.sh` (gated)
 
@@ -138,9 +190,10 @@ Once OS can provide the image (via existing `bundlemgrd.fetch_image` or blk-back
    - Verify mount marker + read a known `pkg:/demo.hello/manifest...`.
 
 5. **Docs**
-   - `docs/storage/packagefs.md` describing v2 image layout, determinism, and migration strategy.
+   - `docs/architecture/12-storage-vfs-packagefs.md` describing v2 image layout, determinism, and migration strategy.
 
 ## Follow-ups (separate tasks)
 
-- VMO splice from package image (requires VMO transfer semantics and budgets).
+- VMO splice from package image (`TASK-0033`; requires VMO transfer semantics and budgets).
 - blk-backed mount on OS (TASK-0010 MMIO primitive is Done; remaining gate is choosing the blk authority + QEMU proof ladder).
+- Gate-C production-grade closeout dependencies: `TASK-0286`, `TASK-0287`, `TASK-0290`.

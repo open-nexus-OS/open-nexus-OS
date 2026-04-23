@@ -452,6 +452,37 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0032_context
+- `tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md`
+- `docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md`
+- `tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md`
+- `tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md`
+- `tasks/TASK-0287-kernel-memory-pressure-v1-hard-limits-oom-handoff.md`
+- `tasks/TASK-0290-kernel-zero-copy-closure-v1b-vmo-seals-reuse-truth.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/architecture/12-storage-vfs-packagefs.md`
+- `docs/packaging/nxb.md`
+- `docs/standards/SECURITY_STANDARDS.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+
+### @task_0032_touched
+- `source/services/packagefsd/**`
+- `userspace/storage/**` (pkgimg format/parsing helpers)
+- `tools/pkgimg-build/**` (new host builder tool)
+- `tools/nxb-pack/**` (only if integration wiring is required)
+- `source/apps/selftest-client/**` (gated pkgimg markers only)
+- `docs/architecture/12-storage-vfs-packagefs.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh` (marker/profile sync only)
+- `tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md`
+- `docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -537,6 +568,9 @@ Kontext strikt: @core_context @task_0029_context @quality_gates @task_0029_touch
 
 ## Standard instruction line (TASK-0031)
 Kontext strikt: @core_context @task_0031_context @quality_gates @task_0031_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0032)
+Kontext strikt: @core_context @task_0032_context @quality_gates @task_0032_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

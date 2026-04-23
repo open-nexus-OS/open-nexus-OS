@@ -65,6 +65,13 @@ All services follow a **hybrid architecture** that separates control (small, str
 | **VMO (Virtual Memory Object)** | Zero-copy bulk sharing (kernel-backed) | OS production (TASK-0031+) |
 | **Filebuffer** | Host testing, exports, debugging sinks | Host tests, optional exports |
 
+**Current VMO contract status (explicit traceability):**
+
+- `TASK-0031` is the implemented **plumbing + honesty floor** for VMO-based bulk paths.
+- `RFC-0040` is the closed v1 contract seed for that plumbing slice.
+- `TASK-0290` remains the production-grade kernel closure route (seal rights, write-map denial, reuse/copy-fallback truth).
+- Canonical usage/proof reference: `docs/storage/vmo.md`.
+
 **Pattern** (RFC-0005 "Bulk buffer pattern"):
 1. Producer allocates VMO and writes bytes
 2. Producer sends metadata inline (VMO handle + size/offset) via Control Plane IPC

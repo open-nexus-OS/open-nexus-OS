@@ -200,6 +200,33 @@ This is the anti-fake-success gate.
   - [ ] `TASK-0290` stays linked as mandatory closure step,
   - [ ] RFC/task text states "Complete only after production-grade closure obligations are green".
 
+## Task-0032 manual addendum (when applicable)
+- [ ] Scope honesty is preserved:
+  - [ ] `TASK-0032` stays image/index fastpath scope (no kernel scope creep),
+  - [ ] VMO splice scope remains in `TASK-0033`,
+  - [ ] production dependencies (`TASK-0286/0287/0290`) stay explicit and unabsorbed.
+- [ ] Contract seed alignment is current:
+  - [ ] `RFC-0041` exists and is linked from `TASK-0032`,
+  - [ ] Gate-C production mapping is explicit and consistent with `TRACK-PRODUCTION-GATES-KERNEL-SERVICES`.
+- [ ] Behavior-first proof shape is explicit:
+  - [ ] target behavior is stated in 1-3 lines,
+  - [ ] main break point is explicit,
+  - [ ] primary proof is minimal and honest,
+  - [ ] secondary proof only closes a real blind spot.
+- [ ] Security and reject discipline are explicit and tested:
+  - [ ] bad magic/version reject,
+  - [ ] index-hash mismatch reject,
+  - [ ] out-of-range entry reject,
+  - [ ] path traversal reject,
+  - [ ] index-cap reject.
+- [ ] Deterministic marker contract is proven when OS path is claimed:
+  - [ ] `packagefsd: v2 mounted (pkgimg)`,
+  - [ ] `SELFTEST: pkgimg mount ok`,
+  - [ ] `SELFTEST: pkgimg stat/read ok`.
+- [ ] No fake-success fallback:
+  - [ ] mount success marker only after real validation + index load,
+  - [ ] no silent fallback to unvalidated data path.
+
 ## Active progress snapshot (TASK-0031 prep alignment, 2026-04-21)
 - [x] Active SSOT switched to `TASK-0031`.
 - [x] New contract seed `RFC-0040` created and linked.
