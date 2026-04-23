@@ -147,6 +147,17 @@ Scope note:
 | Deny-by-default reject paths (`test_reject_unauthorized_transfer`, `test_reject_oversized_mapping`, `test_ro_mapping_enforced`, short file-range, host slot-transfer reject) | host reject assertions | `cargo test -p nexus-vmo -- reject --nocapture` |
 | Producer transfer -> spawned consumer task RO map/verify -> marker ladder (`vmo:*`, `SELFTEST: vmo share ok`) | single-VM OS-gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
 
+### TASK-0032 packagefs v2 `pkgimg` matrix
+
+`TASK-0032` proves deterministic read-only image/index mount-read behavior (host-first, OS-gated).
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Deterministic `pkgimg` v2 builder/parser and required reject paths (`test_reject_pkgimg_*`) | host contract + reject assertions | `cargo test -p storage -- --nocapture` |
+| `packagefsd` host integration floor stays green while wiring v2 mount/read path | host daemon assertions | `cargo test -p packagefsd -- --nocapture` |
+| `pkgimg-build` host tooling compiles and remains executable in workspace | host tooling sanity | `cargo test -p pkgimg-build -- --nocapture` |
+| OS marker ladder (`packagefsd: v2 mounted (pkgimg)`, `SELFTEST: pkgimg mount ok`, `SELFTEST: pkgimg stat/read ok`) | single-VM OS-gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
+
 ### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
 
 Legacy tasks remain `Done`; production closure uses follow-on requirement suites to prove Soll behavior (not implementation internals).

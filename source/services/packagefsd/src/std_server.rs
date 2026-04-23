@@ -1,4 +1,11 @@
+//! CONTEXT: Host/std packagefs daemon transport + registry + pkgimg v2 mount integration.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Unit tests for publish path and pkgimg v2 mount contract/reject behavior.
+
 use std::collections::HashMap;
+use std::fs;
 use std::sync::{Arc, OnceLock};
 
 use capnp::message::ReaderOptions;
@@ -6,6 +13,7 @@ use capnp::serialize;
 use log::{error, info};
 use parking_lot::Mutex;
 use thiserror::Error;
+use storage::pkgimg::{parse_pkgimg, PkgImgCaps};
 
 use nexus_idl_runtime::packagefs_capnp::{
     publish_bundle, publish_response, resolve_path, resolve_response,
@@ -54,6 +62,9 @@ pub enum ServerError {
     /// Registry level error.
     #[error("service error: {0}")]
     Service(ServiceError),
+    /// Failed to mount pkgimg v2 image.
+    #[error("pkgimg mount error: {0}")]
+    PkgImg(String),
 }
 
 impl From<TransportError> for ServerError {
@@ -321,6 +332,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<()> {
     {
         let (client, server) = nexus_ipc::loopback_channel();
         let registry = BundleRegistry::global().clone();
+        if let Err(err) = try_mount_pkgimg_from_env(&registry) {
+            error!("packagefsd: pkgimg mount failed: {err}");
+        }
         notifier.notify();
         let _client_guard = client;
         let mut transport = IpcTransport::new(server);
@@ -333,9 +347,41 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<()> {
         let server = nexus_ipc::KernelServer::new().map_err(TransportError::from)?;
         let mut transport = IpcTransport::new(server);
         let registry = BundleRegistry::global().clone();
+        if let Err(err) = try_mount_pkgimg_from_env(&registry) {
+            error!("packagefsd: pkgimg mount failed: {err}");
+        }
         notifier.notify();
         run_loop(&mut transport, registry)
     }
+}
+
+fn try_mount_pkgimg_from_env(registry: &BundleRegistry) -> Result<()> {
+    let Some(path) = std::env::var_os("PACKAGEFSD_PKGIMG_PATH") else {
+        return Ok(());
+    };
+    let bytes = fs::read(&path)
+        .map_err(|err| ServerError::PkgImg(format!("read {}: {err}", path.to_string_lossy())))?;
+    mount_pkgimg_bytes(registry, &bytes)
+}
+
+fn mount_pkgimg_bytes(registry: &BundleRegistry, bytes: &[u8]) -> Result<()> {
+    let parsed = parse_pkgimg(bytes, PkgImgCaps::default())
+        .map_err(|err| ServerError::PkgImg(format!("parse pkgimg: {err}")))?;
+    let mut grouped: HashMap<(String, String), Vec<FileEntry>> = HashMap::new();
+    for entry in parsed.entries() {
+        let payload = parsed
+            .read(&entry.bundle, &entry.version, &entry.path)
+            .ok_or_else(|| ServerError::PkgImg("entry payload missing".to_string()))?;
+        grouped
+            .entry((entry.bundle.clone(), entry.version.clone()))
+            .or_default()
+            .push(FileEntry::new(&entry.path, KIND_FILE, payload.to_vec()));
+    }
+    for ((bundle, version), entries) in grouped {
+        registry.publish_bundle(&bundle, &version, entries)?;
+    }
+    println!("packagefsd: v2 mounted (pkgimg)");
+    Ok(())
 }
 
 /// Runs the service with an injected transport and registry instance.
@@ -518,6 +564,7 @@ pub fn touch_schemas() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use storage::pkgimg::{build_pkgimg, PkgImgFileSpec};
 
     struct DummyTransport {
         frames: Vec<Vec<u8>>,
@@ -569,5 +616,30 @@ mod tests {
         assert!(transport.sent.len() == 1);
         let entry = registry.resolve("demo@1.0.0/manifest.nxb").unwrap();
         assert_eq!(entry.size, 5);
+    }
+
+    #[test]
+    fn mount_pkgimg_registers_bundle_entries_for_resolve() {
+        let registry = BundleRegistry::default();
+        let specs = vec![
+            PkgImgFileSpec::new("system", "1.0.0", "build.prop", b"ro.nexus.build=dev\n"),
+            PkgImgFileSpec::new("demo.hello", "1.0.0", "manifest.nxb", b"manifest"),
+        ];
+        let img = build_pkgimg(&specs, PkgImgCaps::default()).unwrap();
+        mount_pkgimg_bytes(&registry, &img).unwrap();
+        let system = registry.resolve("system/build.prop").unwrap();
+        assert_eq!(system.bytes, b"ro.nexus.build=dev\n");
+        let manifest = registry.resolve("demo.hello/manifest.nxb").unwrap();
+        assert_eq!(manifest.bytes, b"manifest");
+    }
+
+    #[test]
+    fn test_reject_pkgimg_bad_magic_or_version_mount() {
+        let registry = BundleRegistry::default();
+        let specs = vec![PkgImgFileSpec::new("system", "1.0.0", "build.prop", b"ok")];
+        let mut img = build_pkgimg(&specs, PkgImgCaps::default()).unwrap();
+        img[8..10].copy_from_slice(&3u16.to_le_bytes());
+        let err = mount_pkgimg_bytes(&registry, &img).unwrap_err();
+        assert!(matches!(err, ServerError::PkgImg(_)));
     }
 }

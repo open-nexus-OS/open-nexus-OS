@@ -2,35 +2,32 @@
 
 ## Candidate next execution
 
-- **task**: `tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md` — `Draft`
-- **immediate follow-up**: `tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md` — `Draft`
+- **recently closed**: `tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md` — `Done`
+- **task**: `tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md` — `Draft`
 - **production dependencies**: `TASK-0286`, `TASK-0287`, `TASK-0290`
 - **tier**: production-grade trajectory per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate C relevant closure obligations)
 
 ## Drift check vs real repo state
 
-- [x] `source/services/packagefsd/src/std_server.rs` is still host in-memory registry (no pkgimg contract yet).
-- [x] `source/services/packagefsd/src/os_lite.rs` currently decodes `bundleimg` from `bundlemgrd.fetch_image`.
-- [x] `TASK-0032` now carries explicit security section + named reject proofs.
-- [x] `TASK-0032` header follow-up list explicitly includes `TASK-0033` + production dependencies (`TASK-0286/0287/0290`).
-- [x] Gate-C production-grade mapping is explicit in task body; no hidden scope absorption.
+- [x] `source/services/packagefsd/src/std_server.rs` includes validated pkgimg v2 mount path.
+- [x] `source/services/packagefsd/src/os_lite.rs` validates pkgimg v2 on `bundlemgrd.fetch_image` authority path.
+- [x] `userspace/storage/src/pkgimg.rs` provides bounded parser/reject contract with required `test_reject_*`.
+- [x] `tools/pkgimg-build` exists with build + verify binaries.
+- [x] TASK/RFC/README status lines are synchronized for closure (`TASK-0032` Done, `RFC-0041` Complete).
 
-## Acceptance criteria (must be testable per cut)
+## Acceptance criteria (for next cut: TASK-0033)
 
 ### Host (mandatory)
 
-- Deterministic pkgimg builder/verifier tests prove stable image layout + reproducible index hash.
-- Reject-path tests exist and pass (`test_reject_*` malformed/corrupt/path/OOB/cap exceeded).
-- `stat/open/read` behavior is proven against contract fixtures (Soll), not implementation trivia.
+- VMO splice/read-range semantics must be proven on top of already-validated pkgimg v2 index contract.
+- Reject-path tests must exist for OOB splice and hash mismatch.
 
 ### OS / QEMU (mandatory for closure claims)
 
-- Deterministic marker ladder proves package image mount/read closure when OS path is claimed:
-  - `packagefsd: v2 mounted (pkgimg)`
-  - `SELFTEST: pkgimg mount ok`
-  - `SELFTEST: pkgimg stat/read ok`
-- No fake success markers for degraded/stub paths.
-- Marker contract is registered and enforced by canonical harness (`scripts/qemu-test.sh` + `verify-uart` path).
+- Required marker ladder (when claimed):
+  - `packagefsd: splice→vmo ok (len=<n>)`
+  - `SELFTEST: pkgimg vmo ok`
+- Existing TASK-0032 pkgimg markers remain green (no regressions).
 
 ## Security checklist (mandatory)
 
@@ -62,4 +59,4 @@ This prep stays honest about scope:
 
 ## Done condition (current prep)
 
-- Prep is complete when `TASK-0032` contract text is synchronized with current repo reality, security/reject proofs are explicit, and Gate-C production dependency boundaries are explicit.
+- Prep is complete when `TASK-0033` scope starts from frozen `TASK-0032` closure baseline without reopening package image contract work.

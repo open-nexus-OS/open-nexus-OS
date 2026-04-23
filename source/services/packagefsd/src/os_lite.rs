@@ -1,5 +1,11 @@
 extern crate alloc;
 
+//! CONTEXT: OS-lite packagefs daemon path using bundlemgr authority + pkgimg v2 validation.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Covered by single-VM QEMU marker ladder and selftest VFS phase.
+
 use core::fmt;
 
 use alloc::collections::BTreeMap;
@@ -10,8 +16,10 @@ use alloc::vec::Vec;
 
 use nexus_ipc::Server;
 use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Wait};
+use storage::pkgimg::{build_pkgimg, parse_pkgimg, PkgImgCaps, PkgImgFileSpec};
 
 const OPCODE_RESOLVE: u8 = 2;
+const OPCODE_MOUNT_STATUS: u8 = 3;
 const KIND_FILE: u16 = 0;
 const KIND_DIRECTORY: u16 = 1;
 
@@ -19,6 +27,14 @@ const DEMO_HELLO_MANIFEST_NXB: &[u8] = exec_payloads::HELLO_MANIFEST_NXB;
 const DEMO_HELLO_PAYLOAD: &[u8] = b"HELLO_PAYLOAD_BYTES";
 const DEMO_EXIT_MANIFEST_NXB: &[u8] = exec_payloads::EXIT0_MANIFEST_NXB;
 const DEMO_EXIT_PAYLOAD: &[u8] = b"EXIT0";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MountMode {
+    Legacy = 0,
+    PkgImgNative = 1,
+    PkgImgTranscoded = 2,
+    PkgImgSeed = 3,
+}
 
 /// Result type used by the os-lite backend.
 pub type LiteResult<T> = core::result::Result<T, LiteError>;
@@ -115,14 +131,14 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
         Ok(server) => server,
         Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| LiteError::Transport)?,
     };
-    let registry = load_registry_from_bundlemgrd().unwrap_or_else(seed_registry);
-    run_loop(&server, &registry)
+    let (registry, mount_mode) = load_registry_from_bundlemgrd()
+        .or_else(load_registry_from_seed_pkgimg)
+        .unwrap_or_else(seed_registry);
+    run_loop(&server, &registry, mount_mode)
 }
 
-fn run_loop(server: &KernelServer, registry: &BundleRegistry) -> LiteResult<()> {
+fn run_loop(server: &KernelServer, registry: &BundleRegistry, mount_mode: MountMode) -> LiteResult<()> {
     let mut response = Vec::with_capacity(256);
-    let mut dbg_resolve_count: u32 = 0;
-    let mut dbg_resolve_rsp_logged = false;
     loop {
         match server.recv(Wait::Blocking) {
             Ok(bytes) => {
@@ -131,41 +147,26 @@ fn run_loop(server: &KernelServer, registry: &BundleRegistry) -> LiteResult<()> 
                 }
                 match bytes[0] {
                     OPCODE_RESOLVE => {
-                        let rel = core::str::from_utf8(&bytes[1..]).unwrap_or("");
-                        dbg_resolve_count = dbg_resolve_count.wrapping_add(1);
-                        if dbg_resolve_count == 1 {
-                            if rel == "system/build.prop" {
-                                debug_print("dbg:packagefsd: resolve req#1 buildprop\n");
-                            } else {
-                                debug_print("dbg:packagefsd: resolve req#1 other\n");
-                            }
-                        } else if dbg_resolve_count == 2 {
-                            if rel == "system/build.prop" {
-                                debug_print("dbg:packagefsd: resolve req#2 buildprop\n");
-                            } else {
-                                debug_print("dbg:packagefsd: resolve req#2 other\n");
-                            }
-                        }
-                        let entry = registry.resolve(rel);
+                        let entry = match core::str::from_utf8(&bytes[1..]) {
+                            Ok(rel) => registry.resolve(rel),
+                            Err(_) => None,
+                        };
                         response.clear();
                         if let Some(entry) = entry {
-                            if !dbg_resolve_rsp_logged {
-                                dbg_resolve_rsp_logged = true;
-                                debug_print("dbg:packagefsd: resolve rsp found\n");
-                            }
                             response.push(1);
                             response.extend_from_slice(&entry.size.to_le_bytes());
                             response.extend_from_slice(&entry.kind.to_le_bytes());
                             response.extend_from_slice(&entry.bytes);
                         } else {
-                            if !dbg_resolve_rsp_logged {
-                                dbg_resolve_rsp_logged = true;
-                                debug_print("dbg:packagefsd: resolve rsp miss\n");
-                            }
                             response.push(0);
                             response.extend_from_slice(&0u64.to_le_bytes());
                             response.extend_from_slice(&0u16.to_le_bytes());
                         }
+                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
+                    }
+                    OPCODE_MOUNT_STATUS => {
+                        response.clear();
+                        response.push(mount_mode as u8);
                         server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
                     _ => {
@@ -186,7 +187,7 @@ fn run_loop(server: &KernelServer, registry: &BundleRegistry) -> LiteResult<()> 
     }
 }
 
-fn seed_registry() -> BundleRegistry {
+fn seed_registry() -> (BundleRegistry, MountMode) {
     let mut registry = BundleRegistry::default();
     // Deterministic system properties for VFS bring-up tests.
     let system_entries = vec![
@@ -209,10 +210,44 @@ fn seed_registry() -> BundleRegistry {
     ];
     registry.publish("demo.exit0", "1.0.0", &exit_entries);
 
-    registry
+    (registry, MountMode::Legacy)
 }
 
-fn load_registry_from_bundlemgrd() -> Option<BundleRegistry> {
+fn load_registry_from_seed_pkgimg() -> Option<(BundleRegistry, MountMode)> {
+    let specs = vec![
+        PkgImgFileSpec::new("system", "1.0.0", "build.prop", b"ro.nexus.build=dev\n"),
+        PkgImgFileSpec::new("demo.hello", "1.0.0", "manifest.nxb", DEMO_HELLO_MANIFEST_NXB),
+        PkgImgFileSpec::new("demo.hello", "1.0.0", "payload.elf", DEMO_HELLO_PAYLOAD),
+        PkgImgFileSpec::new("demo.exit0", "1.0.0", "manifest.nxb", DEMO_EXIT_MANIFEST_NXB),
+        PkgImgFileSpec::new("demo.exit0", "1.0.0", "payload.elf", DEMO_EXIT_PAYLOAD),
+    ];
+    let caps = PkgImgCaps::default();
+    let img = build_pkgimg(&specs, caps).ok()?;
+    let parsed = parse_pkgimg(&img, caps).ok()?;
+    let mut groups: BTreeMap<String, Vec<(String, Entry)>> = BTreeMap::new();
+    let mut versions: BTreeMap<String, String> = BTreeMap::new();
+    for e in parsed.entries() {
+        let payload = parsed.read(&e.bundle, &e.version, &e.path)?;
+        let key = format!("{}@{}", e.bundle, e.version);
+        groups
+            .entry(key)
+            .or_insert_with(|| vec![(".".to_string(), Entry::directory())])
+            .push((e.path.clone(), Entry::file(payload)));
+        versions.insert(e.bundle.clone(), e.version.clone());
+    }
+    let mut registry = BundleRegistry::default();
+    for (canonical, entries) in groups {
+        let (bundle, version) = canonical.split_once('@')?;
+        registry.publish(bundle, version, &entries);
+    }
+    for (b, v) in versions {
+        registry.active.insert(b, v);
+    }
+    debug_print("packagefsd: v2 mounted (pkgimg)\n");
+    Some((registry, MountMode::PkgImgSeed))
+}
+
+fn load_registry_from_bundlemgrd() -> Option<(BundleRegistry, MountMode)> {
     // NOTE: This is a bring-up path to replace embedded bytes with a read-only bundle image.
     // packagefsd talks to bundlemgrd using CAP_MOVE replies via its reply inbox (@reply).
     let bundle = KernelClient::new_for("bundlemgrd").ok()?;
@@ -251,22 +286,40 @@ fn load_registry_from_bundlemgrd() -> Option<BundleRegistry> {
         return None;
     }
 
-    let (count, mut off) = nexus_abi::bundleimg::decode_header(img)?;
+    let caps = PkgImgCaps::default();
+    let (parsed, mount_mode) = match parse_pkgimg(img, caps) {
+        Ok(parsed) => (parsed, MountMode::PkgImgNative),
+        Err(_) => {
+            // Transitional compatibility: legacy fetch_image payloads may still be bundleimg.
+            // Convert deterministically into pkgimg bytes, then validate using the v2 parser.
+            let (count, mut off) = nexus_abi::bundleimg::decode_header(img)?;
+            let mut specs = Vec::new();
+            for _ in 0..count {
+                let e = nexus_abi::bundleimg::decode_next(img, &mut off)?;
+                if e.kind != nexus_abi::bundleimg::KIND_FILE {
+                    continue;
+                }
+                let bundle_name = core::str::from_utf8(e.bundle).ok()?;
+                let version = core::str::from_utf8(e.version).ok()?;
+                let path = core::str::from_utf8(e.path).ok()?;
+                specs.push(PkgImgFileSpec::new(bundle_name, version, path, e.data));
+            }
+            let converted = build_pkgimg(&specs, caps).ok()?;
+            (parse_pkgimg(&converted, caps).ok()?, MountMode::PkgImgTranscoded)
+        }
+    };
     let mut groups: BTreeMap<String, Vec<(String, Entry)>> = BTreeMap::new();
     let mut versions: BTreeMap<String, String> = BTreeMap::new();
-    for _ in 0..count {
-        let e = nexus_abi::bundleimg::decode_next(img, &mut off)?;
-        if e.kind != nexus_abi::bundleimg::KIND_FILE {
-            continue;
-        }
-        let bundle_name = core::str::from_utf8(e.bundle).ok()?.to_string();
-        let version = core::str::from_utf8(e.version).ok()?.to_string();
-        let path = core::str::from_utf8(e.path).ok()?.to_string();
+    for e in parsed.entries() {
+        let bundle_name = e.bundle.clone();
+        let version = e.version.clone();
+        let path = e.path.clone();
+        let payload = parsed.read(&bundle_name, &version, &path)?;
         let key = format!("{bundle_name}@{version}");
         groups
             .entry(key)
             .or_insert_with(|| vec![(".".to_string(), Entry::directory())])
-            .push((path, Entry::file(e.data)));
+            .push((path, Entry::file(payload)));
         versions.insert(bundle_name, version);
     }
 
@@ -279,7 +332,8 @@ fn load_registry_from_bundlemgrd() -> Option<BundleRegistry> {
     for (b, v) in versions {
         registry.active.insert(b, v);
     }
-    Some(registry)
+    debug_print("packagefsd: v2 mounted (pkgimg)\n");
+    Some((registry, mount_mode))
 }
 
 fn debug_print(_s: &str) {

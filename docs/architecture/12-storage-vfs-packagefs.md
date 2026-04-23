@@ -45,3 +45,20 @@ When you change path semantics, aliasing, or error behavior:
 - update the owning task(s) stop conditions,
 - update host E2E tests,
 - and update the canonical QEMU harness expectations if and only if the real behavior changed.
+
+## PackageFS v2 `pkgimg` contract
+
+`TASK-0032` / `RFC-0041` introduce a deterministic read-only image contract for package content:
+
+- `pkgimg` v2 superblock contains magic/version, index/data offsets and lengths, and
+  `sha256(index_bytes)`.
+- `packagefsd` must validate header, bounds, and index hash before exposing mount success.
+- Invalid version/magic/hash/range/path data is fail-closed.
+- Path traversal (`..`, empty segments) is rejected during parse.
+
+Current runtime path ownership:
+
+- Host path (`packagefsd` std mode) can mount a v2 image from `PACKAGEFSD_PKGIMG_PATH`.
+- OS-lite path continues to fetch image bytes from `bundlemgrd.fetch_image`; the decode contract is now
+  `pkgimg` v2 (not legacy `bundleimg`).
+- VMO splice/zero-copy read data path stays explicitly out-of-scope here and is tracked in `TASK-0033`.

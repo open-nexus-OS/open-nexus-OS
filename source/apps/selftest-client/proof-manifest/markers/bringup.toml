@@ -129,6 +129,9 @@ phase = "bringup"
 [marker."packagefsd: ready"]
 phase = "bringup"
 
+[marker."packagefsd: v2 mounted (pkgimg)"]
+phase = "bringup"
+
 [marker."vfsd: ready"]
 phase = "bringup"
 

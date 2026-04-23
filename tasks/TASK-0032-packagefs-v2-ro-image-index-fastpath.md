@@ -1,6 +1,6 @@
 ---
 title: TASK-0032 packagefs v2: read-only package image + precomputed index (O(1) lookup) + host tooling (host-first, OS-gated)
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -28,12 +28,12 @@ links:
 
 ## Context
 
-Current `packagefsd` implementation already has a split posture:
+`packagefsd` now has a split v2-ready posture:
 
-- **host (`std_server.rs`)**: in-memory registry of published entries; path sanitize logic exists, but no
-  on-disk RO image/index contract yet.
-- **os-lite (`os_lite.rs`)**: fetches image bytes from `bundlemgrd` and decodes `bundleimg` entries into
-  an in-memory registry; current format is functional bring-up, but not a versioned production contract.
+- **host (`std_server.rs`)**: supports optional `PACKAGEFSD_PKGIMG_PATH` v2 image mount and
+  deterministic `(bundle,version,path)` resolve semantics.
+- **os-lite (`os_lite.rs`)**: keeps `bundlemgrd.fetch_image` as authority path and validates `pkgimg`
+  v2 bytes before announcing mount success (with explicit transitional decode compatibility).
 
 We want packagefs to scale by serving packages from a **read-only image** with a **precomputed index**
 for fast lookup.
@@ -107,7 +107,7 @@ Key properties:
 - `docs/packaging/nxb.md` (bundle layout direction)
 - `docs/architecture/12-storage-vfs-packagefs.md` (service boundary and ownership)
 - `source/services/packagefsd/src/std_server.rs` (host in-memory baseline)
-- `source/services/packagefsd/src/os_lite.rs` (existing `fetch_image` path and `bundleimg` decoder)
+- `source/services/packagefsd/src/os_lite.rs` (existing `fetch_image` path and `pkgimg` v2 decoder)
 - `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate-C production-grade closure language)
 - QEMU marker contract: `scripts/qemu-test.sh`
 
@@ -131,6 +131,42 @@ Once OS can provide the image (via existing `bundlemgrd.fetch_image` or blk-back
 - `packagefsd: v2 mounted (pkgimg)`
 - `SELFTEST: pkgimg mount ok`
 - `SELFTEST: pkgimg stat/read ok`
+
+## Progress snapshot (2026-04-23)
+
+- [x] `userspace/storage` now contains deterministic `pkgimg` v2 builder/parser with bounded caps and
+  required `test_reject_pkgimg_*` coverage.
+- [x] Host tooling crate `tools/pkgimg-build` added for deterministic image creation from
+  `<bundle>@<version>.nxb` directory inputs.
+- [x] `packagefsd` host path accepts optional `PACKAGEFSD_PKGIMG_PATH` mount source and emits
+  `packagefsd: v2 mounted (pkgimg)` only after successful parse/validation.
+- [x] `packagefsd` os-lite `bundlemgrd.fetch_image` path switched from legacy `bundleimg` decode to
+  `pkgimg` v2 parse.
+- [x] Selftest marker catalog includes:
+  - `packagefsd: v2 mounted (pkgimg)`
+  - `SELFTEST: pkgimg mount ok`
+  - `SELFTEST: pkgimg stat/read ok`
+- [x] QEMU marker proof confirms:
+  - `packagefsd: v2 mounted (pkgimg)`
+  - `SELFTEST: pkgimg mount ok`
+  - `SELFTEST: pkgimg stat/read ok`
+
+## Proof evidence (closure run)
+
+- Host proof:
+  - `cargo test -p storage`
+  - `cargo test -p packagefsd`
+  - `cargo test -p pkgimg-build`
+- Quality gates:
+  - `just diag-host`
+  - `just dep-gate`
+  - `just diag-os`
+- OS marker proof:
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - required markers present:
+    - `packagefsd: v2 mounted (pkgimg)`
+    - `SELFTEST: pkgimg mount ok`
+    - `SELFTEST: pkgimg stat/read ok`
 
 ## Production-grade gate mapping (TRACK alignment)
 

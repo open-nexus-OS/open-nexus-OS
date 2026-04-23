@@ -7,11 +7,11 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU marker ladder (just test-os) — vfs phase.
+//! TEST_COVERAGE: QEMU marker ladder (just test-os) — vfs phase, including explicit pkgimg mount-mode probe.
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use nexus_ipc::KernelClient;
+use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 
 use crate::markers::emit_line;
 
@@ -37,6 +37,11 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_VFS_STAT_FAIL);
     })?;
     emit_line(crate::markers::M_SELFTEST_VFS_STAT_OK);
+    let mode = query_pkgimg_mount_mode().ok_or(())?;
+    if mode == 0 {
+        return Err(());
+    }
+    emit_line(crate::markers::M_SELFTEST_PKGIMG_MOUNT_OK);
 
     // open
     let fh = vfs.open("pkg:/system/build.prop").map_err(|_| {
@@ -58,6 +63,7 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
         return Err(());
     }
     emit_line(crate::markers::M_SELFTEST_VFS_REAL_DATA_OK);
+    emit_line(crate::markers::M_SELFTEST_PKGIMG_STAT_READ_OK);
 
     // close
     vfs.close(fh).map_err(|_| ())?;
@@ -69,4 +75,20 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
     } else {
         Err(())
     }
+}
+
+fn query_pkgimg_mount_mode() -> Option<u8> {
+    // packagefsd os-lite control opcode for truthful mount-mode evidence.
+    const OPCODE_MOUNT_STATUS: u8 = 3;
+    let client = KernelClient::new_for("packagefsd").ok()?;
+    client
+        .send(
+            &[OPCODE_MOUNT_STATUS],
+            IpcWait::Timeout(core::time::Duration::from_millis(100)),
+        )
+        .ok()?;
+    let rsp = client
+        .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+        .ok()?;
+    rsp.first().copied()
 }

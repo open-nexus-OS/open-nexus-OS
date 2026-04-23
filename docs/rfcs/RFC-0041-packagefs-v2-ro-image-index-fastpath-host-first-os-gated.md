@@ -1,6 +1,6 @@
 # RFC-0041: PackageFS v2 read-only image + precomputed index fastpath (host-first, OS-gated)
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime @storage @security
 - Created: 2026-04-23
 - Last Updated: 2026-04-23
@@ -12,13 +12,13 @@
 
 ## Status at a Glance
 
-- **Phase 0 (pkgimg v2 contract + host parser/verifier floor)**: ⬜
-- **Phase 1 (packagefsd v2 mount/read path, host-first + OS-gated)**: ⬜
-- **Phase 2 (Gate-C closure handoff boundaries explicit and proven)**: ⬜
+- **Phase 0 (pkgimg v2 contract + host parser/verifier floor)**: ✅
+- **Phase 1 (packagefsd v2 mount/read path, host-first + OS-gated)**: ✅
+- **Phase 2 (Gate-C closure handoff boundaries explicit and proven)**: ✅
 
 Definition:
 
-- "Complete" means this RFC's contract is implemented for v2 image/index mount-read fastpath and the listed proof gates are green. Kernel/zero-copy production closure remains explicit follow-up scope.
+- "Done" means this RFC's contract is implemented for v2 image/index mount-read fastpath and the listed proof gates are green. Kernel/zero-copy production closure remains explicit follow-up scope.
 
 ## Scope boundaries (anti-drift)
 
@@ -44,8 +44,8 @@ This RFC is a design seed / contract. Implementation planning and proofs live in
 
 `packagefsd` currently has a split implementation baseline:
 
-- host path (`std_server.rs`) uses an in-memory registry,
-- os-lite path (`os_lite.rs`) already fetches image bytes from `bundlemgrd` and decodes `bundleimg`.
+- host path (`std_server.rs`) supports optional `pkgimg` mount from `PACKAGEFSD_PKGIMG_PATH`,
+- os-lite path (`os_lite.rs`) fetches from `bundlemgrd` and validates `pkgimg` before mount success.
 
 That baseline works for bring-up but does not yet define a stable, versioned production contract for deterministic package image mount/read behavior at scale.
 
@@ -124,7 +124,7 @@ That baseline works for bring-up but does not yet define a stable, versioned pro
 ### Proof (Host)
 
 ```bash
-cd /home/jenning/open-nexus-OS && cargo test -p packagefsd
+cd /home/jenning/open-nexus-OS && cargo test -p storage && cargo test -p packagefsd && cargo test -p pkgimg-build
 ```
 
 ### Proof (OS/QEMU)
@@ -146,15 +146,15 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- Should `pkgimg` v2 include per-file hash fields as required vs optional in this phase? (owner: @runtime, decide during TASK-0032 implementation before Phase 1 closure)
+- None for this RFC scope; per-file hash requirement is deferred explicitly to follow-up contract work if promoted from optional to required semantics.
 
 ## Implementation Checklist
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: define `pkgimg` v2 format + bounded parser/reject contract — proof: `cd /home/jenning/open-nexus-OS && cargo test -p packagefsd`
-- [ ] **Phase 1**: `packagefsd` v2 mount/read path with deterministic mount markers — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-- [ ] **Phase 2**: Gate-C follow-up boundaries (`TASK-0033`, `TASK-0286/0287/0290`) explicit in task/docs — proof: `cd /home/jenning/open-nexus-OS && rg "TASK-0033|TASK-0286|TASK-0287|TASK-0290" tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: define `pkgimg` v2 format + bounded parser/reject contract — proof: `cd /home/jenning/open-nexus-OS && cargo test -p storage && cargo test -p packagefsd && cargo test -p pkgimg-build`
+- [x] **Phase 1**: `packagefsd` v2 mount/read path with deterministic mount markers — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- [x] **Phase 2**: Gate-C follow-up boundaries (`TASK-0033`, `TASK-0286/0287/0290`) explicit in task/docs — proof: `cd /home/jenning/open-nexus-OS && rg "TASK-0033|TASK-0286|TASK-0287|TASK-0290" tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

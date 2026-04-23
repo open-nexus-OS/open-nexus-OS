@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Unit tests in downstream crates
+//! TEST_COVERAGE: In-crate unit tests for `pkgimg` contract/reject paths + downstream integration tests
 //! ADR: docs/adr/0023-statefs-persistence-architecture.md
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -103,3 +103,6 @@ impl BlockDevice for MemBlockDevice {
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub mod virtio_blk;
+
+/// Deterministic PackageFS image v2 (`pkgimg`) format helpers.
+pub mod pkgimg;

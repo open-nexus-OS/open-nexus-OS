@@ -174,5 +174,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md
 - RFC-0040: Zero-Copy VMOs v1 plumbing — host-first, OS-gated contract seed (Done; Phase 0/1 proofs green, kernel production closure explicitly delegated to `TASK-0290`)
   - docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
-- RFC-0041: PackageFS v2 read-only image + precomputed index fastpath — host-first, OS-gated contract seed (Draft; execution SSOT: `TASK-0032`)
+- RFC-0041: PackageFS v2 read-only image + precomputed index fastpath — host-first, OS-gated contract seed (Done; execution SSOT `TASK-0032` is In Review with host+OS proof gates)
   - docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md

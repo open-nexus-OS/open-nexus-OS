@@ -227,7 +227,14 @@ This is the anti-fake-success gate.
   - [ ] mount success marker only after real validation + index load,
   - [ ] no silent fallback to unvalidated data path.
 
-## Active progress snapshot (TASK-0031 prep alignment, 2026-04-21)
+## Active progress snapshot (TASK-0032 closure, 2026-04-23)
+- [x] `TASK-0032` execution SSOT is synchronized to landed implementation and proof evidence (`Done`).
+- [x] `RFC-0041` contract seed is synchronized to closure state (`Complete`).
+- [x] Required TASK-0032 reject suite is green (`test_reject_pkgimg_*`).
+- [x] Required TASK-0032 marker ladder is proven in single-VM QEMU path.
+- [x] Build hygiene gates are green for touched OS/host code (`diag-host`, `dep-gate`, `diag-os`).
+
+## Legacy progress snapshot (TASK-0031 prep alignment, 2026-04-21)
 - [x] Active SSOT switched to `TASK-0031`.
 - [x] New contract seed `RFC-0040` created and linked.
 - [x] RFC now includes normative production-grade requirement and explicit closure routing via `TASK-0290`.

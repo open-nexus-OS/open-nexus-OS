@@ -24,7 +24,13 @@ phase = "vfs"
 [marker."SELFTEST: vfs read ok"]
 phase = "vfs"
 
+[marker."SELFTEST: pkgimg mount ok"]
+phase = "vfs"
+
 [marker."SELFTEST: vfs real data ok"]
+phase = "vfs"
+
+[marker."SELFTEST: pkgimg stat/read ok"]
 phase = "vfs"
 
 [marker."SELFTEST: vfs ebadf ok"]

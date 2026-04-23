@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-04-23
 
+#### TASK-0032 / RFC-0041 status synchronization (`TASK-0032`, `RFC-0041`)
+
+- Updated execution/contract status to the requested review state:
+  - `tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md` → `status: In Review`
+  - `docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md` → `Status: Done`
+- Synced RFC index wording in `docs/rfcs/README.md`:
+  - `RFC-0041` now tracked as `Done`
+  - execution SSOT `TASK-0032` now tracked as `In Review`
+- Synced task tracking views:
+  - `tasks/IMPLEMENTATION-ORDER.md` now has an `In Review` section with `TASK-0032`
+  - `tasks/STATUS-BOARD.md` queue head and contract-status lines now point to `TASK-0032` / `RFC-0041`
+  - `tasks/STATUS-BOARD.md` cumulative done table now includes `TASK-0029` and `TASK-0031`
+- Updated packaging documentation `docs/packaging/nxb.md` with explicit `pkgimg-build` / `pkgimg-verify` usage notes for PackageFS v2 image generation and verification.
+
+### Changed - 2026-04-23
+
 #### TASK-0032 prep sync + queue/workfile alignment (`TASK-0029`, `TASK-0031`, `TASK-0032`, `RFC-0041`)
 
 - Added `TASK-0029` and `TASK-0031` to the cumulative Done table in `tasks/IMPLEMENTATION-ORDER.md`.

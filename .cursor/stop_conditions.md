@@ -248,11 +248,11 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] No follow-up scope (`TASK-0197 / 0198 / 0289`) silently absorbed; touched-paths allowlist enforced.
 - [ ] Architecture contract stays synchronized: `tasks/TASK-0029-...md` (execution SSOT), `docs/rfcs/RFC-0039-...md` (contract seed). Both flipped from `Draft` to `Ready` before code lands; `Done` only after all proofs above are green and `docs/rfcs/README.md` index entry reflects closure.
 
-## Active progress snapshot (TASK-0032 prep alignment, 2026-04-23)
-- [x] Active SSOT switched to `TASK-0032`.
-- [x] `RFC-0041` seed exists and is linked in task + README.
-- [x] Follow-up routing and Gate-C production dependencies are explicit in task/RFC text.
-- [x] `.cursor` workfiles updated to `TASK-0032` prep posture.
+## Active progress snapshot (TASK-0032 closure alignment, 2026-04-23)
+- [x] `TASK-0032` status is `Done` with synchronized proof evidence.
+- [x] `RFC-0041` status is `Complete` with checklist/proof sync.
+- [x] Follow-up routing and Gate-C production dependencies remain explicit (`TASK-0033`, `TASK-0286`, `TASK-0287`, `TASK-0290`).
+- [x] `.cursor` workfiles updated from prep posture to post-closure posture.
 
 ## Legacy progress snapshot (TASK-0029 closure remediation, 2026-04-22)
 - [x] Active `.cursor` workfiles and RFC status sections now reflect post-implementation closure state.

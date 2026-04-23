@@ -14,6 +14,7 @@ std = [
     "dep:parking_lot",
     "dep:thiserror",
     "dep:log",
+    "storage/std",
 ]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 os-lite = [
@@ -23,6 +24,7 @@ os-lite = [
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
     "dep:exec-payloads",
+    "storage/os-lite",
 ]
 
 [dependencies]
@@ -35,6 +37,7 @@ log = { version = "0.4", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
+storage = { path = "../../../userspace/storage", default-features = false }
 
 [[bin]]
 name = "packagefsd"

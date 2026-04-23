@@ -79,6 +79,22 @@ sig = "0000000000000000000000000000000000000000000000000000000000000000000000000
 
 **Output `manifest.nxb`**: Binary Cap'n Proto encoding (deterministic, signable)
 
+## Building PackageFS v2 images (`pkgimg`)
+
+For PackageFS v2 host workflows, one or more `.nxb` directories can be packed into
+a deterministic read-only `pkgimg` image and then validated before use.
+
+```bash
+# Build pkgimg v2 from one or more <bundle>@<version>.nxb directories
+cargo run -p pkgimg-build -- out/packages.pkgimg path/to/demo.hello@1.0.0.nxb
+
+# Verify pkgimg v2 structure and index integrity
+cargo run -p pkgimg-build --bin pkgimg-verify -- out/packages.pkgimg
+```
+
+The generated `pkgimg` contract is consumed by `packagefsd` for read-only package
+mount/read fastpaths and is validated fail-closed during mount.
+
 ## Loader handshake
 
 Once a bundle is installed, `execd::exec_elf(bundle, argv, env, policy)` calls
