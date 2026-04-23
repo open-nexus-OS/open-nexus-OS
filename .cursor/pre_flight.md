@@ -167,7 +167,47 @@ This is the anti-fake-success gate.
 - [ ] No kernel changes.
 - [ ] `just dep-gate && just diag-os && just diag-host && just fmt-check && just lint && just arch-gate` green.
 
-## Active progress snapshot (TASK-0029 closure remediation, 2026-04-22)
+## Task-0031 manual addendum (when applicable)
+- [ ] Scope honesty is preserved:
+  - [ ] `TASK-0031` remains plumbing/honesty floor (no kernel redesign scope creep),
+  - [ ] production-grade closeout remains explicit in `TASK-0290`,
+  - [ ] no early "production-grade" claim before closure proofs.
+- [ ] Contract seed alignment is current:
+  - [ ] `RFC-0040` exists and is linked from `TASK-0031`,
+  - [ ] RFC includes normative production-grade requirement aligned with `TRACK-PRODUCTION-GATES-KERNEL-SERVICES`,
+  - [ ] Gate-A/Gate-C relevant zero-copy obligations are explicitly mapped.
+- [ ] Behavior-first proof shape is explicit:
+  - [ ] target behavior is stated in 1-3 lines,
+  - [ ] main break point is explicit,
+  - [ ] primary proof is minimal and honest,
+  - [ ] secondary proof only closes a real blind spot.
+- [ ] Security and reject discipline are explicit and tested:
+  - [ ] unauthorized transfer reject,
+  - [ ] invalid/oversized mapping reject,
+  - [ ] rights mismatch reject,
+  - [ ] no fake success markers for deny/degraded paths.
+- [ ] Rust discipline is reviewed where relevant:
+  - [ ] `newtype` candidates for VMO/cap IDs are explicit,
+  - [ ] ownership/lifetime semantics for mappings are explicit,
+  - [ ] `#[must_use]` is used for decision-bearing results where sensible,
+  - [ ] `Send`/`Sync` assumptions are justified without unsafe blanket shortcuts.
+- [ ] Deterministic marker contract is proven in OS/QEMU path:
+  - [ ] `vmo: producer sent handle`,
+  - [ ] `vmo: consumer mapped ok`,
+  - [ ] `vmo: sha256 ok`,
+  - [ ] `SELFTEST: vmo share ok`.
+- [ ] Production closure route remains explicit:
+  - [ ] `TASK-0290` stays linked as mandatory closure step,
+  - [ ] RFC/task text states "Complete only after production-grade closure obligations are green".
+
+## Active progress snapshot (TASK-0031 prep alignment, 2026-04-21)
+- [x] Active SSOT switched to `TASK-0031`.
+- [x] New contract seed `RFC-0040` created and linked.
+- [x] RFC now includes normative production-grade requirement and explicit closure routing via `TASK-0290`.
+- [x] `.cursor` workfiles moved from legacy `TASK-0029` posture to `TASK-0031` prep posture.
+- [x] Context bundle entries for `@task_0031_context` and `@task_0031_touched` added.
+
+## Legacy progress snapshot (TASK-0029 closure remediation, 2026-04-22)
 - [x] Open questions pinned in task + RFC; execution plan authored and implemented through C-08.
 - [x] Host proofs + gated QEMU `supply-chain` profile run are green.
 - [x] `.cursor` workfiles switched from kickoff posture to closure-remediation posture.

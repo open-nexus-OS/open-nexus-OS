@@ -134,6 +134,36 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] `#[must_use]` is applied to decision-bearing results where useful,
   - [ ] `Send`/`Sync` expectations are reviewed without unsafe shortcut traits.
 
+## TASK-0031 class stop conditions (zero-copy VMOs v1 plumbing)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0031` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0040` remains linked and contract-aligned,
+  - [ ] `TASK-0290` is explicitly referenced as production closure route.
+- [ ] Behavior-first proof shape is explicit and honest:
+  - [ ] target behavior is explicit,
+  - [ ] main break point is explicit,
+  - [ ] primary proof is minimal and contract-driven,
+  - [ ] secondary proof only closes real blind spots.
+- [ ] Security and deny-by-default behavior are proven:
+  - [ ] unauthorized transfer attempts are rejected,
+  - [ ] invalid/oversized map attempts are rejected,
+  - [ ] rights mismatches fail closed,
+  - [ ] no success marker is emitted for deny/degraded paths.
+- [ ] Rust API discipline is reviewed where safety-relevant:
+  - [ ] `newtype` usage for VMO/capability IDs is explicit where sensible,
+  - [ ] mapping/handle ownership and lifetime semantics are explicit,
+  - [ ] `#[must_use]` applied to decision-bearing outcomes where useful,
+  - [ ] `Send`/`Sync` assumptions are documented and reviewed without unsafe blanket shortcuts.
+- [ ] Deterministic OS marker proof is green (when OS proof path is claimed):
+  - [ ] `vmo: producer sent handle`
+  - [ ] `vmo: consumer mapped ok`
+  - [ ] `vmo: sha256 ok`
+  - [ ] `SELFTEST: vmo share ok`
+- [ ] Production-grade requirement remains enforceable:
+  - [ ] RFC text states completion depends on production-grade closure obligations,
+  - [ ] early production-grade claims are blocked until `TASK-0290` closure proofs are green,
+  - [ ] track-gate alignment remains explicit (`TRACK-PRODUCTION-GATES-KERNEL-SERVICES`).
+
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0021-class QUIC scaffold stop conditions: use archived closure evidence in `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Done`).
 - [ ] TASK-0019-class ABI guardrail stop conditions: use archived closeout evidence in `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (`Done`).
@@ -189,7 +219,13 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] No follow-up scope (`TASK-0197 / 0198 / 0289`) silently absorbed; touched-paths allowlist enforced.
 - [ ] Architecture contract stays synchronized: `tasks/TASK-0029-...md` (execution SSOT), `docs/rfcs/RFC-0039-...md` (contract seed). Both flipped from `Draft` to `Ready` before code lands; `Done` only after all proofs above are green and `docs/rfcs/README.md` index entry reflects closure.
 
-## Active progress snapshot (TASK-0029 closure remediation, 2026-04-22)
+## Active progress snapshot (TASK-0031 prep alignment, 2026-04-21)
+- [x] Active SSOT switched to `TASK-0031`.
+- [x] `RFC-0040` seed exists and is linked in task + README.
+- [x] RFC includes a normative production-grade closure requirement tied to track gates.
+- [x] `.cursor` workfiles updated to `TASK-0031` prep posture.
+
+## Legacy progress snapshot (TASK-0029 closure remediation, 2026-04-22)
 - [x] Active `.cursor` workfiles and RFC status sections now reflect post-implementation closure state.
 - [x] C-01..C-08 implementation slices are landed; host reject suite and QEMU supply-chain profile proofs exist.
 - [x] Remaining closure deltas are fixed in code: manifest digest fields + strict authority boundary + sender identity + bounded inputs.

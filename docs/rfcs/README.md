@@ -89,6 +89,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0037: DSoftBus QUIC v2 OS enablement contract (real OS session markers + fail-closed reject/bounds evidence)
 - RFC-0038: Selftest-client production-grade deterministic test architecture refactor v1 (deterministic proof infrastructure contract seed + minimal main requirement)
 - RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (single-authority allowlist + deny-by-default install-time enforcement + deterministic deny markers)
+- RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 
 ## Index
 
@@ -170,3 +171,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
 - RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX JSON per ADR-0021) + repro metadata + single-authority publisher/key allowlist (Done; proof checklist complete and green; execution task `TASK-0029` is `Done`; v2/v3 boundaries unchanged: `TASK-0197`/`TASK-0198`/`TASK-0289`)
   - docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md
+- RFC-0040: Zero-Copy VMOs v1 plumbing — host-first, OS-gated contract seed (In Progress; execution SSOT is `TASK-0031`, production closure delegated to `TASK-0290` and follow-up tasks)
+  - docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md

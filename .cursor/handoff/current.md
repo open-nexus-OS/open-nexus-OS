@@ -1,51 +1,33 @@
-# Current Handoff: TASK-0029 (Supply-Chain v1) — Closure Remediation
+# Current Handoff: TASK-0031 (Zero-copy VMOs v1) — Seed Contract Alignment
 
-**Date**: 2026-04-22
-**Active task**: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` — `Done`
-**Contract seed (RFC)**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` — `Done`
-**Tier**: `production-grade` BASELINE for the Updates / Packaging / Recovery group (per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`). Full closure of that tier is reached only at `TASK-0197 + TASK-0198 + TASK-0289`; v1 must stay on that trajectory without locking the wrong contract (10 explicit hard gates in TASK-0029 §"Production-grade tier").
+**Date**: 2026-04-21  
+**Active task**: `tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md` — `In Progress`  
+**Contract seed (RFC)**: `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md` — `In Progress`  
+**Production closure route**: `tasks/TASK-0290-kernel-zero-copy-closure-v1b-vmo-seals-reuse-truth.md`  
+**Tier policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
 
-## Status — implemented vs. remaining closure deltas
+## Status snapshot
 
-### Implemented (green evidence already present)
+- Seed RFC exists and is linked in task header.
+- RFC now states that production-grade closure is mandatory before `Complete`.
+- `.cursor` workfiles have been switched from old `TASK-0029` execution posture to `TASK-0031` prep posture.
 
-- C-01..C-08 implementation landed across `tools/{sbom,repro,nxb-pack}`, `keystored`, `policyd`, `bundlemgrd`, proof-manifest markers/profiles, docs, and status sync files.
-- Host proof commands are green for SBOM/repro/enforcement/reject suites.
-- QEMU profile run `just test-os supply-chain` is green with `verify-uart` clean.
-- `just dep-gate`, `just diag-os`, and `just diag-host` are green.
+## Active execution order
 
-### Remaining closure deltas (task-level)
+1. Keep `TASK-0031` as execution SSOT (plumbing/honesty floor).
+2. Keep `RFC-0040` as contract seed and update with each contract decision.
+3. Preserve explicit split: `TASK-0031` floor vs `TASK-0290` production-grade closeout.
+4. Enforce behavior-first proofs and reject-path coverage before any status promotion.
+5. Keep production gate mapping explicit (Gate A + Gate C relevance).
 
-- No RFC-level closure delta remains (`RFC-0039` is `Done`).
-- `TASK-0029` task-level finalization is complete (`Done`).
+## Guardrails
 
-## Immediate execution order (current chat)
+- No fake success markers (`ok/ready` only after real behavior).
+- No unbounded retry/drain loops in proof paths.
+- Rust safety expectations are explicit: `newtype`, ownership/lifetime, `#[must_use]`, `Send`/`Sync` discipline.
+- No early production-grade claim before `TASK-0290` closure.
 
-1. Keep RFC/task/checklist text synchronized (`RFC-0039` = `Done`, `TASK-0029` = `Done`).
-2. Fix contract deltas in code (manifest digests, authority boundary, sender identity, bounded inputs).
-3. Clear full quality gate set (`dep-gate`, `diag-os`, `diag-host`, `fmt-check`, `lint`, `arch-gate`).
-4. Re-run canonical host + QEMU proofs and capture clean evidence pointers.
-5. Re-issue closure delta report and only then consider `Done/Complete` flips.
+## Carry-over
 
-## Working-tree state at handoff
-
-- `M .cursor/current_state.md`
-- `M .cursor/handoff/current.md`
-- `M .cursor/next_task_prep.md`
-- `M docs/rfcs/RFC-0038-...md` (Phase-6 status sync from prior commit)
-- `M tasks/TASK-0023B-...md` (status flip prep)
-- `M uart.log` (test artifact only; **do not commit** outside a task closure — `.gitignore` documents the policy)
-- New (uncommitted, prepared this session):
-  - `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` (audited / extended)
-  - `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` (new)
-  - `docs/rfcs/README.md` (RFC-0039 index entry)
-  - `.cursor/handoff/archive/TASK-0023B-...md` (snapshot copy of prior `current.md`)
-
-## Phase-6 evidence kept on disk (do not delete)
-
-- `.cursor/replay-dev-a.json` — native dev replay, `trace_diff.status == exact_match`.
-- `.cursor/replay-ci-like.json` — containerized CI-like replay, `trace_diff.status == exact_match`.
-- `.cursor/replay-synthetic-bad.json` — synthetic tamper, exit 1, `missing_marker[0].marker == "SYNTHETIC: tamper probe"`.
-- `.cursor/bisect-good-drift-regress.json` — 3-commit smoke, `first_bad_commit: c2cccccc`, `drift_commits: [c1bbbbbb]`.
-
-These four JSONs are the Phase-6 proof-floor evidence cited from `RFC-0038` and `tasks/TASK-0023B-...`. They stay until the external CI artifact lands and the closure mirror commit ships.
+- `TASK-0029` + `RFC-0039` remain done and out of active execution scope.
+- `TASK-0023B` external CI replay artifact remains an independent follow-up.

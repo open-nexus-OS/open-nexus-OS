@@ -1,20 +1,23 @@
 ---
 title: TASK-0031 Zero-copy VMOs v1: shared RO buffers via existing VMO syscalls + handle transfer (plumbing, host-first, OS-gated)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
-updated: 2026-01-26
+updated: 2026-04-22
 depends-on:
   - TASK-0009
   - TASK-0020
   - TASK-0029
 follow-up-tasks:
-  - TASK-0031-v2
-  - TASK-0031-vfs
+  - TASK-0033
+  - TASK-0054B
+  - TASK-0054C
+  - TASK-0054D
   - TASK-0290
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Contract seed (RFC): docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
   - Zero-Copy App Platform (consumer track): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - Office Suite (consumer): tasks/TRACK-OFFICE-SUITE.md
@@ -42,7 +45,7 @@ links:
 The vision explicitly calls for **VMO/filebuffer** on the data plane for large payloads (low/zero copy).
 The repo already exposes OS VMO syscalls in `nexus-abi`:
 
-- `vmo_create`, `vmo_write`, `vmo_map`, `vmo_destroy`
+- `vmo_create`, `vmo_write`, `vmo_map`, `vmo_map_page`, `vmo_destroy`
 - `as_map` and a `Rights::MAP` bit for capability transfer.
 
 However, many consumers in the roadmap (remote-fs, mux v2 VMO frames, statefs fast paths) are not yet implemented.
@@ -63,6 +66,21 @@ UI/perf note:
 - Early renderer/compositor bring-up may be host-first, but fluid QEMU UI, glass, animation, and media surfaces
   should treat this task as the canonical bulk-buffer floor.
 - Follow-up consumers `TASK-0054B` / `TASK-0054D` pull that stance forward explicitly for UI-shaped workloads.
+
+## Current status (2026-04-22)
+
+- `TASK-0009`, `TASK-0020`, and `TASK-0029` are `Done`; prerequisite chain is clear.
+- `nexus-abi` already exports `vmo_create`, `vmo_write`, `vmo_map`, `vmo_map_page`, `vmo_destroy`,
+  `cap_transfer`, and `cap_transfer_to_slot`, with `Rights::{SEND, RECV, MAP}`.
+- Kernel syscall table currently wires `sys_vmo_create` and `sys_vmo_write`; there is no kernel-side
+  `sys_vmo_destroy` handler yet. `nexus-abi::vmo_destroy()` currently targets a placeholder syscall ID
+  and returns a deterministic syscall error until kernel support lands.
+- VMO usage exists in focused OS paths (`nexus-loader`, `selftest-client` probe code), but there is no
+  dedicated `userspace/memory/nexus-vmo` crate yet and no producer->consumer cross-process VMO proof
+  marker ladder (`vmo: producer sent handle` ... `SELFTEST: vmo share ok`) in selftest-client.
+- `docs/storage/vmo.md` does not exist yet.
+
+This task is therefore positioned as **In Progress** (active implementation slice), with closure still gated by the listed proofs.
 
 ## Goal
 
@@ -97,14 +115,15 @@ This task also establishes the early **zero-copy honesty contract**:
 
 ## Red flags / decision points
 
-- **RED (cross-process share feasibility)**:
-  - VMOs are already a `CapabilityKind::Vmo { base, len }` in the kernel cap table and can be moved via
-    `SYSCALL_CAP_TRANSFER` (subject to rights). That suggests cross-process sharing is feasible without new kernel work.
-  - Still required: an end-to-end proof in QEMU that a VMO cap can be transferred and mapped read-only by the receiver.
+- **RED (lifecycle closure gap)**:
+  - `nexus-abi::vmo_destroy()` exists, but kernel-side destroy handling is not wired yet.
+  - Without explicit closure, long-lived services risk accumulating stale VMO handles/mappings.
+- **YELLOW (cross-process proof gap)**:
+  - VMO capability transfer appears structurally feasible (`CapabilityKind::Vmo` + `cap_transfer`), but the
+    required two-process digest proof in QEMU is not yet in place.
 - **YELLOW (read-only sealing semantics)**:
-  - We need a clear definition for “sealed RO” in OS:
-    - preferred: kernel enforces RO mapping and prevents later write mappings,
-    - acceptable v1: library-level convention + only map as RO (documented as not a hard boundary).
+  - v1 has no kernel-enforced VMO seal bit. RO behavior is currently a mapping/discipline contract, not an
+    immutable kernel boundary.
 
 ## Security considerations
 
@@ -166,11 +185,11 @@ the kernel-side production-grade gap.
 
 ### Mitigations
 
-- VMO capabilities managed by kernel (unforgeable handles)
-- Transfer requires explicit `cap_transfer` syscall with rights subset
-- RO mappings enforced at page table level (USER|RO, never WRITE)
-- Size bounds checked at map time (reject oversized mappings)
-- Documentation explicitly states v1 RO sealing is library convention
+- VMO capabilities are kernel-managed (unforgeable handles).
+- Transfers require explicit `cap_transfer` / `cap_transfer_to_slot` with subset-rights semantics.
+- v1 caller policy maps shared buffers as RO (`READ|USER`) and treats writable mappings as explicit violations.
+- Size bounds are checked before map/use and must reject oversized mapping requests.
+- Documentation explicitly states v1 sealing is convention-level until `TASK-0290` kernel closure.
 
 ### Security proof
 
