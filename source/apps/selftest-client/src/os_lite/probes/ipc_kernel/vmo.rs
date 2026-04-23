@@ -41,11 +41,12 @@ pub(crate) fn vmo_share_probe() -> VmoShareProgress {
     }
     vmo.seal_ro();
 
-    let child_pid = match nexus_abi::exec(demo_exit0::DEMO_VMO_CONSUMER_ELF, CONSUMER_STACK_PAGES, CONSUMER_GP)
-    {
-        Ok(pid) => pid,
-        Err(_) => return progress,
-    };
+    let child_pid =
+        match nexus_abi::exec(demo_exit0::DEMO_VMO_CONSUMER_ELF, CONSUMER_STACK_PAGES, CONSUMER_GP)
+        {
+            Ok(pid) => pid,
+            Err(_) => return progress,
+        };
     let peer = nexus_vmo::PeerPid::new(child_pid);
     vmo.authorize_transfer_to(peer);
 

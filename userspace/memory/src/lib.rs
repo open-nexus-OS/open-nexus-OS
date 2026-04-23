@@ -377,7 +377,11 @@ impl Vmo {
 
     /// Transfers the VMO capability to `peer` with rights filtering.
     #[must_use = "transfer decisions must be handled explicitly"]
-    pub fn transfer_to(&mut self, peer: PeerPid, rights: TransferRights) -> Result<TransferOutcome> {
+    pub fn transfer_to(
+        &mut self,
+        peer: PeerPid,
+        rights: TransferRights,
+    ) -> Result<TransferOutcome> {
         if !self.allowed_peers.contains(&peer) {
             return Err(Error::UnauthorizedTransfer);
         }
@@ -430,8 +434,9 @@ impl Vmo {
         #[cfg(all(nexus_env = "os", feature = "os-lite"))]
         {
             let os_rights = map_transfer_rights(rights)?;
-            let slot = nexus_abi::cap_transfer_to_slot(peer.raw(), self.handle, os_rights, dst_slot)
-                .map_err(map_abi_error)?;
+            let slot =
+                nexus_abi::cap_transfer_to_slot(peer.raw(), self.handle, os_rights, dst_slot)
+                    .map_err(map_abi_error)?;
             Ok(TransferOutcome::OsTransferred { dst_slot: slot })
         }
         #[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
@@ -464,7 +469,9 @@ impl Vmo {
             return Err(Error::OutOfBounds);
         }
         self.record_map_reuse();
-        let flags = nexus_abi::page_flags::VALID | nexus_abi::page_flags::READ | nexus_abi::page_flags::USER;
+        let flags = nexus_abi::page_flags::VALID
+            | nexus_abi::page_flags::READ
+            | nexus_abi::page_flags::USER;
         let mut mapped = 0usize;
         while mapped < len {
             nexus_abi::vmo_map_page_sys(self.handle, va + mapped, offset + mapped, flags)
@@ -510,8 +517,9 @@ fn map_ipc_error(err: nexus_abi::IpcError) -> Error {
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn map_abi_error(err: nexus_abi::AbiError) -> Error {
     match err {
-        nexus_abi::AbiError::Unsupported | nexus_abi::AbiError::InvalidSyscall => Error::Unsupported,
+        nexus_abi::AbiError::Unsupported | nexus_abi::AbiError::InvalidSyscall => {
+            Error::Unsupported
+        }
         _ => Error::KernelFailure,
     }
 }
-

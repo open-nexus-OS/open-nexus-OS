@@ -75,7 +75,7 @@ ifeq ($(MODE),container)
 		  #   target/riscv64imac-unknown-none-elf/release/<svc> \
 		  # which matches the INIT_LITE_SERVICE_<NAME>_ELF paths set in step \
 		  # [1d/2] below and the paths qemu-test.sh / run-qemu-rv64.sh expect. \
-		  # Without --release init-lite's build.rs `std::fs::copy` fails in \
+		  # Without --release init-lite build.rs `std::fs::copy` fails in \
 		  # fresh checkouts (CI) with "No such file or directory" on the \
 		  # release path. Locally it can mask itself when prior `just test-os` \
 		  # runs already populated `release/`. \
