@@ -110,9 +110,9 @@ pub(crate) fn reported_minidump_frame_matches_expected(
 #[cfg(test)]
 mod tests {
     use super::{
-        crash_event_publish_allowed, decode_exec_policy_decision, spawn_caps_respect_vfs_boundary,
+        crash_event_publish_allowed, decode_exec_policy_decision,
         reported_minidump_frame_matches_expected, reported_minidump_path_matches_name,
-        MinidumpFrameMetadata,
+        spawn_caps_respect_vfs_boundary, MinidumpFrameMetadata,
     };
 
     #[test]

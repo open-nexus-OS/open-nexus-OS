@@ -263,6 +263,12 @@ fn debug_print(_s: &str) {
 // raw UART helper removed in favor of debug_write syscall
 
 fn map_namespace_error(err: SandboxError) -> Error {
+    #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+    {
+        let _ = err;
+        return Error::InvalidPath;
+    }
+    #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
     match err {
         SandboxError::InvalidPath | SandboxError::Traversal | SandboxError::OutOfNamespace => {
             Error::InvalidPath

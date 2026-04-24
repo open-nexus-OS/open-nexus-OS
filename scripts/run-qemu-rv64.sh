@@ -22,8 +22,14 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 # Keep cargo outputs and ELF lookup in the same target root.
-# If CARGO_TARGET_DIR is set by the caller/sandbox, honor it for both build and run paths.
-TARGET_ROOT=${CARGO_TARGET_DIR:-"$ROOT/target"}
+# Default to workspace-local target to avoid tmp/cache pressure from inherited environments.
+# Set NEXUS_FORCE_WORKSPACE_TARGET=0 to honor incoming CARGO_TARGET_DIR.
+NEXUS_FORCE_WORKSPACE_TARGET=${NEXUS_FORCE_WORKSPACE_TARGET:-1}
+if [[ "$NEXUS_FORCE_WORKSPACE_TARGET" == "1" ]]; then
+  TARGET_ROOT="$ROOT/target"
+else
+  TARGET_ROOT=${CARGO_TARGET_DIR:-"$ROOT/target"}
+fi
 export CARGO_TARGET_DIR="$TARGET_ROOT"
 KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
 KERNEL_BIN=$TARGET_ROOT/$TARGET/release/neuron-boot.bin
@@ -55,6 +61,9 @@ SANDBOX_CACHE_TARGET_FREE_MB=${SANDBOX_CACHE_TARGET_FREE_MB:-1024}
 SANDBOX_CACHE_MIN_AGE_SECS=${SANDBOX_CACHE_MIN_AGE_SECS:-1800}
 BUILD_TMPDIR_DEFAULT=${BUILD_TMPDIR_DEFAULT:-"$ROOT/.tmp/build"}
 BUILD_TMP_MIN_FREE_MB=${BUILD_TMP_MIN_FREE_MB:-256}
+DEBUG_LOG=${DEBUG_LOG:-"$ROOT/.cursor/debug.log"}
+DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-""}
+DEBUG_RUN_ID=${DEBUG_RUN_ID:-"run-qemu-$(date +%s)-$$"}
 
 # When NEXUS_SKIP_BUILD=1, every per-component `cargo build` below is
 # replaced with a "must-already-exist" artifact check. The Makefile sets
@@ -102,6 +111,24 @@ set_env_var() {
   export "$name"
 }
 
+# #region agent log
+debug_log() {
+  local hypothesis_id=$1
+  local location=$2
+  local message=$3
+  local data_json=${4:-"{}"}
+  local ts
+  ts=$(date +%s%3N 2>/dev/null || date +%s000)
+  if [[ -n "$DEBUG_SESSION_ID" ]]; then
+    printf '{"sessionId":"%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+      "$DEBUG_SESSION_ID" "$DEBUG_RUN_ID" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
+  else
+    printf '{"runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+      "$DEBUG_RUN_ID" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
+  fi
+}
+# #endregion
+
 df_available_kb() {
   local path=$1
   if ! command -v df >/dev/null 2>&1; then
@@ -111,6 +138,14 @@ df_available_kb() {
   df -Pk "$path" 2>/dev/null | awk 'NR==2 {print $4}' || echo -1
 }
 
+mem_available_kb() {
+  if [[ -r /proc/meminfo ]]; then
+    awk '/^MemAvailable:/ {print $2; found=1} END {if (!found) print -1}' /proc/meminfo
+  else
+    echo -1
+  fi
+}
+
 sandbox_cache_usage_kb() {
   local cache_root=$1
   if [[ ! -d "$cache_root" ]]; then
@@ -118,6 +153,15 @@ sandbox_cache_usage_kb() {
     return 0
   fi
   du -sk "$cache_root" 2>/dev/null | awk '{print $1}' || echo 0
+}
+
+path_usage_kb() {
+  local path=$1
+  if [[ ! -e "$path" ]]; then
+    echo 0
+    return 0
+  fi
+  du -sk "$path" 2>/dev/null | awk '{print $1}' || echo -1
 }
 
 gc_sandbox_cache() {
@@ -136,8 +180,16 @@ gc_sandbox_cache() {
   local min_age_secs=${SANDBOX_CACHE_MIN_AGE_SECS:-1800}
   local cache_kb
   local tmp_free_kb
+  local emergency_gc=0
   cache_kb=$(sandbox_cache_usage_kb "$SANDBOX_CACHE_DIR")
   tmp_free_kb=$(df_available_kb /tmp)
+  if [[ "$tmp_free_kb" =~ ^[0-9]+$ ]] && (( tmp_free_kb >= 0 && tmp_free_kb < target_free_kb )); then
+    emergency_gc=1
+  fi
+  # #region agent log
+  debug_log "H2" "scripts/run-qemu-rv64.sh:gc-pre" "sandbox cache + tmp free before gc decision" \
+    "{\"cache_dir\":\"$SANDBOX_CACHE_DIR\",\"cache_kb\":$cache_kb,\"tmp_free_kb\":$tmp_free_kb,\"mode\":\"$mode\",\"max_cache_mb\":$SANDBOX_CACHE_MAX_MB,\"target_free_mb\":$SANDBOX_CACHE_TARGET_FREE_MB,\"emergency_gc\":$emergency_gc}"
+  # #endregion
 
   local need_gc=0
   if [[ "$mode" == "on" ]]; then
@@ -168,13 +220,15 @@ gc_sandbox_cache() {
   local mtime
   local age
   local removed=0
+  local skipped_young=0
   local before_kb=$cache_kb
   for (( idx=${#entries[@]} - 1; idx>=0; idx-- )); do
     entry=${entries[$idx]}
     [[ -e "$entry" ]] || continue
     mtime=$(stat -c %Y "$entry" 2>/dev/null || echo "$now")
     age=$(( now - mtime ))
-    if [[ "$mode" == "auto" ]] && (( age < min_age_secs )); then
+    if [[ "$mode" == "auto" && "$emergency_gc" != "1" ]] && (( age < min_age_secs )); then
+      skipped_young=$(( skipped_young + 1 ))
       continue
     fi
     rm -rf "$entry" 2>/dev/null || true
@@ -190,6 +244,10 @@ gc_sandbox_cache() {
   if (( removed > 0 )); then
     echo "[info] sandbox cache gc: removed=${removed} before_kb=${before_kb} after_kb=${cache_kb} tmp_free_kb=${tmp_free_kb}" >&2
   fi
+  # #region agent log
+  debug_log "H2" "scripts/run-qemu-rv64.sh:gc-post" "sandbox cache state after gc pass" \
+    "{\"removed\":$removed,\"before_kb\":$before_kb,\"after_kb\":$cache_kb,\"tmp_free_kb\":$tmp_free_kb,\"skipped_young\":$skipped_young,\"emergency_gc\":$emergency_gc}"
+  # #endregion
 }
 
 prepare_build_tmpdir() {
@@ -208,6 +266,10 @@ prepare_build_tmpdir() {
   fi
   echo "[info] Build TMPDIR=$TMPDIR" >&2
   echo "[info] Build target dir=$TARGET_ROOT" >&2
+  # #region agent log
+  debug_log "H1" "scripts/run-qemu-rv64.sh:build-paths" "effective build output and tmp directories" \
+    "{\"cargo_target_dir\":\"$CARGO_TARGET_DIR\",\"target_root\":\"$TARGET_ROOT\",\"tmpdir\":\"$TMPDIR\",\"tmp_free_kb\":$tmp_free_kb}"
+  # #endregion
 }
 
 declare -a SERVICES=()
@@ -794,6 +856,14 @@ if [[ "${QEMU_GDB:-0}" == "1" ]]; then
 fi
 
 status=0
+# #region agent log
+target_usage_kb_before=$(path_usage_kb "$TARGET_ROOT")
+root_free_kb_before=$(df_available_kb "$ROOT")
+tmp_free_kb_before=$(df_available_kb /tmp)
+mem_avail_kb_before=$(mem_available_kb)
+debug_log "H14" "scripts/run-qemu-rv64.sh:host-resources-pre" "host resource snapshot before qemu launch" \
+  "{\"target_root\":\"$TARGET_ROOT\",\"target_usage_kb\":$target_usage_kb_before,\"root_free_kb\":$root_free_kb_before,\"tmp_free_kb\":$tmp_free_kb_before,\"mem_available_kb\":$mem_avail_kb_before}"
+# #endregion
 if [[ "$RUN_UNTIL_MARKER" != "0" ]]; then
   set +e
   timeout --signal="$QEMU_TIMEOUT_SIGNAL" --foreground "$RUN_TIMEOUT" stdbuf -oL -eL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
@@ -810,5 +880,14 @@ else
   status=${PIPESTATUS[0]}
   set -e
 fi
+
+# #region agent log
+target_usage_kb_after=$(path_usage_kb "$TARGET_ROOT")
+root_free_kb_after=$(df_available_kb "$ROOT")
+tmp_free_kb_after=$(df_available_kb /tmp)
+mem_avail_kb_after=$(mem_available_kb)
+debug_log "H14" "scripts/run-qemu-rv64.sh:host-resources-post" "host resource snapshot after qemu launch" \
+  "{\"status\":$status,\"target_root\":\"$TARGET_ROOT\",\"target_usage_kb\":$target_usage_kb_after,\"root_free_kb\":$root_free_kb_after,\"tmp_free_kb\":$tmp_free_kb_after,\"mem_available_kb\":$mem_avail_kb_after}"
+# #endregion
 
 finish "$status"

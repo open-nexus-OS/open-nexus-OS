@@ -1,6 +1,6 @@
 ---
 title: TASK-0039 Sandboxing v1 (userspace): per-subject VFS namespaces + CapFd rights + manifest permissions (host-first, OS-gated)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on:

@@ -401,14 +401,7 @@ impl Dispatcher {
         handles.insert(handle, HandleEntry { bytes: entry.bytes.clone() });
         cap_tokens.insert(
             handle,
-            CapFdToken::mint(
-                &self.mac_key,
-                0,
-                path.to_string(),
-                RIGHT_READ,
-                *next_nonce,
-                u64::MAX,
-            ),
+            CapFdToken::mint(&self.mac_key, 0, path.to_string(), RIGHT_READ, *next_nonce, u64::MAX),
         );
         *next_nonce = next_nonce.saturating_add(1).max(1);
         Ok((handle, entry))

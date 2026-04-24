@@ -10,6 +10,10 @@ QEMU_LOG=${QEMU_LOG:-"$ROOT/qemu.log"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
+NEXUS_FORCE_WORKSPACE_TARGET=${NEXUS_FORCE_WORKSPACE_TARGET:-1}
+if [[ "$NEXUS_FORCE_WORKSPACE_TARGET" == "1" ]]; then
+  export CARGO_TARGET_DIR="$ROOT/target"
+fi
 
 # ---------------------------------------------------------------------------
 # TASK-0023B P4-05: harness profile dispatch.
@@ -56,6 +60,10 @@ pm_cli() {
     return 0
   fi
   if [[ -x "$PM_CLI_DEFAULT" ]]; then
+    # #region agent log
+    agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from workspace target" \
+      "{\"path\":\"$PM_CLI_DEFAULT\",\"source\":\"workspace-target\"}"
+    # #endregion
     echo "$PM_CLI_DEFAULT"
     return 0
   fi
@@ -64,6 +72,10 @@ pm_cli() {
     "$ROOT/target/debug/nexus-proof-manifest" \
     /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
     if [[ -x "$cand" ]]; then
+      # #region agent log
+      agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from sandbox cache" \
+        "{\"path\":\"$cand\",\"source\":\"sandbox-cache\"}"
+      # #endregion
       echo "$cand"
       return 0
     fi
@@ -74,6 +86,10 @@ pm_cli() {
     "$ROOT/target/debug/nexus-proof-manifest" \
     /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
     if [[ -x "$cand" ]]; then
+      # #region agent log
+      agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI after build" \
+        "{\"path\":\"$cand\",\"source\":\"post-build-scan\"}"
+      # #endregion
       echo "$cand"
       return 0
     fi
@@ -208,7 +224,7 @@ if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
 fi
 # #region agent log (H1: qemu-test effective config in make path)
 agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
-  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\"}"
+  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"debug_log\":\"$DEBUG_LOG\"}"
 # #endregion
 
 QEMU_EXTRA_ARGS=()

@@ -194,13 +194,13 @@ test-dsoftbus-2vm-pcap:
 # TASK-0020 requirement-named host suites (deterministic contract surface).
 test-dsoftbus-mux:
     # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:start","message":"start target","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)})+"\n")'
+    python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG",".cursor/debug.log"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:start","message":"start target","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n")'
     # #endregion
     cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture
     cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture
     cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture
     # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:end","message":"target completed","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)})+"\n")'
+    python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG",".cursor/debug.log"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:end","message":"target completed","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n")'
     # #endregion
 
 # TASK-0021 targeted host QUIC proof suites (real transport + selection/reject contract).
@@ -211,11 +211,11 @@ test-dsoftbus-quic:
 # Full userspace dsoftbus host regression (includes mux + reject suites).
 test-dsoftbus-host:
     # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:start","message":"start target","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)})+"\n")'
+    python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG",".cursor/debug.log"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:start","message":"start target","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n")'
     # #endregion
     cargo test -p dsoftbus -- --nocapture
     # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-98eb36.log","a",encoding="utf-8").write(json.dumps({"sessionId":"98eb36","runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:end","message":"target completed","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)})+"\n")'
+    python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG",".cursor/debug.log"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:end","message":"target completed","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n")'
     # #endregion
 
 # `test-network` removed in TASK-0023B P4-10; use `just ci-network` for the
@@ -269,7 +269,7 @@ arch-check:
 
 test-all:
     # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-ad620f.log","a",encoding="utf-8").write(json.dumps({"sessionId":"ad620f","runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:start","message":"start aggregate gate","data":{"target":"test-all"},"timestamp":int(time.time()*1000)})+"\n")'
+    python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG",".cursor/debug.log"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:start","message":"start aggregate gate","data":{"target":"test-all"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n")'
     # #endregion
     just fmt-check
     just lint
@@ -282,7 +282,7 @@ test-all:
     just build-kernel
     just ci-os-smp
     # #region agent log
-    python -c 'import json,time;open("/home/jenning/open-nexus-OS/.cursor/debug-ad620f.log","a",encoding="utf-8").write(json.dumps({"sessionId":"ad620f","runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:end","message":"aggregate gate completed","data":{"target":"test-all"},"timestamp":int(time.time()*1000)})+"\n")'
+    python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG",".cursor/debug.log"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:end","message":"aggregate gate completed","data":{"target":"test-all"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n")'
     # #endregion
 
 # -----------------------------------------------------------------------------

@@ -1,12 +1,16 @@
 extern crate alloc;
 
-use alloc::collections::BTreeSet;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
+use alloc::collections::BTreeSet;
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 use sha2::{Digest, Sha256};
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 pub const RIGHT_READ: u8 = 0x01;
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 pub const RIGHT_WRITE: u8 = 0x02;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,10 +18,15 @@ pub enum SandboxError {
     InvalidPath,
     Traversal,
     OutOfNamespace,
+    #[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
     Integrity,
+    #[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
     Replay,
+    #[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
     Rights,
+    #[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
     Subject,
+    #[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
     Expired,
 }
 
@@ -38,13 +47,34 @@ impl NamespaceView {
     pub fn assert_allowed(&self, path: &str) -> core::result::Result<String, SandboxError> {
         let canonical = self.canonical_path(path)?;
         if self.roots.iter().any(|root| canonical.starts_with(root)) {
+            #[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
+            {
+                // #region agent log
+                debug_log(
+                    "H1",
+                    "namespace allow branch",
+                    "{\"branch\":\"allow\",\"path\":\"canonical\"}",
+                );
+                // #endregion
+            }
             Ok(canonical)
         } else {
+            #[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
+            {
+                // #region agent log
+                debug_log(
+                    "H2",
+                    "namespace deny branch",
+                    "{\"branch\":\"deny\",\"reason\":\"out_of_namespace\"}",
+                );
+                // #endregion
+            }
             Err(SandboxError::OutOfNamespace)
         }
     }
 }
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapFdToken {
     pub subject_id: u64,
@@ -55,6 +85,7 @@ pub struct CapFdToken {
     pub mac: [u8; 32],
 }
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 impl CapFdToken {
     pub fn mint(
         mac_key: &[u8],
@@ -65,15 +96,20 @@ impl CapFdToken {
         expires_at: u64,
     ) -> Self {
         let mac = compute_mac(mac_key, subject_id, &canonical_path, rights, nonce, expires_at);
+        // #region agent log
+        debug_log("H3", "capfd mint called", "{\"component\":\"capfd\",\"op\":\"mint\"}");
+        // #endregion
         Self { subject_id, canonical_path, rights, nonce, expires_at, mac }
     }
 }
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 #[derive(Debug, Default)]
 pub struct ReplayGuard {
     seen: BTreeSet<u64>,
 }
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 impl ReplayGuard {
     pub fn verify(
         &mut self,
@@ -146,6 +182,7 @@ fn format_canonical(scheme: &str, segments: &[&str]) -> String {
     out
 }
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
 fn compute_mac(
     key: &[u8],
     subject_id: u64,
@@ -167,11 +204,30 @@ fn compute_mac(
     out
 }
 
+#[cfg(any(test, not(all(nexus_env = "os", feature = "os-lite"))))]
+fn debug_log(hypothesis_id: &str, message: &str, data_json: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let timestamp =
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let line = format!(
+        "{{\"sessionId\":\"997420\",\"runId\":\"pre-fix\",\"hypothesisId\":\"{}\",\"location\":\"source/services/vfsd/src/sandbox.rs\",\"message\":\"{}\",\"data\":{},\"timestamp\":{}}}\n",
+        hypothesis_id, message, data_json, timestamp
+    );
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/home/jenning/open-nexus-OS/.cursor/debug-997420.log")
+    {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{
-        CapFdToken, NamespaceView, ReplayGuard, SandboxError, RIGHT_READ, RIGHT_WRITE,
-    };
+    use super::{CapFdToken, NamespaceView, ReplayGuard, SandboxError, RIGHT_READ, RIGHT_WRITE};
 
     const KEY: &[u8] = b"v1-sandbox-mac-key";
 
@@ -195,9 +251,8 @@ mod tests {
         let mut token =
             CapFdToken::mint(KEY, 7, "pkg:/system/build.prop".to_string(), RIGHT_READ, 1, 10_000);
         token.mac[0] ^= 0xFF;
-        let err = guard
-            .verify(KEY, &token, 7, RIGHT_READ, 5_000)
-            .expect_err("must reject forged token");
+        let err =
+            guard.verify(KEY, &token, 7, RIGHT_READ, 5_000).expect_err("must reject forged token");
         assert_eq!(err, SandboxError::Integrity);
     }
 
@@ -207,9 +262,7 @@ mod tests {
         let token =
             CapFdToken::mint(KEY, 7, "pkg:/system/build.prop".to_string(), RIGHT_READ, 42, 10_000);
         assert!(guard.verify(KEY, &token, 7, RIGHT_READ, 5_000).is_ok());
-        let err = guard
-            .verify(KEY, &token, 7, RIGHT_READ, 5_000)
-            .expect_err("must reject replay");
+        let err = guard.verify(KEY, &token, 7, RIGHT_READ, 5_000).expect_err("must reject replay");
         assert_eq!(err, SandboxError::Replay);
     }
 
