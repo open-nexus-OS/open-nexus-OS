@@ -294,12 +294,16 @@ This is the anti-fake-success gate.
 
 ## Active progress snapshot (TASK-0045 kickoff, 2026-04-24)
 - [x] Active SSOT switched to `TASK-0045`.
-- [x] Contract seed `RFC-0043` created and linked from task/index.
+- [x] Contract seed `RFC-0043` is done and linked from task/index while `TASK-0045` remains `In Review`.
 - [x] Follow-up tasks are populated in `TASK-0045` header.
 - [x] Security section and anti-fake-success proof criteria are explicit in task text.
 - [x] Gate-tier alignment clarified as Gate J `production-floor`.
-- [ ] `tools/nx` implementation started.
-- [ ] Host proof suite for `nx` command families is green.
+- [x] `tools/nx` implementation is in-tree with canonical subcommand dispatch.
+- [x] Host proof suite for `nx` command families is green (`cargo test -p nx -- --nocapture`).
+- [x] TASK-0045 closure deltas resolved:
+  - [x] `--json` reject/error paths return structured output instead of plain text.
+  - [x] process-level CLI tests assert exit code classes + structured output fields.
+  - [x] scaffolding header expectation (CONTEXT) is explicitly satisfied.
 
 ## Legacy progress snapshot (TASK-0039 execution, 2026-04-24)
 - [x] Host reject floor implemented and green:

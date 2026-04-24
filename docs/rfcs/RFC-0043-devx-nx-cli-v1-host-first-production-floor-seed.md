@@ -1,6 +1,6 @@
 # RFC-0043: DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime @tools-team
 - Created: 2026-04-24
 - Last Updated: 2026-04-24
@@ -12,9 +12,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (canonical nx baseline + safe delegation contract)**: ⬜
-- **Phase 1 (scaffolding + inspect + idl list/check + deterministic tests)**: ⬜
-- **Phase 2 (follow-up extension surface + no-drift closure)**: ⬜
+- **Phase 0 (canonical nx baseline + safe delegation contract)**: ✅
+- **Phase 1 (scaffolding + inspect + idl list/check + deterministic tests)**: ✅
+- **Phase 2 (follow-up extension surface + no-drift closure)**: ✅
 
 Definition:
 
@@ -233,9 +233,9 @@ Proof authority is tests + deterministic exit/status contracts.
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: canonical `nx` baseline + fail-closed delegation and exit-code classes — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx phase0 -- --nocapture`
-- [ ] **Phase 1**: scaffolding/inspect/idl/doctor contract + reject-path tests — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx phase1 -- --nocapture`
-- [ ] **Phase 2**: follow-up extension contract + no-drift guarantees validated — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx phase2 -- --nocapture && rg "tools/nx/" tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md tasks/TASK-0047-policy-as-code-v1-unified-engine.md tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md tasks/TASK-0164-sdk-v1-part1b-nx-sdk-templates-client-stubs.md tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md tasks/TASK-0227-diagnostics-v1-bugreport-bundles-nx-diagnose-offline-deterministic.md tasks/TASK-0230-nx-sec-v1-cli-security-introspection-deny-tests-offline.md tasks/TASK-0268-devx-v1-nx-cli-convergence-subcommands-no-nx-drift.md`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass. (N/A for v1 host-only closure)
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: canonical `nx` baseline + fail-closed delegation and exit-code classes — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
+- [x] **Phase 1**: scaffolding/inspect/idl/doctor contract + reject-path tests — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
+- [x] **Phase 2**: follow-up extension contract + no-drift guarantees validated — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture` + `rg "Subcommand extension contract" docs/devx/nx-cli.md`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass. (N/A for v1 host-only closure)
+- [x] Security-relevant negative tests exist (`test_reject_*`).

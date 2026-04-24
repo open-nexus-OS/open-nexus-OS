@@ -220,6 +220,7 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - DSoftBus mux requirement suites (`TASK-0020`): `just test-dsoftbus-mux`
 - DSoftBus QUIC host requirement suites (`TASK-0021`): `just test-dsoftbus-quic`
 - DSoftBus full host regression: `just test-dsoftbus-host`
+- nx CLI host proof suite (`TASK-0045`): `cargo test -p nx -- --nocapture`
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
 - QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
 - QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)

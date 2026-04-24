@@ -8,8 +8,8 @@
 
 ## Active focus (execution)
 
-- **active_task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `Draft`
-- **active_contract**: `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` — `Draft`
+- **active_task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `In Review`
+- **active_contract**: `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` — `Done`
 - **active_proof_command (target)**:
   - `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
 
@@ -28,16 +28,27 @@
 
 ## Execution gates (TASK-0045)
 
-- **Gate A (CLI baseline + deterministic UX)**: PENDING
+- **Gate A (CLI baseline + deterministic UX)**: GREEN
   - `tools/nx` exists and command surface is stable (`new`, `inspect`, `idl`, `postflight`, `doctor`, `dsl`).
-- **Gate B (security fail-closed)**: PENDING
+- **Gate B (security fail-closed)**: GREEN
   - reject-path tests for traversal/absolute path and unknown topics exist + pass.
-- **Gate C (proof quality)**: PENDING
-  - tests assert Soll behavior (exit code, filesystem effects, structured output), not log-marker greps.
-- **Gate D (extension/no-drift)**: PENDING
+- **Gate C (proof quality)**: GREEN
+  - process-level CLI tests now assert exit codes + structured JSON + file effects.
+- **Gate D (extension/no-drift)**: GREEN
   - follow-up tasks extend as subcommands under `tools/nx` without separate CLIs.
-- **Gate E (dsl wrapper floor)**: PENDING
+- **Gate E (dsl wrapper floor)**: GREEN
   - deterministic delegate or explicit unsupported classification.
+
+## Closure todo list (TASK-0045 deltas)
+
+- [x] **C1** `--json` reject/error paths use structured output envelope at process boundary.
+- [x] **C2** Add process-level CLI contract tests for exit-code classes + structured outputs.
+- [x] **C3** Add CONTEXT headers to scaffold templates to satisfy task expectation.
+
+Closure evidence:
+
+- `cargo test -p nx -- --nocapture` -> 15 passed, 0 failed.
+- `cargo run -q -p nx -- new service ../escape --json` -> structured JSON + exit `3`.
 
 ## Required reject proofs (minimum floor)
 

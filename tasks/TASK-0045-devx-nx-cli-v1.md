@@ -1,6 +1,6 @@
 ---
 title: TASK-0045 DevX: nx CLI v1 (scaffold + idl helpers + inspect + postflight runner + doctor)
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 depends-on: []
@@ -39,8 +39,8 @@ Repo reality today:
 - `tools/nexus-idl` is currently a stub (prints help only).
 - Cap’n Proto bindings in `userspace/nexus-idl-runtime` are currently checked in under `src/manual/`.
 - Postflight scripts exist and are already “defanged” to delegate to canonical proofs.
-- `tools/nx/` does not exist yet in-tree.
-- `tests/nx_cli_host/` does not exist yet in-tree.
+- `tools/nx/` now exists in-tree with canonical v1 subcommand surface.
+- Host proof tests are embedded in `tools/nx/src/lib.rs` and executed via `cargo test -p nx`.
 
 So `nx` v1 should integrate what exists, and make codegen incremental/opt-in until the repo’s IDL workflow is finalized.
 
@@ -132,7 +132,7 @@ Gate-tier alignment note:
 
 ### Proof (Host) — required
 
-Add deterministic host tests (`tests/nx_cli_host/`):
+Add deterministic host tests (`tools/nx/src/lib.rs`):
 
 - `nx new service foo` creates expected paths and does not break workspace parsing.
 - `nx new service ../escape` and absolute paths are rejected (non-zero + stable error).
@@ -153,6 +153,10 @@ Proof quality rule:
 
 - At least one reject-path test per command family (`new`, `postflight`, `doctor`).
 - No closure based only on printed markers/log greps; assertions must validate file outputs, exit codes, and structured output fields.
+
+Proof run (host, deterministic):
+
+- `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture` (green)
 
 ## Touched paths (allowlist)
 

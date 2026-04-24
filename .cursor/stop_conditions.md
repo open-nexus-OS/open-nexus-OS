@@ -319,11 +319,15 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 
 ## Active progress snapshot (TASK-0045 kickoff alignment, 2026-04-24)
 - [x] Active SSOT switched to `TASK-0045`.
-- [x] `RFC-0043` seed contract created and linked.
+- [x] `RFC-0043` contract is done and linked while `TASK-0045` remains `In Review`.
 - [x] Task header follow-up list and red-flag resolutions are synchronized.
 - [x] Security section and proof-quality anti-fake-success requirements are explicit.
-- [ ] `tools/nx` implementation is present in-tree.
-- [ ] Host proof suite is green for v1 command and reject contracts.
+- [x] `tools/nx` implementation is present in-tree.
+- [x] Host proof suite is green for v1 command and reject contracts.
+- [x] TASK-0045 proof-quality deltas are closed before claiming final Done:
+  - [x] `--json` error/reject paths are structured and deterministic at process boundary.
+  - [x] CLI-level tests verify exit-code classes + structured outputs (not only internal handler return values).
+  - [x] scaffolding output contract (including header expectations) is fully aligned with task text.
 
 ## Legacy progress snapshot (TASK-0039 execution alignment, 2026-04-24)
 - [x] `TASK-0039` status synchronized to `Done`.

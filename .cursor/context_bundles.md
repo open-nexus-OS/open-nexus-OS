@@ -531,6 +531,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/testing/index.md`
 - `tasks/TASK-0045-devx-nx-cli-v1.md`
 - `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md`
+- `docs/rfcs/README.md`
 - `.cursor/current_state.md`
 - `.cursor/handoff/current.md`
 - `.cursor/context_bundles.md`
