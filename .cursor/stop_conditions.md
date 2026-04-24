@@ -224,6 +224,10 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] Production-grade scope honesty remains explicit:
   - [ ] no kernel-enforced sandbox claim in v1 scope,
   - [ ] follow-up hardening remains routed to `TASK-0043` / `TASK-0189`.
+- [ ] Gap-proof quality floor is met:
+  - [ ] OS marker gate is executed and archived for this cut,
+  - [ ] reject proofs include service-path behavior checks (not helper-only only),
+  - [ ] no closure claim before TASK/RFC checklist synchronization.
 
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0021-class QUIC scaffold stop conditions: use archived closure evidence in `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Done`).
@@ -286,10 +290,15 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Follow-up routing and Gate-C production dependencies remain explicit (`TASK-0033`, `TASK-0286`, `TASK-0287`, `TASK-0290`).
 - [x] `.cursor` workfiles updated from prep posture to post-closure posture.
 
-## Active progress snapshot (TASK-0039 kickoff alignment, 2026-04-23)
-- [x] `TASK-0039` status is `In Progress`.
-- [x] `RFC-0042` status is `In Progress`.
-- [x] Gate-B production mapping + follow-up routing (`TASK-0043`, `TASK-0189`) are explicit.
+## Active progress snapshot (TASK-0039 execution alignment, 2026-04-24)
+- [x] `TASK-0039` status synchronized to `Done`.
+- [x] `RFC-0042` status synchronized to `Done`.
+- [x] Host reject proof floor is green for traversal/capfd/spawn-boundary checks.
+- [x] Stable marker contract strings are wired in selftest/harness surfaces.
+- [x] OS marker proof path is green and archived for this cut.
+- [x] Kernel bring-up blockers addressed without scope absorption (overlap/heap fixes + typed layout window).
+- [x] Status/index synchronization complete (`TASK-0039`, `RFC-0042`, STATUS-BOARD, RFC index).
+- [x] Post-closure hardening pass complete without scope drift (`TASK-0043`/`TASK-0189` remain explicit follow-up).
 
 ## Legacy progress snapshot (TASK-0029 closure remediation, 2026-04-22)
 - [x] Active `.cursor` workfiles and RFC status sections now reflect post-implementation closure state.

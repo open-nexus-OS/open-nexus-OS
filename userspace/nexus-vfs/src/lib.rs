@@ -180,11 +180,9 @@ impl VfsClient {
 
     /// Opens a file located at `path`.
     pub fn open(&self, path: &str) -> Result<FileHandle> {
+        let path = validate_namespace_path(path)?;
         #[cfg(nexus_env = "os")]
         {
-            if !path.starts_with("pkg:/") {
-                return Err(Error::InvalidPath);
-            }
             let mut frame = Vec::with_capacity(1 + path.len());
             frame.push(OPCODE_OPEN);
             frame.extend_from_slice(path.as_bytes());
@@ -303,11 +301,9 @@ impl VfsClient {
 
     /// Retrieves metadata for the provided `path`.
     pub fn stat(&self, path: &str) -> Result<Metadata> {
+        let path = validate_namespace_path(path)?;
         #[cfg(nexus_env = "os")]
         {
-            if !path.starts_with("pkg:/") {
-                return Err(Error::InvalidPath);
-            }
             let mut frame = Vec::with_capacity(1 + path.len());
             frame.push(OPCODE_STAT);
             frame.extend_from_slice(path.as_bytes());
@@ -359,6 +355,26 @@ impl VfsClient {
         frame.extend_from_slice(&payload);
         self.backend.call(frame)
     }
+}
+
+fn validate_namespace_path(path: &str) -> Result<&str> {
+    if !path.starts_with("pkg:/") {
+        return Err(Error::InvalidPath);
+    }
+    let mut saw_segment = false;
+    for seg in path["pkg:/".len()..].split('/') {
+        if seg.is_empty() || seg == "." {
+            continue;
+        }
+        if seg == ".." {
+            return Err(Error::InvalidPath);
+        }
+        saw_segment = true;
+    }
+    if !saw_segment {
+        return Err(Error::InvalidPath);
+    }
+    Ok(path)
 }
 
 impl Backend {
@@ -457,5 +473,22 @@ mod os {
             nexus_ipc::IpcError::Unsupported => Error::Unsupported,
             other => Error::Ipc(format!("{other:?}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_namespace_path;
+
+    #[test]
+    fn test_reject_path_traversal() {
+        let err = validate_namespace_path("pkg:/system/../secret.txt").expect_err("must reject");
+        assert!(matches!(err, super::Error::InvalidPath));
+    }
+
+    #[test]
+    fn test_reject_unauthorized_namespace_path() {
+        let err = validate_namespace_path("tmp:/app/config.json").expect_err("must reject");
+        assert!(matches!(err, super::Error::InvalidPath));
     }
 }

@@ -27,10 +27,22 @@ phase = "vfs"
 [marker."SELFTEST: pkgimg mount ok"]
 phase = "vfs"
 
+[marker."vfsd: capfd grant ok"]
+phase = "vfs"
+
+[marker."vfsd: access denied"]
+phase = "vfs"
+
 [marker."SELFTEST: vfs real data ok"]
 phase = "vfs"
 
 [marker."SELFTEST: pkgimg stat/read ok"]
+phase = "vfs"
+
+[marker."SELFTEST: sandbox deny ok"]
+phase = "vfs"
+
+[marker."SELFTEST: capfd read ok"]
 phase = "vfs"
 
 [marker."SELFTEST: vfs ebadf ok"]

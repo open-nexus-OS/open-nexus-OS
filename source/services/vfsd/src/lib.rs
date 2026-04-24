@@ -29,6 +29,9 @@ mod std_server;
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
 pub use std_server::*;
 
+mod sandbox;
+pub(crate) use sandbox::*;
+
 /// Host build schema warmer (no-op for vfsd).
 #[cfg(nexus_env = "host")]
 #[allow(dead_code)]

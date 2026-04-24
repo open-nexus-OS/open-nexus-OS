@@ -177,5 +177,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath — host-first, OS-gated contract seed (Done; execution SSOT `TASK-0032` is Done with host+OS proof gates)
   - docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md
-- RFC-0042: Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions) — host-first, OS-gated contract seed (In Progress; execution SSOT `TASK-0039` is In Progress)
+- RFC-0042: Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions) — host-first, OS-gated contract seed (Done; execution SSOT `TASK-0039` is Done)
   - docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md

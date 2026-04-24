@@ -42,3 +42,4 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-fe
 nexus-packagefs = { path = "../../../userspace/nexus-packagefs", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+sha2 = { version = "0.10", default-features = false }

@@ -135,6 +135,9 @@ phase = "bringup"
 [marker."vfsd: ready"]
 phase = "bringup"
 
+[marker."vfsd: namespace ready"]
+phase = "bringup"
+
 [marker."execd: ready"]
 phase = "bringup"
 

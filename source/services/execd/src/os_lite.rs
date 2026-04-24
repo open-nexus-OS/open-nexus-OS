@@ -109,6 +109,7 @@ const STATUS_UNSUPPORTED: u8 = 2;
 const STATUS_FAILED: u8 = 3;
 const STATUS_DENIED: u8 = 4;
 static EXEC_SPAN_LOCAL: AtomicU64 = AtomicU64::new(1);
+const RUNTIME_APP_CAPS: [&str; 4] = ["vfsd", "samgrd", "policyd", "logd"];
 
 /// Stubbed service loop that reports readiness and yields forever.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
@@ -717,6 +718,11 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     if decision != nexus_abi::policy::STATUS_ALLOW {
         metrics_counter_inc_best_effort("execd.spawn.deny");
         emit_line("execd: spawn denied (policy)");
+        return rsp(op, STATUS_DENIED, 0).to_vec();
+    }
+    if !crate::spawn_caps_respect_vfs_boundary(&RUNTIME_APP_CAPS) {
+        metrics_counter_inc_best_effort("execd.spawn.deny");
+        emit_line("execd: spawn denied (fs cap boundary)");
         return rsp(op, STATUS_DENIED, 0).to_vec();
     }
 

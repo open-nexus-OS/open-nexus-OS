@@ -158,6 +158,17 @@ Scope note:
 | `pkgimg-build` host tooling compiles and remains executable in workspace | host tooling sanity | `cargo test -p pkgimg-build -- --nocapture` |
 | OS marker ladder (`packagefsd: v2 mounted (pkgimg)`, `SELFTEST: pkgimg mount ok`, `SELFTEST: pkgimg stat/read ok`) | single-VM OS-gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
 
+### TASK-0039 sandboxing v1 userspace confinement matrix
+
+`TASK-0039` proves userspace-only sandboxing floor (kernel unchanged): namespace traversal rejects, CapFd fail-closed checks, and spawn-time no-direct-fs-cap discipline.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Namespace traversal and unauthorized path rejects (`test_reject_path_traversal`, `test_reject_unauthorized_namespace_path`) | host reject assertions | `cargo test -p vfsd -- --nocapture` and `cargo test -p nexus-vfs -- --nocapture` |
+| CapFd authenticity/replay/rights fail-closed (`test_reject_forged_capfd`, `test_reject_replayed_capfd`, `test_reject_capfd_rights_mismatch`) | host reject assertions | `cargo test -p vfsd -- --nocapture` |
+| Spawn boundary deny for direct fs-service cap bypass (`test_reject_direct_fs_cap_bypass_at_spawn_boundary`) | host authority-boundary assertion | `cargo test -p execd --lib test_reject_direct_fs_cap_bypass_at_spawn_boundary -- --nocapture` |
+| OS-gated marker ladder (`vfsd: namespace ready`, `vfsd: capfd grant ok`, `vfsd: access denied`, `SELFTEST: sandbox deny ok`, `SELFTEST: capfd read ok`) | single-VM boundary marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
+
 ### Legacy TASK-0001..0020 Soll requirement test matrix (production closure)
 
 Legacy tasks remain `Done`; production closure uses follow-on requirement suites to prove Soll behavior (not implementation internals).

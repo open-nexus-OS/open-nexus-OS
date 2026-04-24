@@ -256,6 +256,10 @@ This is the anti-fake-success gate.
   - [ ] `vfsd: access denied`
   - [ ] `SELFTEST: sandbox deny ok`
   - [ ] `SELFTEST: capfd read ok`
+- [ ] Gap closure quality floor (anti fake-green):
+  - [ ] OS gate run recorded with marker evidence (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`),
+  - [ ] CapFd reject proof includes at least one service-path assertion (not helper-only),
+  - [ ] TASK/RFC checklists are synced only after evidence exists.
 
 ## Active progress snapshot (TASK-0032 closure, 2026-04-23)
 - [x] `TASK-0032` execution SSOT is synchronized to landed implementation and proof evidence (`Done`).
@@ -264,11 +268,19 @@ This is the anti-fake-success gate.
 - [x] Required TASK-0032 marker ladder is proven in single-VM QEMU path.
 - [x] Build hygiene gates are green for touched OS/host code (`diag-host`, `dep-gate`, `diag-os`).
 
-## Active progress snapshot (TASK-0039 kickoff, 2026-04-23)
-- [x] `TASK-0039` moved to `In Progress`.
-- [x] `RFC-0042` seed contract created and moved to `In Progress`.
-- [x] Security section + red-flag posture are synchronized to current architecture reality.
-- [x] Gate-B production mapping and follow-up ownership (`TASK-0043`, `TASK-0189`) are explicit.
+## Active progress snapshot (TASK-0039 execution, 2026-04-24)
+- [x] Host reject floor implemented and green:
+  - [x] traversal / unauthorized namespace rejects,
+  - [x] forged / replayed / rights-mismatch CapFd rejects,
+  - [x] spawn direct-fs-cap bypass reject.
+- [x] OS-gated stable markers are wired in manifest/harness surfaces.
+- [x] Security/testing docs synced to current proof shape.
+- [x] Full OS marker proof run recorded for this cut (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
+- [x] Kernel blocker fixes validated in the same gate path (POOL overlap + heap OOM resolved).
+- [x] Final TASK/RFC closure status flip completed on task/rfc/status board index surfaces.
+- [x] Post-closure hardening deltas re-proven:
+  - [x] runtime spawn fs-cap boundary check is active in `execd` os-lite path,
+  - [x] vfsd os-lite handle ownership uses `sender_service_id` for read/close.
 
 ## Legacy progress snapshot (TASK-0031 prep alignment, 2026-04-21)
 - [x] Active SSOT switched to `TASK-0031`.

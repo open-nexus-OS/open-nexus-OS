@@ -18,6 +18,30 @@ pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 pub const USER_VMO_ARENA_LEN: usize = 16 * 1024 * 1024;
 /// Base address of the kernel-managed user VMO arena.
 pub const USER_VMO_ARENA_BASE: usize = 0x8100_0000;
+/// Base address of the temporary kernel page-pool window used by early loaders/selftests.
+pub const KERNEL_PAGE_POOL_BASE: usize = 0x8080_0000;
+/// Size of the temporary kernel page-pool window.
+pub const KERNEL_PAGE_POOL_LEN: usize = 2 * 1024 * 1024;
+/// Typed memory window descriptor used to avoid base/length mixups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AddressWindow {
+    /// Window base address.
+    pub base: usize,
+    /// Window length in bytes.
+    pub len: usize,
+}
+
+impl AddressWindow {
+    /// Returns the exclusive window end.
+    #[must_use]
+    pub const fn end(self) -> usize {
+        self.base + self.len
+    }
+}
+
+/// Temporary kernel page-pool window used by early loader and selftest allocators.
+pub const KERNEL_PAGE_POOL_WINDOW: AddressWindow =
+    AddressWindow { base: KERNEL_PAGE_POOL_BASE, len: KERNEL_PAGE_POOL_LEN };
 
 #[cfg(test)]
 mod tests;

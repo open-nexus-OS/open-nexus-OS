@@ -1,12 +1,16 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
+use alloc::string::ToString;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use core::fmt;
 
 use nexus_abi;
 use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Server, Wait};
+
+use crate::{NamespaceView, SandboxError};
 
 const OPCODE_STAT: u8 = 4;
 const OPCODE_OPEN: u8 = 1;
@@ -57,14 +61,20 @@ impl<F: FnOnce() + Send> ReadyNotifier<F> {
     }
 }
 
-#[derive(Default)]
-struct Namespace;
+struct Namespace {
+    view: NamespaceView,
+}
 
 impl Namespace {
+    fn new() -> Self {
+        Self { view: NamespaceView::new(vec!["pkg:/".to_string()]) }
+    }
+
     fn packagefs_resolve(&self, path: &str) -> Result<Entry> {
         // Forward resolution to packagefsd over IPC (real data path).
         const PKGFS_OPCODE_RESOLVE: u8 = 2;
-        let rel = path.strip_prefix("pkg:/").ok_or(Error::InvalidPath)?;
+        let canonical = self.view.assert_allowed(path).map_err(map_namespace_error)?;
+        let rel = canonical.strip_prefix("pkg:/").ok_or(Error::InvalidPath)?;
         let client = KernelClient::new_for("packagefsd").map_err(|_| Error::Transport)?;
         let mut frame = Vec::with_capacity(1 + rel.len());
         frame.push(PKGFS_OPCODE_RESOLVE);
@@ -99,7 +109,7 @@ impl Namespace {
         if entry.kind != KIND_FILE {
             return Err(Error::InvalidPath);
         }
-        Ok(FileHandle { bytes: entry.bytes })
+        Ok(FileHandle { owner_service_id: 0, bytes: entry.bytes })
     }
 }
 
@@ -111,6 +121,7 @@ struct Entry {
 }
 
 struct FileHandle {
+    owner_service_id: u64,
     bytes: Vec<u8>,
 }
 
@@ -118,6 +129,7 @@ struct FileHandle {
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Result<()> {
     // Marker contract: emit only after the IPC endpoint exists.
     debug_print("vfsd: ready\n");
+    debug_print("vfsd: namespace ready\n");
     notifier.notify();
     // RFC-0005: For kernel IPC v1, init transfers vfs request/reply endpoints into deterministic
     // slots. Use name-based construction so call sites don't hardcode slot numbers.
@@ -126,15 +138,15 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
         Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| Error::Transport)?,
     };
     // VFS bring-up: proxy pkg:/ reads to packagefsd (real data). Non-pkg schemes are unsupported.
-    run_loop(server, Namespace::default())
+    run_loop(server, Namespace::new())
 }
 
 fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut handles: BTreeMap<u32, FileHandle> = BTreeMap::new();
     let mut next_handle: u32 = 1;
     loop {
-        match server.recv(Wait::Blocking) {
-            Ok(frame) => {
+        match server.recv_with_header_meta(Wait::Blocking) {
+            Ok((_hdr, sender_service_id, frame)) => {
                 if frame.is_empty() {
                     continue;
                 }
@@ -150,6 +162,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.extend_from_slice(&entry.kind.to_le_bytes());
                             }
                             Err(_) => {
+                                debug_print("vfsd: access denied\n");
                                 reply.push(0);
                             }
                         }
@@ -162,11 +175,21 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                             Ok(handle) => {
                                 let fh = next_handle;
                                 next_handle = next_handle.wrapping_add(1).max(1);
-                                handles.insert(fh, handle);
+                                handles.insert(
+                                    fh,
+                                    FileHandle {
+                                        owner_service_id: sender_service_id,
+                                        bytes: handle.bytes,
+                                    },
+                                );
                                 reply.push(1);
                                 reply.extend_from_slice(&fh.to_le_bytes());
+                                debug_print("vfsd: capfd grant ok\n");
                             }
-                            Err(_) => reply.push(0),
+                            Err(_) => {
+                                debug_print("vfsd: access denied\n");
+                                reply.push(0);
+                            }
                         }
                         server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
@@ -182,12 +205,16 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         let len = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
                         let mut reply = Vec::new();
                         match handles.get(&fh) {
-                            Some(handle) => {
+                            Some(handle) if handle.owner_service_id == sender_service_id => {
                                 let start = off.min(handle.bytes.len() as u64) as usize;
                                 let end =
                                     start.saturating_add(len as usize).min(handle.bytes.len());
                                 reply.push(1);
                                 reply.extend_from_slice(&handle.bytes[start..end]);
+                            }
+                            Some(_) => {
+                                debug_print("vfsd: access denied\n");
+                                reply.push(0);
                             }
                             None => reply.push(0),
                         }
@@ -199,10 +226,18 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         }
                         let fh = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
                         let mut reply = Vec::new();
-                        if handles.remove(&fh).is_some() {
-                            reply.push(1);
-                        } else {
-                            reply.push(0);
+                        match handles.get(&fh) {
+                            Some(handle) if handle.owner_service_id == sender_service_id => {
+                                let _ = handles.remove(&fh);
+                                reply.push(1);
+                            }
+                            Some(_) => {
+                                debug_print("vfsd: access denied\n");
+                                reply.push(0);
+                            }
+                            None => {
+                                reply.push(0);
+                            }
                         }
                         server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
@@ -226,3 +261,12 @@ fn debug_print(_s: &str) {
 }
 
 // raw UART helper removed in favor of debug_write syscall
+
+fn map_namespace_error(err: SandboxError) -> Error {
+    match err {
+        SandboxError::InvalidPath | SandboxError::Traversal | SandboxError::OutOfNamespace => {
+            Error::InvalidPath
+        }
+        _ => Error::Transport,
+    }
+}

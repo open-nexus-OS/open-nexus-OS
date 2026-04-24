@@ -14,6 +14,8 @@ use nexus_idl_runtime::vfs_capnp::{
 use nexus_ipc::{IpcError, Wait};
 use nexus_packagefs::PackageFsClient;
 
+use crate::{CapFdToken, NamespaceView, ReplayGuard, SandboxError, RIGHT_READ, RIGHT_WRITE};
+
 const OPCODE_OPEN: u8 = 1;
 const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
@@ -254,6 +256,7 @@ impl MountTable {
         &'a self,
         path: &str,
     ) -> core::result::Result<(&'a dyn FsProvider, String), ServiceError> {
+        let path = sanitize_dispatch_path(path)?;
         if let Some(rest) = path.strip_prefix("pkg:/") {
             let provider = self.mounts.get("/packages").ok_or(ServiceError::InvalidPath)?;
             let rel = rest.trim_start_matches('/');
@@ -288,11 +291,64 @@ impl MountTable {
     }
 }
 
+fn sanitize_dispatch_path(path: &str) -> core::result::Result<String, ServiceError> {
+    if path.contains(":/") {
+        let ns = NamespaceView::new(vec!["pkg:/".to_string()]);
+        return ns.assert_allowed(path).map_err(map_sandbox_path_error);
+    }
+    let mut out = String::new();
+    out.push('/');
+    let mut wrote_segment = false;
+    for seg in path.split('/') {
+        if seg.is_empty() || seg == "." {
+            continue;
+        }
+        if seg == ".." {
+            return Err(ServiceError::InvalidPath);
+        }
+        if wrote_segment {
+            out.push('/');
+        }
+        out.push_str(seg);
+        wrote_segment = true;
+    }
+    if !wrote_segment {
+        return Err(ServiceError::InvalidPath);
+    }
+    Ok(out)
+}
+
+fn map_sandbox_path_error(err: SandboxError) -> ServiceError {
+    match err {
+        SandboxError::Traversal | SandboxError::OutOfNamespace | SandboxError::InvalidPath => {
+            ServiceError::InvalidPath
+        }
+        _ => ServiceError::Provider("sandbox path validation failed".to_string()),
+    }
+}
+
+fn map_sandbox_cap_error(err: SandboxError) -> ServerError {
+    match err {
+        SandboxError::Integrity
+        | SandboxError::Replay
+        | SandboxError::Rights
+        | SandboxError::Subject
+        | SandboxError::Expired => ServiceError::BadHandle.into(),
+        SandboxError::InvalidPath | SandboxError::Traversal | SandboxError::OutOfNamespace => {
+            ServiceError::InvalidPath.into()
+        }
+    }
+}
+
 /// Shared dispatcher state.
 struct Dispatcher {
     mounts: Mutex<MountTable>,
     handles: Mutex<HashMap<u32, HandleEntry>>,
+    cap_tokens: Mutex<HashMap<u32, CapFdToken>>,
+    replay_guard: Mutex<ReplayGuard>,
+    mac_key: [u8; 32],
     next_handle: Mutex<u32>,
+    next_nonce: Mutex<u64>,
     packagefs: Arc<PackageFsClient>,
 }
 
@@ -304,7 +360,11 @@ impl Dispatcher {
         Self {
             mounts: Mutex::new(mounts),
             handles: Mutex::new(HashMap::new()),
+            cap_tokens: Mutex::new(HashMap::new()),
+            replay_guard: Mutex::new(ReplayGuard::default()),
+            mac_key: [0xA5; 32],
             next_handle: Mutex::new(1),
+            next_nonce: Mutex::new(1),
             packagefs,
         }
     }
@@ -333,23 +393,63 @@ impl Dispatcher {
         }
 
         let mut handles = self.handles.lock();
+        let mut cap_tokens = self.cap_tokens.lock();
         let mut next = self.next_handle.lock();
+        let mut next_nonce = self.next_nonce.lock();
         let handle = *next;
         *next = next.saturating_add(1).max(1);
         handles.insert(handle, HandleEntry { bytes: entry.bytes.clone() });
+        cap_tokens.insert(
+            handle,
+            CapFdToken::mint(
+                &self.mac_key,
+                0,
+                path.to_string(),
+                RIGHT_READ,
+                *next_nonce,
+                u64::MAX,
+            ),
+        );
+        *next_nonce = next_nonce.saturating_add(1).max(1);
         Ok((handle, entry))
     }
 
     fn read(&self, handle: u32, off: u64, len: u32) -> Result<Vec<u8>> {
         let handles = self.handles.lock();
         let entry = handles.get(&handle).ok_or(ServiceError::BadHandle)?;
+        let mut cap_tokens = self.cap_tokens.lock();
+        let token = cap_tokens.get(&handle).cloned().ok_or(ServiceError::BadHandle)?;
+        if (token.rights & RIGHT_WRITE) != 0 {
+            return Err(ServiceError::BadHandle.into());
+        }
+        {
+            let mut replay = self.replay_guard.lock();
+            replay
+                .verify(&self.mac_key, &token, 0, RIGHT_READ, 0)
+                .map_err(map_sandbox_cap_error)?;
+        }
         let slice = entry.read(off, len);
+        let mut next_nonce = self.next_nonce.lock();
+        cap_tokens.insert(
+            handle,
+            CapFdToken::mint(
+                &self.mac_key,
+                token.subject_id,
+                token.canonical_path,
+                token.rights,
+                *next_nonce,
+                token.expires_at,
+            ),
+        );
+        *next_nonce = next_nonce.saturating_add(1).max(1);
         Ok(slice.to_vec())
     }
 
     fn close(&self, handle: u32) -> Result<()> {
         let mut handles = self.handles.lock();
+        let mut cap_tokens = self.cap_tokens.lock();
         if handles.remove(&handle).is_some() {
+            cap_tokens.remove(&handle);
             Ok(())
         } else {
             Err(ServiceError::BadHandle.into())
@@ -626,4 +726,59 @@ fn encode_mount_response(success: bool, msg: String) -> Result<Vec<u8>> {
         resp.set_ok(success);
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_packagefs::PackageFsClient;
+
+    struct StaticProvider {
+        bytes: Vec<u8>,
+    }
+
+    impl FsProvider for StaticProvider {
+        fn resolve(&self, _rel_path: &str) -> core::result::Result<ProviderEntry, ServiceError> {
+            Ok(ProviderEntry { bytes: self.bytes.clone(), size: self.bytes.len() as u64, kind: 0 })
+        }
+
+        fn stat(&self, _rel_path: &str) -> core::result::Result<(u64, u16), ServiceError> {
+            Ok((self.bytes.len() as u64, 0))
+        }
+    }
+
+    fn test_dispatcher() -> Dispatcher {
+        let (pkg_client, _pkg_server) = nexus_ipc::loopback_channel();
+        let packagefs = Arc::new(PackageFsClient::from_loopback(pkg_client));
+        let mut mounts = MountTable::new();
+        mounts.mount(
+            "/packages",
+            Box::new(StaticProvider { bytes: b"ro.nexus.build=dev\n".to_vec() }),
+        );
+        Dispatcher {
+            mounts: Mutex::new(mounts),
+            handles: Mutex::new(HashMap::new()),
+            cap_tokens: Mutex::new(HashMap::new()),
+            replay_guard: Mutex::new(ReplayGuard::default()),
+            mac_key: [0xA5; 32],
+            next_handle: Mutex::new(1),
+            next_nonce: Mutex::new(1),
+            packagefs,
+        }
+    }
+
+    #[test]
+    fn test_reject_forged_capfd_service_path() {
+        let dispatcher = test_dispatcher();
+        let (handle, _) = dispatcher.open("pkg:/system/build.prop").expect("open must succeed");
+
+        {
+            let mut tokens = dispatcher.cap_tokens.lock();
+            let token = tokens.get_mut(&handle).expect("token must exist");
+            token.mac[0] ^= 0x01;
+        }
+
+        let err = dispatcher.read(handle, 0, 8).expect_err("forged capfd must be rejected");
+        assert!(matches!(err, ServerError::Service(ServiceError::BadHandle)));
+    }
 }

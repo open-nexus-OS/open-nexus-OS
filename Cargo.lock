@@ -2941,6 +2941,7 @@ dependencies = [
  "nexus-packagefs",
  "nexus-service-entry",
  "parking_lot",
+ "sha2",
  "thiserror",
 ]
 

@@ -52,6 +52,13 @@ pub(crate) fn crash_event_publish_allowed(
     sender_service_id == trusted_sender_id || sender_service_id == trusted_sender_alt_id
 }
 
+/// Rejects spawn-time capability sets that would bypass the sandboxed VFS path.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+#[must_use]
+pub(crate) fn spawn_caps_respect_vfs_boundary(caps: &[&str]) -> bool {
+    !caps.iter().any(|cap| *cap == "packagefsd" || *cap == "statefsd")
+}
+
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 const DEMO_MINIDUMP_NAME: &str = "demo.minidump";
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
@@ -103,7 +110,7 @@ pub(crate) fn reported_minidump_frame_matches_expected(
 #[cfg(test)]
 mod tests {
     use super::{
-        crash_event_publish_allowed, decode_exec_policy_decision,
+        crash_event_publish_allowed, decode_exec_policy_decision, spawn_caps_respect_vfs_boundary,
         reported_minidump_frame_matches_expected, reported_minidump_path_matches_name,
         MinidumpFrameMetadata,
     };
@@ -141,6 +148,13 @@ mod tests {
         let trusted_alt = 0x68c1_66c3_7bcd_7154u64;
         assert!(crash_event_publish_allowed(trusted, trusted, trusted_alt));
         assert!(crash_event_publish_allowed(trusted_alt, trusted, trusted_alt));
+    }
+
+    #[test]
+    fn test_reject_direct_fs_cap_bypass_at_spawn_boundary() {
+        assert!(!spawn_caps_respect_vfs_boundary(&["vfsd", "packagefsd"]));
+        assert!(!spawn_caps_respect_vfs_boundary(&["statefsd"]));
+        assert!(spawn_caps_respect_vfs_boundary(&["vfsd", "logd"]));
     }
 
     #[test]

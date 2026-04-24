@@ -1,9 +1,9 @@
 # RFC-0042: Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions, host-first, OS-gated)
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime @security
 - Created: 2026-04-23
-- Last Updated: 2026-04-23
+- Last Updated: 2026-04-24
 - Links:
   - Tasks: `tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md` (execution + proof)
   - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
@@ -13,9 +13,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract floor + host reject proofs)**: 🟨
-- **Phase 1 (OS-gated enforcement markers)**: ⬜
-- **Phase 2 (production-grade breadth handoff boundaries)**: ⬜
+- **Phase 0 (contract floor + host reject proofs)**: 🟩
+- **Phase 1 (OS-gated enforcement markers)**: 🟩
+- **Phase 2 (production-grade breadth handoff boundaries)**: 🟩
 
 Definition:
 
@@ -134,7 +134,7 @@ Follow-up production-grade breadth (out-of-scope here):
 ### Proof (Host)
 
 ```bash
-cd /home/jenning/open-nexus-OS && cargo test -p vfsd -- --nocapture && cargo test -p nexus-vfs -- --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p vfsd -- --nocapture && cargo test -p nexus-vfs -- --nocapture && cargo test -p execd --lib test_reject_direct_fs_cap_bypass_at_spawn_boundary -- --nocapture
 ```
 
 Host proof must include behavior-oriented rejects (Soll):
@@ -143,6 +143,9 @@ Host proof must include behavior-oriented rejects (Soll):
 - `test_reject_forged_capfd`
 - `test_reject_replayed_capfd`
 - `test_reject_unauthorized_namespace_path`
+- `test_reject_capfd_rights_mismatch`
+- `test_reject_direct_fs_cap_bypass_at_spawn_boundary`
+- `test_reject_forged_capfd_service_path`
 
 ### Proof (OS/QEMU)
 
@@ -171,9 +174,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: host-first namespace/CapFd/manifest contract with deterministic reject proofs — proof: `cd /home/jenning/open-nexus-OS && cargo test -p vfsd -- --nocapture && cargo test -p nexus-vfs -- --nocapture`
-- [ ] **Phase 1**: OS-gated marker ladder proves real enforcement — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-- [ ] **Phase 2**: production-grade boundaries to `TASK-0043` and `TASK-0189` remain explicit and synchronized — proof: `cd /home/jenning/open-nexus-OS && rg "TASK-0043|TASK-0189" tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: host-first namespace/CapFd/manifest contract with deterministic reject proofs — proof: `cd /home/jenning/open-nexus-OS && cargo test -p vfsd -- --nocapture && cargo test -p nexus-vfs -- --nocapture && cargo test -p execd --lib test_reject_direct_fs_cap_bypass_at_spawn_boundary -- --nocapture`
+- [x] **Phase 1**: OS-gated marker ladder proves real enforcement — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+- [x] **Phase 2**: production-grade boundaries to `TASK-0043` and `TASK-0189` remain explicit and synchronized — proof: `cd /home/jenning/open-nexus-OS && rg "TASK-0043|TASK-0189" tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

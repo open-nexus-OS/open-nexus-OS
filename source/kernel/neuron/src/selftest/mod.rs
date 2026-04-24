@@ -1672,8 +1672,8 @@ fn alloc_init_page() -> Option<usize> {
     // are unavailable during early bring-up. We therefore treat `0` as "uninitialized" and seed
     // it lazily from the fixed start address.
     static PAGE_CURSOR: AtomicUsize = AtomicUsize::new(0);
-    const PAGE_LIMIT: usize = 0x8060_0000 + 4 * 1024 * 1024;
-    const PAGE_START: usize = 0x8060_0000;
+    const PAGE_LIMIT: usize = crate::mm::KERNEL_PAGE_POOL_WINDOW.end();
+    const PAGE_START: usize = crate::mm::KERNEL_PAGE_POOL_WINDOW.base;
 
     loop {
         let cur = PAGE_CURSOR.load(Ordering::SeqCst);

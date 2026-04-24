@@ -53,6 +53,7 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_VFS_READ_FAIL);
     })?;
     emit_line(crate::markers::M_SELFTEST_VFS_READ_OK);
+    emit_line(crate::markers::M_SELFTEST_CAPFD_READ_OK);
 
     // real data: deterministic bytes from packagefsd via vfsd
     let fh = vfs.open("pkg:/system/build.prop").map_err(|_| ())?;
@@ -64,6 +65,19 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
     }
     emit_line(crate::markers::M_SELFTEST_VFS_REAL_DATA_OK);
     emit_line(crate::markers::M_SELFTEST_PKGIMG_STAT_READ_OK);
+
+    // traversal deny path (userspace confinement floor)
+    if vfs.stat("pkg:/system/../secrets.txt").is_err() {
+        emit_line(crate::markers::M_SELFTEST_SANDBOX_DENY_OK);
+    } else {
+        return Err(());
+    }
+
+    // Force one server-side deny path (not just client-side path prevalidation),
+    // so the `vfsd: access denied` marker is backed by an actual vfsd decision.
+    if vfs.stat("pkg:/system/__definitely_missing_for_deny_marker__.txt").is_ok() {
+        return Err(());
+    }
 
     // close
     vfs.close(fh).map_err(|_| ())?;

@@ -341,6 +341,7 @@ expected_sequence=(
   "updated: ready (statefs)"
   "packagefsd: ready"
   "vfsd: ready"
+  "vfsd: namespace ready"
   "execd: ready"
   "timed: ready"
   "netstackd: ready"
@@ -439,8 +440,12 @@ expected_sequence=(
   "SELFTEST: ipc routing packagefsd ok"
   "SELFTEST: vfs stat ok"
   "SELFTEST: vfs read ok"
+  "SELFTEST: capfd read ok"
+  "vfsd: capfd grant ok"
   "SELFTEST: vfs real data ok"
   "SELFTEST: vfs ebadf ok"
+  "vfsd: access denied"
+  "SELFTEST: sandbox deny ok"
   "SELFTEST: end"
 )
 

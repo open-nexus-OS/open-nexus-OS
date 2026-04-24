@@ -493,9 +493,9 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
     }
 
     // Map a page-pool window after BSS so kernel can zero/copy user pages by PA.
-    // This matches the temporary page pool used by the user_loader.
-    let pool_base = 0x8060_0000usize;
-    let pool_end = pool_base + 2 * 1024 * 1024;
+    // Keep this in sync with `mm::KERNEL_PAGE_POOL_*` used by early loader/selftest paths.
+    let pool_base = super::KERNEL_PAGE_POOL_WINDOW.base;
+    let pool_end = super::KERNEL_PAGE_POOL_WINDOW.end();
     if let Err(e) = map_identity_range(
         table,
         pool_base,

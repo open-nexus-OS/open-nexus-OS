@@ -37,7 +37,7 @@ use spin::Mutex;
 // NOTE: This region lives in `.bss.heap` and must not overlap the page-table pool range.
 // Keep it large enough to avoid ALLOC-FAIL during bring-up selftests, but below the pool base.
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 1792 * 1024; // 1.75 MiB
+const HEAP_SIZE: usize = 2048 * 1024; // 2.00 MiB
 
 #[cfg(target_os = "none")]
 #[repr(align(4096))]

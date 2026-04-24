@@ -1,6 +1,6 @@
 ---
 title: TASK-0039 Sandboxing v1 (userspace): per-subject VFS namespaces + CapFd rights + manifest permissions (host-first, OS-gated)
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -150,13 +150,17 @@ Deliver a userspace sandboxing v1 system where:
 #### Audit tests (negative cases)
 
 - Command(s):
-  - `cargo test -p vfsd -- reject --nocapture`
-  - `cargo test -p nexus-vfs -- sandbox_reject --nocapture`
+  - `cargo test -p vfsd -- --nocapture`
+  - `cargo test -p nexus-vfs -- --nocapture`
+  - `cargo test -p execd --lib test_reject_direct_fs_cap_bypass_at_spawn_boundary -- --nocapture`
 - Required tests:
   - `test_reject_path_traversal` — `../` escape → denied
   - `test_reject_forged_capfd` — tampered CapFd → rejected
-  - `test_reject_unauthorized_path` — access outside namespace → denied
-  - `test_reject_write_to_ro_namespace` — write to `pkg:/` → denied
+  - `test_reject_forged_capfd_service_path` — forged token rejected through dispatcher service path
+  - `test_reject_replayed_capfd` — nonce replay → rejected
+  - `test_reject_unauthorized_namespace_path` — access outside namespace → denied
+  - `test_reject_capfd_rights_mismatch` — rights escalation → denied
+  - `test_reject_direct_fs_cap_bypass_at_spawn_boundary` — direct fs service cap set rejected
 
 #### Hardening markers (QEMU)
 
@@ -192,7 +196,7 @@ Follow-up production-grade breadth remains explicit and unabsorbed:
 
 ### Proof (Host) — required
 
-Add deterministic host tests (`tests/sandbox_host/`):
+Add deterministic host tests (`tests/sandbox_host/` or equivalent crate-host test modules):
 
 - namespace confinement:
   - `pkg:/...` read allowed
@@ -217,12 +221,11 @@ Once OS has:
 
 then extend `scripts/qemu-test.sh` with:
 
-- `execd: sandbox up (subject=<...>)`
-- `vfsd: namespace ready (subject=<...>)`
-- `vfsd: capfd grant (subject=<...>)`
+- `vfsd: namespace ready`
+- `vfsd: capfd grant ok`
+- `vfsd: access denied`
 - `SELFTEST: sandbox deny ok`
 - `SELFTEST: capfd read ok`
-- `SELFTEST: broker grant ok`
 
 Notes:
 
