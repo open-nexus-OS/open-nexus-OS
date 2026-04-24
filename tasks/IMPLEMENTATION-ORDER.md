@@ -81,6 +81,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | 2026-04-23 |
 | ✅ TASK-0032 | PackageFS v2: RO image index + fastpath | 2026-04-23 |
 | ✅ TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | 2026-04-24 |
+| ✅ TASK-0045 | DevX nx-cli v1 | 2026-04-24 |
 
 ---
 

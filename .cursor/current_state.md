@@ -8,7 +8,7 @@
 
 ## Active focus (execution)
 
-- **active_task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `In Review`
+- **active_task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `Done`
 - **active_contract**: `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` — `Done`
 - **active_proof_command (target)**:
   - `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`

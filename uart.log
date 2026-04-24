@@ -11,7 +11,7 @@ OpenSBI v1.7
 
 Platform Name               : riscv-virtio,qemu
 Platform Features           : medeleg
-Platform HART Count         : 1
+Platform HART Count         : 2
 Platform IPI Device         : aclint-mswi
 Platform Timer Device       : aclint-mtimer @ 10000000Hz
 Platform Console Device     : uart8250
@@ -22,11 +22,11 @@ Platform Shutdown Device    : syscon-poweroff
 Platform Suspend Device     : ---
 Platform CPPC Device        : ---
 Firmware Base               : 0x80000000
-Firmware Size               : 317 KB
+Firmware Size               : 329 KB
 Firmware RW Offset          : 0x40000
-Firmware RW Size            : 61 KB
-Firmware Heap Offset        : 0x46000
-Firmware Heap Size          : 37 KB (total), 2 KB (reserved), 12 KB (used), 22 KB (free)
+Firmware RW Size            : 73 KB
+Firmware Heap Offset        : 0x48000
+Firmware Heap Size          : 41 KB (total), 2 KB (reserved), 12 KB (used), 26 KB (free)
 Firmware Scratch Size       : 4096 B (total), 1400 B (used), 2696 B (free)
 Runtime SBI Version         : 3.0
 Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
@@ -34,11 +34,11 @@ Experimental SBI Extensions : none
 
 Domain0 Name                : root
 Domain0 Boot HART           : 0
-Domain0 HARTs               : 0*
+Domain0 HARTs               : 0*,1*
 Domain0 Region00            : 0x0000000000100000-0x0000000000100fff M: (I,R,W) S/U: (R,W)
 Domain0 Region01            : 0x0000000010000000-0x0000000010000fff M: (I,R,W) S/U: (R,W)
 Domain0 Region02            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
-Domain0 Region03            : 0x0000000080040000-0x000000008004ffff M: (R,W) S/U: ()
+Domain0 Region03            : 0x0000000080040000-0x000000008005ffff M: (R,W) S/U: ()
 Domain0 Region04            : 0x0000000080000000-0x000000008003ffff M: (R,X) S/U: ()
 Domain0 Region05            : 0x000000000c400000-0x000000000c5fffff M: (I,R,W) S/U: (R,W)
 Domain0 Region06            : 0x000000000c000000-0x000000000c3fffff M: (I,R,W) S/U: (R,W)
@@ -102,6 +102,7 @@ SCHED: new exit
 SYSCALL install debug_putc=0x0000000080227f4c
 SYSCALL install ep_create=0x0000000080226c3e
 [INFO smp] KINIT: cpu0 online
+[INFO smp] KINIT: cpu1 online
 [INFO boot]  _ __   ___ _   _ _ __ ___  _ __
 [INFO boot] | '_ \ / _ \ | | | '__/ _ \| '_ \
 [INFO boot] | | | |  __/ |_| | | | (_) | | | |
@@ -138,11 +139,11 @@ PT: pool idx=34
 PT: pool idx=35
 [INFO selftest] KSELFTEST: as map ok
 PT: pool idx=36
-[INFO sys] SPAWN: entry=0x8022174c sp=0x40000000 as=2 slot=0 gp=0x803ea520
+[INFO sys] SPAWN: entry=0x8022174c sp=0x40000000 as=2 slot=0 gp=0x803ea510
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x8022174c sp(x2)=0x40000000 gp(x3)=0x803ea520
+[INFO task] SPAWN-FRAME: sepc=0x8022174c sp(x2)=0x40000000 gp(x3)=0x803ea510
 [DEBUG sched] enqueue: pid=1 qos=Normal
 [INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x80001000000805ee
 [INFO selftest] KSELFTEST: direct-run begin
@@ -225,6 +226,15 @@ CAP: new exit
 [INFO selftest] KSELFTEST: spawn reasons ok
 CAP: with_capacity slots=8
 [INFO selftest] KSELFTEST: resource sentinel ok
+[INFO selftest] KSELFTEST: smp online ok
+[INFO selftest] KSELFTEST: ipi counterfactual ok
+[INFO selftest] KSELFTEST: ipi resched ok
+[INFO selftest] KSELFTEST: test_reject_invalid_ipi_target_cpu ok
+[INFO selftest] KSELFTEST: test_reject_offline_cpu_resched ok
+[INFO selftest] KSELFTEST: work stealing ok
+[INFO selftest] KSELFTEST: test_reject_steal_above_bound ok
+[INFO selftest] KSELFTEST: test_reject_steal_higher_qos ok
+[DEBUG sched] enqueue: pid=0 qos=Normal
 SYSCALL install debug_putc=0x0000000080227f4c
 SYSCALL install ep_create=0x0000000080226c3e
 [INFO sys] SPAWN: entry=0x802220c4 sp=0x0 as=0 slot=0 gp=0x0
@@ -344,26 +354,26 @@ PT: heap alloc
 [INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x12fb2 flags=0x5
 [INFO selftest] KSELFTEST: map flags bits=0x1b
 PT: heap alloc
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fb8 memsz=0x124a98 flags=0x4
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fb8 memsz=0x124c18 flags=0x4
 [INFO selftest] KSELFTEST: map flags bits=0x13
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10537a50 memsz=0x805b1 flags=0x6
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10537bd0 memsz=0x80431 flags=0x6
 [INFO selftest] KSELFTEST: map flags bits=0x17
 PT: heap alloc
 PT: heap alloc
 [INFO selftest] KSELFTEST: text page entry=0x000000002020005b va=0x0000000010400000
 [INFO selftest] KSELFTEST: data page entry=0x000000002024dcd7 va=0x0000000010537000
-[INFO selftest] KSELFTEST: derived gp=0x10538250 from .sdata/.data
-[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10538250
-[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10538250
+[INFO selftest] KSELFTEST: derived gp=0x105383d0 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x105383d0
+[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x105383d0
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10538250
+[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x105383d0
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [INFO selftest] KSELFTEST: spawn ok pid=17
 [INFO selftest] KSELFTEST: init frame:
   sepc=0x0000000010400000
-  gp=0x0000000010538250
+  gp=0x00000000105383d0
   sp=0x0000000020008000
   sstatus=0x0000000000040020
   SPP=0 (U-mode=0, S-mode=1)
@@ -374,7 +384,7 @@ CAP: new exit
 [INFO kmain] KMAIN: skip S-mode task pid=15 (SPP=1)
 [INFO kmain] KMAIN: skip S-mode task pid=16 (SPP=1)
 [INFO kmain] KMAIN: switch to U-mode pid=17 sepc=0x10400000 sp=0x20008000
-ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x000000008041cdb0 sp=0x0000000020008000 gp=0x0000000010538250 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
+ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x000000008041cdb0 sp=0x0000000020008000 gp=0x00000000105383d0 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
 AS: activating satp=0x80006000000803f9
 AS: pc check va=0x0000000080209000
 AS: sp check va=0x0000000080642000
@@ -411,11 +421,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8108b000 entry=0x0000000020422c53 name_len=0x9 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x8108c000 entry=0x0000000020423053 name_len=0x9 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x15890 sp(x2)=0x20008000 gp(x3)=0x27674
+[INFO task] SPAWN-FRAME: sepc=0x158a8 sp(x2)=0x20008000 gp(x3)=0x27920
 [DEBUG sched] enqueue: pid=18 qos=Normal
 init: up keystored
 init: start rngd
@@ -444,7 +454,7 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81107000 entry=0x0000000020441c53 name_len=0x4 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81108000 entry=0x0000000020442053 name_len=0x4 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -477,7 +487,7 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81183000 entry=0x0000000020460c53 name_len=0x7 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81184000 entry=0x0000000020461053 name_len=0x7 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -510,7 +520,7 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81200000 entry=0x0000000020480053 name_len=0x4 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81201000 entry=0x0000000020480453 name_len=0x4 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -543,11 +553,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8127f000 entry=0x000000002049fc53 name_len=0x8 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81287000 entry=0x00000000204a1c53 name_len=0x8 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x140f4 sp(x2)=0x20008000 gp(x3)=0x20890
+[INFO task] SPAWN-FRAME: sepc=0x140e4 sp(x2)=0x20008000 gp(x3)=0x20880
 [DEBUG sched] enqueue: pid=22 qos=Normal
 init: up metricsd
 init: start samgrd
@@ -576,11 +586,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x812fb000 entry=0x00000000204bec53 name_len=0x6 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81303000 entry=0x00000000204c0c53 name_len=0x6 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x13f10 sp(x2)=0x20008000 gp(x3)=0x17670
+[INFO task] SPAWN-FRAME: sepc=0x13f08 sp(x2)=0x20008000 gp(x3)=0x17668
 [DEBUG sched] enqueue: pid=23 qos=Normal
 init: up samgrd
 init: start bundlemgrd
@@ -609,7 +619,7 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81378000 entry=0x00000000204de053 name_len=0xa info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81380000 entry=0x00000000204e0053 name_len=0xa info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -642,11 +652,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x813fc000 entry=0x00000000204ff053 name_len=0x8 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81404000 entry=0x0000000020501053 name_len=0x8 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x1390a sp(x2)=0x20008000 gp(x3)=0x1f034
+[INFO task] SPAWN-FRAME: sepc=0x138e2 sp(x2)=0x20008000 gp(x3)=0x1f00c
 [DEBUG sched] enqueue: pid=25 qos=Normal
 init: up statefsd
 init: start updated
@@ -675,11 +685,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81494000 entry=0x0000000020525053 name_len=0x7 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x8149c000 entry=0x0000000020527053 name_len=0x7 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x16088 sp(x2)=0x20008000 gp(x3)=0x32c80
+[INFO task] SPAWN-FRAME: sepc=0x16070 sp(x2)=0x20008000 gp(x3)=0x32c68
 [DEBUG sched] enqueue: pid=26 qos=Normal
 init: updated ctrl slots send=0x0000000000000001 recv=0x0000000000000002
 init: up updated
@@ -709,7 +719,7 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8150f000 entry=0x0000000020543c53 name_len=0x5 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81517000 entry=0x0000000020545c53 name_len=0x5 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -742,11 +752,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8159b000 entry=0x0000000020566c53 name_len=0xa info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x815a3000 entry=0x0000000020568c53 name_len=0xa info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x15fea sp(x2)=0x20008000 gp(x3)=0x270c2
+[INFO task] SPAWN-FRAME: sepc=0x15fd2 sp(x2)=0x20008000 gp(x3)=0x270aa
 [DEBUG sched] enqueue: pid=28 qos=Normal
 init: up packagefsd
 init: start vfsd
@@ -775,11 +785,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8161b000 entry=0x0000000020586c53 name_len=0x4 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81623000 entry=0x0000000020588c53 name_len=0x4 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x152c4 sp(x2)=0x20008000 gp(x3)=0x1aa94
+[INFO task] SPAWN-FRAME: sepc=0x152bc sp(x2)=0x20008000 gp(x3)=0x1aa7c
 [DEBUG sched] enqueue: pid=29 qos=Normal
 init: up vfsd
 init: start execd
@@ -808,11 +818,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8169f000 entry=0x00000000205a7c53 name_len=0x5 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x816a7000 entry=0x00000000205a9c53 name_len=0x5 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x12e5a sp(x2)=0x20008000 gp(x3)=0x1f170
+[INFO task] SPAWN-FRAME: sepc=0x12e4a sp(x2)=0x20008000 gp(x3)=0x1f160
 [DEBUG sched] enqueue: pid=30 qos=Normal
 init: up execd
 init: start netstackd
@@ -841,11 +851,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81730000 entry=0x00000000205cc053 name_len=0x9 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81738000 entry=0x00000000205ce053 name_len=0x9 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x1dace sp(x2)=0x20008000 gp(x3)=0x2c4cc
+[INFO task] SPAWN-FRAME: sepc=0x1da5e sp(x2)=0x20008000 gp(x3)=0x2c45c
 [DEBUG sched] enqueue: pid=31 qos=Normal
 init: up netstackd
 init: start dsoftbusd
@@ -874,11 +884,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x817d2000 entry=0x00000000205f4853 name_len=0x9 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x817da000 entry=0x00000000205f6853 name_len=0x9 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x2e542 sp(x2)=0x20008000 gp(x3)=0x3d390
+[INFO task] SPAWN-FRAME: sepc=0x2e6b0 sp(x2)=0x20008000 gp(x3)=0x3d388
 [DEBUG sched] enqueue: pid=32 qos=Normal
 init: up dsoftbusd
 init: start selftest-client
@@ -907,11 +917,11 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8188c000 entry=0x0000000020623053 name_len=0xf info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81894000 entry=0x0000000020625053 name_len=0xf info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x42962 sp(x2)=0x20008000 gp(x3)=0x55188
+[INFO task] SPAWN-FRAME: sepc=0x4295a sp(x2)=0x20008000 gp(x3)=0x55180
 [DEBUG sched] enqueue: pid=33 qos=Normal
 init: up selftest-client
 init: ready
@@ -983,7 +993,6 @@ AS: pc check va=0x0000000080209000
 AS: sp check va=0x0000000080642000
 AS: ensure_rx_guard pc=0x00000000802097a8
 UBupdated: entry
-[DEBUG sched] enqueue: pid=26 qos=Normal
 AS: activating satp=0x80010000000804f2
 AS: pc check va=0x0000000080209000
 AS: sp check va=0x0000000080642000
@@ -1111,17 +1120,23 @@ dsoftbusd: entry
 dsoftbusd: waiting for local ip
 keystored: statefs backend ok
 virtio-blk: mmio modern
-virtio-blk: q_pa=0x0000000081898000 pfn=0x00081898
+virtio-blk: q_pa=0x00000000818a0000 pfn=0x000818a0
 virtio-blk: q_max=00000400
 virtio-blk: status=0000000b
 virtio-blk: pfn_rb=00000000
 virtio-blk: q_layout desc=20080000 avail=20080080 used=20080098
 virtio-blk: status_ok=0000000f
-virtio-blk: buf_pa=0x0000000081899000
+virtio-blk: buf_pa=0x00000000818a1000
 virtio-blk: cap=0000000000020000 sectors
 logd: route fallback
 logd: ready
 logd: ready
+samgrd: route err timeout
+samgrd: route fallback
+samgrd: slots logging
+samgrd: slots 00000003 00000004
+bundlemgrd: route err timeout
+bundlemgrd: route fallback
 virtio-blk: warmup ok
 blk: virtio-blk up
 blk: virtio-blk up (ss=512 nsec=131072)
@@ -1136,20 +1151,14 @@ updated: rx
 updated: rx head 55 44 01
 updated: rx op 05
 [INFO updated] core service log probe: updated
-samgrd: route err timeout
-samgrd: route fallback
-samgrd: slots logging
-samgrd: slots 00000003 00000004
-bundlemgrd: route err timeout
-bundlemgrd: route fallback
+packagefsd: v2 mounted (pkgimg)
 updated: capmove
 [INFO updated] audit op=boot_attempt status=ok
-packagefsd: v2 mounted (pkgimg)
-dbg:netstackd: dns h-start
 updated: audit (op=boot_attempt status=ok)
 updated: tx op 85
 updated: replycap slot=0x0000000d
 [INFO bundlemgrd] core service log probe: bundlemgrd
+dbg:netstackd: dns h-start
 bundlemgrd: sender denied
 init: rollback fail
 init: ctrl req from updated
@@ -1205,8 +1214,10 @@ SELFTEST: keystored capmove ok
 init: route logd rsp status=0x0000000000000000 send=0x0000000000000015 recv=0x0000000000000016
 dbg:netstackd: dns h2 send-ok
 dbg:netstackd: dns h2 send-wouldblock
-dbg:netstackd: dns matched
-SELFTEST: net udp dns ok
+dbg:netstackd: dns h3 recv-wouldblock-only
+dbg:netstackd: dns h1 deadline
+netstackd: udp dns unavailable (fallback dhcp proof)
+netstackd: net dns proof fail
 SELFTEST: net tcp listen ok
 netstackd: facade up
 netstackd: svc slots 5/6
@@ -1364,8 +1375,8 @@ PT: heap alloc
 [INFO exec] EXEC-ELF gp=0x10930 src=entry+0x800
 PT: heap alloc
 PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x8189d000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818abfff) top->0xNone sp->0xSome(818aa000)
+[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818a5000 pages=15 sp=0x20000000
+[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818b3fff) top->0xNone sp->0xSome(818b2000)
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -1401,8 +1412,8 @@ PT: heap alloc
 [INFO exec] EXEC-ELF gp=0x1800 src=entry+0x800
 PT: heap alloc
 PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818ad000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818bbfff) top->0xNone sp->0xSome(818ba000)
+[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818b5000 pages=15 sp=0x20000000
+[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818c3fff) top->0xNone sp->0xSome(818c2000)
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -1438,8 +1449,8 @@ PT: heap alloc
 [INFO exec] EXEC-ELF gp=0x1800 src=entry+0x800
 PT: heap alloc
 PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818bd000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818cbfff) top->0xNone sp->0xSome(818ca000)
+[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818c5000 pages=15 sp=0x20000000
+[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818d3fff) top->0xNone sp->0xSome(818d2000)
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -1541,8 +1552,8 @@ PT: heap alloc
 [INFO exec] EXEC-ELF gp=0x1800 src=arg
 PT: heap alloc
 PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818ce000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818dcfff) top->0xNone sp->0xSome(818db000)
+[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x818d6000 pages=15 sp=0x20000000
+[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(818e4fff) top->0xNone sp->0xSome(818e3000)
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit

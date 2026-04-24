@@ -1,7 +1,7 @@
-# Current Handoff: TASK-0045 in review (nx CLI v1)
+# Current Handoff: TASK-0045 done (nx CLI v1)
 
 **Date**: 2026-04-24  
-**Active execution task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `In Review`  
+**Active execution task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `Done`  
 **Contract seed**: `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` — `Done`  
 **Tier policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate J: DevX, Config & Tooling, `production-floor`)
 

@@ -2,7 +2,7 @@
 
 ## Candidate next execution
 
-- **task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `In Review`
+- **task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `Done`
 - **contract**: `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` — `Done`
 - **tier**: Gate J trajectory (`production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
 - **follow-up route**: `TASK-0046`, `TASK-0047`, `TASK-0048`, `TASK-0163`, `TASK-0164`, `TASK-0165`, `TASK-0227`, `TASK-0230`, `TASK-0268`

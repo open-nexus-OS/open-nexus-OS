@@ -1,6 +1,6 @@
 ---
 title: TASK-0045 DevX: nx CLI v1 (scaffold + idl helpers + inspect + postflight runner + doctor)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on: []

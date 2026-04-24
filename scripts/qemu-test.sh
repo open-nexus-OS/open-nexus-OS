@@ -61,8 +61,10 @@ pm_cli() {
   fi
   if [[ -x "$PM_CLI_DEFAULT" ]]; then
     # #region agent log
-    agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from workspace target" \
-      "{\"path\":\"$PM_CLI_DEFAULT\",\"source\":\"workspace-target\"}"
+    if declare -F agent_debug_log >/dev/null 2>&1; then
+      agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from workspace target" \
+        "{\"path\":\"$PM_CLI_DEFAULT\",\"source\":\"workspace-target\"}"
+    fi
     # #endregion
     echo "$PM_CLI_DEFAULT"
     return 0
@@ -73,8 +75,10 @@ pm_cli() {
     /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
     if [[ -x "$cand" ]]; then
       # #region agent log
-      agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from sandbox cache" \
-        "{\"path\":\"$cand\",\"source\":\"sandbox-cache\"}"
+      if declare -F agent_debug_log >/dev/null 2>&1; then
+        agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from sandbox cache" \
+          "{\"path\":\"$cand\",\"source\":\"sandbox-cache\"}"
+      fi
       # #endregion
       echo "$cand"
       return 0
@@ -87,8 +91,10 @@ pm_cli() {
     /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
     if [[ -x "$cand" ]]; then
       # #region agent log
-      agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI after build" \
-        "{\"path\":\"$cand\",\"source\":\"post-build-scan\"}"
+      if declare -F agent_debug_log >/dev/null 2>&1; then
+        agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI after build" \
+          "{\"path\":\"$cand\",\"source\":\"post-build-scan\"}"
+      fi
       # #endregion
       echo "$cand"
       return 0
@@ -1066,7 +1072,7 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
         fi
       done
     else
-      echo "[warn] REQUIRE_DSOFTBUS_REMOTE_PKGFS=1 but cross-vm session marker is absent; skipping remote packagefs gate for single-VM profile" >&2
+      echo "[info] REQUIRE_DSOFTBUS_REMOTE_PKGFS=1 but cross-vm session marker is absent; remote packagefs gate is not applicable in single-VM runs" >&2
     fi
   fi
   if [[ "$REQUIRE_DSOFTBUS_REMOTE_STATEFS" == "1" ]]; then
@@ -1082,7 +1088,7 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
         fi
       done
     else
-      echo "[warn] REQUIRE_DSOFTBUS_REMOTE_STATEFS=1 but cross-vm session marker is absent; skipping remote statefs gate for single-VM profile" >&2
+      echo "[info] REQUIRE_DSOFTBUS_REMOTE_STATEFS=1 but cross-vm session marker is absent; remote statefs gate is not applicable in single-VM runs" >&2
     fi
   fi
 fi

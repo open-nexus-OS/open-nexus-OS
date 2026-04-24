@@ -2,6 +2,11 @@
 
 `nx` is the canonical DevX entrypoint for host tooling in Gate J (`production-floor`).
 
+## CONTEXT
+
+- Scope: `TASK-0045` host-first tooling contract (`RFC-0043`).
+- Canonical proof command: `cargo test -p nx -- --nocapture`.
+
 ## Quickstart
 
 ```bash

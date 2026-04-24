@@ -1,3 +1,7 @@
+//! CONTEXT: Process-boundary contract tests for `nx` CLI v1.
+//! INTENT: Assert exit codes, JSON envelopes, and deterministic file effects.
+//! TESTS: Executed via `cargo test -p nx -- --nocapture`.
+
 use serde_json::Value;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -31,11 +35,7 @@ fn test_cli_reject_new_service_json_exit_and_shape() {
 #[test]
 fn test_cli_reject_unknown_postflight_json_exit_and_shape() {
     let root = tempdir().expect("tempdir");
-    let output = run_nx(
-        &["postflight", "unknown-topic", "--json"],
-        root.path(),
-        None,
-    );
+    let output = run_nx(&["postflight", "unknown-topic", "--json"], root.path(), None);
     assert_eq!(output.status.code(), Some(3));
     let json = stdout_json(&output);
     assert_eq!(json["ok"], false);
@@ -52,11 +52,9 @@ fn test_cli_doctor_missing_tools_json_exit_and_shape() {
     assert_eq!(json["ok"], false);
     assert_eq!(json["class"], "missing_dependency");
     assert_eq!(json["code"], 4);
-    assert!(json["data"]["missing_required"]
-        .as_array()
-        .expect("missing_required array")
-        .len()
-        >= 5);
+    assert!(
+        json["data"]["missing_required"].as_array().expect("missing_required array").len() >= 5
+    );
 }
 
 #[test]
@@ -70,8 +68,5 @@ fn test_cli_new_service_file_effects_and_json() {
     assert_eq!(json["code"], 0);
     assert!(root.path().join("source/services/svcz/Cargo.toml").exists());
     assert!(root.path().join("source/services/svcz/src/main.rs").exists());
-    assert!(root
-        .path()
-        .join("source/services/svcz/docs/stubs/README.md")
-        .exists());
+    assert!(root.path().join("source/services/svcz/docs/stubs/README.md").exists());
 }

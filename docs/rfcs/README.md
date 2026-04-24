@@ -179,5 +179,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md
 - RFC-0042: Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions) — host-first, OS-gated contract seed (Done; execution SSOT `TASK-0039` is Done)
   - docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md
-- RFC-0043: DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed (Done; execution SSOT `TASK-0045` is In Review)
+- RFC-0043: DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed (Done; execution SSOT `TASK-0045` is Done)
   - docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md
