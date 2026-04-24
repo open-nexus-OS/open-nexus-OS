@@ -15,6 +15,33 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] Rust API hygiene is reviewed for touched paths (`newtype`/ownership/`#[must_use]` where sensible).
 - [ ] `Send`/`Sync` discipline is reviewed (no unsafe shortcut traits in daemon/session state paths).
 
+## TASK-0046 class stop conditions (Config v1: configd + schemas + layering + 2PC + nx config)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0046` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0044` remains linked and contract-aligned.
+- [ ] Canonical format authority is enforced:
+  - [ ] canonical runtime/persistence effective snapshot is Cap'n Proto,
+  - [ ] JSON remains authoring/validation and derived CLI/debug view only.
+- [ ] Deterministic layering and validation behavior is proven:
+  - [ ] precedence `defaults < /system < /state < env` is stable,
+  - [ ] unknown/type/depth/size rejects are fail-closed with stable non-zero classification.
+- [ ] 2PC reload semantics are proven and honest:
+  - [ ] prepare reject/timeout triggers abort,
+  - [ ] previous effective version remains active after abort,
+  - [ ] partial-commit is not observable as success.
+- [ ] Marker honesty contract is enforced:
+  - [ ] marker-only evidence is not used for closure,
+  - [ ] marker outcomes are paired with deterministic state/result assertions and must agree.
+- [ ] Required host proof floor is green:
+  - [ ] `cargo test -p nexus-config -- --nocapture`
+  - [ ] `cargo test -p configd -- --nocapture`
+  - [ ] `cargo test -p nx -- --nocapture`
+- [ ] `nx` no-drift CLI authority is preserved:
+  - [ ] config UX remains under `nx config ...`,
+  - [ ] no `nx-config` logic fork or parallel CLI authority exists.
+- [ ] Follow-up contract hand-off remains explicit and unbroken:
+  - [ ] `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
+
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:
   - [ ] target behavior is explicit,

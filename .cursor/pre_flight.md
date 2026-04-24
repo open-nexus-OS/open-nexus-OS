@@ -21,6 +21,13 @@ This is the anti-fake-success gate.
 - [ ] Determinism floor respected: marker order and bounded retry semantics preserved
 - [ ] No new lints in touched files (run task/workspace lint policy)
 
+## Task-0046 automatic addendum (when applicable)
+- [ ] `cargo test -p nexus-config -- --nocapture` is green.
+- [ ] `cargo test -p configd -- --nocapture` is green.
+- [ ] `cargo test -p nx -- --nocapture` is green for `nx config` contract coverage.
+- [ ] Canonical snapshot determinism proof is green (equivalent input -> byte-identical Cap'n Proto snapshot).
+- [ ] Boundedness reject suite is green (depth/size/type/unknown-field fail closed with stable non-zero classification).
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks
@@ -30,6 +37,22 @@ This is the anti-fake-success gate.
 - [ ] Header discipline checked in touched code/docs (CONTEXT/OWNERS/TEST_COVERAGE where applicable)
 - [ ] Rust construct hygiene reviewed where relevant (`newtype` candidates, ownership boundaries, `#[must_use]` for critical return values)
 - [ ] `Send`/`Sync` discipline reviewed (no blanket/unsafe trait shortcuts in daemon/session state)
+
+## Task-0046 manual addendum (when applicable)
+- [ ] Execution SSOT and contract seed are synchronized:
+  - [ ] `TASK-0046` reflects current implementation/proofs/gates,
+  - [ ] `RFC-0044` reflects the same canonical authority and proof model.
+- [ ] Format authority boundary is preserved:
+  - [ ] Cap'n Proto is canonical for runtime/persistence snapshots,
+  - [ ] JSON is only authoring/validation/derived debug view.
+- [ ] 2PC honesty is proven:
+  - [ ] prepare reject/timeout leads to abort,
+  - [ ] previous effective version remains active after abort,
+  - [ ] no success marker without matching state/result assertions.
+- [ ] CLI authority/no-drift is preserved:
+  - [ ] `nx config ...` lives under `tools/nx`,
+  - [ ] no parallel `nx-config` logic fork was introduced.
+- [ ] Follow-up hand-off requirements remain intact for `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:

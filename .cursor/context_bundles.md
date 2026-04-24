@@ -19,6 +19,29 @@ Use these in chat prompts to keep work deterministic and low-token.
 - (linked) `docs/rfcs/RFC-XXXX-*.md`
 - (linked) `docs/adr/XXXX-*.md`
 
+### @task_0046_context
+- `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`
+- `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/adr/0021-structured-data-formats-json-vs-capnp.md`
+- `docs/adr/0017-service-architecture.md`
+- `tasks/TASK-0045-devx-nx-cli-v1.md`
+- `docs/devx/nx-cli.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+
+### @task_0046_touched
+- `schemas/`
+- `tools/nexus-idl/schemas/`
+- `userspace/config/nexus-config/`
+- `source/services/configd/`
+- `tools/nx/`
+- `tests/`
+- `docs/config/`
+- `docs/devx/nx-cli.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh` (only for OS-gated proof sync)
+
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
 - `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`
