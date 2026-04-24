@@ -2,83 +2,58 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-24)**: `TASK-0039` gates are now fully green (host + OS marker ladder + service-path reject proof).
-- **preserved boundary**: kernel remains untouched; v1 language stays userspace confinement only.
-- **preserved follow-up split**:
-  - `TASK-0043` keeps quota/egress/ABI-audit hardening breadth.
-  - `TASK-0189` keeps profile distribution/policy-plumbing hardening.
+- **last_decision (2026-04-24)**: `TASK-0039` closed as done; active execution focus moved to `TASK-0045`.
+- **active boundary**: `TASK-0045` is host-first DevX tooling only (no kernel/runtime behavior changes).
+- **gate tier**: Gate J (`production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
 
 ## Active focus (execution)
 
-- **active_task**: `tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md` — `Done`
-- **active_contract**: `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md` — `Done`
-- **latest_green_host_proofs**:
-  - `cargo test -p vfsd -- --nocapture`
-  - `cargo test -p nexus-vfs -- --nocapture`
-  - `cargo test -p execd --lib test_reject_direct_fs_cap_bypass_at_spawn_boundary -- --nocapture`
-  - `cargo check -p selftest-client`
-- **tier_target**: Gate B (`production-grade`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
+- **active_task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `Draft`
+- **active_contract**: `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` — `Draft`
+- **active_proof_command (target)**:
+  - `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
 
-## Active constraints (TASK-0039)
+## Active constraints (TASK-0045)
 
-- No kernel-enforced claims; userspace boundary honesty is mandatory.
-- No fake-success markers; marker additions must follow real behavior.
-- Deterministic reject taxonomy must remain explicit (`test_reject_*`).
-- Keep spawn authority centralized (`execd/init`) and deny direct app caps to fs services.
+- Single canonical entrypoint must be `tools/nx` (no `nx-*` binary drift).
+- No fake success: delegated subprocess exit code is authoritative.
+- Security fail-closed on untrusted input:
+  - reject traversal/absolute write targets in scaffolding,
+  - reject unknown `postflight` topics,
+  - never construct shell commands from user-controlled strings.
+- Deterministic output contract:
+  - stable exit-code classes,
+  - stable structured output (`--json`) and bounded tails/log snippets.
+- v1 does not auto-edit workspace manifests; print deterministic manual follow-up instructions.
 
-## Gate closure evidence (TASK-0039)
+## Execution gates (TASK-0045)
 
-- **Gate A (host reject floor)**: green.
-- **Gate B (OS marker floor)**: green via
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`,
-  - observed markers: `vfsd: namespace ready`, `vfsd: capfd grant ok`, `vfsd: access denied`, `SELFTEST: sandbox deny ok`, `SELFTEST: capfd read ok`.
-- **Gate C (proof robustness)**: green with service-path reject proof
-  - `test_reject_forged_capfd_service_path`.
-- **Kernel blocker resolution captured**:
-  - POOL overlap fixed by relocating/synchronizing kernel page-pool mapping constants.
-  - Follow-up heap OOM during child bring-up fixed by raising kernel heap budget to 2 MiB.
-  - Post-fix hardening: typed memory window (`AddressWindow`) introduced for pool base/len usage to reduce base/len mixup risk.
+- **Gate A (CLI baseline + deterministic UX)**: PENDING
+  - `tools/nx` exists and command surface is stable (`new`, `inspect`, `idl`, `postflight`, `doctor`, `dsl`).
+- **Gate B (security fail-closed)**: PENDING
+  - reject-path tests for traversal/absolute path and unknown topics exist + pass.
+- **Gate C (proof quality)**: PENDING
+  - tests assert Soll behavior (exit code, filesystem effects, structured output), not log-marker greps.
+- **Gate D (extension/no-drift)**: PENDING
+  - follow-up tasks extend as subcommands under `tools/nx` without separate CLIs.
+- **Gate E (dsl wrapper floor)**: PENDING
+  - deterministic delegate or explicit unsupported classification.
 
-## Kernel design review (newtype / Send-Sync / ownership)
+## Required reject proofs (minimum floor)
 
-- **Newtype/typing**: applied minimally where it adds safety without scope drift:
-  - `AddressWindow` with `#[must_use] end()` for page-pool boundaries.
-- **Ownership**: explicit value semantics (`Copy`) are sufficient for static layout descriptors.
-- **Send/Sync**: no new concurrent mutable state introduced by these kernel fixes; no unsafe trait shortcuts needed.
-- **Out-of-scope by design**: no allocator redesign, no kernel sandbox claims, no absorption of `TASK-0043` / `TASK-0189`.
+- `new`: rejects path traversal and absolute path escapes.
+- `postflight`: rejects unknown topics and propagates delegate failure.
+- `doctor`: returns non-zero when required tools are missing.
+- `dsl`: fails closed when backend absent and never reports false success.
 
-## Closure plan (remaining 100% done steps)
+## Follow-up split (preserve scope)
 
-- Final status/index sync completed:
-  - `tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md`
-  - `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md`
-  - `tasks/STATUS-BOARD.md`
-  - `docs/rfcs/README.md`
-
-## Critical delta list (post-closure hardening pass)
-
-- **DELTA-01 (runtime spawn boundary)**: helper-only boundary proof promoted into runtime path.
-  - **Implemented**: `execd` os-lite spawn path now fail-closes if configured app caps violate fs-service boundary.
-- **DELTA-02 (subject ownership floor in vfsd)**: cross-subject handle reuse hardening.
-  - **Implemented**: `vfsd` os-lite binds handles to `sender_service_id` and denies read/close from non-owner subject.
-- **DELTA-03 (proof revalidation after deltas)**:
-  - **Implemented**: host tests and OS gate rerun green after delta changes.
-
-## Residual risk kept explicit (no scope drift)
-
-- Per-subject dynamic namespace manifests and profile-distributed policy are still follow-up scope (`TASK-0189`).
-- Quota/egress enforcement breadth remains follow-up scope (`TASK-0043`).
-
-## Contract links (active)
-
-- `tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md`
-- `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md`
-- `docs/security/sandboxing.md`
-- `docs/testing/index.md`
-- `scripts/qemu-test.sh`
-- `tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md`
-- `tasks/TASK-0189-sandbox-profiles-v2-sandboxd-or-policyd-distribution-ipc-vfs.md`
+- `TASK-0046`: config semantics / `nx config`.
+- `TASK-0047`: policy engine semantics / `nx policy`.
+- `TASK-0048`: crash pipeline / `nx crash`.
+- `TASK-0163`: IDL codegen policy and canonical outputs.
+- `TASK-0164`, `TASK-0165`, `TASK-0227`, `TASK-0230`, `TASK-0268`: extension tracks under the same CLI.
 
 ## Carry-over note
 
-- `TASK-0023B` external CI replay artifact closure remains independent and non-blocking for `TASK-0039`.
+- `TASK-0039` and `RFC-0042` are closed and archived; no reopen implied by `TASK-0045` work.

@@ -1,13 +1,24 @@
 ---
 title: TASK-0045 DevX: nx CLI v1 (scaffold + idl helpers + inspect + postflight runner + doctor)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on: []
-follow-up-tasks: []
+follow-up-tasks:
+  - TASK-0046
+  - TASK-0047
+  - TASK-0048
+  - TASK-0050
+  - TASK-0163
+  - TASK-0164
+  - TASK-0165
+  - TASK-0227
+  - TASK-0230
+  - TASK-0268
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - Contract seed (this task): docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md
   - Existing postflights: tools/postflight-*.sh
   - Existing IDL tool: tools/nexus-idl/
   - Packaging tool: tools/nxb-pack/
@@ -28,6 +39,8 @@ Repo reality today:
 - `tools/nexus-idl` is currently a stub (prints help only).
 - Cap’n Proto bindings in `userspace/nexus-idl-runtime` are currently checked in under `src/manual/`.
 - Postflight scripts exist and are already “defanged” to delegate to canonical proofs.
+- `tools/nx/` does not exist yet in-tree.
+- `tests/nx_cli_host/` does not exist yet in-tree.
 
 So `nx` v1 should integrate what exists, and make codegen incremental/opt-in until the repo’s IDL workflow is finalized.
 
@@ -71,25 +84,75 @@ Ship `tools/nx` (host CLI) with:
 
 ## Red flags / decision points
 
-- **YELLOW (IDL workflow drift)**:
-  - Until we decide whether generated capnp bindings are checked in (and where), `nx idl codegen --check`
-    must be optional and scoped to known paths (e.g. `tools/nexus-idl/schemas` only).
-- **YELLOW (workspace edits)**:
-  - Auto-editing `Cargo.toml` is convenient but risky; must be safe, idempotent, and produce a minimal diff.
+- **RESOLVED (IDL workflow drift)**:
+  - `TASK-0045` does **not** own IDL codegen policy.
+  - `nx idl` in v1 is limited to inventory/list/check preconditions only; any "generated output is canonical" logic is explicitly deferred to `TASK-0163`.
+- **RESOLVED (workspace edits risk)**:
+  - `TASK-0045` v1 does **not** auto-edit workspace manifests.
+  - Scaffolding creates files only in target paths and prints explicit next steps for manual workspace/member registration.
+
+## Security section
+
+### Threat model (v1 scope)
+
+- Untrusted local input can enter via CLI args, topic names, file paths, and environment (`PATH`).
+- Main abuse risks:
+  - path traversal / absolute-path escapes in scaffolding commands,
+  - command injection via postflight topic resolution,
+  - fake-success UX where `nx` reports success while delegated checks failed.
+
+### Security invariants
+
+- Topic execution is allowlist-based (declarative map), never shell-built from user strings.
+- Path writes are constrained to repo-relative allowlisted roots and reject traversal.
+- `nx postflight` success is derived strictly from delegated process exit code.
+- Diagnostic outputs are bounded and deterministic; no secret/token dumps.
+
+### DON'T DO (task-level hard fail)
+
+- Do not run arbitrary shell snippets from `nx postflight <topic>`.
+- Do not accept `../` or absolute write targets in scaffolding.
+- Do not print "ok" unless the delegated command returned exit code 0.
+- Do not add random/non-deterministic success markers as closure proof.
 
 ## Stop conditions (Definition of Done)
+
+Gate-tier alignment note:
+
+- Per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate J), `TASK-0045` closes against
+  **production-floor** expectations, not production-grade.
+
+## Closure gate matrix (Go / No-Go)
+
+- **Gate A (CLI baseline + deterministic UX)**: `tools/nx` exists, stable help/JSON output contracts documented, no random success text.
+- **Gate B (security fail-closed)**: traversal/absolute-path rejects + unknown-topic rejects are proven by deterministic host tests.
+- **Gate C (proof quality)**: command-family reject-path tests exist (`new`, `postflight`, `doctor`), and closure is asserted via exit codes + structured outputs (no grep-only evidence).
+- **Gate D (follow-up compatibility contract)**: `nx` subcommand architecture is canonical and extendable (future `nx config`, `nx policy`, `nx crash`, `nx sdk`, `nx diagnose`, `nx sec` can be added without introducing `nx-*` binary drift).
+- **Gate E (fast-lane DSL entrypoint floor)**: `nx dsl fmt|lint|build` surface exists as deterministic wrapper/delegation contract (real DSL semantics remain owned by `TASK-0075+`).
 
 ### Proof (Host) — required
 
 Add deterministic host tests (`tests/nx_cli_host/`):
 
 - `nx new service foo` creates expected paths and does not break workspace parsing.
+- `nx new service ../escape` and absolute paths are rejected (non-zero + stable error).
 - `nx inspect` prints a stable JSON summary for a known fixture bundle.
 - `nx postflight <topic>`:
   - passes when the underlying script succeeds (use a fixture script in tests),
   - fails when the underlying script fails.
+- `nx postflight unknown-topic` fails closed (non-zero + listed valid topics).
 - `nx doctor`:
   - reports missing tools with actionable hints (test with PATH overrides).
+  - returns non-zero when required tools are missing.
+- `nx dsl fmt|lint|build`:
+  - delegates deterministically to configured implementation when present,
+  - fails closed with stable "unsupported/not installed" classification when backend is absent,
+  - never reports success if delegated backend exits non-zero.
+
+Proof quality rule:
+
+- At least one reject-path test per command family (`new`, `postflight`, `doctor`).
+- No closure based only on printed markers/log greps; assertions must validate file outputs, exit codes, and structured output fields.
 
 ## Touched paths (allowlist)
 
@@ -103,7 +166,8 @@ Add deterministic host tests (`tests/nx_cli_host/`):
 
 1. **Add `tools/nx` crate**
    - `clap` CLI parsing, consistent output formatting.
-   - Base marker: `nx: ready (v1)` (host-only; printed only on `--version` or `nx doctor`, not during builds).
+   - No success marker contract in v1; use exit codes + structured output.
+   - Add canonical subcommand registry/dispatch surface for future topic commands (single-entrypoint policy).
 
 2. **Scaffolding**
    - `nx new service <name>` → `source/services/<name>/...`
@@ -115,7 +179,7 @@ Add deterministic host tests (`tests/nx_cli_host/`):
      - minimal `main.rs`,
      - stub docs in `docs/stubs/` (explicit “stub” wording).
    - Workspace update:
-     - only when strictly needed; idempotent edits.
+     - not automatic in v1; print deterministic manual-next-step hints instead.
 
 3. **IDL helpers**
    - `nx idl list` lists schemas under `tools/nexus-idl/schemas/`.
@@ -123,7 +187,7 @@ Add deterministic host tests (`tests/nx_cli_host/`):
      - schema files exist and are readable,
      - `capnp` tool exists,
      - optional: a schema inventory hash file is up-to-date (if we add one).
-   - Defer “full codegen” until we standardize where generated rust lives.
+   - Defer all "full codegen + canonical generated output" concerns to `TASK-0163`.
 
 4. **Inspect**
    - Start small and honest:
@@ -154,6 +218,7 @@ Add deterministic host tests (`tests/nx_cli_host/`):
      - quickstart,
      - command reference,
      - how to add a postflight topic (edit a mapping file in `tools/nx/`).
+   - Explicit section: "Subcommand extension contract" (for `TASK-0046`, `TASK-0047`, `TASK-0048`, `TASK-0164`, `TASK-0165`, `TASK-0227`, `TASK-0230`, `TASK-0268`).
 
 ## Follow-ups
 

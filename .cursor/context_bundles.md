@@ -515,6 +515,29 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0045_context
+- `tasks/TASK-0045-devx-nx-cli-v1.md`
+- `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/rfcs/README.md`
+- `docs/testing/index.md`
+- `justfile`
+
+### @task_0045_touched
+- `tools/nx/**` (new crate + subcommand surface)
+- `tools/nx/templates/**` (new)
+- `tools/nexus-idl/**` (optional minimal v1 helper alignment only)
+- `docs/devx/nx-cli.md` (new)
+- `docs/testing/index.md`
+- `tasks/TASK-0045-devx-nx-cli-v1.md`
+- `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0016b_context
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
@@ -606,6 +629,9 @@ Kontext strikt: @core_context @task_0032_context @quality_gates @task_0032_touch
 
 ## Standard instruction line (TASK-0039)
 Kontext strikt: @core_context @task_0039_context @quality_gates @task_0039_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0045)
+Kontext strikt: @core_context @task_0045_context @quality_gates @task_0045_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

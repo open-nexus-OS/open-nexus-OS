@@ -229,6 +229,33 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] reject proofs include service-path behavior checks (not helper-only only),
   - [ ] no closure claim before TASK/RFC checklist synchronization.
 
+## TASK-0045 class stop conditions (DevX nx CLI v1)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0045` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0043` remains linked and contract-aligned,
+  - [ ] follow-up routes stay explicit (`TASK-0046`, `TASK-0047`, `TASK-0048`, `TASK-0163`, `TASK-0164`, `TASK-0165`, `TASK-0227`, `TASK-0230`, `TASK-0268`).
+- [ ] Gate-tier scope honesty is preserved:
+  - [ ] Gate J `production-floor` alignment stays explicit,
+  - [ ] no production-grade claim for this task.
+- [ ] Canonical CLI path is implemented:
+  - [ ] `tools/nx` exists as single entrypoint for v1 command families,
+  - [ ] no parallel `nx-*` binary drift introduced.
+- [ ] Security and fail-closed behavior are proven:
+  - [ ] scaffolding rejects traversal and absolute write targets,
+  - [ ] `postflight` uses allowlist topic mapping and rejects unknown topics,
+  - [ ] no user-string-driven shell command construction,
+  - [ ] delegated non-zero exits propagate as non-success.
+- [ ] Deterministic contract is proven:
+  - [ ] stable exit-code classes (`0/2/3/4/5/6/7`) are covered by tests,
+  - [ ] `--json` outputs are stable and asserted in tests,
+  - [ ] output tails/diagnostics are bounded.
+- [ ] Proof quality floor is met:
+  - [ ] required host tests are green (`cargo test -p nx -- --nocapture`),
+  - [ ] reject-path tests exist per command family (`new`, `postflight`, `doctor`),
+  - [ ] closure evidence is based on exit codes + structured outputs + file effects (not grep-only logs).
+- [ ] Scope boundary stays explicit:
+  - [ ] no ownership absorption of config/policy/crash/sdk semantics from follow-up tasks.
+
 ## Legacy stop-condition profiles (reference only)
 - [ ] TASK-0021-class QUIC scaffold stop conditions: use archived closure evidence in `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md` (`Done`).
 - [ ] TASK-0019-class ABI guardrail stop conditions: use archived closeout evidence in `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (`Done`).
@@ -290,7 +317,15 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Follow-up routing and Gate-C production dependencies remain explicit (`TASK-0033`, `TASK-0286`, `TASK-0287`, `TASK-0290`).
 - [x] `.cursor` workfiles updated from prep posture to post-closure posture.
 
-## Active progress snapshot (TASK-0039 execution alignment, 2026-04-24)
+## Active progress snapshot (TASK-0045 kickoff alignment, 2026-04-24)
+- [x] Active SSOT switched to `TASK-0045`.
+- [x] `RFC-0043` seed contract created and linked.
+- [x] Task header follow-up list and red-flag resolutions are synchronized.
+- [x] Security section and proof-quality anti-fake-success requirements are explicit.
+- [ ] `tools/nx` implementation is present in-tree.
+- [ ] Host proof suite is green for v1 command and reject contracts.
+
+## Legacy progress snapshot (TASK-0039 execution alignment, 2026-04-24)
 - [x] `TASK-0039` status synchronized to `Done`.
 - [x] `RFC-0042` status synchronized to `Done`.
 - [x] Host reject proof floor is green for traversal/capfd/spawn-boundary checks.

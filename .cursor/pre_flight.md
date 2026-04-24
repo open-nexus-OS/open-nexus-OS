@@ -261,6 +261,30 @@ This is the anti-fake-success gate.
   - [ ] CapFd reject proof includes at least one service-path assertion (not helper-only),
   - [ ] TASK/RFC checklists are synced only after evidence exists.
 
+## Task-0045 manual addendum (when applicable)
+- [ ] Scope and gate tier are explicit:
+  - [ ] `TASK-0045` is host-first tooling scope (no OS runtime closure claim),
+  - [ ] Gate-J `production-floor` is explicit (not production-grade).
+- [ ] Contract seed alignment is current:
+  - [ ] `RFC-0043` exists and is linked from `TASK-0045`,
+  - [ ] v1 command surface + exit-code contract stay synchronized with implementation.
+- [ ] Security fail-closed behavior is proven with reject tests:
+  - [ ] scaffolding rejects traversal and absolute path writes,
+  - [ ] `postflight` rejects unknown topics,
+  - [ ] delegated failures are propagated (no fake success),
+  - [ ] no shell-command construction from user-controlled strings.
+- [ ] Proof quality is Soll-behavior focused:
+  - [ ] tests assert exit-code classes and structured output fields,
+  - [ ] tests assert concrete filesystem effects for scaffolding,
+  - [ ] no closure based on marker/log grep only.
+- [ ] Extension/no-drift contract is preserved:
+  - [ ] subcommand architecture is canonical under `tools/nx`,
+  - [ ] no new standalone `nx-*` binaries are introduced for follow-ups.
+- [ ] `nx dsl fmt|lint|build` floor is honest:
+  - [ ] delegates deterministically when backend exists,
+  - [ ] fails closed as unsupported when backend is absent,
+  - [ ] never prints success on delegate non-zero.
+
 ## Active progress snapshot (TASK-0032 closure, 2026-04-23)
 - [x] `TASK-0032` execution SSOT is synchronized to landed implementation and proof evidence (`Done`).
 - [x] `RFC-0041` contract seed is synchronized to closure state (`Done`).
@@ -268,7 +292,16 @@ This is the anti-fake-success gate.
 - [x] Required TASK-0032 marker ladder is proven in single-VM QEMU path.
 - [x] Build hygiene gates are green for touched OS/host code (`diag-host`, `dep-gate`, `diag-os`).
 
-## Active progress snapshot (TASK-0039 execution, 2026-04-24)
+## Active progress snapshot (TASK-0045 kickoff, 2026-04-24)
+- [x] Active SSOT switched to `TASK-0045`.
+- [x] Contract seed `RFC-0043` created and linked from task/index.
+- [x] Follow-up tasks are populated in `TASK-0045` header.
+- [x] Security section and anti-fake-success proof criteria are explicit in task text.
+- [x] Gate-tier alignment clarified as Gate J `production-floor`.
+- [ ] `tools/nx` implementation started.
+- [ ] Host proof suite for `nx` command families is green.
+
+## Legacy progress snapshot (TASK-0039 execution, 2026-04-24)
 - [x] Host reject floor implemented and green:
   - [x] traversal / unauthorized namespace rejects,
   - [x] forged / replayed / rights-mismatch CapFd rejects,

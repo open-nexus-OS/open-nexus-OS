@@ -2,64 +2,59 @@
 
 ## Candidate next execution
 
-- **task**: `tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md` — `Done`
-- **contract**: `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md` — `Done`
-- **tier**: Gate B trajectory (`production-grade`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
-- **follow-up route**: `TASK-0043`, `TASK-0189` (unchanged, explicit)
+- **task**: `tasks/TASK-0045-devx-nx-cli-v1.md` — `Draft`
+- **contract**: `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` — `Draft`
+- **tier**: Gate J trajectory (`production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- **follow-up route**: `TASK-0046`, `TASK-0047`, `TASK-0048`, `TASK-0163`, `TASK-0164`, `TASK-0165`, `TASK-0227`, `TASK-0230`, `TASK-0268`
 
 ## Drift check vs repo state (2026-04-24)
 
-- [x] Namespace/traversal reject floor implemented in `source/services/vfsd/**` + `userspace/nexus-vfs/**`.
-- [x] CapFd authenticity/replay/rights reject tests exist in `source/services/vfsd/src/sandbox.rs`.
-- [x] Spawn-time direct-fs-cap bypass reject test exists in `source/services/execd/src/lib.rs`.
-- [x] Stable TASK-0039 marker literals are wired into manifest + qemu harness paths.
-- [x] Task/RFC/testing/security docs updated for current proof shape.
-- [x] QEMU marker run for TASK-0039 ladder captured in this cut.
-- [x] Closure checkbox sync (`TASK-0039` + `RFC-0042` phase/status sections) after all gates green.
+- [x] `RFC-0043` exists and is linked as contract seed from `TASK-0045`.
+- [x] `docs/rfcs/README.md` includes `RFC-0043` index entry.
+- [x] `TASK-0045` header follow-up list is populated and scope split is explicit.
+- [x] `TASK-0045` includes security section with threat model + hard invariants.
+- [x] `TASK-0045` stop conditions include reject-path tests and anti-fake-success proof rules.
+- [ ] `tools/nx/` crate is implemented.
+- [ ] Host proof suite for `nx` exists and is green.
 
 ## Acceptance criteria status (next cut)
 
 ### Host (mandatory)
 
-- [x] Namespace confinement reject proofs present (`test_reject_path_traversal`, `test_reject_unauthorized_namespace_path`).
-- [x] CapFd integrity/replay/rights reject proofs present (`test_reject_forged_capfd`, `test_reject_replayed_capfd`, `test_reject_capfd_rights_mismatch`).
-- [x] Capability-distribution boundary proof present (`test_reject_direct_fs_cap_bypass_at_spawn_boundary`).
-- [x] Service-path integration reject exists (`test_reject_forged_capfd_service_path`).
+- [ ] `nx doctor [--json]` deterministic behavior + dependency classification.
+- [ ] `nx new service|app|test` scaffolding with path-escape rejection.
+- [ ] `nx inspect nxb <path> [--json]` stable structured summary.
+- [ ] `nx idl list/check` inventory + precondition checks (no v1 codegen ownership).
+- [ ] `nx postflight <topic>` allowlist dispatch + bounded output tail + exit passthrough.
+- [ ] `nx dsl fmt|lint|build` delegation contract (or explicit unsupported).
 
-### OS / QEMU (gated)
+### Security / reject floor (mandatory)
 
-- [x] Marker strings registered as stable labels:
-  - `vfsd: namespace ready`
-  - `vfsd: capfd grant ok`
-  - `vfsd: access denied`
-  - `SELFTEST: sandbox deny ok`
-  - `SELFTEST: capfd read ok`
-- [x] Run and archive `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` evidence for this ladder.
+- [ ] `test_reject_new_service_path_traversal`
+- [ ] `test_reject_new_service_absolute_path`
+- [ ] `test_reject_unknown_postflight_topic`
+- [ ] `test_doctor_exit_nonzero_when_required_missing`
+- [ ] `test_dsl_wrapper_fail_closed_when_backend_missing`
+- [ ] `test_dsl_wrapper_propagates_delegate_failure`
 
 ## Done condition (next closure step)
 
-- Complete TASK/RFC closure only after host + OS gate set is green and proof artifacts are mirrored in SSOT docs.
+- Close `TASK-0045` only when Gate J production-floor proof is green via deterministic host tests and SSOT docs are synchronized.
 
-## Immediate closure checklist (no scope drift)
+## Immediate execution checklist (no scope drift)
 
-- [x] Flip `TASK-0039` status line from `In Progress` to closure state after final review.
-- [x] Flip `RFC-0042` status line from `In Progress` to closure state after final review.
-- [x] Sync `tasks/STATUS-BOARD.md` queue head/contract line.
-- [x] Sync `docs/rfcs/README.md` RFC-0042 index status line.
-- [x] Keep follow-up scope explicit and untouched (`TASK-0043`, `TASK-0189`).
-
-## Follow-up readiness contract (for TASK-0043 / TASK-0189)
-
-- [x] v1 boundary remains userspace-only and explicitly documented.
-- [x] Runtime spawn fs-cap boundary check is wired in `execd` path (not test-only).
-- [x] vfsd os-lite handle ownership is subject-bound for read/close.
-- [ ] Dynamic per-subject namespace/profile distribution remains follow-up scope (`TASK-0189`).
-- [ ] Quota/egress enforcement breadth remains follow-up scope (`TASK-0043`).
+- [ ] Add `tools/nx` crate with stable subcommand registry and dispatch.
+- [ ] Implement exit-code class mapping from `RFC-0043` (0/2/3/4/5/6/7).
+- [ ] Enforce allowlist-only topic dispatch for `postflight`.
+- [ ] Enforce reject of traversal/absolute path writes in scaffolding.
+- [ ] Add host tests asserting exit code + JSON/file effects (not marker/log-only).
+- [ ] Add docs in `docs/devx/nx-cli.md` and sync `docs/testing/index.md`.
+- [ ] Sync task/rfc checklists only after tests are actually green.
 
 ## Go / No-Go checklist for 100% closure
 
-- [x] **GO-1** Host reject suite is green.
-- [x] **GO-2** OS marker gate run is captured and green (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`).
-- [x] **GO-3** Service-path CapFd reject proof exists (not helper-only).
-- [x] **GO-4** RFC-0042 implementation checklist is updated to executed evidence.
-- [x] **GO-5** TASK-0039 stop-condition proof text mirrors final evidence.
+- [ ] **GO-1** `tools/nx` canonical entrypoint exists and is used for covered v1 workflows.
+- [ ] **GO-2** Required reject-path tests are present and green.
+- [ ] **GO-3** Delegated failure propagation is proven (no fake success).
+- [ ] **GO-4** Follow-up extension contract is documented without `nx-*` drift.
+- [ ] **GO-5** `TASK-0045` + `RFC-0043` implementation checklists mirror executed evidence.
