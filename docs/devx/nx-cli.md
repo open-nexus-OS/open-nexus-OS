@@ -1,3 +1,6 @@
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # nx CLI v1 (host-first)
 
 `nx` is the canonical DevX entrypoint for host tooling in Gate J (`production-floor`).
@@ -50,6 +53,20 @@ cargo run -p nx -- inspect nxb path/to/bundle.nxb --json
 - `nx dsl fmt|lint|build [<args...>] [--json]`
   - delegates to backend in `NX_DSL_BACKEND`
   - returns `unsupported` (`6`) when backend is not configured/available
+- `nx config validate [PATH...] [--json]`
+  - validates schema/type/bounds fail-closed with deterministic exit class
+- `nx config effective [--json]`
+  - materializes layered effective config (`defaults < /system < /state < env`)
+  - returns deterministic canonical version derived from Cap'n Proto bytes
+  - `--json` semantics align with `configd`'s derived effective JSON view for the same layered inputs
+- `nx config diff --from <path> --to <path> [--json]`
+  - compares semantic effective outputs and version progression
+- `nx config push <file> [--json]`
+  - validates JSON source then writes deterministic overlay `state/config/90-nx-config.json`
+- `nx config reload [--json]`
+  - executes configd 2PC reload contract (commit/abort reflected in exit + JSON)
+- `nx config where [--json]`
+  - prints canonical system/state directory map plus the `NEXUS_CFG_` env prefix
 
 ## Postflight topic extension contract
 

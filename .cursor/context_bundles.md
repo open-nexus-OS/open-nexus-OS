@@ -34,6 +34,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `schemas/`
 - `tools/nexus-idl/schemas/`
 - `userspace/config/nexus-config/`
+- `userspace/config/` (crate root for `nexus-config` package)
 - `source/services/configd/`
 - `tools/nx/`
 - `tests/`
@@ -41,6 +42,15 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/devx/nx-cli.md`
 - `docs/testing/index.md`
 - `scripts/qemu-test.sh` (only for OS-gated proof sync)
+- `docs/rfcs/README.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
+- `tasks/STATUS-BOARD.md`
+- `CHANGELOG.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
 
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
@@ -109,6 +119,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
 - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
 - `docs/testing/index.md`
+- `docs/config/index.md`
 - `scripts/qemu-test.sh`
 - `docs/observability/logging.md`
 - `docs/observability/metrics.md`

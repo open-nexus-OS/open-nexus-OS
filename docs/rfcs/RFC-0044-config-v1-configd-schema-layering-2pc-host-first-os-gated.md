@@ -1,6 +1,6 @@
 # RFC-0044: Config v1 (`configd` + schemas + layering + 2PC + `nx config`) host-first, OS-gated contract seed
 
-Status: In Progress
+Status: Done
 Owner: Platform Team
 Created: 2026-04-24
 Area: Config / Control Plane / Security
@@ -36,17 +36,18 @@ Without a strict contract, follow-up tasks risk format drift, authority ambiguit
 
 - `tools/nx` (`nx config ...`) contract behavior for authoring/validation/effective export.
 - `userspace/config/nexus-config` model + validation + canonical snapshot materialization.
-- `source/services/configd` API contract for `GetEffective` (Cap'n Proto) and `GetEffectiveJson` (derived).
+- `source/services/configd` API contract for `GetEffective` (Cap'n Proto), `GetEffectiveJson` (derived), and `Subscribe` update notifications.
 - Cap'n Proto schema(s) for canonical effective snapshot and versioning.
 
 ## Design Overview
 
-1. Inputs are authored in JSON (or equivalent authoring view) and validated against strict schemas.
+1. Inputs are authored in JSON and validated against strict schemas.
 2. Layering and precedence produce a deterministic effective model.
 3. Effective model is encoded as canonical Cap'n Proto bytes (runtime/persistence authority).
 4. `configd` exposes:
    - `GetEffective`: canonical Cap'n Proto effective snapshot + version.
    - `GetEffectiveJson`: derived JSON view + same version, for debug/CLI ergonomics.
+   - `Subscribe`: committed-version update notifications for downstream consumers.
 5. Apply path uses bounded two-phase semantics: validate/stage then commit or rollback.
 
 ## Contract (Normative)
@@ -111,7 +112,8 @@ Host-first closure for this RFC requires:
   - stage/commit success path;
   - forced commit failure -> rollback to previous version with no fake success.
 - `nx config` proof:
-  - deterministic exit classes for validate/effective/apply/status.
+  - deterministic exit classes for validate/effective/apply/status;
+  - `nx config effective --json` aligns in version and derived JSON semantics with `configd`.
 
 Planned host proof commands (execution task-owned):
 
@@ -136,36 +138,41 @@ OS-gated integration closure remains in execution SSOT follow-up gates.
 - Risk: scope creep into unrelated policy/runtime semantics.
   - Mitigation: keep execution strictly bounded by `TASK-0046` and listed follow-up tasks.
 
-## Open Questions
+## Follow-up Notes
 
-- Final field-level schema evolution/versioning policy for backwards compatibility windows.
-- Exact API envelope details for `GetEffectiveJson` transport representation.
+- Field-level schema evolution windows remain follow-up policy work; this RFC locks the v1 host-first contract floor only.
+- Real downstream consumer adoption and OS/QEMU marker proofs remain execution follow-up scope outside this RFC.
 
 ## Status at a Glance
 
 - [x] Contract seed exists and is linked to execution SSOT.
-- [ ] Canonical Cap'n Proto schema merged.
-- [ ] `nexus-config` deterministic effective snapshot materialization merged.
-- [ ] `configd` `GetEffective`/`GetEffectiveJson` contract merged.
-- [ ] `nx config` deterministic CLI surface merged and proofed.
-- [ ] Host proof floor green across config crates/services/tooling.
+- [x] Canonical Cap'n Proto schema merged.
+- [x] `nexus-config` deterministic effective snapshot materialization merged.
+- [x] `configd` `GetEffective`/`GetEffectiveJson` contract merged.
+- [x] `configd` `Subscribe` update-notification contract merged.
+- [x] `nx config` deterministic CLI surface merged and proofed.
+- [x] Host proof floor green across config crates/services/tooling.
 
 ## Implementation Checklist (Execution-Linked)
+
+Host-first closure is complete in this cut; OS/QEMU marker closure remains explicitly gated by execution SSOT and is not claimed here.
 
 Phase 0 (contract + schema floor):
 
 - [x] Seed contract RFC created and aligned with ADR constraints.
-- [ ] Cap'n Proto schema for canonical effective snapshot added.
-- [ ] Schema and versioning conformance tests added.
+- [x] Cap'n Proto schema for canonical effective snapshot added.
+- [x] Schema and versioning conformance tests added.
 
 Phase 1 (library + service floor):
 
-- [ ] Deterministic layering + canonical snapshot encode in `nexus-config`.
-- [ ] `configd` APIs expose canonical + derived view contract.
-- [ ] 2PC apply/rollback invariants covered by deterministic tests.
+- [x] Deterministic layering + canonical snapshot encode in `nexus-config`.
+- [x] `configd` APIs expose canonical + derived view contract.
+- [x] `configd` subscriber/update notification seam is covered by deterministic host tests.
+- [x] 2PC apply/rollback invariants covered by deterministic tests.
 
 Phase 2 (CLI + closure floor):
 
-- [ ] `nx config` commands aligned to contract and deterministic exits.
-- [ ] Host-first proof commands documented and green.
-- [ ] Execution SSOT status sync and gate notes updated.
+- [x] `nx config` commands aligned to contract and deterministic exits.
+- [x] JSON-only authoring path is enforced for layered source files and state push output.
+- [x] Host-first proof commands documented and green.
+- [x] Execution SSOT status sync and gate notes updated.

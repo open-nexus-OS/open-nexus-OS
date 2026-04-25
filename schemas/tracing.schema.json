@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-nexus-os.dev/schemas/config/v1/tracing.schema.json",
+  "title": "tracing config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "level": {
+      "type": "string",
+      "enum": ["error", "warn", "info", "debug", "trace"]
+    },
+    "sample_rate_per_mille": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    }
+  }
+}

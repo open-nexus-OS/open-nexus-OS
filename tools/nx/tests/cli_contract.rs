@@ -1,6 +1,18 @@
-//! CONTEXT: Process-boundary contract tests for `nx` CLI v1.
-//! INTENT: Assert exit codes, JSON envelopes, and deterministic file effects.
-//! TESTS: Executed via `cargo test -p nx -- --nocapture`.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+//! CONTEXT: Process-boundary contract tests for the canonical `nx` CLI, including `nx config` behavior.
+//! OWNERS: @tools-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 6 integration tests.
+//!
+//! TEST_SCOPE:
+//!   - Process exit-class and JSON-envelope contracts
+//!   - Deterministic filesystem effects for scaffold/config commands
+//!   - Fail-closed CLI behavior at the real process boundary
+//!
+//! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 use serde_json::Value;
 use std::path::Path;
@@ -24,7 +36,11 @@ fn stdout_json(output: &Output) -> Value {
 #[test]
 fn test_cli_reject_new_service_json_exit_and_shape() {
     let root = tempdir().expect("tempdir");
-    let output = run_nx(&["new", "service", "../escape", "--json"], root.path(), None);
+    let output = run_nx(
+        &["new", "service", "../escape", "--json"],
+        root.path(),
+        None,
+    );
     assert_eq!(output.status.code(), Some(3));
     let json = stdout_json(&output);
     assert_eq!(json["ok"], false);
@@ -35,7 +51,11 @@ fn test_cli_reject_new_service_json_exit_and_shape() {
 #[test]
 fn test_cli_reject_unknown_postflight_json_exit_and_shape() {
     let root = tempdir().expect("tempdir");
-    let output = run_nx(&["postflight", "unknown-topic", "--json"], root.path(), None);
+    let output = run_nx(
+        &["postflight", "unknown-topic", "--json"],
+        root.path(),
+        None,
+    );
     assert_eq!(output.status.code(), Some(3));
     let json = stdout_json(&output);
     assert_eq!(json["ok"], false);
@@ -53,7 +73,11 @@ fn test_cli_doctor_missing_tools_json_exit_and_shape() {
     assert_eq!(json["class"], "missing_dependency");
     assert_eq!(json["code"], 4);
     assert!(
-        json["data"]["missing_required"].as_array().expect("missing_required array").len() >= 5
+        json["data"]["missing_required"]
+            .as_array()
+            .expect("missing_required array")
+            .len()
+            >= 5
     );
 }
 
@@ -67,6 +91,64 @@ fn test_cli_new_service_file_effects_and_json() {
     assert_eq!(json["class"], "success");
     assert_eq!(json["code"], 0);
     assert!(root.path().join("source/services/svcz/Cargo.toml").exists());
-    assert!(root.path().join("source/services/svcz/src/main.rs").exists());
-    assert!(root.path().join("source/services/svcz/docs/stubs/README.md").exists());
+    assert!(root
+        .path()
+        .join("source/services/svcz/src/main.rs")
+        .exists());
+    assert!(root
+        .path()
+        .join("source/services/svcz/docs/stubs/README.md")
+        .exists());
+}
+
+#[test]
+fn test_cli_config_validate_rejects_unknown_field() {
+    let root = tempdir().expect("tempdir");
+    let input = root.path().join("bad.json");
+    std::fs::write(
+        &input,
+        r#"{
+  "dsoftbus": { "transport": "auto", "max_peers": 10, "unknown_knob": true }
+}"#,
+    )
+    .expect("write");
+    let output = run_nx(
+        &[
+            "config",
+            "validate",
+            input.to_string_lossy().as_ref(),
+            "--json",
+        ],
+        root.path(),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(3));
+    let json = stdout_json(&output);
+    assert_eq!(json["class"], "validation_reject");
+}
+
+#[test]
+fn test_cli_config_push_and_effective_json() {
+    let root = tempdir().expect("tempdir");
+    let input = root.path().join("good.json");
+    std::fs::write(
+        &input,
+        r#"{
+  "metrics": { "enabled": false, "flush_interval_ms": 1500 }
+}"#,
+    )
+    .expect("write");
+    let push = run_nx(
+        &["config", "push", input.to_string_lossy().as_ref(), "--json"],
+        root.path(),
+        None,
+    );
+    assert_eq!(push.status.code(), Some(0));
+    assert!(root.path().join("state/config/90-nx-config.json").exists());
+
+    let effective = run_nx(&["config", "effective", "--json"], root.path(), None);
+    assert_eq!(effective.status.code(), Some(0));
+    let json = stdout_json(&effective);
+    assert_eq!(json["class"], "success");
+    assert!(json["data"]["version"].is_string());
 }

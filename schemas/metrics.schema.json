@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-nexus-os.dev/schemas/config/v1/metrics.schema.json",
+  "title": "metrics config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "flush_interval_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600000
+    }
+  }
+}

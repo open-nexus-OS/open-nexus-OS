@@ -13,7 +13,7 @@ Establish a unified service architecture with the following components:
 - **Core Services**: samgrd (service manager), bundlemgrd (bundle manager), keystored (key management)
 - **System Services**: identityd (device identity), clipboardd (clipboard), notifd (notifications)
 - **Data Services**: searchd (search), settingsd (settings), time-syncd (time sync), timed (timer coalescing authority)
-- **Resource Services**: resmgrd (resource manager), policyd (policy enforcement)
+- **Resource Services**: resmgrd (resource manager), policyd (policy enforcement), configd (typed config distribution authority)
 - **Storage Services**: vfsd (virtual file system), packagefsd (package file system)
 - **Execution Services**: execd (execution manager)
 - **Observability Services**: logd (log journal + crash reports)
@@ -35,6 +35,7 @@ Establish a unified service architecture with the following components:
 - **Event-Driven**: Asynchronous event handling
 - **State Management**: Persistent service state
 - **Error Handling**: Structured error propagation
+- **Config Distribution**: `configd` exposes typed effective snapshots and transactional reload orchestration
 
 ### Invariants
 - Services must register with samgrd before accepting requests
@@ -50,6 +51,7 @@ Establish a unified service architecture with the following components:
 - Host and OS backends must provide equivalent functionality
 - Policy decisions bind to `sender_service_id` (kernel-provided, unforgeable)
 - All policy allow/deny decisions are audit-logged via `logd`
+- Typed configuration distribution flows through `configd`; canonical runtime/persistence snapshots are Cap'n Proto while JSON remains authoring and derived view only.
 - Crash-event publish paths must stay fail-closed: reported crash metadata is accepted only from authorized senders and only when bounded artifact consistency checks pass.
 
 ### Audit Trail (TASK-0008)

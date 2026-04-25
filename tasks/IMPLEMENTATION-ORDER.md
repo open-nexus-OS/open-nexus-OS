@@ -42,6 +42,14 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
+## In Review
+
+| Task | Title | Status |
+|------|-------|--------|
+| 🔎 TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | In Review |
+
+---
+
 ## Done
 
 | Task | Title | Completed |

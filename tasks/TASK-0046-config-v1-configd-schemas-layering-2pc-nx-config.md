@@ -1,6 +1,6 @@
 ---
 title: TASK-0046 Config & Schema v1: configd broker + Cap'n Proto canonical snapshot + JSON Schema validation + deterministic layering + 2PC reload (+ nx config)
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2025-12-22
 depends-on: []
@@ -47,7 +47,7 @@ Repo reality today:
 - `/state` persistence baseline is already landed (`TASK-0009` is `Done`), so durable config override path is no longer a hard blocker.
 - `tools/nx` baseline is already landed (`TASK-0045` is `Done`), so `nx config ...` extends an existing canonical CLI surface (no `nx-*` drift).
 - Future management note:
-  - `configd` is also the natural config/profile distribution consumer for later family / school / enterprise / fleet
+  - `configd` is also the natural config/profile distribution authority for later family / school / enterprise / fleet
     management work. Managed settings should arrive through the same typed, schema-validated config path rather than a
     second ad-hoc management config surface.
 
@@ -60,7 +60,7 @@ Deliver:
 1. Versioned JSON Schemas for authoring/validation for a small set of subsystems (dsoftbus, metrics, tracing, sandbox/security, sched).
 2. A `nexus-config` library: layered loader + schema validator + deterministic canonicalization bridge.
 3. A `configd` service: Get/Subscribe + Reload + 2PC apply orchestration with versioning/timeouts and a canonical Cap'n Proto effective snapshot contract.
-4. Wire 3–4 services (as available) to accept config in a prepare/commit manner.
+4. Lock the consumer/subscriber contract in `configd` and prove prepare/commit + update-notification semantics with deterministic host tests.
 5. Extend `nx` with `nx config` subcommands (validate/effective/diff/push/reload/where).
 
 ## Non-Goals
@@ -84,7 +84,7 @@ Deliver:
 
 - **RESOLVED (OS gating)**:
   - `/state` persistence gate is closed (`TASK-0009` is `Done`), so `/state/config` durability is available.
-  - Remaining gating for OS proof is now service adoption/marker wiring (not persistence availability).
+  - Remaining OS/QEMU proof work is downstream consumer/marker wiring and stays follow-up-owned (not a blocker for this host-first closure).
 - **RESOLVED (JSON vs canonical contract)**:
   - JSON remains authoring/validation surface (JSON Schema + deterministic canonical JSON normalization).
   - Canonical effective config contract is a Cap'n Proto snapshot for runtime/persistence boundaries (ADR-0021/0017).
@@ -134,15 +134,21 @@ Gate-tier alignment note:
 
 ### Proof (Host) — required
 
-Add deterministic host tests (`tests/config_v1_host/`):
+Deterministic host tests are implemented in crate-local suites (`userspace/config/nexus-config`, `source/services/configd`, `tools/nx`):
 
 - layering precedence: defaults < /system < /state < env
-- schema validation: invalid type/path → diagnostic includes JSON pointer + expected type
+- schema validation: unknown/type/depth/size rejects are fail-closed with stable classification
 - 2PC orchestration: one mock consumer rejects prepare → configd aborts and effective version unchanged
-- diff/effective: `nx config effective --json` output hash matches configd version.
+- diff/effective: `nx config effective --json` version and derived JSON align with `configd` for the same layered inputs.
 - canonical snapshot determinism: equivalent inputs produce byte-identical Cap'n Proto effective snapshot.
 - boundedness rejects: oversize/depth violations fail closed with stable classification (non-zero).
 - no fake success: reload reports success only after full prepare+commit path succeeds.
+
+Host proof commands (green):
+
+- `cargo test -p nexus-config -- --nocapture`
+- `cargo test -p configd -- --nocapture`
+- `cargo test -p nx -- --nocapture`
 
 ### Proof (OS / QEMU) — gated
 
@@ -196,8 +202,8 @@ Once `/state` exists and at least one service participates:
 2. **`nexus-config` library**
    - Load sources (lowest→highest):
      - builtin defaults (embedded)
-     - `/system/config/*.toml` (image defaults)
-     - `/state/config/*.toml` (overrides)
+     - `/system/config/*.json` (image defaults)
+     - `/state/config/*.json` (overrides)
      - env (`NEXUS_CFG_*`) (strictly scoped)
    - Merge:
      - deep merge objects,
@@ -223,16 +229,12 @@ Once `/state` exists and at least one service participates:
      - `configd: effective v...`
      - `configd: reload commit/abort ...`
 
-4. **Consumer wiring (minimal)**
-   - Choose 3–4 services that exist by the time we implement:
-     - `dsoftbusd` (transport knobs)
-     - `vfsd` (sandbox defaults/quotas later)
-     - `timed` (coalescing windows) and/or `policyd` (policy reload)
-     - `metricsd/traced` once they exist.
-   - Each implements:
+4. **Consumer contract floor**
+   - Lock the `configd` consumer/subscriber interfaces and prove:
      - PrepareConfig(ver, diff) → ok/reject
      - CommitConfig(ver) → ok
-   - Must be atomic within the service (swap config pointer).
+     - Subscribe/update notification after committed version transition only
+   - Real downstream service adoption stays explicit follow-up scope (`TASK-0047`, `TASK-0014`, `TASK-0030`, `TASK-0273`).
 
 5. **`nx config`**
    - `nx config validate [PATH...]`
@@ -243,6 +245,27 @@ Once `/state` exists and at least one service participates:
 
 6. **Docs**
    - `docs/config/index.md`: layering, schemas, 2PC reload, troubleshooting.
+
+## Progress snapshot (2026-04-24)
+
+- [x] JSON Schema v1 files added for `dsoftbus`, `metrics`, `tracing`, `security.sandbox`, `sched`.
+- [x] Canonical Cap'n Proto effective snapshot schema added: `tools/nexus-idl/schemas/config_effective.capnp`.
+- [x] `nexus-config` host crate landed under `userspace/config/nexus-config/` with:
+  - deterministic layering (`defaults < /system < /state < env`),
+  - bounded fail-closed rejects (unknown/type/depth/size/list),
+  - deterministic canonical Cap'n Proto bytes + version hash.
+- [x] `configd` host service landed with:
+  - `GetEffective` (canonical Cap'n Proto + version),
+  - `GetEffectiveJson` (derived JSON + same version),
+  - `Subscribe` update-notification seam,
+  - 2PC honesty proofs (prepare reject/timeout and commit-failure rollback keep previous version active).
+- [x] `nx config` subcommands landed under canonical `tools/nx` path:
+  - `validate`, `effective`, `diff`, `push`, `reload`, `where`,
+  - deterministic exit/`--json` process contracts.
+- [x] JSON authoring contract is explicit end-to-end:
+  - only `*.json` authoring files are accepted under `/system/config` and `/state/config`,
+  - `nx config push` writes deterministic state overlay `state/config/90-nx-config.json`.
+- [ ] OS/QEMU marker closure remains gated and is not claimed by this host-first cut.
 
 ## Notes
 

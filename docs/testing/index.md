@@ -1,3 +1,6 @@
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Testing methodology
 
 Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercised with fast host tools, leaving QEMU for end-to-end smoke coverage only. This document explains the layers, expectations, and day-to-day workflow for contributors.
@@ -221,6 +224,16 @@ seen and ensure log caps are in effect. `just test-os` wraps
 - DSoftBus QUIC host requirement suites (`TASK-0021`): `just test-dsoftbus-quic`
 - DSoftBus full host regression: `just test-dsoftbus-host`
 - nx CLI host proof suite (`TASK-0045`): `cargo test -p nx -- --nocapture`
+- Config v1 host proof floor (`TASK-0046`):
+  - `cargo test -p nexus-config -- --nocapture`
+  - `cargo test -p configd -- --nocapture`
+  - `cargo test -p nx -- --nocapture`
+  - proves Soll-Verhalten, not implementation detail coupling:
+    - stable reject classification for unknown/type/depth/size failures
+    - deterministic layered merge order and JSON-only authoring contract
+    - semantic parity between `configd` views and `nx config effective --json`
+    - honest 2PC commit/abort/rollback state transitions with unchanged-version evidence on failure
+    - deterministic CLI exit/JSON/file-effect contracts under `nx config`
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
 - QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
 - QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)

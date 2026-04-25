@@ -41,6 +41,9 @@ Managed posture should still rely on local authorities such as:
 - `settingsd`
 - `bundlemgrd` / `storemgrd`
 
+`configd` should remain the typed config/profile distribution authority: management inputs may supply JSON authoring data,
+but the local effective runtime/persistence contract stays canonical Cap'n Proto with local validation and reload semantics.
+
 That means:
 
 - no remote bypass around policy,

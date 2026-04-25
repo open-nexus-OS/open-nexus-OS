@@ -1,3 +1,6 @@
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Contracts map (onboarding)
 
 This page is a **map of contracts**: “what is stable”, “where is it specified”, and “how is it proven”.
@@ -53,6 +56,18 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Contract**: deterministic, honest markers; no fake success
 - **Canonical practice**: `docs/testing/index.md` + `scripts/qemu-test.sh`
 - **Standards**: `docs/standards/DOCUMENTATION_STANDARDS.md`
+
+### Config v1 authority and reload semantics
+
+- **Contract**: typed config authoring and deterministic layering with honest commit/abort behavior
+- **Canonical spec**: `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
+- **Execution SSOT**: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`
+- **Decision anchor**: `docs/adr/0021-structured-data-formats-json-vs-capnp.md`
+- **Proof**:
+  - `cargo test -p nexus-config -- --nocapture`
+  - `cargo test -p configd -- --nocapture`
+  - `cargo test -p nx -- --nocapture`
+- **Why it matters**: locks one config authority (`configd` + `nx config`), keeps JSON as authoring/derived view only, and makes runtime/persistence truth byte-deterministic through Cap'n Proto.
 
 ### DSoftBus transport selection (host-first QUIC scaffold)
 

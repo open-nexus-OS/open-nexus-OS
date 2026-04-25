@@ -42,6 +42,15 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] Follow-up contract hand-off remains explicit and unbroken:
   - [ ] `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
 
+## Active progress snapshot (TASK-0046 in review, 2026-04-24)
+- [x] `TASK-0046` is synchronized to `In Review` and `RFC-0044` remains `Done`.
+- [x] Host reject/determinism/API/2PC/CLI proof floor is green.
+- [x] Canonical Cap'n Proto authority is implemented; JSON-only authoring/derived view discipline is enforced.
+- [x] No parallel `nx-*` authority introduced (`nx config` under `tools/nx`).
+- [x] Queue/docs sync is complete for post-closure handoff.
+- [x] Header discipline is synchronized on touched Rust sources and reflects actual current test coverage.
+- [ ] OS/QEMU marker+state coupled proof remains gated and not claimed for this host-first cut.
+
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:
   - [ ] target behavior is explicit,

@@ -1,61 +1,48 @@
-# Current Handoff: TASK-0046 in progress (config v1)
+# Current Handoff: TASK-0046 in review, RFC-0044 done
 
 **Date**: 2026-04-24  
-**Active execution task**: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md` — `In Progress`  
-**Contract seed**: `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md` — `In Progress`  
+**Active execution task**: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md` — `In Review`  
+**Contract seed**: `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md` — `Done`  
+**Next queue head after review**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Draft`  
 **Tier policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate J: DevX, Config & Tooling, `production-floor`)
 
-## Baseline status
+## Review summary
 
-- `TASK-0045`/`RFC-0043` closure is complete and archived.
-- Queue focus has moved to `TASK-0046` as execution SSOT for config v1.
-- `RFC-0044` seed exists and is linked from task and RFC index.
+- Config v1 host-first floor is implemented and synchronized; execution SSOT is held at `In Review`.
+- JSON-only authoring is enforced for layered config inputs under `/system/config` and `/state/config`.
+- Cap'n Proto remains the canonical runtime/persistence effective snapshot contract.
+- `configd` now covers `GetEffective`, `GetEffectiveJson`, `Subscribe`, and honest 2PC reload semantics.
+- `nx config` closure is complete under the canonical `tools/nx` surface.
 
-## TASK-0046 target behavior
+## Closure proof floor
 
-- Deterministic config layering and schema validation with bounded, fail-closed rejects.
-- Canonical effective runtime/persistence snapshot is Cap'n Proto (JSON remains authoring/derived only).
-- `configd` orchestrates 2PC reload with explicit commit/abort semantics.
-- Config CLI surface stays under `nx config ...` (no `nx-*` drift).
-- No marker-only closure evidence; no fake success.
+- `cargo test -p nexus-config -- --nocapture`
+- `cargo test -p configd -- --nocapture`
+- `cargo test -p nx -- --nocapture`
 
-## Initial gate matrix (Go / No-Go)
+Covered behaviors:
 
-- **Gate A (canonical config authority floor)**: YELLOW
-  - `TASK-0046` and `RFC-0044` are aligned; implementation surfaces not yet merged.
-- **Gate B (format authority floor)**: YELLOW
-  - Cap'n Proto-as-canonical contract is specified; schema + conformance proofs pending.
-- **Gate C (proof quality floor)**: YELLOW
-  - host proof matrix is defined; tests are not yet implemented/green.
-- **Gate D (CLI/no-drift floor)**: YELLOW
-  - `nx config` contract is specified; deterministic command proofs pending.
-- **Gate E (2PC honesty floor)**: YELLOW
-  - anti-fake-success requirement is explicit; state/result-correlated OS proof still pending.
+- stable reject classification for unknown/type/depth/size failures,
+- lexical-order directory layering and deterministic precedence,
+- byte-deterministic Cap'n Proto effective snapshots,
+- reject/timeout/commit-failure rollback with unchanged active version,
+- deterministic `nx config` reload/where/effective/push contracts,
+- semantic parity between `nx config effective --json` and `configd` for identical layered inputs.
 
-## Planned proof floor (host-first)
+Header/workflow sync:
 
-- Primary proof commands:
-  - `cd /home/jenning/open-nexus-OS && cargo test -p nexus-config -- --nocapture`
-  - `cd /home/jenning/open-nexus-OS && cargo test -p configd -- --nocapture`
-  - `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
-- Required reject/determinism focus:
-  - layering precedence and bounded schema rejects,
-  - canonical Cap'n Proto snapshot determinism,
-  - 2PC abort path keeps previous effective version unchanged,
-  - `nx config` deterministic exits/JSON contract.
+- touched Rust source files now carry standard CONTEXT headers with `OWNERS`, `STATUS`, `API_STABILITY`, `TEST_COVERAGE`, and ADR references
+- touched docs/workflow pages are synchronized to the current proof/state rather than pre-closure wording
 
-## Guardrails
+## Carry-forward guardrails
 
-- Keep scope in TASK-0046 allowlist paths.
-- Keep kernel untouched; host-first closure is authoritative for this cut.
-- Preserve Cap'n Proto canonical authority and JSON derived-view discipline.
-- Reject marker-only closure claims; require matching state/result assertions.
-- Keep follow-up ownership explicit: `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
+- No kernel changes.
+- No parallel config authority and no `nx-*` CLI drift.
+- No promotion of JSON debug/export views to runtime or persistence authority.
+- No marker-only OS/QEMU config closure claims; future OS proof must pair markers with state/result assertions.
+- Follow-up ownership remains explicit: `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
 
-## Working set (.cursor sync checklist)
+## Working set status
 
-- `current_state.md`: active task/contract switched to `TASK-0046`/`RFC-0044`.
-- `next_task_prep.md`: `TASK-0046` closure checklist and GO/NO-GO updated.
-- `context_bundles.md`: `@task_0046_context` and `@task_0046_touched` added.
-- `pre_flight.md`: Task-0046 automatic/manual addendum added.
-- `stop_conditions.md`: Task-0046 class stop conditions added.
+- `.cursor` workfiles are synchronized to the review state.
+- `TASK-0047` remains the next candidate after `TASK-0046` review signoff.

@@ -54,6 +54,20 @@ This is the anti-fake-success gate.
   - [ ] no parallel `nx-config` logic fork was introduced.
 - [ ] Follow-up hand-off requirements remain intact for `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
 
+## Active progress snapshot (TASK-0046 in review, 2026-04-24)
+- [x] `TASK-0046` execution SSOT is synchronized to `In Review`.
+- [x] `RFC-0044` contract seed is synchronized to `Done`.
+- [x] JSON-only layered authoring contract is enforced in code/docs.
+- [x] `configd` subscriber/update notification seam is covered by host tests.
+- [x] `nx config effective --json` parity with `configd` version + derived JSON is covered by host tests.
+- [x] Host proof floor green:
+  - [x] `cargo test -p nexus-config -- --nocapture`
+  - [x] `cargo test -p configd -- --nocapture`
+  - [x] `cargo test -p nx -- --nocapture`
+- [x] Status/index/queue sync complete for the review state (`README`, `IMPLEMENTATION-ORDER`, `STATUS-BOARD`, `.cursor` workfiles).
+- [x] Touched Rust source headers match the documented standard and describe current test state.
+- [ ] OS/QEMU marker closure remains gated and is intentionally not claimed in this host-first cut.
+
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:
   - [ ] target behavior is stated in 1-3 lines,

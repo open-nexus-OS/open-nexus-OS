@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-nexus-os.dev/schemas/config/v1/sched.schema.json",
+  "title": "sched config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "default_qos": {
+      "type": "string",
+      "enum": ["idle", "normal", "interactive", "perf-burst"]
+    },
+    "runqueue_slice_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    }
+  }
+}

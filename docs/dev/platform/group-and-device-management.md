@@ -44,6 +44,9 @@ Managed behavior should flow through:
 - `policyd` for allow/deny and grants,
 - and other local authorities for the final enforcement path.
 
+For Config v1 this means typed authoring/validation in JSON, canonical runtime/persistence effective snapshots in Cap'n Proto,
+and no parallel management-only config surface.
+
 ### Pillar 3: Install, rollout, and entitlement posture
 
 Managed groups and devices often need:

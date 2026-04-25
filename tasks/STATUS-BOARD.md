@@ -214,8 +214,8 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0029 | Supply-Chain v1: SBOM + repro metadata + signature allowlist policy | Done | Host reject-path proofs + OS supply-chain marker gate green; docs and tracking synced |
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
 
-Current queue head: `TASK-0046` (`Draft`, 2026-04-24).  
-Current contract status: `RFC-0043` (`Done`, 2026-04-24); execution SSOT `TASK-0045` is `Done`.
+Current queue head: `TASK-0046` (`In Review`, 2026-04-24).  
+Current contract status: `RFC-0044` (`Done`, 2026-04-24); execution SSOT `TASK-0046` is `In Review`.
 
 ---
 

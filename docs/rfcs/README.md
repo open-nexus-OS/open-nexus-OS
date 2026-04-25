@@ -181,5 +181,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md
 - RFC-0043: DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed (Done; execution SSOT `TASK-0045` is Done)
   - docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md
-- RFC-0044: Config v1 (`configd` + schemas + layering + 2PC + `nx config`) — host-first, OS-gated contract seed (In Progress; execution SSOT `TASK-0046` is In Progress)
+- RFC-0044: Config v1 (`configd` + schemas + layering + 2PC + `nx config`) — host-first, OS-gated contract seed (Done; host proof floor green, OS marker closure delegated to downstream follow-ups; execution SSOT `TASK-0046` is In Review)
   - docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md

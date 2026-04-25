@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-nexus-os.dev/schemas/config/v1/security.sandbox.schema.json",
+  "title": "security sandbox config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "default_profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "max_caps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1024
+    }
+  }
+}

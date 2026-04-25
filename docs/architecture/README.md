@@ -1,3 +1,6 @@
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Architecture index (`docs/architecture/`)
 
 This directory contains **high-level architecture notes** for key subsystems.
@@ -81,6 +84,10 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 - `14-samgrd-service-manager.md` — `samgrd` (OS service registry authority)
 - `15-bundlemgrd.md` — `bundlemgrd` (OS bundle/package authority)
+- Config v1 authority: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md` + `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
+  - `configd` is the canonical typed config distribution authority
+  - canonical runtime/persistence snapshots are Cap'n Proto
+  - `nx config ...` is the only host CLI surface for config operations
 
 ## On-device inference
 

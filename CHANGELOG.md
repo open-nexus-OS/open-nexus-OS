@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-24
+
+#### TASK-0046 / RFC-0044 closure sync (`TASK-0046`, `RFC-0044`)
+
+- Closed the Config v1 host-first contract floor:
+  - JSON-only authoring for layered config sources under `/system/config` and `/state/config`
+  - canonical Cap'n Proto effective snapshots remain the runtime/persistence authority
+  - `configd` subscriber/update notification seam is covered by deterministic host tests
+  - `nx config push` now writes deterministic state overlay `state/config/90-nx-config.json`
+- Added closure-proof coverage:
+  - lexical-order layer-directory merge proof in `nexus-config`
+  - non-JSON authoring reject proof in `nexus-config`
+  - `nx config reload --json` and `nx config where --json` contract tests
+  - `nx config effective --json` parity proof against `configd` version + derived JSON
+- Synchronized status/index/queue surfaces:
+  - `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md` → `In Review`
+  - `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md` → `Done`
+  - `docs/rfcs/README.md`, `tasks/IMPLEMENTATION-ORDER.md`, `tasks/STATUS-BOARD.md`
+  - `.cursor/current_state.md`, `.cursor/handoff/current.md`, `.cursor/next_task_prep.md`, `.cursor/pre_flight.md`, `.cursor/stop_conditions.md`, `.cursor/context_bundles.md`
+- Normalized touched Rust source headers to the documented standard (`OWNERS` / `STATUS` / `API_STABILITY` / `TEST_COVERAGE` / `ADR`) and refreshed docs to describe the current proof state.
+
 ### Changed - 2026-04-23
 
 #### TASK-0032 / RFC-0041 status synchronization (`TASK-0032`, `RFC-0041`)
