@@ -75,10 +75,7 @@ pub struct NxError {
 
 impl NxError {
     fn new(class: ExitClass, message: impl Into<String>) -> Self {
-        Self {
-            class,
-            message: message.into(),
-        }
+        Self { class, message: message.into() }
     }
 }
 
@@ -342,10 +339,7 @@ fn print_result(class: ExitClass, message: String, json_mode: bool, data: Option
 
     println!("{message}");
     if let Some(data) = data {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&data).unwrap_or_else(|_| "{}".to_string())
-        );
+        println!("{}", serde_json::to_string_pretty(&data).unwrap_or_else(|_| "{}".to_string()));
     }
 }
 
@@ -387,10 +381,7 @@ fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
 
 fn validate_name(name: &str) -> Result<(), NxError> {
     if name.is_empty() {
-        return Err(NxError::new(
-            ExitClass::ValidationReject,
-            "name must not be empty",
-        ));
+        return Err(NxError::new(ExitClass::ValidationReject, "name must not be empty"));
     }
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err(NxError::new(
@@ -403,16 +394,10 @@ fn validate_name(name: &str) -> Result<(), NxError> {
 
 fn validate_relative_root(root: &Path) -> Result<(), NxError> {
     if root.is_absolute() {
-        return Err(NxError::new(
-            ExitClass::ValidationReject,
-            "absolute root path is rejected",
-        ));
+        return Err(NxError::new(ExitClass::ValidationReject, "absolute root path is rejected"));
     }
     if root.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(NxError::new(
-            ExitClass::ValidationReject,
-            "root path traversal is rejected",
-        ));
+        return Err(NxError::new(ExitClass::ValidationReject, "root path traversal is rejected"));
     }
     Ok(())
 }
@@ -428,14 +413,9 @@ fn handle_new(args: NewArgs, cfg: &RuntimeConfig) -> ExecResult {
     if let Some(root) = &item_args.root {
         validate_relative_root(root)?;
     }
-    let root = cfg
-        .repo_root
-        .join(item_args.root.as_deref().unwrap_or(Path::new(".")));
-    let target_name = if kind == "test" {
-        format!("{}_host", item_args.name)
-    } else {
-        item_args.name.clone()
-    };
+    let root = cfg.repo_root.join(item_args.root.as_deref().unwrap_or(Path::new(".")));
+    let target_name =
+        if kind == "test" { format!("{}_host", item_args.name) } else { item_args.name.clone() };
     let target_dir = root.join(base_path).join(&target_name);
 
     if target_dir.exists() {
@@ -448,10 +428,7 @@ fn handle_new(args: NewArgs, cfg: &RuntimeConfig) -> ExecResult {
     fs::create_dir_all(target_dir.join("src"))
         .map_err(|e| NxError::new(ExitClass::Internal, format!("failed creating tree: {e}")))?;
     fs::create_dir_all(target_dir.join("docs/stubs")).map_err(|e| {
-        NxError::new(
-            ExitClass::Internal,
-            format!("failed creating docs tree: {e}"),
-        )
+        NxError::new(ExitClass::Internal, format!("failed creating docs tree: {e}"))
     })?;
 
     let cargo_toml = CARGO_TOML_TEMPLATE.replace("{{CRATE_NAME}}", &target_name.replace('-', "_"));
@@ -459,18 +436,12 @@ fn handle_new(args: NewArgs, cfg: &RuntimeConfig) -> ExecResult {
     let stub_doc = STUB_README_TEMPLATE.replace("{{KIND}}", template_title);
 
     fs::write(target_dir.join("Cargo.toml"), cargo_toml).map_err(|e| {
-        NxError::new(
-            ExitClass::Internal,
-            format!("failed writing Cargo.toml: {e}"),
-        )
+        NxError::new(ExitClass::Internal, format!("failed writing Cargo.toml: {e}"))
     })?;
     fs::write(target_dir.join("src/main.rs"), main_rs)
         .map_err(|e| NxError::new(ExitClass::Internal, format!("failed writing main.rs: {e}")))?;
     fs::write(target_dir.join("docs/stubs/README.md"), stub_doc).map_err(|e| {
-        NxError::new(
-            ExitClass::Internal,
-            format!("failed writing stub README: {e}"),
-        )
+        NxError::new(ExitClass::Internal, format!("failed writing stub README: {e}"))
     })?;
 
     let message = format!(
@@ -503,18 +474,11 @@ fn handle_inspect_nxb(args: InspectNxbArgs) -> ExecResult {
     let mut meta_files = Vec::new();
     let mut payload_sha256 = None;
 
-    let entries = fs::read_dir(&args.path).map_err(|e| {
-        NxError::new(
-            ExitClass::Internal,
-            format!("failed to read directory: {e}"),
-        )
-    })?;
+    let entries = fs::read_dir(&args.path)
+        .map_err(|e| NxError::new(ExitClass::Internal, format!("failed to read directory: {e}")))?;
     for entry in entries {
         let entry = entry.map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed to iterate directory: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed to iterate directory: {e}"))
         })?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -527,19 +491,13 @@ fn handle_inspect_nxb(args: InspectNxbArgs) -> ExecResult {
     let payload_path = args.path.join("payload.elf");
     if payload_path.exists() {
         let mut file = fs::File::open(&payload_path).map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed opening payload.elf: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed opening payload.elf: {e}"))
         })?;
         let mut hasher = Sha256::new();
         let mut buf = [0_u8; 8192];
         loop {
             let read = file.read(&mut buf).map_err(|e| {
-                NxError::new(
-                    ExitClass::Internal,
-                    format!("failed reading payload.elf: {e}"),
-                )
+                NxError::new(ExitClass::Internal, format!("failed reading payload.elf: {e}"))
             })?;
             if read == 0 {
                 break;
@@ -562,12 +520,7 @@ fn handle_inspect_nxb(args: InspectNxbArgs) -> ExecResult {
         "payload_sha256": payload_sha256,
         "meta_files": meta_files,
     });
-    Ok((
-        ExitClass::Success,
-        "inspect nxb summary generated".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "inspect nxb summary generated".to_string(), args.json, Some(data)))
 }
 
 fn collect_files(root: &Path, out: &mut Vec<String>, strip_prefix: &Path) -> Result<(), NxError> {
@@ -575,10 +528,7 @@ fn collect_files(root: &Path, out: &mut Vec<String>, strip_prefix: &Path) -> Res
         .map_err(|e| NxError::new(ExitClass::Internal, format!("failed reading meta dir: {e}")))?
     {
         let entry = entry.map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed iterating meta dir: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed iterating meta dir: {e}"))
         })?;
         let path = entry.path();
         if path.is_dir() {
@@ -634,12 +584,7 @@ fn handle_idl(args: IdlArgs, cfg: &RuntimeConfig) -> ExecResult {
                 "schema_count": schemas.len(),
                 "capnp": capnp_ok,
             });
-            Ok((
-                ExitClass::Success,
-                "idl check passed".to_string(),
-                check.json,
-                Some(data),
-            ))
+            Ok((ExitClass::Success, "idl check passed".to_string(), check.json, Some(data)))
         }
     }
 }
@@ -656,10 +601,7 @@ fn list_schemas(root: &Path) -> Result<Vec<String>, NxError> {
         .map_err(|e| NxError::new(ExitClass::Internal, format!("failed reading idl root: {e}")))?
     {
         let entry = entry.map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed iterating idl root: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed iterating idl root: {e}"))
         })?;
         let path = entry.path();
         if path.extension() == Some(OsStr::new("capnp")) {
@@ -668,10 +610,7 @@ fn list_schemas(root: &Path) -> Result<Vec<String>, NxError> {
     }
     schemas.sort();
     if schemas.is_empty() {
-        return Err(NxError::new(
-            ExitClass::ValidationReject,
-            "no schema files found in idl root",
-        ));
+        return Err(NxError::new(ExitClass::ValidationReject, "no schema files found in idl root"));
     }
     Ok(schemas)
 }
@@ -732,12 +671,7 @@ fn handle_postflight(args: PostflightArgs, cfg: &RuntimeConfig) -> ExecResult {
     });
 
     if output.status.success() {
-        Ok((
-            ExitClass::Success,
-            "postflight delegate succeeded".to_string(),
-            args.json,
-            Some(data),
-        ))
+        Ok((ExitClass::Success, "postflight delegate succeeded".to_string(), args.json, Some(data)))
     } else {
         Ok((
             ExitClass::DelegateFailure,
@@ -803,17 +737,8 @@ fn handle_doctor_with_path(args: DoctorArgs, path_var: Option<std::ffi::OsString
         "hint": "Install missing required tools and rerun nx doctor"
     });
 
-    if data["missing_required"]
-        .as_array()
-        .map(|v| v.is_empty())
-        .unwrap_or(false)
-    {
-        Ok((
-            ExitClass::Success,
-            "doctor passed".to_string(),
-            args.json,
-            Some(data),
-        ))
+    if data["missing_required"].as_array().map(|v| v.is_empty()).unwrap_or(false) {
+        Ok((ExitClass::Success, "doctor passed".to_string(), args.json, Some(data)))
     } else {
         Ok((
             ExitClass::MissingDependency,
@@ -859,10 +784,7 @@ fn handle_dsl(args: DslArgs, cfg: &RuntimeConfig) -> ExecResult {
     if !backend.exists() {
         return Ok((
             ExitClass::Unsupported,
-            format!(
-                "dsl backend unsupported; backend not found: {}",
-                backend.display()
-            ),
+            format!("dsl backend unsupported; backend not found: {}", backend.display()),
             args.json,
             Some(json!({
                 "backend": backend,
@@ -876,16 +798,9 @@ fn handle_dsl(args: DslArgs, cfg: &RuntimeConfig) -> ExecResult {
         DslAction::Lint => "lint",
         DslAction::Build => "build",
     };
-    let output = Command::new(&backend)
-        .arg(action)
-        .args(&args.args)
-        .output()
-        .map_err(|e| {
-            NxError::new(
-                ExitClass::DelegateFailure,
-                format!("failed executing dsl delegate: {e}"),
-            )
-        })?;
+    let output = Command::new(&backend).arg(action).args(&args.args).output().map_err(|e| {
+        NxError::new(ExitClass::DelegateFailure, format!("failed executing dsl delegate: {e}"))
+    })?;
 
     let data = json!({
         "backend": backend,
@@ -895,19 +810,9 @@ fn handle_dsl(args: DslArgs, cfg: &RuntimeConfig) -> ExecResult {
     });
 
     if output.status.success() {
-        Ok((
-            ExitClass::Success,
-            "dsl delegate succeeded".to_string(),
-            args.json,
-            Some(data),
-        ))
+        Ok((ExitClass::Success, "dsl delegate succeeded".to_string(), args.json, Some(data)))
     } else {
-        Ok((
-            ExitClass::DelegateFailure,
-            "dsl delegate failed".to_string(),
-            args.json,
-            Some(data),
-        ))
+        Ok((ExitClass::DelegateFailure, "dsl delegate failed".to_string(), args.json, Some(data)))
     }
 }
 
@@ -958,12 +863,7 @@ fn handle_config_effective(args: ConfigEffectiveArgs, cfg: &RuntimeConfig) -> Ex
         "version": snapshot.version,
         "effective": snapshot.merged_json,
     });
-    Ok((
-        ExitClass::Success,
-        "effective config generated".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "effective config generated".to_string(), args.json, Some(data)))
 }
 
 fn handle_config_diff(args: ConfigDiffArgs, _cfg: &RuntimeConfig) -> ExecResult {
@@ -988,12 +888,7 @@ fn handle_config_diff(args: ConfigDiffArgs, _cfg: &RuntimeConfig) -> ExecResult 
         "from_effective": from_snapshot.merged_json,
         "to_effective": to_snapshot.merged_json,
     });
-    Ok((
-        ExitClass::Success,
-        "config diff generated".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "config diff generated".to_string(), args.json, Some(data)))
 }
 
 fn handle_config_push(args: ConfigPushArgs, cfg: &RuntimeConfig) -> ExecResult {
@@ -1014,20 +909,14 @@ fn handle_config_push(args: ConfigPushArgs, cfg: &RuntimeConfig) -> ExecResult {
     fs::create_dir_all(&state_dir).map_err(|e| {
         NxError::new(
             ExitClass::Internal,
-            format!(
-                "failed creating state config directory '{}': {e}",
-                state_dir.display()
-            ),
+            format!("failed creating state config directory '{}': {e}", state_dir.display()),
         )
     })?;
     let state_path = state_dir.join(format!("{STATE_CONFIG_FILENAME}.json"));
     fs::write(&state_path, bytes).map_err(|e| {
         NxError::new(
             ExitClass::Internal,
-            format!(
-                "failed writing state config '{}': {e}",
-                state_path.display()
-            ),
+            format!("failed writing state config '{}': {e}", state_path.display()),
         )
     })?;
     Ok((
@@ -1045,11 +934,7 @@ fn handle_config_reload(args: ConfigReloadArgs, cfg: &RuntimeConfig) -> ExecResu
     let report: ReloadReport = daemon
         .reload(layers)
         .map_err(|e| NxError::new(ExitClass::ValidationReject, e.to_string()))?;
-    let class = if report.committed {
-        ExitClass::Success
-    } else {
-        ExitClass::DelegateFailure
-    };
+    let class = if report.committed { ExitClass::Success } else { ExitClass::DelegateFailure };
     let message = if report.committed {
         "config reload committed".to_string()
     } else {
@@ -1067,24 +952,13 @@ fn handle_config_reload(args: ConfigReloadArgs, cfg: &RuntimeConfig) -> ExecResu
 
 fn handle_config_where(args: ConfigWhereArgs, cfg: &RuntimeConfig) -> ExecResult {
     let data = config_paths(cfg);
-    Ok((
-        ExitClass::Success,
-        "config source paths".to_string(),
-        args.json,
-        Some(json!(data)),
-    ))
+    Ok((ExitClass::Success, "config source paths".to_string(), args.json, Some(json!(data))))
 }
 
 fn config_paths(cfg: &RuntimeConfig) -> BTreeMap<String, String> {
     BTreeMap::from([
-        (
-            "system".to_string(),
-            cfg.repo_root.join("system/config").display().to_string(),
-        ),
-        (
-            "state".to_string(),
-            cfg.repo_root.join("state/config").display().to_string(),
-        ),
+        ("system".to_string(), cfg.repo_root.join("system/config").display().to_string()),
+        ("state".to_string(), cfg.repo_root.join("state/config").display().to_string()),
         ("env_prefix".to_string(), "NEXUS_CFG_".to_string()),
     ])
 }
@@ -1108,9 +982,8 @@ fn load_layers_from_repo(cfg: &RuntimeConfig) -> Result<LayerInputs, NxError> {
     layers.state = load_layer_dir(&state_path)
         .map_err(|e| NxError::new(ExitClass::ValidationReject, e.to_string()))?;
 
-    let env_pairs = std::env::vars()
-        .filter(|(k, _)| k.starts_with("NEXUS_CFG_"))
-        .collect::<BTreeMap<_, _>>();
+    let env_pairs =
+        std::env::vars().filter(|(k, _)| k.starts_with("NEXUS_CFG_")).collect::<BTreeMap<_, _>>();
     layers.env = env_overrides_from_pairs(&env_pairs)
         .map_err(|e| NxError::new(ExitClass::ValidationReject, e.to_string()))?;
 
@@ -1146,14 +1019,8 @@ mod tests {
     #[test]
     fn test_reject_new_service_absolute_path() {
         let root = TempDir::new().expect("tempdir");
-        let cli = Cli::parse_from([
-            "nx",
-            "new",
-            "service",
-            "svc",
-            "--root",
-            "/tmp/absolute-path-reject",
-        ]);
+        let cli =
+            Cli::parse_from(["nx", "new", "service", "svc", "--root", "/tmp/absolute-path-reject"]);
         let err = execute(cli, &test_cfg(root.path())).expect_err("must reject absolute root");
         assert_eq!(err.class, ExitClass::ValidationReject);
     }
@@ -1164,14 +1031,8 @@ mod tests {
         let cli = Cli::parse_from(["nx", "new", "service", "svc-a", "--json"]);
         let (class, _, _, _) = execute(cli, &test_cfg(root.path())).expect("must succeed");
         assert_eq!(class, ExitClass::Success);
-        assert!(root
-            .path()
-            .join("source/services/svc-a/Cargo.toml")
-            .exists());
-        assert!(root
-            .path()
-            .join("source/services/svc-a/src/main.rs")
-            .exists());
+        assert!(root.path().join("source/services/svc-a/Cargo.toml").exists());
+        assert!(root.path().join("source/services/svc-a/src/main.rs").exists());
     }
 
     #[test]
@@ -1280,13 +1141,8 @@ mod tests {
         fs::write(nxb_dir.join("payload.elf"), b"abc").expect("payload");
         fs::write(nxb_dir.join("meta/info.txt"), "ok").expect("meta file");
 
-        let cli = Cli::parse_from([
-            "nx",
-            "inspect",
-            "nxb",
-            nxb_dir.to_string_lossy().as_ref(),
-            "--json",
-        ]);
+        let cli =
+            Cli::parse_from(["nx", "inspect", "nxb", nxb_dir.to_string_lossy().as_ref(), "--json"]);
         let (class, _, _, data) = execute(cli, &test_cfg(root.path())).expect("inspect works");
         assert_eq!(class, ExitClass::Success);
         let data = data.expect("data");
@@ -1327,13 +1183,8 @@ mod tests {
 }"#,
         )
         .expect("write");
-        let cli = Cli::parse_from([
-            "nx",
-            "config",
-            "push",
-            input.to_string_lossy().as_ref(),
-            "--json",
-        ]);
+        let cli =
+            Cli::parse_from(["nx", "config", "push", input.to_string_lossy().as_ref(), "--json"]);
         let (class, _, _, data) = execute(cli, &test_cfg(root.path())).expect("push success");
         assert_eq!(class, ExitClass::Success);
         assert!(root.path().join("state/config/90-nx-config.json").exists());
