@@ -52,6 +52,41 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0047_context
+- `tasks/TASK-0047-policy-as-code-v1-unified-engine.md`
+- `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
+- `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
+- `docs/adr/0014-policy-architecture.md`
+- `docs/adr/0017-service-architecture.md`
+- `docs/adr/0021-structured-data-formats-json-vs-capnp.md`
+- `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`
+- `tasks/TASK-0045-devx-nx-cli-v1.md`
+- `docs/devx/nx-cli.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+
+### @task_0047_touched
+- `policies/`
+- `schemas/policy/`
+- `recipes/policy/` (migration/parity only; must not remain a second live authority)
+- `userspace/policy/`
+- `source/services/policyd/`
+- `tools/nx/`
+- `tools/policy-gen/`
+- `tests/`
+- `docs/security/policy-as-code.md`
+- `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
+- `docs/rfcs/README.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
+- `tasks/STATUS-BOARD.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
 - `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`

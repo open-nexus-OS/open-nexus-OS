@@ -30,7 +30,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
 | DSL, App Platform & SDK | 0 / 14 | 0% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
-| DevX, Config & Tooling | 1 / 10 | 10% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
+| DevX, Config & Tooling | 2 / 10 | 20% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
 
 ---
 
@@ -173,7 +173,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### DevX, Config & Tooling
 
-- Progress: `1 / 10` done (`10%`)
+- Progress: `2 / 10` done (`20%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0045`..`TASK-0046`, `TASK-0138`, `TASK-0222`, `TASK-0252`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`
 
@@ -213,9 +213,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0023 | DSoftBus QUIC v2 OS enabled (gated) | Done | Real OS QUIC-v2 UDP session path shipped: `transport selected quic` + auth/session markers proven; fallback markers rejected in QUIC-required profile |
 | ✅ TASK-0029 | Supply-Chain v1: SBOM + repro metadata + signature allowlist policy | Done | Host reject-path proofs + OS supply-chain marker gate green; docs and tracking synced |
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
+| ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
 
-Current queue head: `TASK-0046` (`In Review`, 2026-04-24).  
-Current contract status: `RFC-0044` (`Done`, 2026-04-24); execution SSOT `TASK-0046` is `In Review`.
+Current queue head: `TASK-0047` (`In Progress`, 2026-04-26).  
+Current contract status: `RFC-0045` (`In Progress`, 2026-04-26); predecessor `RFC-0044` / `TASK-0046` are `Done`.
 
 ---
 

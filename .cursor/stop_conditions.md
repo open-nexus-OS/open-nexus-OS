@@ -42,14 +42,47 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] Follow-up contract hand-off remains explicit and unbroken:
   - [ ] `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
 
-## Active progress snapshot (TASK-0046 in review, 2026-04-24)
-- [x] `TASK-0046` is synchronized to `In Review` and `RFC-0044` remains `Done`.
-- [x] Host reject/determinism/API/2PC/CLI proof floor is green.
-- [x] Canonical Cap'n Proto authority is implemented; JSON-only authoring/derived view discipline is enforced.
-- [x] No parallel `nx-*` authority introduced (`nx config` under `tools/nx`).
-- [x] Queue/docs sync is complete for post-closure handoff.
-- [x] Header discipline is synchronized on touched Rust sources and reflects actual current test coverage.
-- [ ] OS/QEMU marker+state coupled proof remains gated and not claimed for this host-first cut.
+## TASK-0047 class stop conditions (Policy as Code v1 unified engine + `nx policy`)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0047` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0045` remains linked and contract-aligned.
+- [ ] Single-authority policy boundary is enforced:
+  - [ ] `policyd` remains the decision authority,
+  - [ ] no second live policy root remains after migration,
+  - [ ] no parallel policy daemon/compiler authority exists.
+- [ ] Config-v1 carry-in boundary is enforced:
+  - [ ] reload/version transitions flow through `configd`,
+  - [ ] previous policy version remains active after reject/timeout/failed apply.
+- [ ] Deterministic evaluator behavior is proven:
+  - [ ] equivalent policy inputs yield the same canonical version/hash,
+  - [ ] explain traces are bounded and deterministic,
+  - [ ] invalid/oversize/ambiguous inputs fail closed with stable reject classes.
+- [ ] Learn/dry-run lifecycle is honest:
+  - [ ] dry-run never grants what enforce would deny,
+  - [ ] learn mode is bounded and audited,
+  - [ ] unauthenticated/stale mode transitions are rejected.
+- [ ] Phase 0 `nx` no-drift refactor is complete and honest:
+  - [ ] `tools/nx` structure is split as planned,
+  - [ ] current CLI behavior remains unchanged during the refactor,
+  - [ ] `nx policy` lives under `tools/nx` with no `nx-*` fork.
+- [ ] Behavior-first proof floor is green:
+  - [ ] `cargo test -p policy -- --nocapture`
+  - [ ] `cargo test -p policyd -- --nocapture`
+  - [ ] `cargo test -p nx -- --nocapture`
+  - [ ] required `test_reject_*` suites are green,
+  - [ ] at least one migrated adapter parity proof is green before cutover claims.
+- [ ] Marker honesty contract is enforced:
+  - [ ] marker-only evidence is not used for closure,
+  - [ ] later OS/QEMU markers, if claimed, are paired with deterministic state/result assertions.
+
+## Active progress snapshot (TASK-0047 in progress, 2026-04-26)
+- [x] `TASK-0046` and `RFC-0044` are synchronized to `Done`.
+- [x] `TASK-0047` and `RFC-0045` are linked as the new execution+contract pair.
+- [x] Gate B framing, security section, red flags, and behavior-first proof expectations are present in `TASK-0047`.
+- [x] Phase 0 `tools/nx` structure refactor is explicitly scoped in task + RFC.
+- [x] Queue/docs/workfiles are synchronized to the new prep state.
+- [ ] Host proof floor for Policy as Code is not yet claimed.
+- [ ] OS/QEMU policy closure remains gated and unclaimed.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

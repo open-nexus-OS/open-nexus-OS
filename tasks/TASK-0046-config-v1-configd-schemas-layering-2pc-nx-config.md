@@ -1,6 +1,6 @@
 ---
 title: TASK-0046 Config & Schema v1: configd broker + Cap'n Proto canonical snapshot + JSON Schema validation + deterministic layering + 2PC reload (+ nx config)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on: []

@@ -42,11 +42,19 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 ---
 
+## In Progress
+
+| Task | Title | Status |
+|------|-------|--------|
+| 🚧 TASK-0047 | Policy as Code v1: unified policy engine | In Progress |
+
+---
+
 ## In Review
 
 | Task | Title | Status |
 |------|-------|--------|
-| 🔎 TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | In Review |
+| — | — | — |
 
 ---
 
@@ -90,6 +98,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0032 | PackageFS v2: RO image index + fastpath | 2026-04-23 |
 | ✅ TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | 2026-04-24 |
 | ✅ TASK-0045 | DevX nx-cli v1 | 2026-04-24 |
+| ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | 2026-04-26 |
 
 ---
 

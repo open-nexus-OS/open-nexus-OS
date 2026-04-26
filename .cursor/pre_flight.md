@@ -28,6 +28,14 @@ This is the anti-fake-success gate.
 - [ ] Canonical snapshot determinism proof is green (equivalent input -> byte-identical Cap'n Proto snapshot).
 - [ ] Boundedness reject suite is green (depth/size/type/unknown-field fail closed with stable non-zero classification).
 
+## Task-0047 automatic addendum (when applicable)
+- [ ] `cargo test -p policy -- --nocapture` is green for canonicalization/evaluator/reject coverage.
+- [ ] `cargo test -p policyd -- --nocapture` is green for reload/eval/mode contract coverage.
+- [ ] `cargo test -p nx -- --nocapture` is green for `nx policy` and Phase 0 no-regression coverage.
+- [ ] Policy version determinism proof is green (equivalent policy input -> identical version/hash).
+- [ ] Reject-path suite is green (`test_reject_*` for invalid/oversize/unauthorized/stale lifecycle cases).
+- [ ] At least one migrated adapter parity proof is green before unified cutover is claimed.
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks
@@ -54,19 +62,34 @@ This is the anti-fake-success gate.
   - [ ] no parallel `nx-config` logic fork was introduced.
 - [ ] Follow-up hand-off requirements remain intact for `TASK-0047`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`.
 
-## Active progress snapshot (TASK-0046 in review, 2026-04-24)
-- [x] `TASK-0046` execution SSOT is synchronized to `In Review`.
-- [x] `RFC-0044` contract seed is synchronized to `Done`.
-- [x] JSON-only layered authoring contract is enforced in code/docs.
-- [x] `configd` subscriber/update notification seam is covered by host tests.
-- [x] `nx config effective --json` parity with `configd` version + derived JSON is covered by host tests.
-- [x] Host proof floor green:
-  - [x] `cargo test -p nexus-config -- --nocapture`
-  - [x] `cargo test -p configd -- --nocapture`
-  - [x] `cargo test -p nx -- --nocapture`
-- [x] Status/index/queue sync complete for the review state (`README`, `IMPLEMENTATION-ORDER`, `STATUS-BOARD`, `.cursor` workfiles).
-- [x] Touched Rust source headers match the documented standard and describe current test state.
-- [ ] OS/QEMU marker closure remains gated and is intentionally not claimed in this host-first cut.
+## Task-0047 manual addendum (when applicable)
+- [ ] Execution SSOT and contract seed are synchronized:
+  - [ ] `TASK-0047` reflects current implementation/proofs/gates,
+  - [ ] `RFC-0045` reflects the same single-authority/reload/CLI contract.
+- [ ] Single-authority policy boundary is preserved:
+  - [ ] `policyd` remains the decision authority,
+  - [ ] no second live policy root remains after migration,
+  - [ ] adapters consult the unified policy tree rather than duplicating policy logic.
+- [ ] Config-v1 carry-in boundary is preserved:
+  - [ ] `configd` remains the reload/version authority,
+  - [ ] no parallel policy reload plane is introduced.
+- [ ] Phase 0 honesty is preserved:
+  - [ ] `tools/nx` refactor is behavior-preserving,
+  - [ ] `nx policy` remains under `tools/nx`,
+  - [ ] no `nx-*` binary or logic drift appears.
+- [ ] Proof shape remains behavior-first:
+  - [ ] reject-path proofs cover task requirements rather than implementation quirks,
+  - [ ] adapter parity is proven before claiming cutover,
+  - [ ] markers, if any, summarize already-proven behavior.
+
+## Active progress snapshot (TASK-0047 in progress, 2026-04-26)
+- [x] `TASK-0046` / `RFC-0044` are synchronized to `Done`.
+- [x] `TASK-0047` / `RFC-0045` are linked and form the new execution+contract pair.
+- [x] `TASK-0047` task text is pre-aligned to Gate B, security invariants, and behavior-first proof discipline.
+- [x] Phase 0 `tools/nx` structure refactor and chosen folder layout are documented in task + RFC.
+- [x] Status/index/queue/workfiles are synchronized to the `TASK-0047` preparation state.
+- [ ] Host proofs for Policy-as-Code are not yet claimed.
+- [ ] OS/QEMU policy markers remain gated and intentionally unclaimed.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:
