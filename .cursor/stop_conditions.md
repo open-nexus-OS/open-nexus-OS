@@ -128,11 +128,17 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [x] `cargo test -p nx -- --nocapture`
 - [x] OS/QEMU policy closure remains gated and unclaimed.
 
-## Active progress snapshot (TASK-0054 kickoff, 2026-04-27)
-- [x] `TASK-0054` and `RFC-0046` are synchronized to `In Progress`.
+## Active progress snapshot (TASK-0054 review, 2026-04-27)
+- [x] `TASK-0054` is synchronized to `In Review`.
+- [x] `RFC-0046` is synchronized to `Done`.
 - [x] RFC-0046 is linked from TASK-0054 and `docs/rfcs/README.md`.
 - [x] TASK-0054-specific context bundle, pre-flight, and stop-condition profiles are present.
-- [x] Host-only scope, no-fake-marker rule, Rust type/ownership discipline, and escalation requirements are explicit before implementation.
+- [x] Host-only scope, no-fake-marker rule, Rust type/ownership discipline, and escalation requirements stayed enforced.
+- [x] Host proof floor is green:
+  - [x] `cargo test -p ui_renderer -- --nocapture`
+  - [x] `cargo test -p ui_host_snap -- --nocapture`
+  - [x] `cargo test -p ui_host_snap reject -- --nocapture`
+  - [x] `just diag-host`
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

@@ -14,18 +14,21 @@ members = [
     "source/drivers/storage/virtio-blk",
     "source/drivers/console/virtio",
     "tools/*",
+    "userspace/ui/renderer",
     "tests/e2e",
     "tests/e2e_policy",
     "tests/logd_e2e",
     "tests/remote_e2e",
     "tests/vfs_e2e",
-    "tests/updates_host"
+    "tests/updates_host",
+    "tests/ui_host_snap"
 ]
 resolver = "2"
 exclude = [
     # Exclude the umbrella directory that contains sub-crates to avoid Cargo
     # treating it as a workspace member without its own Cargo.toml.
     "userspace/apps",
+    "userspace/ui",
     # Vendored patch crate; not a first-class workspace member.
     "vendor/smoltcp",
     # QEMU source and patch artifacts (not a Rust crate).

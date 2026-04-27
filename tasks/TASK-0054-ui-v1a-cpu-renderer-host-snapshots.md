@@ -1,6 +1,6 @@
 ---
 title: TASK-0054 UI v1a (host-first): BGRA8888 CPU renderer + damage tracking + headless snapshots (PNG/SSIM)
-status: In Progress
+status: In Review
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -51,11 +51,12 @@ Scope note:
   a stable Scene-IR + Backend trait with a deterministic cpu2d backend and goldens.
   If `TASK-0169` lands, this task should be treated as “implemented by” that work (avoid parallel renderer crates).
 
-Current-state check (2026-04-27):
+Current-state check (2026-04-27 review sync):
 
-- `userspace/ui/renderer/` does not exist yet.
-- `TASK-0169` and `TASK-0170` are still `Draft`, so this task may proceed only as the minimal host-first
-  renderer/snapshot baseline unless the executor chooses to promote `TASK-0169` as the implementation vehicle.
+- `userspace/ui/renderer/` now exists as the narrow TASK-0054 renderer floor, not as the `TASK-0169` Scene-IR /
+  Backend-trait architecture.
+- `TASK-0169` and `TASK-0170` remain follow-up/successor scope. This task was not implemented by promoting
+  `TASK-0169`.
 - `Makefile` already exports `CARGO_TARGET_DIR=$(CURDIR)/target`, and `justfile` / `scripts/fmt-clippy-deny.sh`
   now default Cargo output to `<repo>/target` with `NEXUS_CARGO_TARGET_DIR` as the portable override.
 - The task is Gate E (`Windowing, UI & Graphics`, `production-floor`) under
@@ -215,6 +216,31 @@ This task does **not** close:
   - golden update is disabled unless `UPDATE_GOLDENS=1`,
   - fixture path traversal / absolute write targets reject.
 
+### Review evidence (2026-04-27)
+
+Green host proof commands:
+
+- `cargo test -p ui_renderer -- --nocapture` — 3 tests.
+- `cargo test -p ui_host_snap -- --nocapture` — 24 tests.
+- `cargo test -p ui_host_snap reject -- --nocapture` — 14 reject-filtered tests.
+- `just diag-host` — green host diagnostics compile gate.
+
+Proof notes:
+
+- The chosen route is the narrow TASK-0054 route: `Frame`, BGRA8888 primitives, deterministic fixture-font text,
+  and bounded `Damage`.
+- The renderer crate uses `#![forbid(unsafe_code)]`, checked newtypes for frame/image dimensions, stride, and damage
+  count, explicit owned buffers, and no global mutable renderer state.
+- Damage overflow deterministically coalesces to full-frame damage.
+- Snapshot comparison uses canonical BGRA pixels under `tests/ui_host_snap/goldens/`; PNG files are deterministic
+  artifacts, and gamma/iCCP metadata is ignored by decode/compare proof.
+- Golden update and absolute/traversal paths reject unless explicitly allowed through the update path; the safe update
+  path is proven under `target/ui_host_snap_artifacts/<pid>`.
+- The closure review added full rounded-rect/text masks, blit clipping with padded source stride, exact buffer-length
+  accept/reject coverage, oversized height rejects, malformed fixture-font rejects, and an anti-fake-marker source scan.
+- No OS/QEMU markers, `windowd`, compositor, GPU, MMIO/IRQ, scheduler, MM, IPC, VMO, or timer changes were introduced
+  or claimed.
+
 ## Touched paths (allowlist)
 
 - `userspace/ui/renderer/` (new crate)
@@ -222,6 +248,7 @@ This task does **not** close:
 - `tests/ui_host_snap/` (new)
 - `docs/dev/ui/foundations/quality/testing.md` (new)
 - `Cargo.toml` (workspace membership for new crates/tests; protected path, must be explicitly justified before edit)
+- `Cargo.lock` (workspace package metadata for the new `ui_renderer` / `ui_host_snap` members)
 - `CHANGELOG.md` / `tasks/IMPLEMENTATION-ORDER.md` / `tasks/STATUS-BOARD.md` (closeout sync only, if task status changes)
 
 ## Plan (small PRs)

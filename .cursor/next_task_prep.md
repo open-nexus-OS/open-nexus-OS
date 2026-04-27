@@ -1,20 +1,20 @@
 # Next Task Preparation (Drift-Free)
 
-## Active execution
+## Completed execution
 
-- **task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `In Progress`.
-- **contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `In Progress`.
+- **task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `In Review`.
+- **contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`.
 - **gate**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`).
 - **completed predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`.
 - **archived predecessor handoff**: `.cursor/handoff/archive/TASK-0047-policy-as-code-v1-unified-engine.md`.
 
-## TASK-0054 readiness checks
+## TASK-0054 closure checks
 
 - [x] Follow-up tasks are now in the header: `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0169`, `TASK-0170`.
 - [x] RFC-0046 exists and is linked from TASK-0054 plus `docs/rfcs/README.md`.
-- [x] TASK-0054 and RFC-0046 are marked `In Progress`; RFC-0046 Phase 0 is active.
+- [x] TASK-0054 is marked `In Review`; RFC-0046 is marked `Done`.
 - [x] `.cursor/context_bundles.md`, `.cursor/pre_flight.md`, and `.cursor/stop_conditions.md` include TASK-0054-specific entries.
-- [x] Current-state note matches repo reality: no existing `userspace/ui/renderer/`; `TASK-0169` / `TASK-0170` are still `Draft`.
+- [x] Current-state note matches repo reality: `userspace/ui/renderer/` exists as the narrow host proof floor; `TASK-0169` / `TASK-0170` remain successor scope.
 - [x] Security section exists with threat model, invariants, and DON'T DO list.
 - [x] Red flags are explicit:
   - `TASK-0169` overlap,
@@ -24,15 +24,17 @@
   - production-grade claim boundary.
 - [x] Production gate mapping is explicit: TASK-0054 contributes only Gate E `production-floor`, not Gate A kernel/core `production-grade`.
 - [x] Reject proof requirements are explicit for oversize inputs, invalid stride/dimensions, damage overflow, golden update gating, and fixture traversal.
+- [x] Proof floor is green:
+  - `cargo test -p ui_renderer -- --nocapture`
+  - `cargo test -p ui_host_snap -- --nocapture`
+  - `cargo test -p ui_host_snap reject -- --nocapture`
+  - `just diag-host`
 
-## Plan-mode prompts for implementation
+## Next task prep prompt
 
-- Decide whether to execute the narrow TASK-0054 renderer floor or promote `TASK-0169` as the implementation vehicle.
-- If TASK-0054 proceeds, keep API narrow: `Frame`, BGRA8888 primitives, deterministic text fixture, and bounded `Damage`.
-- Call out root `Cargo.toml` before editing because it is protected.
-- Treat `cargo test -p ui_host_snap` as the primary proof and avoid OS/QEMU claims.
-- Follow RFC-0046 Rust discipline: checked newtypes for confusing raw quantities, `#[must_use]` validation/errors, safe ownership, no unsafe `Send`/`Sync`, and `#![forbid(unsafe_code)]` for the host renderer crate unless a later RFC explicitly permits an exception.
-- If scheduler, memory management, IPC, VMO, or timer behavior is discovered to be too simplistic for a real UI floor, stop and report the gap; route it to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task.
+- Queue head is `TASK-0055` prep, but the next session must read that task/RFC context before implementation.
+- Carry forward TASK-0054 honesty: host renderer goldens prove deterministic pixels/damage only, not OS present, compositor, input, GPU, or kernel/core production-grade behavior.
+- If `TASK-0055` or follow-ups need scheduler/MM/IPC/VMO/timer fixes, route to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task rather than retrofitting TASK-0054.
 
 ## Carry-forward guardrails
 

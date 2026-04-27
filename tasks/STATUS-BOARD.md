@@ -143,7 +143,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Windowing, UI & Graphics
 
-- Progress: `0 / 73` done (`0%`)
+- Progress: `1 / 73` done (`1%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0275`
 
@@ -215,8 +215,8 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
 
-Current queue head: next task selection pending after `TASK-0047` (`Done`, 2026-04-26).
-Current contract status: `RFC-0045` (`In Progress`, 2026-04-26); predecessor `RFC-0044` / `TASK-0046` are `Done`.
+Current queue head: `TASK-0054` review pending; `TASK-0055` prep follows after review closure.
+Current contract status: `RFC-0046` (`Done`, 2026-04-27); no OS/QEMU renderer marker claim was made.
 
 ---
 

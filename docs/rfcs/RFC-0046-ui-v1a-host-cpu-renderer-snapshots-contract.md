@@ -1,6 +1,6 @@
 # RFC-0046: UI v1a host CPU renderer + deterministic snapshots contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui @runtime
 - Created: 2026-04-27
 - Last Updated: 2026-04-27
@@ -13,14 +13,20 @@
 
 ## Status at a Glance
 
-- **Phase 0 (bounded renderer core contract)**: 🟨
-- **Phase 1 (deterministic host snapshots + goldens)**: [ ]
-- **Phase 2 (production-grade local hardening + escalation checks)**: [ ]
+- **Phase 0 (bounded renderer core contract)**: [x]
+- **Phase 1 (deterministic host snapshots + goldens)**: [x]
+- **Phase 2 (production-grade local hardening + escalation checks)**: [x]
 
 Definition:
 
-- "Complete" means this RFC's host renderer contract is implemented by `TASK-0054` with deterministic host proofs green and no OS/QEMU/kernel marker claims.
+- "Done" means this RFC's host renderer contract is implemented by `TASK-0054` with deterministic host proofs green and no OS/QEMU/kernel marker claims.
 - This RFC may require production-grade local hardening for bounds, ownership, input rejection, and proof quality. It does not claim Gate A kernel/core production-grade closure.
+- Completion evidence (2026-04-27):
+  - `cargo test -p ui_renderer -- --nocapture`
+  - `cargo test -p ui_host_snap -- --nocapture` — 24 tests
+  - `cargo test -p ui_host_snap reject -- --nocapture` — 14 reject-filtered tests
+  - `just diag-host`
+  - no OS/QEMU marker proof was run or claimed.
 
 ## Scope boundaries (anti-drift)
 
@@ -363,12 +369,17 @@ Escalation requirement:
 - **Treat host renderer goldens as production-grade UI smoothness evidence**:
   - Rejected. Goldens prove deterministic pixels, not kernel scheduling, memory reuse, or present latency.
 
-## Open questions
+## Resolved questions
 
-- Should TASK-0054 implement a tiny deterministic bitmap/vector test font, or carry a repo-owned fallback font fixture?
-- Should snapshot comparison write PNG files only as artifacts while asserting raw canonical pixels, or should PNG decode/compare be part of the required proof?
-- Should the bounded damage overflow behavior be full-frame coalesce or stable reject?
-- Should `TASK-0169` be promoted before implementation to avoid later API churn?
+- TASK-0054 implemented a repo-owned deterministic fixture font under `userspace/ui/fonts/`; no host font discovery or
+  locale fallback is used.
+- Snapshot comparison asserts canonical BGRA pixels and writes deterministic PNG artifacts; PNG metadata/gamma/iCCP does
+  not affect equality.
+- Bounded damage overflow deterministically coalesces to full-frame damage.
+- `TASK-0169` was not promoted; TASK-0054 stayed the narrow host proof floor that `TASK-0169` may later absorb.
+- Closure review strengthened proof quality with full rounded-rect/text masks, blit clipping with padded source stride,
+  exact buffer-length accept/reject coverage, oversized height rejects, malformed fixture-font rejects, safe golden update
+  proof under an explicit artifact root, and an anti-fake-marker source scan.
 
 ---
 
@@ -376,9 +387,9 @@ Escalation requirement:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: Bounded BGRA8888 renderer core + newtypes + safe ownership — proof: `cargo test -p ui_renderer -- --nocapture` or updated TASK-0054 equivalent.
-- [ ] **Phase 1**: Deterministic host snapshots + goldens + fixture font + update gating — proof: `cargo test -p ui_host_snap -- --nocapture`.
-- [ ] **Phase 2**: Reject tests and local production-grade hardening review — proof: `cargo test -p ui_host_snap reject -- --nocapture` plus TASK-0054 documented review of newtypes, `#[must_use]`, `Send`/`Sync`, and no fake markers.
-- [ ] Task linked with stop conditions + proof commands.
-- [ ] QEMU markers intentionally absent for TASK-0054.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: Bounded BGRA8888 renderer core + newtypes + safe ownership — proof: `cargo test -p ui_renderer -- --nocapture`.
+- [x] **Phase 1**: Deterministic host snapshots + goldens + fixture font + update gating — proof: `cargo test -p ui_host_snap -- --nocapture`.
+- [x] **Phase 2**: Reject tests and local production-grade hardening review — proof: `cargo test -p ui_host_snap reject -- --nocapture` plus TASK-0054 documented review of newtypes, `#[must_use]`, `Send`/`Sync`, and no fake markers.
+- [x] Task linked with stop conditions + proof commands.
+- [x] QEMU markers intentionally absent for TASK-0054.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

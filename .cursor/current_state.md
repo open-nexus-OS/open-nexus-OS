@@ -2,18 +2,19 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-27)**: TASK-0054 / RFC-0046 are `In Progress`. TASK-0054 is explicitly Gate E `production-floor` host-first UI renderer work, not Gate A kernel/core `production-grade` closure; RFC-0046 still requires production-grade local hardening for bounds, ownership, type safety, and proof honesty.
+- **last_decision (2026-04-27)**: TASK-0054 / RFC-0046 closure-gap remediation is complete enough for review state: `TASK-0054` is `In Review`, `RFC-0046` is `Done`. The claim remains a narrow Gate E host renderer proof floor, not OS/QEMU present or Gate A kernel/core production-grade closure.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
   - deterministic layering stays `defaults < /system < /state < env`,
   - `configd` owns deterministic reload/version transitions and honest 2PC semantics.
-- **gate tier**: active execution prep now sits on Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. Kernel/core production-grade UI work remains delegated to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, then `TASK-0288` / `TASK-0290`.
+- **gate tier**: next UI work remains on Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. Kernel/core production-grade UI work remains delegated to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, then `TASK-0288` / `TASK-0290`.
 
 ## Active execution state
 
-- **active_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `In Progress`
-- **active_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `In Progress`
+- **active_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `In Review`
+- **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
+- **next_queue_head**: `TASK-0054` review pending; `TASK-0055` prep follows after review closure. Do not infer OS/QEMU present closure from TASK-0054.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 
@@ -33,17 +34,35 @@
 - `policyd` stages already-validated `PolicyTree` candidates from Config v1 `policy.root` effective snapshots through the `configd::ConfigConsumer` 2PC seam; invalid candidates do not replace the active version.
 - `nx policy` lives only under `tools/nx/`.
 
-## TASK-0054 prep guardrails
+## TASK-0054 review evidence
 
 - `TASK-0054` header now carries follow-ups `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0169`, and `TASK-0170`.
-- `TASK-0054` now links `RFC-0046`; TASK-0054 remains the execution/proof SSOT, RFC-0046 owns contract/invariants.
-- Current repo state is recorded in the task: `userspace/ui/renderer/` does not exist; `TASK-0169` / `TASK-0170` remain `Draft`.
-- Security section is present for host renderer risks: resource exhaustion, golden update abuse, fixture traversal, malformed dimensions/stride, and future authority drift.
-- Red flags must be resolved before implementation: `TASK-0169` overlap, deterministic font fixture, PNG/golden determinism, protected root `Cargo.toml`, and production-grade claim boundary.
-- Primary proof target is `cargo test -p ui_host_snap`; no OS/QEMU present markers or kernel/compositor claims are in scope.
-- RFC-0046 requires Rust discipline for implementation: checked newtypes for dimensions/stride/damage counts, `#[must_use]` validation/error outcomes, safe ownership, no unsafe `Send`/`Sync`, no `unwrap`/`expect` on inputs, and `#![forbid(unsafe_code)]` for the host renderer crate unless a later RFC permits a low-level backend exception.
-- If TASK-0054 exposes simplistic scheduler, MM, IPC, VMO, or timer assumptions, stop and report; route to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task rather than weakening the host renderer contract.
-- `.cursor/context_bundles.md`, `.cursor/pre_flight.md`, and `.cursor/stop_conditions.md` now include TASK-0054-specific context, gates, and stop conditions for implementation.
+- `TASK-0054` links `RFC-0046`; TASK-0054 remains the execution/proof SSOT, RFC-0046 owns contract/invariants.
+- Narrow route chosen: `Frame`, BGRA8888 primitives, deterministic repo-owned fixture-font text, and bounded `Damage`; `TASK-0169` was not promoted.
+- Implemented `userspace/ui/renderer/` with `#![forbid(unsafe_code)]`, checked newtypes, owned frame buffers, no global mutable renderer state, no unsafe `Send`/`Sync`, and no host font discovery.
+- Implemented `tests/ui_host_snap/` with expected-pixel tests, deterministic snapshot/golden comparison, metadata-independent PNG artifact proof, and required `test_reject_*` cases.
+- Current green proof floor after closure-gap remediation:
+  - `cargo test -p ui_renderer -- --nocapture`
+  - `cargo test -p ui_host_snap -- --nocapture` — 24 tests.
+  - `cargo test -p ui_host_snap reject -- --nocapture` — 14 reject-filtered tests (`GoldenMode::Update` positive proof is intentionally not matched by the reject filter).
+  - `just diag-host`
+- No OS/QEMU present markers, kernel/compositor/windowd, GPU/device, scheduler, MM, IPC, VMO, or timer changes were introduced or claimed.
+- Closure-gap tests added during review:
+  - rounded-rect now uses a full expected-mask proof instead of sentinel pixels only,
+  - fixture-font text now uses a full deterministic output mask and rejects unsupported glyphs / too-long glyph runs,
+  - blit clipping at the destination edge and padded source stride are proven,
+  - exact buffer-length accept/reject behavior, oversized heights, and malformed fixture fonts are proven,
+  - safe `GoldenMode::Update` writes under an explicit test artifact root, while compare-only and escape paths reject,
+  - PNG artifacts now go under `target/ui_host_snap_artifacts/<pid>` and artifact path traversal rejects,
+  - host renderer/snapshot sources are scanned for forbidden fake OS proof markers.
+- Review-state sync:
+  - `Cargo.lock` is authorized to carry the generated workspace package metadata for `ui_renderer` / `ui_host_snap`,
+  - `RFC-0046` is `Done`; `TASK-0054` is `In Review`,
+  - downstream status files are synchronized to review state rather than final Done state.
+- Later task expectations remain outside TASK-0054 closure and must not be claimed here:
+  - `TASK-0055` owns real `windowd`, VMO-backed surfaces, present markers, and compositor behavior,
+  - `TASK-0169` may absorb this narrow renderer into Scene-IR / Backend abstractions,
+  - `TASK-0054B/C/D`, `TASK-0288`, and `TASK-0290` own kernel QoS/IPC/MM/zero-copy production-grade claims.
 
 ## TASK-0047 closure gaps remediated host-first
 

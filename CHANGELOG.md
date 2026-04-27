@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-27
+
+#### TASK-0054 / RFC-0046 host renderer review sync (`TASK-0054`, `RFC-0046`)
+
+- Advanced the narrow host-first UI renderer proof floor to review and closed the RFC contract:
+  - `userspace/ui/renderer` provides a safe Rust BGRA8888 `Frame`, checked dimensions/stride/damage newtypes,
+    deterministic clear/rect/rounded-rect/blit/text primitives, and bounded full-frame damage overflow behavior
+  - `userspace/ui/fonts` provides the repo-owned deterministic fixture font; no host font discovery or locale fallback
+  - `tests/ui_host_snap` proves expected pixels, full rounded-rect/text masks, damage behavior, snapshot/golden
+    comparison, PNG metadata independence, golden update gating, artifact path confinement, anti-fake-marker source
+    scanning, and required reject classes
+- Added host proof coverage:
+  - `cargo test -p ui_renderer -- --nocapture`
+  - `cargo test -p ui_host_snap -- --nocapture`
+  - `cargo test -p ui_host_snap reject -- --nocapture`
+  - `just diag-host`
+- Synchronized `TASK-0054` to `In Review`, `RFC-0046` to `Done`, RFC index, status board, implementation order, and UI testing docs.
+- OS/QEMU present markers, compositor/windowd wiring, GPU/device paths, and Gate A kernel/core production-grade claims remain out of scope.
+
 ### Changed - 2026-04-26
 
 #### TASK-0047 / RFC-0045 host-first closure (`TASK-0047`, `RFC-0045`)

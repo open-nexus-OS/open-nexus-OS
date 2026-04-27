@@ -89,8 +89,9 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0054_context
-- Status: `TASK-0054` / `RFC-0046` are `In Progress`; execution SSOT is `TASK-0054`, contract seed is `RFC-0046`.
+- Status: `TASK-0054` is `In Review` and `RFC-0046` is `Done`; execution SSOT remains `TASK-0054`, contract seed is `RFC-0046`.
 - Scope: host-first BGRA8888 CPU renderer, deterministic damage tracking, deterministic headless snapshots/goldens.
+- Proof: `cargo test -p ui_renderer -- --nocapture`, `cargo test -p ui_host_snap -- --nocapture`, and `cargo test -p ui_host_snap reject -- --nocapture` are green; no OS/QEMU marker claim.
 - Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`); local TASK-0054 hardening is production-grade for bounds, ownership, type safety, and proof honesty, but no Gate A kernel/core production-grade claim is allowed.
 - No OS/QEMU present markers, kernel changes, compositor, GPU, input routing, scheduler, MM, IPC, or VMO closure in this task.
 - Escalate simplistic scheduler/MM/IPC/VMO/timer findings to `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task.
@@ -107,10 +108,10 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/rules/20-arch-sync.mdc`
 
 ### @task_0054_touched
-- `userspace/ui/renderer/` (new crate)
+- `userspace/ui/renderer/`
 - `userspace/ui/fonts/` (embedded deterministic fixture/fallback font data)
-- `tests/ui_host_snap/` (new host snapshot/golden tests)
-- `docs/dev/ui/foundations/quality/testing.md` (new)
+- `tests/ui_host_snap/`
+- `docs/dev/ui/foundations/quality/testing.md`
 - `Cargo.toml` (workspace membership for new crates/tests; protected path, explicitly justify before editing)
 - `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md`
 - `docs/rfcs/README.md`
