@@ -26,7 +26,9 @@ Definition:
   - `cargo test -p ui_host_snap -- --nocapture` — 24 tests
   - `cargo test -p ui_host_snap reject -- --nocapture` — 14 reject-filtered tests
   - `just diag-host`
-  - no OS/QEMU marker proof was run or claimed.
+  - post-review repo gates: `just test-all`, `just ci-network`
+  - final closeout gates: `scripts/fmt-clippy-deny.sh`, `make clean`, `make build`, `make test`, `make run`
+  - no OS/QEMU marker proof is claimed for this RFC; `ci-network` is regression evidence only.
 
 ## Scope boundaries (anti-drift)
 
@@ -380,6 +382,8 @@ Escalation requirement:
 - Closure review strengthened proof quality with full rounded-rect/text masks, blit clipping with padded source stride,
   exact buffer-length accept/reject coverage, oversized height rejects, malformed fixture-font rejects, safe golden update
   proof under an explicit artifact root, and an anti-fake-marker source scan.
+- Docs sync covers the testing index, UI golden rules, and linked NexusGfx architecture guidance while preserving the
+  host-only proof boundary.
 
 ---
 

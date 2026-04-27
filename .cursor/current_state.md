@@ -2,7 +2,7 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-27)**: TASK-0054 / RFC-0046 closure-gap remediation is complete enough for review state: `TASK-0054` is `In Review`, `RFC-0046` is `Done`. The claim remains a narrow Gate E host renderer proof floor, not OS/QEMU present or Gate A kernel/core production-grade closure.
+- **last_decision (2026-04-27)**: TASK-0054 / RFC-0046 are closed: `TASK-0054` is `Done`, `RFC-0046` is `Done`. The claim remains a narrow Gate E host renderer proof floor, not OS/QEMU present or Gate A kernel/core production-grade closure.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
@@ -12,9 +12,9 @@
 
 ## Active execution state
 
-- **active_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `In Review`
+- **completed_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
-- **next_queue_head**: `TASK-0054` review pending; `TASK-0055` prep follows after review closure. Do not infer OS/QEMU present closure from TASK-0054.
+- **next_queue_head**: `TASK-0055` prep. Do not infer OS/QEMU present closure from TASK-0054.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 
@@ -34,7 +34,7 @@
 - `policyd` stages already-validated `PolicyTree` candidates from Config v1 `policy.root` effective snapshots through the `configd::ConfigConsumer` 2PC seam; invalid candidates do not replace the active version.
 - `nx policy` lives only under `tools/nx/`.
 
-## TASK-0054 review evidence
+## TASK-0054 closeout evidence
 
 - `TASK-0054` header now carries follow-ups `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0169`, and `TASK-0170`.
 - `TASK-0054` links `RFC-0046`; TASK-0054 remains the execution/proof SSOT, RFC-0046 owns contract/invariants.
@@ -46,6 +46,10 @@
   - `cargo test -p ui_host_snap -- --nocapture` — 24 tests.
   - `cargo test -p ui_host_snap reject -- --nocapture` — 14 reject-filtered tests (`GoldenMode::Update` positive proof is intentionally not matched by the reject filter).
   - `just diag-host`
+  - `just test-all`
+  - `just ci-network` (repo regression gate only; not TASK-0054 OS-present proof)
+  - `scripts/fmt-clippy-deny.sh`
+  - `make clean`, `make build`, `make test`, `make run`
 - No OS/QEMU present markers, kernel/compositor/windowd, GPU/device, scheduler, MM, IPC, VMO, or timer changes were introduced or claimed.
 - Closure-gap tests added during review:
   - rounded-rect now uses a full expected-mask proof instead of sentinel pixels only,
@@ -55,10 +59,13 @@
   - safe `GoldenMode::Update` writes under an explicit test artifact root, while compare-only and escape paths reject,
   - PNG artifacts now go under `target/ui_host_snap_artifacts/<pid>` and artifact path traversal rejects,
   - host renderer/snapshot sources are scanned for forbidden fake OS proof markers.
-- Review-state sync:
+- Closeout sync:
   - `Cargo.lock` is authorized to carry the generated workspace package metadata for `ui_renderer` / `ui_host_snap`,
-  - `RFC-0046` is `Done`; `TASK-0054` is `In Review`,
-  - downstream status files are synchronized to review state rather than final Done state.
+  - `RFC-0046` is `Done`; `TASK-0054` is `Done`,
+  - downstream status files are synchronized to final Done state.
+- Docs sync now includes `docs/testing/index.md`, `docs/dev/ui/foundations/quality/goldens.md`,
+  `docs/architecture/nexusgfx-compute-and-executor-model.md`, and
+  `docs/architecture/nexusgfx-text-pipeline.md`.
 - Later task expectations remain outside TASK-0054 closure and must not be claimed here:
   - `TASK-0055` owns real `windowd`, VMO-backed surfaces, present markers, and compositor behavior,
   - `TASK-0169` may absorb this narrow renderer into Scene-IR / Backend abstractions,

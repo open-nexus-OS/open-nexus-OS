@@ -132,8 +132,8 @@ This is the anti-fake-success gate.
   - [x] `cargo test -p nx -- --nocapture`
 - [x] OS/QEMU policy markers remain gated and intentionally unclaimed.
 
-## Active progress snapshot (TASK-0054 review, 2026-04-27)
-- [x] `TASK-0054` is synchronized to `In Review`.
+## Active progress snapshot (TASK-0054 done, 2026-04-27)
+- [x] `TASK-0054` is synchronized to `Done`.
 - [x] `RFC-0046` is synchronized to `Done`.
 - [x] RFC-0046 is linked from TASK-0054 and `docs/rfcs/README.md`.
 - [x] Context bundles, pre-flight gates, and stop conditions include TASK-0054-specific entries.
@@ -144,6 +144,10 @@ This is the anti-fake-success gate.
   - [x] `cargo test -p ui_host_snap -- --nocapture`
   - [x] `cargo test -p ui_host_snap reject -- --nocapture`
   - [x] `just diag-host`
+  - [x] `just test-all`
+  - [x] `just ci-network`
+  - [x] `scripts/fmt-clippy-deny.sh`
+  - [x] `make clean`, `make build`, `make test`, `make run`
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:

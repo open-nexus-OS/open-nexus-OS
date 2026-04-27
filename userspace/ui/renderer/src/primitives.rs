@@ -27,9 +27,7 @@ impl Frame {
         let height =
             usize::try_from(self.height.get()).map_err(|_| RenderError::ArithmeticOverflow)?;
         for y in 0..height {
-            let row = y
-                .checked_mul(stride)
-                .ok_or(RenderError::ArithmeticOverflow)?;
+            let row = y.checked_mul(stride).ok_or(RenderError::ArithmeticOverflow)?;
             for pixel in self.buffer[row..row + row_len].chunks_exact_mut(4) {
                 pixel.copy_from_slice(&color.bytes());
             }
@@ -112,10 +110,7 @@ impl Frame {
             }
         }
 
-        let advance = font
-            .width
-            .checked_add(1)
-            .ok_or(RenderError::ArithmeticOverflow)?;
+        let advance = font.width.checked_add(1).ok_or(RenderError::ArithmeticOverflow)?;
         let total_width = u32::try_from(glyph_count)
             .map_err(|_| RenderError::GlyphRunTooLarge)?
             .checked_mul(advance)

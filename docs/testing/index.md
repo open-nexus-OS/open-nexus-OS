@@ -13,6 +13,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
 - **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (Complete)
 - **RFC-0038**: Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1 — proof-manifest SSOT, signed evidence bundles, replay/bisect tooling (Done; one environmental closure step remaining — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11)
+- **RFC-0046**: UI v1a host CPU renderer + deterministic snapshots — BGRA8888 host renderer, deterministic goldens, reject tests, and fake-marker prohibition (Done; `TASK-0054` In Review)
 
 ## Philosophy
 
@@ -188,6 +189,18 @@ Legacy tasks remain `Done`; production closure uses follow-on requirement suites
 Hard rule:
 - No fake-success markers (`*: ready`, `SELFTEST: * ok`, transport/mux/media OK markers) may be used as proof unless the associated behavior is asserted by deterministic tests/harness checks.
 
+### TASK-0054 UI host renderer snapshot matrix
+
+`TASK-0054` is a host-only UI renderer proof floor for `RFC-0046`. It proves deterministic BGRA8888 pixels, checked renderer bounds, fixture-font text, bounded damage behavior, and golden update discipline. It does not prove OS present, `windowd`, compositor, GPU, IPC, VMO reuse, or kernel production-grade behavior.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Bounded BGRA8888 renderer core, newtypes, exact buffer length, 64-byte frame stride, deterministic damage coalescing | host renderer assertions | `cargo test -p ui_renderer -- --nocapture` |
+| Pixel-exact clear/rect/rounded-rect/blit/text behavior, canonical BGRA golden comparison, PNG metadata independence | host snapshot assertions | `cargo test -p ui_host_snap -- --nocapture` |
+| Oversized dimensions, invalid stride/buffer length, arithmetic/rect/image/font rejects, golden update gating, path traversal rejects, fake OS marker scan | host reject assertions | `cargo test -p ui_host_snap reject -- --nocapture` |
+
+Golden updates are disabled unless `UPDATE_GOLDENS=1` is explicitly set. PNG files are deterministic artifacts only; equality is decided from decoded canonical BGRA pixels, not encoded PNG metadata.
+
 ## Workflow checklist
 
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -251,6 +264,17 @@ seen and ensure log caps are in effect. `just test-os` wraps
     - external `policyd` host frame operations for version/eval/mode get/mode set
     - first adapter parity plus service-facing `policyd` check-frame cutover through the unified authority
     - `nx policy` deterministic exit/JSON contracts under the existing `tools/nx` binary, including explicit `mode` preflight-only output
+- UI host renderer snapshot proof floor (`TASK-0054` / `RFC-0046`):
+  - `cargo test -p ui_renderer -- --nocapture`
+  - `cargo test -p ui_host_snap -- --nocapture`
+  - `cargo test -p ui_host_snap reject -- --nocapture`
+  - proves Soll-Verhalten, not implementation detail coupling:
+    - BGRA8888 byte order and 64-byte frame stride
+    - deterministic primitive pixels and bounded damage semantics
+    - fixture-font text without host font discovery or locale fallback
+    - canonical BGRA golden comparison with PNG metadata ignored
+    - fail-closed update/path traversal/input reject classes
+    - no host-only fake OS/QEMU success markers
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
 - QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
 - QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)

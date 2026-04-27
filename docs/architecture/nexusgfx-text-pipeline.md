@@ -206,6 +206,15 @@ Text acceleration must be tested in the same spirit as the existing UI docs:
 - stable invalidation classes
 - explicit perf traces where useful
 
+Current floor:
+
+- `TASK-0054` / `RFC-0046` proves only deterministic fixture-font raster text in
+  the host BGRA8888 CPU renderer.
+- It deliberately does not claim shaping, bidi, fallback fonts, atlas caching,
+  OS present, compositor wiring, or text performance closure.
+- Later text acceleration work must preserve the same proof honesty: deterministic
+  pixels/goldens are valid, marker-only success is not.
+
 The first milestone should **not** promise a perfect final text renderer.
 It should prove:
 

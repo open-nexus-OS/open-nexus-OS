@@ -2,7 +2,7 @@
 
 ## Completed execution
 
-- **task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `In Review`.
+- **task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`.
 - **contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`.
 - **gate**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`).
 - **completed predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`.
@@ -12,7 +12,7 @@
 
 - [x] Follow-up tasks are now in the header: `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0169`, `TASK-0170`.
 - [x] RFC-0046 exists and is linked from TASK-0054 plus `docs/rfcs/README.md`.
-- [x] TASK-0054 is marked `In Review`; RFC-0046 is marked `Done`.
+- [x] TASK-0054 is marked `Done`; RFC-0046 is marked `Done`.
 - [x] `.cursor/context_bundles.md`, `.cursor/pre_flight.md`, and `.cursor/stop_conditions.md` include TASK-0054-specific entries.
 - [x] Current-state note matches repo reality: `userspace/ui/renderer/` exists as the narrow host proof floor; `TASK-0169` / `TASK-0170` remain successor scope.
 - [x] Security section exists with threat model, invariants, and DON'T DO list.
@@ -29,6 +29,10 @@
   - `cargo test -p ui_host_snap -- --nocapture`
   - `cargo test -p ui_host_snap reject -- --nocapture`
   - `just diag-host`
+  - `just test-all`
+  - `just ci-network`
+  - `scripts/fmt-clippy-deny.sh`
+  - `make clean`, `make build`, `make test`, `make run`
 
 ## Next task prep prompt
 

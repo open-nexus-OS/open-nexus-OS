@@ -112,12 +112,7 @@ fn test_reject_golden_update_without_env() {
 fn test_golden_update_writes_only_under_safe_root() -> Result<(), Box<dyn Error>> {
     let root = artifact_root()?.join("golden-update");
     fs::create_dir_all(&root)?;
-    update_hex_golden(
-        &root,
-        Path::new("safe.bgra.hex"),
-        "aa\n",
-        GoldenMode::Update,
-    )?;
+    update_hex_golden(&root, Path::new("safe.bgra.hex"), "aa\n", GoldenMode::Update)?;
     assert_eq!(fs::read_to_string(root.join("safe.bgra.hex"))?, "aa\n");
     Ok(())
 }
@@ -156,13 +151,8 @@ fn test_reject_text_unsupported_glyph_and_glyph_run_too_large() -> Result<(), Bo
     let font = FixtureFont::load_default()?;
     let mut frame = Frame::new_checked(16, 8)?;
     let mut damage = Damage::for_frame(frame.width(), frame.height(), DamageRectCount::new(4)?)?;
-    let err = frame.draw_text(
-        Point::new(0, 0),
-        "x",
-        &font,
-        PixelBgra::new(1, 2, 3, 4),
-        &mut damage,
-    );
+    let err =
+        frame.draw_text(Point::new(0, 0), "x", &font, PixelBgra::new(1, 2, 3, 4), &mut damage);
     assert_eq!(err, Err(RenderError::Unsupported));
 
     let too_long = "h".repeat(MAX_GLYPHS + 1);
@@ -180,28 +170,16 @@ fn test_reject_text_unsupported_glyph_and_glyph_run_too_large() -> Result<(), Bo
 #[test]
 fn test_reject_malformed_fixture_font_inputs() {
     let duplicate = "WIDTH 1\nHEIGHT 1\nGLYPH a\n1\nEND\nGLYPH a\n1\nEND\n";
-    assert_eq!(
-        FixtureFont::parse(duplicate),
-        Err(RenderError::FixtureFontRejected)
-    );
+    assert_eq!(FixtureFont::parse(duplicate), Err(RenderError::FixtureFontRejected));
 
     let bad_row_width = "WIDTH 2\nHEIGHT 1\nGLYPH a\n1\nEND\n";
-    assert_eq!(
-        FixtureFont::parse(bad_row_width),
-        Err(RenderError::FixtureFontRejected)
-    );
+    assert_eq!(FixtureFont::parse(bad_row_width), Err(RenderError::FixtureFontRejected));
 
     let unterminated = "WIDTH 1\nHEIGHT 1\nGLYPH a\n1\n";
-    assert_eq!(
-        FixtureFont::parse(unterminated),
-        Err(RenderError::FixtureFontRejected)
-    );
+    assert_eq!(FixtureFont::parse(unterminated), Err(RenderError::FixtureFontRejected));
 
     let row_without_glyph = "WIDTH 1\nHEIGHT 1\n1\n";
-    assert_eq!(
-        FixtureFont::parse(row_without_glyph),
-        Err(RenderError::FixtureFontRejected)
-    );
+    assert_eq!(FixtureFont::parse(row_without_glyph), Err(RenderError::FixtureFontRejected));
 }
 
 #[test]
@@ -209,13 +187,7 @@ fn test_reject_fake_proof_marker_strings_absent_from_host_sources() -> Result<()
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let roots = [
         manifest.join("src"),
-        manifest
-            .join("..")
-            .join("..")
-            .join("userspace")
-            .join("ui")
-            .join("renderer")
-            .join("src"),
+        manifest.join("..").join("..").join("userspace").join("ui").join("renderer").join("src"),
     ];
     let forbidden = [
         format!("SELFTEST{}", ":"),

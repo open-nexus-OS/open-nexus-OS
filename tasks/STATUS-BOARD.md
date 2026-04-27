@@ -25,7 +25,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Storage, PackageFS & Content | 2 / 25 | 8% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 0 / 12 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, input/display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 0 / 73 | 0% | — | Early renderer, windowing, compositor, and UI performance floor tasks. |
+| Windowing, UI & Graphics | 1 / 73 | 1% | — | Early renderer, windowing, compositor, and UI performance floor tasks. |
 | Text, IME, I18N & Accessibility | 0 / 9 | 0% | — | Text stack, input methods, locale, and accessibility foundations. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
@@ -214,8 +214,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0029 | Supply-Chain v1: SBOM + repro metadata + signature allowlist policy | Done | Host reject-path proofs + OS supply-chain marker gate green; docs and tracking synced |
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
+| ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | Done | Host-first renderer/snapshot proof floor complete; no OS/QEMU present marker claim |
 
-Current queue head: `TASK-0054` review pending; `TASK-0055` prep follows after review closure.
+Current queue head: `TASK-0055` prep follows after TASK-0054 closure.
 Current contract status: `RFC-0046` (`Done`, 2026-04-27); no OS/QEMU renderer marker claim was made.
 
 ---

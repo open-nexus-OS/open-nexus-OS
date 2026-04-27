@@ -36,12 +36,7 @@ impl Frame {
         }
         let stride = StrideBytes::for_width(width)?;
         let len = checked_buffer_len(stride, height.get())?;
-        Ok(Self {
-            width,
-            height,
-            stride,
-            buffer: vec![0; len],
-        })
+        Ok(Self { width, height, stride, buffer: vec![0; len] })
     }
 
     pub fn from_bgra_buffer_checked(
@@ -58,12 +53,7 @@ impl Frame {
         if buffer.len() != expected {
             return Err(RenderError::InvalidStride);
         }
-        Ok(Self {
-            width,
-            height,
-            stride,
-            buffer,
-        })
+        Ok(Self { width, height, stride, buffer })
     }
 
     #[must_use]
@@ -91,11 +81,8 @@ impl Frame {
             .map_err(|_| RenderError::ArithmeticOverflow)?;
         let height =
             usize::try_from(self.height.get()).map_err(|_| RenderError::ArithmeticOverflow)?;
-        let mut out = Vec::with_capacity(
-            row_len
-                .checked_mul(height)
-                .ok_or(RenderError::ArithmeticOverflow)?,
-        );
+        let mut out =
+            Vec::with_capacity(row_len.checked_mul(height).ok_or(RenderError::ArithmeticOverflow)?);
         let stride =
             usize::try_from(self.stride.get()).map_err(|_| RenderError::ArithmeticOverflow)?;
         for y in 0..height {
@@ -157,10 +144,7 @@ impl Frame {
         let col = u64::from(x)
             .checked_mul(u64::from(BYTES_PER_PIXEL))
             .ok_or(RenderError::ArithmeticOverflow)?;
-        usize::try_from(
-            row.checked_add(col)
-                .ok_or(RenderError::ArithmeticOverflow)?,
-        )
-        .map_err(|_| RenderError::ArithmeticOverflow)
+        usize::try_from(row.checked_add(col).ok_or(RenderError::ArithmeticOverflow)?)
+            .map_err(|_| RenderError::ArithmeticOverflow)
     }
 }

@@ -70,7 +70,7 @@ impl StrideBytes {
 
     pub fn new_for_frame(width: SurfaceWidth, raw: u32) -> RenderResult<Self> {
         let min = checked_row_bytes(width.get())?;
-        if raw < min || raw % STRIDE_ALIGNMENT != 0 {
+        if raw < min || !is_multiple_of(raw, STRIDE_ALIGNMENT) {
             return Err(RenderError::InvalidStride);
         }
         Ok(Self(raw))
@@ -78,7 +78,7 @@ impl StrideBytes {
 
     pub fn new_for_image(width: ImageWidth, raw: u32) -> RenderResult<Self> {
         let min = checked_row_bytes(width.get())?;
-        if raw < min || raw % BYTES_PER_PIXEL != 0 {
+        if raw < min || !is_multiple_of(raw, BYTES_PER_PIXEL) {
             return Err(RenderError::InvalidStride);
         }
         Ok(Self(raw))
@@ -88,6 +88,10 @@ impl StrideBytes {
     pub const fn get(self) -> u32 {
         self.0
     }
+}
+
+fn is_multiple_of(value: u32, divisor: u32) -> bool {
+    divisor != 0 && value.checked_rem(divisor) == Some(0)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

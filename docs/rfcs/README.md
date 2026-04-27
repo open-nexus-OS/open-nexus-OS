@@ -187,5 +187,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md
 - RFC-0045: Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) — host-first, OS-gated contract seed (Done; host proof floor green, OS marker closure intentionally unclaimed)
   - docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md
-- RFC-0046: UI v1a host CPU renderer + deterministic snapshots — host-first contract seed (Done; TASK-0054 In Review with host proofs green and no OS/QEMU marker claims)
+- RFC-0046: UI v1a host CPU renderer + deterministic snapshots — host-first contract seed (Done; TASK-0054 Done with host proofs green and no OS/QEMU marker claims)
   - docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md

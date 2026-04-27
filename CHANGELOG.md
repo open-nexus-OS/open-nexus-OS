@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-04-27
 
-#### TASK-0054 / RFC-0046 host renderer review sync (`TASK-0054`, `RFC-0046`)
+#### TASK-0054 / RFC-0046 host renderer closure (`TASK-0054`, `RFC-0046`)
 
-- Advanced the narrow host-first UI renderer proof floor to review and closed the RFC contract:
+- Closed the narrow host-first UI renderer proof floor and RFC contract:
   - `userspace/ui/renderer` provides a safe Rust BGRA8888 `Frame`, checked dimensions/stride/damage newtypes,
     deterministic clear/rect/rounded-rect/blit/text primitives, and bounded full-frame damage overflow behavior
   - `userspace/ui/fonts` provides the repo-owned deterministic fixture font; no host font discovery or locale fallback
@@ -23,7 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `cargo test -p ui_host_snap -- --nocapture`
   - `cargo test -p ui_host_snap reject -- --nocapture`
   - `just diag-host`
-- Synchronized `TASK-0054` to `In Review`, `RFC-0046` to `Done`, RFC index, status board, implementation order, and UI testing docs.
+  - `just test-all`
+  - `just ci-network`
+  - `scripts/fmt-clippy-deny.sh`
+  - `make clean`, `make build`, `make test`, `make run`
+- Synchronized `TASK-0054` to `Done`, `RFC-0046` to `Done`, RFC index, status board, implementation order, and UI testing docs.
 - OS/QEMU present markers, compositor/windowd wiring, GPU/device paths, and Gate A kernel/core production-grade claims remain out of scope.
 
 ### Changed - 2026-04-26

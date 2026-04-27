@@ -1,12 +1,12 @@
-# Current Handoff: TASK-0054 in review
+# Current Handoff: TASK-0054 done
 
 **Date**: 2026-04-27  
-**Execution task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `In Review`
+**Execution task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 **Completed contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
 **Gate policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, `production-floor`)  
 **Archived predecessor handoff**: `.cursor/handoff/archive/TASK-0047-policy-as-code-v1-unified-engine.md`
 
-## Review summary
+## Closeout summary
 
 - Chosen route: narrow TASK-0054, not `TASK-0169` promotion.
 - Added `userspace/ui/renderer/` as a small safe Rust `ui_renderer` crate with BGRA8888 owned frames, checked dimensions/stride/damage newtypes, deterministic clear/rect/rounded-rect/blit/text primitives, and bounded full-frame damage overflow.
@@ -21,6 +21,10 @@
 - `cargo test -p ui_host_snap -- --nocapture` — green, 24 tests.
 - `cargo test -p ui_host_snap reject -- --nocapture` — green, 14 reject-filtered tests.
 - `just diag-host` — green.
+- `just test-all` — green.
+- `just ci-network` — green repo regression gate only; not TASK-0054 OS-present proof.
+- `scripts/fmt-clippy-deny.sh` — green.
+- `make clean`, `make build`, `make test`, `make run` — green in order.
 
 ## Scope guardrails preserved
 
@@ -31,5 +35,5 @@
 
 ## Next
 
-- Queue head remains `TASK-0054` review. `TASK-0055` prep follows after review closure; do not infer any OS present/compositor readiness from TASK-0054.
+- Queue head is now `TASK-0055` prep; do not infer any OS present/compositor readiness from TASK-0054.
 - Kernel/core UI performance gaps remain in `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, then `TASK-0288` / `TASK-0290`.

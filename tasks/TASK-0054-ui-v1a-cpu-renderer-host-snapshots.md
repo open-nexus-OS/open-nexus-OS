@@ -1,6 +1,6 @@
 ---
 title: TASK-0054 UI v1a (host-first): BGRA8888 CPU renderer + damage tracking + headless snapshots (PNG/SSIM)
-status: In Review
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -51,7 +51,7 @@ Scope note:
   a stable Scene-IR + Backend trait with a deterministic cpu2d backend and goldens.
   If `TASK-0169` lands, this task should be treated as “implemented by” that work (avoid parallel renderer crates).
 
-Current-state check (2026-04-27 review sync):
+Current-state check (2026-04-27 closeout sync):
 
 - `userspace/ui/renderer/` now exists as the narrow TASK-0054 renderer floor, not as the `TASK-0169` Scene-IR /
   Backend-trait architecture.
@@ -216,7 +216,7 @@ This task does **not** close:
   - golden update is disabled unless `UPDATE_GOLDENS=1`,
   - fixture path traversal / absolute write targets reject.
 
-### Review evidence (2026-04-27)
+### Closeout evidence (2026-04-27)
 
 Green host proof commands:
 
@@ -224,6 +224,10 @@ Green host proof commands:
 - `cargo test -p ui_host_snap -- --nocapture` — 24 tests.
 - `cargo test -p ui_host_snap reject -- --nocapture` — 14 reject-filtered tests.
 - `just diag-host` — green host diagnostics compile gate.
+- `just test-all` — green repo aggregate gate after review lint/format fix.
+- `just ci-network` — green repo network CI regression gate; not used as TASK-0054 OS-present evidence.
+- `scripts/fmt-clippy-deny.sh` — green fmt, Clippy, and deny gate.
+- `make clean`, `make build`, `make test`, `make run` — green in order after final closeout sync.
 
 Proof notes:
 
@@ -240,6 +244,8 @@ Proof notes:
   accept/reject coverage, oversized height rejects, malformed fixture-font rejects, and an anti-fake-marker source scan.
 - No OS/QEMU markers, `windowd`, compositor, GPU, MMIO/IRQ, scheduler, MM, IPC, VMO, or timer changes were introduced
   or claimed.
+- Docs sync now covers `docs/testing/index.md`, `docs/dev/ui/foundations/quality/goldens.md`, and the linked
+  NexusGfx architecture guidance pages with the same host-only proof boundary.
 
 ## Touched paths (allowlist)
 

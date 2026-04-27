@@ -199,6 +199,16 @@ The runtime should treat executor choice as an explicit policy/profile decision.
 - host-first and QEMU-friendly
 - no hardware dependency
 
+Current floor:
+
+- `TASK-0054` / `RFC-0046` establishes the first narrow UI `cpu_ref`
+  renderer proof with owned BGRA8888 host frames, 64-byte aligned rows,
+  deterministic primitives, fixture-font text, bounded damage, and
+  snapshot/golden tests.
+- That floor is intentionally not the long-term `NexusGfx` backend API. Later
+  renderer-abstraction work may absorb it, but must preserve its deterministic
+  pixel, bounds, and proof-honesty guarantees.
+
 ### `cpu_optimized`
 
 - CPU path still using the same contracts

@@ -89,9 +89,9 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0054_context
-- Status: `TASK-0054` is `In Review` and `RFC-0046` is `Done`; execution SSOT remains `TASK-0054`, contract seed is `RFC-0046`.
+- Status: `TASK-0054` is `Done` and `RFC-0046` is `Done`; execution SSOT remains `TASK-0054`, contract seed is `RFC-0046`.
 - Scope: host-first BGRA8888 CPU renderer, deterministic damage tracking, deterministic headless snapshots/goldens.
-- Proof: `cargo test -p ui_renderer -- --nocapture`, `cargo test -p ui_host_snap -- --nocapture`, and `cargo test -p ui_host_snap reject -- --nocapture` are green; no OS/QEMU marker claim.
+- Proof: `cargo test -p ui_renderer -- --nocapture`, `cargo test -p ui_host_snap -- --nocapture`, `cargo test -p ui_host_snap reject -- --nocapture`, `scripts/fmt-clippy-deny.sh`, `make clean`, `make build`, `make test`, and `make run` are green; no OS/QEMU renderer marker claim.
 - Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`); local TASK-0054 hardening is production-grade for bounds, ownership, type safety, and proof honesty, but no Gate A kernel/core production-grade claim is allowed.
 - No OS/QEMU present markers, kernel changes, compositor, GPU, input routing, scheduler, MM, IPC, or VMO closure in this task.
 - Escalate simplistic scheduler/MM/IPC/VMO/timer findings to `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task.

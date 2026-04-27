@@ -60,11 +60,7 @@ fn rect_clips_and_damages_expected_region() -> Result<(), Box<dyn Error>> {
     frame.draw_rect(Rect::new(-1, 1, 3, 2)?, green, &mut damage)?;
     for y in 0..4 {
         for x in 0..4 {
-            let expected = if x <= 1 && (1..=2).contains(&y) {
-                green
-            } else {
-                black
-            };
+            let expected = if x <= 1 && (1..=2).contains(&y) { green } else { black };
             assert_eq!(frame.pixel(x, y)?, expected);
         }
     }
