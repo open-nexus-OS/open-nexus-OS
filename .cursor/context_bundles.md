@@ -88,6 +88,43 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0054_context
+- Status: `TASK-0054` / `RFC-0046` are `In Progress`; execution SSOT is `TASK-0054`, contract seed is `RFC-0046`.
+- Scope: host-first BGRA8888 CPU renderer, deterministic damage tracking, deterministic headless snapshots/goldens.
+- Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`); local TASK-0054 hardening is production-grade for bounds, ownership, type safety, and proof honesty, but no Gate A kernel/core production-grade claim is allowed.
+- No OS/QEMU present markers, kernel changes, compositor, GPU, input routing, scheduler, MM, IPC, or VMO closure in this task.
+- Escalate simplistic scheduler/MM/IPC/VMO/timer findings to `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task.
+- `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md`
+- `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/architecture/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/nexusgfx-text-pipeline.md`
+- `docs/standards/RUST_STANDARDS.md`
+- `docs/standards/SECURITY_STANDARDS.md`
+- `docs/testing/index.md`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/06-testing-discipline.mdc`
+- `.cursor/rules/20-arch-sync.mdc`
+
+### @task_0054_touched
+- `userspace/ui/renderer/` (new crate)
+- `userspace/ui/fonts/` (embedded deterministic fixture/fallback font data)
+- `tests/ui_host_snap/` (new host snapshot/golden tests)
+- `docs/dev/ui/foundations/quality/testing.md` (new)
+- `Cargo.toml` (workspace membership for new crates/tests; protected path, explicitly justify before editing)
+- `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md`
+- `docs/rfcs/README.md`
+- `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
+- `tasks/STATUS-BOARD.md`
+- `CHANGELOG.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
 - `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`
@@ -703,6 +740,9 @@ Kontext strikt: @core_context @task_0039_context @quality_gates @task_0039_touch
 
 ## Standard instruction line (TASK-0045)
 Kontext strikt: @core_context @task_0045_context @quality_gates @task_0045_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0054)
+Kontext strikt: @core_context @task_0054_context @quality_gates @task_0054_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

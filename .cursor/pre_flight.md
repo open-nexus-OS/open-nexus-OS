@@ -36,6 +36,18 @@ This is the anti-fake-success gate.
 - [ ] Reject-path suite is green (`test_reject_*` for invalid/oversize/unauthorized/stale lifecycle cases).
 - [ ] At least one migrated adapter parity proof is green before unified cutover is claimed.
 
+## Task-0054 automatic addendum (when applicable)
+- [ ] `cargo test -p ui_host_snap -- --nocapture` is green for the active snapshot/golden contract.
+- [ ] Renderer crate proof is green if split separately: `cargo test -p ui_renderer -- --nocapture` or the updated TASK-0054 equivalent.
+- [ ] Required reject suite is green:
+  - [ ] oversize frame/image rejects before allocation,
+  - [ ] invalid stride/dimensions reject with stable error class,
+  - [ ] arithmetic overflow rejects,
+  - [ ] invalid rect / damage overflow follows documented behavior,
+  - [ ] golden update is disabled unless `UPDATE_GOLDENS=1`,
+  - [ ] fixture traversal / absolute golden write targets reject.
+- [ ] No OS/QEMU marker proof is claimed for TASK-0054.
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks
@@ -82,6 +94,31 @@ This is the anti-fake-success gate.
   - [ ] adapter parity is proven before claiming cutover,
   - [ ] markers, if any, summarize already-proven behavior.
 
+## Task-0054 manual addendum (when applicable)
+- [ ] Execution SSOT and contract seed are synchronized:
+  - [ ] `TASK-0054` reflects current implementation/proofs/gates,
+  - [ ] `RFC-0046` reflects the same host renderer contract and proof model.
+- [ ] Gate scope honesty is preserved:
+  - [ ] TASK-0054 remains Gate E `production-floor`,
+  - [ ] local bounds/ownership/proof requirements are production-grade within scope,
+  - [ ] no Gate A kernel/core production-grade claim is made.
+- [ ] Renderer contract remains host-only:
+  - [ ] no kernel/compositor/GPU/input-routing/present scope leaked in,
+  - [ ] no `windowd: present ok`, `SELFTEST: renderer ... ok`, or other OS success marker is emitted.
+- [ ] Behavior-first proof shape is explicit:
+  - [ ] tests assert expected pixels/damage/errors, not helper success or "some bytes",
+  - [ ] golden comparisons are deterministic and not rewritten without `UPDATE_GOLDENS=1`,
+  - [ ] snapshot case order is deterministic.
+- [ ] Rust discipline is reviewed:
+  - [ ] newtypes protect width/height/stride/damage-count confusion where sensible,
+  - [ ] `#[must_use]` is used for validation/error outcomes where ignored failures are dangerous,
+  - [ ] ownership boundaries for frames/views/images are explicit,
+  - [ ] no unsafe `Send`/`Sync` impls,
+  - [ ] host renderer crate uses `#![forbid(unsafe_code)]` unless a later RFC permits an exception.
+- [ ] Escalation discipline is followed:
+  - [ ] any simplistic scheduler/MM/IPC/VMO/timer finding is documented and routed to the owning follow-up,
+  - [ ] no kernel workaround is added inside TASK-0054.
+
 ## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` / `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` / `RFC-0045` are linked and form the new execution+contract pair.
@@ -94,6 +131,13 @@ This is the anti-fake-success gate.
   - [x] `cargo test -p policyd -- --nocapture`
   - [x] `cargo test -p nx -- --nocapture`
 - [x] OS/QEMU policy markers remain gated and intentionally unclaimed.
+
+## Active progress snapshot (TASK-0054 kickoff, 2026-04-27)
+- [x] `TASK-0054` and `RFC-0046` are synchronized to `In Progress`.
+- [x] RFC-0046 is linked from TASK-0054 and `docs/rfcs/README.md`.
+- [x] Context bundles, pre-flight gates, and stop conditions include TASK-0054-specific entries.
+- [x] TASK-0054 scope is host-first and kernel-free; OS/QEMU present markers are explicitly unclaimed.
+- [x] Production-grade local hardening expectations are explicit for bounds, ownership, type safety, and proof honesty.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:

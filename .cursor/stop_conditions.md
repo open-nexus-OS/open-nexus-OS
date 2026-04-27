@@ -75,6 +75,46 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] marker-only evidence is not used for closure,
   - [ ] later OS/QEMU markers, if claimed, are paired with deterministic state/result assertions.
 
+## TASK-0054 class stop conditions (UI v1a host CPU renderer + deterministic snapshots)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0054` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0046` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` status matches RFC reality.
+- [ ] Gate scope honesty is preserved:
+  - [ ] Gate E `production-floor` alignment stays explicit,
+  - [ ] local production-grade requirements for bounds/ownership/proof honesty are enforced,
+  - [ ] no Gate A kernel/core production-grade claim is made.
+- [ ] Host-only boundary is enforced:
+  - [ ] no kernel changes,
+  - [ ] no compositor, `windowd`, input routing, GPU, MMIO, IRQ, or device-service path,
+  - [ ] no OS/QEMU present marker or fake `ok/ready` marker is emitted.
+- [ ] Renderer deterministic contract is proven:
+  - [ ] BGRA8888 byte order is tested,
+  - [ ] 64-byte row stride alignment and exact buffer length are tested,
+  - [ ] clear/rect/rounded-rect/blit/text expected-pixel cases are tested,
+  - [ ] damage rect accumulation/coalesce/overflow behavior is documented and tested,
+  - [ ] snapshot case enumeration and comparison are deterministic.
+- [ ] Security and fail-closed behavior are proven:
+  - [ ] oversize frame/image/glyph input rejects before allocation,
+  - [ ] invalid dimensions/stride/rect rejects with stable error classes,
+  - [ ] arithmetic overflow rejects,
+  - [ ] fixture traversal and absolute golden write paths reject,
+  - [ ] normal tests never rewrite goldens without `UPDATE_GOLDENS=1`.
+- [ ] Rust API discipline is enforced:
+  - [ ] checked newtypes are used where raw dimensions/stride/damage counts could be confused,
+  - [ ] `#[must_use]` is applied to validation/error outcomes where useful,
+  - [ ] frame/view/image ownership is explicit and avoids global mutable renderer state,
+  - [ ] no unsafe `Send`/`Sync` shortcuts,
+  - [ ] host renderer crate uses `#![forbid(unsafe_code)]` unless a later RFC/ADR explicitly permits an exception.
+- [ ] Required host proof floor is green:
+  - [ ] `cargo test -p ui_host_snap -- --nocapture`,
+  - [ ] `cargo test -p ui_host_snap reject -- --nocapture` or equivalent required reject-filter proof,
+  - [ ] `cargo test -p ui_renderer -- --nocapture` if renderer is split into its own package.
+- [ ] Escalation discipline is satisfied:
+  - [ ] any simplistic scheduler/MM/IPC/VMO/timer blocker found during implementation is documented,
+  - [ ] such blockers are routed to `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new task/RFC,
+  - [ ] no kernel workaround is absorbed into TASK-0054.
+
 ## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` and `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` and `RFC-0045` are linked as the new execution+contract pair.
@@ -87,6 +127,12 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [x] `cargo test -p policyd -- --nocapture`
   - [x] `cargo test -p nx -- --nocapture`
 - [x] OS/QEMU policy closure remains gated and unclaimed.
+
+## Active progress snapshot (TASK-0054 kickoff, 2026-04-27)
+- [x] `TASK-0054` and `RFC-0046` are synchronized to `In Progress`.
+- [x] RFC-0046 is linked from TASK-0054 and `docs/rfcs/README.md`.
+- [x] TASK-0054-specific context bundle, pre-flight, and stop-condition profiles are present.
+- [x] Host-only scope, no-fake-marker rule, Rust type/ownership discipline, and escalation requirements are explicit before implementation.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

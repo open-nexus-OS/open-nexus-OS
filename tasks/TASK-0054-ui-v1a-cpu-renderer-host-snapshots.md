@@ -1,11 +1,17 @@
 ---
 title: TASK-0054 UI v1a (host-first): BGRA8888 CPU renderer + damage tracking + headless snapshots (PNG/SSIM)
-status: Draft
+status: In Progress
 owner: @ui
 created: 2025-12-23
 depends-on: []
-follow-up-tasks: []
+follow-up-tasks:
+  - TASK-0054B
+  - TASK-0054C
+  - TASK-0054D
+  - TASK-0169
+  - TASK-0170
 links:
+  - RFC: docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
@@ -16,6 +22,9 @@ links:
   - Kernel/UI perf floor follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
   - Kernel IPC fastpath follow-up: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
   - Kernel MM perf floor follow-up: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
+  - Renderer abstraction successor: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - OS renderer wiring successor: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
 ---
 
@@ -42,6 +51,18 @@ Scope note:
   a stable Scene-IR + Backend trait with a deterministic cpu2d backend and goldens.
   If `TASK-0169` lands, this task should be treated as “implemented by” that work (avoid parallel renderer crates).
 
+Current-state check (2026-04-27):
+
+- `userspace/ui/renderer/` does not exist yet.
+- `TASK-0169` and `TASK-0170` are still `Draft`, so this task may proceed only as the minimal host-first
+  renderer/snapshot baseline unless the executor chooses to promote `TASK-0169` as the implementation vehicle.
+- `Makefile` already exports `CARGO_TARGET_DIR=$(CURDIR)/target`, and `justfile` / `scripts/fmt-clippy-deny.sh`
+  now default Cargo output to `<repo>/target` with `NEXUS_CARGO_TARGET_DIR` as the portable override.
+- The task is Gate E (`Windowing, UI & Graphics`, `production-floor`) under
+  `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`; it must not claim Gate A kernel `production-grade`
+  closure. Kernel/core production-grade follow-ups stay in `TASK-0054B` / `TASK-0054C` / `TASK-0054D`,
+  plus `TASK-0288` and `TASK-0290`.
+
 ## Goal
 
 Deliver:
@@ -61,6 +82,9 @@ Deliver:
 - A compositor.
 - GPU acceleration.
 - Input routing.
+- OS/QEMU present markers or `windowd` wiring (handled by `TASK-0170` / `TASK-0055`).
+- Production-grade kernel zero-copy, IPC, MM, or SMP claims (handled by `TASK-0054B` / `TASK-0054C` /
+  `TASK-0054D`, then `TASK-0288` / `TASK-0290`).
 
 ## Constraints / invariants (hard requirements)
 
@@ -72,6 +96,12 @@ Deliver:
 - Stride alignment: 64-byte aligned rows (documented and tested).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - No heavy dependency chains; keep renderer small and auditable.
+- Host goldens must be deterministic across machines:
+  - no host font discovery,
+  - no locale-dependent text fallback,
+  - no filesystem-order-dependent test discovery,
+  - no gamma/iCCP-dependent PNG comparison behavior.
+- Any optional SSIM path must be explicitly bounded and deterministic; pixel-exact goldens are the v1 proof floor.
 
 ## Alignment with `TRACK-DRIVERS-ACCELERATORS`
 
@@ -86,6 +116,79 @@ Deliver:
 - Text rendering/materialization must align with `docs/architecture/nexusgfx-text-pipeline.md` and the canonical UI
   layout/text contracts it references.
 - Resource and executor assumptions should remain portable to later `TASK-0169` / `TRACK-NEXUSGFX-SDK` work.
+
+## Security considerations
+
+This task is host-first and kernel-free, but it still handles untrusted-shaped rendering inputs and file-backed
+golden fixtures. Treat it as production-floor UI infrastructure, not as a toy renderer.
+
+### Threat model
+
+- **Resource exhaustion**: oversized frames, images, glyph runs, or damage lists causing unbounded allocation or CPU work.
+- **Golden update abuse**: accidental or malicious regeneration masking rendering regressions.
+- **Path traversal / fixture drift**: snapshot tooling reading or writing outside the expected `tests/ui_host_snap/`
+  tree.
+- **Renderer/input confusion**: text/image APIs accepting malformed dimensions, strides, or coordinates that produce
+  out-of-bounds writes.
+- **Future authority drift**: introducing renderer APIs that assume direct MMIO/GPU/device authority or a second
+  surface/present contract.
+
+### Security invariants (MUST hold)
+
+- Frame dimensions, stride, image sizes, glyph counts, and damage rect counts are bounded and reject with stable errors.
+- All pixel writes are bounds-checked through safe APIs; no unsafe code is needed for v1a.
+- Golden updates require an explicit opt-in such as `UPDATE_GOLDENS=1`; normal tests must never rewrite goldens.
+- Snapshot fixture paths stay under the test fixture root; no absolute paths or `..` traversal.
+- The renderer remains pure compute: no direct device/MMIO/IRQ authority, no present ownership, no policy bypass.
+
+### DON'T DO
+
+- DON'T add a GPU, `wgpu`, display, or device-service path in this task.
+- DON'T discover system fonts or depend on host fontconfig/locale state.
+- DON'T silently accept oversized images or damage growth by clipping after allocation.
+- DON'T print success markers for OS present/compositor behavior from host-only code.
+- DON'T duplicate the future `TASK-0169` Scene-IR/Backend architecture if that task is selected as the implementation path.
+
+## Red flags / decision points (must be resolved before implementation)
+
+- **RED: `TASK-0169` overlap**:
+  - If the desired direction is Scene-IR + Backend trait, run `TASK-0169` instead and mark this task as implemented-by
+    that work.
+  - If this task proceeds, keep the API intentionally narrow (`Frame`, primitives, `Damage`) and document it as the
+    host proof floor that `TASK-0169` may absorb.
+- **RED: font determinism**:
+  - Do not use host fonts. Use a repo-owned fallback font fixture or a tiny deterministic bitmap/vector test font.
+  - If a production-quality fallback font cannot be included safely, make the text proof a deterministic fixture-font
+    proof and create a follow-up for full font fallback.
+- **RED: PNG dependency and cross-platform comparison**:
+  - Prefer a minimal PNG encoder/decoder dependency with explicit rules, or write PNG output through a small
+    deterministic helper.
+  - Ignore metadata/gamma/iCCP for comparisons; compare decoded BGRA/RGBA pixels or a deterministic raw buffer.
+- **RED: root workspace touch**:
+  - Adding crates/tests requires updating root `Cargo.toml`, which is protected by project rules. The implementation
+    plan must call this out explicitly before editing.
+- **RED: production-grade claim boundary**:
+  - This task can satisfy Gate E `production-floor` host renderer evidence only. Kernel/core `production-grade`
+    UI claims remain blocked on `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, and `TASK-0290`.
+
+## Production gate mapping
+
+Per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`, this task belongs to Gate E
+(`Windowing, UI & Graphics service floor`, `production-floor`).
+
+This task contributes:
+
+- deterministic host renderer goldens,
+- bounded resource/damage behavior,
+- documented pure-compute renderer boundaries,
+- and an honest CPU baseline for later present/input/perf work.
+
+This task does **not** close:
+
+- Gate A kernel/core production-grade zero-copy or IPC/MM/SMP behavior,
+- OS present/input marker closure,
+- GPU/accelerator backend readiness,
+- or consumer smoothness/perf budgets beyond bounded host scenes.
 
 ## Stop conditions (Definition of Done)
 
@@ -105,6 +208,12 @@ Deliver:
 - snapshot tests:
   - produce PNGs
   - compare to goldens (pixel-exact or SSIM threshold if implemented)
+- reject tests:
+  - oversize frame/image rejects before allocation,
+  - invalid stride/dimensions reject with stable error,
+  - damage rect overflow coalesces or rejects deterministically,
+  - golden update is disabled unless `UPDATE_GOLDENS=1`,
+  - fixture path traversal / absolute write targets reject.
 
 ## Touched paths (allowlist)
 
@@ -112,13 +221,15 @@ Deliver:
 - `userspace/ui/fonts/` (embedded fallback font data)
 - `tests/ui_host_snap/` (new)
 - `docs/dev/ui/foundations/quality/testing.md` (new)
+- `Cargo.toml` (workspace membership for new crates/tests; protected path, must be explicitly justified before edit)
+- `CHANGELOG.md` / `tasks/IMPLEMENTATION-ORDER.md` / `tasks/STATUS-BOARD.md` (closeout sync only, if task status changes)
 
 ## Plan (small PRs)
 
 1. **Renderer core**
    - `Frame` with BGRA8888 pixels and stride
    - primitives: clear/rect/round_rect/blit/text
-   - `Damage` accumulator with bounded rect count (e.g., SmallVec<[IRect; 4]>)
+   - `Damage` accumulator with bounded rect count (e.g., `SmallVec<[IRect; 4]>`)
 
 2. **Host snapshot tests**
    - goldens stored under `tests/ui_host_snap/goldens/`
