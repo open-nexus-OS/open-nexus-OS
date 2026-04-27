@@ -2,19 +2,21 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-27)**: TASK-0054 / RFC-0046 are closed: `TASK-0054` is `Done`, `RFC-0046` is `Done`. The claim remains a narrow Gate E host renderer proof floor, not OS/QEMU present or Gate A kernel/core production-grade closure.
+- **last_decision (2026-04-27)**: TASK-0055 and RFC-0047 are now `In Progress` after prep. RFC-0047 is the contract seed for `windowd` surface/layer/present semantics; TASK-0055 must still start with Plan Mode before implementation.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
   - deterministic layering stays `defaults < /system < /state < env`,
   - `configd` owns deterministic reload/version transitions and honest 2PC semantics.
-- **gate tier**: next UI work remains on Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. Kernel/core production-grade UI work remains delegated to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, then `TASK-0288` / `TASK-0290`.
+- **gate tier**: TASK-0055 contributes to Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`, but it does not close all Gate E expectations by itself. Visible scanout, visible SystemUI present, input routing, and kernel/core production-grade UI work remain delegated to follow-ups.
 
 ## Active execution state
 
+- **active_task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `In Progress`
+- **active_contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `In Progress`
 - **completed_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
-- **next_queue_head**: `TASK-0055` prep. Do not infer OS/QEMU present closure from TASK-0054.
+- **next_queue_head**: `TASK-0055` planning. Do not infer OS/QEMU present closure from TASK-0054.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 
@@ -70,6 +72,25 @@
   - `TASK-0055` owns real `windowd`, VMO-backed surfaces, present markers, and compositor behavior,
   - `TASK-0169` may absorb this narrow renderer into Scene-IR / Backend abstractions,
   - `TASK-0054B/C/D`, `TASK-0288`, and `TASK-0290` own kernel QoS/IPC/MM/zero-copy production-grade claims.
+
+## TASK-0055 preparation state
+
+- Handoff for TASK-0054 was archived to `.cursor/handoff/archive/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md`.
+- `TASK-0055` is `In Progress`; implementation must not start before Plan Mode maps acceptance criteria to proofs.
+- `RFC-0047` was created and linked from `TASK-0055` plus `docs/rfcs/README.md`.
+- Header dependencies are now explicit: `TASK-0054`, `TASK-0031`, `TASK-0013`, `TASK-0046`, `TASK-0047`.
+- Header follow-ups are now explicit: `TASK-0055B`, `TASK-0055C`, `TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0169`, `TASK-0170`, `TASK-0170B`, `TASK-0250`, `TASK-0251`.
+- Repo reality captured in the task:
+  - `source/services/windowd/` exists only as placeholder checksum/helper scaffold,
+  - `userspace/apps/launcher/` is absent,
+  - UI-present markers are not wired in `selftest-client` / `scripts/qemu-test.sh`.
+- Security section now requires fail-closed VMO/surface/layer IPC, service-metadata identity, bounded logs, and `test_reject_*` coverage.
+- Red flags are clarified:
+  - VMO baseline is partly de-risked by predecessor work but must be proven at the `windowd` UI boundary,
+  - present fences are minimal acknowledgements, not latency-accurate GPU/display fences,
+  - visible output belongs to `TASK-0055B/C`,
+  - dev display/profile presets belong to `TASK-0055D`.
+- Gate E mapping is explicit: TASK-0055 proves headless surface/composition/present control only; input and visible first-frame closure remain follow-ups.
 
 ## TASK-0047 closure gaps remediated host-first
 

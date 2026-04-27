@@ -144,6 +144,14 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [x] `scripts/fmt-clippy-deny.sh`
   - [x] `make clean`, `make build`, `make test`, `make run`
 
+## Active prep snapshot (TASK-0055 draft, 2026-04-27)
+- [x] Current TASK-0054 handoff archived under `.cursor/handoff/archive/`.
+- [x] `RFC-0047` contract seed created and linked from `TASK-0055` / RFC index.
+- [x] `TASK-0055` is `In Progress`; next implementation session must request Plan Mode.
+- [x] `TASK-0055` current-state note documents existing placeholder `windowd`, missing launcher, and missing UI markers.
+- [x] Security and red-flag sections now reject fake proof and route visible/input/perf claims to follow-ups.
+- [x] Gate E mapping states that `TASK-0055` contributes headless present only and cannot claim visible display/input/kernel production closure.
+
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:
   - [ ] target behavior is explicit,

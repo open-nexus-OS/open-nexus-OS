@@ -149,6 +149,15 @@ This is the anti-fake-success gate.
   - [x] `scripts/fmt-clippy-deny.sh`
   - [x] `make clean`, `make build`, `make test`, `make run`
 
+## Active prep snapshot (TASK-0055 draft, 2026-04-27)
+- [x] Current TASK-0054 handoff archived under `.cursor/handoff/archive/`.
+- [x] `RFC-0047` contract seed created and linked from `TASK-0055` / RFC index.
+- [x] `TASK-0055` current-state note documents existing placeholder `windowd`, missing launcher, and missing UI markers.
+- [x] `TASK-0055` header includes dependencies and follow-up tasks.
+- [x] Security section covers VMO/surface/layer authority, marker honesty, bounded logs, and reject tests.
+- [x] Red flags are classified with follow-up boundaries for visible output, dev presets, and present fences.
+- [x] Gate E mapping states that `TASK-0055` contributes headless present only and does not close visible display/input/kernel production claims.
+
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:
   - [ ] target behavior is stated in 1-3 lines,

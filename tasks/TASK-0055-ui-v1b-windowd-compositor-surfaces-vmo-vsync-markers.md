@@ -1,11 +1,28 @@
 ---
 title: TASK-0055 UI v1b (OS-gated): windowd compositor + surfaces/layers IPC + VMO buffers + vsync timer + markers
-status: Draft
+status: In Progress
 owner: @ui
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+depends-on:
+  - TASK-0054
+  - TASK-0031
+  - TASK-0013
+  - TASK-0046
+  - TASK-0047
+follow-up-tasks:
+  - TASK-0055B
+  - TASK-0055C
+  - TASK-0055D
+  - TASK-0056
+  - TASK-0056B
+  - TASK-0056C
+  - TASK-0169
+  - TASK-0170
+  - TASK-0170B
+  - TASK-0250
+  - TASK-0251
 links:
+  - RFC: docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
@@ -34,10 +51,23 @@ We want the first UI slice runnable in QEMU **without kernel display/input drive
 
 This task is OS-gated on VMO plumbing and a timing spine.
 
+Current-state check (2026-04-27 prep sync):
+
+- `TASK-0054` / `RFC-0046` are `Done` and provide only the host BGRA8888 renderer/snapshot proof floor.
+- `source/services/windowd/` already exists, but it is a placeholder library/daemon with a deterministic checksum test,
+  not a real surface IPC service, compositor, VMO owner, vsync loop, or marker-producing OS path.
+- `userspace/apps/launcher/` does not exist yet.
+- No UI-present markers (`windowd: present ok`, `launcher: first frame ok`, `SELFTEST: ui launcher present ok`) are
+  currently wired in `selftest-client` / `scripts/qemu-test.sh`.
+- `TASK-0055` must therefore replace placeholder `windowd` behavior with real bounded behavior instead of treating the
+  existing checksum/helper output as proof.
+
 Scope note:
 
 - Renderer Abstraction v1 (`TASK-0169`/`TASK-0170`) defines the Scene-IR + Backend trait and the deterministic cpu2d default.
   `windowd` composition should call into that backend rather than inventing separate rendering primitives.
+- Until `TASK-0169` / `TASK-0170` lands, `TASK-0055` may consume the narrow `ui_renderer` CPU proof floor from
+  `TASK-0054`, but it must not turn that crate into a competing long-term renderer architecture.
 
 ## Goal
 
@@ -83,6 +113,23 @@ Deliver:
   - `windowd` may later parallelize composition/raster work (e.g. tiles), but must follow `TASK-0276`
     (fixed workers, deterministic partitioning, canonical merge order, bounded queues, proof parity workers=1 vs N).
 
+## Security / authority invariants
+
+- `windowd` is the authority for surface IDs, layer membership, scene commits, and present sequencing in this slice.
+- IPC callers must be identified from kernel/service metadata, never from client-provided strings.
+- Surface creation and buffer queueing must fail closed for:
+  - missing or forged VMO handles,
+  - wrong rights or non-surface buffers,
+  - dimensions/stride/format mismatches,
+  - oversized surfaces/layer trees/total bytes,
+  - stale surface IDs, stale commit sequence numbers, and unauthorized layer mutation.
+- VMO-backed buffers must not be logged or copied into unbounded diagnostics; logs/markers may include bounded metadata
+  such as IDs, dimensions, sequence numbers, and damage counts only.
+- `windowd: ready`, `windowd: present ok`, `launcher: first frame ok`, and `SELFTEST: ui ... ok` markers are allowed only
+  after the corresponding behavior has happened and been checked by the harness.
+- Add `test_reject_*` coverage for invalid dimensions, invalid VMO rights/handles, unauthorized surface/layer access,
+  stale queue/commit operations, and marker/postflight failure cases.
+
 ## Anti-drift posture for future `NexusGfx` wiring
 
 - `windowd` is the first bounded present/composition spine, but it must **not** become a separate graphics contract that
@@ -94,13 +141,42 @@ Deliver:
 
 ## Red flags / decision points
 
-- **RED (VMO availability)**:
-  - Buffer sharing depends on `TASK-0031` semantics being proven in QEMU.
-  - If VMO transfer/mapping is incomplete, v1b must either gate the feature or use a copy fallback
-    (explicitly documented as “non-zero-copy fallback”).
-- **YELLOW (present fence semantics)**:
-  - v1 can implement “fence” as a simple event/cap that is signaled after composition tick,
-    but it must be clearly documented as minimal and not suitable for real latency-sensitive pipelines yet.
+- **VMO availability (partly de-risked, still must be re-proven for UI)**:
+  - `TASK-0031` gives the baseline VMO plumbing, but `TASK-0055` must still prove the UI-shaped handle/rights/stride
+    contract at the `windowd` boundary.
+  - A copy fallback is allowed only if it is explicitly named `non-zero-copy fallback`, tested, and excluded from
+    zero-copy/perf claims.
+- **Present fence semantics (bounded v1 contract)**:
+  - v1 may implement a minimal present acknowledgement/event after the composition tick.
+  - Do not call it a latency-accurate GPU/display fence; real latency-sensitive semantics remain follow-up scope.
+- **Existing `windowd` placeholder (must not become fake proof)**:
+  - Current checksum/helper behavior is useful only as scaffold. It cannot emit success markers or satisfy the surface,
+    VMO, present, or launcher proof requirements.
+- **Visible output boundary (deferred)**:
+  - `TASK-0055` proves headless present. Visible QEMU scanout and visible `windowd`/SystemUI frames belong to
+    `TASK-0055B` / `TASK-0055C` and must not be claimed here.
+- **Config/policy coupling (bounded minimum only)**:
+  - `ui.profile` / display dimensions may be introduced here only as the minimum needed for deterministic headless
+    present. Rich dev presets remain `TASK-0055D`.
+
+## Gate E mapping
+
+`TASK-0055` contributes to Gate E (`Windowing, UI & Graphics`, `production-floor`) by proving the first real
+`windowd` surface/composition/present control path.
+
+- Gate E "first-frame/present" expectation:
+  - this task owns headless first-present markers and postflight validation,
+  - visible first-frame proof is deferred to `TASK-0055B` / `TASK-0055C`.
+- Gate E "input paths" expectation:
+  - this task may define input stubs only,
+  - real focus/cursor/click routing is deferred to `TASK-0056B`.
+- Gate E "surface ownership/reuse" expectation:
+  - this task must define bounded surface ownership, VMO queueing, damage, and present sequencing,
+  - kernel/MM/IPC production-grade reuse/perf closure remains delegated to `TASK-0054B`, `TASK-0054C`,
+    `TASK-0054D`, `TASK-0288`, and `TASK-0290`.
+- Gate E "perf claims" expectation:
+  - v1 may claim deterministic skip-present/no-damage behavior and bounded work,
+  - frame-budget or smoothness claims require measured scenes or follow-up perf tasks.
 
 ## Stop conditions (Definition of Done)
 
@@ -111,6 +187,9 @@ Host tests can be limited to protocol codec and in-proc composition (no QEMU):
 - `tests/ui_windowd_host/`:
   - compose two surfaces with damage and verify resulting pixels match a golden.
   - verify “no damage → no present” behavior deterministically.
+  - reject invalid dimensions, wrong format/stride, stale surface IDs, stale commit sequence numbers, and unauthorized
+    surface/layer mutation.
+  - prove marker/postflight helpers cannot report success before real compose/present state is observed.
 
 ### Proof (OS/QEMU) — gated
 
@@ -125,13 +204,16 @@ UART markers (order tolerant):
 
 ## Touched paths (allowlist)
 
-- `source/services/windowd/` (new)
-- `source/services/windowd/idl/` (new capnp)
+- `source/services/windowd/` (existing placeholder; replace with real bounded service/compositor logic)
+- `source/services/windowd/idl/` (new Cap'n Proto contract if not generated through an existing IDL path)
 - `userspace/apps/launcher/` (new demo client, minimal)
+- `tests/ui_windowd_host/` (new host proof crate/package if needed)
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui.sh` (delegates)
 - `scripts/qemu-test.sh` (marker list)
 - `docs/dev/ui/overview.md` + `docs/dev/ui/foundations/quality/testing.md` + `docs/dev/ui/foundations/layout/profiles.md`
+- `Cargo.toml` / `Cargo.lock` only for required workspace membership or generated package metadata; call out before editing.
+- Config/policy docs or manifests only if `ui.profile`, display dimensions, or service permissions are introduced.
 
 ## Plan (small PRs)
 

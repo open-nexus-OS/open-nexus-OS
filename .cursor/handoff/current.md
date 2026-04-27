@@ -1,21 +1,26 @@
-# Current Handoff: TASK-0054 done
+# Current Handoff: TASK-0055 prep
 
 **Date**: 2026-04-27  
-**Execution task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
-**Completed contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
+**Active task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `In Progress`
+**Active contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `In Progress`
+**Completed predecessor**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
+**Completed predecessor contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
 **Gate policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, `production-floor`)  
-**Archived predecessor handoff**: `.cursor/handoff/archive/TASK-0047-policy-as-code-v1-unified-engine.md`
+**Archived predecessor handoff**: `.cursor/handoff/archive/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md`
 
-## Closeout summary
+## Prep summary
 
-- Chosen route: narrow TASK-0054, not `TASK-0169` promotion.
-- Added `userspace/ui/renderer/` as a small safe Rust `ui_renderer` crate with BGRA8888 owned frames, checked dimensions/stride/damage newtypes, deterministic clear/rect/rounded-rect/blit/text primitives, and bounded full-frame damage overflow.
-- Added `userspace/ui/fonts/fixture_font_5x7.txt` as the repo-owned deterministic fixture font; no host font discovery or locale fallback.
-- Added `tests/ui_host_snap/` as the host proof package with expected-pixel, full rounded-rect/text masks, damage, snapshot/golden, PNG metadata-independence, artifact-root confinement, anti-fake-marker source scanning, and required reject tests.
-- Updated root `Cargo.toml` for workspace membership plus `userspace/ui` umbrella exclusion; `Cargo.lock` now carries the generated `ui_renderer` / `ui_host_snap` package metadata.
-- Updated UI testing docs, TASK-0054, RFC-0046, RFC index, implementation order, status board, changelog, and Cursor workfiles.
+- Archived the completed TASK-0054 handoff.
+- `TASK-0055` is now `In Progress`; next session should start in Plan Mode before implementation.
+- Created `RFC-0047` as the contract seed for `windowd` surface/layer/present semantics and linked it from `TASK-0055` / RFC index.
+- Header dependencies now include `TASK-0054`, `TASK-0031`, `TASK-0013`, `TASK-0046`, and `TASK-0047`.
+- Header follow-ups now include `TASK-0055B`, `TASK-0055C`, `TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0169`, `TASK-0170`, `TASK-0170B`, `TASK-0250`, and `TASK-0251`.
+- Current repo state is documented: `source/services/windowd/` exists only as a placeholder checksum/helper scaffold; `userspace/apps/launcher/` and UI-present markers do not exist yet.
+- Security/authority section now requires fail-closed VMO/surface/layer IPC handling, caller identity from service metadata, bounded logs, and `test_reject_*` coverage.
+- Red flags are clarified: VMO baseline is partly de-risked by predecessor work but still must be proven at the UI boundary; present fences are minimal acknowledgements; visible output remains `TASK-0055B/C`; dev presets remain `TASK-0055D`.
+- Gate E mapping is explicit: `TASK-0055` contributes headless surface/composition/present behavior only; visible display, input routing, and kernel/MM/IPC production-grade performance stay in follow-ups.
 
-## Green proof
+## Carry-in proof
 
 - `cargo test -p ui_renderer -- --nocapture` — green, 3 tests.
 - `cargo test -p ui_host_snap -- --nocapture` — green, 24 tests.
@@ -26,14 +31,16 @@
 - `scripts/fmt-clippy-deny.sh` — green.
 - `make clean`, `make build`, `make test`, `make run` — green in order.
 
-## Scope guardrails preserved
+## Scope guardrails for TASK-0055
 
-- No kernel changes.
-- No compositor, `windowd`, input routing, GPU, MMIO/IRQ, device-service, scheduler, MM, IPC, VMO, or timer changes.
-- No OS/QEMU present marker or fake `ok`/`ready` marker claim.
-- No Gate A kernel/core production-grade claim; TASK-0054 remains Gate E `production-floor` with local production-grade hardening only.
+- No kernel changes in the base `TASK-0055` slice.
+- No visible scanout claim in `TASK-0055`; visible QEMU output belongs to `TASK-0055B/C`.
+- No real input routing/focus/click claim; input is stub-only until `TASK-0056B`.
+- No zero-copy/perf/kernel production-grade claim; route those to `TASK-0054B/C/D`, `TASK-0288`, and `TASK-0290`.
+- No fake markers: `windowd: ready`, `windowd: present ok`, launcher, and `SELFTEST: ui ... ok` markers must correspond to real checked behavior.
 
 ## Next
 
-- Queue head is now `TASK-0055` prep; do not infer any OS present/compositor readiness from TASK-0054.
-- Kernel/core UI performance gaps remain in `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, then `TASK-0288` / `TASK-0290`.
+- Request Plan Mode for `TASK-0055`.
+- Read `TASK-0055`, this handoff, `.cursor/current_state.md`, `.cursor/next_task_prep.md`, `TASK-0054`, `RFC-0046`, and Gate E in `TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
+- Treat `RFC-0047` as the contract seed and `TASK-0055` as execution/proof SSOT.

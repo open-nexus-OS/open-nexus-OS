@@ -126,6 +126,39 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0055_context
+- Status: `TASK-0055` is `In Progress`; `RFC-0047` is the `In Progress` contract seed; implementation must start with Plan Mode.
+- Scope: OS-gated headless `windowd` surface/layer IPC, VMO-backed surface buffers, bounded composition, minimal present acknowledgement, launcher first-frame client, and deterministic markers/postflight.
+- Current repo reality: `source/services/windowd/` exists only as a placeholder checksum/helper scaffold; `userspace/apps/launcher/` is absent; UI-present markers are not wired.
+- Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`); `TASK-0055` contributes headless first-present/surface ownership, not visible display, input routing, or kernel/core production-grade closure.
+- Security: fail closed for forged/missing VMO handles, wrong rights, invalid dimensions/stride/format, stale surface/commit IDs, unauthorized layer mutation, and fake markers.
+- Follow-ups: visible scanout/present (`TASK-0055B/C`), dev presets (`TASK-0055D`), input/present evolution (`TASK-0056/B/C`), renderer abstraction (`TASK-0169/0170/0170B`), display backend (`TASK-0250/0251`).
+- `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md`
+- `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`
+- `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md`
+- `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/architecture/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/nexusgfx-text-pipeline.md`
+- `.cursor/rules/00-task-entry.mdc`
+- `.cursor/rules/01-handoff-entry.mdc`
+- `.cursor/rules/10-security-services.mdc`
+- `.cursor/rules/20-arch-sync.mdc`
+
+### @task_0055_touched
+- `source/services/windowd/`
+- `source/services/windowd/idl/`
+- `userspace/apps/launcher/`
+- `tests/ui_windowd_host/`
+- `source/apps/selftest-client/`
+- `tools/postflight-ui.sh`
+- `scripts/qemu-test.sh`
+- `docs/dev/ui/overview.md`
+- `docs/dev/ui/foundations/quality/testing.md`
+- `docs/dev/ui/foundations/layout/profiles.md`
+- `Cargo.toml` / `Cargo.lock` only for workspace membership or generated metadata.
+- Config/policy docs or manifests only if `ui.profile`, display dimensions, or service permissions are introduced.
+
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
 - `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`
