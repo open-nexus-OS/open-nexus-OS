@@ -351,29 +351,29 @@ PT: heap alloc
 PT: heap alloc
 PT: heap alloc
 [INFO mm] map kernel segments ok
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x12fb2 flags=0x5
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x12fda flags=0x5
 [INFO selftest] KSELFTEST: map flags bits=0x1b
 PT: heap alloc
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fb8 memsz=0x124c18 flags=0x4
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412fe0 memsz=0x124c20 flags=0x4
 [INFO selftest] KSELFTEST: map flags bits=0x13
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10537bd0 memsz=0x80431 flags=0x6
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10537c00 memsz=0x80401 flags=0x6
 [INFO selftest] KSELFTEST: map flags bits=0x17
 PT: heap alloc
 PT: heap alloc
 [INFO selftest] KSELFTEST: text page entry=0x000000002020005b va=0x0000000010400000
 [INFO selftest] KSELFTEST: data page entry=0x000000002024dcd7 va=0x0000000010537000
-[INFO selftest] KSELFTEST: derived gp=0x105383d0 from .sdata/.data
-[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x105383d0
-[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x105383d0
+[INFO selftest] KSELFTEST: derived gp=0x10538400 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10538400
+[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10538400
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x105383d0
+[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10538400
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [INFO selftest] KSELFTEST: spawn ok pid=17
 [INFO selftest] KSELFTEST: init frame:
   sepc=0x0000000010400000
-  gp=0x00000000105383d0
+  gp=0x0000000010538400
   sp=0x0000000020008000
   sstatus=0x0000000000040020
   SPP=0 (U-mode=0, S-mode=1)
@@ -384,7 +384,7 @@ CAP: new exit
 [INFO kmain] KMAIN: skip S-mode task pid=15 (SPP=1)
 [INFO kmain] KMAIN: skip S-mode task pid=16 (SPP=1)
 [INFO kmain] KMAIN: switch to U-mode pid=17 sepc=0x10400000 sp=0x20008000
-ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x000000008041cdb0 sp=0x0000000020008000 gp=0x00000000105383d0 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
+ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x000000008041cdb0 sp=0x0000000020008000 gp=0x0000000010538400 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
 AS: activating satp=0x80006000000803f9
 AS: pc check va=0x0000000080209000
 AS: sp check va=0x0000000080642000
@@ -491,7 +491,7 @@ PT: heap alloc
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x1222a sp(x2)=0x20008000 gp(x3)=0x16bb8
+[INFO task] SPAWN-FRAME: sepc=0x12232 sp(x2)=0x20008000 gp(x3)=0x16bc0
 [DEBUG sched] enqueue: pid=20 qos=Normal
 init: up policyd
 init: start logd
@@ -953,7 +953,7 @@ AS: ensure_rx_guard pc=0x00000000802097a8
 AS: post-satp OK
 UBpolicyd: ready
 abi-profile: ready (server=policyd|abi-filterd)
-policyd: audit emit FAIL
+policyd: audit emit deferred
 policyd: mmio blk deny priv
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [DEBUG sched] enqueue: pid=20 qos=Normal
@@ -1014,7 +1014,7 @@ UBnetstackd: ready
 UBdsoftbusd: waiting for slots
 UBinit: mmio policy deny ok
 init: mmio grant begin svc=netstackd pid=0x000000000000001f slot=0x0000000000000030 base=0x0000000010008000 len=0x0000000000001000 cap=device.mmio.net
-policyd: audit emit FAIL
+policyd: audit emit deferred
 policyd: mmio net allow priv
 init: mmio cap_create svc=netstackd
 init: mmio cap_create ok svc=netstackd cap_slot=0x000000000000004f
@@ -1022,7 +1022,7 @@ init: mmio xfer_to_slot svc=netstackd dst_slot=0x0000000000000030
 init: mmio xfer_to_slot ok svc=netstackd got=0x0000000000000030
 init: mmio grant svc=netstackd slot=0x0000000000000030
 init: mmio grant begin svc=rngd pid=0x0000000000000013 slot=0x0000000000000030 base=0x0000000010007000 len=0x0000000000001000 cap=device.mmio.rng
-policyd: audit emit FAIL
+policyd: audit emit deferred
 policyd: mmio rng allow priv
 net: virtio-net up
 SELFTEST: net iface ok
@@ -1037,7 +1037,7 @@ init: mmio xfer_to_slot svc=rngd dst_slot=0x0000000000000030
 init: mmio xfer_to_slot ok svc=rngd got=0x0000000000000030
 init: mmio grant svc=rngd slot=0x0000000000000030
 init: mmio grant begin svc=selftest-client pid=0x0000000000000021 slot=0x0000000000000030 base=0x0000000010008000 len=0x0000000000001000 cap=device.mmio.net
-policyd: audit emit FAIL
+policyd: audit emit deferred
 policyd: mmio net allow priv
 init: mmio cap_create svc=selftest-client
 init: mmio cap_create ok svc=selftest-client cap_slot=0x000000000000004f
@@ -1045,7 +1045,7 @@ init: mmio xfer_to_slot svc=selftest-client dst_slot=0x0000000000000030
 init: mmio xfer_to_slot ok svc=selftest-client got=0x0000000000000030
 init: mmio grant svc=selftest-client slot=0x0000000000000030
 init: mmio grant begin svc=statefsd pid=0x0000000000000019 slot=0x0000000000000030 base=0x0000000010006000 len=0x0000000000001000 cap=device.mmio.blk
-policyd: audit emit FAIL
+policyd: audit emit deferred
 policyd: mmio blk allow priv
 init: mmio cap_create svc=statefsd
 init: mmio cap_create ok svc=statefsd cap_slot=0x000000000000004f
@@ -1160,7 +1160,7 @@ updated: replycap slot=0x0000000d
 [INFO bundlemgrd] core service log probe: bundlemgrd
 dbg:netstackd: dns h-start
 bundlemgrd: sender denied
-init: rollback fail
+init: rollback deferred
 init: ctrl req from updated
 metricsd: ready
 policyd: audit emit ok
