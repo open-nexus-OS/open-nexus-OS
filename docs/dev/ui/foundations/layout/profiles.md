@@ -158,6 +158,11 @@ Fork workflow:
 
 For QEMU and host fixtures, prefer a deterministic preset catalog over ad-hoc local resolutions.
 
+TASK-0055 uses a deliberately tiny headless proof profile before the richer
+dev-preset catalog exists: `profile=desktop`, `64x48`, `60Hz`. This is a
+behavior proof for surface/layer/present sequencing only. It is not a visible
+display preset and must not be used as a consumer display or scanout claim.
+
 Recommended starter presets:
 
 - `phone-portrait`

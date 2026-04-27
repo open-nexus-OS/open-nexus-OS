@@ -5,7 +5,7 @@ kind = "app"
 
 [source]
 type = "path"
-path = "../../../source/apps/launcher"
+path = "../../../userspace/apps/launcher"
 
 [deps]
 requires = ["windowd", "bundlemgr"]

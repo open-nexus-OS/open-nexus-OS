@@ -34,25 +34,32 @@
   - `scripts/fmt-clippy-deny.sh`
   - `make clean`, `make build`, `make test`, `make run`
 
-## TASK-0055 prep snapshot
+## TASK-0055 review snapshot
 
-- **next task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `In Progress`.
-- **contract seed**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `In Progress`.
-- **must start in Plan Mode**: yes.
-- **RFC seed check**: complete; `RFC-0047` now owns the contract/rationale seed while `TASK-0055` remains execution/proof SSOT.
-- **current repo reality**:
-  - `source/services/windowd/` exists only as placeholder checksum/helper scaffold,
-  - `userspace/apps/launcher/` does not exist,
-  - UI present markers are not wired yet.
-- **follow-ups in header**: `TASK-0055B`, `TASK-0055C`, `TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0169`, `TASK-0170`, `TASK-0170B`, `TASK-0250`, `TASK-0251`.
-- **security prep complete**: task now requires fail-closed VMO/surface/layer IPC, caller identity from service metadata, bounded logs, marker honesty, and `test_reject_*` coverage.
-- **Gate E prep complete**: task maps to headless surface/composition/present only; visible output, input routing, and kernel/MM/IPC production-grade claims remain follow-ups.
+- **active review task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `In Review`.
+- **completed contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`.
+- **proof floor**:
+  - `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`
+  - `cargo test -p ui_windowd_host reject -- --nocapture`
+  - `cargo test -p ui_windowd_host capnp -- --nocapture`
+  - `cargo test -p selftest-client -- --nocapture`
+  - `cargo test -p launcher -- --nocapture`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `scripts/fmt-clippy-deny.sh`
+  - `make build` → `make test`
+  - `make build` → `make run`
+- **repo reality**:
+  - `source/services/windowd/` contains the bounded headless surface/layer/present state machine,
+  - `userspace/apps/launcher/` exists as the minimal first-frame client,
+  - UI present markers are wired through `selftest-client`, proof-manifest, `scripts/qemu-test.sh`, and `tools/postflight-ui.sh`.
+- **follow-ups remain in header**: `TASK-0055B`, `TASK-0055C`, `TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0169`, `TASK-0170`, `TASK-0170B`, `TASK-0250`, `TASK-0251`.
+- **Gate E boundary**: TASK-0055 (when review closes) proves headless surface/composition/present only; visible output, input routing, and kernel/MM/IPC/zero-copy production-grade claims remain follow-ups.
 
 ## Next task prep prompt
 
-- Queue head is `TASK-0055` planning, but the next session must read that task/RFC context before implementation.
-- Carry forward TASK-0054 honesty: host renderer goldens prove deterministic pixels/damage only, not OS present, compositor, input, GPU, or kernel/core production-grade behavior.
-- If `TASK-0055` or follow-ups need scheduler/MM/IPC/VMO/timer fixes, route to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task rather than retrofitting TASK-0054.
+- Finish `TASK-0055` review, then `TASK-0055B` visible QEMU scanout bootstrap.
+- Carry forward TASK-0055 honesty: headless markers prove checked in-memory present state only, not visible scanout, real input, GPU/display-driver behavior, perf budgets, or kernel/core production-grade behavior.
+- If visible follow-ups need scheduler/MM/IPC/VMO/timer fixes, route to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task rather than retrofitting TASK-0055.
 
 ## Carry-forward guardrails
 

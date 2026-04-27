@@ -71,6 +71,15 @@ Rule:
 - large resource bytes belong on the data plane,
 - resources are referenced by handles/slices, not embedded inline.
 
+TASK-0055 closeout note:
+
+- `windowd` v1b uses Cap'n Proto control-plane metadata plus UI-shaped VMO
+  handle/rights/byte-length validation for headless surface buffers.
+- This proves the windowing boundary rejects missing, forged, wrong-rights,
+  wrong-size, or non-surface buffer handles.
+- It does not add a new kernel VMO capability-transfer or zero-copy production
+  contract; those remain owned by the VMO/kernel production-gate tasks.
+
 ---
 
 ## Residency classes

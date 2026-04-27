@@ -127,9 +127,10 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0055_context
-- Status: `TASK-0055` is `In Progress`; `RFC-0047` is the `In Progress` contract seed; implementation must start with Plan Mode.
-- Scope: OS-gated headless `windowd` surface/layer IPC, VMO-backed surface buffers, bounded composition, minimal present acknowledgement, launcher first-frame client, and deterministic markers/postflight.
-- Current repo reality: `source/services/windowd/` exists only as a placeholder checksum/helper scaffold; `userspace/apps/launcher/` is absent; UI-present markers are not wired.
+- Status: `RFC-0047` is `Done` (contract). `TASK-0055` is `In Review` (execution + proof SSOT until review signs off) after the same critical remediation.
+- Scope under review: OS-gated headless `windowd` surface/layer IPC seed, VMO-shaped surface buffer validation, bounded composition, minimal present acknowledgement, launcher first-frame client, and deterministic markers/postflight.
+- Current repo reality: `source/services/windowd/` contains the bounded headless state machine; `userspace/apps/launcher/` exists; UI-present markers are wired through `selftest-client`, proof-manifest, `scripts/qemu-test.sh`, and `tools/postflight-ui.sh`.
+- Proof: `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`, `cargo test -p ui_windowd_host reject -- --nocapture`, `cargo test -p ui_windowd_host capnp -- --nocapture`, `cargo test -p launcher -- --nocapture`, `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`, `scripts/fmt-clippy-deny.sh`, `make build` → `make test`, `make build` → `make run`.
 - Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`); `TASK-0055` contributes headless first-present/surface ownership, not visible display, input routing, or kernel/core production-grade closure.
 - Security: fail closed for forged/missing VMO handles, wrong rights, invalid dimensions/stride/format, stale surface/commit IDs, unauthorized layer mutation, and fake markers.
 - Follow-ups: visible scanout/present (`TASK-0055B/C`), dev presets (`TASK-0055D`), input/present evolution (`TASK-0056/B/C`), renderer abstraction (`TASK-0169/0170/0170B`), display backend (`TASK-0250/0251`).

@@ -1,0 +1,13 @@
+[package]
+name = "ui_windowd_host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+capnp = "0.24.1"
+windowd = { path = "../../source/services/windowd" }
+
+[build-dependencies]
+capnpc = "0.24.1"

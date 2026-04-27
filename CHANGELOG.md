@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-04-27
 
+#### TASK-0055 / RFC-0047 headless windowd present — RFC Done, task In Review (`RFC-0047` Done; `TASK-0055` In Review)
+
+- Tracked the headless `windowd` surface/layer/present slice after critical remediation; `RFC-0047` is `Done` and `TASK-0055` is `In Review` for execution sign-off on the same evidence:
+  - `source/services/windowd` now owns bounded surface IDs, VMO-shaped buffer validation, layer commits, damage-aware composition, and minimal present acknowledgements
+  - `source/services/windowd/src/lib.rs` is now a facade over focused modules instead of a monolith
+  - `tests/ui_windowd_host` proves exact two-surface composition, no-damage present skip, deterministic layer ordering, present acknowledgements, generated Cap'n Proto roundtrips, vsync/input-stub behavior, atomic commit preservation, and expanded reject paths
+  - `userspace/apps/launcher` is now the canonical `launcher` package; the old `source/apps/launcher` placeholder was removed
+  - `selftest-client`, proof-manifest markers, `scripts/qemu-test.sh`, and `tools/postflight-ui.sh` now gate honest UI present markers
+- Added proof coverage:
+  - `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`
+  - `cargo test -p ui_windowd_host reject -- --nocapture`
+  - `cargo test -p ui_windowd_host capnp -- --nocapture`
+  - `cargo test -p launcher -- --nocapture`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
+  - `scripts/fmt-clippy-deny.sh`
+  - `make build` → `make test`
+  - `make build` → `make run`
+- Visible scanout, real input routing, GPU/display-driver work, rich display presets, and kernel/MM/IPC/zero-copy production closure remain follow-up scope.
+- VMO scope is explicitly limited to UI-shaped `windowd` handle/rights/byte-length validation; no new kernel VMO capability-transfer or zero-copy production claim is made.
+
 #### TASK-0054 / RFC-0046 host renderer closure (`TASK-0054`, `RFC-0046`)
 
 - Closed the narrow host-first UI renderer proof floor and RFC contract:

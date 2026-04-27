@@ -77,6 +77,15 @@ Important uses:
 - present synchronization
 - infer/gfx interop handoff
 
+TASK-0055 closeout note:
+
+- `windowd` v1b implements only a minimal headless `PresentAck`
+  (`PresentSeq` + damage count) after checked composition.
+- That acknowledgement is a deterministic proof/fence surrogate for the
+  headless slice, not a latency-accurate GPU/display fence.
+- Visible scanout, richer present pacing, and resource-reuse fences remain
+  follow-up scope.
+
 ---
 
 ## Wait model

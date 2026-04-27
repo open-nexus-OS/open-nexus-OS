@@ -1,6 +1,6 @@
 ---
 title: TASK-0055 UI v1b (OS-gated): windowd compositor + surfaces/layers IPC + VMO buffers + vsync timer + markers
-status: In Progress
+status: In Review
 owner: @ui
 created: 2025-12-23
 depends-on:
@@ -53,14 +53,16 @@ This task is OS-gated on VMO plumbing and a timing spine.
 
 Current-state check (2026-04-27 prep sync):
 
+- `RFC-0047` is `Done` (contract); this task is `In Review` (execution and proof evidence SSOT until review signs off).
 - `TASK-0054` / `RFC-0046` are `Done` and provide only the host BGRA8888 renderer/snapshot proof floor.
-- `source/services/windowd/` already exists, but it is a placeholder library/daemon with a deterministic checksum test,
-  not a real surface IPC service, compositor, VMO owner, vsync loop, or marker-producing OS path.
-- `userspace/apps/launcher/` does not exist yet.
-- No UI-present markers (`windowd: present ok`, `launcher: first frame ok`, `SELFTEST: ui launcher present ok`) are
-  currently wired in `selftest-client` / `scripts/qemu-test.sh`.
-- `TASK-0055` must therefore replace placeholder `windowd` behavior with real bounded behavior instead of treating the
-  existing checksum/helper output as proof.
+- `source/services/windowd/` now contains a modular bounded headless surface/layer/present state machine used by the host
+  and OS marker proofs; `lib.rs` is a facade over focused modules instead of a monolith.
+- `userspace/apps/launcher/` is now the canonical `launcher` package; the old `source/apps/launcher` placeholder was
+  removed and the launcher recipe points at the userspace app.
+- UI-present markers (`windowd: present ok`, `launcher: first frame ok`, `SELFTEST: ui launcher present ok`) are wired in
+  `selftest-client` / `scripts/qemu-test.sh` and verified through the proof-manifest deny-by-default post-pass.
+- The OS proof uses a small deterministic headless profile (`desktop`, `64x48`, `60Hz`) to stay within current selftest
+  heap limits. This is not a visible scanout or consumer display preset claim.
 
 Scope note:
 
@@ -201,6 +203,36 @@ UART markers (order tolerant):
 - `launcher: first frame ok`
 - `SELFTEST: ui launcher present ok`
 - `SELFTEST: ui resize ok`
+
+### Closeout evidence after critical remediation (2026-04-27)
+
+Green proof commands:
+
+- `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture` — `windowd` tests,
+  `ui_windowd_host` 22 tests, launcher ack-before-marker proof, and selftest-client build/proof-manifest coverage.
+- `cargo test -p ui_windowd_host reject -- --nocapture` — reject-filtered host proof for invalid dimensions/stride/format,
+  missing/forged/wrong-rights VMO handles, stale surface IDs, stale commit sequence numbers, unauthorized layer mutation,
+  buffer length mismatch, bounds rejects, marker/postflight-before-present rejection, postflight log-only rejection, and IDL shape checks.
+- `cargo test -p ui_windowd_host capnp -- --nocapture` — generated Cap'n Proto codec/roundtrip proof for surface create,
+  queue-buffer damage, scene commit, vsync subscribe, and input subscribe schemas.
+- `cargo test -p launcher -- --nocapture` — minimal launcher package builds and proves no marker without present ack.
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` — QEMU marker proof including the TASK-0055 headless UI ladder.
+- `scripts/fmt-clippy-deny.sh` — workspace fmt/clippy/deny gate.
+- `make build` → `make test` — valid repo test gate using the fresh `make build` artifacts.
+- `make build` → `make run` — valid repo run/QEMU smoke gate using the fresh `make build` artifacts.
+
+Proof notes:
+
+- `source/services/windowd` is now the authority for surface IDs, layer commits, and present sequencing in the slice.
+- Host tests assert desired behavior: exact pixels for two damaged surfaces, no-damage present skip, deterministic
+  layer ordering, minimal present acknowledgements, vsync subscription behavior, explicit unsupported input stubs, atomic
+  scene commit preservation after rejects, and marker rendering from ack evidence.
+- VMO behavior is modeled as a typed handle/rights/buffer validation contract at the `windowd` boundary. No kernel
+  zero-copy, VMO sealing/reuse, IPC fastpath, or perf claim is made.
+- `tools/postflight-ui.sh` delegates to the canonical QEMU harness and rejects log-only closure attempts.
+- Visible output, real input routing/focus/click, rich dev presets, and GPU/display-driver work remain follow-up scope.
+- VMO scope closure: TASK-0055 proves UI-shaped VMO handle/rights/size validation at `windowd`; real kernel VMO
+  capability transfer was not changed here and remains outside this task's claim.
 
 ## Touched paths (allowlist)
 

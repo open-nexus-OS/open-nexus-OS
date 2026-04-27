@@ -48,6 +48,18 @@ This is the anti-fake-success gate.
   - [ ] fixture traversal / absolute golden write targets reject.
 - [ ] No OS/QEMU marker proof is claimed for TASK-0054.
 
+## Task-0055 automatic addendum (when applicable)
+- [ ] `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture` is green.
+- [ ] `cargo test -p ui_windowd_host reject -- --nocapture` is green for required reject paths.
+- [ ] `cargo test -p ui_windowd_host capnp -- --nocapture` is green for generated IDL roundtrips.
+- [ ] `cargo test -p selftest-client -- --nocapture` is green for marker manifest generation.
+- [ ] `cargo test -p launcher -- --nocapture` is green for the minimal launcher package.
+- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` is green for the headless UI marker ladder.
+- [ ] `tools/postflight-ui.sh` delegates to the canonical QEMU harness and rejects log-only closure.
+- [ ] `scripts/fmt-clippy-deny.sh` is green.
+- [ ] `make test` is green after a fresh `make build`.
+- [ ] `make run` is green after a fresh `make build`.
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks
@@ -119,6 +131,30 @@ This is the anti-fake-success gate.
   - [ ] any simplistic scheduler/MM/IPC/VMO/timer finding is documented and routed to the owning follow-up,
   - [ ] no kernel workaround is added inside TASK-0054.
 
+## Task-0055 manual addendum (when applicable)
+- [ ] Execution SSOT and contract seed are synchronized:
+  - [ ] `TASK-0055` reflects current implementation/proofs/gates,
+  - [ ] `RFC-0047` reflects the same headless surface/layer/present contract.
+- [ ] Gate scope honesty is preserved:
+  - [ ] TASK-0055 remains Gate E `production-floor`,
+  - [ ] no visible scanout, input routing, GPU/display-driver, or kernel production-grade claim is made.
+- [ ] `windowd` authority boundary is enforced:
+  - [ ] surface IDs, layer membership, scene commits, and present sequencing are owned by `windowd`,
+  - [ ] caller identity is service/kernel metadata shaped, never payload-string authority.
+- [ ] Behavior-first proof shape is explicit:
+  - [ ] host tests assert exact pixels, no-damage present skip, deterministic layer ordering, and minimal present ack state,
+  - [ ] markers summarize checked state and are not accepted as standalone grep proof.
+- [ ] Reject coverage is present:
+  - [ ] invalid dimensions/stride/format,
+  - [ ] missing/forged/wrong-rights VMO handles,
+  - [ ] stale surface IDs / stale commit sequence numbers,
+  - [ ] unauthorized layer mutation,
+  - [ ] marker/postflight before present state.
+- [ ] Rust discipline is reviewed:
+  - [ ] no `unwrap/expect` on untrusted input,
+  - [ ] no unsafe `Send`/`Sync` shortcuts,
+  - [ ] logs/markers contain bounded metadata only.
+
 ## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` / `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` / `RFC-0045` are linked and form the new execution+contract pair.
@@ -149,10 +185,9 @@ This is the anti-fake-success gate.
   - [x] `scripts/fmt-clippy-deny.sh`
   - [x] `make clean`, `make build`, `make test`, `make run`
 
-## Active prep snapshot (TASK-0055 draft, 2026-04-27)
-- [x] Current TASK-0054 handoff archived under `.cursor/handoff/archive/`.
-- [x] `RFC-0047` contract seed created and linked from `TASK-0055` / RFC index.
-- [x] `TASK-0055` current-state note documents existing placeholder `windowd`, missing launcher, and missing UI markers.
+## Active review snapshot (TASK-0055 + RFC-0047, 2026-04-27)
+- [x] `RFC-0047` is `Done` and linked from `TASK-0055` / RFC index.
+- [x] `TASK-0055` is `In Review`; current-state and closeout evidence reflect real `windowd`, launcher, markers, and host/OS proofs.
 - [x] `TASK-0055` header includes dependencies and follow-up tasks.
 - [x] Security section covers VMO/surface/layer authority, marker honesty, bounded logs, and reject tests.
 - [x] Red flags are classified with follow-up boundaries for visible output, dev presets, and present fences.

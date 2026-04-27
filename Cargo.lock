@@ -1371,8 +1371,7 @@ dependencies = [
 name = "launcher"
 version = "0.1.0"
 dependencies = [
- "nexus-abi",
- "nexus-service-entry",
+ "windowd",
 ]
 
 [[package]]
@@ -2749,6 +2748,7 @@ dependencies = [
  "tar",
  "updates",
  "vfsd",
+ "windowd",
 ]
 
 [[package]]
@@ -3276,6 +3276,15 @@ dependencies = [
 [[package]]
 name = "ui_renderer"
 version = "0.1.0"
+
+[[package]]
+name = "ui_windowd_host"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
+ "windowd",
+]
 
 [[package]]
 name = "unarray"

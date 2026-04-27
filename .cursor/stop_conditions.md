@@ -115,6 +115,45 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] such blockers are routed to `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new task/RFC,
   - [ ] no kernel workaround is absorbed into TASK-0054.
 
+## TASK-0055 class stop conditions (UI v1b headless windowd surface/layer/present)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0055` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0047` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` status matches RFC reality.
+- [ ] Gate scope honesty is preserved:
+  - [ ] Gate E `production-floor` alignment stays explicit,
+  - [ ] no visible scanout, real input routing, GPU/display-driver, or kernel/core production-grade claim is made.
+- [ ] `windowd` authority is enforced:
+  - [ ] `windowd` owns surface IDs, layer membership, scene commits, and present sequencing,
+  - [ ] caller identity comes from service/kernel metadata shape, not payload strings,
+  - [ ] logs/markers include bounded metadata only and never VMO contents.
+- [ ] Headless present contract is proven:
+  - [ ] two damaged surfaces composite to expected pixels,
+  - [ ] no damage produces no present,
+  - [ ] layer ordering and scene commits are deterministic,
+  - [ ] minimal present acknowledgement is emitted only after composition.
+- [ ] Security and fail-closed behavior are proven:
+  - [ ] invalid dimensions/stride/format reject,
+  - [ ] missing/forged/wrong-rights/non-surface VMO handles reject,
+  - [ ] stale surface IDs and stale commit sequence numbers reject,
+  - [ ] unauthorized layer mutation rejects,
+  - [ ] marker/postflight cannot pass before real present state.
+- [ ] Required proof floor is green:
+  - [ ] `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`,
+  - [ ] `cargo test -p ui_windowd_host reject -- --nocapture`,
+  - [ ] `cargo test -p ui_windowd_host capnp -- --nocapture`,
+  - [ ] `cargo test -p selftest-client -- --nocapture`,
+  - [ ] `cargo test -p launcher -- --nocapture`,
+  - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`,
+  - [ ] `scripts/fmt-clippy-deny.sh`,
+  - [ ] `make build` followed by `make test`,
+  - [ ] `make build` followed by `make run`.
+- [ ] Follow-up scope remains explicit:
+  - [ ] visible output remains `TASK-0055B` / `TASK-0055C`,
+  - [ ] rich display/profile presets remain `TASK-0055D`,
+  - [ ] real input routing remains `TASK-0056B`,
+  - [ ] kernel/MM/IPC/VMO production closure remains delegated to owning follow-ups.
+
 ## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` and `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` and `RFC-0045` are linked as the new execution+contract pair.
@@ -144,13 +183,12 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [x] `scripts/fmt-clippy-deny.sh`
   - [x] `make clean`, `make build`, `make test`, `make run`
 
-## Active prep snapshot (TASK-0055 draft, 2026-04-27)
-- [x] Current TASK-0054 handoff archived under `.cursor/handoff/archive/`.
-- [x] `RFC-0047` contract seed created and linked from `TASK-0055` / RFC index.
-- [x] `TASK-0055` is `In Progress`; next implementation session must request Plan Mode.
-- [x] `TASK-0055` current-state note documents existing placeholder `windowd`, missing launcher, and missing UI markers.
-- [x] Security and red-flag sections now reject fake proof and route visible/input/perf claims to follow-ups.
-- [x] Gate E mapping states that `TASK-0055` contributes headless present only and cannot claim visible display/input/kernel production closure.
+## Active review snapshot (TASK-0055 + RFC-0047, 2026-04-27)
+- [x] `RFC-0047` is `Done` (contract text / invariants closed).
+- [x] `TASK-0055` is `In Review`; execution/proof evidence is listed in the task, handoff, and testing index.
+- [x] Green proof floor (windowd + `ui_windowd_host` + launcher + selftest + QEMU marker ladder) is the review baseline.
+- [x] Security and red-flag sections still reject fake proof and route visible/input/perf claims to follow-ups.
+- [x] Gate E mapping: `TASK-0055` contributes headless present only; cannot claim visible display/input/kernel production closure.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

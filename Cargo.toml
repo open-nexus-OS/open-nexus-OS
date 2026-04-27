@@ -7,9 +7,9 @@ members = [
     "source/init/*",
     "userspace/*",
     "userspace/apps/*",
-    "source/apps/launcher",
     "source/apps/selftest-client",
     "source/apps/init-lite",
+    "userspace/apps/launcher",
     "source/drivers/net/virtio",
     "source/drivers/storage/virtio-blk",
     "source/drivers/console/virtio",
@@ -21,7 +21,8 @@ members = [
     "tests/remote_e2e",
     "tests/vfs_e2e",
     "tests/updates_host",
-    "tests/ui_host_snap"
+    "tests/ui_host_snap",
+    "tests/ui_windowd_host"
 ]
 resolver = "2"
 exclude = [

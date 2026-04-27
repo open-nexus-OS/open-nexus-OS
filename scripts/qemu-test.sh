@@ -468,6 +468,12 @@ expected_sequence=(
   "SELFTEST: vfs ebadf ok"
   "vfsd: access denied"
   "SELFTEST: sandbox deny ok"
+  "windowd: ready (w=64, h=48, hz=60)"
+  "windowd: systemui loaded (profile=desktop)"
+  "windowd: present ok (seq=1 dmg=1)"
+  "launcher: first frame ok"
+  "SELFTEST: ui launcher present ok"
+  "SELFTEST: ui resize ok"
   "SELFTEST: end"
 )
 
@@ -1091,6 +1097,29 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
       echo "[info] REQUIRE_DSOFTBUS_REMOTE_STATEFS=1 but cross-vm session marker is absent; remote statefs gate is not applicable in single-VM runs" >&2
     fi
   fi
+fi
+
+# TASK-0055 UI fake-green guard: UI selftest markers summarize checked
+# `windowd` present state and must not appear without their prerequisites.
+if grep -aFq "SELFTEST: ui launcher present ok" "$UART_LOG"; then
+  for m in \
+    "windowd: ready (w=64, h=48, hz=60)" \
+    "windowd: systemui loaded (profile=desktop)" \
+    "windowd: present ok (seq=1 dmg=1)" \
+    "launcher: first frame ok"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+      echo "[error] UI selftest marker appeared before required checked present state: $m" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+      exit 1
+    fi
+  done
+fi
+if grep -aFq "SELFTEST: ui resize ok" "$UART_LOG" && ! grep -aFq "SELFTEST: ui launcher present ok" "$UART_LOG"; then
+  echo "[error] first_failed_phase=end missing_marker='SELFTEST: ui launcher present ok'" >&2
+  echo "[error] UI resize marker appeared without launcher-present proof" >&2
+  print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+  exit 1
 fi
 
 prev=-1

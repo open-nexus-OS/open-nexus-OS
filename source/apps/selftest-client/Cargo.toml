@@ -43,6 +43,7 @@ os-lite = [
     "dep:statefs",
     "dep:crash",
     "dep:nexus-vmo",
+    "dep:windowd",
 ]
 # Optional: legacy/bounded smoltcp-over-virtio probe for bring-up debugging.
 # Keep off by default to avoid marker drift and unused-code warnings.
@@ -80,6 +81,7 @@ nexus-noise-xk = { path = "../../libs/nexus-noise-xk", optional = true }
 statefs = { path = "../../../userspace/statefs", default-features = false, optional = true }
 crash = { path = "../../../userspace/crash", default-features = false, optional = true }
 nexus-vmo = { path = "../../../userspace/memory", default-features = false, features = ["os-lite"], optional = true }
+windowd = { path = "../../../source/services/windowd", optional = true }
 smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-icmp", "socket-udp", "medium-ethernet"], optional = true }
 nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"], optional = true }
 

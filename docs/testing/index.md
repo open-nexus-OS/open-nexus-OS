@@ -13,7 +13,8 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
 - **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (Complete)
 - **RFC-0038**: Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1 — proof-manifest SSOT, signed evidence bundles, replay/bisect tooling (Done; one environmental closure step remaining — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11)
-- **RFC-0046**: UI v1a host CPU renderer + deterministic snapshots — BGRA8888 host renderer, deterministic goldens, reject tests, and fake-marker prohibition (Done; `TASK-0054` In Review)
+- **RFC-0046**: UI v1a host CPU renderer + deterministic snapshots — BGRA8888 host renderer, deterministic goldens, reject tests, and fake-marker prohibition (Done; `TASK-0054` Done)
+- **RFC-0047**: UI v1b windowd surface/layer/present — headless `windowd` compositor contract, bounded surface/VMO/layer rejects, generated Cap'n Proto roundtrips, and honest QEMU markers (Done; `TASK-0055` In Review)
 
 ## Philosophy
 
@@ -200,6 +201,24 @@ Hard rule:
 | Oversized dimensions, invalid stride/buffer length, arithmetic/rect/image/font rejects, golden update gating, path traversal rejects, fake OS marker scan | host reject assertions | `cargo test -p ui_host_snap reject -- --nocapture` |
 
 Golden updates are disabled unless `UPDATE_GOLDENS=1` is explicitly set. PNG files are deterministic artifacts only; equality is decided from decoded canonical BGRA pixels, not encoded PNG metadata.
+
+### TASK-0055 UI headless windowd present matrix
+
+`TASK-0055` proves the first bounded headless `windowd` surface/layer/present
+path. It does not prove visible scanout, real input routing, GPU/display-driver
+behavior, or kernel/MM/IPC/zero-copy production closure.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Surface/layer state machine, exact BGRA composition, no-damage present skip, deterministic layer ordering, minimal present acknowledgement, vsync/input stubs | host behavior assertions | `cargo test -p ui_windowd_host -- --nocapture` |
+| Generated Cap'n Proto encode/decode for surface create, queue-buffer damage, scene commit, vsync subscribe, and input subscribe | host IDL codec assertions | `cargo test -p ui_windowd_host capnp -- --nocapture` |
+| Invalid dimensions/stride/format, missing/forged/wrong-rights VMO handles, stale surface/commit IDs, unauthorized layer mutation, fake marker/postflight reject | host reject assertions | `cargo test -p ui_windowd_host reject -- --nocapture` |
+| Headless desktop present marker ladder (`windowd: ready`, `windowd: systemui loaded`, `windowd: present ok`, launcher/selftest UI markers) with proof-manifest verification | single-VM OS-gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
+| Repo closure gates | full build/test/run assertions | `scripts/fmt-clippy-deny.sh`, `make build` then `make test`, `make build` then `make run` |
+
+The headless QEMU proof uses `64x48@60Hz` to stay inside the current selftest
+heap. Rich display/profile presets remain `TASK-0055D`; visible output remains
+`TASK-0055B`/`TASK-0055C`.
 
 ## Workflow checklist
 

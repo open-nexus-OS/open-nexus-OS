@@ -21,6 +21,24 @@ use crate::markers::emit_line;
 use crate::os_lite::context::PhaseCtx;
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
+    if let Ok(evidence) = windowd::run_headless_ui_smoke() {
+        if evidence.ready {
+            emit_line(windowd::READY_MARKER);
+        }
+        if evidence.systemui_loaded {
+            emit_line(windowd::SYSTEMUI_MARKER);
+        }
+        if evidence.launcher_first_frame {
+            let present_marker = windowd::present_marker(evidence.first_present);
+            emit_line(present_marker.as_str());
+            emit_line(windowd::LAUNCHER_MARKER);
+            emit_line(windowd::SELFTEST_LAUNCHER_PRESENT_MARKER);
+        }
+        if evidence.resize_ok {
+            emit_line(windowd::SELFTEST_RESIZE_MARKER);
+        }
+    }
+
     emit_line(crate::markers::M_SELFTEST_END);
 
     // Stay alive (cooperative).

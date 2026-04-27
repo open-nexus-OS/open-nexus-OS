@@ -33,6 +33,15 @@ Implement `userspace/nexus-idl-runtime` as the IDL runtime with the following ar
 - Message validation prevents malformed data processing
 - Stable module names prevent ABI breakage
 
+## TASK-0055 windowd note
+
+`TASK-0055` keeps `windowd`'s v1b Cap'n Proto schemas local to
+`source/services/windowd/idl/` and proves them with generated bindings in
+`tests/ui_windowd_host`. The roundtrip tests cover surface creation,
+queue-buffer damage, scene commit, vsync subscribe, and input subscribe frames.
+Moving these schemas into the shared `nexus-idl-runtime` remains a later SDK/IDL
+consolidation step, not a blocker for the headless `windowd` contract.
+
 ## Implementation Plan
 1. Define .capnp schema files for each service
 2. Generate Rust bindings using capnp
@@ -43,3 +52,4 @@ Implement `userspace/nexus-idl-runtime` as the IDL runtime with the following ar
 ## References
 - `userspace/nexus-idl-runtime/src/lib.rs`
 - `tools/nexus-idl/schemas/*.capnp`
+- `source/services/windowd/idl/*.capnp`

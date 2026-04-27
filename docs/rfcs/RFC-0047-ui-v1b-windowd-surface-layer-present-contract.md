@@ -1,6 +1,6 @@
 # RFC-0047: UI v1b windowd surface/layer/present contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui @runtime
 - Created: 2026-04-27
 - Last Updated: 2026-04-27
@@ -11,13 +11,17 @@
 
 ## Status at a Glance
 
-- **Phase 0 (surface/layer IPC + host composition proof)**: ⬜
-- **Phase 1 (OS headless present + markers/postflight)**: ⬜
-- **Phase 2 (hardening/reject paths + Gate E sync)**: ⬜
+- **Contract text / invariants (this RFC)**: ✅ `Done`
+- **Execution + proof tracking**: `tasks/TASK-0055-…` — `In Review` (SSOT for implementation evidence until review signs off)
+- **Phase 0 (surface/layer IPC + host composition proof)**: ✅ complete
+- **Phase 1 (OS headless present + markers/postflight)**: ✅ complete
+- **Phase 2 (hardening/reject paths + Gate E sync)**: ✅ complete
 
 Definition:
 
-- "Complete" means `TASK-0055` defines and proves the headless `windowd` surface/layer/present contract with deterministic host and OS/QEMU evidence.
+- "Complete" for this RFC means the contract, scope boundaries, and invariants for the headless `windowd` surface/layer/present slice are written and closed as `Done`. Proof obligations are owned by `TASK-0055` while that task is `In Review` or `Done`.
+- Current state is closed: host state-machine, launcher, vsync/input-stub, marker-evidence, generated Cap'n Proto codec/roundtrip, IDL-shape, and postflight log-only reject proofs exist.
+- VMO closure is intentionally scoped to UI-shaped handle/rights/byte-length validation at `windowd`; this RFC does not claim new kernel VMO capability transfer or zero-copy production behavior.
 - This RFC does not claim visible display output, real input routing, GPU/display-driver fences, or kernel/core production-grade closure.
 
 ## Scope boundaries (anti-drift)
@@ -45,7 +49,7 @@ This RFC is a design seed / contract. Implementation planning and proofs live in
 
 ## Context
 
-`TASK-0054` closed the host-only BGRA8888 renderer proof floor. The next slice needs the first OS-gated `windowd` present spine without claiming visible display or input. The existing `source/services/windowd/` crate is only a placeholder checksum/helper scaffold, so `TASK-0055` must introduce real bounded surface/layer/present behavior before any `windowd: ready` or `present ok` marker can be trusted.
+`TASK-0054` closed the host-only BGRA8888 renderer proof floor. `TASK-0055` now closes the first OS-gated headless `windowd` present spine without claiming visible display or input. The previous `source/services/windowd/` checksum/helper scaffold has been replaced by bounded surface/layer/present behavior before any `windowd: ready` or `present ok` marker is emitted.
 
 ## Goals
 
@@ -128,6 +132,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 - `SELFTEST: ui launcher present ok`
 - `SELFTEST: ui resize ok`
 
+TASK-0055 uses the concrete QEMU proof marker `windowd: ready (w=64, h=48, hz=60)` for the base headless desktop slice.
+The small resolution is a selftest heap guard, not a display preset or visible scanout contract.
+
 ## Alternatives considered
 
 - **Treat existing `windowd` checksum output as readiness**:
@@ -139,9 +146,10 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- Whether the host proof should be a new `tests/ui_windowd_host` package or live under `source/services/windowd/tests`.
-- Exact v1 error taxonomy names for surface/layer/present rejects.
-- Whether `ui.profile` / display dimensions land as minimal config schema in TASK-0055 or are deferred entirely to TASK-0055D.
+- Resolved: the canonical host proof lives in `tests/ui_windowd_host`, with narrow `windowd` crate tests for smoke/postflight rejects.
+- Resolved: v1 error classes live in `windowd::WindowdError` and the IDL seed files under `source/services/windowd/idl/`.
+- Resolved: no config schema lands in TASK-0055; the base proof uses fixed `desktop`, `64x48`, `60Hz` defaults and leaves rich presets to TASK-0055D.
+- Resolved: generated Cap'n Proto proof is local to `tests/ui_windowd_host` for this slice; broader SDK/runtime IDL consolidation remains owned by later SDK/IDL tasks.
 
 ---
 
@@ -149,9 +157,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: Surface/layer IPC + host composition proof — proof: `cargo test -p ui_windowd_host -- --nocapture` or task-updated equivalent.
-- [ ] **Phase 1**: OS headless present + deterministic markers/postflight — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`.
-- [ ] **Phase 2**: Reject tests and security hardening — proof: `test_reject_*` host tests plus marker/postflight failure cases.
-- [ ] Task linked with stop conditions + proof commands.
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: Surface/layer IPC + host composition proof — state-machine, IDL-shape, and generated Cap'n Proto codec/roundtrip proofs exist.
+- [x] **Phase 1**: OS headless present + deterministic markers/postflight — QEMU proof exists; `postflight-ui.sh` log-only rejection is tested.
+- [x] **Phase 2**: Reject tests and security hardening — expanded host rejects exist; real VMO capability-transfer proof remains out-of-scope and explicitly unclaimed.
+- [x] Task linked with stop conditions + proof commands.
+- [x] QEMU markers appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).
