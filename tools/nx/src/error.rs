@@ -56,10 +56,7 @@ pub struct NxError {
 
 impl NxError {
     pub(crate) fn new(class: ExitClass, message: impl Into<String>) -> Self {
-        Self {
-            class,
-            message: message.into(),
-        }
+        Self { class, message: message.into() }
     }
 }
 

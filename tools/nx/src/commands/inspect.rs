@@ -34,18 +34,11 @@ fn handle_inspect_nxb(args: InspectNxbArgs) -> ExecResult {
     let mut meta_files = Vec::new();
     let mut payload_sha256 = None;
 
-    let entries = fs::read_dir(&args.path).map_err(|e| {
-        NxError::new(
-            ExitClass::Internal,
-            format!("failed to read directory: {e}"),
-        )
-    })?;
+    let entries = fs::read_dir(&args.path)
+        .map_err(|e| NxError::new(ExitClass::Internal, format!("failed to read directory: {e}")))?;
     for entry in entries {
         let entry = entry.map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed to iterate directory: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed to iterate directory: {e}"))
         })?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -58,19 +51,13 @@ fn handle_inspect_nxb(args: InspectNxbArgs) -> ExecResult {
     let payload_path = args.path.join("payload.elf");
     if payload_path.exists() {
         let mut file = fs::File::open(&payload_path).map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed opening payload.elf: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed opening payload.elf: {e}"))
         })?;
         let mut hasher = Sha256::new();
         let mut buf = [0_u8; 8192];
         loop {
             let read = file.read(&mut buf).map_err(|e| {
-                NxError::new(
-                    ExitClass::Internal,
-                    format!("failed reading payload.elf: {e}"),
-                )
+                NxError::new(ExitClass::Internal, format!("failed reading payload.elf: {e}"))
             })?;
             if read == 0 {
                 break;
@@ -93,12 +80,7 @@ fn handle_inspect_nxb(args: InspectNxbArgs) -> ExecResult {
         "payload_sha256": payload_sha256,
         "meta_files": meta_files,
     });
-    Ok((
-        ExitClass::Success,
-        "inspect nxb summary generated".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "inspect nxb summary generated".to_string(), args.json, Some(data)))
 }
 
 fn collect_files(root: &Path, out: &mut Vec<String>, strip_prefix: &Path) -> Result<(), NxError> {
@@ -106,10 +88,7 @@ fn collect_files(root: &Path, out: &mut Vec<String>, strip_prefix: &Path) -> Res
         .map_err(|e| NxError::new(ExitClass::Internal, format!("failed reading meta dir: {e}")))?
     {
         let entry = entry.map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed iterating meta dir: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed iterating meta dir: {e}"))
         })?;
         let path = entry.path();
         if path.is_dir() {

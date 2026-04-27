@@ -236,20 +236,12 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
     // Best-effort audit emission (never blocks). Only for allow/deny statuses.
     if out.len >= 5 {
         match out.buf[4] {
-            STATUS_ALLOW => emit_audit(
-                op,
-                AuditDecision::Allow,
-                sender_service_id,
-                None,
-                AuditReason::Policy,
-            ),
-            STATUS_DENY => emit_audit(
-                op,
-                AuditDecision::Deny,
-                sender_service_id,
-                None,
-                AuditReason::Policy,
-            ),
+            STATUS_ALLOW => {
+                emit_audit(op, AuditDecision::Allow, sender_service_id, None, AuditReason::Policy)
+            }
+            STATUS_DENY => {
+                emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::Policy)
+            }
             _ => {}
         }
     }
@@ -266,16 +258,9 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         let cap_len = frame[12] as usize;
         if cap_len > 0 && cap_len <= 48 && frame.len() == 13 + cap_len {
             let cap = &frame[13..13 + cap_len];
-            let _effective_subject_id = if privileged_proxy {
-                subject_id
-            } else {
-                sender_service_id
-            };
-            let status = if out.len >= 5 {
-                out.buf[4]
-            } else {
-                STATUS_UNSUPPORTED
-            };
+            let _effective_subject_id =
+                if privileged_proxy { subject_id } else { sender_service_id };
+            let status = if out.len >= 5 { out.buf[4] } else { STATUS_UNSUPPORTED };
             if cap == b"device.mmio.net" {
                 emit_line(if status == STATUS_ALLOW {
                     if privileged_proxy {
@@ -318,10 +303,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         }
     }
     // #endregion
-    FrameOut {
-        buf: out.buf,
-        len: out.len,
-    }
+    FrameOut { buf: out.buf, len: out.len }
 }
 
 /*
@@ -926,12 +908,7 @@ pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteRe
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }
@@ -961,11 +938,10 @@ fn emit_audit(
     let _ = push_bytes(&mut buf, &mut len, b" reason=");
     let _ = push_bytes(&mut buf, &mut len, audit_reason_name(reason));
     let ok = append_logd_deterministic(AUDIT_SCOPE.as_bytes(), &buf[..len]);
-    // Debug: trace audit emission
     if ok {
         emit_line("policyd: audit emit ok");
     } else {
-        emit_line("policyd: audit emit FAIL");
+        emit_line("policyd: audit emit deferred");
     }
 }
 
@@ -1009,11 +985,7 @@ fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
     }
     for shift in (0..16).rev() {
         let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
         buf[*len] = ch;
         *len += 1;
     }

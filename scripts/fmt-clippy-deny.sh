@@ -11,6 +11,9 @@
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export CARGO_TARGET_DIR="${NEXUS_CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
+
 # Format check only (do not rewrite files in hooks/CI).
 cargo fmt --all -- --config-path config/rustfmt.toml --check
 

@@ -160,11 +160,7 @@ pub enum Error {
     #[error("policy include escapes root: {path}")]
     IncludeTraversal { path: PathBuf },
     #[error("policy file too large: {path} len={len} max={max}")]
-    Oversize {
-        path: PathBuf,
-        len: usize,
-        max: usize,
-    },
+    Oversize { path: PathBuf, len: usize, max: usize },
     #[error("unknown policy section in {path}: {section}")]
     UnknownSection { path: PathBuf, section: String },
     #[error("failed to canonicalize policy tree: {0}")]
@@ -209,9 +205,7 @@ impl PolicyDoc {
         let allowed_caps = self.allow.get(&subject_key);
         let mut missing = Vec::new();
         for cap in required.iter().map(|cap| canonical(cap)) {
-            let is_allowed = allowed_caps
-                .map(|caps| caps.contains(&cap))
-                .unwrap_or(false);
+            let is_allowed = allowed_caps.map(|caps| caps.contains(&cap)).unwrap_or(false);
             if !is_allowed {
                 missing.push(cap);
             }
@@ -252,32 +246,17 @@ impl PolicyDoc {
         let mut trace = Vec::with_capacity(required.len());
 
         for cap in required.iter().map(|cap| canonical(cap)) {
-            let matched = allowed_caps
-                .map(|caps| caps.contains(&cap))
-                .unwrap_or(false);
+            let matched = allowed_caps.map(|caps| caps.contains(&cap)).unwrap_or(false);
             if !matched {
                 missing.push(cap.clone());
             }
-            trace.push(ExplainStep {
-                subject: subject_key.clone(),
-                capability: cap,
-                matched,
-            });
+            trace.push(ExplainStep { subject: subject_key.clone(), capability: cap, matched });
         }
 
         let allow = missing.is_empty();
-        let reason_code = if allow {
-            ReasonCode::ExplicitAllow
-        } else {
-            ReasonCode::MissingCapabilities
-        };
-        Ok(Decision {
-            allow,
-            reason_code,
-            trace,
-            mode,
-            would_deny: !allow,
-        })
+        let reason_code =
+            if allow { ReasonCode::ExplicitAllow } else { ReasonCode::MissingCapabilities };
+        Ok(Decision { allow, reason_code, trace, mode, would_deny: !allow })
     }
 
     pub fn learn_observations(decision: &Decision) -> Vec<LearnObservation> {
@@ -300,11 +279,7 @@ impl PolicyDoc {
     where
         I: IntoIterator<Item = LearnObservation>,
     {
-        observations
-            .into_iter()
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect()
+        observations.into_iter().collect::<BTreeSet<_>>().into_iter().collect()
     }
 
     pub fn load_dir(dir: &Path) -> Result<Self, Error> {
@@ -312,14 +287,10 @@ impl PolicyDoc {
             return Err(Error::MissingDir(dir.to_path_buf()));
         }
         let mut entries = Vec::new();
-        for entry in fs::read_dir(dir).map_err(|source| Error::Read {
-            path: dir.to_path_buf(),
-            source,
-        })? {
-            let entry = entry.map_err(|source| Error::Read {
-                path: dir.to_path_buf(),
-                source,
-            })?;
+        for entry in
+            fs::read_dir(dir).map_err(|source| Error::Read { path: dir.to_path_buf(), source })?
+        {
+            let entry = entry.map_err(|source| Error::Read { path: dir.to_path_buf(), source })?;
             entries.push(entry.path());
         }
         entries.sort();
@@ -329,14 +300,10 @@ impl PolicyDoc {
             if !path.is_file() || path.extension().and_then(|s| s.to_str()) != Some("toml") {
                 continue;
             }
-            let data = fs::read_to_string(&path).map_err(|source| Error::Read {
-                path: path.clone(),
-                source,
-            })?;
-            let parsed: RawPolicy = toml::from_str(&data).map_err(|source| Error::Parse {
-                path: path.clone(),
-                source,
-            })?;
+            let data = fs::read_to_string(&path)
+                .map_err(|source| Error::Read { path: path.clone(), source })?;
+            let parsed: RawPolicy = toml::from_str(&data)
+                .map_err(|source| Error::Parse { path: path.clone(), source })?;
             doc.merge(parsed);
         }
         Ok(doc)
@@ -385,10 +352,8 @@ impl PolicyTree {
             return Err(Error::MissingRoot(root_file));
         }
         let root_raw = read_bounded(&root_file)?;
-        let root_doc: RawPolicyRoot = toml::from_str(&root_raw).map_err(|source| Error::Parse {
-            path: root_file.clone(),
-            source,
-        })?;
+        let root_doc: RawPolicyRoot = toml::from_str(&root_raw)
+            .map_err(|source| Error::Parse { path: root_file.clone(), source })?;
         if root_doc.version != 1 {
             return Err(Error::InvalidRoot {
                 path: root_file,
@@ -407,10 +372,8 @@ impl PolicyTree {
             let include_path = validate_include(root, &include)?;
             let data = read_bounded(&include_path)?;
             reject_unknown_policy_sections(&include_path, &data)?;
-            let parsed: RawPolicy = toml::from_str(&data).map_err(|source| Error::Parse {
-                path: include_path.clone(),
-                source,
-            })?;
+            let parsed: RawPolicy = toml::from_str(&data)
+                .map_err(|source| Error::Parse { path: include_path.clone(), source })?;
             policy.merge(parsed);
         }
         let version = policy_version(&policy)?;
@@ -436,12 +399,8 @@ impl PolicyTree {
     pub fn write_manifest(&self, root: &Path) -> Result<(), Error> {
         let manifest = serde_json::to_string_pretty(&self.manifest())
             .map_err(|err| Error::Canonical(err.to_string()))?;
-        fs::write(root.join("manifest.json"), format!("{manifest}\n")).map_err(|source| {
-            Error::Read {
-                path: root.join("manifest.json"),
-                source,
-            }
-        })
+        fs::write(root.join("manifest.json"), format!("{manifest}\n"))
+            .map_err(|source| Error::Read { path: root.join("manifest.json"), source })
     }
 
     pub fn validate_manifest(&self, root: &Path) -> Result<(), Error> {
@@ -491,54 +450,36 @@ fn canonical(input: &str) -> String {
 }
 
 fn read_bounded(path: &Path) -> Result<String, Error> {
-    let metadata = fs::metadata(path).map_err(|source| Error::Read {
-        path: path.into(),
-        source,
-    })?;
+    let metadata =
+        fs::metadata(path).map_err(|source| Error::Read { path: path.into(), source })?;
     let len = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
     if len > MAX_POLICY_FILE_BYTES {
-        return Err(Error::Oversize {
-            path: path.into(),
-            len,
-            max: MAX_POLICY_FILE_BYTES,
-        });
+        return Err(Error::Oversize { path: path.into(), len, max: MAX_POLICY_FILE_BYTES });
     }
-    fs::read_to_string(path).map_err(|source| Error::Read {
-        path: path.into(),
-        source,
-    })
+    fs::read_to_string(path).map_err(|source| Error::Read { path: path.into(), source })
 }
 
 fn validate_include(root: &Path, include: &str) -> Result<PathBuf, Error> {
     let include_path = Path::new(include);
     if include_path.is_absolute()
-        || include_path.components().any(|c| {
-            matches!(
-                c,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
+        || include_path
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
     {
-        return Err(Error::IncludeTraversal {
-            path: include_path.to_path_buf(),
-        });
+        return Err(Error::IncludeTraversal { path: include_path.to_path_buf() });
     }
     Ok(root.join(include_path))
 }
 
 fn reject_unknown_policy_sections(path: &Path, data: &str) -> Result<(), Error> {
-    let value = data.parse::<toml::Value>().map_err(|source| Error::Parse {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let value = data
+        .parse::<toml::Value>()
+        .map_err(|source| Error::Parse { path: path.to_path_buf(), source })?;
     let allowed = ["allow", "abi_profile"];
     if let Some(table) = value.as_table() {
         for key in table.keys() {
             if !allowed.contains(&key.as_str()) {
-                return Err(Error::UnknownSection {
-                    path: path.into(),
-                    section: key.to_string(),
-                });
+                return Err(Error::UnknownSection { path: path.into(), section: key.to_string() });
             }
         }
     }
@@ -555,15 +496,9 @@ fn has_toml_files(dir: &Path) -> Result<bool, Error> {
     if !dir.exists() {
         return Ok(false);
     }
-    let entries = fs::read_dir(dir).map_err(|source| Error::Read {
-        path: dir.into(),
-        source,
-    })?;
+    let entries = fs::read_dir(dir).map_err(|source| Error::Read { path: dir.into(), source })?;
     for entry in entries {
-        let entry = entry.map_err(|source| Error::Read {
-            path: dir.into(),
-            source,
-        })?;
+        let entry = entry.map_err(|source| Error::Read { path: dir.into(), source })?;
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
             return Ok(true);
@@ -615,16 +550,10 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let policies = temp.path().join("policies");
         fs::create_dir_all(&policies).unwrap();
-        fs::write(
-            policies.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['base.toml']\n",
-        )
-        .unwrap();
-        fs::write(
-            policies.join("base.toml"),
-            "[allow]\nExample = ['IPC.Core', 'time.read']\n",
-        )
-        .unwrap();
+        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+            .unwrap();
+        fs::write(policies.join("base.toml"), "[allow]\nExample = ['IPC.Core', 'time.read']\n")
+            .unwrap();
 
         let first = PolicyTree::load_root(&policies).unwrap();
         let second = PolicyTree::load_root(&policies).unwrap();
@@ -638,11 +567,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let policies = temp.path().join("policies");
         fs::create_dir_all(&policies).unwrap();
-        fs::write(
-            policies.join("nexus.policy.toml"),
-            "version = 2\ninclude = ['base.toml']\n",
-        )
-        .unwrap();
+        fs::write(policies.join("nexus.policy.toml"), "version = 2\ninclude = ['base.toml']\n")
+            .unwrap();
         fs::write(policies.join("base.toml"), "[allow]\nsvc = ['ipc.core']\n").unwrap();
 
         let err = PolicyTree::load_root(&policies).unwrap_err();
@@ -654,16 +580,9 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let policies = temp.path().join("policies");
         fs::create_dir_all(&policies).unwrap();
-        fs::write(
-            policies.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['base.toml']\n",
-        )
-        .unwrap();
-        fs::write(
-            policies.join("base.toml"),
-            "x".repeat(MAX_POLICY_FILE_BYTES + 1),
-        )
-        .unwrap();
+        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+            .unwrap();
+        fs::write(policies.join("base.toml"), "x".repeat(MAX_POLICY_FILE_BYTES + 1)).unwrap();
 
         let err = PolicyTree::load_root(&policies).unwrap_err();
         assert_eq!(err.code(), "policy.oversize");
@@ -674,11 +593,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let policies = temp.path().join("policies");
         fs::create_dir_all(&policies).unwrap();
-        fs::write(
-            policies.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['../base.toml']\n",
-        )
-        .unwrap();
+        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['../base.toml']\n")
+            .unwrap();
 
         let err = PolicyTree::load_root(&policies).unwrap_err();
         assert_eq!(err.code(), "policy.include_traversal");
@@ -689,11 +605,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         fs::create_dir_all(temp.path().join("policies")).unwrap();
         fs::create_dir_all(temp.path().join("recipes/policy")).unwrap();
-        fs::write(
-            temp.path().join("recipes/policy/base.toml"),
-            "[allow]\nsvc = ['ipc.core']\n",
-        )
-        .unwrap();
+        fs::write(temp.path().join("recipes/policy/base.toml"), "[allow]\nsvc = ['ipc.core']\n")
+            .unwrap();
 
         let err = PolicyTree::load_single_authority(temp.path()).unwrap_err();
         assert_eq!(err.code(), "policy.ambiguous_root");
@@ -704,11 +617,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let policies = temp.path().join("policies");
         fs::create_dir_all(&policies).unwrap();
-        fs::write(
-            policies.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['base.toml']\n",
-        )
-        .unwrap();
+        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+            .unwrap();
         fs::write(policies.join("base.toml"), "[unknown]\nsvc = true\n").unwrap();
 
         let err = PolicyTree::load_root(&policies).unwrap_err();
@@ -740,9 +650,8 @@ mod tests {
     #[test]
     fn evaluator_is_deny_by_default_with_stable_missing_reason() {
         let doc = PolicyDoc::default();
-        let decision = doc
-            .evaluate(&["fs.write"], "unknown", PolicyMode::Enforce)
-            .expect("evaluation");
+        let decision =
+            doc.evaluate(&["fs.write"], "unknown", PolicyMode::Enforce).expect("evaluation");
 
         assert!(!decision.allow);
         assert!(decision.would_deny);
@@ -756,9 +665,7 @@ mod tests {
         let doc = PolicyDoc::default();
 
         for mode in [PolicyMode::DryRun, PolicyMode::Learn] {
-            let decision = doc
-                .evaluate(&["crypto.sign"], "demo", mode)
-                .expect("evaluation");
+            let decision = doc.evaluate(&["crypto.sign"], "demo", mode).expect("evaluation");
             assert!(!decision.allow);
             assert!(decision.would_deny);
             assert_eq!(decision.reason_code, ReasonCode::MissingCapabilities);
@@ -781,10 +688,7 @@ mod tests {
         let mut doc = PolicyDoc::default();
         doc.merge(RawPolicy {
             allow: BTreeMap::from([
-                (
-                    "selftest-client".to_string(),
-                    vec!["abi.statefs.put".to_string()],
-                ),
+                ("selftest-client".to_string(), vec!["abi.statefs.put".to_string()]),
                 ("netstackd".to_string(), vec!["net.egress".to_string()]),
                 ("keystored".to_string(), vec!["crypto.sign".to_string()]),
             ]),
@@ -797,9 +701,7 @@ mod tests {
                 .allow
         );
         assert!(
-            doc.evaluate(&["net.egress"], "netstackd", PolicyMode::Enforce)
-                .expect("egress")
-                .allow
+            doc.evaluate(&["net.egress"], "netstackd", PolicyMode::Enforce).expect("egress").allow
         );
         assert!(
             doc.evaluate(&["crypto.sign"], "keystored", PolicyMode::Enforce)
@@ -829,11 +731,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let policies = temp.path().join("policies");
         fs::create_dir_all(&policies).unwrap();
-        fs::write(
-            policies.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['base.toml']\n",
-        )
-        .unwrap();
+        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+            .unwrap();
         fs::write(policies.join("base.toml"), "[allow]\ndemo = ['ipc.core']\n").unwrap();
         let tree = PolicyTree::load_root(&policies).unwrap();
 
@@ -851,11 +750,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let policies = temp.path().join("policies");
         fs::create_dir_all(&policies).unwrap();
-        fs::write(
-            policies.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['base.toml']\n",
-        )
-        .unwrap();
+        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+            .unwrap();
         fs::write(policies.join("base.toml"), "[allow]\ndemo = ['ipc.core']\n").unwrap();
         fs::write(
             policies.join("manifest.json"),
@@ -906,10 +802,8 @@ mod tests {
             .expect("unified eval")
             .allow;
         let legacy_deny = doc.check(&["fs.write"], "execd").is_err();
-        let unified_deny = !doc
-            .evaluate(&["fs.write"], "execd", PolicyMode::Enforce)
-            .expect("unified eval")
-            .allow;
+        let unified_deny =
+            !doc.evaluate(&["fs.write"], "execd", PolicyMode::Enforce).expect("unified eval").allow;
 
         assert_eq!(unified_allow, legacy_allow);
         assert_eq!(unified_deny, legacy_deny);

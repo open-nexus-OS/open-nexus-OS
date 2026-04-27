@@ -94,35 +94,21 @@ pub struct PolicyConfig {
 
 impl Default for PolicyConfig {
     fn default() -> Self {
-        Self {
-            root: "policies".to_string(),
-        }
+        Self { root: "policies".to_string() }
     }
 }
 
 impl Default for EffectiveConfig {
     fn default() -> Self {
         Self {
-            dsoftbus: DsoftbusConfig {
-                transport: "auto".to_string(),
-                max_peers: 256,
-            },
-            metrics: MetricsConfig {
-                enabled: true,
-                flush_interval_ms: 1000,
-            },
-            tracing: TracingConfig {
-                level: "info".to_string(),
-                sample_rate_per_mille: 100,
-            },
+            dsoftbus: DsoftbusConfig { transport: "auto".to_string(), max_peers: 256 },
+            metrics: MetricsConfig { enabled: true, flush_interval_ms: 1000 },
+            tracing: TracingConfig { level: "info".to_string(), sample_rate_per_mille: 100 },
             security_sandbox: SecuritySandboxConfig {
                 default_profile: "base".to_string(),
                 max_caps: 64,
             },
-            sched: SchedConfig {
-                default_qos: "normal".to_string(),
-                runqueue_slice_ms: 10,
-            },
+            sched: SchedConfig { default_qos: "normal".to_string(), runqueue_slice_ms: 10 },
             policy: PolicyConfig::default(),
         }
     }
@@ -227,10 +213,7 @@ pub fn load_config_path(path: &Path) -> Result<Value, ConfigError> {
         Some("json") => load_json_source(&bytes),
         Some(other) => Err(ConfigError::Reject {
             class: RejectClass::Serialization,
-            detail: format!(
-                "unsupported config extension '.{other}' for {}",
-                path.display()
-            ),
+            detail: format!("unsupported config extension '.{other}' for {}", path.display()),
         }),
         None => Err(ConfigError::Reject {
             class: RejectClass::Serialization,
@@ -254,10 +237,7 @@ pub fn load_layer_dir(dir: &Path) -> Result<Value, ConfigError> {
         .map_err(|e| ConfigError::Io(format!("failed reading layer dir '{}': {e}", dir.display())))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| {
-            ConfigError::Io(format!(
-                "failed iterating layer dir '{}': {e}",
-                dir.display()
-            ))
+            ConfigError::Io(format!("failed iterating layer dir '{}': {e}", dir.display()))
         })?;
     entries.sort_by_key(|entry| entry.file_name());
 
@@ -288,10 +268,7 @@ pub fn env_overrides_from_pairs(pairs: &BTreeMap<String, String>) -> Result<Valu
         if suffix.is_empty() {
             continue;
         }
-        let segments = suffix
-            .split("__")
-            .map(|s| s.to_ascii_lowercase())
-            .collect::<Vec<_>>();
+        let segments = suffix.split("__").map(|s| s.to_ascii_lowercase()).collect::<Vec<_>>();
         if segments.iter().any(|s| s.is_empty()) {
             return Err(ConfigError::Reject {
                 class: RejectClass::UnknownField,
@@ -320,12 +297,7 @@ pub fn build_effective_snapshot(inputs: LayerInputs) -> Result<EffectiveSnapshot
     let capnp_bytes = encode_capnp(&effective)?;
     let version = version_from_capnp_bytes(&capnp_bytes);
 
-    Ok(EffectiveSnapshot {
-        effective,
-        merged_json: merged,
-        capnp_bytes,
-        version,
-    })
+    Ok(EffectiveSnapshot { effective, merged_json: merged, capnp_bytes, version })
 }
 
 pub fn version_from_capnp_bytes(bytes: &[u8]) -> String {
@@ -345,21 +317,17 @@ pub fn decode_effective_capnp(bytes: &[u8]) -> Result<EffectiveConfig, ConfigErr
     let dsoftbus = root
         .get_dsoftbus()
         .map_err(|e| ConfigError::Capnp(format!("read dsoftbus failed: {e}")))?;
-    let metrics = root
-        .get_metrics()
-        .map_err(|e| ConfigError::Capnp(format!("read metrics failed: {e}")))?;
-    let tracing = root
-        .get_tracing()
-        .map_err(|e| ConfigError::Capnp(format!("read tracing failed: {e}")))?;
+    let metrics =
+        root.get_metrics().map_err(|e| ConfigError::Capnp(format!("read metrics failed: {e}")))?;
+    let tracing =
+        root.get_tracing().map_err(|e| ConfigError::Capnp(format!("read tracing failed: {e}")))?;
     let security = root
         .get_security_sandbox()
         .map_err(|e| ConfigError::Capnp(format!("read security_sandbox failed: {e}")))?;
-    let sched = root
-        .get_sched()
-        .map_err(|e| ConfigError::Capnp(format!("read sched failed: {e}")))?;
-    let policy = root
-        .get_policy()
-        .map_err(|e| ConfigError::Capnp(format!("read policy failed: {e}")))?;
+    let sched =
+        root.get_sched().map_err(|e| ConfigError::Capnp(format!("read sched failed: {e}")))?;
+    let policy =
+        root.get_policy().map_err(|e| ConfigError::Capnp(format!("read policy failed: {e}")))?;
 
     Ok(EffectiveConfig {
         dsoftbus: DsoftbusConfig {
@@ -471,9 +439,7 @@ fn apply_env_path(
     })?;
     let mut cursor = root;
     for seg in parents {
-        let entry = cursor
-            .entry(seg.clone())
-            .or_insert_with(|| Value::Object(Map::new()));
+        let entry = cursor.entry(seg.clone()).or_insert_with(|| Value::Object(Map::new()));
         let object = entry.as_object_mut().ok_or_else(|| ConfigError::Reject {
             class: RejectClass::TypeMismatch,
             detail: format!("env path segment '{seg}' collides with non-object"),
@@ -569,16 +535,10 @@ fn validate_against_json_schemas(merged: &Value) -> Result<(), ConfigError> {
 
 fn schema_validators() -> Result<BTreeMap<&'static str, Validator>, ConfigError> {
     Ok(BTreeMap::from([
-        (
-            "dsoftbus",
-            compile_schema("dsoftbus", DSOFTBUS_SCHEMA_JSON)?,
-        ),
+        ("dsoftbus", compile_schema("dsoftbus", DSOFTBUS_SCHEMA_JSON)?),
         ("metrics", compile_schema("metrics", METRICS_SCHEMA_JSON)?),
         ("tracing", compile_schema("tracing", TRACING_SCHEMA_JSON)?),
-        (
-            "security_sandbox",
-            compile_schema("security.sandbox", SECURITY_SANDBOX_SCHEMA_JSON)?,
-        ),
+        ("security_sandbox", compile_schema("security.sandbox", SECURITY_SANDBOX_SCHEMA_JSON)?),
         ("sched", compile_schema("sched", SCHED_SCHEMA_JSON)?),
         ("policy", compile_schema("policy", POLICY_SCHEMA_JSON)?),
     ]))
@@ -616,21 +576,12 @@ fn classify_schema_error(section: &str, error: &str) -> ConfigError {
 fn classify_serde_validation_error(err: serde_json::Error) -> ConfigError {
     let msg = err.to_string();
     if msg.contains("unknown field") {
-        return ConfigError::Reject {
-            class: RejectClass::UnknownField,
-            detail: msg,
-        };
+        return ConfigError::Reject { class: RejectClass::UnknownField, detail: msg };
     }
     if msg.contains("invalid type") {
-        return ConfigError::Reject {
-            class: RejectClass::TypeMismatch,
-            detail: msg,
-        };
+        return ConfigError::Reject { class: RejectClass::TypeMismatch, detail: msg };
     }
-    ConfigError::Reject {
-        class: RejectClass::Serialization,
-        detail: msg,
-    }
+    ConfigError::Reject { class: RejectClass::Serialization, detail: msg }
 }
 
 #[cfg(test)]
@@ -725,14 +676,8 @@ mod tests {
     #[test]
     fn test_env_overlay_parsing_is_deterministic() {
         let mut pairs = BTreeMap::new();
-        pairs.insert(
-            "NEXUS_CFG_DSOFTBUS__TRANSPORT".to_string(),
-            "quic".to_string(),
-        );
-        pairs.insert(
-            "NEXUS_CFG_METRICS__ENABLED".to_string(),
-            "false".to_string(),
-        );
+        pairs.insert("NEXUS_CFG_DSOFTBUS__TRANSPORT".to_string(), "quic".to_string());
+        pairs.insert("NEXUS_CFG_METRICS__ENABLED".to_string(), "false".to_string());
         let a = env_overrides_from_pairs(&pairs).expect("parse env a");
         let b = env_overrides_from_pairs(&pairs).expect("parse env b");
         assert_eq!(a, b);
@@ -746,18 +691,12 @@ mod tests {
             r#"{"metrics":{"enabled":true,"flush_interval_ms":100}}"#,
         )
         .expect("write base");
-        fs::write(
-            temp.path().join("90-override.json"),
-            r#"{"metrics":{"flush_interval_ms":300}}"#,
-        )
-        .expect("write override");
+        fs::write(temp.path().join("90-override.json"), r#"{"metrics":{"flush_interval_ms":300}}"#)
+            .expect("write override");
 
         let merged = load_layer_dir(temp.path()).expect("load layer dir");
         assert_eq!(merged["metrics"]["enabled"], Value::Bool(true));
-        assert_eq!(
-            merged["metrics"]["flush_interval_ms"],
-            Value::Number(300.into())
-        );
+        assert_eq!(merged["metrics"]["flush_interval_ms"], Value::Number(300.into()));
     }
 
     #[test]

@@ -73,12 +73,7 @@ pub(crate) fn handle_postflight(args: PostflightArgs, cfg: &RuntimeConfig) -> Ex
     });
 
     if output.status.success() {
-        Ok((
-            ExitClass::Success,
-            "postflight delegate succeeded".to_string(),
-            args.json,
-            Some(data),
-        ))
+        Ok((ExitClass::Success, "postflight delegate succeeded".to_string(), args.json, Some(data)))
     } else {
         Ok((
             ExitClass::DelegateFailure,

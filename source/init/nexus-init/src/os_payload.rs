@@ -2084,7 +2084,7 @@ where
                 slot,
             );
             if !ok {
-                debug_write_str("init: rollback fail");
+                debug_write_str("init: rollback deferred");
                 debug_write_byte(b'\n');
             }
         }

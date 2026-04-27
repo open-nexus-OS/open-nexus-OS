@@ -56,6 +56,8 @@ const BUNDLE_OPCODE_QUERY: u8 = 2;
 #[test]
 fn policy_allow_and_deny_roundtrip() -> Result<()> {
     let temp = TempDir::new().context("temp policy dir")?;
+    std::fs::write(temp.path().join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+        .context("write policy root")?;
     std::fs::write(
         temp.path().join("base.toml"),
         "[allow]\nsamgrd = [\"ipc.core\"]\n\"demo.testsvc\" = []\n",

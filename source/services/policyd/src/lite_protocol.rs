@@ -141,11 +141,8 @@ pub fn handle_frame(
             if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v1(op, STATUS_DENY);
             }
-            let status = if policy.allows(requester_id, CAP_CHECK) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_CHECK) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (VERSION, OP_CHECK_CAP) => {
@@ -161,17 +158,9 @@ pub fn handle_frame(
                 return rsp_v1(op, STATUS_MALFORMED);
             }
             let cap = core::str::from_utf8(&frame[13..]).unwrap_or("");
-            let subject_id = if privileged_proxy {
-                requester_id
-            } else {
-                sender_service_id
-            };
+            let subject_id = if privileged_proxy { requester_id } else { sender_service_id };
             let subject_id = normalize_subject_id(subject_id);
-            let status = if policy.allows(subject_id, cap) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (VERSION, OP_CHECK_CAP_DELEGATED) => {
@@ -196,11 +185,7 @@ pub fn handle_frame(
                 return rsp_v1(op, STATUS_DENY);
             }
             let subject_id = normalize_subject_id(subject_id);
-            let status = if policy.allows(subject_id, cap) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (nexus_abi::policyd::VERSION_V2, OP_CHECK_CAP_DELEGATED) => {
@@ -225,11 +210,7 @@ pub fn handle_frame(
                 return rsp_v2(op, nonce, STATUS_DENY);
             }
             let subject_id = normalize_subject_id(subject_id);
-            let status = if policy.allows(subject_id, cap) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status = if policy.allows(subject_id, cap) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v2(op, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V2, OP_ABI_PROFILE_GET) => {
@@ -241,10 +222,7 @@ pub fn handle_frame(
             let requested_subject_id = normalize_subject_id(requested_subject_id);
             let caller_subject_id = normalize_subject_id(sender_service_id);
             if !privileged_proxy && requested_subject_id != caller_subject_id {
-                let mut out = FrameOut {
-                    buf: [0u8; MAX_FRAME_BYTES],
-                    len: 0,
-                };
+                let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
                 let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
                     nonce,
                     STATUS_DENY,
@@ -261,10 +239,7 @@ pub fn handle_frame(
             let profile_len = match encode_subject_profile_v1(requested_subject_id, &mut profile) {
                 Some(n) => n,
                 None => {
-                    let mut out = FrameOut {
-                        buf: [0u8; MAX_FRAME_BYTES],
-                        len: 0,
-                    };
+                    let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
                     let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
                         nonce,
                         STATUS_UNSUPPORTED,
@@ -278,10 +253,7 @@ pub fn handle_frame(
                     return out;
                 }
             };
-            let mut out = FrameOut {
-                buf: [0u8; MAX_FRAME_BYTES],
-                len: 0,
-            };
+            let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
             let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
                 nonce,
                 STATUS_ALLOW,
@@ -290,10 +262,7 @@ pub fn handle_frame(
             ) {
                 Some(n) => n,
                 None => {
-                    let mut fallback = FrameOut {
-                        buf: [0u8; MAX_FRAME_BYTES],
-                        len: 0,
-                    };
+                    let mut fallback = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
                     let fallback_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
                         nonce,
                         STATUS_UNSUPPORTED,
@@ -361,11 +330,8 @@ pub fn handle_frame(
             if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v1(op, STATUS_DENY);
             }
-            let status = if policy.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v1(op, status)
         }
         (nexus_abi::policyd::VERSION_V2, nexus_abi::policyd::OP_ROUTE) => {
@@ -423,11 +389,8 @@ pub fn handle_frame(
             if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
-            let status = if policy.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v2(nexus_abi::policyd::OP_EXEC, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V3, nexus_abi::policyd::OP_EXEC) => {
@@ -439,11 +402,8 @@ pub fn handle_frame(
             if !privileged_proxy && requester_id != normalize_subject_id(sender_service_id) {
                 return rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, STATUS_DENY);
             }
-            let status = if policy.allows(requester_id, CAP_EXEC) {
-                STATUS_ALLOW
-            } else {
-                STATUS_DENY
-            };
+            let status =
+                if policy.allows(requester_id, CAP_EXEC) { STATUS_ALLOW } else { STATUS_DENY };
             rsp_v3(nexus_abi::policyd::OP_EXEC, nonce, status)
         }
         _ => rsp_v1(op, STATUS_UNSUPPORTED),
@@ -541,10 +501,7 @@ mod tests {
     fn test_check_cap_binds_subject_to_sender_when_not_privileged() {
         let svc_a = nexus_abi::service_id_from_name(b"selftest-client");
         let svc_b = nexus_abi::service_id_from_name(b"bundlemgrd");
-        let entries = [PolicyEntry {
-            service_id: svc_a,
-            capabilities: &["ipc.core"],
-        }];
+        let entries = [PolicyEntry { service_id: svc_a, capabilities: &["ipc.core"] }];
         let policy = Policy::new(&entries);
 
         let mut frame = Vec::new();
@@ -562,10 +519,7 @@ mod tests {
     fn test_check_allows_selftest_alt_sender_alias() {
         const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
         let selftest = nexus_abi::service_id_from_name(b"selftest-client");
-        let entries = [PolicyEntry {
-            service_id: selftest,
-            capabilities: &["ipc.core"],
-        }];
+        let entries = [PolicyEntry { service_id: selftest, capabilities: &["ipc.core"] }];
         let policy = Policy::new(&entries);
 
         let mut frame = Vec::new();
@@ -583,14 +537,8 @@ mod tests {
         let enforcer = nexus_abi::service_id_from_name(b"statefsd");
         let updated = nexus_abi::service_id_from_name(b"updated");
         let entries = [
-            PolicyEntry {
-                service_id: enforcer,
-                capabilities: &["policy.delegate"],
-            },
-            PolicyEntry {
-                service_id: updated,
-                capabilities: &["statefs.write"],
-            },
+            PolicyEntry { service_id: enforcer, capabilities: &["policy.delegate"] },
+            PolicyEntry { service_id: updated, capabilities: &["statefs.write"] },
         ];
         let policy = Policy::new(&entries);
 
@@ -620,14 +568,8 @@ mod tests {
         let enforcer = nexus_abi::service_id_from_name(b"statefsd");
         let metricsd = nexus_abi::service_id_from_name(b"metricsd");
         let entries = [
-            PolicyEntry {
-                service_id: enforcer,
-                capabilities: &["policy.delegate"],
-            },
-            PolicyEntry {
-                service_id: metricsd,
-                capabilities: &["statefs.write"],
-            },
+            PolicyEntry { service_id: enforcer, capabilities: &["policy.delegate"] },
+            PolicyEntry { service_id: metricsd, capabilities: &["statefs.write"] },
         ];
         let policy = Policy::new(&entries);
 
@@ -656,14 +598,8 @@ mod tests {
         let enforcer = nexus_abi::service_id_from_name(b"statefsd");
         let subject = nexus_abi::service_id_from_name(b"selftest-client");
         let entries = [
-            PolicyEntry {
-                service_id: enforcer,
-                capabilities: &["policy.delegate"],
-            },
-            PolicyEntry {
-                service_id: subject,
-                capabilities: &["statefs.read"],
-            },
+            PolicyEntry { service_id: enforcer, capabilities: &["policy.delegate"] },
+            PolicyEntry { service_id: subject, capabilities: &["statefs.read"] },
         ];
         let policy = Policy::new(&entries);
 
@@ -692,10 +628,7 @@ mod tests {
         let bundle = nexus_abi::service_id_from_name(b"bundlemgrd");
         let samgrd = nexus_abi::service_id_from_name(b"samgrd");
         let execd = nexus_abi::service_id_from_name(b"execd");
-        let entries = [PolicyEntry {
-            service_id: samgrd,
-            capabilities: &["ipc.core"],
-        }];
+        let entries = [PolicyEntry { service_id: samgrd, capabilities: &["ipc.core"] }];
         let policy = Policy::new(&entries);
 
         let mut buf = [0u8; 64];
@@ -747,23 +680,14 @@ mod tests {
             profile.check_statefs_put(b"/state/forbidden/token", 4),
             nexus_abi::abi_filter::RuleAction::Deny
         );
-        assert_eq!(
-            profile.check_net_bind(80),
-            nexus_abi::abi_filter::RuleAction::Deny
-        );
+        assert_eq!(profile.check_net_bind(80), nexus_abi::abi_filter::RuleAction::Deny);
     }
 
     #[test]
     fn test_abi_profile_get_v2_malformed_frame_is_fail_closed() {
         let policy = Policy::new(&[]);
-        let malformed = [
-            MAGIC0,
-            MAGIC1,
-            nexus_abi::policyd::VERSION_V2,
-            OP_ABI_PROFILE_GET,
-            0xaa,
-            0xbb,
-        ];
+        let malformed =
+            [MAGIC0, MAGIC1, nexus_abi::policyd::VERSION_V2, OP_ABI_PROFILE_GET, 0xaa, 0xbb];
         let out = handle_frame(&policy, &malformed, 0, false);
         let (op, nonce, status) = nexus_abi::policyd::decode_rsp_v2(out.as_slice()).unwrap();
         assert_eq!(op, OP_ABI_PROFILE_GET);

@@ -65,14 +65,8 @@ mod tests {
     #[test]
     fn test_reject_new_service_absolute_path() {
         let root = TempDir::new().expect("tempdir");
-        let cli = Cli::parse_from([
-            "nx",
-            "new",
-            "service",
-            "svc",
-            "--root",
-            "/tmp/absolute-path-reject",
-        ]);
+        let cli =
+            Cli::parse_from(["nx", "new", "service", "svc", "--root", "/tmp/absolute-path-reject"]);
         let err = execute(cli, &test_cfg(root.path())).expect_err("must reject absolute root");
         assert_eq!(err.class, ExitClass::ValidationReject);
     }
@@ -83,14 +77,8 @@ mod tests {
         let cli = Cli::parse_from(["nx", "new", "service", "svc-a", "--json"]);
         let (class, _, _, _) = execute(cli, &test_cfg(root.path())).expect("must succeed");
         assert_eq!(class, ExitClass::Success);
-        assert!(root
-            .path()
-            .join("source/services/svc-a/Cargo.toml")
-            .exists());
-        assert!(root
-            .path()
-            .join("source/services/svc-a/src/main.rs")
-            .exists());
+        assert!(root.path().join("source/services/svc-a/Cargo.toml").exists());
+        assert!(root.path().join("source/services/svc-a/src/main.rs").exists());
     }
 
     #[test]
@@ -199,13 +187,8 @@ mod tests {
         fs::write(nxb_dir.join("payload.elf"), b"abc").expect("payload");
         fs::write(nxb_dir.join("meta/info.txt"), "ok").expect("meta file");
 
-        let cli = Cli::parse_from([
-            "nx",
-            "inspect",
-            "nxb",
-            nxb_dir.to_string_lossy().as_ref(),
-            "--json",
-        ]);
+        let cli =
+            Cli::parse_from(["nx", "inspect", "nxb", nxb_dir.to_string_lossy().as_ref(), "--json"]);
         let (class, _, _, data) = execute(cli, &test_cfg(root.path())).expect("inspect works");
         assert_eq!(class, ExitClass::Success);
         let data = data.expect("data");
@@ -246,13 +229,8 @@ mod tests {
 }"#,
         )
         .expect("write");
-        let cli = Cli::parse_from([
-            "nx",
-            "config",
-            "push",
-            input.to_string_lossy().as_ref(),
-            "--json",
-        ]);
+        let cli =
+            Cli::parse_from(["nx", "config", "push", input.to_string_lossy().as_ref(), "--json"]);
         let (class, _, _, data) = execute(cli, &test_cfg(root.path())).expect("push success");
         assert_eq!(class, ExitClass::Success);
         assert!(root.path().join("state/config/90-nx-config.json").exists());
@@ -344,21 +322,10 @@ mod tests {
 
     fn write_policy_root(root: &Path, caps: &[&str]) {
         fs::create_dir_all(root).expect("policy root");
-        fs::write(
-            root.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['base.toml']\n",
-        )
-        .expect("root");
-        let caps = caps
-            .iter()
-            .map(|cap| format!("'{cap}'"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        fs::write(
-            root.join("base.toml"),
-            format!("[allow]\ndemo = [{caps}]\n"),
-        )
-        .expect("base");
+        fs::write(root.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+            .expect("root");
+        let caps = caps.iter().map(|cap| format!("'{cap}'")).collect::<Vec<_>>().join(", ");
+        fs::write(root.join("base.toml"), format!("[allow]\ndemo = [{caps}]\n")).expect("base");
         let tree = PolicyTree::load_root(root).expect("policy tree");
         tree.write_manifest(root).expect("policy manifest");
     }
@@ -398,10 +365,7 @@ mod tests {
 
         assert_eq!(class, ExitClass::Success);
         assert_eq!(data["decision"]["allow"], Value::Bool(true));
-        assert_eq!(
-            data["decision"]["trace"].as_array().expect("trace").len(),
-            1
-        );
+        assert_eq!(data["decision"]["trace"].as_array().expect("trace").len(), 1);
     }
 
     #[test]

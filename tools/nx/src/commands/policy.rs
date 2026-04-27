@@ -31,10 +31,7 @@ fn handle_policy_validate(args: PolicyValidateArgs, cfg: &RuntimeConfig) -> Exec
     let root = policy_root(cfg, args.root);
     let tree = load_tree(&root)?;
     tree.validate_manifest(&root).map_err(|err| {
-        NxError::new(
-            ExitClass::ValidationReject,
-            format!("{}: {err}", err.code()),
-        )
+        NxError::new(ExitClass::ValidationReject, format!("{}: {err}", err.code()))
     })?;
     let data = json!({
         "root": root,
@@ -43,12 +40,7 @@ fn handle_policy_validate(args: PolicyValidateArgs, cfg: &RuntimeConfig) -> Exec
         "subjects": tree.policy().subject_count(),
         "capabilities": tree.policy().capability_count(),
     });
-    Ok((
-        ExitClass::Success,
-        "policy validate passed".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "policy validate passed".to_string(), args.json, Some(data)))
 }
 
 fn handle_policy_diff(args: PolicyDiffArgs) -> ExecResult {
@@ -60,12 +52,7 @@ fn handle_policy_diff(args: PolicyDiffArgs) -> ExecResult {
         "from_version": from.version().as_str(),
         "to_version": to.version().as_str(),
     });
-    Ok((
-        ExitClass::Success,
-        "policy diff generated".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "policy diff generated".to_string(), args.json, Some(data)))
 }
 
 fn handle_policy_explain(args: PolicyExplainArgs, cfg: &RuntimeConfig) -> ExecResult {
@@ -87,12 +74,7 @@ fn handle_policy_explain(args: PolicyExplainArgs, cfg: &RuntimeConfig) -> ExecRe
         "version": tree.version().as_str(),
         "decision": decision,
     });
-    Ok((
-        ExitClass::Success,
-        "policy explain generated".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "policy explain generated".to_string(), args.json, Some(data)))
 }
 
 fn handle_policy_mode(args: PolicyModeArgs, cfg: &RuntimeConfig) -> ExecResult {
@@ -117,12 +99,7 @@ fn handle_policy_mode(args: PolicyModeArgs, cfg: &RuntimeConfig) -> ExecResult {
         "applied": false,
         "preflight_only": true,
     });
-    Ok((
-        ExitClass::Success,
-        "policy mode preflight accepted".to_string(),
-        args.json,
-        Some(data),
-    ))
+    Ok((ExitClass::Success, "policy mode preflight accepted".to_string(), args.json, Some(data)))
 }
 
 fn policy_root(cfg: &RuntimeConfig, root: Option<PathBuf>) -> PathBuf {
@@ -130,12 +107,8 @@ fn policy_root(cfg: &RuntimeConfig, root: Option<PathBuf>) -> PathBuf {
 }
 
 fn load_tree(root: &Path) -> Result<PolicyTree, NxError> {
-    PolicyTree::load_root(root).map_err(|err| {
-        NxError::new(
-            ExitClass::ValidationReject,
-            format!("{}: {err}", err.code()),
-        )
-    })
+    PolicyTree::load_root(root)
+        .map_err(|err| NxError::new(ExitClass::ValidationReject, format!("{}: {err}", err.code())))
 }
 
 impl From<PolicyCliMode> for PolicyMode {

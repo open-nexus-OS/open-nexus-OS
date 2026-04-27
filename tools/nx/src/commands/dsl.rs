@@ -34,10 +34,7 @@ pub(crate) fn handle_dsl(args: DslArgs, cfg: &RuntimeConfig) -> ExecResult {
     if !backend.exists() {
         return Ok((
             ExitClass::Unsupported,
-            format!(
-                "dsl backend unsupported; backend not found: {}",
-                backend.display()
-            ),
+            format!("dsl backend unsupported; backend not found: {}", backend.display()),
             args.json,
             Some(json!({
                 "backend": backend,
@@ -51,16 +48,9 @@ pub(crate) fn handle_dsl(args: DslArgs, cfg: &RuntimeConfig) -> ExecResult {
         DslAction::Lint => "lint",
         DslAction::Build => "build",
     };
-    let output = Command::new(&backend)
-        .arg(action)
-        .args(&args.args)
-        .output()
-        .map_err(|e| {
-            NxError::new(
-                ExitClass::DelegateFailure,
-                format!("failed executing dsl delegate: {e}"),
-            )
-        })?;
+    let output = Command::new(&backend).arg(action).args(&args.args).output().map_err(|e| {
+        NxError::new(ExitClass::DelegateFailure, format!("failed executing dsl delegate: {e}"))
+    })?;
 
     let data = json!({
         "backend": backend,
@@ -70,18 +60,8 @@ pub(crate) fn handle_dsl(args: DslArgs, cfg: &RuntimeConfig) -> ExecResult {
     });
 
     if output.status.success() {
-        Ok((
-            ExitClass::Success,
-            "dsl delegate succeeded".to_string(),
-            args.json,
-            Some(data),
-        ))
+        Ok((ExitClass::Success, "dsl delegate succeeded".to_string(), args.json, Some(data)))
     } else {
-        Ok((
-            ExitClass::DelegateFailure,
-            "dsl delegate failed".to_string(),
-            args.json,
-            Some(data),
-        ))
+        Ok((ExitClass::DelegateFailure, "dsl delegate failed".to_string(), args.json, Some(data)))
     }
 }

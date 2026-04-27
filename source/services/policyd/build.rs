@@ -58,10 +58,7 @@ fn main() {
 
 fn load_policy_dir(
     dir: &Path,
-) -> (
-    BTreeMap<String, BTreeSet<String>>,
-    BTreeMap<String, RawAbiProfile>,
-) {
+) -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<String, RawAbiProfile>) {
     let mut files = Vec::new();
     let root_path = dir.join("nexus.policy.toml");
     let root_data =
@@ -157,9 +154,7 @@ fn emit_policy_table(
             Some(v) => format!("Some({v}u16)"),
             None => "None".to_string(),
         };
-        out.push_str(&format!(
-            "    (0x{service_id:016x}u64, {prefix}, {net_bind}),\n"
-        ));
+        out.push_str(&format!("    (0x{service_id:016x}u64, {prefix}, {net_bind}),\n"));
     }
     out.push_str("];\n");
     fs::write(&dest, out).expect("failed to write policy_table.rs");
