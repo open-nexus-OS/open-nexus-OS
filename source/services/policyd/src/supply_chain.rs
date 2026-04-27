@@ -59,19 +59,27 @@ mod tests {
         assert_eq!(evaluate_allowlist(true, "allow"), SignPolicyDecision::Allow);
         assert_eq!(
             evaluate_allowlist(false, "publisher_unknown"),
-            SignPolicyDecision::Deny { label: "policy.publisher_unknown" }
+            SignPolicyDecision::Deny {
+                label: "policy.publisher_unknown"
+            }
         );
         assert_eq!(
             evaluate_allowlist(false, "key_unknown"),
-            SignPolicyDecision::Deny { label: "policy.key_unknown" }
+            SignPolicyDecision::Deny {
+                label: "policy.key_unknown"
+            }
         );
         assert_eq!(
             evaluate_allowlist(false, "alg_unsupported"),
-            SignPolicyDecision::Deny { label: "policy.alg_unsupported" }
+            SignPolicyDecision::Deny {
+                label: "policy.alg_unsupported"
+            }
         );
         assert_eq!(
             evaluate_allowlist(false, "disabled"),
-            SignPolicyDecision::Deny { label: "policy.disabled" }
+            SignPolicyDecision::Deny {
+                label: "policy.disabled"
+            }
         );
     }
 
@@ -87,7 +95,12 @@ mod tests {
             Ok::<(bool, String), ()>((false, "key_unknown".to_string()))
         })
         .expect("deny query");
-        assert_eq!(deny, SignPolicyDecision::Deny { label: "policy.key_unknown" });
+        assert_eq!(
+            deny,
+            SignPolicyDecision::Deny {
+                label: "policy.key_unknown"
+            }
+        );
     }
 
     #[test]

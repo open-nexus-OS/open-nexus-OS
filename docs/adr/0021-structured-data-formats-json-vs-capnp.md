@@ -37,6 +37,7 @@ Use **Cap'n Proto** when the bytes are a **contract** (runtime, persistence, sig
 
 - **IPC contracts** (`tools/nexus-idl/schemas/*.capnp`)
 - **Config v1 effective snapshots** (`TASK-0046` / `RFC-0044`): `configd` runtime/persistence authority uses Cap'n Proto bytes
+  - Policy as Code v1 candidate roots are carried in those effective snapshots as `policy.root`
 - **Scene-IR canonical artifact**: `.nxir` (Cap'n Proto)  
   - JSON is only a derived view for host goldens/debug
 - **/state persisted snapshots**: `.nxs` (“Nexus Snapshot”, Cap'n Proto)
@@ -48,6 +49,7 @@ Use **JSON** when humans or external tools need to read/write it, or when the by
 
 - **Authoring inputs** (human-edited): e.g. i18n source catalogs
 - **Config v1 authoring inputs**: layered `/system/config/*.json`, `/state/config/*.json`, and derived `nx config ... --json` views
+- **Policy v1 authoring inputs**: TOML under `policies/`; `policies/manifest.json` is deterministic validation evidence, not a second authority
 - **Debug/inspection views**: `--print-json`, `--export-json`
 - **Host goldens** where diffs matter (`.nxir.json`)
 - **Interop/export artifacts** where ecosystem compatibility matters (e.g. SBOM CycloneDX JSON)
@@ -95,6 +97,7 @@ Use **JSONL** for **append-only event logs** (bounded records, easy streaming), 
 
 - ADR-0020: Bundle Manifest Format (`manifest.nxb` with Cap'n Proto)
 - Config v1: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`, `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
+- Policy as Code v1: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md`, `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
 - DSL Scene-IR: `TASK-0075`, `TASK-0077`, `TASK-0079`
 - Settings persistence: `TASK-0225`
 - Recents persistence: `TASK-0082`

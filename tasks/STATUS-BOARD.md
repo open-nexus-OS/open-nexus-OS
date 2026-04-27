@@ -21,7 +21,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
 | Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 0 / 8 | 0% | — | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
-| Security, Policy & Identity | 3 / 36 | 8% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
+| Security, Policy & Identity | 4 / 36 | 11% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 2 / 25 | 8% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 0 / 12 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, input/display/audio, and driver-facing tracks. |
@@ -215,7 +215,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
 
-Current queue head: `TASK-0047` (`In Progress`, 2026-04-26).  
+Current queue head: next task selection pending after `TASK-0047` (`Done`, 2026-04-26).
 Current contract status: `RFC-0045` (`In Progress`, 2026-04-26); predecessor `RFC-0044` / `TASK-0046` are `Done`.
 
 ---

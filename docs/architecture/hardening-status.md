@@ -22,11 +22,11 @@ ECALL storms), but ordinary syscall errors are returned to userspace.
 
 | Objective | Status | Notes |
 | --- | --- | --- |
-| Policy engine (`nexus-sel`) | ✅ Complete | Service-id based capability lookups, deny-by-default |
+| Policy engine (`userspace/policy` + `policyd`) | ✅ Complete host-first | Policy as Code v1 tree, deterministic `PolicyVersion`, bounded evaluator, deny-by-default |
 | Audit trail | ✅ Complete | All allow/deny decisions logged via logd |
 | Channel-bound identity | ✅ Complete | Policy binds to `sender_service_id`, not payload strings |
 | Policy-gated operations | ✅ Complete | keystored `OP_SIGN` requires `crypto.sign` capability |
-| Single authority | ✅ Complete | `policyd` is sole decision service |
+| Single authority | ✅ Complete | `policyd` is sole decision service; live policy root is `policies/nexus.policy.toml` |
 
 **QEMU proofs:** `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os` (green)
 

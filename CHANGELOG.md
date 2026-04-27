@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-26
+
+#### TASK-0047 / RFC-0045 host-first closure (`TASK-0047`, `RFC-0045`)
+
+- Closed the Policy as Code v1 host-first contract floor:
+  - active policy root is now `policies/nexus.policy.toml`
+  - `recipes/policy/` is legacy documentation only, not a live TOML authority
+  - `userspace/policy` provides deterministic `PolicyVersion`, bounded evaluator traces, and stable reject classes
+  - Config v1 carries policy candidate roots as `policy.root`
+  - `policies/manifest.json` records the deterministic tree hash and validates fail-closed when missing or stale
+  - `policyd` stages configd-fed `PolicyTree` candidates through `configd::ConfigConsumer` and rejects stale/unauthorized lifecycle changes
+  - external `policyd` host frame operations for `Version`, `Eval`, `ModeGet`, and `ModeSet` are backed by `PolicyAuthority` and bounded audit events
+  - the `policyd` service-facing check frame evaluates through the unified authority
+  - `nx policy` lives under `tools/nx` with deterministic JSON/exit contracts; `nx policy mode` is explicit host preflight only
+- Added host proof coverage:
+  - `cargo test -p policy -- --nocapture`
+  - `cargo test -p nexus-config -- --nocapture`
+  - `cargo test -p configd -- --nocapture`
+  - `cargo test -p policyd -- --nocapture`
+  - `cargo test -p nx -- --nocapture`
+- Synchronized Policy as Code architecture docs and added a local `tools/nx/README.md` entrypoint for the canonical CLI.
+- OS/QEMU policy markers remain gated and intentionally unclaimed.
+
 ### Changed - 2026-04-24
 
 #### TASK-0046 / RFC-0044 closure sync (`TASK-0046`, `RFC-0044`)

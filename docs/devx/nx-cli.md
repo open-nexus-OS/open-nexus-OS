@@ -67,14 +67,22 @@ cargo run -p nx -- inspect nxb path/to/bundle.nxb --json
   - executes configd 2PC reload contract (commit/abort reflected in exit + JSON)
 - `nx config where [--json]`
   - prints canonical system/state directory map plus the `NEXUS_CFG_` env prefix
+- `nx policy validate [--root <path>] [--json]`
+  - validates the canonical `policies/nexus.policy.toml` tree plus required `policies/manifest.json`, then reports the stable policy version
+- `nx policy diff --from <path> --to <path> [--json]`
+  - compares canonical policy versions for two policy roots
+- `nx policy explain --subject <svc> --cap <cap>... [--mode enforce|dry-run|learn] [--json]`
+  - evaluates via the shared policy crate and returns bounded explain trace data
+- `nx policy mode --set enforce|dry-run|learn --observed-version <ver> --actor-service-id <id> --authorized [--json]`
+  - validates host-side mode transition preconditions as preflight only; stale or unauthorized requests fail closed, and no live daemon mode is changed by this host command
 
 ## Postflight topic extension contract
 
-1. Add a new topic key in the static allowlist map in `tools/nx/src/lib.rs`.
+1. Add a new topic key in the static allowlist map in `tools/nx/src/commands/postflight.rs`.
 2. Map that key to a fixed executable path under `tools/`.
 3. Add positive and reject tests (`unknown-topic` and delegate non-zero path).
 4. Keep shell injection impossible: never build delegate command via string interpolation.
 
 ## Subcommand extension contract
 
-Future topics (`nx config`, `nx policy`, `nx crash`, `nx sdk`, `nx diagnose`, `nx sec`) must extend `tools/nx` as subcommands. Do not introduce separate `nx-*` binaries.
+Future topics (`nx crash`, `nx sdk`, `nx diagnose`, `nx sec`) must extend `tools/nx` as subcommands. Do not introduce separate `nx-*` binaries.

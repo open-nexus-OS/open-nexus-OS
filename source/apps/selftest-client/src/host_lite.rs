@@ -30,7 +30,7 @@
 
 #[cfg(feature = "std")]
 pub(crate) fn run() -> anyhow::Result<()> {
-    use policy::PolicyDoc;
+    use nexus_policy::PolicyTree;
     use std::path::Path;
 
     println!("{}", crate::markers_generated::M_SELFTEST_E2E_SAMGR_OK);
@@ -38,7 +38,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
     // Signed install markers (optional until full wiring is complete)
     println!("{}", crate::markers_generated::M_SELFTEST_SIGNED_INSTALL_OK);
 
-    let policy = PolicyDoc::load_dir(Path::new("recipes/policy"))?;
+    let tree = PolicyTree::load_root(Path::new("policies"))?;
+    let policy = tree.policy();
     let allowed_caps = ["ipc.core", "time.read"];
     if let Err(err) = policy.check(&allowed_caps, "samgrd") {
         anyhow::bail!("unexpected policy deny for samgrd: {err}");

@@ -35,7 +35,7 @@ Establish a unified service architecture with the following components:
 - **Event-Driven**: Asynchronous event handling
 - **State Management**: Persistent service state
 - **Error Handling**: Structured error propagation
-- **Config Distribution**: `configd` exposes typed effective snapshots and transactional reload orchestration
+- **Config Distribution**: `configd` exposes typed effective snapshots and transactional reload orchestration, including `policy.root` candidate carriage for Policy as Code v1
 
 ### Invariants
 - Services must register with samgrd before accepting requests
@@ -52,6 +52,7 @@ Establish a unified service architecture with the following components:
 - Policy decisions bind to `sender_service_id` (kernel-provided, unforgeable)
 - All policy allow/deny decisions are audit-logged via `logd`
 - Typed configuration distribution flows through `configd`; canonical runtime/persistence snapshots are Cap'n Proto while JSON remains authoring and derived view only.
+- Policy reload candidates are selected from Config v1 effective snapshots (`policy.root`) and applied by `policyd` through the `configd::ConfigConsumer` 2PC seam; services must not introduce a separate policy reload authority.
 - Crash-event publish paths must stay fail-closed: reported crash metadata is accepted only from authorized senders and only when bounded artifact consistency checks pass.
 
 ### Audit Trail (TASK-0008)
@@ -62,6 +63,7 @@ Services performing sensitive operations must use `policyd` for authorization:
 - All allow/deny decisions produce audit records (via `logd`)
 - Deny-by-default: operations without explicit capability are rejected
 - See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
+- Policy as Code v1 details live in `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` and `docs/architecture/11-policyd-and-policy-flow.md`
 
 ## Consequences
 - **Positive**: Consistent service development, easier maintenance, clear separation of concerns

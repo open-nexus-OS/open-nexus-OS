@@ -6,16 +6,21 @@ Canonical sources:
 
 - Policy overview: `docs/adr/0014-policy-architecture.md`
 - RFC (policy authority + audit): `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
+- RFC (Policy as Code v1): `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
+- Security overview: `docs/security/policy-as-code.md`
 - End-to-end flow (signing + policy + init): `docs/security/signing-and-policy.md`
 - Service architecture context: `docs/adr/0017-service-architecture.md`
 - Testing guide: `docs/testing/index.md`
 
 ## Responsibilities
 
-- **Load and merge policy** from the policy directory (TOML files under `recipes/policy/`).
+- **Load and validate policy** from the versioned policy tree rooted at `policies/nexus.policy.toml`.
+- **Validate manifest evidence** through `policies/manifest.json` for `nx policy validate`.
 - **Canonicalize subjects and capability names** (avoid case/whitespace drift).
 - **Answer checks**: `allowed=true/false` + missing capability list for debuggability.
-- **Emit audit records** for all allow/deny decisions (via logd or UART fallback).
+- **Evaluate through `PolicyAuthority`** for service-facing check frames and host `Eval`.
+- **Emit bounded audit events** for eval, mode, and reload allow/deny/reject outcomes.
+- **Apply reload candidates through Config v1**: `configd` carries `policy.root` in the effective snapshot; `policyd` consumes it via `configd::ConfigConsumer`.
 
 ## Policy Evaluation Model (TASK-0008)
 
@@ -29,6 +34,23 @@ service_id (u64) + action (str) + target (optional str) → Decision (Allow | De
 Requester name in payloads is display-only and MUST NOT grant authority.
 
 **Deny-by-default**: Operations without explicit policy allow are rejected.
+
+**Mode honesty**: dry-run and learn observe would-deny decisions but do not grant what enforce mode denies.
+
+**CLI honesty**: `nx policy mode` validates host-side preconditions only. It does not claim to change a live daemon mode until a real mode RPC exists.
+
+## Policy Tree + Reload Flow
+
+```text
+policies/nexus.policy.toml + includes
+    -> userspace/policy validates + computes PolicyVersion
+    -> policies/manifest.json records the required deterministic tree hash
+    -> configd effective snapshot carries candidate root as policy.root
+    -> policyd ConfigConsumer prepares candidate PolicyTree
+    -> configd 2PC commit applies the new active policy version
+```
+
+`recipes/policy/` is legacy documentation/migration context only. It must not be reintroduced as a live TOML authority.
 
 ### Policy-Gated Operations
 
@@ -59,6 +81,8 @@ Every policy decision emits an audit record:
 The policy decision is used in multiple places, but the key boot-time gate is:
 
 - `nexus-init` queries `policyd` before launching a service that requests capabilities.
+- Host/std `policyd` exposes frame operations for `Version`, `Eval`, `ModeGet`, and `ModeSet`.
+- The service-facing check frame is proven to route through `PolicyAuthority`.
 
 This is part of the "hybrid security root" strategy:
 
@@ -68,13 +92,13 @@ This is part of the "hybrid security root" strategy:
 
 Denials must be deterministic and explicit:
 
-- They are validated in host E2E tests (policy E2E harness).
-- They are validated in QEMU smoke runs via stable UART markers.
-- Every denial is audit-logged (TASK-0008).
+- They are validated in host unit/CLI contract tests first.
+- QEMU smoke markers remain gated until real OS-lite reload wiring and adapter markers exist.
+- Every denial should be audit-logged by the production sink; host tests prove bounded audit event shape.
 
 See the testing matrix in `docs/testing/index.md` for how these are exercised.
 
-### QEMU Proof Markers (TASK-0008)
+### QEMU Proof Markers (Gated)
 
 | Marker | Proves |
 |--------|--------|
@@ -84,10 +108,15 @@ See the testing matrix in `docs/testing/index.md` for how these are exercised.
 
 Run: `RUN_PHASE=policy RUN_TIMEOUT=190s just test-os`
 
+These markers are not currently claimed by `TASK-0047`; they require OS-facing wiring.
+
 ## Drift-resistant rules
 
 - Don't create multiple "policy authorities" or shadow allowlists. `policyd` is the authority.
 - Don't invent a new on-disk policy format without an RFC/ADR and a task with proof gates.
+- Don't restore `recipes/policy/` as a live policy root.
+- Don't add a policy-specific file watcher/reload path; policy reload candidates flow through Config v1.
+- Don't treat `nx policy mode` as a live daemon mutation until a real RPC is implemented and tested.
 - Don't trust subject identity from payload bytes (use kernel-provided `sender_service_id`).
 - Keep "where the truth lives" clear:
   - contracts/semantics: ADR/RFC

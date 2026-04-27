@@ -234,6 +234,23 @@ seen and ensure log caps are in effect. `just test-os` wraps
     - semantic parity between `configd` views and `nx config effective --json`
     - honest 2PC commit/abort/rollback state transitions with unchanged-version evidence on failure
     - deterministic CLI exit/JSON/file-effect contracts under `nx config`
+- Policy as Code v1 host proof floor (`TASK-0047`):
+  - `cargo test -p policy -- --nocapture`
+  - `cargo test -p nexus-config -- --nocapture`
+  - `cargo test -p configd -- --nocapture`
+  - `cargo test -p policyd -- --nocapture`
+  - `cargo test -p nx -- --nocapture`
+  - proves Soll-Verhalten, not implementation detail coupling:
+    - single live policy root under `policies/` with `recipes/policy/` non-authoritative
+    - deterministic `PolicyVersion` for equivalent validated inputs
+    - stable `test_reject_*` classes for invalid/oversize/ambiguous/traversal/trace-budget cases
+    - deterministic `policies/manifest.json` validation and fail-closed missing/mismatch handling
+    - bounded explain traces and dry-run/learn non-bypass semantics
+    - authenticated/current-version mode changes and stale/unauthorized rejects
+    - Config v1 `policy.root` effective-snapshot carriage into the `configd::ConfigConsumer` policy reload path
+    - external `policyd` host frame operations for version/eval/mode get/mode set
+    - first adapter parity plus service-facing `policyd` check-frame cutover through the unified authority
+    - `nx policy` deterministic exit/JSON contracts under the existing `tools/nx` binary, including explicit `mode` preflight-only output
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
 - QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
 - QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)

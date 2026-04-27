@@ -14,7 +14,10 @@ use nexus_sel::{Policy, PolicyEntry};
 fn inprocess_check_binds_identity_to_sender() {
     let selftest_sid = nexus_abi::service_id_from_name(b"selftest-client");
     let bundle_sid = nexus_abi::service_id_from_name(b"bundlemgrd");
-    let entries = [PolicyEntry { service_id: selftest_sid, capabilities: &["ipc.core"] }];
+    let entries = [PolicyEntry {
+        service_id: selftest_sid,
+        capabilities: &["ipc.core"],
+    }];
     let policy = Policy::new(&entries);
 
     // Spoof payload says "selftest-client", but sender is bundlemgrd and not privileged.
@@ -33,7 +36,10 @@ fn inprocess_route_v3_spoof_rejected() {
     let samgrd = nexus_abi::service_id_from_name(b"samgrd");
     let execd = nexus_abi::service_id_from_name(b"execd");
     let bundle = nexus_abi::service_id_from_name(b"bundlemgrd");
-    let entries = [PolicyEntry { service_id: samgrd, capabilities: &["ipc.core"] }];
+    let entries = [PolicyEntry {
+        service_id: samgrd,
+        capabilities: &["ipc.core"],
+    }];
     let policy = Policy::new(&entries);
 
     let mut buf = [0u8; 64];

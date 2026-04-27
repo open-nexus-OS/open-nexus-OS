@@ -9,7 +9,7 @@ publish = false
 default = ["std"]
 std = [
     "dep:anyhow",
-    "dep:policy",
+    "dep:nexus_policy",
     "dep:bundlemgrd",
     "dep:nexus-idl-runtime",
     "dep:capnp",
@@ -50,7 +50,7 @@ smoltcp-probe = ["dep:smoltcp", "dep:nexus-net-os"]
 
 [dependencies]
 anyhow = { version = "1", optional = true }
-policy = { path = "../../../userspace/policy", optional = true }
+nexus_policy = { package = "policy", path = "../../../userspace/policy", optional = true }
 bundlemgrd = { path = "../../../source/services/bundlemgrd", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", default-features = false, optional = true }

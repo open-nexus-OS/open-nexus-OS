@@ -82,14 +82,18 @@ This is the anti-fake-success gate.
   - [ ] adapter parity is proven before claiming cutover,
   - [ ] markers, if any, summarize already-proven behavior.
 
-## Active progress snapshot (TASK-0047 in progress, 2026-04-26)
+## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` / `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` / `RFC-0045` are linked and form the new execution+contract pair.
 - [x] `TASK-0047` task text is pre-aligned to Gate B, security invariants, and behavior-first proof discipline.
 - [x] Phase 0 `tools/nx` structure refactor and chosen folder layout are documented in task + RFC.
-- [x] Status/index/queue/workfiles are synchronized to the `TASK-0047` preparation state.
-- [ ] Host proofs for Policy-as-Code are not yet claimed.
-- [ ] OS/QEMU policy markers remain gated and intentionally unclaimed.
+- [x] Status/index/queue/workfiles are synchronized to the remediated `TASK-0047` closure state.
+- [x] Closure gaps from the critical delta report are remediated host-first: configd reload seam, policyd API/audit, host check cutover, and manifest validation.
+- [x] Host proofs for Policy-as-Code are green:
+  - [x] `cargo test -p policy -- --nocapture`
+  - [x] `cargo test -p policyd -- --nocapture`
+  - [x] `cargo test -p nx -- --nocapture`
+- [x] OS/QEMU policy markers remain gated and intentionally unclaimed.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:

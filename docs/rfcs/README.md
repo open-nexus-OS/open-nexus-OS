@@ -89,7 +89,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0037: DSoftBus QUIC v2 OS enablement contract (real OS session markers + fail-closed reject/bounds evidence)
 - RFC-0038: Selftest-client production-grade deterministic test architecture refactor v1 (deterministic proof infrastructure contract seed + minimal main requirement)
 - RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (single-authority allowlist + deny-by-default install-time enforcement + deterministic deny markers)
-- RFC-0045: Policy as Code v1 (single-authority unified policy tree + authenticated lifecycle + bounded explain/learn + `nx policy`)
+- RFC-0045: Policy as Code v1 (single-authority unified policy tree + authenticated lifecycle + bounded explain/learn + `nx policy`) (Done)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
@@ -184,5 +184,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md
 - RFC-0044: Config v1 (`configd` + schemas + layering + 2PC + `nx config`) — host-first, OS-gated contract seed (Done; host proof floor green, OS marker closure delegated to downstream follow-ups; execution SSOT `TASK-0046` is Done)
   - docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md
-- RFC-0045: Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) — host-first, OS-gated contract seed (In Progress)
+- RFC-0045: Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) — host-first, OS-gated contract seed (Done; host proof floor green, OS marker closure intentionally unclaimed)
   - docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md

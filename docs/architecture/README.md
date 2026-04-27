@@ -88,6 +88,11 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
   - `configd` is the canonical typed config distribution authority
   - canonical runtime/persistence snapshots are Cap'n Proto
   - `nx config ...` is the only host CLI surface for config operations
+- Policy as Code v1 authority: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` + `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
+  - `policyd` is the single policy decision authority
+  - live policy authoring root is `policies/nexus.policy.toml`
+  - Config v1 carries candidate roots as `policy.root`; no parallel policy reload plane
+  - `nx policy ...` lives under `tools/nx`; see `tools/nx/README.md`
 
 ## On-device inference
 
@@ -130,10 +135,13 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 - **Policy flow**: `11-policyd-and-policy-flow.md` — `policyd` as single authority
 - **RFC-0015**: Policy Authority & Audit Baseline v1 (Complete)
+- **RFC-0045**: Policy as Code v1 unified policy tree/evaluator/`nx policy` (Done host-first; OS/QEMU markers gated)
 - **Security docs**: `docs/security/signing-and-policy.md`
+- **Policy as Code docs**: `docs/security/policy-as-code.md`
 
 **Current snapshot**:
 - Policy authority remains single-source and deny-by-default, with audit evidence as a first-class proof surface.
+- Policy v1 reload candidates flow through Config v1 `policy.root`; `policies/manifest.json` is required validation evidence for the active tree hash.
 - Device identity and keystore flows are integrated into the same authority model without introducing parallel policy sources.
 
 Related:

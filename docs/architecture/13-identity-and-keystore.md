@@ -51,7 +51,7 @@ That's why identity operations are mediated by `identityd` and why keystore inte
 
 As of TASK-0008, `keystored` enforces policy-gated signing:
 
-- `OP_SIGN` requires the `crypto.sign` capability in `recipes/policy/base.toml`
+- `OP_SIGN` requires the `crypto.sign` capability from the active Policy as Code v1 tree (`policies/nexus.policy.toml` and included TOML)
 - Policy check binds to `sender_service_id` (kernel-provided, unforgeable)
 - Denials are audit-logged and return `STATUS_DENIED_BY_POLICY`
 - Private keys never leave keystored (signatures are returned, not key material)

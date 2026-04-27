@@ -53,6 +53,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0047_context
+- Status: `TASK-0047` / `RFC-0045` are `Done` at host-first closure after behavior-first remediation of configd `policy.root` carriage, external policyd frame API/audit, service-facing check cutover, required manifest validation, and honest `nx policy mode` preflight semantics; OS/QEMU policy markers remain gated and unclaimed.
 - `tasks/TASK-0047-policy-as-code-v1-unified-engine.md`
 - `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
 - `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`

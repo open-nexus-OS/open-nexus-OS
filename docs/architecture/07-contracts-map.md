@@ -69,6 +69,21 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
   - `cargo test -p nx -- --nocapture`
 - **Why it matters**: locks one config authority (`configd` + `nx config`), keeps JSON as authoring/derived view only, and makes runtime/persistence truth byte-deterministic through Cap'n Proto.
 
+### Policy as Code v1
+
+- **Contract**: single policy tree authority, deterministic `PolicyVersion`, bounded evaluator/explain semantics, Config v1 carried reload candidates, and canonical `nx policy` tooling
+- **Canonical spec**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
+- **Execution SSOT**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md`
+- **Decision anchor**: `docs/adr/0014-policy-architecture.md`
+- **Onboarding**: `docs/architecture/11-policyd-and-policy-flow.md`, `docs/security/policy-as-code.md`, `tools/nx/README.md`
+- **Proof**:
+  - `cargo test -p policy -- --nocapture`
+  - `cargo test -p nexus-config -- --nocapture`
+  - `cargo test -p configd -- --nocapture`
+  - `cargo test -p policyd -- --nocapture`
+  - `cargo test -p nx -- --nocapture`
+- **Why it matters**: prevents policy authority drift by keeping live TOML under `policies/`, carrying reload roots through Config v1 `policy.root`, validating required manifests, and keeping `nx policy` inside the canonical `tools/nx` binary.
+
 ### DSoftBus transport selection (host-first QUIC scaffold)
 
 - **Contract**: deterministic `auto|tcp|quic` selection, strict-mode fail-closed, explicit fallback markers

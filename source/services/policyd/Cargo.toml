@@ -7,10 +7,12 @@ license = "Apache-2.0"
 [features]
 default = ["std", "idl-capnp"]
 std = [
-    "dep:policy",
+    "dep:nexus_policy",
+    "dep:configd",
     "dep:nexus-idl-runtime",
     "dep:capnp",
     "dep:nexus-ipc",
+    "dep:serde_json",
     "nexus-ipc/std",
     "dep:thiserror",
 ]
@@ -30,10 +32,12 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-policy = { path = "../../../userspace/policy", optional = true }
+nexus_policy = { package = "policy", path = "../../../userspace/policy", optional = true }
+configd = { path = "../configd", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+serde_json = { version = "1.0.145", optional = true }
 thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
@@ -47,6 +51,8 @@ toml = "0.8"
 [dev-dependencies]
 nexus-sel = { path = "../../libs/nexus-sel", default-features = false }
 nexus-abi = { path = "../../libs/nexus-abi" }
+nexus-config = { path = "../../../userspace/config" }
+tempfile = "3.27.0"
 
 [[bin]]
 name = "policyd"

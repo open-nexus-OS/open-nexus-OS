@@ -1909,6 +1909,7 @@ dependencies = [
  "clap",
  "configd",
  "nexus-config",
+ "policy",
  "serde",
  "serde_json",
  "sha2",
@@ -2096,6 +2097,8 @@ name = "policy"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "toml",
@@ -2106,7 +2109,9 @@ name = "policyd"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "configd",
  "nexus-abi",
+ "nexus-config",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-log",
@@ -2114,6 +2119,8 @@ dependencies = [
  "nexus-service-entry",
  "policy",
  "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
  "toml",
 ]

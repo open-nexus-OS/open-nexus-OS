@@ -1,6 +1,6 @@
 # RFC-0045: Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) host-first, OS-gated contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @runtime @security @tools-team
 - Created: 2026-04-26
 - Last Updated: 2026-04-26
@@ -12,9 +12,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (CLI structure floor for `nx policy`)**: 🟨
-- **Phase 1 (single policy tree + canonical version + evaluator contract)**: ⬜
-- **Phase 2 (policyd reload/eval/mode + adapter + `nx policy` contract)**: ⬜
+- **Phase 0 (CLI structure floor for `nx policy`)**: ✅
+- **Phase 1 (single policy tree + canonical version + evaluator contract)**: ✅
+- **Phase 2 (policyd reload/eval/mode + adapter + `nx policy` contract)**: ✅
 
 Definition:
 
@@ -148,7 +148,7 @@ Normative semantics:
 
 - deny-by-default unless an explicit matching allow path exists,
 - explain trace is bounded and deterministic,
-- dry-run may return "allow" for observation but MUST preserve `would_deny=true` when enforce would deny,
+- dry-run may observe would-deny decisions but MUST NOT grant what enforce mode would deny,
 - learn mode collects bounded observation data and MUST NOT bypass deny rules.
 
 #### Reload / lifecycle contract
@@ -198,6 +198,29 @@ This Phase 0 refactor MUST preserve CLI behavior; it is a structure-first anti-d
 - **Phase 1**: single policy-tree authority, canonical versioning, evaluator result contract, and reject semantics are defined and host-proofed.
 - **Phase 2**: `policyd` reload/eval/mode contract and `nx policy` surface are implemented against Config v1, with at least one migrated adapter proving parity before cutover claims.
 
+### Host-first closure snapshot (2026-04-26)
+
+- Phase 0 landed with unchanged `nx` behavior and the planned module structure under `tools/nx/src/commands/`.
+- The active policy tree root is `policies/`; `recipes/policy/` is no longer a live TOML authority.
+- `PolicyVersion` is derived from deterministic canonical policy data.
+- Invalid, oversize, ambiguous, traversal, unknown-section, and over-budget explain traces reject with stable classes.
+- Config v1 carries the candidate policy root in the effective snapshot as `policy.root`; `policyd` stages the resulting `PolicyTree` through the `configd::ConfigConsumer` 2PC seam.
+- External host frame operations for `Version`, `Eval`, `ModeGet`, and `ModeSet` are backed by the unified authority and emit bounded audit events for allow/deny/reject outcomes.
+- `policies/manifest.json` records the deterministic policy tree hash and `nx policy validate` rejects missing or mismatched manifests.
+- Signing capability and exec/capability adapter parity are proven against the legacy `PolicyDoc::check` behavior before claiming unified evaluator cutover.
+- The `policyd` service-facing check frame now evaluates through `PolicyAuthority`, so the first adapter path no longer bypasses unified evaluator semantics.
+- `nx policy validate|diff|explain|mode` lives under `tools/nx` only and delegates policy semantics to `userspace/policy`; `nx policy mode` is host preflight-only until a live daemon mode RPC exists.
+
+Proof evidence:
+
+- `cargo test -p policy -- --nocapture` — green, 18 tests.
+- `cargo test -p nexus-config -- --nocapture` — green, 10 tests.
+- `cargo test -p configd -- --nocapture` — green, 8 tests.
+- `cargo test -p policyd -- --nocapture` — green, 25 tests.
+- `cargo test -p nx -- --nocapture` — green, 23 unit tests + 8 CLI contract tests.
+
+OS/QEMU markers remain gated and unclaimed for this RFC closure.
+
 ## Security considerations
 
 - **Threat model**:
@@ -219,8 +242,7 @@ This Phase 0 refactor MUST preserve CLI behavior; it is a structure-first anti-d
   - do not trust unbound subject strings in OS-facing enforcement paths,
   - do not use marker-only closure claims.
 - **Open risks**:
-  - exact migration mechanics from `recipes/policy/` to the v1 root need an explicit execution choice,
-  - some downstream domains may lag and require bounded compat/parity phases before full unification.
+  - downstream domains beyond the first `policyd` host check cutover may still require bounded compat/parity phases before full OS-facing unification.
 
 ## Failure model (normative)
 
@@ -247,6 +269,8 @@ Gate B closure statements mapped to this RFC:
 
 ```bash
 cd /home/jenning/open-nexus-OS && cargo test -p policy -- --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p nexus-config -- --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p configd -- --nocapture
 cd /home/jenning/open-nexus-OS && cargo test -p policyd -- --nocapture
 cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture
 ```
@@ -260,6 +284,10 @@ cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture
 - dry-run / learn-mode behavior proves "observe without bypass".
 - authenticated mode changes succeed; unauthorized/stale transitions reject deterministically.
 - migrated adapter parity proves old and unified behavior agree before cutover claim.
+- policy reload is exercised through the `configd::ConfigConsumer` 2PC seam, not a parallel file polling path.
+- Config v1 carries the policy candidate root in `policy.root`; tests must fail if `policyd` ignores the effective snapshot.
+- missing or mismatched policy manifests reject fail-closed.
+- `nx policy mode` remains host preflight-only unless a live daemon mode RPC is added and proven.
 
 ### Proof (OS/QEMU)
 
@@ -293,16 +321,15 @@ Markers are supporting evidence only; they do not replace real assertions.
 
 ## Open questions
 
-- Should Phase 1 migrate directly to `policies/` or use a bounded importer/parity layer first? (`TASK-0047` execution decision)
-- Which first adapter pair gives the best parity proof floor: signing + egress, or another combination already closer to repo reality? (`TASK-0047` execution decision)
+- Which downstream OS-facing adapter should be the first QEMU-gated policy marker owner after the host check cutover?
 
 ## Implementation Checklist
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: `tools/nx` structure refactor lands with unchanged CLI behavior — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
-- [ ] **Phase 1**: policy-tree authority + canonical version + evaluator reject semantics land — proof: `cd /home/jenning/open-nexus-OS && cargo test -p policy -- --nocapture`
-- [ ] **Phase 2**: `policyd` reload/eval/mode + `nx policy` contract land with parity proof — proof: `cd /home/jenning/open-nexus-OS && cargo test -p policyd -- --nocapture && cargo test -p nx -- --nocapture`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: `tools/nx` structure refactor lands with unchanged CLI behavior — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
+- [x] **Phase 1**: policy-tree authority + canonical version + evaluator reject semantics land — proof: `cd /home/jenning/open-nexus-OS && cargo test -p policy -- --nocapture`
+- [x] **Phase 2**: `policyd` reload/eval/mode + `nx policy` contract land with parity proof — proof: `cd /home/jenning/open-nexus-OS && cargo test -p policyd -- --nocapture && cargo test -p nx -- --nocapture`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [ ] QEMU markers remain gated and intentionally unclaimed by this host-first closure.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

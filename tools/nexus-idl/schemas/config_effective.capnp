@@ -7,6 +7,7 @@ struct EffectiveConfig {
   tracing @3 :Tracing;
   securitySandbox @4 :SecuritySandbox;
   sched @5 :Sched;
+  policy @6 :Policy;
 }
 
 struct Dsoftbus {
@@ -32,4 +33,8 @@ struct SecuritySandbox {
 struct Sched {
   defaultQos @0 :Text;
   runqueueSliceMs @1 :UInt16;
+}
+
+struct Policy {
+  root @0 :Text;
 }

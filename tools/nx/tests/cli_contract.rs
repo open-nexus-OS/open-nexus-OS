@@ -5,7 +5,7 @@
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 6 integration tests.
+//! TEST_COVERAGE: 8 integration tests.
 //!
 //! TEST_SCOPE:
 //!   - Process exit-class and JSON-envelope contracts
@@ -36,7 +36,11 @@ fn stdout_json(output: &Output) -> Value {
 #[test]
 fn test_cli_reject_new_service_json_exit_and_shape() {
     let root = tempdir().expect("tempdir");
-    let output = run_nx(&["new", "service", "../escape", "--json"], root.path(), None);
+    let output = run_nx(
+        &["new", "service", "../escape", "--json"],
+        root.path(),
+        None,
+    );
     assert_eq!(output.status.code(), Some(3));
     let json = stdout_json(&output);
     assert_eq!(json["ok"], false);
@@ -47,7 +51,11 @@ fn test_cli_reject_new_service_json_exit_and_shape() {
 #[test]
 fn test_cli_reject_unknown_postflight_json_exit_and_shape() {
     let root = tempdir().expect("tempdir");
-    let output = run_nx(&["postflight", "unknown-topic", "--json"], root.path(), None);
+    let output = run_nx(
+        &["postflight", "unknown-topic", "--json"],
+        root.path(),
+        None,
+    );
     assert_eq!(output.status.code(), Some(3));
     let json = stdout_json(&output);
     assert_eq!(json["ok"], false);
@@ -65,7 +73,11 @@ fn test_cli_doctor_missing_tools_json_exit_and_shape() {
     assert_eq!(json["class"], "missing_dependency");
     assert_eq!(json["code"], 4);
     assert!(
-        json["data"]["missing_required"].as_array().expect("missing_required array").len() >= 5
+        json["data"]["missing_required"]
+            .as_array()
+            .expect("missing_required array")
+            .len()
+            >= 5
     );
 }
 
@@ -79,8 +91,14 @@ fn test_cli_new_service_file_effects_and_json() {
     assert_eq!(json["class"], "success");
     assert_eq!(json["code"], 0);
     assert!(root.path().join("source/services/svcz/Cargo.toml").exists());
-    assert!(root.path().join("source/services/svcz/src/main.rs").exists());
-    assert!(root.path().join("source/services/svcz/docs/stubs/README.md").exists());
+    assert!(root
+        .path()
+        .join("source/services/svcz/src/main.rs")
+        .exists());
+    assert!(root
+        .path()
+        .join("source/services/svcz/docs/stubs/README.md")
+        .exists());
 }
 
 #[test]
@@ -95,7 +113,12 @@ fn test_cli_config_validate_rejects_unknown_field() {
     )
     .expect("write");
     let output = run_nx(
-        &["config", "validate", input.to_string_lossy().as_ref(), "--json"],
+        &[
+            "config",
+            "validate",
+            input.to_string_lossy().as_ref(),
+            "--json",
+        ],
         root.path(),
         None,
     );
@@ -115,8 +138,11 @@ fn test_cli_config_push_and_effective_json() {
 }"#,
     )
     .expect("write");
-    let push =
-        run_nx(&["config", "push", input.to_string_lossy().as_ref(), "--json"], root.path(), None);
+    let push = run_nx(
+        &["config", "push", input.to_string_lossy().as_ref(), "--json"],
+        root.path(),
+        None,
+    );
     assert_eq!(push.status.code(), Some(0));
     assert!(root.path().join("state/config/90-nx-config.json").exists());
 
@@ -125,4 +151,65 @@ fn test_cli_config_push_and_effective_json() {
     let json = stdout_json(&effective);
     assert_eq!(json["class"], "success");
     assert!(json["data"]["version"].is_string());
+}
+
+#[test]
+fn test_cli_policy_validate_rejects_manifest_mismatch() {
+    let root = tempdir().expect("tempdir");
+    let policy_root = root.path().join("policies");
+    std::fs::create_dir_all(&policy_root).expect("policy root");
+    std::fs::write(
+        policy_root.join("nexus.policy.toml"),
+        "version = 1\ninclude = ['base.toml']\n",
+    )
+    .expect("root policy");
+    std::fs::write(
+        policy_root.join("base.toml"),
+        "[allow]\ndemo = ['ipc.core']\n",
+    )
+    .expect("base policy");
+    std::fs::write(
+        policy_root.join("manifest.json"),
+        r#"{"version":1,"tree_sha256":"stale","generated_at_ns":0}"#,
+    )
+    .expect("manifest");
+
+    let output = run_nx(&["policy", "validate", "--json"], root.path(), None);
+
+    assert_eq!(output.status.code(), Some(3));
+    let json = stdout_json(&output);
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["class"], "validation_reject");
+    assert!(json["message"]
+        .as_str()
+        .expect("message")
+        .contains("policy.manifest_mismatch"));
+}
+
+#[test]
+fn test_cli_policy_validate_requires_manifest() {
+    let root = tempdir().expect("tempdir");
+    let policy_root = root.path().join("policies");
+    std::fs::create_dir_all(&policy_root).expect("policy root");
+    std::fs::write(
+        policy_root.join("nexus.policy.toml"),
+        "version = 1\ninclude = ['base.toml']\n",
+    )
+    .expect("root policy");
+    std::fs::write(
+        policy_root.join("base.toml"),
+        "[allow]\ndemo = ['ipc.core']\n",
+    )
+    .expect("base policy");
+
+    let output = run_nx(&["policy", "validate", "--json"], root.path(), None);
+
+    assert_eq!(output.status.code(), Some(3));
+    let json = stdout_json(&output);
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["class"], "validation_reject");
+    assert!(json["message"]
+        .as_str()
+        .expect("message")
+        .contains("policy.read"));
 }

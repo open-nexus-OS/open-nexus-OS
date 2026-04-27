@@ -1,7 +1,14 @@
-# Policy recipes
+# Legacy policy recipes
 
-Capability policies for services live in this directory. Each `*.toml` file must
-conform to the following structure:
+Policy as Code v1 migrated the active policy authority to `policies/`.
+
+This directory is retained only as a migration note and must not contain live
+`*.toml` policy inputs. If a temporary parity fixture is needed during a future
+migration, keep it explicitly test-scoped and do not point `policyd` or `nx
+policy` at this directory as an authority.
+
+Active capability policy files live under `policies/` and conform to this
+structure:
 
 ```toml
 [allow]
@@ -18,11 +25,11 @@ before evaluation.
 
 ## Adding new policy files
 
-1. Create a new `*.toml` file with your overrides or service additions.
+1. Create a new `*.toml` file under `policies/` with your overrides or service additions.
 2. List every capability the service requires; omit any optional capabilities.
 3. Keep service names consistent with their bundle manifest entries.
-4. Place temporary development overrides in `recipes/policy/local-*.toml` to
-   ensure they sort after `base.toml`.
+4. Add the file to `policies/nexus.policy.toml` so it participates in the
+   canonical version hash.
 
 Unknown services default to an empty allowlist, so any non-empty capability
 request will be denied unless explicitly permitted.

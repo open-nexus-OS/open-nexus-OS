@@ -1,6 +1,6 @@
 ---
 title: TASK-0047 Policy as Code v1: unified policy tree + evaluator + explain/dry-run + learn→enforce (+ nx policy)
-status: In Progress
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -196,7 +196,7 @@ Add deterministic host tests (`tests/policy_host/`):
 - load + validate policy tree → stable `PolicyVersion`
 - invalid/oversize/ambiguous policy tree → stable reject classification (`test_reject_*`)
 - eval allow/deny across at least 3 domains (abi, egress, signing) with explain trace containing expected steps
-- dry-run: returns allow but emits a would-deny record (bounded)
+- dry-run: observes would-deny decisions without bypassing the enforce deny result (bounded)
 - learn log normalization is deterministic; generator produces stable output for stable input.
 - authenticated mode change + stale/unauthorized reject coverage are deterministic
 - one migrated adapter proves behavior parity before/after unified evaluator cutover
@@ -216,6 +216,39 @@ Notes:
 
 - Postflight scripts must delegate to canonical harness/tests; do not invent log-grep success semantics.
 - Markers summarize already-asserted behavior; they are not the primary proof.
+
+### Host-first closure snapshot (2026-04-26)
+
+- [x] Phase 0 `tools/nx` structure refactor landed:
+  - `tools/nx/src/lib.rs` is a thin entry/test module,
+  - command logic lives under `tools/nx/src/commands/`,
+  - no `nx-*` binary or CLI fork was introduced.
+- [x] Active policy authority root migrated to `policies/`:
+  - `policies/nexus.policy.toml` is the root include list,
+  - `recipes/policy/` is documentation-only and contains no live `*.toml` policy input,
+  - `policyd` host and build-time policy sources point at `policies/`.
+- [x] `userspace/policy/` owns canonical tree loading, stable `PolicyVersion`, deterministic evaluator semantics, bounded explain traces, and stable reject codes.
+- [x] `policyd` owns the single in-process policy authority lifecycle:
+  - candidate policy roots are carried in Config v1 effective snapshots as `policy.root`,
+  - candidate policy trees are prepared/committed through the `configd::ConfigConsumer` 2PC seam,
+  - invalid candidates never replace the active version,
+  - unauthenticated/stale mode transitions reject fail-closed,
+  - external host frame operations for `Version`, `Eval`, `ModeGet`, and `ModeSet` emit bounded audit events.
+- [x] First adapter parity slice is proven for signing capability and exec/capability decisions:
+  - legacy `PolicyDoc::check` and unified evaluator agree for old-vs-new allow/deny behavior.
+- [x] `policyd` service-facing check frames now evaluate through `PolicyAuthority` instead of bypassing the unified evaluator.
+- [x] `policies/manifest.json` records the deterministic policy tree hash and is required by `nx policy validate`.
+- [x] `nx policy validate|diff|explain|mode` landed under `tools/nx` only and delegates policy semantics to the `policy` crate; `nx policy mode` is explicitly host preflight-only until a live daemon mode RPC exists.
+
+Proof evidence:
+
+- `cargo test -p policy -- --nocapture` — green, 18 tests.
+- `cargo test -p nexus-config -- --nocapture` — green, 10 tests.
+- `cargo test -p configd -- --nocapture` — green, 8 tests.
+- `cargo test -p policyd -- --nocapture` — green, 25 tests.
+- `cargo test -p nx -- --nocapture` — green, 23 unit tests + 8 CLI contract tests.
+
+OS/QEMU policy closure remains intentionally unclaimed. No policy OS markers are asserted by this host-first closure.
 
 ## Touched paths (allowlist)
 

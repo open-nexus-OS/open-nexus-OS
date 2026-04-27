@@ -7,7 +7,7 @@
 //! TEST_COVERAGE: Indirectly covered by policyd host/unit tests and OS build gates.
 //! INVARIANTS:
 //! - policy file parsing remains bounded and deterministic
-//! - generated entries preserve single policy authority source (`recipes/policy/*`)
+//! - generated entries preserve single policy authority source (`policies/*`)
 //! - ABI profile defaults remain deny-by-default for subjects without explicit profile rows
 
 // Build scripts are allowed to panic on misconfiguration.
@@ -28,6 +28,13 @@ struct RawPolicy {
     abi_profile: BTreeMap<String, RawAbiProfile>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RawPolicyRoot {
+    version: u32,
+    #[serde(default)]
+    include: Vec<String>,
+}
+
 #[derive(Debug, Default, Deserialize, Clone)]
 struct RawAbiProfile {
     #[serde(default)]
@@ -41,9 +48,9 @@ fn main() {
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR missing");
     let policy_dir = Path::new(&manifest_dir)
-        .join("../../../recipes/policy")
+        .join("../../../policies")
         .canonicalize()
-        .expect("failed to resolve recipes/policy");
+        .expect("failed to resolve policies");
 
     let (policy, abi_profiles) = load_policy_dir(&policy_dir);
     emit_policy_table(&policy, &abi_profiles);
@@ -51,18 +58,31 @@ fn main() {
 
 fn load_policy_dir(
     dir: &Path,
-) -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<String, RawAbiProfile>) {
+) -> (
+    BTreeMap<String, BTreeSet<String>>,
+    BTreeMap<String, RawAbiProfile>,
+) {
     let mut files = Vec::new();
-    let entries = fs::read_dir(dir).expect("failed to read recipes/policy");
-    for entry in entries {
-        let entry = entry.expect("failed to read policy entry");
-        let path = entry.path();
-        if !path.is_file() || path.extension().and_then(|s| s.to_str()) != Some("toml") {
-            continue;
-        }
+    let root_path = dir.join("nexus.policy.toml");
+    let root_data =
+        fs::read_to_string(&root_path).expect("failed to read policies/nexus.policy.toml");
+    let root: RawPolicyRoot =
+        toml::from_str(&root_data).expect("failed to parse policies/nexus.policy.toml");
+    assert!(root.version == 1, "unsupported policy root version");
+    for include in root.include {
+        assert!(
+            !include.contains("..") && !Path::new(&include).is_absolute(),
+            "policy include escapes policies root"
+        );
+        let path = dir.join(include);
+        assert!(
+            path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml"),
+            "policy include is not a TOML file"
+        );
         files.push(path);
     }
     files.sort();
+    println!("cargo::rerun-if-changed={}", root_path.display());
     for file in &files {
         println!("cargo::rerun-if-changed={}", file.display());
     }
@@ -137,7 +157,9 @@ fn emit_policy_table(
             Some(v) => format!("Some({v}u16)"),
             None => "None".to_string(),
         };
-        out.push_str(&format!("    (0x{service_id:016x}u64, {prefix}, {net_bind}),\n"));
+        out.push_str(&format!(
+            "    (0x{service_id:016x}u64, {prefix}, {net_bind}),\n"
+        ));
     }
     out.push_str("];\n");
     fs::write(&dest, out).expect("failed to write policy_table.rs");

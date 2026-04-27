@@ -75,14 +75,18 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] marker-only evidence is not used for closure,
   - [ ] later OS/QEMU markers, if claimed, are paired with deterministic state/result assertions.
 
-## Active progress snapshot (TASK-0047 in progress, 2026-04-26)
+## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` and `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` and `RFC-0045` are linked as the new execution+contract pair.
 - [x] Gate B framing, security section, red flags, and behavior-first proof expectations are present in `TASK-0047`.
 - [x] Phase 0 `tools/nx` structure refactor is explicitly scoped in task + RFC.
-- [x] Queue/docs/workfiles are synchronized to the new prep state.
-- [ ] Host proof floor for Policy as Code is not yet claimed.
-- [ ] OS/QEMU policy closure remains gated and unclaimed.
+- [x] Queue/docs/workfiles are synchronized to the remediated closure state.
+- [x] Closure gaps from the critical delta report are remediated host-first: configd reload seam, policyd API/audit, host check cutover, and manifest validation.
+- [x] Host proof floor for Policy as Code is green:
+  - [x] `cargo test -p policy -- --nocapture`
+  - [x] `cargo test -p policyd -- --nocapture`
+  - [x] `cargo test -p nx -- --nocapture`
+- [x] OS/QEMU policy closure remains gated and unclaimed.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:
