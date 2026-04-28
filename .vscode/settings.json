@@ -17,7 +17,7 @@
     "files.trimTrailingWhitespace": true,
     // workbench
     "workbench.editorAssociations": {
-        "*.md": "default",
+        "*.md": "workbench.editor.markdown",
         "*.svg": "svgPreviewer.customEditor"
     },
     // Git
@@ -77,6 +77,8 @@
     "[rust]": {
         "editor.defaultFormatter": "rust-lang.rust-analyzer"
     },
+    "rust-analyzer.cargo.loadOutDirsFromCheck": true,
+    "rust-analyzer.cargo.buildScripts.enable": true,
     "redhat.telemetry.enabled": false,
     "workbench.editor.empty.hint": "hidden",
     // "rust-analyzer.linkedProjects": [

@@ -105,7 +105,7 @@ pub(crate) fn validate_buffer(caller: CallerCtx, buffer: &SurfaceBuffer) -> Resu
         return Err(WindowdError::UnsupportedFormat);
     }
     let min_stride = buffer.width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
-    if buffer.stride < min_stride || buffer.stride % 64 != 0 {
+    if buffer.stride < min_stride || buffer.stride.checked_rem(64) != Some(0) {
         return Err(WindowdError::InvalidStride);
     }
     let len = checked_len(buffer.stride, buffer.height)?;

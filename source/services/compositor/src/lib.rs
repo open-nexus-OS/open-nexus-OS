@@ -4,6 +4,7 @@
 //! DEPS: systemui, windowd (if separate)
 //! READINESS: print "compositor: ready"; register/heartbeat with samgr
 //! TESTS: VSync tick; frame checksum stable
+
 pub fn help() -> &'static str {
     "compositor composites window surfaces. Usage: compositor [--help]"
 }

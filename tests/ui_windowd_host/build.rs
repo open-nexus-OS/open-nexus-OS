@@ -3,8 +3,8 @@
 
 use std::path::PathBuf;
 
-fn main() {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
     let idl_dir = manifest_dir.join("../../source/services/windowd/idl");
 
     println!("cargo:rerun-if-changed={}", idl_dir.display());
@@ -15,6 +15,6 @@ fn main() {
         .file(idl_dir.join("layer.capnp"))
         .file(idl_dir.join("vsync.capnp"))
         .file(idl_dir.join("input.capnp"))
-        .run()
-        .expect("capnp compile failed for windowd schemas");
+        .run()?;
+    Ok(())
 }

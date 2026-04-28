@@ -23,7 +23,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and_then(Value::as_array)
         .ok_or("metadata missing workspace members")?;
 
-    // Allowlist: `nexus-abi` is a shared ABI crate used by both userland and kernel.
+    // Allowlist:
+    // - `launcher` is a thin UI contract client used in TASK-0055 host/OS proofs and
+    //   intentionally depends on `windowd` for now.
+    // - `nexus-abi` is a shared ABI crate used by both userland and kernel.
+    let userspace_root_allowlist: HashSet<&str> = ["launcher"].into_iter().collect();
     let banned_names: HashSet<&str> = ["samgrd", "kernel"].into_iter().collect();
     let mut banned: HashSet<String> = packages
         .iter()
@@ -44,6 +48,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         };
         if !info.manifest_path.contains("/userspace/") {
+            continue;
+        }
+        if userspace_root_allowlist.contains(info.name.as_str()) {
             continue;
         }
         if let Some(path) = find_violation(id, &graph, &banned) {
