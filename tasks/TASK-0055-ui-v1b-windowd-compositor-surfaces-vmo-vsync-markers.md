@@ -1,6 +1,6 @@
 ---
 title: TASK-0055 UI v1b (OS-gated): windowd compositor + surfaces/layers IPC + VMO buffers + vsync timer + markers
-status: In Review
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on:
@@ -53,7 +53,7 @@ This task is OS-gated on VMO plumbing and a timing spine.
 
 Current-state check (2026-04-27 prep sync):
 
-- `RFC-0047` is `Done` (contract); this task is `In Review` (execution and proof evidence SSOT until review signs off).
+- `RFC-0047` is `Done` (contract); this task is `Done` (execution and proof evidence closed and synced).
 - `TASK-0054` / `RFC-0046` are `Done` and provide only the host BGRA8888 renderer/snapshot proof floor.
 - `source/services/windowd/` now contains a modular bounded headless surface/layer/present state machine used by the host
   and OS marker proofs; `lib.rs` is a facade over focused modules instead of a monolith.

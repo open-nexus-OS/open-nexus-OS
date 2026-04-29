@@ -2,7 +2,7 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-27)**: `RFC-0047` is `Done` (contract frozen). `TASK-0055` is `In Review` for execution sign-off on the same remediation: launcher cleanup, `windowd` modularization, expanded host/reject proofs, generated Cap'n Proto roundtrip tests, IDL shape checks, and postflight log-only rejection tests; VMO closure remains limited to the UI-shaped handle/rights validation boundary and does not claim new kernel zero-copy/capability-transfer behavior.
+- **last_decision (2026-04-29)**: `TASK-0055`/`RFC-0047` are closed as `Done`, and active execution focus moved to `TASK-0055B` with new contract seed `RFC-0048` (`Draft`) for visible QEMU scanout bootstrap; `TASK-0055` headless closure remains a strict carry-in baseline and must not be over-claimed as visible output/input closure.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
@@ -12,11 +12,13 @@
 
 ## Active execution state
 
-- **active_review_task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `In Review`
+- **active_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Draft`
+- **active_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Draft`
+- **completed_task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
-- **next_queue_head**: `TASK-0055B` / visible QEMU scanout bootstrap after `TASK-0055` review closes. Do not infer visible output or input closure from `TASK-0055`.
+- **next_queue_head**: `TASK-0055B` / visible QEMU scanout bootstrap. Do not infer visible output or input closure from `TASK-0055` headless closure.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 
@@ -73,9 +75,9 @@
   - `TASK-0169` may absorb this narrow renderer into Scene-IR / Backend abstractions,
   - `TASK-0054B/C/D`, `TASK-0288`, and `TASK-0290` own kernel QoS/IPC/MM/zero-copy production-grade claims.
 
-## TASK-0055 review state
+## TASK-0055 closeout state
 
-- `RFC-0047` is `Done` after remediation; `TASK-0055` is `In Review` (execution/proof SSOT until review signs off).
+- `RFC-0047` is `Done` after remediation; `TASK-0055` is `Done` with execution/proof closure synced.
 - Implemented `source/services/windowd/` as focused modules (`error`, `ids`, `geometry`, `buffer`, `frame`, `server`, `markers`, `smoke`, `cli`, `legacy`) behind a small facade. The previous checksum scaffold no longer counts as proof.
 - Implemented `tests/ui_windowd_host/` with behavior-first positive tests, generated Cap'n Proto codec/roundtrip proofs, IDL shape checks, and `test_reject_*` coverage for invalid dimensions/stride/format, missing/forged/wrong-rights VMO handles, stale IDs/sequences, unauthorized layer mutation, buffer length mismatch, bounds rejects, invalid damage, no committed scene, vsync subscription, explicit input stub behavior, atomic scene commit preservation, and marker/postflight fake-proof rejection.
 - Implemented `userspace/apps/launcher/` as the canonical `launcher` package. The old `source/apps/launcher` placeholder was deleted, and `recipes/apps/launcher/recipe.toml` now points at `userspace/apps/launcher`.
@@ -107,7 +109,15 @@
 - Bounds/reject gaps for too many surfaces/layers/damage rects, oversized total bytes, invalid damage, no committed scene, and atomic scene commit preservation are now covered in `ui_windowd_host`.
 - Present marker rendering now comes from `PresentAck` evidence; selftest no longer emits a hard-coded present marker.
 - `tools/postflight-ui.sh --uart-log` log-only rejection is directly tested; `scripts/qemu-test.sh` still relies on the canonical QEMU run plus inline guard logic rather than isolated synthetic log fixtures.
-- The green gates are the evidence under review for scoped TASK-0055 requirements. Broader visible-display/input/perf/kernel-VMO claims remain explicit follow-ups.
+- The green gates prove scoped TASK-0055 requirements. Broader visible-display/input/perf/kernel-VMO claims remain explicit follow-ups.
+
+## TASK-0055B active prep state
+
+- `TASK-0055B` is the active execution SSOT and remains `Draft` until visible scanout bootstrap proofs are implemented and green.
+- `RFC-0048` is the contract seed for this slice and remains `Draft`; it defines visible scanout bootstrap invariants and anti-fake-success marker gating.
+- Active claim boundary is narrow: one deterministic visible mode and marker ladder in QEMU graphics mode; no cursor/input/perf/kernel production-grade claims.
+- Required marker honesty for this slice is explicit: `display: first scanout ok` and `SELFTEST: display bootstrap visible ok` must only appear after real visible framebuffer write plus harness verification.
+- Follow-up ownership remains explicit and unchanged: `TASK-0055C` (visible systemui first frame), `TASK-0251` (display OS integration), `TASK-0056B` (input routing), and kernel/perf follow-ups.
 
 ## TASK-0047 closure gaps remediated host-first
 

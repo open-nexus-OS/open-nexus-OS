@@ -14,7 +14,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (Complete)
 - **RFC-0038**: Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1 — proof-manifest SSOT, signed evidence bundles, replay/bisect tooling (Done; one environmental closure step remaining — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11)
 - **RFC-0046**: UI v1a host CPU renderer + deterministic snapshots — BGRA8888 host renderer, deterministic goldens, reject tests, and fake-marker prohibition (Done; `TASK-0054` Done)
-- **RFC-0047**: UI v1b windowd surface/layer/present — headless `windowd` compositor contract, bounded surface/VMO/layer rejects, generated Cap'n Proto roundtrips, and honest QEMU markers (Done; `TASK-0055` In Review)
+- **RFC-0047**: UI v1b windowd surface/layer/present — headless `windowd` compositor contract, bounded surface/VMO/layer rejects, generated Cap'n Proto roundtrips, and honest QEMU markers (Done; `TASK-0055` Done)
 
 ## Philosophy
 

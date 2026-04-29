@@ -127,7 +127,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0055_context
-- Status: `RFC-0047` is `Done` (contract). `TASK-0055` is `In Review` (execution + proof SSOT until review signs off) after the same critical remediation.
+- Status: `RFC-0047` is `Done` (contract). `TASK-0055` is `Done` after execution/proof closure sync.
 - Scope under review: OS-gated headless `windowd` surface/layer IPC seed, VMO-shaped surface buffer validation, bounded composition, minimal present acknowledgement, launcher first-frame client, and deterministic markers/postflight.
 - Current repo reality: `source/services/windowd/` contains the bounded headless state machine; `userspace/apps/launcher/` exists; UI-present markers are wired through `selftest-client`, proof-manifest, `scripts/qemu-test.sh`, and `tools/postflight-ui.sh`.
 - Proof: `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`, `cargo test -p ui_windowd_host reject -- --nocapture`, `cargo test -p ui_windowd_host capnp -- --nocapture`, `cargo test -p launcher -- --nocapture`, `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`, `scripts/fmt-clippy-deny.sh`, `make build` → `make test`, `make build` → `make run`.
@@ -159,6 +159,39 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `docs/dev/ui/foundations/layout/profiles.md`
 - `Cargo.toml` / `Cargo.lock` only for workspace membership or generated metadata.
 - Config/policy docs or manifests only if `ui.profile`, display dimensions, or service permissions are introduced.
+
+### @task_0055b_context
+- Status: `TASK-0055B` is active execution SSOT (`Draft`) and `RFC-0048` is the linked contract seed (`Draft`); `TASK-0055`/`RFC-0047` remain closed carry-in baseline (`Done`).
+- Scope: visible QEMU scanout bootstrap on top of existing `windowd` headless-present contract, with one deterministic visible mode and marker ladder.
+- Required marker honesty: visible markers are valid only after real visible framebuffer write + deterministic harness verification; screenshot/manual checks are supportive only.
+- Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`) visible-first-frame bootstrap only; no input/perf/kernel production-grade claim.
+- Security/authority: preserve single `windowd` sequencing authority and `TASK-0010` MMIO/capability boundary; fail closed for invalid mode/stride/format/capability handoff and pre-scanout marker attempts.
+- `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`
+- `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
+- `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md`
+- `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`
+- `tasks/TASK-0010-device-mmio-access-model.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/10-security-services.mdc`
+
+### @task_0055b_touched
+- QEMU runner/harness configuration for graphics-capable UI boot
+- display bootstrap service or `fbdevd` bootstrap mode
+- `source/services/windowd/` (only as needed to target the visible buffer)
+- `source/apps/selftest-client/`
+- `docs/display/simplefb_v1_0.md` or bootstrap display doc
+- `docs/dev/ui/foundations/quality/testing.md`
+- `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
+- `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
 
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
@@ -778,6 +811,9 @@ Kontext strikt: @core_context @task_0045_context @quality_gates @task_0045_touch
 
 ## Standard instruction line (TASK-0054)
 Kontext strikt: @core_context @task_0054_context @quality_gates @task_0054_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0055B)
+Kontext strikt: @core_context @task_0055b_context @quality_gates @task_0055b_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

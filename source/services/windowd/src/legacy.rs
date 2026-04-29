@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Legacy checksum-style frame helper kept only for compatibility scaffolds.
+//! OWNERS: @runtime
+//! STATUS: Deprecated
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No direct tests
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+
 use alloc::vec::Vec;
 
 /// Legacy deterministic frame helper retained only until old compositor

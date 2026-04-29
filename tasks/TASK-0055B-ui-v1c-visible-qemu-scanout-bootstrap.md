@@ -1,13 +1,18 @@
 ---
 title: TASK-0055B UI v1c: visible QEMU scanout bootstrap (simplefb window + first visible frame)
-status: Draft
+status: In Progress
 owner: @ui @runtime
 created: 2026-03-28
-depends-on: []
-follow-up-tasks: []
+depends-on:
+  - TASK-0055
+  - TASK-0010
+follow-up-tasks:
+  - TASK-0055C
+  - TASK-0251
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - RFC seed contract: docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md
   - UI v1b headless compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - Renderer abstraction OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - Display host core: tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
@@ -30,6 +35,16 @@ This task is intentionally a **bootstrap slice**:
 - one fixed resolution and pixel format,
 - one deterministic QEMU graphics window,
 - and no second compositor or temporary host-side mirror path.
+
+Current-state check (2026-04-29 prep):
+
+- `TASK-0055` is `Done` with green host + OS proof floor (`just test-all`, `just ci-network`,
+  `scripts/fmt-clippy-deny.sh`, `make clean/build/test/run`).
+- Headless marker ladder is already proven (`windowd: present ok`, `launcher: first frame ok`, `SELFTEST: ui launcher present ok`),
+  but this does not yet prove guest-visible scanout.
+- `userspace/apps/launcher` is canonical and already wired into marker/evidence flow; visible scanout should reuse this path.
+- Gate E mapping in `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` remains `production-floor`: first visible frame must be real,
+  deterministic, and measured honestly without claiming input/perf closure.
 
 ## Goal
 
@@ -65,6 +80,38 @@ Deliver:
 - No fake success: visible-frame markers only after a real frame is written to the visible buffer.
 - Keep the bootstrap surface small and fixed; avoid feature creep.
 
+## Security / authority invariants
+
+- `windowd` remains the authority for surface/layer/present sequencing; no parallel display authority is introduced.
+- MMIO/display capability routing must stay under `TASK-0010` capability policy boundaries; no ambient MMIO access shortcuts.
+- Marker honesty is mandatory: `display: first scanout ok` and `SELFTEST: display bootstrap visible ok` are emitted only after
+  a real guest-visible framebuffer write and verify-uart acceptance.
+- Reject-path proofs must fail closed for unsupported mode/stride/format, invalid display capability handoff, and pre-scanout marker attempts.
+- Logs/markers may include bounded mode metadata only (resolution, format, sequence), never raw framebuffer dumps.
+
+## Red flags / decision points
+
+- **Second-stack drift risk:** bootstrap code must reuse `windowd` + existing renderer path, not create a sidecar compositor.
+- **Fake-visible-marker risk:** screenshot/manual visual checks are supportive only; canonical closure comes from deterministic UART marker + harness proof.
+- **Profile drift risk:** scanout mode must stay fixed for this task (single deterministic mode), while richer presets remain in `TASK-0055D`.
+- **Kernel/perf overclaim risk:** this task must not claim input routing, cursor, latency budgets, or kernel production-grade display closure.
+
+Red-flag mitigation now:
+
+- Keep scope to one fixed visible mode and one deterministic marker ladder.
+- Require both host-side harness verification and guest-visible output confirmation before claiming done.
+- Route any required kernel/MM/IPC/perf uplift to owning follow-ups (`TASK-0054B/C/D`, `TASK-0288`, `TASK-0290`).
+
+## Gate E quality mapping (TRACK alignment)
+
+`TASK-0055B` contributes to Gate E (`Windowing, UI & Graphics`, `production-floor`) by closing the first **visible**
+QEMU scanout bootstrap on top of the already-proven headless present path.
+
+- **first-frame/present:** this task must prove visible first scanout with deterministic markers.
+- **surface ownership/reuse:** this task reuses `windowd` ownership rules from `TASK-0055`; no new ownership model.
+- **input paths:** still out of scope here; remains follow-up (`TASK-0056B`).
+- **perf claims:** only bounded deterministic behavior is allowed; no latency/smoothness claim without dedicated perf evidence.
+
 ## Stop conditions (Definition of Done)
 
 ### Proof (OS/QEMU) — required
@@ -75,6 +122,13 @@ UART markers:
 - `display: mode 1280x800 argb8888`
 - `display: first scanout ok`
 - `SELFTEST: display bootstrap visible ok`
+
+Quality gates (must be green for closure):
+
+- `scripts/fmt-clippy-deny.sh`
+- `just test-all`
+- `just ci-network`
+- `make clean`, `make build`, `make test`, `make run` (in order)
 
 Visual proof:
 

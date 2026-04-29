@@ -91,7 +91,8 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (single-authority allowlist + deny-by-default install-time enforcement + deterministic deny markers)
 - RFC-0045: Policy as Code v1 (single-authority unified policy tree + authenticated lifecycle + bounded explain/learn + `nx policy`) (Done)
 - RFC-0046: UI v1a host CPU renderer + deterministic snapshots (Done; bounded renderer inputs + golden update gating + fake-marker prohibition)
-- RFC-0047: UI v1b windowd surface/layer/present contract seed (Done; TASK-0055 In Review)
+- RFC-0047: UI v1b windowd surface/layer/present contract seed (Done; TASK-0055 Done)
+- RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed (In Progress; execution SSOT `TASK-0055B`)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
@@ -190,5 +191,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md
 - RFC-0046: UI v1a host CPU renderer + deterministic snapshots — host-first contract seed (Done; TASK-0054 Done with host proofs green and no OS/QEMU marker claims)
   - docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md
-- RFC-0047: UI v1b windowd surface/layer/present contract seed (Done; TASK-0055 In Review)
+- RFC-0047: UI v1b windowd surface/layer/present contract seed (Done; TASK-0055 Done)
   - docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md
+- RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed (In Progress; execution SSOT `TASK-0055B`)
+  - docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md

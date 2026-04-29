@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: `windowd` headless surface/layer/present authority for TASK-0055.
-//! OWNERS: @ui @runtime
-//! STATUS: Done
-//! API_STABILITY: Internal
-//! TEST_COVERAGE: `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 unit tests, integration coverage in `ui_windowd_host`/`launcher`/`selftest-client`
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
 #![forbid(unsafe_code)]

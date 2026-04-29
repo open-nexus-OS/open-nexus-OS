@@ -8,6 +8,12 @@
 - **completed predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`.
 - **archived predecessor handoff**: `.cursor/handoff/archive/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md`.
 
+## Active execution
+
+- **task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Draft`.
+- **contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Draft`.
+- **carry-in baseline**: `TASK-0055` / `RFC-0047` are `Done` and remain the headless-only proof floor.
+
 ## TASK-0054 closure checks
 
 - [x] Follow-up tasks are now in the header: `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0169`, `TASK-0170`.
@@ -34,9 +40,9 @@
   - `scripts/fmt-clippy-deny.sh`
   - `make clean`, `make build`, `make test`, `make run`
 
-## TASK-0055 review snapshot
+## TASK-0055 closeout snapshot
 
-- **active review task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `In Review`.
+- **completed task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `Done`.
 - **completed contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`.
 - **proof floor**:
   - `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`
@@ -53,13 +59,15 @@
   - `userspace/apps/launcher/` exists as the minimal first-frame client,
   - UI present markers are wired through `selftest-client`, proof-manifest, `scripts/qemu-test.sh`, and `tools/postflight-ui.sh`.
 - **follow-ups remain in header**: `TASK-0055B`, `TASK-0055C`, `TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0169`, `TASK-0170`, `TASK-0170B`, `TASK-0250`, `TASK-0251`.
-- **Gate E boundary**: TASK-0055 (when review closes) proves headless surface/composition/present only; visible output, input routing, and kernel/MM/IPC/zero-copy production-grade claims remain follow-ups.
+- **Gate E boundary**: TASK-0055 proves headless surface/composition/present only; visible output, input routing, and kernel/MM/IPC/zero-copy production-grade claims remain follow-ups.
 
-## Next task prep prompt
+## Active task prep prompt (TASK-0055B)
 
-- Finish `TASK-0055` review, then `TASK-0055B` visible QEMU scanout bootstrap.
+- Active execution SSOT is `TASK-0055B` visible QEMU scanout bootstrap with contract seed `RFC-0048` (both `Draft`).
 - Carry forward TASK-0055 honesty: headless markers prove checked in-memory present state only, not visible scanout, real input, GPU/display-driver behavior, perf budgets, or kernel/core production-grade behavior.
-- If visible follow-ups need scheduler/MM/IPC/VMO/timer fixes, route to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task rather than retrofitting TASK-0055.
+- Keep scope narrow: one deterministic graphics-capable QEMU mode, one visible first-frame marker ladder, no second display/compositor stack.
+- Visible success markers (`display: first scanout ok`, `SELFTEST: display bootstrap visible ok`) are emitted only after real visible framebuffer write plus deterministic harness verification.
+- If implementation uncovers scheduler/MM/IPC/VMO/timer closure blockers, route them to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task instead of expanding `TASK-0055B`.
 
 ## Carry-forward guardrails
 
@@ -68,3 +76,4 @@
 - No golden rewriting unless explicitly gated by `UPDATE_GOLDENS=1`.
 - No success marker for placeholder behavior.
 - No weakening of RFC-0046 proof requirements to fit an easy implementation.
+- No fake visible marker closure for TASK-0055B (visual/manual checks cannot replace deterministic marker+harness proof).

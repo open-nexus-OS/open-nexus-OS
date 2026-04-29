@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Frame/layer composition primitives for BGRA blit in `windowd`.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No direct tests
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+
 use alloc::vec::Vec;
 
 use crate::buffer::SurfaceBuffer;

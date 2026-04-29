@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: CLI adapter for deterministic `windowd` help/execute/run paths.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No direct tests
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;

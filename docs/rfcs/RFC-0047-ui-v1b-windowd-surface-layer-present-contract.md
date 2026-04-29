@@ -12,14 +12,14 @@
 ## Status at a Glance
 
 - **Contract text / invariants (this RFC)**: ✅ `Done`
-- **Execution + proof tracking**: `tasks/TASK-0055-…` — `In Review` (SSOT for implementation evidence until review signs off)
+- **Execution + proof tracking**: `tasks/TASK-0055-…` — `Done` (execution/proof closure synced)
 - **Phase 0 (surface/layer IPC + host composition proof)**: ✅ complete
 - **Phase 1 (OS headless present + markers/postflight)**: ✅ complete
 - **Phase 2 (hardening/reject paths + Gate E sync)**: ✅ complete
 
 Definition:
 
-- "Complete" for this RFC means the contract, scope boundaries, and invariants for the headless `windowd` surface/layer/present slice are written and closed as `Done`. Proof obligations are owned by `TASK-0055` while that task is `In Review` or `Done`.
+- "Complete" for this RFC means the contract, scope boundaries, and invariants for the headless `windowd` surface/layer/present slice are written and closed as `Done`. Proof obligations were owned by `TASK-0055` through review and are now closed at `Done`.
 - Current state is closed: host state-machine, launcher, vsync/input-stub, marker-evidence, generated Cap'n Proto codec/roundtrip, IDL-shape, and postflight log-only reject proofs exist.
 - VMO closure is intentionally scoped to UI-shaped handle/rights/byte-length validation at `windowd`; this RFC does not claim new kernel VMO capability transfer or zero-copy production behavior.
 - This RFC does not claim visible display output, real input routing, GPU/display-driver fences, or kernel/core production-grade closure.

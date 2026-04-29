@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Deterministic marker strings and postflight marker gating for `windowd`.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No direct tests
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+
 use crate::error::{Result, WindowdError};
 use crate::server::PresentAck;
 use alloc::format;

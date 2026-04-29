@@ -215,10 +215,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
 | ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | Done | Host-first renderer/snapshot proof floor complete; no OS/QEMU present marker claim |
-| 🟡 TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | In Review | Headless state-machine, generated IDL roundtrip, marker, postflight, and reject proofs green — execution review in flight |
+| ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | Done | Headless state-machine, generated IDL roundtrip, marker, postflight, and reject proofs complete |
 
-Current queue head: `TASK-0055B` / visible QEMU scanout follow-up after `TASK-0055` review closes; do not start `0055B` on markers alone.
-Current contract status: `RFC-0047` is `Done` (2026-04-27); `TASK-0055` is `In Review` and remains execution/proof SSOT. Headless present only; no visible scanout/input/kernel-VMO production closure claim.
+Current queue head: `TASK-0055B` / visible QEMU scanout follow-up after `TASK-0055` headless closure.
+Current contract status: `RFC-0047` (`Done`, 2026-04-27); `TASK-0055` is `Done`. Headless present only; no visible scanout/input/kernel-VMO production closure claim.
 
 ---
 

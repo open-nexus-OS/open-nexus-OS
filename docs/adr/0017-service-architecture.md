@@ -16,6 +16,7 @@ Establish a unified service architecture with the following components:
 - **Resource Services**: resmgrd (resource manager), policyd (policy enforcement), configd (typed config distribution authority)
 - **Storage Services**: vfsd (virtual file system), packagefsd (package file system)
 - **Execution Services**: execd (execution manager)
+- **UI Services**: windowd (surface/layer/present authority; see ADR-0028 for UI-specific boundaries)
 - **Observability Services**: logd (log journal + crash reports)
 
 ### Architecture Principles
@@ -69,3 +70,6 @@ Services performing sensitive operations must use `policyd` for authorization:
 - **Positive**: Consistent service development, easier maintenance, clear separation of concerns
 - **Negative**: Increased complexity in service communication, stricter adherence to patterns
 - **Risks**: Service discovery failures, IPC communication errors, capability enforcement bypass
+
+## Related ADRs
+- `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`

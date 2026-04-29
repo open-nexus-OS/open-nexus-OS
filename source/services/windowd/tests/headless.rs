@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Window manager daemon headless behavior tests.
-//! OWNERS: @ui @runtime
-//! STATUS: Done
-//! TEST_COVERAGE: real TASK-0055 smoke behavior; checksum scaffold removed.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 integration tests
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #[test]
 fn headless_smoke_produces_present_and_resize_evidence() {

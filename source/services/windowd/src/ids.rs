@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Newtypes for caller, surface, commit, present, and VMO handle identity.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No direct tests
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+
 const SYSTEM_CALLER_RAW: u64 = 1;
 
 #[repr(transparent)]

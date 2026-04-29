@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-04-27
 
-#### TASK-0055 / RFC-0047 headless windowd present — RFC Done, task In Review (`RFC-0047` Done; `TASK-0055` In Review)
+#### TASK-0055 / RFC-0047 headless windowd present closure (`TASK-0055`, `RFC-0047`)
 
-- Tracked the headless `windowd` surface/layer/present slice after critical remediation; `RFC-0047` is `Done` and `TASK-0055` is `In Review` for execution sign-off on the same evidence:
+- Closed the headless `windowd` surface/layer/present slice after critical remediation (`RFC-0047` Done, `TASK-0055` Done):
   - `source/services/windowd` now owns bounded surface IDs, VMO-shaped buffer validation, layer commits, damage-aware composition, and minimal present acknowledgements
   - `source/services/windowd/src/lib.rs` is now a facade over focused modules instead of a monolith
   - `tests/ui_windowd_host` proves exact two-surface composition, no-damage present skip, deterministic layer ordering, present acknowledgements, generated Cap'n Proto roundtrips, vsync/input-stub behavior, atomic commit preservation, and expanded reject paths

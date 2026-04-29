@@ -60,6 +60,20 @@ This is the anti-fake-success gate.
 - [ ] `make test` is green after a fresh `make build`.
 - [ ] `make run` is green after a fresh `make build`.
 
+## Task-0055B automatic addendum (when applicable)
+- [ ] `cargo test -p windowd -p launcher -p ui_windowd_host -- --nocapture` is green for visible-scanout-adjacent host contracts.
+- [ ] Required visible bootstrap reject suite is green (`test_reject_*` for invalid mode/stride/format/capability/pre-marker cases).
+- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` is green for visible bootstrap marker ladder.
+- [ ] Deterministic visible markers appear in order:
+  - [ ] `display: bootstrap on`
+  - [ ] `display: mode 1280x800 argb8888`
+  - [ ] `display: first scanout ok`
+  - [ ] `SELFTEST: display bootstrap visible ok`
+- [ ] `scripts/fmt-clippy-deny.sh` is green.
+- [ ] `just test-all` is green.
+- [ ] `just ci-network` is green.
+- [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks
@@ -155,6 +169,29 @@ This is the anti-fake-success gate.
   - [ ] no unsafe `Send`/`Sync` shortcuts,
   - [ ] logs/markers contain bounded metadata only.
 
+## Task-0055B manual addendum (when applicable)
+- [ ] Execution SSOT and contract seed are synchronized:
+  - [ ] `TASK-0055B` reflects current implementation/proofs/gates,
+  - [ ] `RFC-0048` reflects the same visible scanout bootstrap contract.
+- [ ] Gate scope honesty is preserved:
+  - [ ] TASK-0055B remains Gate E `production-floor` visible-bootstrap scope,
+  - [ ] no cursor/input/perf/kernel production-grade claim is made.
+- [ ] Single-authority display boundary is preserved:
+  - [ ] no second display/compositor authority is introduced,
+  - [ ] `windowd` remains surface/layer/present authority,
+  - [ ] MMIO/display routing remains under TASK-0010 capability boundaries.
+- [ ] Behavior-first proof shape is explicit:
+  - [ ] visible markers are emitted only after real visible framebuffer write and harness verification,
+  - [ ] screenshot/manual visual checks are supplemental and not closure authority.
+- [ ] Required reject coverage is present:
+  - [ ] unsupported mode/stride/format reject,
+  - [ ] invalid capability handoff reject,
+  - [ ] pre-scanout marker attempts reject.
+- [ ] Rust discipline is reviewed:
+  - [ ] no `unwrap/expect` on untrusted input,
+  - [ ] no unsafe `Send`/`Sync` shortcuts,
+  - [ ] logs/markers remain bounded metadata only.
+
 ## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` / `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` / `RFC-0045` are linked and form the new execution+contract pair.
@@ -185,13 +222,12 @@ This is the anti-fake-success gate.
   - [x] `scripts/fmt-clippy-deny.sh`
   - [x] `make clean`, `make build`, `make test`, `make run`
 
-## Active review snapshot (TASK-0055 + RFC-0047, 2026-04-27)
-- [x] `RFC-0047` is `Done` and linked from `TASK-0055` / RFC index.
-- [x] `TASK-0055` is `In Review`; current-state and closeout evidence reflect real `windowd`, launcher, markers, and host/OS proofs.
-- [x] `TASK-0055` header includes dependencies and follow-up tasks.
-- [x] Security section covers VMO/surface/layer authority, marker honesty, bounded logs, and reject tests.
-- [x] Red flags are classified with follow-up boundaries for visible output, dev presets, and present fences.
-- [x] Gate E mapping states that `TASK-0055` contributes headless present only and does not close visible display/input/kernel production claims.
+## Active prep snapshot (TASK-0055B + RFC-0048, 2026-04-29)
+- [x] `TASK-0055` / `RFC-0047` are closed as `Done` and remain carry-in baseline.
+- [x] `TASK-0055B` is active execution SSOT (`Draft`) with linked `RFC-0048` contract seed (`Draft`).
+- [x] `TASK-0055B` now includes security/authority invariants, red flags, and Gate E mapping aligned to visible bootstrap scope.
+- [x] `RFC-0048` exists and is linked from `TASK-0055B` and `docs/rfcs/README.md`.
+- [x] Active claim boundary is explicit: visible bootstrap first-frame only; no input/perf/kernel closure claims.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:

@@ -1,7 +1,7 @@
-# Current Handoff: TASK-0055 closed (RFC-0047 Done)
+# Current Handoff: TASK-0055 in review (RFC-0047 Done)
 
 **Date**: 2026-04-27  
-**Completed task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `Done`
+**Active review task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `In Review`
 **Completed contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`
 **Completed predecessor**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 **Completed predecessor contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
@@ -16,7 +16,7 @@
 - Added `userspace/apps/launcher/` as a minimal first-frame client backed by the same headless smoke path.
 - Wired UI markers through `selftest-client`, proof-manifest, `scripts/qemu-test.sh`, and `tools/postflight-ui.sh`.
 - Used a tiny headless `desktop` profile (`64x48`, `60Hz`) for QEMU proof to avoid selftest heap exhaustion; this is not a visible display preset.
-- Synchronized `TASK-0055` (`Done`), `RFC-0047` (`Done`), RFC index, UI/testing docs, status board, implementation order, changelog, and `.cursor` workfiles.
+- Synchronized `TASK-0055` (`In Review`), `RFC-0047` (`Done`), RFC index, UI/testing docs, status board, implementation order, changelog, and `.cursor` workfiles.
 
 ## Proof
 
@@ -48,5 +48,5 @@
 
 ## Next
 
-- Queue head is `TASK-0055B` / visible QEMU scanout bootstrap.
+- Close `TASK-0055` review, then move queue head to `TASK-0055B` / visible QEMU scanout bootstrap.
 - Carry forward TASK-0055 honesty: headless present markers do not prove visible scanout, input routing, display-driver/GPU, perf budgets, or kernel zero-copy production closure.
