@@ -2,6 +2,12 @@
 
 [![Software DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.18934993-blue)](https://doi.org/10.5281/zenodo.18934993)
 
+Support ongoing development:
+
+<iframe src="https://github.com/sponsors/open-nexus-OS/button" title="Sponsor open-nexus-OS" height="32" width="114" style="border: 0; border-radius: 6px;"></iframe>
+
+[![Sponsor open-nexus-OS](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/open-nexus-OS)
+
 Open Nexus OS is a research microkernel targeting QEMU RISC‑V `virt` hardware with an OpenHarmony‑inspired userland.
 The repo is run **host-first, QEMU-last**: most logic lives in host-testable userspace crates, while QEMU is used for bounded end-to-end smoke proofs.
 
