@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 2 integration tests
+//! TEST_COVERAGE: headless and visible-bootstrap integration tests
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #[test]
@@ -28,4 +28,19 @@ fn test_reject_marker_before_present_state() {
         windowd::marker_postflight_ready(None),
         Err(windowd::WindowdError::MarkerBeforePresentState)
     );
+}
+
+#[test]
+fn visible_bootstrap_smoke_produces_mode_and_present_evidence() {
+    let evidence = match windowd::run_visible_bootstrap_smoke() {
+        Ok(evidence) => evidence,
+        Err(err) => panic!("visible bootstrap smoke failed: {err:?}"),
+    };
+    assert!(evidence.ready);
+    assert_eq!(evidence.mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+    assert_eq!(evidence.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+    assert_eq!(evidence.seed_surface.width, 64);
+    assert_eq!(evidence.seed_surface.height, 48);
+    assert_eq!(evidence.first_present.seq.raw(), 1);
+    assert_eq!(evidence.first_present.damage_rects, 1);
 }

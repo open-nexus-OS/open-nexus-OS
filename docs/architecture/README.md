@@ -97,7 +97,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 ### UI/windowing authority
 
 - `windowd` headless contract: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` (`TASK-0055` Done)
-- `windowd` visible bootstrap contract: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` (`TASK-0055B` Draft)
+- `windowd` visible bootstrap contract: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` (`TASK-0055B` Done)
 - Dedicated architecture decision: `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
 - Scope rule: headless `TASK-0055` closure must not be interpreted as visible scanout/input/perf closure; those remain follow-up scope (`TASK-0055B`, `TASK-0055C`, `TASK-0056B`, `TASK-0251`).
 

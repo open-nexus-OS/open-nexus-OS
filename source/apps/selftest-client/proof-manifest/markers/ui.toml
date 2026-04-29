@@ -29,3 +29,19 @@ proves = "selftest observed the launcher present state"
 [marker."SELFTEST: ui resize ok"]
 phase = "end"
 proves = "selftest observed a committed resized surface and present state"
+
+[marker."display: bootstrap on"]
+phase = "end"
+proves = "visible QEMU scanout bootstrap path was selected by the boot-mode knob"
+
+[marker."display: mode 1280x800 argb8888"]
+phase = "end"
+proves = "visible bootstrap accepted exactly the fixed 1280x800 ARGB8888 ramfb mode"
+
+[marker."display: first scanout ok"]
+phase = "end"
+proves = "selftest configured ramfb only after windowd visible-bootstrap present evidence"
+
+[marker."SELFTEST: display bootstrap guest ok"]
+phase = "end"
+proves = "selftest completed the guest-side ramfb bootstrap path; harness verification accepts the full visible-bootstrap ladder after the run"

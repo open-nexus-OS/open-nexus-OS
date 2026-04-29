@@ -29,6 +29,7 @@ pub enum WindowdError {
     ArithmeticOverflow,
     BufferLengthMismatch,
     MarkerBeforePresentState,
+    InvalidDisplayCapability,
 }
 
 pub type Result<T> = core::result::Result<T, WindowdError>;

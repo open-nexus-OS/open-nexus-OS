@@ -26,8 +26,10 @@ mod input_capnp {
 mod tests {
     use crate::{input_capnp, layer_capnp, surface_capnp, vsync_capnp};
     use windowd::{
-        marker_postflight_ready, present_marker, CallerCtx, CommitSeq, InputStubStatus, Layer,
-        PixelFormat, PresentAck, PresentSeq, Rect, SurfaceBuffer, SurfaceId, VmoHandleId,
+        marker_postflight_ready, present_marker, run_visible_bootstrap_smoke,
+        validate_visible_bootstrap_capability, visible_marker_postflight_ready, CallerCtx,
+        CommitSeq, InputStubStatus, Layer, PixelFormat, PresentAck, PresentSeq, Rect,
+        SurfaceBuffer, SurfaceId, VisibleBootstrapMode, VisibleDisplayCapability, VmoHandleId,
         VmoRights, WindowServer, WindowdConfig, WindowdError,
     };
 
@@ -298,6 +300,67 @@ mod tests {
         assert_eq!(marker_postflight_ready(None), Err(WindowdError::MarkerBeforePresentState));
         let srv = server();
         assert_eq!(srv.marker_evidence(), Err(WindowdError::MarkerBeforePresentState));
+    }
+
+    #[test]
+    fn visible_bootstrap_accepts_only_fixed_mode_after_present() {
+        let evidence = match run_visible_bootstrap_smoke() {
+            Ok(evidence) => evidence,
+            Err(err) => panic!("visible bootstrap failed: {err:?}"),
+        };
+        let mode = evidence.mode;
+        assert_eq!(mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+        assert_eq!(mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+        assert_eq!(mode.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
+        assert_eq!(mode.format, PixelFormat::Bgra8888);
+        assert_eq!(evidence.first_present.seq.raw(), 1);
+        assert_eq!(evidence.seed_surface.width, 64);
+        assert_eq!(evidence.seed_surface.height, 48);
+        assert_eq!(evidence.seed_surface.format, PixelFormat::Bgra8888);
+        assert_eq!(visible_marker_postflight_ready(Some(evidence.clone())), Ok(evidence));
+        assert_eq!(
+            visible_marker_postflight_ready(None),
+            Err(WindowdError::MarkerBeforePresentState)
+        );
+    }
+
+    #[test]
+    fn test_reject_visible_bootstrap_mode_capability_and_prescanout_marker() {
+        let mode = VisibleBootstrapMode::fixed().expect("fixed visible mode");
+        assert_eq!(
+            VisibleBootstrapMode { width: 64, ..mode }.validate(),
+            Err(WindowdError::InvalidDimensions)
+        );
+        assert_eq!(
+            VisibleBootstrapMode { stride: mode.stride - 4, ..mode }.validate(),
+            Err(WindowdError::InvalidStride)
+        );
+        assert_eq!(
+            VisibleBootstrapMode { format: PixelFormat::Unsupported(0x55), ..mode }.validate(),
+            Err(WindowdError::UnsupportedFormat)
+        );
+        for cap in [
+            VisibleDisplayCapability {
+                byte_len: mode.byte_len().expect("mode byte len") - 1,
+                mapped: true,
+                writable: true,
+            },
+            VisibleDisplayCapability {
+                byte_len: mode.byte_len().expect("mode byte len"),
+                mapped: false,
+                writable: true,
+            },
+            VisibleDisplayCapability {
+                byte_len: mode.byte_len().expect("mode byte len"),
+                mapped: true,
+                writable: false,
+            },
+        ] {
+            assert_eq!(
+                validate_visible_bootstrap_capability(mode, cap),
+                Err(WindowdError::InvalidDisplayCapability)
+            );
+        }
     }
 
     #[test]

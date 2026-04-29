@@ -20,6 +20,7 @@
 extern crate alloc;
 
 mod context;
+mod display_bootstrap;
 mod dsoftbus;
 mod ipc;
 mod mmio;

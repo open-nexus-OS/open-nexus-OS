@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-The UI stack now has a closed headless baseline (`TASK-0055` / `RFC-0047`) and an active visible bootstrap follow-up (`TASK-0055B` / `RFC-0048`). We need one clear architecture authority for `windowd` module boundaries, marker honesty, and follow-up scope handoff.
+The UI stack now has a closed headless baseline (`TASK-0055` / `RFC-0047`) and a closed visible bootstrap follow-up (`TASK-0055B` / `RFC-0048`). We need one clear architecture authority for `windowd` module boundaries, marker honesty, and follow-up scope handoff.
 
 Without a dedicated ADR, module headers and architecture docs risk drifting across:
 - `windowd` authority ownership (surface/layer/present sequencing),
@@ -23,7 +23,8 @@ Adopt a dedicated `windowd` architecture contract with these rules:
    - Headless completion must not be interpreted as visible output/input closure.
 
 3. **Visible bootstrap is incremental**
-   - Visible scanout bootstrap is a narrow extension under `RFC-0048` / `TASK-0055B`.
+   - Visible scanout bootstrap is a narrow fixed-mode extension under `RFC-0048` / `TASK-0055B`.
+   - `visible-bootstrap` is a harness/marker profile for the QEMU proof, not a future SystemUI/launcher start profile.
    - Bootstrap remains fixed-mode and deterministic; richer display/input/perf behavior is routed to follow-up tasks.
 
 4. **Marker honesty is mandatory**

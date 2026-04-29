@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-04-29
+
+#### TASK-0055B / RFC-0048 visible QEMU scanout bootstrap (`TASK-0055B`, `RFC-0048`)
+
+- Closed the narrow visible-bootstrap slice with a deterministic QEMU `ramfb` first-frame path:
+  - `scripts/run-qemu-rv64.sh` now has an opt-in `NEXUS_DISPLAY_BOOTSTRAP=1` graphics path (`-display gtk`, `-device ramfb`) while preserving headless default runs
+  - `nexus-init` grants `selftest-client` a policy-gated `device.mmio.fwcfg` capability for QEMU `fw_cfg` access
+  - `selftest-client` writes the fixed `1280x800` ARGB8888 framebuffer VMO and configures `etc/ramfb` through `fw_cfg` DMA
+  - `windowd` owns the fixed visible bootstrap mode, pattern, present evidence, and fail-closed marker gating
+  - proof-manifest profile `visible-bootstrap` is explicitly a harness/marker profile, not a SystemUI/launcher start profile
+- Added proof coverage for visible bootstrap mode/capability/pre-scanout rejects and QEMU marker validation:
+  - `cargo test -p windowd -p ui_windowd_host -- --nocapture`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
+- Visible SystemUI/launcher profile selection, input routing, cursor, dirty-rect display service behavior, virtio-gpu, perf budgets, and kernel/core production-grade display closure remain follow-up scope.
+
 ### Changed - 2026-04-27
 
 #### TASK-0055 / RFC-0047 headless windowd present closure (`TASK-0055`, `RFC-0047`)

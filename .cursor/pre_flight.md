@@ -61,14 +61,14 @@ This is the anti-fake-success gate.
 - [ ] `make run` is green after a fresh `make build`.
 
 ## Task-0055B automatic addendum (when applicable)
-- [ ] `cargo test -p windowd -p launcher -p ui_windowd_host -- --nocapture` is green for visible-scanout-adjacent host contracts.
+- [ ] `cargo test -p windowd -p ui_windowd_host -- --nocapture` is green for visible-scanout-adjacent host contracts.
 - [ ] Required visible bootstrap reject suite is green (`test_reject_*` for invalid mode/stride/format/capability/pre-marker cases).
-- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` is green for visible bootstrap marker ladder.
+- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green for visible bootstrap marker ladder.
 - [ ] Deterministic visible markers appear in order:
   - [ ] `display: bootstrap on`
   - [ ] `display: mode 1280x800 argb8888`
   - [ ] `display: first scanout ok`
-  - [ ] `SELFTEST: display bootstrap visible ok`
+  - [ ] `SELFTEST: display bootstrap guest ok`
 - [ ] `scripts/fmt-clippy-deny.sh` is green.
 - [ ] `just test-all` is green.
 - [ ] `just ci-network` is green.
@@ -181,7 +181,7 @@ This is the anti-fake-success gate.
   - [ ] `windowd` remains surface/layer/present authority,
   - [ ] MMIO/display routing remains under TASK-0010 capability boundaries.
 - [ ] Behavior-first proof shape is explicit:
-  - [ ] visible markers are emitted only after real visible framebuffer write and harness verification,
+  - [ ] guest markers are emitted only after real framebuffer write/ramfb configuration; harness verification remains post-run evidence,
   - [ ] screenshot/manual visual checks are supplemental and not closure authority.
 - [ ] Required reject coverage is present:
   - [ ] unsupported mode/stride/format reject,

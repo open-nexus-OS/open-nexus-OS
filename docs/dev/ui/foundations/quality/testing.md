@@ -74,3 +74,32 @@ VMO scope is deliberately narrow here: TASK-0055 proves `windowd` rejects
 missing, forged, wrong-rights, wrong-size, or non-surface buffer handles. It does
 not claim new kernel VMO capability transfer, sealing/reuse, IPC fastpath, or
 zero-copy production behavior.
+
+## TASK-0055B visible QEMU scanout bootstrap
+
+TASK-0055B adds one deterministic visible QEMU first-frame path. The
+`visible-bootstrap` profile is a proof-manifest harness/marker profile; it is
+not a SystemUI/launcher start profile such as desktop, TV, mobile, or car.
+
+```bash
+cargo test -p windowd -p ui_windowd_host -- --nocapture
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
+```
+
+The fixed visible mode is `1280x800` ARGB8888 (`5120` byte stride). QEMU uses
+`ramfb`, and the guest configures `etc/ramfb` through the `fw_cfg` MMIO device
+only after `nexus-init` grants `selftest-client` the scoped
+`device.mmio.fwcfg` capability. Guest success markers appear only after
+`windowd` present evidence exists and the framebuffer VMO has been
+written/configured. Harness acceptance is verified after the run by
+`verify-uart`; it is not encoded as a guest-emitted marker.
+
+- `display: bootstrap on`
+- `display: mode 1280x800 argb8888`
+- `windowd: present ok (seq=1 dmg=1)`
+- `display: first scanout ok`
+- `SELFTEST: display bootstrap guest ok`
+
+This does not prove visible SystemUI/launcher profile selection, input, cursor,
+multi-display, virtio-gpu, display service dirty-rect behavior, or frame-budget
+performance.

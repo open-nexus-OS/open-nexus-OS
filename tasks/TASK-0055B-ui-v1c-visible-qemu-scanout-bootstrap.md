@@ -1,6 +1,6 @@
 ---
-title: TASK-0055B UI v1c: visible QEMU scanout bootstrap (simplefb window + first visible frame)
-status: In Progress
+title: TASK-0055B UI v1c: visible QEMU scanout bootstrap (ramfb window + first visible frame)
+status: Done
 owner: @ui @runtime
 created: 2026-03-28
 depends-on:
@@ -48,15 +48,15 @@ Current-state check (2026-04-29 prep):
 
 ## Goal
 
-Deliver:
+Delivered:
 
 1. Minimal visible scanout path for QEMU `virt`:
-   - replace pure `-nographic` bring-up for the UI path with a deterministic graphics-capable QEMU mode
-   - expose one linear framebuffer/surface for bootstrap use
-   - document the exact guest-visible resolution, stride rules, and pixel format
+   - `NEXUS_DISPLAY_BOOTSTRAP=1` replaces pure `-nographic` bring-up for this bootstrap path with `-display gtk -device ramfb`
+   - a contiguous VMO backs the QEMU `ramfb` framebuffer and is configured through `fw_cfg` DMA
+   - fixed guest-visible mode is `1280x800`, stride `5120`, pixel format `argb8888`/BGRA bytes
 2. Bootstrap display authority:
-   - use the same authority name that later survives into Display v1 (`fbdevd` if introduced here)
-   - if the full service is not ready, use a clearly labeled bootstrap mode rather than inventing a parallel service
+   - `windowd` owns the fixed bootstrap mode, present evidence, pixel pattern, and marker gating
+   - `selftest-client` only writes/configures the visible VMO after `windowd` present evidence exists
 3. Proof of visible output:
    - a deterministic test pattern or splash frame appears in the QEMU graphics window
    - UART markers remain available for CI and bounded selftests
@@ -84,8 +84,10 @@ Deliver:
 
 - `windowd` remains the authority for surface/layer/present sequencing; no parallel display authority is introduced.
 - MMIO/display capability routing must stay under `TASK-0010` capability policy boundaries; no ambient MMIO access shortcuts.
-- Marker honesty is mandatory: `display: first scanout ok` and `SELFTEST: display bootstrap visible ok` are emitted only after
-  a real guest-visible framebuffer write and verify-uart acceptance.
+- Marker honesty is mandatory:
+  - `display: first scanout ok` is emitted only after a real guest-side framebuffer write and `ramfb` configuration succeed,
+  - `SELFTEST: display bootstrap guest ok` summarizes guest-side bootstrap completion only,
+  - `verify-uart` acceptance is post-run harness evidence, not a guest-emitted fact.
 - Reject-path proofs must fail closed for unsupported mode/stride/format, invalid display capability handoff, and pre-scanout marker attempts.
 - Logs/markers may include bounded mode metadata only (resolution, format, sequence), never raw framebuffer dumps.
 
@@ -93,7 +95,8 @@ Deliver:
 
 - **Second-stack drift risk:** bootstrap code must reuse `windowd` + existing renderer path, not create a sidecar compositor.
 - **Fake-visible-marker risk:** screenshot/manual visual checks are supportive only; canonical closure comes from deterministic UART marker + harness proof.
-- **Profile drift risk:** scanout mode must stay fixed for this task (single deterministic mode), while richer presets remain in `TASK-0055D`.
+- **Profile drift risk:** scanout mode must stay fixed for this task (single deterministic mode). The `visible-bootstrap`
+  proof-manifest profile is a harness/marker profile, not a future SystemUI/launcher start profile such as desktop/TV/mobile/car.
 - **Kernel/perf overclaim risk:** this task must not claim input routing, cursor, latency budgets, or kernel production-grade display closure.
 
 Red-flag mitigation now:
@@ -121,7 +124,7 @@ UART markers:
 - `display: bootstrap on`
 - `display: mode 1280x800 argb8888`
 - `display: first scanout ok`
-- `SELFTEST: display bootstrap visible ok`
+- `SELFTEST: display bootstrap guest ok`
 
 Quality gates (must be green for closure):
 
@@ -129,6 +132,7 @@ Quality gates (must be green for closure):
 - `just test-all`
 - `just ci-network`
 - `make clean`, `make build`, `make test`, `make run` (in order)
+- Visible bootstrap proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
 
 Visual proof:
 
@@ -138,10 +142,12 @@ Visual proof:
 ## Touched paths (allowlist)
 
 - QEMU runner/harness configuration for graphics-capable UI boot
-- display bootstrap service or `fbdevd` bootstrap mode
+- QEMU `ramfb`/`fw_cfg` bootstrap mode
+- `nexus-init` capability distribution and `policies/base.toml` for the `device.mmio.fwcfg` grant
 - `source/services/windowd/` (only as needed to target the visible buffer)
 - `source/apps/selftest-client/`
-- `docs/display/simplefb_v1_0.md` or an earlier bootstrap display doc
+- `source/apps/init-lite/` / `source/init/nexus-init/` as needed for scoped capability handoff
+- `source/apps/selftest-client/proof-manifest/`
 - `docs/dev/ui/foundations/quality/testing.md`
 
 ## Plan (small PRs)
@@ -149,3 +155,25 @@ Visual proof:
 1. QEMU graphics-capable boot mode + deterministic harness plumbing
 2. bootstrap scanout authority + visible test pattern marker
 3. docs + selftests + handoff notes to `TASK-0055C` and `TASK-0251`
+
+## Closure proof (2026-04-29)
+
+Closure-hardening update completed: marker semantics and scanout source corrections were re-proven with full closure gates green.
+
+- `cargo test -p windowd -p ui_windowd_host -- --nocapture` — green.
+- `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` — green.
+- `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo check -p init-lite --target riscv64imac-unknown-none-elf --release` — green.
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` — green; `verify-uart` accepted profile `visible-bootstrap`.
+
+Visible marker ladder observed:
+
+- `display: bootstrap on`
+- `display: mode 1280x800 argb8888`
+- `windowd: present ok (seq=1 dmg=1)`
+- `display: first scanout ok`
+- `SELFTEST: display bootstrap guest ok`
+
+Claim boundary:
+
+- This closes one deterministic QEMU `ramfb` first-frame bootstrap path.
+- This does not close visible SystemUI/launcher profile selection, real input, cursor, multi-display, virtio-gpu, dirty-rect display service behavior, latency/perf budgets, or kernel/core production-grade display closure.

@@ -459,9 +459,12 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 const DEVICE_MMIO_CAP_SLOT: u32 = 48;
+const FW_CFG_MMIO_CAP_SLOT: u32 = 49;
 // QEMU `virt` virtio-mmio layout (per-device windows).
 const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
 const VIRTIO_MMIO_STRIDE: usize = 0x1000;
+const FW_CFG_MMIO_BASE: usize = 0x1010_0000;
+const FW_CFG_MMIO_LEN: usize = 0x1000;
 
 fn virtio_mmio_window(slot: usize) -> (usize, usize) {
     (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)
@@ -1180,6 +1183,35 @@ where
     grant_mmio_with_wait(netstackd_pid, "netstackd", "device.mmio.net", net_slot)?;
     grant_mmio_with_wait(rngd_pid, "rngd", "device.mmio.rng", rng_slot)?;
     grant_mmio_with_wait(selftest_pid, "selftest-client", "device.mmio.net", net_slot)?;
+    let fwcfg_deadline = match nexus_abi::nsec() {
+        Ok(now) => now.saturating_add(1_000_000_000),
+        Err(_) => 0,
+    };
+    loop {
+        match grant_mmio_cap(
+            selftest_pid,
+            "selftest-client",
+            "device.mmio.fwcfg",
+            FW_CFG_MMIO_BASE,
+            FW_CFG_MMIO_LEN,
+            pol_ctl_route_req,
+            pol_ctl_route_rsp,
+            FW_CFG_MMIO_CAP_SLOT,
+        )? {
+            Some(true) => break,
+            Some(false) => return Err(InitError::Map("fw_cfg mmio policy denied")),
+            None => {
+                let now = match nexus_abi::nsec() {
+                    Ok(value) => value,
+                    Err(_) => 0,
+                };
+                if now >= fwcfg_deadline {
+                    return Err(InitError::Map("fw_cfg mmio policy timeout"));
+                }
+                let _ = nexus_abi::yield_();
+            }
+        }
+    }
 
     if let Some(virtioblkd_pid) = find_pid(&ctrl_channels, "virtioblkd") {
         let blk_slot = blk_slot.ok_or(InitError::Map("virtio-blk slot not found"))?;

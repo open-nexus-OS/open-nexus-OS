@@ -477,6 +477,24 @@ expected_sequence=(
   "SELFTEST: end"
 )
 
+if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
+  expected_sequence=(
+    "${expected_sequence[@]:0:$(( ${#expected_sequence[@]} - 7 ))}"
+    "display: bootstrap on"
+    "display: mode 1280x800 argb8888"
+    "windowd: present ok (seq=1 dmg=1)"
+    "display: first scanout ok"
+    "SELFTEST: display bootstrap guest ok"
+    "SELFTEST: end"
+  )
+  # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
+  # for this profile on some hosts. For visible-bootstrap we prefer an explicit
+  # profile-tail marker to guarantee full ladder observation before shutdown.
+  if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
+    RUN_UNTIL_MARKER="SELFTEST: display bootstrap guest ok"
+  fi
+fi
+
 # TASK-0023B P4-05: drift gate. The in-script `expected_sequence` above
 # is a curated subset of the manifest's `full` projection; if a marker
 # the script gates on disappears from (or is renamed in) the manifest,
@@ -1120,6 +1138,23 @@ if grep -aFq "SELFTEST: ui resize ok" "$UART_LOG" && ! grep -aFq "SELFTEST: ui l
   echo "[error] UI resize marker appeared without launcher-present proof" >&2
   print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
   exit 1
+fi
+
+# TASK-0055B visible-bootstrap fake-green guard: the guest marker summarizes a
+# configured ramfb scanout and must not appear without mode/present prerequisites.
+if grep -aFq "SELFTEST: display bootstrap guest ok" "$UART_LOG"; then
+  for m in \
+    "display: bootstrap on" \
+    "display: mode 1280x800 argb8888" \
+    "windowd: present ok (seq=1 dmg=1)" \
+    "display: first scanout ok"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+      echo "[error] Display visible marker appeared before required scanout proof: $m" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+      exit 1
+    fi
+  done
 fi
 
 prev=-1

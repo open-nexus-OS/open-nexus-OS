@@ -10,8 +10,8 @@
 
 ## Active execution
 
-- **task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Draft`.
-- **contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Draft`.
+- **task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Queued`.
+- **contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (carry-in visible bootstrap contract).
 - **carry-in baseline**: `TASK-0055` / `RFC-0047` are `Done` and remain the headless-only proof floor.
 
 ## TASK-0054 closure checks
@@ -61,13 +61,20 @@
 - **follow-ups remain in header**: `TASK-0055B`, `TASK-0055C`, `TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0169`, `TASK-0170`, `TASK-0170B`, `TASK-0250`, `TASK-0251`.
 - **Gate E boundary**: TASK-0055 proves headless surface/composition/present only; visible output, input routing, and kernel/MM/IPC/zero-copy production-grade claims remain follow-ups.
 
-## Active task prep prompt (TASK-0055B)
+## TASK-0055B closure snapshot
 
-- Active execution SSOT is `TASK-0055B` visible QEMU scanout bootstrap with contract seed `RFC-0048` (both `Draft`).
-- Carry forward TASK-0055 honesty: headless markers prove checked in-memory present state only, not visible scanout, real input, GPU/display-driver behavior, perf budgets, or kernel/core production-grade behavior.
-- Keep scope narrow: one deterministic graphics-capable QEMU mode, one visible first-frame marker ladder, no second display/compositor stack.
-- Visible success markers (`display: first scanout ok`, `SELFTEST: display bootstrap visible ok`) are emitted only after real visible framebuffer write plus deterministic harness verification.
-- If implementation uncovers scheduler/MM/IPC/VMO/timer closure blockers, route them to `TASK-0054B` / `TASK-0054C` / `TASK-0054D`, `TASK-0288`, `TASK-0290`, or a new RFC/task instead of expanding `TASK-0055B`.
+- `TASK-0055B` closure-hardening is complete; task and contract are `Done`.
+- The implementation targets one deterministic visible QEMU `ramfb` bootstrap path selected by `NEXUS_DISPLAY_BOOTSTRAP=1`.
+- The `visible-bootstrap` proof-manifest profile is harness/marker-only; it is not a SystemUI/launcher start profile.
+- `windowd` owns mode/present/pattern/marker gating and the composed frame; `selftest-client` writes that frame to the framebuffer VMO and configures `etc/ramfb` through policy-gated `fw_cfg` MMIO.
+- Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
+- Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
+
+## Active task prep prompt (TASK-0055C)
+
+- Next execution SSOT is `TASK-0055C` visible SystemUI first frame in QEMU.
+- Carry forward TASK-0055B honesty: visible bootstrap proves a fixed `ramfb` pattern path only, not real SystemUI/launcher profile selection, input, cursor, GPU, dirty-rect display service behavior, perf budgets, or kernel/core production-grade display closure.
+- Keep startup profile semantics separate from harness marker profiles.
 
 ## Carry-forward guardrails
 

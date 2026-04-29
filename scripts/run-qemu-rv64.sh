@@ -9,6 +9,8 @@
 #   UART_LOG_MAX     – maximum size of uart.log after trimming (default: 10485760 bytes)
 #   QEMU_LOG / UART_LOG – override log file paths.
 #   INIT_LITE_LOG_TOPICS – comma separated init-lite log topic list (e.g. "svc-meta") propagated to the build script.
+#   NEXUS_DISPLAY_BOOTSTRAP – when "1", boot the visible ramfb scanout bootstrap path.
+#   QEMU_DISPLAY_BACKEND – QEMU display backend for the visible bootstrap (default: gtk).
 #   SANDBOX_CACHE_GC – sandbox cache GC mode: auto|on|off (default: auto)
 #   SANDBOX_CACHE_DIR – sandbox cache root (default: /tmp/cursor-sandbox-cache)
 #   SANDBOX_CACHE_MAX_MB – trigger GC when cache grows above this (default: 1024)
@@ -49,6 +51,8 @@ QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
 QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE:--device virtio-net-device,netdev=n0}
 QEMU_RNG_OBJECT=${QEMU_RNG_OBJECT:--object rng-random,id=rng0,filename=/dev/urandom}
 QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
+NEXUS_DISPLAY_BOOTSTRAP=${NEXUS_DISPLAY_BOOTSTRAP:-0}
+QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk}
 QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/blk.img}
 QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
@@ -787,11 +791,15 @@ COMMON_ARGS=(
   -cpu max
   -m 265M
   -smp "${SMP:-1}"
-  -nographic
-  -serial mon:stdio
   -bios default
   -kernel "$KERNEL_BIN"
 )
+
+if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
+  COMMON_ARGS+=( -display "$QEMU_DISPLAY_BACKEND" -serial mon:stdio -device ramfb )
+else
+  COMMON_ARGS+=( -nographic -serial mon:stdio )
+fi
 
 # Default to modern virtio-mmio for determinism (legacy virtio-mmio has known virtio-blk issues).
 # Legacy is still available for opt-in debugging/bisecting via QEMU_FORCE_LEGACY=1.
@@ -822,6 +830,10 @@ COMMON_ARGS+=(
 # Debug aid: print the resolved QEMU arguments (bounded).
 echo "[info] QEMU_NETDEV=${QEMU_NETDEV}" >&2
 echo "[info] QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE}" >&2
+echo "[info] NEXUS_DISPLAY_BOOTSTRAP=${NEXUS_DISPLAY_BOOTSTRAP}" >&2
+if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
+  echo "[info] QEMU display backend: ${QEMU_DISPLAY_BACKEND}" >&2
+fi
 if [[ "${QEMU_NO_ICOUNT:-0}" == "1" ]]; then
   echo "[info] QEMU icount: disabled" >&2
 else

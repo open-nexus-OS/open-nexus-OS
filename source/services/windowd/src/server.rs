@@ -11,7 +11,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::buffer::{validate_buffer, SurfaceBuffer};
+use crate::buffer::{validate_buffer, PixelFormat, SurfaceBuffer};
 use crate::error::{Result, WindowdError};
 use crate::frame::{blit_surface, Frame, Layer};
 use crate::geometry::{
@@ -23,6 +23,10 @@ use crate::ids::{CallerCtx, CommitSeq, PresentSeq, SurfaceId};
 pub(crate) const DEFAULT_WIDTH: u32 = 64;
 pub(crate) const DEFAULT_HEIGHT: u32 = 48;
 pub(crate) const DEFAULT_HZ: u16 = 60;
+pub const VISIBLE_BOOTSTRAP_WIDTH: u32 = 1280;
+pub const VISIBLE_BOOTSTRAP_HEIGHT: u32 = 800;
+pub const VISIBLE_BOOTSTRAP_HZ: u16 = 60;
+pub const VISIBLE_BOOTSTRAP_FORMAT: PixelFormat = PixelFormat::Bgra8888;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresentAck {
@@ -51,6 +55,16 @@ pub struct WindowdConfig {
 impl Default for WindowdConfig {
     fn default() -> Self {
         Self { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT, hz: DEFAULT_HZ }
+    }
+}
+
+impl WindowdConfig {
+    pub const fn visible_bootstrap() -> Self {
+        Self {
+            width: VISIBLE_BOOTSTRAP_WIDTH,
+            height: VISIBLE_BOOTSTRAP_HEIGHT,
+            hz: VISIBLE_BOOTSTRAP_HZ,
+        }
     }
 }
 
@@ -221,6 +235,25 @@ impl WindowServer {
         self.last_frame = Some(frame);
         self.last_present = Some(ack);
         Ok(Some(ack))
+    }
+
+    pub fn present_bootstrap_scanout_tick(&mut self) -> Result<PresentAck> {
+        if self.layers.is_empty() {
+            return Err(WindowdError::NoCommittedScene);
+        }
+        let damage_count = self.total_damage_count()?;
+        if damage_count == 0 {
+            return Err(WindowdError::MarkerBeforePresentState);
+        }
+        let ack =
+            PresentAck { seq: PresentSeq::new(self.next_present_seq), damage_rects: damage_count };
+        self.next_present_seq =
+            self.next_present_seq.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        for surface in &mut self.surfaces {
+            surface.damage.clear();
+        }
+        self.last_present = Some(ack);
+        Ok(ack)
     }
 
     pub fn subscribe_vsync(&self, last_seen: PresentSeq) -> Result<Option<PresentAck>> {

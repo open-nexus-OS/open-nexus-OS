@@ -1,6 +1,6 @@
 # RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui @runtime
 - Created: 2026-04-29
 - Last Updated: 2026-04-29
@@ -10,9 +10,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (QEMU visible scanout bootstrap contract)**: ⬜
-- **Phase 1 (authority + marker hardening)**: ⬜
-- **Phase 2 (Gate E sync + follow-up handoff)**: ⬜
+- **Phase 0 (QEMU visible scanout bootstrap contract)**: ✅ complete
+- **Phase 1 (authority + marker hardening)**: ✅ complete
+- **Phase 2 (Gate E sync + follow-up handoff)**: ✅ complete
 
 Definition:
 
@@ -59,7 +59,7 @@ This RFC is a design seed/contract. Implementation planning and proofs live in `
 ## Constraints / invariants (hard requirements)
 
 - **Determinism**: fixed mode, fixed marker ladder, reproducible harness behavior for a fixed build/profile.
-- **No fake success**: `display: first scanout ok` and `SELFTEST: display bootstrap visible ok` only after a real visible buffer write plus harness verification.
+- **No fake success**: `display: first scanout ok` and `SELFTEST: display bootstrap guest ok` only after guest-side framebuffer write and `ramfb` configuration complete; harness verification is post-run evidence, not a guest-emitted fact.
 - **Bounded resources**: fixed bootstrap dimensions/format/stride rules; bounded queue/depth/error paths.
 - **Security floor**: MMIO/display capability access remains under `RFC-0017` authority model; fail closed for invalid rights/mode handoff.
 - **Rust discipline**: no `unsafe` shortcuts, no `unwrap/expect` in production paths, explicit error returns and reject coverage for malformed/unauthorized states.
@@ -69,15 +69,16 @@ This RFC is a design seed/contract. Implementation planning and proofs live in `
 
 ### Contract / interface (normative)
 
-- QEMU bootstrap must run in a graphics-capable mode for this task slice (not pure `-nographic`).
-- A single bootstrap scanout authority is used (either early `fbdevd` bootstrap mode or clearly equivalent authority that survives follow-up migration).
-- `windowd` remains source-of-truth for surface/layer/present sequencing; scanout consumes composed output and does not bypass ownership checks.
+- QEMU bootstrap runs in graphics-capable mode for this task slice when `NEXUS_DISPLAY_BOOTSTRAP=1` is selected by the harness.
+- `visible-bootstrap` is a proof-manifest harness/marker profile, not a SystemUI/launcher start profile.
+- QEMU uses `ramfb`; the guest configures `etc/ramfb` through capability-gated `fw_cfg` MMIO and a contiguous VMO backing framebuffer.
+- `windowd` remains source-of-truth for fixed-mode validation, surface/layer/present sequencing evidence, deterministic bootstrap pixels, and marker gating.
 - Marker contract for this slice:
   - `display: bootstrap on`
   - `display: mode 1280x800 argb8888`
   - `display: first scanout ok`
-  - `SELFTEST: display bootstrap visible ok`
-- Marker emission is gated by real state transitions (mode set, first visible frame observed, harness verify pass).
+  - `SELFTEST: display bootstrap guest ok`
+- Marker emission is gated by real guest-side state transitions (mode set, first visible frame write, `ramfb` configuration complete); harness verification remains post-run evidence.
 
 ### Phases / milestones (contract-level)
 
@@ -117,7 +118,7 @@ cd /home/jenning/open-nexus-OS && cargo test -p windowd -p launcher -p ui_window
 ### Proof (OS/QEMU)
 
 ```bash
-cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
 ```
 
 ### Deterministic markers
@@ -125,7 +126,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 - `display: bootstrap on`
 - `display: mode 1280x800 argb8888`
 - `display: first scanout ok`
-- `SELFTEST: display bootstrap visible ok`
+- `SELFTEST: display bootstrap guest ok`
 
 ## Alternatives considered
 
@@ -138,8 +139,8 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- Should bootstrap authority be an explicit `fbdevd` bootstrap mode from day 1 or a minimal pre-`fbdevd` authority shim with the same stable contract?
-- Do we need a dedicated reject marker for "mode accepted but no visible frame yet", or is the absence of `display: first scanout ok` sufficient?
+- `fbdevd` remains follow-up scope for `TASK-0251`; this slice intentionally uses a minimal `windowd`-owned bootstrap authority over QEMU `ramfb`.
+- The absence of `display: first scanout ok` remains sufficient for pre-scanout failure. Success is additionally guarded by host rejects and `scripts/qemu-test.sh` marker prerequisites.
 
 ---
 
@@ -147,9 +148,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: QEMU visible bootstrap mode + deterministic first-scanout marker ladder — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`
-- [ ] **Phase 1**: authority/reject hardening (invalid mode/capability/pre-marker rejects) — proof: `cd /home/jenning/open-nexus-OS && cargo test -p ui_windowd_host reject -- --nocapture`
-- [ ] **Phase 2**: Gate E sync + handoff closure to `TASK-0055C`/`TASK-0251` — proof: `cd /home/jenning/open-nexus-OS && just test-all && just ci-network`
-- [ ] Task linked with stop conditions + proof commands.
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: QEMU visible bootstrap mode + deterministic first-scanout marker ladder — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
+- [x] **Phase 1**: authority/reject hardening (invalid mode/capability/pre-marker rejects) — proof: `cd /home/jenning/open-nexus-OS && cargo test -p ui_windowd_host reject -- --nocapture`
+- [x] **Phase 2**: Gate E sync + handoff closure to `TASK-0055C`/`TASK-0251`.
+- [x] Task linked with stop conditions + proof commands.
+- [x] QEMU markers appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

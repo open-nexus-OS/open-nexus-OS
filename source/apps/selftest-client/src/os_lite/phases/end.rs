@@ -18,10 +18,19 @@
 use nexus_abi::yield_;
 
 use crate::markers::emit_line;
-use crate::os_lite::context::PhaseCtx;
+use crate::os_lite::{context::PhaseCtx, display_bootstrap};
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
-    if let Ok(evidence) = windowd::run_headless_ui_smoke() {
+    if display_bootstrap::enabled() {
+        if let Some(evidence) = display_bootstrap::run() {
+            emit_line(windowd::DISPLAY_BOOTSTRAP_MARKER);
+            emit_line(windowd::DISPLAY_MODE_MARKER);
+            let present_marker = windowd::present_marker(evidence.first_present);
+            emit_line(present_marker.as_str());
+            emit_line(windowd::DISPLAY_FIRST_SCANOUT_MARKER);
+            emit_line(windowd::SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER);
+        }
+    } else if let Ok(evidence) = windowd::run_headless_ui_smoke() {
         if evidence.ready {
             emit_line(windowd::READY_MARKER);
         }

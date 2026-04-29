@@ -25,7 +25,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Storage, PackageFS & Content | 2 / 25 | 8% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 0 / 12 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, input/display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 1 / 73 | 1% | — | Early renderer, windowing, compositor, and UI performance floor tasks. |
+| Windowing, UI & Graphics | 3 / 73 | 4% | — | Early renderer, windowing, compositor, and UI performance floor tasks. |
 | Text, IME, I18N & Accessibility | 0 / 9 | 0% | — | Text stack, input methods, locale, and accessibility foundations. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
@@ -216,9 +216,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
 | ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | Done | Host-first renderer/snapshot proof floor complete; no OS/QEMU present marker claim |
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | Done | Headless state-machine, generated IDL roundtrip, marker, postflight, and reject proofs complete |
+| ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | Done | Visible QEMU `ramfb` bootstrap path proven with marker-honesty hardening and full closure gates green |
 
-Current queue head: `TASK-0055B` / visible QEMU scanout follow-up after `TASK-0055` headless closure.
-Current contract status: `RFC-0047` (`Done`, 2026-04-27); `TASK-0055` is `Done`. Headless present only; no visible scanout/input/kernel-VMO production closure claim.
+Current queue head: `TASK-0055C` / visible SystemUI first frame in QEMU.
+Current contract status: `RFC-0048` (`Done`, 2026-04-29); `TASK-0055B` is `Done` after marker-honesty/scanout-source hardening and full closure gates. Visible bootstrap only; no visible SystemUI/input/kernel-VMO production closure claim.
 
 ---
 

@@ -14,7 +14,7 @@ metricsd = ["ipc.core", "statefs.write"]
 netstackd = ["device.mmio.net", "ipc.core"]
 virtioblkd = ["device.mmio.blk", "ipc.core"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "statefs.read", "statefs.write", "statefs.boot"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.fwcfg", "statefs.read", "statefs.write", "statefs.boot"]
 "demo.testsvc" = []
 
 [abi_profile."selftest-client"]

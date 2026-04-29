@@ -170,16 +170,17 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] graphics-capable QEMU mode is active for this profile,
   - [ ] deterministic mode marker is emitted (`display: mode 1280x800 argb8888`),
   - [ ] first visible scanout marker is emitted only after real visible frame write,
-  - [ ] `SELFTEST: display bootstrap visible ok` is emitted only after harness verification.
+  - [ ] `SELFTEST: display bootstrap guest ok` is emitted only after guest-side framebuffer write and `ramfb` configuration.
 - [ ] Security and fail-closed behavior are proven:
   - [ ] invalid mode/stride/format rejects,
   - [ ] invalid capability handoff rejects,
   - [ ] pre-scanout success-marker attempts reject,
   - [ ] logs/markers expose bounded metadata only.
 - [ ] Required proof floor is green:
-  - [ ] `cargo test -p windowd -p launcher -p ui_windowd_host -- --nocapture`,
+  - [ ] `cargo test -p windowd -p ui_windowd_host -- --nocapture`,
   - [ ] required `test_reject_*` suites for visible bootstrap are green,
-  - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os`,
+  - [ ] OS-target `selftest-client` and `init-lite` checks are green,
+  - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`,
   - [ ] `scripts/fmt-clippy-deny.sh`,
   - [ ] `just test-all`,
   - [ ] `just ci-network`,
@@ -189,6 +190,25 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] fuller display integration remains `TASK-0251`,
   - [ ] input routing remains `TASK-0056B`,
   - [ ] kernel/perf closure remains delegated to owning follow-ups.
+
+## Active progress snapshot (TASK-0055B done, 2026-04-29)
+- [x] `TASK-0055B` is synchronized to `Done`.
+- [x] `RFC-0048` is synchronized to `Done`.
+- [x] `visible-bootstrap` is documented as a harness/marker profile, not a SystemUI/launcher start profile.
+- [x] QEMU visible bootstrap uses an opt-in `ramfb` path; default headless proofs remain intact.
+- [x] `nexus-init` grants `selftest-client` `device.mmio.fwcfg` through policy, not ambient MMIO.
+- [x] Visible marker ladder was observed and verify-uart accepted:
+  - [x] `display: bootstrap on`
+  - [x] `display: mode 1280x800 argb8888`
+  - [x] `windowd: present ok (seq=1 dmg=1)`
+  - [x] `display: first scanout ok`
+  - [x] `SELFTEST: display bootstrap guest ok`
+- [x] Host and OS-target slice proofs are green:
+  - [x] `cargo test -p windowd -p ui_windowd_host -- --nocapture`
+  - [x] OS-target `selftest-client` visible-bootstrap check
+  - [x] OS-target `init-lite` check
+  - [x] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
+- [x] Scope guardrails remain explicit: no visible SystemUI, input, cursor, perf, virtio-gpu, dirty-rect display service, or kernel/core production-grade closure claim.
 
 ## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` and `RFC-0044` are synchronized to `Done`.

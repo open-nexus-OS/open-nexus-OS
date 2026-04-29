@@ -15,6 +15,7 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 - **RFC-0038**: Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1 — proof-manifest SSOT, signed evidence bundles, replay/bisect tooling (Done; one environmental closure step remaining — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11)
 - **RFC-0046**: UI v1a host CPU renderer + deterministic snapshots — BGRA8888 host renderer, deterministic goldens, reject tests, and fake-marker prohibition (Done; `TASK-0054` Done)
 - **RFC-0047**: UI v1b windowd surface/layer/present — headless `windowd` compositor contract, bounded surface/VMO/layer rejects, generated Cap'n Proto roundtrips, and honest QEMU markers (Done; `TASK-0055` Done)
+- **RFC-0048**: UI v1c visible QEMU scanout bootstrap — fixed-mode QEMU `ramfb`, capability-gated `fw_cfg` setup, visible marker ladder, and harness-profile proof (Done; `TASK-0055B` Done)
 
 ## Philosophy
 
@@ -220,6 +221,23 @@ The headless QEMU proof uses `64x48@60Hz` to stay inside the current selftest
 heap. Rich display/profile presets remain `TASK-0055D`; visible output remains
 `TASK-0055B`/`TASK-0055C`.
 
+### TASK-0055B visible QEMU scanout bootstrap
+
+`TASK-0055B` proves one deterministic visible first-frame path in QEMU. It uses
+`NEXUS_DISPLAY_BOOTSTRAP=1` to boot a graphics-capable QEMU `ramfb` path and
+keeps `visible-bootstrap` as a harness/marker profile, not a future
+SystemUI/launcher start profile such as desktop, TV, mobile, or car.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Fixed 1280x800 ARGB8888 mode, stride validation, display capability handoff, and pre-scanout marker rejection | host behavior/reject assertions | `cargo test -p windowd -p ui_windowd_host -- --nocapture` |
+| `selftest-client` visible bootstrap and `init-lite` `fw_cfg` capability path compile for the OS target | OS target compile assertions | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` and `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo check -p init-lite --target riscv64imac-unknown-none-elf --release` |
+| Visible marker ladder (`display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`) with proof-manifest verification | single-VM QEMU visible scanout proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
+
+This closes only the bootstrap scanout path. Visible SystemUI/launcher profile
+selection, input, cursor, dirty-rect display services, perf budgets, virtio-gpu,
+and kernel/core production-grade display closure remain follow-up scope.
+
 ## Workflow checklist
 
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -320,6 +338,7 @@ The QEMU marker ladder, harness profile catalog, and runtime selftest profile ca
 | Kind     | Profile         | Driver                          | Purpose |
 |---       |---              |---                              |---|
 | Harness  | `full`          | `scripts/qemu-test.sh`          | Default 12-phase ladder (`just test-os` / `just ci-os-full`). |
+| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B visible `ramfb` marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile. |
 | Harness  | `smp`           | `scripts/qemu-test.sh`          | SMP-only marker contract; consumed by `just ci-os-smp` (SMP=2 strict + SMP=1 parity). |
 | Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
 | Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |

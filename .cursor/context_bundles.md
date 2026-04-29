@@ -161,11 +161,12 @@ Use these in chat prompts to keep work deterministic and low-token.
 - Config/policy docs or manifests only if `ui.profile`, display dimensions, or service permissions are introduced.
 
 ### @task_0055b_context
-- Status: `TASK-0055B` is active execution SSOT (`Draft`) and `RFC-0048` is the linked contract seed (`Draft`); `TASK-0055`/`RFC-0047` remain closed carry-in baseline (`Done`).
-- Scope: visible QEMU scanout bootstrap on top of existing `windowd` headless-present contract, with one deterministic visible mode and marker ladder.
-- Required marker honesty: visible markers are valid only after real visible framebuffer write + deterministic harness verification; screenshot/manual checks are supportive only.
-- Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`) visible-first-frame bootstrap only; no input/perf/kernel production-grade claim.
-- Security/authority: preserve single `windowd` sequencing authority and `TASK-0010` MMIO/capability boundary; fail closed for invalid mode/stride/format/capability handoff and pre-scanout marker attempts.
+- Status: `TASK-0055B` is `Done` and `RFC-0048` is `Done`; `TASK-0055`/`RFC-0047` remain closed headless carry-in baseline (`Done`).
+- Scope closed: one deterministic QEMU `ramfb` visible bootstrap path selected by `NEXUS_DISPLAY_BOOTSTRAP=1`; fixed visible mode is `1280x800` ARGB8888 with `5120` byte stride.
+- Profile boundary: `visible-bootstrap` is a proof-manifest harness/marker profile, not a future SystemUI/launcher start profile such as desktop/TV/mobile/car.
+- Proof: `cargo test -p windowd -p ui_windowd_host -- --nocapture`, OS-target `selftest-client`/`init-lite` checks, and `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` are green for the slice.
+- Gate: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`) visible-bootstrap contribution only; no visible SystemUI/input/perf/kernel production-grade claim.
+- Security/authority: `windowd` remains mode/present/pattern/marker authority; `selftest-client` configures `ramfb` through policy-gated `device.mmio.fwcfg`; invalid mode/stride/format/capability handoff and pre-scanout markers fail closed.
 - `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`
 - `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
 - `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md`
@@ -179,10 +180,11 @@ Use these in chat prompts to keep work deterministic and low-token.
 
 ### @task_0055b_touched
 - QEMU runner/harness configuration for graphics-capable UI boot
-- display bootstrap service or `fbdevd` bootstrap mode
+- QEMU `ramfb` / `fw_cfg` bootstrap mode
+- `nexus-init` capability distribution and `policies/base.toml` for `device.mmio.fwcfg`
 - `source/services/windowd/` (only as needed to target the visible buffer)
 - `source/apps/selftest-client/`
-- `docs/display/simplefb_v1_0.md` or bootstrap display doc
+- `source/apps/selftest-client/proof-manifest/`
 - `docs/dev/ui/foundations/quality/testing.md`
 - `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
 - `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`
