@@ -4,8 +4,6 @@
 
 Support ongoing development:
 
-<iframe src="https://github.com/sponsors/open-nexus-OS/button" title="Sponsor open-nexus-OS" height="32" width="114" style="border: 0; border-radius: 6px;"></iframe>
-
 [![Sponsor open-nexus-OS](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/open-nexus-OS)
 
 Open Nexus OS is a research microkernel targeting QEMU RISC‑V `virt` hardware with an OpenHarmony‑inspired userland.
