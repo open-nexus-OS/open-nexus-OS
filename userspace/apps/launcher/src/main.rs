@@ -3,8 +3,10 @@
 
 //! CONTEXT: Minimal TASK-0055 launcher client.
 //! OWNERS: @ui
-//! STATUS: Done
+//! STATUS: Functional
+//! API_STABILITY: Unstable
 //! TEST_COVERAGE: `cargo test -p launcher -- --nocapture`.
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #![forbid(unsafe_code)]
 

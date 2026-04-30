@@ -8,7 +8,8 @@ follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - IME keymaps baseline: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - Visible input baseline: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
+  - Later IME consumer: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -22,7 +23,10 @@ We need a deterministic input stack foundation:
 - key repeat (configurable delay/rate),
 - pointer acceleration (simple linear curve).
 
-The prompt proposes HID/touch event core and keymaps. `TASK-0146` already plans IME keymaps (US/DE) for IME engine. This task delivers the **host-first core** (HID/touch parsing, keymaps, repeat, accel) that can be reused by both inputd (low-level routing) and imed (IME engine).
+This task is pulled directly after `TASK-0056B` so live input can be built on a
+proper reusable core instead of a 56B-only inputd-light path. It delivers the
+**host-first core** (HID/touch parsing, keymaps, repeat, accel) that can be
+reused by both `inputd` (low-level routing) and later `imed` work (`TASK-0146`).
 
 ## Goal
 
@@ -61,7 +65,7 @@ Deliver on host:
 
 ## Constraints / invariants (hard requirements)
 
-- **No duplicate keymap authority**: This task provides keymaps library. `TASK-0146` uses keymaps for IME engine. Both should share the same keymap tables to avoid drift.
+- **No duplicate keymap authority**: This task provides the base keymaps library. `TASK-0146` must reuse/extend it for IME behavior to avoid drift.
 - **Determinism**: HID parsing, touch normalization, keymaps, repeat, and acceleration must be stable given the same inputs.
 - **Bounded resources**: keymaps are table-bounded; repeat timing is bounded.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
@@ -76,7 +80,7 @@ Deliver on host:
 ## Contract sources (single source of truth)
 
 - Testing contract: `scripts/qemu-test.sh`
-- IME keymaps baseline: `TASK-0146` (US/DE keymaps for IME)
+- Later IME consumer: `TASK-0146` (US/DE IME behavior built on the shared keymap base)
 
 ## Stop conditions (Definition of Done)
 
@@ -93,7 +97,7 @@ Deliver on host:
 
 - `userspace/libs/hid/` (new; HID event parser)
 - `userspace/libs/touch/` (new; touch event normalizer)
-- `userspace/libs/keymaps/` (new; or extend `userspace/libs/ime-keymaps/` from `TASK-0146`)
+- `userspace/libs/keymaps/` (new shared base keymap library)
 - `userspace/libs/key-repeat/` (new)
 - `userspace/libs/pointer-accel/` (new)
 - `tests/input_v1_0_host/` (new)
@@ -107,7 +111,7 @@ Deliver on host:
    - host tests
 
 2. **Keymaps + repeat + accel**
-   - keymaps library (or extend existing from `TASK-0146`)
+   - shared keymaps library
    - key repeat library
    - pointer acceleration library
    - host tests

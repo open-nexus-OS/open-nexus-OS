@@ -24,6 +24,10 @@ We need a small, stable “design kit” that:
 - provides snapshot goldens for visual regressions,
 - and runs deterministic host tests.
 
+The design kit is the visual contract for the Orbital-Level UX floor. Core primitives
+must be authored around SVG/icon-vector sources, live input states, and a11y labels so
+launcher, greeter, Settings, and apps do not drift into one-off visuals.
+
 This task is **host-first**. App shell and adoption/migration is `TASK-0074`.
 
 ## Goal
@@ -39,6 +43,7 @@ Deliver:
    - ListRow, Card, Divider
    - Dialog, Sheet, ToastView (visual widgets; modal manager is v10b)
    - all primitives emit A11y roles/labels (where applicable)
+   - icons and vector decorations consume SVG-derived assets, not PNG-only UI sources
 3. Snapshot golden harness:
    - render each primitive in states (default/hover/pressed/disabled) in light/dark
    - compare PNGs (pixel-exact preferred; SSIM threshold if required and documented)
@@ -58,6 +63,9 @@ Deliver:
   - stable rasterization parameters,
   - stable layout and rounding rules,
   - explicit SSIM thresholds if pixel-exact is not portable.
+- State contract:
+  - hover/pressed/focus/disabled visuals must map to `TASK-0056B` visible states and `TASK-0253` live input delivery,
+  - SVG source assets are canonical for icon primitives.
 - Bounded memory for widget caches (glyph atlas already exists elsewhere; primitives must not grow unbounded).
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
@@ -68,6 +76,7 @@ Deliver:
 `cargo test -p ui_v10_goldens` green:
 
 - goldens for core primitives in light/dark and key states
+- SVG-source icon primitives and no PNG-only source icons in the design kit
 - a11y lints:
   - touch targets meet minimum
   - contrast meets threshold (configurable)

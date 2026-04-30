@@ -36,6 +36,7 @@ pub enum WindowdError {
     FenceNotReady,
     InputEventQueueFull,
     NoFocusedSurface,
+    InvalidPointerPosition,
 }
 
 pub type Result<T> = core::result::Result<T, WindowdError>;

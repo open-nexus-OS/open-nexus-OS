@@ -73,18 +73,35 @@
 
 ## Active task prep prompt (TASK-0056B)
 
-- Active queue head is `TASK-0056B` (v2a visible input — cursor/focus/click baseline).
+- Active queue head is `TASK-0056B` (v2a visible input — cursor/hover/focus/click baseline).
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
 - `RFC-0051` is `In Progress` as contract seed and linked from task + RFC index.
-- Preserve scope boundaries: no HID/input device stack closure (`TASK-0253`), no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no display-service integration closure (`TASK-0251`).
-- Implementation checkpoint:
-  - closure rerun host scheduler/input proofs are green (`cargo test -p windowd -p launcher -p ui_v2a_host -- --nocapture`),
-  - closure rerun reject suite is green (`cargo test -p ui_v2a_host reject -- --nocapture`),
-  - carry-in UI regression proof is green (`cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`),
-  - closure rerun visible-bootstrap v2a QEMU marker proof is green through `SELFTEST: ui v2 input ok` (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`),
-  - touched headers, ADR/architecture/testing docs, task/RFC notes, and marker-honesty gating are synced.
-- Closure gates are green: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
+- Preserve scope boundaries after review: 56B is deterministic visible input only; live QEMU pointer/keyboard moves to `TASK-0252`/`TASK-0253`; no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no display-service integration closure (`TASK-0251`).
+- Implementation checkpoint (deterministic visible-input route):
+  - 56B host visible-input proof is green (`cargo test -p ui_v2a_host -- --nocapture`) with 19 tests,
+  - 56B reject suite is green (`cargo test -p ui_v2a_host reject -- --nocapture`) with 12 reject-filtered tests,
+  - `windowd`/launcher regression proof is green (`cargo test -p windowd -p launcher -- --nocapture`),
+  - `selftest-client` compile/test check is green (`cargo test -p selftest-client -- --nocapture`),
+  - visible-bootstrap 56B QEMU marker proof is green through `SELFTEST: ui visible input ok` (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`),
+  - touched docs/task/RFC/status/handoff notes are synced to partial-closure reality.
+- Immediate follow-up after 56B:
+  - `TASK-0252` host input core,
+  - `TASK-0253` OS/QEMU `inputd`/HID pipeline for live pointer/keyboard,
+  - `TASK-0056C` responsiveness after the live path exists.
+- Pending before `Done` by explicit user instruction: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
+
+## Fast-lane uplift checkpoint
+
+- `tasks/IMPLEMENTATION-ORDER.md` now defines an Orbital-Level UX gate before `TASK-0119`/`TASK-0120`; this is a UX bar only, not an adoption of Orbital architecture.
+- Carry-in architecture remains Open Nexus/OHOS/Zircon style:
+  - `inputd` normalizes QEMU pointer/keyboard events after `TASK-0253`,
+  - `windowd` owns hit-test, hover, focus, click, scroll/window interaction authority,
+  - SystemUI owns shell/launcher/session surfaces,
+  - app/session services own lifecycle/session state.
+- New task: `TASK-0065B-session-login-greeter-v0.md` for greeter/dev-session and SystemUI shell handoff.
+- `TASK-0146`/`TASK-0147` are pulled directly after `TASK-0059` for IME keymaps, OSK, focus routing, and QEMU proof before the SystemUI DSL desktop claim.
+- Downstream UI fast-lane tasks now require live pointer/scroll/launcher proofs and SVG-source UI assets where relevant, so later desktop/launcher tasks cannot fall back to marker-only or PNG-first claims.
 
 ## Carry-forward guardrails
 

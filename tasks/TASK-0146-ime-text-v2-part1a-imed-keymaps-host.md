@@ -3,7 +3,9 @@ title: TASK-0146 IME/Text v2 Part 1a (host-first): imed core + US/DE keymaps + d
 status: Draft
 owner: @ui
 created: 2025-12-26
-depends-on: []
+depends-on:
+  - TASK-0059
+  - TASK-0252
 follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md

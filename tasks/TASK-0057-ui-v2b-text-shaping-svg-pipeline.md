@@ -22,6 +22,10 @@ For real UI, we need:
 - a minimal vector pipeline for icons/theming,
 - and deterministic tests that can run on host.
 
+For the UI fast lane, SVG is the canonical source format for launcher/system icons
+and UI vector assets. PNG is allowed only as a golden, screenshot/export artifact,
+or derived raster cache; product UI must not become PNG-first.
+
 This task focuses on the content pipeline and rendering primitives, independent of present scheduling (v2a).
 
 Scope note:
@@ -48,6 +52,7 @@ Deliver:
 3. `userspace/ui/svg` safe subset:
    - parse a strict subset and reject the rest
    - rasterize into BGRA8888 (CPU) deterministically
+   - provide a canonical SVG icon asset path for SystemUI/launcher/design-kit consumers
 4. Host tests:
    - shaping goldens (JSON)
    - SVG render goldens (PNG with SSIM threshold if needed)
@@ -57,6 +62,7 @@ Deliver:
 - Kernel changes.
 - Full SVG spec.
 - LCD subpixel text.
+- PNG-first launcher/system icon assets.
 
 ## Constraints / invariants (hard requirements)
 
@@ -65,6 +71,9 @@ Deliver:
   - stable SVG rasterization rules.
 - Strict safety posture:
   - SVG subset parser must reject unsupported features (no scripts, no external refs, no filters).
+- Asset posture:
+  - launcher/SystemUI/design-kit icons use SVG sources,
+  - generated PNGs are test/export artifacts and must trace back to SVG sources.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - Bounded memory:
   - cap glyph cache bytes,
@@ -94,6 +103,7 @@ Deliver:
   - safe subset parses accepted files
   - rejected features are correctly detected
   - rendered PNGs match goldens (pixel-exact or SSIM threshold)
+  - canonical launcher/system icon fixtures are SVG-sourced, with no PNG-only UI source accepted.
 
 ## Touched paths (allowlist)
 

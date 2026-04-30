@@ -31,6 +31,7 @@ Deliver:
    - Flex (row/column), Stack (relative/absolute), Grid v1 (fraction columns)
    - stable ordering and stable box outputs
    - deterministic numeric rules (integer or fixed-point)
+   - stable hit/input bounds derived from layout boxes for `windowd`/SystemUI consumers
 2. Text measurement bridge:
    - `MeasureText` callback that integrates with the shaper/wrapper
    - explicit text-prep/measure/placement split as documented in `docs/dev/ui/foundations/layout/layout-pipeline.md`
@@ -62,6 +63,9 @@ Deliver:
   - scroll and pure offset changes should not force text reshaping,
   - measurement and placement must be testable as separate concerns,
   - cache keys and rounding rules must be documented deterministically.
+- Interaction posture:
+  - layout outputs used by launcher, scroll containers, and controls must expose deterministic input/hit regions,
+  - visual boxes and input boxes must not drift silently.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points
@@ -78,6 +82,7 @@ Deliver:
 
 - layout:
   - style trees → stable box outputs (JSON goldens)
+  - style trees → stable input/hit region outputs matching intended interactive bounds
   - flex grow/shrink edge cases
   - grid fraction sizing and gaps
   - place-only updates do not require full remeasure for unchanged subtrees

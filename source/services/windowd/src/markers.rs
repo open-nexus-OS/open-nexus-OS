@@ -32,9 +32,19 @@ pub const INPUT_ON_MARKER: &str = "windowd: input on";
 pub const LAUNCHER_CLICK_OK_MARKER: &str = "launcher: click ok";
 pub const SELFTEST_UI_V2_PRESENT_OK_MARKER: &str = "SELFTEST: ui v2 present ok";
 pub const SELFTEST_UI_V2_INPUT_OK_MARKER: &str = "SELFTEST: ui v2 input ok";
+pub const INPUT_VISIBLE_ON_MARKER: &str = "windowd: input visible on";
+pub const CURSOR_MOVE_VISIBLE_MARKER: &str = "windowd: cursor move visible";
+pub const HOVER_VISIBLE_MARKER: &str = "windowd: hover visible";
+pub const FOCUS_VISIBLE_MARKER: &str = "windowd: focus visible";
+pub const LAUNCHER_CLICK_VISIBLE_OK_MARKER: &str = "launcher: click visible ok";
+pub const SELFTEST_UI_VISIBLE_INPUT_OK_MARKER: &str = "SELFTEST: ui visible input ok";
 
 pub fn present_marker(ack: PresentAck) -> String {
-    format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)
+    format!(
+        "windowd: present ok (seq={} dmg={})",
+        ack.seq.raw(),
+        ack.damage_rects
+    )
 }
 
 pub fn focus_marker(surface: SurfaceId) -> String {

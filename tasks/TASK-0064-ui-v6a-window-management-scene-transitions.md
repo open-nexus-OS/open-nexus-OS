@@ -25,6 +25,10 @@ We need a minimal but robust window management layer inside `windowd` before we 
 - deterministic focus rules consistent with input routing,
 - scene transitions (crossfade/slide) reduced-motion-aware.
 
+The WM baseline must be visibly interactive in QEMU: live pointer focus/raise/close
+must work through `windowd`, while move/resize can remain a bounded v0 if `TASK-0070`
+is still pending.
+
 App lifecycle and notifications are handled in `TASK-0065`.
 
 ## Goal
@@ -35,6 +39,7 @@ Deliver:
    - window model (id, app_id, surface_id, bounds, state, z, title)
    - stacks: overlays > notifications > apps > desktop
    - actions: open/close/focus/minimize/maximize/fullscreen (move/resize stub)
+   - live pointer focus/raise/close for at least the proof windows
 2. WM IPC:
    - `wm.capnp` (Open/BindSurface/SetState/Close)
 3. Scene transitions engine:
@@ -52,6 +57,7 @@ Deliver:
 ## Constraints / invariants (hard requirements)
 
 - Deterministic focus/z-order behavior.
+- Live pointer focus/raise/close must use the same hit-test/focus authority as `TASK-0056B`.
 - Bounded state:
   - cap window count,
   - cap transition duration and memory used for snapshots.
@@ -64,6 +70,7 @@ Deliver:
 `tests/ui_v6a_host/`:
 
 - open two windows, bind surfaces, assert z-order and focus rules
+- live QEMU pointer can focus/raise and close a proof window visibly
 - close window removes it from stacks
 - transitions:
   - crossfade and slide run expected frame counts/latency bounds (simulated time)
@@ -76,6 +83,8 @@ UART markers (order tolerant):
 - `windowd: wm on`
 - `windowd: wm open (app=..., win=...)`
 - `windowd: wm focus (win=...)`
+- `windowd: wm live focus ok`
+- `windowd: wm live close ok`
 - `windowd: transition on`
 - `windowd: transition start (kind=crossfade|slide)`
 - `windowd: transition done (ms=...)`

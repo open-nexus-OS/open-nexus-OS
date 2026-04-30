@@ -20,13 +20,13 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | DSoftBus & Distributed | 7 / 27 | 26% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
 | Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
-| Accounts, Ability & Sessions | 0 / 8 | 0% | — | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
+| Accounts, Ability & Sessions | 0 / 9 | 0% | — | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
 | Security, Policy & Identity | 4 / 36 | 11% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 2 / 25 | 8% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
-| Bringup, Hardware & Drivers | 0 / 12 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, input/display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 3 / 73 | 4% | — | Early renderer, windowing, compositor, and UI performance floor tasks. |
-| Text, IME, I18N & Accessibility | 0 / 9 | 0% | — | Text stack, input methods, locale, and accessibility foundations. |
+| Bringup, Hardware & Drivers | 0 / 11 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
+| Windowing, UI & Graphics | 4 / 76 | 5% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Text, IME, I18N & Accessibility | 0 / 7 | 0% | — | Text stack, input methods, locale, and accessibility foundations. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
 | DSL, App Platform & SDK | 0 / 14 | 0% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
@@ -54,8 +54,8 @@ Detailed closure contract: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`.
 | Security, Policy & Identity | `production-grade` | consumer + kiosk/IoT | `TASK-0289` boot trust floor, plus `TASK-0286`/`TASK-0287` wherever quota/resource claims depend on kernel truth |
 | Storage, PackageFS & Content | `production-grade` | consumer + kiosk/IoT | `TASK-0290` zero-copy closure, plus `TASK-0286`/`TASK-0287` for honest quota/resource enforcement |
 | Updates, Packaging & Recovery | `production-grade` | consumer + kiosk/IoT | `TASK-0289` boot trust floor for verified boot, anti-rollback, measured boot, and trusted recovery/update closure |
-| Bringup, Hardware & Drivers | `beta-floor` | hardware bringup beta | RISC-V `virt` closure, display/input/audio/battery/thermal/sensor bringup, driver contract proofs |
-| Windowing, UI & Graphics | `production-floor` | consumer | first-frame/present/input smoothness, surface reuse, no-trail/no-mosaic floor, frame-budget evidence |
+| Bringup, Hardware & Drivers | `beta-floor` | hardware bringup beta | RISC-V `virt` closure, display/audio/battery/thermal/sensor bringup, driver contract proofs |
+| Windowing, UI & Graphics | `production-floor` | consumer | live QEMU pointer/scroll/launcher proof, first-frame/present/input smoothness, SVG-source UI assets, no-trail/no-mosaic floor, frame-budget evidence |
 | Text, IME, I18N & Accessibility | `beta-floor` | consumer beta | deterministic text shaping, IME routing, locale switch, accessibility service spine |
 | Media & Creative | `beta-floor` | consumer beta | audiod/media-session baseline, bounded decode/capture paths, deterministic UX proofs |
 | Messaging, Search, Store & Sharing | `beta-floor` | consumer beta | search/share/notification/store baseline without authority drift or unbounded background work |
@@ -113,9 +113,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Accounts, Ability & Sessions
 
-- Progress: `0 / 8` done (`0%`)
+- Progress: `0 / 9` done (`0%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0065`, `TASK-0109`..`TASK-0110`, `TASK-0126B`, `TASK-0159`, `TASK-0223`..`TASK-0224`, `TASK-0235`
+- Tasks: `TASK-0065`, `TASK-0065B`, `TASK-0109`..`TASK-0110`, `TASK-0126B`, `TASK-0159`, `TASK-0223`..`TASK-0224`, `TASK-0235`
 
 ### Security, Policy & Identity
 
@@ -137,21 +137,21 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Bringup, Hardware & Drivers
 
-- Progress: `0 / 12` done (`0%`)
+- Progress: `0 / 11` done (`0%`)
 - Kernel-touch tasks: `TASK-0244`, `TASK-0251`
-- Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0253`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`
+- Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`
 
 ### Windowing, UI & Graphics
 
-- Progress: `4 / 73` done (`5%`)
+- Progress: `4 / 76` done (`5%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0275`
+- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
 ### Text, IME, I18N & Accessibility
 
-- Progress: `0 / 9` done (`0%`)
+- Progress: `0 / 7` done (`0%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0077`, `TASK-0146`..`TASK-0149`, `TASK-0151`, `TASK-0175`, `TASK-0240`..`TASK-0241`
+- Tasks: `TASK-0077`, `TASK-0148`..`TASK-0149`, `TASK-0151`, `TASK-0175`, `TASK-0240`..`TASK-0241`
 
 ### Media & Creative
 
@@ -173,9 +173,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### DevX, Config & Tooling
 
-- Progress: `2 / 10` done (`20%`)
+- Progress: `2 / 9` done (`22%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0045`..`TASK-0046`, `TASK-0138`, `TASK-0222`, `TASK-0252`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`
+- Tasks: `TASK-0045`..`TASK-0046`, `TASK-0138`, `TASK-0222`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`
 
 ## Done (Ongoing, Cumulative)
 
@@ -220,8 +220,8 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | Done | Composed-frame visible present proven (host full frame + OS row path) with QEMU marker ladder and closure gates green |
 | ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | Done | Host/reject/QEMU proofs and closure gates (`fmt-clippy-deny`, `test-all`, `ci-network`, `make clean/build/test/run`) are green |
 
-Current queue head: `TASK-0056B` / v2a visible input (cursor/focus/click) baseline follow-up.
-Current contract status: `RFC-0049` (`Done`, 2026-04-30) remains carry-in; `RFC-0050` is `Done` with `TASK-0056` execution closure complete.
+Current queue head: `TASK-0056B` / v2a visible input (cursor/hover/focus/click) baseline follow-up.
+Current contract status: `RFC-0051` is `In Progress`; 56B deterministic host/reject/QEMU proofs are green through `SELFTEST: ui visible input ok`; live QEMU pointer/keyboard moves to `TASK-0252`/`TASK-0253`; final quality gates remain pending explicit user approval.
 
 ---
 
@@ -238,7 +238,7 @@ QEMU window before the later display/system migration tasks fully land.
 | TASK-0055B | visible QEMU scanout bootstrap |
 | TASK-0055C | `windowd` visible present + SystemUI first frame |
 | TASK-0055D | deterministic QEMU dev display/profile presets (`phone/tablet/laptop/laptop-pro/convertible` + orientation + shell mode + Hz) |
-| TASK-0056B | visible input v0 (cursor/focus/click) |
+| TASK-0056B | visible input v0 (cursor/hover/focus/click) |
 | TASK-0056C | present/input perf polish (latency + coalescing + skip paths) |
 | TASK-0060B | glass materials + backdrop cache + deterministic degrade |
 | TASK-0062B | animation frame-budget discipline + canonical perf scenes |

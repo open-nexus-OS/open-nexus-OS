@@ -24,6 +24,10 @@ SystemUI migration is complete.
 This task intentionally extracts the **Launcher-first** slice from the later SystemUI DSL migration so app tasks in
 the `0081–0118` range can be tested against a visible shell.
 
+It is also the host-side shape of the Orbital-Level UX floor: desktop/shell/launcher are real
+SystemUI DSL surfaces, app launch uses `appmgrd`, and icons/vector art are SVG-sourced.
+OS/live-input proof lands in `TASK-0080C`.
+
 ## Goal
 
 Deliver:
@@ -38,6 +42,7 @@ Deliver:
    - deterministic background/wallpaper
    - launcher grid/list of apps from `appmgrd`
    - app launch action wiring
+   - SVG-sourced app/icon assets; PNGs only as derived goldens/snapshots
    - host fixtures may force a small baseline set of profiles/orientations (desktop, phone/tablet portrait/landscape)
      so the bootstrap shell is profile-aware from the start instead of becoming desktop-only by accident
 3. Canonical DSL page structure:
@@ -52,13 +57,15 @@ Deliver:
 - Full Quick Settings migration.
 - Notifications Center.
 - Media mini-player.
-- Session/login/auth.
+- Full session/login/auth; consume the greeter/dev-session floor from `TASK-0065B` once it exists.
 
 ## Constraints / invariants (hard requirements)
 
 - This is a real SystemUI shell path, not a temporary side app.
 - Launcher page becomes the base for `TASK-0119` rather than a disposable prototype.
 - App launch uses the real app lifecycle/service contract, not mock-only shell behavior.
+- Launcher state/action model must be ready for live pointer focus/hover/click in `TASK-0080C`.
+- SVG sources are canonical for shell/launcher icons.
 - Deterministic host fixtures for app list and shell state.
 
 ## Stop conditions (Definition of Done)
@@ -68,6 +75,7 @@ Deliver:
 - bootstrap shell/launcher DSL snapshots are stable
 - search/filter is deterministic
 - launcher tap emits the expected launch request
+- launcher visuals use SVG-source icons and stable hover/focus/pressed states
 
 ## Touched paths (allowlist)
 

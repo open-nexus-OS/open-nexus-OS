@@ -27,6 +27,10 @@ UI v5 introduces a retained, reactive runtime on top:
 - an animation timeline driven by vsync,
 - implicit transitions on common layer property changes.
 
+For the fast lane, at least one QEMU-visible transition must be triggered by real routed
+input from the `TASK-0253` live input path and `TASK-0056B` visible-affordance authority,
+not by a marker-only selftest call.
+
 This is v5a (runtime + animation + transitions). Virtualized list and theme tokens are v5b (`TASK-0063`).
 
 Sequencing note:
@@ -52,6 +56,9 @@ Deliver:
    - watch layer props (opacity/transform/shadow radius)
    - install default transitions if no explicit animator is active
    - respect reduced motion config
+4. Live input-triggered proof scene:
+   - hover/click/scroll state changes can start a visible transition,
+   - the transition remains bounded and deterministic in QEMU.
 
 ## Non-Goals
 
@@ -63,6 +70,7 @@ Deliver:
 
 - Deterministic batching and effect ordering (no re-entrancy surprises).
 - Bounded work per frame (caps on queued work items).
+- Input-triggered transitions must preserve `windowd` as input authority and may not observe raw device events directly.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points
@@ -87,6 +95,7 @@ Deliver:
 - implicit transitions:
   - property change triggers transition
   - reduced motion disables/shortens transitions deterministically
+  - live pointer-triggered state change produces a visible bounded transition in QEMU
 
 ### Proof (OS/QEMU) — gated
 
@@ -96,6 +105,7 @@ UART markers (order tolerant):
 - `uiruntime: batch commit ok (nodes=<n>)`
 - `uianim: timeline on`
 - `windowd: implicit transitions on`
+- `windowd: live transition ok`
 - `SELFTEST: ui v5 transition ok`
 - `SELFTEST: ui v5 spring ok`
 

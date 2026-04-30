@@ -258,16 +258,26 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/rules/10-security-services.mdc`
 
 ### @task_0056b_context
-- Status: `TASK-0056B` is `In Progress`; `RFC-0051` is `In Progress`; 55C/56 remain done carry-in baseline.
-- Scope baseline: visible cursor/focus/click proof on top of existing 56 routed input semantics.
+- Status: `TASK-0056B` is `In Progress`; `RFC-0051` is `In Progress`; 55C/56 remain done carry-in baseline. Host/reject/deterministic-QEMU 56B proofs are green; live QEMU pointer/keyboard input is moved to the immediate `TASK-0252`/`TASK-0253` lane.
+- Scope baseline: deterministic visible cursor/hover/focus/click proof on top of existing 56 routed input semantics, with `windowd` as the single hit-test/hover/focus/click authority.
+- Scope correction: host mouse/keyboard input must enter the guest through the real QEMU input pipeline in `TASK-0252`/`TASK-0253`; 56B must not grow an inputd-light path.
 - Gate alignment: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`).
-- Marker contract (56B target):
+- Fast-lane uplift: downstream UI/SystemUI tasks now target Orbital-Level UX without adopting Orbital architecture. Before `TASK-0119`/`TASK-0120` can claim desktop/launcher quality, the lane must prove greeter/dev-session, live pointer/keyboard basics (`TASK-0252`/`TASK-0253`), text/IME/OSK basics (`TASK-0146`/`TASK-0147` after `TASK-0059`), scroll, launcher/app-window flow, Quick Settings, and SVG-source assets.
+- Green proofs so far:
+  - `cargo test -p ui_v2a_host -- --nocapture`,
+  - `cargo test -p ui_v2a_host reject -- --nocapture`,
+  - `cargo test -p windowd -p launcher -- --nocapture`,
+  - `cargo test -p selftest-client -- --nocapture`,
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
+- Marker contract (56B deterministic):
   - `windowd: input visible on`
   - `windowd: cursor move visible`
+  - `windowd: hover visible`
   - `windowd: focus visible`
   - `launcher: click visible ok`
   - `SELFTEST: ui visible input ok`
-- Explicit non-claims: no HID/input device stack closure (`TASK-0253`), no perf/latency closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no kernel production-grade claim.
+- Pending before Done: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`.
+- Explicit non-claims: no live input pipeline (`TASK-0252`/`TASK-0253`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no kernel production-grade claim. `TASK-0056C` is still not part of 56B closure, but is now fast-lane required after live input before scroll/animation/launcher UX claims.
 - `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`
 - `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
 - `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`
@@ -284,6 +294,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `source/apps/selftest-client/`
 - `source/apps/selftest-client/proof-manifest/`
 - `scripts/qemu-test.sh`
+- `scripts/run-qemu-rv64.sh`
 - `docs/dev/ui/input/input.md`
 - `docs/dev/ui/foundations/quality/testing.md`
 - `docs/architecture/README.md`

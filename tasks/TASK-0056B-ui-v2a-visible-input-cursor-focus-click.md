@@ -1,5 +1,5 @@
 ---
-title: TASK-0056B UI v2a extension: visible input v0 (cursor + focus + click) in QEMU
+title: TASK-0056B UI v2a extension: visible input v0 (cursor + hover + focus + click) in QEMU
 status: In Progress
 owner: @ui
 created: 2026-03-28
@@ -7,10 +7,11 @@ depends-on:
   - TASK-0055C
   - TASK-0056
 follow-up-tasks:
+  - TASK-0252
+  - TASK-0253
   - TASK-0056C
   - TASK-0199
   - TASK-0200
-  - TASK-0253
   - TASK-0251
 links:
   - Vision: docs/agents/VISION.md
@@ -26,15 +27,17 @@ links:
 
 ## Context
 
-After `windowd` becomes visible, the next blocker for meaningful UI/app testing is interaction.
-We need the smallest possible visible input slice that proves:
+After `windowd` becomes visible, the next blocker for meaningful UI/app testing is visible
+interaction state. This task proves the smallest deterministic QEMU-visible input surface:
 
-- pointer movement is visible,
-- focus changes are visible,
-- a click can trigger a real UI response.
+- routed pointer movement changes a visible cursor location,
+- routed hover/focus changes are visible,
+- a routed click triggers a real UI response.
 
-This task intentionally stays above the full low-level input device stack. It is the earliest visually testable bridge
-from visible shell bring-up to later `inputd`/HID work.
+The real live QEMU device pipeline is intentionally not implemented in 56B. It now follows
+immediately in `TASK-0252` (host input core) and `TASK-0253` (OS/QEMU `inputd`/HID pipeline),
+so later text, scrolling, animation, and launcher work build on a proper input architecture
+instead of a 56B-only inputd-light path.
 
 ## Goal
 
@@ -42,17 +45,22 @@ Deliver:
 
 1. Visible pointer/cursor v0:
    - render a deterministic software cursor or focus pointer indicator
-   - pointer movement updates the visible location in the QEMU window
+   - deterministic routed pointer movement updates the cursor in the QEMU-visible proof
 2. Visible focus model:
+   - hovering a surface produces a deterministic hover affordance
    - clicking a surface transfers focus
    - focused surface shows a deterministic visual affordance
 3. Minimal click proof:
-   - a launcher tile/button/highlight can be clicked and visibly changes state
+   - a deterministic routed click sequence changes a launcher tile/button/highlight visibly
    - keep the interaction bounded and deterministic
+4. Deterministic regression proof:
+   - scripted/selftest pointer injection is the 56B proof surface
+   - live QEMU pointer/device proof is owned by the immediately following `TASK-0252`/`TASK-0253` lane
 
 ## Non-Goals
 
-- Full HID stack.
+- Full HID/touch stack or any minimal QEMU pointer device path.
+- Keyboard/keymaps/key repeat.
 - Text entry / IME.
 - Drag-and-drop.
 - Gesture recognition.
@@ -62,13 +70,14 @@ Deliver:
 
 - No second input model; extend the same routing model as `TASK-0056`.
 - Visible cursor/focus must reflect real routing, not a fake overlay disconnected from hit-testing.
-- Deterministic pointer sequences in selftests.
+- Deterministic pointer sequences are the 56B closure proof; live QEMU pointer events move to `TASK-0253`.
 - Keep the proof surface tiny: one clickable surface is enough.
 
 ## Security / authority invariants
 
 - `windowd` remains the single authority for hit-test, focus transitions, and input delivery.
 - Visible cursor/focus state is derived from routed input state, not from client-local overlays.
+- Future `inputd`/HID services from `TASK-0253` are event sources/normalizers; they must not own hit-test, hover, focus, or click success.
 - Stale/unauthorized surface references remain fail-closed with stable error classes.
 - Input event queue and pointer trail state remain bounded to prevent unbounded growth/DoS behavior.
 - Markers expose only bounded metadata (surface ids/seq/counters), never raw input payload dumps.
@@ -79,17 +88,21 @@ Deliver:
   - a cursor drawn from selftest/launcher without routed state would produce fake visual green.
 - **YELLOW (marker dishonesty risk)**:
   - `visible ok` markers could appear before real focus/click transition if not post-state gated.
+- **RED (fake live-input claim risk)**:
+  - deterministic selftest `route_pointer_*` calls must not be documented as live host-mouse input.
+  - `Done` for 56B may claim only deterministic visible input; live device input is a blocker for `TASK-0253`, not this task.
 - **YELLOW (scope drift risk)**:
-  - 56B can drift into HID stack, latency tuning, or WM-lite semantics.
+  - 56B can drift into full HID/touch/keymap/IME stack, latency tuning, or WM-lite semantics.
 - **YELLOW (authority drift risk)**:
   - adding a second input lane outside `windowd` would violate 56/50 carry-in.
 
 Red-flag mitigation now:
 
 - require host assertions for routed pointer/focus/click state and visible-state coupling,
+- explicitly schedule live QEMU input immediately after 56B via `TASK-0252`/`TASK-0253`,
 - gate visible markers on post-state evidence from `windowd` + proof-surface state,
-- keep one `windowd` authority path for input semantics,
-- defer HID/IME/perf/WM breadth to explicit follow-up tasks.
+- keep one `windowd` authority path for hit-test/hover/focus/click semantics,
+- defer full HID/touch/keymap/IME/perf/WM breadth to explicit follow-up tasks.
 
 ## Gate E quality mapping (TRACK alignment)
 
@@ -97,11 +110,13 @@ Red-flag mitigation now:
 56 from routed-but-nonvisual input semantics to deterministic visible input proof in QEMU:
 
 - visible pointer motion tied to routed pointer state,
+- deterministic QEMU-visible cursor movement tied to routed pointer state,
+- visible hover affordance tied to hit-test state,
 - visible focus affordance tied to focus transfer,
 - visible click response tied to real routed click delivery.
 
 It must not claim Gate A/B/C/D kernel/core production-grade closure and must not absorb
-`TASK-0056C` or `TASK-0199`/`TASK-0200` scope.
+`TASK-0252`/`TASK-0253`, `TASK-0056C`, or `TASK-0199`/`TASK-0200`.
 
 ## Stop conditions (Definition of Done)
 
@@ -111,6 +126,7 @@ UART markers:
 
 - `windowd: input visible on`
 - `windowd: cursor move visible`
+- `windowd: hover visible`
 - `windowd: focus visible`
 - `launcher: click visible ok`
 - `SELFTEST: ui visible input ok`
@@ -123,8 +139,38 @@ UART markers:
 
 Visual proof:
 
-- pointer movement is visible in the QEMU window
+- the deterministic proof sequence shows pointer movement in the QEMU window
+- hovering the proof surface changes visible hover state
 - clicking the proof surface changes visible state
+- the QEMU-visible proof must show at least two deterministic pointer locations,
+  not just a static final pixel
+- live host-mouse interaction is explicitly deferred to the next input tasks, not claimed by 56B
+
+### Evidence so far (2026-04-30)
+
+- Implemented in the existing `windowd` authority path:
+  - `windowd`-owned pointer position via routed pointer movement,
+  - deterministic cursor pixels and focus affordance in `windowd` composition,
+  - launcher visible-click marker gated on `windowd` visible input evidence.
+- Host proofs green:
+  - `cargo test -p ui_v2a_host -- --nocapture` — 19 tests,
+  - `cargo test -p ui_v2a_host reject -- --nocapture` — 12 reject-filtered tests,
+  - `cargo test -p windowd -p launcher -- --nocapture` — 15 tests.
+- OS/QEMU deterministic proof green:
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` accepted through
+    `SELFTEST: ui visible input ok`.
+- The QEMU proof writes the 56B `windowd`-composed visible-input frame to the same `ramfb`
+  target after the visible SystemUI present baseline. No separate input authority was added.
+- Follow-up visual-proof investigation found and fixed a fake-green root cause in
+  `selftest-client`: the QEMU `etc/ramfb` config is now written in the required
+  `addr, fourcc, flags, width, height, stride` ABI order before markers are accepted.
+- Follow-up human-visibility fix scales the tiny `windowd` 64x48 visible-input proof
+  to the 1280x800 `ramfb` scanout and writes a three-stage sequence:
+  cursor start position, hover/cursor end position, then final focus/click state.
+- Scope correction after review: real host-mouse/device input is not integrated into 56B.
+  It is moved directly after 56B as `TASK-0252` + `TASK-0253`.
+- Remaining before `Done`: rerun/confirm focused 56B proofs, then run the quality gates below
+  when explicitly approved.
 
 Quality gates required before `Done`:
 
@@ -149,7 +195,7 @@ Quality gates required before `Done`:
 
 ## Plan (small PRs)
 
-1. visible cursor/focus affordance in `windowd`-owned render path
+1. visible cursor/focus/hover affordance in `windowd`-owned render path
 2. click proof surface in shell/launcher with post-state marker gating
-3. host + reject tests plus visible-bootstrap QEMU marker ladder
-4. docs/status sync with explicit non-claims and follow-up scope
+3. host + reject tests plus deterministic visible-bootstrap QEMU marker ladder
+4. docs/status sync with explicit non-claims and immediate `TASK-0252`/`TASK-0253` follow-up scope

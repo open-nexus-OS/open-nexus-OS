@@ -105,6 +105,26 @@ This is the anti-fake-success gate.
 - [ ] `just ci-network` is green.
 - [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
 
+## Task-0056B automatic addendum (when applicable)
+- [x] `cargo test -p ui_v2a_host -- --nocapture` is green for deterministic visible cursor/hover/focus/click assertions.
+- [x] `cargo test -p ui_v2a_host reject -- --nocapture` is green for required visible-input reject paths.
+- [x] `cargo test -p windowd -p launcher -- --nocapture` is green for marker and click coupling.
+- [x] `cargo test -p selftest-client -- --nocapture` is green after visible-input QEMU wiring.
+- [x] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green for the deterministic 56B marker profile.
+- [x] Deterministic 56B markers appear only after real routed and visible state transitions:
+  - [x] `windowd: input visible on`
+  - [x] `windowd: cursor move visible`
+  - [x] `windowd: hover visible`
+  - [x] `windowd: focus visible`
+  - [x] `launcher: click visible ok`
+  - [x] `SELFTEST: ui visible input ok`
+- [x] 56B does not emit live-input markers or claim live host pointer input.
+- [ ] `TASK-0252`/`TASK-0253` remain queued immediately after 56B for live QEMU pointer/keyboard proof.
+- [ ] `scripts/fmt-clippy-deny.sh` is green (pending explicit user approval to run).
+- [ ] `just test-all` is green (pending explicit user approval to run).
+- [ ] `just ci-network` is green (pending explicit user approval to run).
+- [ ] `make clean` -> `make build` -> `make test` -> `make run` is green (pending explicit user approval to run).
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks

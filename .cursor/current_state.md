@@ -8,7 +8,7 @@
   - JSON remains authoring/validation plus derived CLI/debug view only,
   - deterministic layering stays `defaults < /system < /state < env`,
   - `configd` owns deterministic reload/version transitions and honest 2PC semantics.
-- **gate tier**: UI closure remains in Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. `TASK-0056` closes deterministic present scheduler + input-routing baseline; 56B/56C/0199/0200 and kernel lanes remain explicit follow-ups.
+- **gate tier**: UI closure remains in Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. `TASK-0056` closes deterministic present scheduler + input-routing baseline; `TASK-0056B` closes deterministic visible cursor/hover/focus/click proof; `TASK-0252`/`TASK-0253` are pulled directly after it for live QEMU input; `TASK-0056C` follows for responsiveness before scroll/animation/launcher UX claims; 0199/0200 plus kernel lanes remain explicit follow-ups.
 
 ## Active execution state
 
@@ -46,12 +46,33 @@
 - Closure gate reruns are green: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 - Scope boundary remains unchanged: no `TASK-0056B` cursor polish, no `TASK-0056C` perf/latency closure, no `TASK-0199`/`TASK-0200` WM-v2 breadth, no kernel production-grade claim, and no independent screenshot/GTK visual-proof claim.
 
-## TASK-0056B preparation state
+## TASK-0056B implementation state
 
-- `TASK-0056B` is the active prep task (`In Progress`) with `RFC-0051` as contract seed (`In Progress`).
-- Prep scope is explicit and minimal: visible cursor movement, visible focus transfer, and one deterministic visible click response in QEMU.
-- Authority/security baseline is frozen for prep: no second input lane outside `windowd`, fail-closed stale/unauthorized routes, bounded input state, and marker honesty for visible-input markers.
-- Follow-up ownership remains explicit: `TASK-0056C` (perf/latency), `TASK-0199`/`TASK-0200` (WM/compositor-v2 breadth), `TASK-0253` (HID/input OS path), `TASK-0251` (display service integration).
+- `TASK-0056B` remains `In Progress` with `RFC-0051` as `In Progress`; host/reject/deterministic-QEMU proof phases are green and live QEMU input has been re-scoped to the immediate `TASK-0252`/`TASK-0253` follow-up lane.
+- Implemented in the existing `windowd` authority path:
+  - routed pointer movement records bounded pointer state and produces deterministic visible cursor pixels,
+  - routed pointer-down transfers focus and renders deterministic focus affordance pixels,
+  - launcher visible-click marker is a proof consumer gated on `windowd` visible input evidence.
+- Proofs green so far for the deterministic visible-input route:
+  - `cargo test -p ui_v2a_host -- --nocapture` — 19 tests,
+  - `cargo test -p ui_v2a_host reject -- --nocapture` — 12 reject-filtered tests,
+  - `cargo test -p windowd -p launcher -- --nocapture` — 15 tests,
+  - `cargo test -p selftest-client -- --nocapture`,
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` accepted through `SELFTEST: ui visible input ok`.
+- Follow-up visual-proof investigation fixed a fake-green root cause: `selftest-client`
+  now writes QEMU `etc/ramfb` config fields in the required ABI order
+  (`addr, fourcc, flags, width, height, stride`) instead of treating DMA completion as
+  sufficient display initialization evidence.
+- Human-visibility follow-up: the 64x48 `windowd` visible-input proof is scaled to the
+  1280x800 `ramfb` scanout and now writes cursor-start, hover/cursor-end, and final
+  focus/click frames before emitting visible-input success.
+- Scope correction after review: live host mouse/keyboard in the QEMU GTK window is no longer a 56B requirement.
+  Required live-input work moves to `TASK-0252`/`TASK-0253`: proper QEMU pointer/keyboard sources,
+  bounded dispatch into `windowd`/IME, visible hover/click state, and markers that cannot be
+  satisfied by deterministic selftest injection alone.
+- Deferred by explicit user instruction: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
+- Scope remains explicit: no `TASK-0252`/`TASK-0253` live input pipeline in 56B, no `TASK-0056C` perf/latency, no `TASK-0199`/`TASK-0200` WM/compositor-v2 breadth, no `TASK-0251` display service integration, and no kernel production-grade claim.
+- Fast-lane uplift after user review: downstream UI/SystemUI tasks now carry an Orbital-Level UX gate using Open Nexus/OHOS/Zircon-style authorities. Before `TASK-0119`/`TASK-0120` can claim desktop/launcher quality, the lane must prove visible greeter/dev-session, live pointer/keyboard basics (`TASK-0252`/`TASK-0253`), text/IME/OSK basics (`TASK-0146`/`TASK-0147` after `TASK-0059`), scroll, launcher/app-window flow, Quick Settings, and SVG-source UI assets without adopting Orbital architecture.
 
 ## Locked carry-in constraints from TASK-0046
 
@@ -172,7 +193,7 @@
 - **Future task expectations**:
   - `TASK-0055C` may assume QEMU can expose a fixed visible `ramfb` target and that `selftest-client` can configure it, but must still wire real `windowd`/SystemUI output to that target and replace the bootstrap pattern claim with visible `windowd` present proof.
   - `TASK-0251` still owns fuller display OS integration / `fbdevd`; no dirty-rect service, display settings, cursor, hotplug, or production display daemon claim exists here.
-  - `TASK-0056B` still owns input routing/focus/click/cursor.
+  - `TASK-0056B` owns deterministic visible cursor/hover/focus/click affordances; live input routing remains `TASK-0252`/`TASK-0253`.
   - `TASK-0055D` still owns rich dev display/start-profile presets; `visible-bootstrap` must not be reused as a SystemUI start profile.
   - `TASK-0288`/`TASK-0290` and related kernel lanes still own perf/latency and zero-copy/kernel production-grade closure.
 

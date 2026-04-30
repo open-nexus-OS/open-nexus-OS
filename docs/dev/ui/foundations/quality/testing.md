@@ -176,3 +176,39 @@ This slice does not prove visible cursor polish, real HID/touch device input,
 click-to-frame latency budgets, WM-lite behavior, screenshot/GTK refresh
 evidence, GPU/display-driver integration, or kernel/MM/zero-copy production
 closure.
+
+## TASK-0056B visible input cursor/hover/focus/click
+
+TASK-0056B adds the first deterministic QEMU-visible input floor on top of the
+v2a routing baseline. Host tests assert deterministic pixels and state
+transitions; live QEMU pointer/keyboard input follows immediately in
+`TASK-0252`/`TASK-0253`:
+
+```bash
+cargo test -p ui_v2a_host -- --nocapture
+cargo test -p ui_v2a_host reject -- --nocapture
+cargo test -p windowd -p launcher -- --nocapture
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
+```
+
+The host proof covers cursor pixels, focus affordance pixels, and clicked-surface
+pixels in `windowd`-composed frames. Required reject coverage includes
+pre-state marker rejection, out-of-bounds pointer movement, no committed hit
+surface, stale and unauthorized surface references, bounded input queue
+overflow, and launcher visible-click marker rejection without a visible state
+change.
+
+Expected visible-input marker ladder under `visible-bootstrap`:
+
+- `windowd: input visible on`
+- `windowd: cursor move visible`
+- `windowd: hover visible`
+- `windowd: focus visible`
+- `launcher: click visible ok`
+- `SELFTEST: ui visible input ok`
+
+The QEMU path writes the 56B `windowd`-composed visible-input frames into the
+same `ramfb` target after the visible SystemUI present baseline: cursor-start,
+hover/cursor-end, then final focus/click. This is a deterministic visible
+affordance floor, not a live HID/touch/keymap/IME, gesture, perf, WM-v2, or
+kernel-production closure claim.

@@ -27,6 +27,9 @@ pub const VISIBLE_BOOTSTRAP_WIDTH: u32 = 1280;
 pub const VISIBLE_BOOTSTRAP_HEIGHT: u32 = 800;
 pub const VISIBLE_BOOTSTRAP_HZ: u16 = 60;
 pub const VISIBLE_BOOTSTRAP_FORMAT: PixelFormat = PixelFormat::Bgra8888;
+pub const VISIBLE_CURSOR_BGRA: [u8; 4] = [0xff, 0xff, 0xff, 0xff];
+pub const VISIBLE_HOVER_BGRA: [u8; 4] = [0x30, 0xa0, 0xff, 0xff];
+pub const VISIBLE_FOCUS_BGRA: [u8; 4] = [0x00, 0xff, 0xff, 0xff];
 const MAX_BACK_BUFFERS_PER_SURFACE: usize = 2;
 const MAX_FENCES: usize = 64;
 const MAX_INPUT_EVENTS: usize = 32;
@@ -69,6 +72,7 @@ pub struct PresentFenceStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEventKind {
+    PointerMove { x: i32, y: i32 },
     PointerDown,
     Keyboard { key_code: u32 },
 }
@@ -78,6 +82,12 @@ pub struct InputDelivery {
     pub seq: InputSeq,
     pub surface: SurfaceId,
     pub kind: InputEventKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointerPosition {
+    pub x: i32,
+    pub y: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +110,11 @@ pub struct WindowdConfig {
 
 impl Default for WindowdConfig {
     fn default() -> Self {
-        Self { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT, hz: DEFAULT_HZ }
+        Self {
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
+            hz: DEFAULT_HZ,
+        }
     }
 }
 
@@ -145,7 +159,10 @@ struct PendingPresent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FenceState {
     Pending,
-    Signaled { present_seq: PresentSeq, coalesced: bool },
+    Signaled {
+        present_seq: PresentSeq,
+        coalesced: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +194,7 @@ pub struct WindowServer {
     input_enabled: bool,
     scheduler_enabled: bool,
     last_pointer_hit: Option<SurfaceId>,
+    pointer_position: Option<PointerPosition>,
 }
 
 impl WindowServer {
@@ -206,6 +224,7 @@ impl WindowServer {
             input_enabled: false,
             scheduler_enabled: false,
             last_pointer_hit: None,
+            pointer_position: None,
         })
     }
 
@@ -240,8 +259,10 @@ impl WindowServer {
         }
         validate_buffer(caller, &buffer)?;
         let id = SurfaceId::new(self.next_surface_id);
-        self.next_surface_id =
-            self.next_surface_id.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        self.next_surface_id = self
+            .next_surface_id
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         self.surfaces.push(Surface {
             id,
             owner: caller.caller_id(),
@@ -263,7 +284,9 @@ impl WindowServer {
     ) -> Result<()> {
         validate_buffer(caller, &buffer)?;
         validate_damage(buffer.width, buffer.height, damage)?;
-        let surface = self.surface_mut(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        let surface = self
+            .surface_mut(surface_id)
+            .ok_or(WindowdError::StaleSurfaceId)?;
         if surface.owner != caller.caller_id() {
             return Err(WindowdError::Unauthorized);
         }
@@ -285,7 +308,9 @@ impl WindowServer {
     ) -> Result<()> {
         validate_buffer(caller, &buffer)?;
         validate_damage(buffer.width, buffer.height, damage)?;
-        let surface = self.surface_mut(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        let surface = self
+            .surface_mut(surface_id)
+            .ok_or(WindowdError::StaleSurfaceId)?;
         if surface.owner != caller.caller_id() {
             return Err(WindowdError::Unauthorized);
         }
@@ -306,14 +331,18 @@ impl WindowServer {
             return Err(WindowdError::InvalidFrameIndex);
         }
         validate_buffer(caller, &buffer)?;
-        let surface = self.surface_mut(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        let surface = self
+            .surface_mut(surface_id)
+            .ok_or(WindowdError::StaleSurfaceId)?;
         if surface.owner != caller.caller_id() {
             return Err(WindowdError::Unauthorized);
         }
         if surface.buffer.width != buffer.width || surface.buffer.height != buffer.height {
             return Err(WindowdError::InvalidDimensions);
         }
-        if surface.last_presented_frame.is_some_and(|last| frame_index <= last)
+        if surface
+            .last_presented_frame
+            .is_some_and(|last| frame_index <= last)
             || surface
                 .pending_present
                 .as_ref()
@@ -321,15 +350,25 @@ impl WindowServer {
         {
             return Err(WindowdError::StalePresentSequence);
         }
-        if surface.back_buffers.iter().any(|back| back.frame_index == frame_index) {
+        if surface
+            .back_buffers
+            .iter()
+            .any(|back| back.frame_index == frame_index)
+        {
             return Err(WindowdError::InvalidFrameIndex);
         }
         if surface.back_buffers.len() >= MAX_BACK_BUFFERS_PER_SURFACE {
             return Err(WindowdError::SchedulerQueueFull);
         }
-        surface.back_buffers.push(BackBuffer { frame_index, buffer });
+        surface.back_buffers.push(BackBuffer {
+            frame_index,
+            buffer,
+        });
         self.scheduler_enabled = true;
-        Ok(BackBufferLease { surface: surface_id, frame_index })
+        Ok(BackBufferLease {
+            surface: surface_id,
+            frame_index,
+        })
     }
 
     pub fn present_frame(
@@ -342,11 +381,15 @@ impl WindowServer {
         if frame_index.raw() == 0 {
             return Err(WindowdError::InvalidFrameIndex);
         }
-        let surface_idx = self.surface_index(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        let surface_idx = self
+            .surface_index(surface_id)
+            .ok_or(WindowdError::StaleSurfaceId)?;
         if self.surfaces[surface_idx].owner != caller.caller_id() {
             return Err(WindowdError::Unauthorized);
         }
-        if self.surfaces[surface_idx].last_presented_frame.is_some_and(|last| frame_index <= last)
+        if self.surfaces[surface_idx]
+            .last_presented_frame
+            .is_some_and(|last| frame_index <= last)
             || self.surfaces[surface_idx]
                 .pending_present
                 .as_ref()
@@ -375,8 +418,10 @@ impl WindowServer {
             return Err(WindowdError::SchedulerQueueFull);
         }
         let fence_id = FenceId::new(self.next_fence_id);
-        self.next_fence_id =
-            self.next_fence_id.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        self.next_fence_id = self
+            .next_fence_id
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         let surface = &mut self.surfaces[surface_idx];
         let back = surface.back_buffers.remove(back_idx);
         let mut coalesced_fences = Vec::new();
@@ -385,8 +430,10 @@ impl WindowServer {
         if let Some(previous) = surface.pending_present.take() {
             coalesced_fences.extend_from_slice(&previous.coalesced_fences);
             coalesced_fences.push(previous.fence_id);
-            coalesced_frames =
-                previous.coalesced_frames.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+            coalesced_frames = previous
+                .coalesced_frames
+                .checked_add(1)
+                .ok_or(WindowdError::ArithmeticOverflow)?;
             merged_damage.extend_from_slice(&previous.damage);
         }
         merged_damage.extend_from_slice(damage);
@@ -399,9 +446,16 @@ impl WindowServer {
             coalesced_frames,
             coalesced_fences,
         });
-        self.fences.push(FenceRecord { id: fence_id, frame_index, state: FenceState::Pending });
+        self.fences.push(FenceRecord {
+            id: fence_id,
+            frame_index,
+            state: FenceState::Pending,
+        });
         self.scheduler_enabled = true;
-        Ok(PresentFrameAck { fence_id, frame_index })
+        Ok(PresentFrameAck {
+            fence_id,
+            frame_index,
+        })
     }
 
     pub fn commit_scene(
@@ -427,8 +481,10 @@ impl WindowServer {
         let mut next_layers = layers.to_vec();
         next_layers.sort_by_key(|layer| (layer.z, layer.surface.raw()));
         self.layers = next_layers;
-        self.next_commit_seq =
-            self.next_commit_seq.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        self.next_commit_seq = self
+            .next_commit_seq
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         Ok(())
     }
 
@@ -441,10 +497,14 @@ impl WindowServer {
             return Ok(None);
         }
         let frame = self.compose_frame()?;
-        let ack =
-            PresentAck { seq: PresentSeq::new(self.next_present_seq), damage_rects: damage_count };
-        self.next_present_seq =
-            self.next_present_seq.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        let ack = PresentAck {
+            seq: PresentSeq::new(self.next_present_seq),
+            damage_rects: damage_count,
+        };
+        self.next_present_seq = self
+            .next_present_seq
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         for surface in &mut self.surfaces {
             surface.damage.clear();
         }
@@ -463,10 +523,14 @@ impl WindowServer {
         }
         #[cfg(not(all(nexus_env = "os", target_os = "none")))]
         let frame = self.compose_frame()?;
-        let ack =
-            PresentAck { seq: PresentSeq::new(self.next_present_seq), damage_rects: damage_count };
-        self.next_present_seq =
-            self.next_present_seq.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        let ack = PresentAck {
+            seq: PresentSeq::new(self.next_present_seq),
+            damage_rects: damage_count,
+        };
+        self.next_present_seq = self
+            .next_present_seq
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         for surface in &mut self.surfaces {
             surface.damage.clear();
         }
@@ -482,8 +546,10 @@ impl WindowServer {
         if self.layers.is_empty() {
             return Err(WindowdError::NoCommittedScene);
         }
-        self.scheduler_tick =
-            self.scheduler_tick.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        self.scheduler_tick = self
+            .scheduler_tick
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         let mut damage_count: usize = 0;
         let mut coalesced_frames: u16 = 0;
         let mut fences_to_signal: Vec<(FenceId, bool)> = Vec::new();
@@ -515,8 +581,10 @@ impl WindowServer {
             u16::try_from(damage_count).map_err(|_| WindowdError::TooManyDamageRects)?;
         let frame = self.compose_frame()?;
         let present_seq = PresentSeq::new(self.next_present_seq);
-        self.next_present_seq =
-            self.next_present_seq.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        self.next_present_seq = self
+            .next_present_seq
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         for (fence_id, coalesced) in &fences_to_signal {
             self.signal_fence(*fence_id, present_seq, *coalesced);
         }
@@ -538,7 +606,10 @@ impl WindowServer {
             latency_ms,
         };
         self.last_frame = Some(frame);
-        self.last_present = Some(PresentAck { seq: present_seq, damage_rects });
+        self.last_present = Some(PresentAck {
+            seq: present_seq,
+            damage_rects,
+        });
         self.last_scheduled_present = Some(ack);
         self.scheduler_enabled = true;
         Ok(Some(ack))
@@ -552,7 +623,10 @@ impl WindowServer {
             .ok_or(WindowdError::StalePresentSequence)?;
         let (signaled, coalesced, present_seq) = match record.state {
             FenceState::Pending => (false, false, None),
-            FenceState::Signaled { present_seq, coalesced } => (true, coalesced, Some(present_seq)),
+            FenceState::Signaled {
+                present_seq,
+                coalesced,
+            } => (true, coalesced, Some(present_seq)),
         };
         Ok(PresentFenceStatus {
             fence_id: record.id,
@@ -577,15 +651,30 @@ impl WindowServer {
         caller: CallerCtx,
         surface_id: SurfaceId,
     ) -> Result<InputStubStatus> {
-        let surface = self.surface(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        let surface = self
+            .surface(surface_id)
+            .ok_or(WindowdError::StaleSurfaceId)?;
         if surface.owner != caller.caller_id() {
             return Err(WindowdError::Unauthorized);
         }
         Ok(InputStubStatus::UnsupportedStub)
     }
 
-    pub fn route_pointer_down(&mut self, x: i32, y: i32) -> Result<InputDelivery> {
+    pub fn route_pointer_move(&mut self, x: i32, y: i32) -> Result<InputDelivery> {
+        let position = self.validate_pointer_position(x, y)?;
         let surface_id = self.hit_test(x, y).ok_or(WindowdError::StaleSurfaceId)?;
+        self.ensure_input_capacity()?;
+        self.pointer_position = Some(position);
+        self.last_pointer_hit = Some(surface_id);
+        self.input_enabled = true;
+        self.push_input_delivery(surface_id, InputEventKind::PointerMove { x, y })
+    }
+
+    pub fn route_pointer_down(&mut self, x: i32, y: i32) -> Result<InputDelivery> {
+        let position = self.validate_pointer_position(x, y)?;
+        let surface_id = self.hit_test(x, y).ok_or(WindowdError::StaleSurfaceId)?;
+        self.ensure_input_capacity()?;
+        self.pointer_position = Some(position);
         self.focused_surface = Some(surface_id);
         self.last_pointer_hit = Some(surface_id);
         self.input_enabled = true;
@@ -597,6 +686,7 @@ impl WindowServer {
         if self.surface(surface_id).is_none() {
             return Err(WindowdError::StaleSurfaceId);
         }
+        self.ensure_input_capacity()?;
         self.input_enabled = true;
         self.push_input_delivery(surface_id, InputEventKind::Keyboard { key_code })
     }
@@ -606,7 +696,9 @@ impl WindowServer {
         caller: CallerCtx,
         surface_id: SurfaceId,
     ) -> Result<Vec<InputDelivery>> {
-        let surface = self.surface(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        let surface = self
+            .surface(surface_id)
+            .ok_or(WindowdError::StaleSurfaceId)?;
         if surface.owner != caller.caller_id() {
             return Err(WindowdError::Unauthorized);
         }
@@ -643,8 +735,22 @@ impl WindowServer {
         self.last_pointer_hit
     }
 
+    pub const fn pointer_position(&self) -> Option<PointerPosition> {
+        self.pointer_position
+    }
+
+    pub fn render_visible_input_frame(&mut self) -> Result<Frame> {
+        if self.layers.is_empty() {
+            return Err(WindowdError::NoCommittedScene);
+        }
+        let frame = self.compose_frame()?;
+        self.last_frame = Some(frame.clone());
+        Ok(frame)
+    }
+
     pub fn marker_evidence(&self) -> Result<PresentAck> {
-        self.last_present.ok_or(WindowdError::MarkerBeforePresentState)
+        self.last_present
+            .ok_or(WindowdError::MarkerBeforePresentState)
     }
 
     pub fn last_frame(&self) -> Option<&Frame> {
@@ -654,8 +760,9 @@ impl WindowServer {
     fn total_damage_count(&self) -> Result<u16> {
         let mut total: usize = 0;
         for surface in &self.surfaces {
-            total =
-                total.checked_add(surface.damage.len()).ok_or(WindowdError::ArithmeticOverflow)?;
+            total = total
+                .checked_add(surface.damage.len())
+                .ok_or(WindowdError::ArithmeticOverflow)?;
         }
         u16::try_from(total).map_err(|_| WindowdError::TooManyDamageRects)
     }
@@ -670,9 +777,12 @@ impl WindowServer {
             pixels: vec![0u8; len],
         };
         for layer in &self.layers {
-            let surface = self.surface(layer.surface).ok_or(WindowdError::StaleSurfaceId)?;
+            let surface = self
+                .surface(layer.surface)
+                .ok_or(WindowdError::StaleSurfaceId)?;
             blit_surface(&mut out, layer, &surface.buffer)?;
         }
+        self.draw_visible_input_affordances(&mut out)?;
         Ok(out)
     }
 
@@ -690,7 +800,10 @@ impl WindowServer {
 
     fn signal_fence(&mut self, fence_id: FenceId, present_seq: PresentSeq, coalesced: bool) {
         if let Some(record) = self.fences.iter_mut().find(|record| record.id == fence_id) {
-            record.state = FenceState::Signaled { present_seq, coalesced };
+            record.state = FenceState::Signaled {
+                present_seq,
+                coalesced,
+            };
         }
     }
 
@@ -706,6 +819,53 @@ impl WindowServer {
         None
     }
 
+    fn validate_pointer_position(&self, x: i32, y: i32) -> Result<PointerPosition> {
+        let width =
+            i32::try_from(self.config.width).map_err(|_| WindowdError::InvalidDimensions)?;
+        let height =
+            i32::try_from(self.config.height).map_err(|_| WindowdError::InvalidDimensions)?;
+        if x < 0 || y < 0 || x >= width || y >= height {
+            return Err(WindowdError::InvalidPointerPosition);
+        }
+        Ok(PointerPosition { x, y })
+    }
+
+    fn ensure_input_capacity(&self) -> Result<()> {
+        if self.input_events.len() >= MAX_INPUT_EVENTS {
+            return Err(WindowdError::InputEventQueueFull);
+        }
+        Ok(())
+    }
+
+    fn draw_visible_input_affordances(&self, frame: &mut Frame) -> Result<()> {
+        if let Some(hovered) = self.last_pointer_hit {
+            for layer in self.layers.iter().rev() {
+                if layer.surface != hovered {
+                    continue;
+                }
+                if let Some(surface) = self.surface(layer.surface) {
+                    draw_hover_border(frame, layer, surface.buffer.width, surface.buffer.height)?;
+                }
+                break;
+            }
+        }
+        if let Some(focused) = self.focused_surface {
+            for layer in self.layers.iter().rev() {
+                if layer.surface != focused {
+                    continue;
+                }
+                if let Some(surface) = self.surface(layer.surface) {
+                    draw_focus_border(frame, layer, surface.buffer.width, surface.buffer.height)?;
+                }
+                break;
+            }
+        }
+        if let Some(position) = self.pointer_position {
+            draw_cursor(frame, position)?;
+        }
+        Ok(())
+    }
+
     fn push_input_delivery(
         &mut self,
         surface: SurfaceId,
@@ -715,10 +875,81 @@ impl WindowServer {
             return Err(WindowdError::InputEventQueueFull);
         }
         let seq = InputSeq::new(self.next_input_seq);
-        self.next_input_seq =
-            self.next_input_seq.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
+        self.next_input_seq = self
+            .next_input_seq
+            .checked_add(1)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         let delivery = InputDelivery { seq, surface, kind };
         self.input_events.push(delivery);
         Ok(delivery)
     }
+}
+
+fn draw_hover_border(frame: &mut Frame, layer: &Layer, width: u32, height: u32) -> Result<()> {
+    draw_border(frame, layer, width, height, VISIBLE_HOVER_BGRA)
+}
+
+fn draw_focus_border(frame: &mut Frame, layer: &Layer, width: u32, height: u32) -> Result<()> {
+    draw_border(frame, layer, width, height, VISIBLE_FOCUS_BGRA)
+}
+
+fn draw_border(
+    frame: &mut Frame,
+    layer: &Layer,
+    width: u32,
+    height: u32,
+    bgra: [u8; 4],
+) -> Result<()> {
+    let width = i32::try_from(width).map_err(|_| WindowdError::InvalidDimensions)?;
+    let height = i32::try_from(height).map_err(|_| WindowdError::InvalidDimensions)?;
+    for dx in 0..width {
+        put_pixel(frame, layer.x.saturating_add(dx), layer.y, bgra)?;
+        put_pixel(
+            frame,
+            layer.x.saturating_add(dx),
+            layer.y.saturating_add(height.saturating_sub(1)),
+            bgra,
+        )?;
+    }
+    for dy in 0..height {
+        put_pixel(frame, layer.x, layer.y.saturating_add(dy), bgra)?;
+        put_pixel(
+            frame,
+            layer.x.saturating_add(width.saturating_sub(1)),
+            layer.y.saturating_add(dy),
+            bgra,
+        )?;
+    }
+    Ok(())
+}
+
+fn draw_cursor(frame: &mut Frame, position: PointerPosition) -> Result<()> {
+    for dy in 0..3 {
+        for dx in 0..3 {
+            put_pixel(
+                frame,
+                position.x.saturating_add(dx),
+                position.y.saturating_add(dy),
+                VISIBLE_CURSOR_BGRA,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn put_pixel(frame: &mut Frame, x: i32, y: i32, bgra: [u8; 4]) -> Result<()> {
+    if x < 0 || y < 0 {
+        return Ok(());
+    }
+    let x = u32::try_from(x).map_err(|_| WindowdError::ArithmeticOverflow)?;
+    let y = u32::try_from(y).map_err(|_| WindowdError::ArithmeticOverflow)?;
+    if x >= frame.width || y >= frame.height {
+        return Ok(());
+    }
+    let idx = (y as usize)
+        .checked_mul(frame.stride as usize)
+        .and_then(|base| base.checked_add((x as usize).checked_mul(4)?))
+        .ok_or(WindowdError::ArithmeticOverflow)?;
+    frame.pixels[idx..idx + 4].copy_from_slice(&bgra);
+    Ok(())
 }

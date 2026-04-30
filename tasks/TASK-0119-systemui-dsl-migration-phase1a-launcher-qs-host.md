@@ -42,6 +42,9 @@ Shared workspace note:
 This phase must preserve behavior/visual parity and accessibility labels, and be proven via deterministic host tests.
 
 OS wiring and postflight markers are handled in Phase 1b (`TASK-0120`).
+The quality bar is Orbital-Level UX with Open Nexus architecture: canonical DSL surfaces
+must preserve live input states, session/shell handoff, app launch semantics, Quick Settings,
+and SVG-source assets established by the earlier fast lane.
 
 ## Goal
 
@@ -56,6 +59,7 @@ Deliver:
    - effect-side adapters under `services/`
    - `themes/` mapping to existing tokens (light/dark/HC)
    - page files follow the canonical `Store` + `Event` + `reduce` + `@effect` + `Page` shape from `TASK-0075`
+   - SVG-source icons/assets for launcher and QS controls
 2. `userspace/systemui/dsl_bridge` crate:
    - safe adapters to system services used by the DSL pages:
      - app list + launch (`appmgrd`)
@@ -78,6 +82,7 @@ Deliver:
      - toggles write prefs and roundtrip to initial state
      - volume slider calls audiod stub
      - media tile reflects mediasessd mock
+     - hover/focus/pressed state models match the live input contract used by OS wiring
    - launcher grid and QS tiles should use width-bucket-aware measurement so resize/profile changes do not force avoidable relayout cascades
 
 ## Non-Goals
@@ -89,8 +94,10 @@ Deliver:
 ## Constraints / invariants (hard requirements)
 
 - Parity-first: DSL UI must match legacy behavior and key visuals within documented tolerances.
+- Orbital-Level parity: launcher/QS must remain usable with live pointer/keyboard once mounted by `TASK-0120`.
 - Deterministic snapshots and deterministic mocks.
 - A11y labels/roles on all actionable elements.
+- SVG sources are canonical for launcher/QS icons; generated rasters are goldens/artifacts only.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)
@@ -108,6 +115,7 @@ Deliver:
   - toggles update prefs and can be restored in teardown
   - volume slider invokes audiod adapter
   - media tile reflects mediasessd mock updates
+- SVG-source launcher/QS icon fixtures and deterministic hover/focus/pressed state fixtures
 
 ## Touched paths (allowlist)
 

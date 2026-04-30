@@ -25,12 +25,12 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
         if let Some(evidence) = display_bootstrap::run() {
             emit_line(windowd::DISPLAY_BOOTSTRAP_MARKER);
             emit_line(windowd::DISPLAY_MODE_MARKER);
-            if evidence.backend_visible {
+            if evidence.systemui.backend_visible {
                 emit_line(windowd::VISIBLE_BACKEND_MARKER);
             }
             emit_line(windowd::PRESENT_VISIBLE_MARKER);
             emit_line(windowd::DISPLAY_FIRST_SCANOUT_MARKER);
-            if evidence.systemui_first_frame {
+            if evidence.systemui.systemui_first_frame {
                 emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
             }
             emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
@@ -53,6 +53,30 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                 if v2a.input_on && v2a.launcher_click_ok {
                     emit_line(windowd::SELFTEST_UI_V2_INPUT_OK_MARKER);
                 }
+            }
+            let visible_input = evidence.visible_input;
+            if visible_input.input_visible_on {
+                emit_line(windowd::INPUT_VISIBLE_ON_MARKER);
+            }
+            if visible_input.cursor_move_visible {
+                emit_line(windowd::CURSOR_MOVE_VISIBLE_MARKER);
+            }
+            if visible_input.hover_visible {
+                emit_line(windowd::HOVER_VISIBLE_MARKER);
+            }
+            if visible_input.focus_visible {
+                emit_line(windowd::FOCUS_VISIBLE_MARKER);
+            }
+            if visible_input.launcher_click_visible {
+                emit_line(windowd::LAUNCHER_CLICK_VISIBLE_OK_MARKER);
+            }
+            if visible_input.input_visible_on
+                && visible_input.cursor_move_visible
+                && visible_input.hover_visible
+                && visible_input.focus_visible
+                && visible_input.launcher_click_visible
+            {
+                emit_line(windowd::SELFTEST_UI_VISIBLE_INPUT_OK_MARKER);
             }
         }
     } else if let Ok(evidence) = windowd::run_headless_ui_smoke() {

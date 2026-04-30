@@ -24,6 +24,10 @@ After UI v4a improves frame efficiency, v4b improves input ergonomics and access
 - inertial scrolling integrated with scroll layers,
 - accessibility semantics tree + focus navigation + events, via an `a11yd` service and a reader stub.
 
+Gestures must build on the live QEMU pointer path from `TASK-0253`, the visible
+affordance semantics from `TASK-0056B`, and the scroll path from `TASK-0059`;
+synthetic sequences remain host/regression coverage only.
+
 ## Goal
 
 Deliver:
@@ -35,6 +39,7 @@ Deliver:
 2. `windowd` integration:
    - gestures run before delivery and can produce higher-level events
    - fling feeds scroll offsets
+   - live pointer pan/fling over the proof surface produces visible movement in QEMU
 3. Accessibility service `a11yd`:
    - register/update semantics tree (roles/labels/states/bounds)
    - focus next/prev + activate
@@ -53,6 +58,9 @@ Deliver:
 - Deterministic gesture recognition:
   - stable timeouts and distance thresholds
   - stable velocity computation and decay
+- Live input posture:
+  - host pointer move/down/up is accepted only through the established input path,
+  - gesture recognizers do not become a second hit-test/focus authority.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - Security posture:
   - deny remote semantics injection by default (policy guarded)
@@ -66,6 +74,7 @@ Deliver:
 
 - gestures: event sequences → expected recognition (tap/double/long/pan/fling) and velocities
 - inertial scroll: fling produces monotonic decay and bounded scroll deltas
+- live QEMU pointer drag/fling proof updates a visible scroll/gesture surface
 - a11y: register tree, focus next/prev, activate → expected event log
 
 ### Proof (OS/QEMU) — gated
@@ -76,6 +85,7 @@ UART markers (order tolerant):
 - `a11yd: ready`
 - `a11yreader: on`
 - `windowd: fling ok (vx=..., vy=...)`
+- `windowd: live gesture ok`
 - `a11y: focus cycle ok`
 - `SELFTEST: ui v4 fling ok`
 - `SELFTEST: ui v4 a11y focus ok`

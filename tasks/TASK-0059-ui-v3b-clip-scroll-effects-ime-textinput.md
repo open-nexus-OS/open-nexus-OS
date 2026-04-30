@@ -25,6 +25,7 @@ links:
 With layout/wrapping available (v3a), v3b adds:
 
 - correct clipping + scroll layers with precise damage math,
+- live pointer-driven scroll and scrollbar/hover feedback for QEMU-visible UI,
 - CPU composition effects with budgets (blur/shadow),
 - a minimal IME/text-input stub path (composition/commit, caret/selection).
 
@@ -43,6 +44,8 @@ Deliver:
 1. `windowd` clipping + scroll layers:
    - scissor clipping
    - scroll offsets and scroll damage rules
+   - live QEMU pointer wheel/drag scroll routed through the `TASK-0253` input path and `TASK-0056B` visible affordance semantics
+   - visible scroll affordance hover/active state for proof surfaces
 2. CPU effects module:
    - separable blur and drop shadow
    - caching and per-frame budgets with deterministic degrade behavior
@@ -63,6 +66,7 @@ Deliver:
 ## Constraints / invariants (hard requirements)
 
 - Deterministic damage math and deterministic effect outputs.
+- Live scroll must be routed through `windowd`; selftest scroll injection is regression coverage, not a substitute for QEMU pointer proof.
 - Strict budgets:
   - cap blur radius and area per frame,
   - cap cached effect entries and total bytes.
@@ -86,6 +90,7 @@ Deliver:
 
 - scroll damage:
   - given a scroll delta, computed damage rect set matches expected (order-agnostic)
+  - live pointer wheel/drag scroll updates visible content and scrollbar/hover state in QEMU proof
 - clipping:
   - clipped layers do not paint outside clip; damage respects clip
 - effects:
@@ -100,6 +105,7 @@ UART markers (order tolerant):
 
 - `windowd: clipping on`
 - `windowd: scroll on`
+- `windowd: live scroll ok`
 - `windowd: effects on`
 - `windowd: effect blur ok`
 - `imed: ready`

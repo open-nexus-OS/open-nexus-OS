@@ -3,17 +3,20 @@ title: TASK-0147 IME/Text v2 Part 1b (OS-gated): OSK overlay + focus routing + a
 status: Draft
 owner: @ui
 created: 2025-12-26
-depends-on: []
+depends-on:
+  - TASK-0146
+  - TASK-0059
+  - TASK-0253
 follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - IME core + keymaps: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
   - IME/text-input plumbing baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - TextField core (caret/selection): tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
+  - Later TextField core (caret/selection): tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
   - SystemUI→DSL migration baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - A11y baseline: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
-  - Policy gates (input caps): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - Later a11y hardening: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
+  - Later policy gates (input caps): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
@@ -27,6 +30,11 @@ With IME core logic and keymaps in place (Part 1a), we need the OS-visible integ
 - deterministic OS selftests and docs.
 
 This must not duplicate the “imed stub” scope inside `TASK-0059`; instead it wires the real IME.
+This part provides only the minimal OSK/focus/a11y-announcement/policy-hook floor
+needed before the SystemUI DSL desktop claim. Rich TextField selection/caret
+behavior (`TASK-0095`), candidate UI (`TASK-0096`), full a11yd hardening
+(`TASK-0114`), and app capability-matrix enforcement (`TASK-0136`) remain later
+tasks and are not pulled into the fast lane.
 
 ## Goal
 
@@ -54,8 +62,8 @@ Deliver:
    - shortcuts: Super+Space cycle lang; Ctrl+Space toggle OSK
    - `nx ime` helpers (lang/osk, simple deterministic typing test)
 4. Policy/a11y:
-   - capability gating for IME usage and IME management (`input.ime`, `input.ime.manage`)
-   - screen reader announcements for preedit/commit changes (bounded)
+- minimal capability hook labels for IME usage and IME management (`input.ime`, `input.ime.manage`), without full `TASK-0136` app matrix enforcement
+- bounded a11y announcement events for preedit/commit changes, without full `TASK-0114` tree/actions hardening
 5. Proof:
    - OS/QEMU selftests for:
      - latin typing (US)

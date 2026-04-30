@@ -261,6 +261,52 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] `windowd: focus -> <surface_id>` only after real focus transition,
   - [ ] `launcher: click ok`, `SELFTEST: ui v2 present ok`, `SELFTEST: ui v2 input ok` summarize proven state transitions.
 
+## TASK-0056B class stop conditions (UI v2a visible input: cursor + hover + focus + click)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0056B` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0051` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` status matches RFC reality.
+- [ ] Gate scope honesty is preserved:
+  - [ ] Gate E `production-floor` alignment stays explicit,
+  - [ ] 56B claims deterministic visible input only; live QEMU input is in `TASK-0252`/`TASK-0253`,
+  - [ ] no `TASK-0056C` perf/latency, `TASK-0199`/`TASK-0200` WM breadth, live `TASK-0252`/`TASK-0253` input pipeline, `TASK-0251` display-service integration, or kernel production-grade claim is made.
+- [ ] Single `windowd` visible-input authority boundary is enforced:
+  - [ ] cursor position, hit-test, hover, focus transfer, input delivery, and cursor/focus rendering are owned by `windowd`,
+  - [ ] future `inputd`/HID sources only normalize/deliver events and do not own hit-test/hover/focus/click success,
+  - [ ] launcher/selftest remain proof consumers and cannot synthesize visible input success,
+  - [ ] logs/markers include stable labels and bounded metadata only.
+- [ ] Visible input contract is proven:
+  - [ ] deterministic routed pointer movement produces visible cursor movement in the QEMU window,
+  - [ ] deterministic hover produces hover affordance pixels,
+  - [ ] deterministic click-driven focus transfer produces focus affordance pixels,
+  - [ ] launcher proof surface visibly changes after deterministic routed click delivery,
+  - [ ] visible-success markers are post-state gated.
+- [ ] Security and fail-closed behavior are proven:
+  - [ ] marker before visible routed state rejects,
+  - [ ] out-of-bounds pointer movement rejects,
+  - [ ] no committed hit surface rejects,
+  - [ ] stale and unauthorized surface references reject,
+  - [ ] input event queue overflow rejects deterministically,
+  - [ ] launcher visible-click marker rejects without visible state change.
+- [ ] Required proof floor is green:
+  - [x] `cargo test -p ui_v2a_host -- --nocapture`,
+  - [x] `cargo test -p ui_v2a_host reject -- --nocapture`,
+  - [x] `cargo test -p windowd -p launcher -- --nocapture`,
+  - [x] `cargo test -p selftest-client -- --nocapture`,
+  - [x] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` for deterministic visible-input route,
+  - [ ] `scripts/fmt-clippy-deny.sh` (pending explicit user approval to run),
+  - [ ] `just test-all` (pending explicit user approval to run),
+  - [ ] `just ci-network` (pending explicit user approval to run),
+  - [ ] `make clean`, `make build`, `make test`, `make run` (pending explicit user approval to run).
+- [ ] Marker honesty contract is preserved:
+  - [x] `windowd: input visible on` appears only after visible-input path evidence,
+  - [x] `windowd: cursor move visible` appears only after routed pointer movement renders cursor pixels,
+  - [ ] `windowd: hover visible` appears only after routed hit-test hover state renders hover affordance,
+  - [x] `windowd: focus visible` appears only after routed click focus renders focus affordance pixels,
+  - [x] `launcher: click visible ok` appears only after visible proof-surface state changes,
+  - [ ] no live-input markers are emitted by 56B,
+  - [ ] `SELFTEST: ui visible input ok` summarizes deterministic visible-input proof.
+
 ## Active progress snapshot (TASK-0055B done, 2026-04-29)
 - [x] `TASK-0055B` is synchronized to `Done`.
 - [x] `RFC-0048` is synchronized to `Done`.
@@ -335,9 +381,10 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] `TASK-0056` / `RFC-0050` are closed as `Done` carry-in baseline.
 - [x] `TASK-0056B` is active prep SSOT (`In Progress`).
 - [x] `RFC-0051` contract seed exists and is linked from task + RFC index.
-- [x] 56B scope boundaries are explicit (no 56C/0199/0200/0253/0251 scope absorption).
-- [ ] Host visible-input proofs are green.
-- [ ] QEMU visible-input marker profile is green.
+- [x] 56B scope boundaries are explicit after review: deterministic visible input is in scope; live QEMU input moves to `TASK-0252`/`TASK-0253`; no 56C/0199/0200/0251 scope absorption.
+- [x] Host visible-input proofs are green for deterministic route.
+- [x] QEMU visible-input marker profile is green for deterministic route.
+- [ ] Live QEMU pointer/keyboard proof is queued in `TASK-0252`/`TASK-0253`.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

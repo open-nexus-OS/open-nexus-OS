@@ -46,7 +46,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 | Task | Title | Status |
 |------|-------|--------|
-| — | — | — |
+| TASK-0056B | UI v2a: visible input — cursor + hover + focus + click | In Progress (deterministic host/reject/QEMU proofs green; live QEMU pointer moved to 0252/0253) |
 
 ---
 
@@ -135,9 +135,9 @@ Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich
 
 ---
 
-### Schritt 2 — Sichtbare UI (54–56B)
+### Schritt 2 — Sichtbare UI + Input-Spine (54–56B, 252–253, 56C)
 
-Vom CPU-Renderer bis zum ersten echten sichtbaren Input in QEMU.
+Vom CPU-Renderer bis zum sichtbaren deterministischen Input-Proof und dann direkt zur echten Input-Architektur.
 
 | Task | Title |
 |------|-------|
@@ -146,9 +146,31 @@ Vom CPU-Renderer bis zum ersten echten sichtbaren Input in QEMU.
 | TASK-0055B | UI v1c: visible QEMU scanout bootstrap (Done; marker-honesty hardening + full closure gates green) |
 | TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU (Done; composed-frame visible-present proof + closure gates green) |
 | TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing (Done; host/reject/QEMU proofs + fmt/clippy/ci-network + make clean/build/test/run green) |
-| TASK-0056B | UI v2a: visible input — cursor + focus + click |
+| TASK-0056B | UI v2a: visible input — cursor + hover + focus + click (In Progress; deterministic marker ladder proven; live device input deliberately follows in 0252/0253) |
+| TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (pulled forward; foundation for real inputd) |
+| TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks (pulled forward; live QEMU pointer/keyboard floor) |
+| TASK-0056C | UI v2a: present/input perf latency + coalescing (after real input pipeline; required before scroll/animation/launcher UX claims) |
 
-**Defer aus diesem Bereich:** `0054B/C/D` (Kernel UI/IPC/MM perf floor — Perf-Polish nach Baseline), `0055D` (dev display presets), `0056C` (present/input perf latency).
+**Defer aus diesem Bereich:** `0054B/C/D` (Kernel UI/IPC/MM perf floor — Perf-Polish nach Baseline), `0055D` (dev display presets).
+
+### Orbital-Level UX Gate (vor 0119/0120)
+
+`Orbital-Level` ist hier ein UX-Mindestniveau, nicht die Orbital-Architektur. Die
+Architektur bleibt service-/capability-orientiert nach Open-Nexus/OHOS/Zircon-Linie:
+`inputd` normalisiert Events, `windowd` besitzt Hit-Test/Hover/Focus/Click,
+SystemUI besitzt Shell/Launcher/Session-Flächen, Apps bekommen nur eigene Surfaces und Events.
+
+Bevor `TASK-0119`/`TASK-0120` als Desktop-/Launcher-Qualität gelten dürfen, muss die
+Fast Lane mindestens beweisen:
+
+- sichtbarer Login/Greeter oder Dev-Session,
+- live QEMU Pointer und minimales Keyboard,
+- Cursor, Hover, Focus, Click, Scroll,
+- Launcher/Dock/Taskbar oder äquivalente Shell-Fläche,
+- App starten, App-Fenster sichtbar, Fokus/Close/Move mindestens v0,
+- SVG-Quellassets für Icons/UI-Vektoren; PNG nur als Golden/Screenshot/abgeleitetes Artefakt,
+- einfache Settings/Quick Settings,
+- keine globalen Input-Leaks an Apps, keine Marker-only Desktop-Claims.
 
 ---
 
@@ -161,13 +183,25 @@ Text, Layout, Gesten, Animation, Window Management, App-Lifecycle.
 | TASK-0057 | UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG pipeline |
 | TASK-0058 | UI v3a: layout wrapping + deterministic box model |
 | TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput |
+| TASK-0146 | IME/Text v2 Part 1a: imed core + US/DE keymaps + deterministic host tests (pulled forward after 0059) |
+| TASK-0147 | IME/Text v2 Part 1b: OSK overlay + focus routing + OS/QEMU proofs (pulled forward after 0146) |
 | TASK-0061 | UI v4b: gestures + a11y semantics |
 | TASK-0062 | UI v5a: reactive runtime + animation/transitions |
 | TASK-0063 | UI v5b: virtualized list + theme tokens |
 | TASK-0064 | UI v6a: window management + scene transitions |
 | TASK-0065 | UI v6b: app lifecycle + notifications + navigation |
+| TASK-0065B | Session/Login v0: greeter/dev-session + SystemUI shell handoff |
 
 **Defer aus diesem Bereich:** `0060` (tiled compositor/clip-stack/atlases), `0060B` (glass/backdrop-cache), `0062B` (animation frame-budget perf-scenes), `0066` (WM split/snap).
+
+**Fast-Lane-Gap-Check vor 0119/0120:**
+Nach dem aktuellen Uplift müssen vor einem ehrlichen Orbital-Level-Claim mindestens
+`0252`, `0253`, `0146`, `0147`, `0065B`, `0080B` und `0080C` in der Lane bleiben.
+`0060`, `0062B`, `0066`, `0067`, `0068`, `0069`, `0071`, `0077B`, `0080`,
+`0095`, `0096`, `0114` und `0136` bleiben bewusst deferred: sie verbessern
+Breite/Polish/Perf/Rich-Text/A11y/Policy, sind aber nicht zwingend für den
+Minimalzustand Login/Launcher/Maus/Tastatur/Text/Scroll/App-Fenster. `0147`
+deckt dafür nur den minimalen OSK-/Focus-/A11y-Announcement-/Policy-Hook-Floor ab.
 
 ---
 
@@ -245,7 +279,7 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
 `0042` (nur minimaler QoS-Slice via TASK-0054B vorgezogen)
 
 **UI Perf-Polish:**
-`0054B`, `0054C`, `0054D`, `0055D`, `0056C`, `0060`, `0060B`, `0062B`
+`0054B`, `0054C`, `0054D`, `0055D`, `0060`, `0060B`, `0062B`
 
 **Advanced UI Features:**
 `0066`, `0067`, `0068`, `0069`, `0071`, `0077B`, `0080`

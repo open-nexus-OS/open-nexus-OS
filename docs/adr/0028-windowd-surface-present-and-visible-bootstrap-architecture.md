@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-The UI stack now has a closed headless baseline (`TASK-0055` / `RFC-0047`), a closed visible bootstrap follow-up (`TASK-0055B` / `RFC-0048`), a closed visible SystemUI first-frame slice (`TASK-0055C` / `RFC-0049`), and an in-progress v2a present/input slice (`TASK-0056` / `RFC-0050`). We need one clear architecture authority for `windowd` module boundaries, marker honesty, and follow-up scope handoff.
+The UI stack now has a closed headless baseline (`TASK-0055` / `RFC-0047`), a closed visible bootstrap follow-up (`TASK-0055B` / `RFC-0048`), a closed visible SystemUI first-frame slice (`TASK-0055C` / `RFC-0049`), a closed v2a present/input slice (`TASK-0056` / `RFC-0050`), and an in-progress deterministic visible-input slice (`TASK-0056B` / `RFC-0051`). We need one clear architecture authority for `windowd` module boundaries, marker honesty, and follow-up scope handoff.
 
 Without a dedicated ADR, module headers and architecture docs risk drifting across:
 - `windowd` authority ownership (surface/layer/present sequencing),
@@ -41,9 +41,20 @@ Adopt a dedicated `windowd` architecture contract with these rules:
    - Launcher and selftest are proof consumers only; they do not own present scheduling, hit-test, focus, or input delivery authority.
    - The v2a QEMU proof uses the existing `visible-bootstrap` harness profile with stricter marker expectations; it is still not a desktop/start-profile or screenshot/GTK refresh proof.
 
-7. **Capability/security boundary remains explicit**
+7. **Visible input remains deterministic until the input pipeline lands**
+   - `TASK-0056B` extends the same `windowd` authority path with deterministic cursor, hover, focus, and click-visible affordances.
+   - `visible-bootstrap` may write multiple bounded `windowd`-composed proof frames to `ramfb` (cursor start, hover/cursor move, final focus/click), but must not claim live host input.
+   - Live QEMU pointer/keyboard input is owned by `TASK-0252`/`TASK-0253`; those services feed `windowd` but do not own hit-test, hover, focus, or click success.
+
+8. **Capability/security boundary remains explicit**
    - Display/MMIO capability routing remains constrained by the existing device capability model (`TASK-0010`, `RFC-0017`).
    - Invalid mode/format/rights/state requests fail closed and require negative proof coverage.
+
+## Current State
+
+- `TASK-0056` / `RFC-0050` are `Done`; `TASK-0056B` / `RFC-0051` remain `In Progress` until final quality gates are run.
+- `TASK-0056B` currently claims only deterministic visible input in QEMU: routed cursor movement, hover affordance, focus affordance, and click-visible proof surface state.
+- The live input pipeline is intentionally next in the fast lane (`TASK-0252` then `TASK-0253`) instead of being implemented as a 56B-only `inputd-light` path.
 
 ## Consequences
 - **Positive**
@@ -51,6 +62,7 @@ Adopt a dedicated `windowd` architecture contract with these rules:
   - UI task slices stay anti-drift: headless closure, visible bootstrap, visible SystemUI first frame, and follow-up ownership are explicit.
   - Architecture docs can link one canonical ADR instead of duplicating semantics.
   - v2a present/input keeps a single `windowd` authority path instead of creating launcher/selftest sidecar authority.
+  - 56B visible input keeps marker honesty while preserving the architecture boundary for the real input pipeline.
 
 - **Negative**
   - Additional doc-sync burden when marker semantics or authority boundaries change.
@@ -61,14 +73,17 @@ Adopt a dedicated `windowd` architecture contract with these rules:
   - Overly broad implementation in `TASK-0055B` may violate the narrow bootstrap contract unless gated in review.
   - `TASK-0055C` can regress into fake visibility if marker proofs stop checking the composed `windowd` frame.
   - `TASK-0056` can regress into fake input/present success if marker proofs are accepted without the `ui_v2a_host` behavior assertions.
+  - `TASK-0056B` can regress into fake visible input if cursor/hover/focus/click markers are emitted without `windowd`-composed frame evidence or if deterministic input is described as live host input.
 
 ## Links
 - `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`
 - `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
 - `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`
 - `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
+- `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
 - `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md`
 - `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`
 - `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md`
 - `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`
+- `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`
 - `tasks/TASK-0010-device-mmio-access-model.md`

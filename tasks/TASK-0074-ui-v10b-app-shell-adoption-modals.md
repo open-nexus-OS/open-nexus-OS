@@ -27,6 +27,7 @@ Once primitives exist (v10a), we need consistent application chrome and systemat
 - and migration of SystemUI and key apps (launcher/notes/settings) to the kit.
 
 This task is OS-gated because it touches running services and QEMU markers.
+It must prove the adopted shell remains genuinely interactive through live QEMU input.
 
 ## Goal
 
@@ -39,6 +40,7 @@ Deliver:
 2. Modal manager:
    - userspace-only modal stack (Dialog/Sheet) with backdrop, focus trap, ESC handling
    - consistent toasts via kit `ToastView`
+   - live pointer outside/inside modal behavior and keyboard escape/focus behavior are visible in QEMU
 3. Adoption/migration:
    - SystemUI overlays (quick settings, notifications, palette, settings overlay) use kit primitives
    - apps `launcher`, `notes`, `settings` adopt App Shell + kit controls
@@ -54,12 +56,14 @@ Deliver:
 - Migration must not break existing markers; any new markers are additive and deterministic.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 - Modal manager must be bounded (cap stack depth).
+- Modal focus traps must use `windowd` focus/input routing and must not let background app surfaces receive leaked events.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
 - Goldens for App Shell chrome in light/dark (can be in `ui_v10_goldens` crate).
+- Live QEMU pointer/keyboard proof for opening and dismissing one modal without background input leaks.
 
 ### Proof (OS/QEMU) — gated
 
@@ -70,6 +74,7 @@ UART markers (order tolerant):
 - `design: kit adopted (notes)`
 - `SELFTEST: ui v10 button ok`
 - `SELFTEST: ui v10 dialog ok`
+- `SELFTEST: ui v10 live modal ok`
 - `SELFTEST: ui v10 theme recolor ok`
 
 ## Touched paths (allowlist)

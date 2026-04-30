@@ -24,18 +24,21 @@ links:
 - vsync-aligned present,
 - input hit-testing and focus.
 
-That is the functional baseline. This follow-up exists to make the path feel **as fluid as possible in QEMU**
-before heavier clipping, blur, glass, and animation tasks land.
+`TASK-0056B` owns the deterministic visible-input proof. `TASK-0252`/`TASK-0253`
+then provide the live QEMU pointer/keyboard path. This follow-up exists after
+that input pipeline to make the path feel responsive enough for the
+Orbital-Level UX gate before scrolling, animation, window management, and
+launcher work build on it.
 
 ## Goal
 
 Deliver a focused present/input perf polish slice:
 
 1. **Click-to-frame latency tightening**:
-   - reduce the time from pointer/click delivery to visible frame update,
+   - reduce the time from live pointer/click delivery to visible frame update,
    - add stable counters for the common path.
 2. **Event coalescing**:
-   - coalesce pointer-motion bursts deterministically,
+   - coalesce live pointer-motion bursts deterministically,
    - keep click/focus semantics correct while reducing redundant work.
 3. **Short-circuit compose/present rules**:
    - no damage and no visible state change → skip compose/present deterministically,
@@ -46,7 +49,7 @@ Deliver a focused present/input perf polish slice:
 
 ## Non-Goals
 
-- New input device stacks (handled later by `inputd` tasks).
+- New full input device stacks; consume the live QEMU input path from `TASK-0252`/`TASK-0253`.
 - Blur, glass, or backdrop work (handled by `TASK-0059` / `TASK-0060B`).
 - Full window manager behavior.
 - Kernel redesign; consume the `TASK-0054B/C/D` floor if present.
@@ -54,8 +57,10 @@ Deliver a focused present/input perf polish slice:
 ## Constraints / invariants (hard requirements)
 
 - Preserve `TASK-0056` present and focus semantics.
+- Preserve `TASK-0056B` visible affordance semantics and `TASK-0253` live pointer/keyboard semantics.
 - Event coalescing must be deterministic and bounded.
 - No “fast path” that skips hit-testing correctness for clicks/focus.
+- No latency marker can pass on selftest-only input if the live pointer path regresses.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Stop conditions (Definition of Done)
@@ -65,6 +70,7 @@ Deliver a focused present/input perf polish slice:
 `tests/ui_v2c_host/` or equivalent:
 
 - pointer burst is coalesced deterministically,
+- live QEMU pointer burst is coalesced without losing the latest visible cursor position,
 - click causes one visible frame update without redundant extra presents,
 - no-damage / unchanged-state path skips compose/present,
 - focus correctness is unchanged.
@@ -77,6 +83,7 @@ UART markers (order tolerant):
 - `windowd: pointer coalesce ok`
 - `windowd: no-damage skip ok`
 - `windowd: click latency ok`
+- `SELFTEST: live pointer latency ok`
 - `SELFTEST: ui v2 perf ok`
 
 ## Touched paths (allowlist)

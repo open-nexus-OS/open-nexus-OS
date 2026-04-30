@@ -26,6 +26,8 @@ After v5a establishes a reactive runtime and timeline, v5b adds two “productiv
 - theme tokens v1 (light/dark) with live switching via config.
 
 This task is v5b (components + theming). It assumes scroll/clip and present scheduler exist.
+It must consume the live input floor from `TASK-0253` and the scroll path from `TASK-0059`
+so large lists are usable in QEMU, not only proven by synthetic offset changes.
 
 Note: v5b delivers the **virtualization primitive** (recycling + stable visible range). A deterministic “lazy loading”
 integration pattern (paged providers, viewport-triggered requests) is tracked as `TASK-0275`.
@@ -39,6 +41,7 @@ Deliver:
    - recycling pool for item surfaces
    - bounded cache sizes and deterministic reuse
    - stable anchor-by-key behavior and bounded mixed-height measurement caches
+   - live pointer wheel/drag scroll integration through the established scroll path
 2. `userspace/ui/theme`:
    - roles/tokens schema and loader
    - light/dark modes and overrides
@@ -56,6 +59,7 @@ Deliver:
 ## Constraints / invariants (hard requirements)
 
 - Deterministic virtualization behavior (given viewport/scroll, visible range is stable).
+- Live scroll behavior must preserve anchors and recycling bounds under QEMU pointer input.
 - Bounded memory:
   - cap pool size and cached surfaces
   - cap theme token sizes and parsed tree depth
@@ -78,6 +82,7 @@ Deliver:
 - virtual list:
   - 1000 items + small viewport → stable visible range
   - scrolling by N viewports triggers bounded recycle events
+  - live QEMU pointer scroll moves the visible range and recycles deterministically
   - prepend/append and width-bucket changes preserve deterministic anchor behavior
 - theme:
   - load tokens (default + override)
@@ -91,6 +96,7 @@ UART markers (order tolerant):
 - `ui: virtual list on`
 - `virtualize: mount(<n>)`
 - `virtualize: recycle(<n>)`
+- `virtualize: live scroll ok`
 - `uitheme: loaded (mode=light|dark)`
 - `uitheme: switched (to=dark)`
 - `SELFTEST: ui v5 virtualize ok`

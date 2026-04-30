@@ -493,13 +493,19 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "launcher: click ok"
     "SELFTEST: ui v2 present ok"
     "SELFTEST: ui v2 input ok"
+    "windowd: input visible on"
+    "windowd: cursor move visible"
+    "windowd: hover visible"
+    "windowd: focus visible"
+    "launcher: click visible ok"
+    "SELFTEST: ui visible input ok"
     "SELFTEST: end"
   )
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
   if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
-    RUN_UNTIL_MARKER="SELFTEST: ui v2 input ok"
+    RUN_UNTIL_MARKER="SELFTEST: ui visible input ok"
   fi
 fi
 
@@ -1178,6 +1184,25 @@ if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=end missing_marker='$m'" >&2
       echo "[error] UI visible marker appeared before required visible-present proof: $m" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+      exit 1
+    fi
+  done
+fi
+
+# TASK-0056B visible-input fake-green guard: the visible-input marker summarizes
+# routed pointer movement, focus transfer, launcher click, and visible frame state.
+if grep -aFq "SELFTEST: ui visible input ok" "$UART_LOG"; then
+  for m in \
+    "SELFTEST: ui visible present ok" \
+    "windowd: input visible on" \
+    "windowd: cursor move visible" \
+    "windowd: hover visible" \
+    "windowd: focus visible" \
+    "launcher: click visible ok"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+      echo "[error] UI visible input marker appeared before required visible-input proof: $m" >&2
       print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
       exit 1
     fi

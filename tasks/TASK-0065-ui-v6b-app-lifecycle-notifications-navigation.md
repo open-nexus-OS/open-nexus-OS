@@ -24,6 +24,10 @@ With a WM in place (v6a), we can implement a minimal “Ability-Lite” lifecycl
 and wire SystemUI navigation and notifications.
 
 This is intentionally userspace-only: app lifecycle is brokered, not kernel-enforced.
+It must close the app-launch part of the Orbital-Level UX gate: a live pointer click in
+the launcher/SystemUI path starts an app and yields a visible focused app window in QEMU.
+Login/session handoff is tracked separately by `TASK-0065B` so lifecycle and session
+authority do not blur.
 
 ## Goal
 
@@ -41,6 +45,7 @@ Deliver:
 3. SystemUI navigation:
    - Back/Home/Recents stubs
    - focus switching across windows via WM/appmgrd
+   - launcher click opens a demo app window through `appmgrd`, not by selftest-only state mutation
 4. Host tests and OS markers.
 
 ## Non-Goals
@@ -55,6 +60,7 @@ Deliver:
 - Policy guardrails:
   - only `appmgrd` may spawn apps
   - notification quotas per app
+- Live app launch must preserve authorities: SystemUI requests launch, `appmgrd` owns lifecycle, `windowd` owns focus/window state.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
 ## Red flags / decision points
@@ -72,6 +78,7 @@ Deliver:
 - lifecycle: mocked app receives callbacks in correct order (Create→Start→FG, BG/FG roundtrip)
 - notifications: rate limiting drops are counted deterministically
 - navigation: recents list and focus selection logic behaves as expected
+- live QEMU pointer launcher click starts the demo app and focuses its window
 
 ### Proof (OS/QEMU) — gated
 
@@ -82,6 +89,8 @@ UART markers (order tolerant):
 - `appmgrd: fg (win=...)` / `bg (win=...)`
 - `notifd: ready`
 - `systemui: nav ready`
+- `systemui: launcher click`
+- `appmgrd: live launch ok`
 - `systemui: toast (app=..., id=...)`
 - `notes: started` / `notes: paused` / `notes: resumed` (demo app)
 - `SELFTEST: ui v6 launch ok`

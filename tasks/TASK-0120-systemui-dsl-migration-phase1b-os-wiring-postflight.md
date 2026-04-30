@@ -32,6 +32,11 @@ Migration posture:
 - keep one launcher path in SystemUI; do not keep a permanent "bootstrap launcher" parallel to the real launcher
 - Phase 1b is also where the canonical visible SystemUI DSL shell becomes the single OS-mounted shell root that later Settings/Notifications phases extend
 
+This task is the OS/QEMU enforcement point for the Orbital-Level UX floor: after it,
+SystemUI must provide a usable visible desktop shell with live pointer hover/click,
+launcher app launch, Quick Settings interaction, and the session handoff established
+earlier in the fast lane.
+
 ## Goal
 
 Deliver:
@@ -61,8 +66,9 @@ Deliver:
        tv, convertible desktop/tablet shell) to keep proofs deterministic
 3. OS selftests:
    - wait for mount markers
-   - open an app from DSL Launcher and confirm app launch marker
-   - toggle dark mode + adjust volume in DSL Quick Settings and confirm state echo
+   - move the host pointer over a DSL Launcher entry and confirm visible hover/focus
+   - click an app from DSL Launcher and confirm app launch marker + visible app frame
+   - open DSL Quick Settings with live pointer/shortcut and toggle dark mode + adjust volume
    - markers:
      - `SELFTEST: systemui dsl launcher ok`
      - `SELFTEST: systemui dsl qs ok`
@@ -81,6 +87,7 @@ Deliver:
 ## Constraints / invariants (hard requirements)
 
 - No fake success: OS markers must reflect real mount and real interactions.
+- Live-input success markers must require routed QEMU pointer/keyboard events, not synthetic page-state mutation.
 - Deterministic markers and bounded selftest timeouts.
 - Unknown or invalid manifest-selected profile/shell IDs must reject deterministically before mount.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
@@ -97,6 +104,9 @@ UART markers:
 
 - `systemui:dsl launcher on`
 - `systemui:dsl qs on`
+- `systemui:dsl live launcher hover ok`
+- `systemui:dsl live launcher click ok`
+- `systemui:dsl live qs toggle ok`
 - `SELFTEST: systemui dsl launcher ok`
 - `SELFTEST: systemui dsl qs ok`
 

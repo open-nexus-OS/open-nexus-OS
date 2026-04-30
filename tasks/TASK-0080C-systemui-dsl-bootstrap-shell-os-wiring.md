@@ -21,6 +21,10 @@ Host launcher proofs are not enough for app testing. We need the bootstrap shell
 live OS so that Files/Text/Images and other app tasks can launch from a visible desktop before the broader SystemUI DSL
 phases land.
 
+This task is the first OS-mounted Orbital-Level shell proof: live QEMU pointer input must
+hover and click launcher entries, launch a real app window, and preserve the single
+SystemUI shell path.
+
 ## Goal
 
 Deliver:
@@ -29,8 +33,9 @@ Deliver:
    - SystemUI boots into the DSL bootstrap shell by default in the early UI profile
    - launcher is visible in the QEMU window
    - the mounted shell consumes the same profile/orientation device environment that later canonical SystemUI DSL phases use
+   - shell appears after the `TASK-0065B` greeter/dev-session handoff when that gate is active
 2. Real launch integration:
-   - selecting a launcher entry launches a real app window
+   - live QEMU pointer hover/click selects a launcher entry and launches a real app window
    - return/focus behavior is deterministic enough for selftests
 3. Marker-driven proof for app bring-up:
    - launcher visible
@@ -41,13 +46,14 @@ Deliver:
 
 - Full Quick Settings mount.
 - Full SystemUI migration.
-- Session-aware launcher variants.
+- Full session-aware launcher variants; only the greeter/dev-session handoff gate is required if `TASK-0065B` has landed.
 
 ## Constraints / invariants (hard requirements)
 
 - Keep one SystemUI shell path; no temporary alternate desktop app.
 - Use feature flags only as bounded migration aids.
 - Markers must reflect real visible launcher mount and real app launch.
+- Launch success markers must require live routed pointer input, not selftest-only launch mutation.
 
 ## Stop conditions (Definition of Done)
 
@@ -57,14 +63,17 @@ UART markers:
 
 - `systemui:dsl bootstrap shell on`
 - `systemui:dsl launcher visible`
+- `systemui:dsl launcher hover visible`
 - `launcher: app launch request ok`
 - `launcher: app frame visible`
+- `SELFTEST: systemui live launcher click ok`
 - `SELFTEST: systemui bootstrap launcher ok`
 
 Visual proof:
 
 - launcher is visible in the QEMU window
-- launching a proof app opens a visible app frame
+- moving the host pointer over a launcher entry shows hover/focus state
+- clicking the launcher entry opens a visible app frame
 
 ## Touched paths (allowlist)
 

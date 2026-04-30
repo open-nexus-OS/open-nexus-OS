@@ -100,8 +100,9 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - `windowd` visible bootstrap contract: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` (`TASK-0055B` Done)
 - `windowd` visible SystemUI first-frame contract: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` (`TASK-0055C` Done)
 - `windowd` v2a present scheduler + input routing contract: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` (`Done`; `TASK-0056` execution closeout complete)
+- `windowd` v2a visible input contract: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` (`In Progress`; deterministic 56B proofs green, live QEMU input moved to `TASK-0252`/`TASK-0253`)
 - Dedicated architecture decision: `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
-- Scope rule: headless `TASK-0055`, visible `TASK-0055B`/`TASK-0055C`, and v2a `TASK-0056` closure must not be interpreted as cursor polish, perf/latency closure, WM-v2 breadth, full display-service integration, or kernel production-grade closure; those remain follow-up scope (`TASK-0056B`, `TASK-0056C`, `TASK-0199`/`TASK-0200`, `TASK-0251`).
+- Scope rule: headless `TASK-0055`, visible `TASK-0055B`/`TASK-0055C`, v2a `TASK-0056`, and 56B visible-input proof must not be interpreted as perf/latency closure, live HID/touch/keymap/IME closure, WM-v2 breadth, full display-service integration, or kernel production-grade closure; those remain follow-up scope (`TASK-0056C`, `TASK-0252`/`TASK-0253`, `TASK-0199`/`TASK-0200`, `TASK-0251`). 56B owns the deterministic visible proof; live QEMU input is pulled forward immediately after it.
 
 ## On-device inference
 

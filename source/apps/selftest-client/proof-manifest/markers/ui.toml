@@ -85,3 +85,27 @@ proves = "selftest observed windowd v2a scheduler evidence after a real present 
 [marker."SELFTEST: ui v2 input ok"]
 phase = "end"
 proves = "selftest observed windowd v2a focus and input delivery evidence"
+
+[marker."windowd: input visible on"]
+phase = "end"
+proves = "windowd visible-input path was activated after routed pointer/focus/click state changed"
+
+[marker."windowd: cursor move visible"]
+phase = "end"
+proves = "windowd rendered deterministic cursor pixels after a routed pointer move"
+
+[marker."windowd: hover visible"]
+phase = "end"
+proves = "windowd rendered deterministic hover affordance after routed pointer hit-test state changed"
+
+[marker."windowd: focus visible"]
+phase = "end"
+proves = "windowd rendered deterministic focus affordance after click-driven focus transfer"
+
+[marker."launcher: click visible ok"]
+phase = "end"
+proves = "launcher proof surface visibly changed state after a routed click delivery"
+
+[marker."SELFTEST: ui visible input ok"]
+phase = "end"
+proves = "selftest observed cursor, hover, focus, and click-visible evidence from windowd authority"

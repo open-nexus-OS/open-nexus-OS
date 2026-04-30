@@ -34,6 +34,8 @@ Update note (to avoid drift):
 - Settings v2 is tracked as `TASK-0225` (host-first typed settingsd) and `TASK-0226` (OS UI/deeplinks/search/guides).
 - This task should be treated as **deprecated/superseded** for new work: do not introduce a new `prefsd`
   JSON store if `settingsd` is the chosen canonical substrate.
+- The Orbital-Level UX floor still needs a visible Settings/Quick Settings surface. If this task remains
+  superseded, the equivalent `settingsd` task must carry the same live QEMU pointer/keyboard proof.
 
 ## Goal
 
@@ -52,6 +54,7 @@ Deliver:
 4. Quick Settings wiring:
    - toggles/sliders write prefs
    - markers for applied keys
+   - visible live pointer interaction opens Quick Settings and toggles at least one setting in QEMU
 5. Host tests and OS/QEMU markers.
 
 ## Non-Goals
@@ -70,6 +73,7 @@ Deliver:
 - Policy guardrails:
   - only Settings/SystemUI (focused) can write certain keys,
   - audit all writes.
+- Settings/QS UI actions must require focused SystemUI/Settings surfaces and must not be satisfied by marker-only writes.
 
 ## Stop conditions (Definition of Done)
 
@@ -80,6 +84,7 @@ Deliver:
 - prefs set/get/subscribe roundtrip
 - atomicity: crash between temp write and rename does not corrupt committed prefs
 - quick settings wiring: applying key writes prefs and triggers bridge hook (mocked)
+- live QEMU pointer can open Quick Settings and toggle one setting visibly
 
 ### Proof (OS/QEMU) — gated
 
@@ -88,6 +93,7 @@ UART markers (order tolerant):
 - `prefsd: ready`
 - `prefs: set (key=..., size=...)`
 - `systemui: quick settings apply (key=..., val=...)`
+- `systemui: quick settings live toggle ok`
 - `settings: open (route=...)`
 - `settings: apply (key=value)`
 - `SELFTEST: ui v9 prefs ok`

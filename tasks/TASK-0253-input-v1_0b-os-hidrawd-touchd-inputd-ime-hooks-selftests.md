@@ -3,14 +3,16 @@ title: TASK-0253 Input v1.0b (OS/QEMU): hidrawd + touchd + inputd + windowd/IME 
 status: Draft
 owner: @ui
 created: 2025-12-29
-depends-on: []
+depends-on:
+  - TASK-0252
 follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Input core (host-first): tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md
-  - IME keymaps baseline: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - Visible input baseline: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
+  - Later IME consumer: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
   - Input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
   - Testing contract: scripts/qemu-test.sh
@@ -25,7 +27,12 @@ We need OS/QEMU integration for Input v1.0:
 - `inputd` service (zentrale Event-Pipeline),
 - windowd/IME hooks.
 
-The prompt proposes these services. `TASK-0056` already plans input routing (hit-test/focus) in windowd, and `TASK-0146` plans IME keymaps. This task delivers the **low-level input device drivers** and **event pipeline** that feeds into windowd's input routing and IME's keymap processing.
+This task is pulled directly after `TASK-0252` so `TASK-0056B` does not grow a
+temporary inputd-light path. `TASK-0056`/`TASK-0056B` provide the windowd
+routing and visible-affordance authority; this task delivers the **low-level
+input device drivers** and **event pipeline** that feed windowd. IME integration
+is a bounded hook/stub here; full IME keymaps/OSK behavior follows in
+`TASK-0146`/`TASK-0147`.
 
 ## Goal
 
@@ -45,15 +52,15 @@ On OS/QEMU:
    - markers: `touchd: ready`, `touchd: synthetic mode` (if enabled)
 4. **inputd service** (`source/services/inputd/`):
    - merge sources (`hidrawd`, `touchd`) → `InputEvent` (key, pointer, touch)
-   - focus & dispatch: target `windowd` (cursor move, click), `systemui` (global shortcuts), `imed` (text)
+   - focus & dispatch: target `windowd` (cursor move, click), `systemui` (global shortcuts), `imed` hook stubs (text)
    - key repeat (configurable via `settingsd`: `keyboard.repeat.delay_ms`, `keyboard.repeat.rate_hz`)
    - keymaps (US/DE/JP/KR/ZH base): table-driven mapping; IME switch key (e.g., `Ctrl+Space`)
    - pointer acceleration (simple linear curve; deterministic)
    - API (`input.capnp`): `subscribe()` → `stream:List(InputEvent)`, `setKeymap(name)`, `getKeymap()` → `name`
    - markers: `inputd: ready`, `inputd: keymap=de`, `inputd: repeat start code=…`, `inputd: dispatch windowd cursor=(x,y)`
-5. **SystemUI & IME hooks**:
+5. **SystemUI & IME hook stubs**:
    - `windowd`: consume pointer/touch for cursor and focus; small hover highlight to verify
-   - IME overlay hook: when `inputd` detects text focus, send `imed.show()`; on blur, `imed.hide()` (stubs ok)
+   - IME overlay hook: when `inputd` detects text focus, send `imed.show()`; on blur, `imed.hide()` (stub contract only; full IME behavior is `TASK-0146`/`TASK-0147`)
    - markers: `systemui: imed show`, `systemui: imed hide`
 6. **Settings integration**:
    - seed keys: `keyboard.layout` (`"us"|"de"|"jp"|"ko"|"zh"`), `keyboard.repeat.delay_ms`, `keyboard.repeat.rate_hz`, `pointer.accel`
@@ -72,7 +79,7 @@ On OS/QEMU:
 ## Constraints / invariants (hard requirements)
 
 - **No duplicate input authority**: `inputd` is the single authority for input event routing. Do not create parallel input services.
-- **No duplicate keymap authority**: `inputd` uses the keymaps library from `TASK-0252`. `TASK-0146` (IME) should share the same keymap tables to avoid drift.
+- **No duplicate keymap authority**: `inputd` uses the keymaps library from `TASK-0252`. `TASK-0146` (IME) must share/extend the same keymap tables to avoid drift.
 - **Determinism**: HID parsing, touch normalization, keymaps, repeat, and acceleration must be stable given the same inputs.
 - **Bounded resources**: keymaps are table-bounded; repeat timing is bounded.
 - **Device access**: assumes `TASK-0010` (device MMIO access model) is Done; real HID/I²C touch paths may additionally
@@ -84,7 +91,7 @@ On OS/QEMU:
 - **RED (input authority drift)**:
   - Do not create a parallel input service that conflicts with `inputd`. `inputd` is the single authority for input event routing.
 - **RED (keymap authority drift)**:
-  - Do not create parallel keymap tables. `inputd` and `imed` (`TASK-0146`) should share the same keymap library to avoid drift.
+  - Do not create parallel keymap tables. `inputd` and later `imed` (`TASK-0146`) should share the same keymap library to avoid drift.
 - **YELLOW (input routing vs windowd)**:
   - `TASK-0056` plans input routing (hit-test/focus) in windowd. `inputd` provides low-level event pipeline. Document the relationship explicitly: `inputd` → `windowd` → surfaces.
 
@@ -92,7 +99,7 @@ On OS/QEMU:
 
 - QEMU marker contract: `scripts/qemu-test.sh`
 - Input core: `TASK-0252`
-- IME keymaps: `TASK-0146` (US/DE keymaps for IME)
+- Later IME keymaps: `TASK-0146` (US/DE keymaps for IME)
 - Input routing: `TASK-0056` (hit-test/focus in windowd)
 - Device MMIO access: `TASK-0010` (prerequisite)
 
@@ -147,9 +154,9 @@ UART markers:
    - focus & routing
    - markers
 
-3. **windowd/IME hooks + settings + CLI**
+3. **windowd/IME hook stubs + settings + CLI**
    - windowd input integration
-   - IME overlay hooks
+   - IME overlay hook stubs
    - settings provider
    - `nx input` CLI
    - markers
@@ -161,6 +168,6 @@ UART markers:
 ## Acceptance criteria (behavioral)
 
 - `hidrawd` and `touchd` probe devices and emit events correctly.
-- `inputd` merges sources, applies keymaps/repeat/accel, and dispatches to windowd/IME correctly.
-- Windowd cursor and IME overlay hooks work correctly.
+- `inputd` merges sources, applies keymaps/repeat/accel, and dispatches to windowd correctly while exposing bounded IME hook stubs.
+- Windowd cursor and IME overlay hook stubs work correctly.
 - All four OS selftest markers are emitted.

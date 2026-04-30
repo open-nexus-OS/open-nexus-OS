@@ -26,6 +26,9 @@ We already have WM basics (v6a) and snap zones (v7a). UI v8b adds:
 - global shortcuts that trigger WM snap, screencap sheet, and settings overlay,
 - quick settings/settings overlays (stubs) for operator-friendly UX.
 
+This task is part of the Orbital-Level UX floor: move/resize and overlays must be
+usable with the live QEMU pointer/keyboard paths, not just host-simulated sequences.
+
 Notifications v2 lives in v8a (`TASK-0069`).
 Notifications v2 “deluxe” follow-ups are `TASK-0123` (persistence/history/unread), `TASK-0124` (dndd), and `TASK-0125` (heads-up/redaction/badging/settings + OS proofs).
 
@@ -38,6 +41,7 @@ Deliver:
    - title bar drag to move
    - constraints to display bounds
    - enforce min-size from policy
+   - live QEMU pointer drag proof for move and at least one resize edge
 2. WM IPC additions:
    - `beginMove(win,x,y)`, `beginResize(win,edge,x,y)`, `endMoveResize(win)`
 3. Global shortcuts (SystemUI desktop):
@@ -58,6 +62,7 @@ Deliver:
 ## Constraints / invariants (hard requirements)
 
 - Deterministic move/resize math given an input sequence.
+- Live drag input must route through `windowd` and preserve its focus/hit-test authority.
 - Respect policy min sizes; deny/clip as documented.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
@@ -70,6 +75,7 @@ Deliver:
 - resize/move:
   - simulate edge drags → resulting bounds respect min size and remain on-screen
   - move keeps window within display bounds
+  - live QEMU pointer drag visibly moves a window and resizes one edge
 - shortcuts:
   - simulate key chords → snap called, settings overlay opened, screenshot sheet invoked (when present)
 
@@ -81,6 +87,7 @@ UART markers (order tolerant):
 - `windowd: wm move on`
 - `windowd: wm resized (win=.. w=.. h=..)`
 - `windowd: wm moved (win=.. x=.. y=..)`
+- `windowd: wm live drag ok`
 - `systemui: shortcuts on`
 - `systemui: quick settings open`
 - `systemui: settings open`
