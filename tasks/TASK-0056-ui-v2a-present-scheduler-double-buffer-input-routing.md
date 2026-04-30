@@ -1,18 +1,28 @@
 ---
 title: TASK-0056 UI v2a: double-buffered surfaces + present scheduler (vsync/fences/latency) + input routing (hit-test/focus)
-status: Draft
+status: In Progress
 owner: @ui
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+depends-on:
+  - TASK-0055
+  - TASK-0055B
+  - TASK-0055C
+follow-up-tasks:
+  - TASK-0056B
+  - TASK-0056C
+  - TASK-0199
+  - TASK-0200
+  - TASK-0253
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v1a renderer (baseline): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - UI v1b windowd (baseline): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - RFC seed contract: docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md
   - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - Present/input perf follow-up: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - Config broker (ui knobs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy as Code (permissions): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -71,6 +81,15 @@ Deliver:
   - cap coalesced damage rect count.
 - Premultiplied alpha rules must be consistent across present/composition.
 - No parallel sync model: fences must be versioned and minimal (documented as v2a semantics).
+- No sidecar compositor/input authority; v2a extends the existing `windowd` state machine.
+- Marker honesty is mandatory: no `ok/ready` marker before corresponding present/input state transitions are real.
+
+## Security / authority invariants
+
+- `windowd` remains single authority for scene ownership, present sequencing, hit-test, and focus transitions.
+- Input/focus routing rejects unauthorized or stale surface references deterministically.
+- Queue/fence/input event handling stays bounded to avoid DoS-style unbounded growth.
+- Logs/markers expose bounded metadata only (ids/counts/seq), never raw frame/input payload dumps.
 
 ## Red flags / decision points
 
@@ -80,6 +99,29 @@ Deliver:
 - **YELLOW (CPU-only wording)**:
   - We do not lock ourselves into CPU-only. Interfaces must not assume CPU blits.
   - But v2a proofs remain CPU-based to keep the task QEMU-tolerant.
+- **YELLOW (authority drift)**:
+  - introducing a parallel present/input routing lane in launcher/SystemUI or selftest would invalidate v1/v1d carry-in assumptions.
+- **YELLOW (fake-green marker risk)**:
+  - marker ladders can go green while focus/hit-test/fence semantics are wrong unless host assertions check actual routing outcomes.
+- **YELLOW (scope creep)**:
+  - avoid absorbing visible cursor polish (`TASK-0056B`), perf tuning (`TASK-0056C`), or WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`) into the v2a baseline.
+
+Red-flag mitigation now:
+
+- Keep one `windowd` authority path for present scheduler and input routing.
+- Gate success markers on post-state evidence (`present ack`, focused surface id, deterministic click path) plus host assertions.
+- Treat cursor visuals, click-latency tuning, and WM-lite breadth as explicit follow-ups.
+- Keep kernel untouched and consume existing carry-in floor from 55/55B/55C.
+
+## Gate E quality mapping (TRACK alignment)
+
+`TASK-0056` contributes to Gate E (`Windowing, UI & Graphics`, `production-floor`) in
+`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` by extending 55C from visible first-frame proof into
+deterministic present scheduling and input-routing correctness.
+
+- **first-frame/present/input path:** v2a owns deterministic scheduler + focus/hit-test baseline.
+- **surface ownership/reuse:** must preserve 55/55C ownership boundaries; no sidecar authority.
+- **perf closure:** intentionally not claimed here; measured optimization follows in `TASK-0056C`.
 
 ## Stop conditions (Definition of Done)
 
@@ -105,6 +147,13 @@ UART markers (order tolerant):
 - `launcher: click ok`
 - `SELFTEST: ui v2 present ok`
 - `SELFTEST: ui v2 input ok`
+
+### Quality gates (must be green for closure)
+
+- `scripts/fmt-clippy-deny.sh`
+- `just test-all`
+- `just ci-network`
+- `make clean`, `make build`, `make test`, `make run` (in order)
 
 ## Touched paths (allowlist)
 

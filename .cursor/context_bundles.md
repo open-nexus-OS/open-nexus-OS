@@ -236,6 +236,46 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0056_context
+- Status: `TASK-0056` is `In Progress`; `RFC-0050` is `In Progress`; `TASK-0055C`/`RFC-0049` remain done carry-in baseline.
+- Scope baseline: double-buffered surface present, deterministic present scheduler/fence semantics, deterministic hit-test/focus/keyboard routing.
+- Gate alignment: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`).
+- Marker contract (v2a baseline):
+  - `windowd: present scheduler on`
+  - `windowd: input on`
+  - `windowd: focus -> <surface_id>`
+  - `launcher: click ok`
+  - `SELFTEST: ui v2 present ok`
+  - `SELFTEST: ui v2 input ok`
+- Explicit non-claims: no cursor polish (`TASK-0056B`), no perf latency tuning closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no kernel production-grade claim.
+- `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`
+- `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
+- `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md`
+- `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `scripts/qemu-test.sh`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/10-security-services.mdc`
+
+### @task_0056_touched
+- `source/services/windowd/`
+- `source/services/windowd/idl/`
+- `userspace/apps/launcher/`
+- `tests/ui_v2a_host/`
+- `source/apps/selftest-client/`
+- `tools/postflight-ui-v2a.sh`
+- `docs/dev/ui/input/input.md`
+- `docs/dev/ui/foundations/rendering/renderer.md`
+- `docs/dev/ui/foundations/quality/testing.md`
+- `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
+- `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
 - `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`
@@ -860,6 +900,9 @@ Kontext strikt: @core_context @task_0055b_context @quality_gates @task_0055b_tou
 
 ## Standard instruction line (TASK-0055C)
 Kontext strikt: @core_context @task_0055c_context @quality_gates @task_0055c_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0056)
+Kontext strikt: @core_context @task_0056_context @quality_gates @task_0056_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

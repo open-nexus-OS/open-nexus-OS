@@ -227,6 +227,40 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] present/input perf closure remains `TASK-0056C`,
   - [ ] fuller display integration remains `TASK-0251`.
 
+## TASK-0056 class stop conditions (UI v2a present scheduler + double-buffer + input routing)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0056` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0050` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` status matches RFC reality.
+- [ ] Gate scope honesty is preserved:
+  - [ ] Gate E `production-floor` alignment stays explicit,
+  - [ ] no cursor polish/perf-latency closure/WM-v2 breadth/kernel production-grade claim is made.
+- [ ] Single `windowd` authority boundary is enforced:
+  - [ ] no sidecar present scheduler or input-routing authority appears in launcher/SystemUI/selftest,
+  - [ ] focus/hit-test decisions come from committed scene ordering,
+  - [ ] logs/markers include bounded metadata only.
+- [ ] Deterministic present scheduler contract is proven:
+  - [ ] rapid submits coalesce deterministically,
+  - [ ] no-damage/no-state-change path skips present deterministically,
+  - [ ] minimal fences are signaled only after present tick processing.
+- [ ] Deterministic input routing contract is proven:
+  - [ ] topmost-visible surface wins hit-test for overlapping surfaces,
+  - [ ] focus follows click and keyboard delivery targets focused surface only,
+  - [ ] stale/unauthorized surface references reject fail-closed.
+- [ ] Required proof floor is green:
+  - [ ] `cargo test -p ui_v2a_host -- --nocapture`,
+  - [ ] required `test_reject_*` suites for scheduler/input invariants are green,
+  - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`,
+  - [ ] `scripts/fmt-clippy-deny.sh`,
+  - [ ] `just test-all`,
+  - [ ] `just ci-network`,
+  - [ ] `make clean`, `make build`, `make test`, `make run`.
+- [ ] Marker honesty contract is preserved:
+  - [ ] `windowd: present scheduler on` only after scheduler path is active,
+  - [ ] `windowd: input on` only after routing path is active,
+  - [ ] `windowd: focus -> <surface_id>` only after real focus transition,
+  - [ ] `launcher: click ok`, `SELFTEST: ui v2 present ok`, `SELFTEST: ui v2 input ok` summarize proven state transitions.
+
 ## Active progress snapshot (TASK-0055B done, 2026-04-29)
 - [x] `TASK-0055B` is synchronized to `Done`.
 - [x] `RFC-0048` is synchronized to `Done`.
@@ -283,11 +317,19 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Active scope is bootstrap-visible first frame only; input/perf/kernel closure claims remain out of scope.
 
 ## Active prep snapshot (TASK-0055C + RFC-0049, 2026-04-30)
-- [x] `TASK-0055C` is active prep (`Draft`) and remains execution SSOT.
-- [x] `RFC-0049` contract seed is created and linked from task + RFC index (`Draft`).
+- [x] `TASK-0055C` is `Done` and remains verified carry-in baseline.
+- [x] `RFC-0049` is `Done` and remains linked in task + RFC index.
 - [x] 55C task text now includes dependencies/follow-ups, security invariants, red flags, and Gate E mapping.
 - [x] 55B closeout handoff is archived and `IMPLEMENTATION-ORDER` tracks `TASK-0055B` as done.
 - [x] Scope boundary remains explicit: visible present + first frame only; no input/perf/kernel closure claims.
+
+## Active prep snapshot (TASK-0056 + RFC-0050, 2026-04-30)
+- [x] `TASK-0056` switched to `In Progress` and remains execution SSOT for v2a baseline.
+- [x] `RFC-0050` contract seed exists and is `In Progress`.
+- [x] TASK/RFC links are synchronized (task header + RFC index).
+- [x] 56 scope boundaries are explicit (no 56B/56C/0199/0200/kernel scope absorption).
+- [ ] Host scheduler/input routing proofs are green.
+- [ ] QEMU v2a marker profile is green.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

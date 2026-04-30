@@ -10,10 +10,10 @@
 
 ## Active execution
 
-- **task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Done`.
-- **contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`.
-- **contract carry-in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`.
-- **carry-in baseline**: `TASK-0055` / `RFC-0047` are `Done` and remain the headless-only proof floor.
+- **task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `In Progress`.
+- **contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `In Progress`.
+- **contract carry-in**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`.
+- **carry-in baseline**: `TASK-0055` / `RFC-0047` / `TASK-0055B` / `RFC-0048` / `TASK-0055C` / `RFC-0049` are `Done`.
 
 ## TASK-0054 closure checks
 
@@ -71,12 +71,12 @@
 - Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
 - Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
 
-## Active task prep prompt (TASK-0055D)
+## Active task prep prompt (TASK-0056)
 
-- Current queue head is `TASK-0055D` (deterministic QEMU dev display/profile presets).
-- `TASK-0055C`/`RFC-0049` are closed with composed-frame visible-present proof and closure gates green.
-- Carry forward 55C boundaries: no input/cursor/perf/full-display closure was claimed.
-- Keep startup profile/dev-preset semantics separate from the `visible-bootstrap` harness marker profile.
+- Active queue head is `TASK-0056` (v2a present scheduler + double-buffer + input routing baseline).
+- `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
+- `TASK-0056` and `RFC-0050` are both `In Progress` and linked as execution SSOT + contract seed.
+- Preserve scope boundaries: no cursor polish (`TASK-0056B`), no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`).
 
 ## Carry-forward guardrails
 
@@ -86,3 +86,5 @@
 - No success marker for placeholder behavior.
 - No weakening of RFC-0046 proof requirements to fit an easy implementation.
 - No fake visible marker closure for TASK-0055B (visual/manual checks cannot replace deterministic marker+harness proof).
+- No parallel present/input authority outside `windowd` for TASK-0056.
+- No marker-only closure for scheduler/focus semantics; host assertions are mandatory.

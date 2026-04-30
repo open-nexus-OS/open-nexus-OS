@@ -2,18 +2,20 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-30)**: `TASK-0055C` is `Done` and contract seed `RFC-0049` is `Done`; composed-frame visible-present hardening and closure gates are green, with 55D+ follow-ups unchanged.
+- **last_decision (2026-04-30)**: `TASK-0055C`/`RFC-0049` remain `Done`; `TASK-0056` and its new contract seed `RFC-0050` are now `In Progress` as the active Gate-E baseline slice.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
   - deterministic layering stays `defaults < /system < /state < env`,
   - `configd` owns deterministic reload/version transitions and honest 2PC semantics.
-- **gate tier**: TASK-0055 contributes to Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`, but it does not close all Gate E expectations by itself. Visible scanout, visible SystemUI present, input routing, and kernel/core production-grade UI work remain delegated to follow-ups.
+- **gate tier**: UI closure remains in Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. `TASK-0056` now owns deterministic present scheduler + input-routing baseline; 56B/56C/0199/0200 and kernel lanes remain explicit follow-ups.
 
 ## Active execution state
 
 - **completed_task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`
+- **active_task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `In Progress`
+- **active_contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `In Progress`
 - **active_contract_carry_in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (visible bootstrap baseline)
 - **completed_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`
@@ -21,7 +23,7 @@
 - **completed_contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
-- **next_queue_head**: `TASK-0055D` / deterministic QEMU dev display/profile presets. Do not infer input/perf/full-display closure from 55C.
+- **next_queue_head**: `TASK-0056` is active. Do not infer visible cursor polish/perf/full WM/display closure from 56 baseline scope.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 

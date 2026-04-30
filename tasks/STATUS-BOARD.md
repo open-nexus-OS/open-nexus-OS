@@ -218,9 +218,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | Done | Headless state-machine, generated IDL roundtrip, marker, postflight, and reject proofs complete |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | Done | Visible QEMU `ramfb` bootstrap path proven with marker-honesty hardening and full closure gates green |
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | Done | Composed-frame visible present proven (host full frame + OS row path) with QEMU marker ladder and closure gates green |
+| ⏳ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | In Progress | Execution SSOT active; `RFC-0050` seed in progress; bounded scheduler/focus contract and marker-honesty proofs pending |
 
-Current queue head: `TASK-0055D` / deterministic QEMU dev display/profile presets.
-Current contract status: `RFC-0049` (`Done`, 2026-04-30); `TASK-0055C` is `Done` after composed-frame visible-present hardening, QEMU marker proof, and closure gates green. No input/cursor/perf/full-display/kernel-VMO production closure claim.
+Current queue head: `TASK-0056` / v2a present scheduler + double-buffer + input routing baseline.
+Current contract status: `RFC-0049` (`Done`, 2026-04-30) remains carry-in; `RFC-0050` is now `In Progress` with `TASK-0056` `In Progress`.
 
 ---
 

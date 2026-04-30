@@ -103,6 +103,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | 2026-04-27 |
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | 2026-04-27 |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | 2026-04-29 |
+| ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | 2026-04-30 |
 
 ---
 
@@ -143,7 +144,7 @@ Vom CPU-Renderer bis zum ersten echten sichtbaren Input in QEMU.
 | TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync (Done; headless present + generated IDL roundtrip + reject proofs green) |
 | TASK-0055B | UI v1c: visible QEMU scanout bootstrap (Done; marker-honesty hardening + full closure gates green) |
 | TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU (Done; composed-frame visible-present proof + closure gates green) |
-| TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing |
+| TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing (In Progress; RFC-0050 seed in progress) |
 | TASK-0056B | UI v2a: visible input — cursor + focus + click |
 
 **Defer aus diesem Bereich:** `0054B/C/D` (Kernel UI/IPC/MM perf floor — Perf-Polish nach Baseline), `0055D` (dev display presets), `0056C` (present/input perf latency).

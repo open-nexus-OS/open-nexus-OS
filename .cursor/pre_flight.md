@@ -89,6 +89,22 @@ This is the anti-fake-success gate.
 - [ ] `just ci-network` is green.
 - [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
 
+## Task-0056 automatic addendum (when applicable)
+- [ ] `cargo test -p ui_v2a_host -- --nocapture` is green for scheduler + input-routing contract tests.
+- [ ] Reject suite for stale/unauthorized/oversize scheduler-input paths is green (`test_reject_*` equivalents).
+- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green for v2a marker profile.
+- [ ] Deterministic v2a markers appear only after real state transitions:
+  - [ ] `windowd: present scheduler on`
+  - [ ] `windowd: input on`
+  - [ ] `windowd: focus -> <surface_id>`
+  - [ ] `launcher: click ok`
+  - [ ] `SELFTEST: ui v2 present ok`
+  - [ ] `SELFTEST: ui v2 input ok`
+- [ ] `scripts/fmt-clippy-deny.sh` is green.
+- [ ] `just test-all` is green.
+- [ ] `just ci-network` is green.
+- [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks
@@ -243,6 +259,14 @@ This is the anti-fake-success gate.
 - [x] `TASK-0055B` now includes security/authority invariants, red flags, and Gate E mapping aligned to visible bootstrap scope.
 - [x] `RFC-0048` exists and is linked from `TASK-0055B` and `docs/rfcs/README.md`.
 - [x] Active claim boundary is explicit: visible bootstrap first-frame only; no input/perf/kernel closure claims.
+
+## Active prep snapshot (TASK-0056 + RFC-0050, 2026-04-30)
+- [x] `TASK-0055C` remains synchronized as `Done` carry-in baseline.
+- [x] `TASK-0056` is now `In Progress`.
+- [x] `RFC-0050` contract seed is created and linked from task + RFC index.
+- [x] `TASK-0056` header includes dependencies/follow-ups, security invariants, red flags, and Gate E mapping.
+- [ ] Host scheduler/input-routing proofs are green.
+- [ ] QEMU v2a marker profile is green.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:
