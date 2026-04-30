@@ -1,6 +1,6 @@
 # RFC-0049: UI v1d windowd visible present + SystemUI first-frame contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui @runtime
 - Created: 2026-04-30
 - Last Updated: 2026-04-30
@@ -10,9 +10,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (visible present contract)**: ⬜
-- **Phase 1 (SystemUI first-frame contract)**: ⬜
-- **Phase 2 (hardening + Gate E sync)**: ⬜
+- **Phase 0 (visible present contract)**: ✅ implemented; host + QEMU marker proof green
+- **Phase 1 (SystemUI first-frame contract)**: ✅ implemented; TOML-backed desktop shell seed + composed-frame host proof green
+- **Phase 2 (hardening + Gate E sync)**: 🟨 partial; reject/fmt/QEMU proof green, full closure gates still pending
 
 Definition:
 
@@ -68,7 +68,9 @@ This RFC is a design seed / contract. Implementation planning and proofs live in
 
 - Visible mode remains anchored to the 55B bootstrap baseline (`1280x800`, `argb8888`).
 - `windowd` remains present authority and must drive visible present through the same lifecycle used for headless present.
+- The QEMU scanout seed for this slice is produced by `windowd` composition. Host evidence stores the full composed frame; the OS path may write composed rows to stay within the selftest heap.
 - SystemUI contributes one minimal deterministic first frame (background + shell) on that path.
+- SystemUI profile/shell selection starts with small repo-owned TOML manifests for the `desktop` seed, matching `docs/dev/ui/foundations/layout/profiles.md`; this is not the future dev-preset/start-profile matrix.
 - Marker contract for this slice:
   - `windowd: backend=visible`
   - `windowd: present visible ok`
@@ -86,11 +88,14 @@ This RFC is a design seed / contract. Implementation planning and proofs live in
 - **Threat model**:
   - fake-visible marker emission without real visible present,
   - authority drift through sidecar present/render paths,
-  - confused profile semantics (harness marker profile vs. start profile behavior).
+  - confused profile semantics (harness marker profile vs. start profile behavior),
+  - SystemUI monolith growth that hardcodes profile/shell logic instead of using the manifest pipeline.
 - **Mitigations**:
   - single `windowd` present authority and no parallel debug renderer,
   - marker gating on real visible present state transitions,
-  - explicit profile boundary wording in task/docs/tests.
+  - host assertions that marker evidence carries the composed 1280x800 `windowd` frame and row-copy behavior,
+  - explicit profile boundary wording in task/docs/tests,
+  - modular SystemUI `profile` / `shell` / `frame` split with strict deterministic manifest validation.
 - **Open risks**:
   - input/cursor and perf closure remain out of scope until follow-on tasks.
 
@@ -130,7 +135,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- Should this slice lock a specific minimal shell visual pattern in-repo (fixture-style) or defer that strictness to a dedicated SystemUI visual contract? (Owner: @ui)
+- Resolved for this slice: TASK-0055C locks a tiny deterministic SystemUI first-frame pattern and TOML-backed `desktop` profile/shell seed. Rich profile/preset expansion remains owned by `TASK-0055D` and later SystemUI slices.
 
 ---
 
@@ -138,9 +143,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: visible present contract + marker gating — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
-- [ ] **Phase 1**: minimal visible SystemUI first-frame contract — proof: `cd /home/jenning/open-nexus-OS && cargo test -p systemui -- --nocapture`
+- [x] **Phase 0**: visible present contract + marker gating — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
+- [x] **Phase 1**: minimal visible SystemUI first-frame contract — proof: `cd /home/jenning/open-nexus-OS && cargo test -p systemui -- --nocapture`
 - [ ] **Phase 2**: hardening + Gate E sync for this slice — proof: `cd /home/jenning/open-nexus-OS && scripts/fmt-clippy-deny.sh && just test-all && just ci-network`
-- [ ] Task linked with stop conditions + proof commands.
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] Task linked with stop conditions + proof commands.
+- [x] QEMU markers appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

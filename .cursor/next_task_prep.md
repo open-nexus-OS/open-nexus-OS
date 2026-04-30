@@ -73,10 +73,19 @@
 
 ## Active task prep prompt (TASK-0055C)
 
-- Next execution SSOT is `TASK-0055C` visible SystemUI first frame in QEMU.
-- Contract seed for this slice is now `RFC-0049` (`In Progress`), with `RFC-0048` retained as carry-in visible-bootstrap baseline.
-- Carry forward TASK-0055B honesty: visible bootstrap proves a fixed `ramfb` pattern path only, not real SystemUI/launcher profile selection, input, cursor, GPU, dirty-rect display service behavior, perf budgets, or kernel/core production-grade display closure.
-- Keep startup profile semantics separate from harness marker profiles.
+- Current execution SSOT is `TASK-0055C` visible SystemUI first frame in QEMU.
+- Contract seed for this slice is `RFC-0049` (`In Progress`), with `RFC-0048` retained as carry-in visible-bootstrap baseline.
+- Implementation is partially proven:
+  - minimal TOML-backed SystemUI `desktop` profile/shell seed exists,
+  - visible `windowd` present composes the deterministic SystemUI first frame into the visible 1280x800 frame on host and exposes composed rows for OS/QEMU,
+  - `selftest-client` writes `windowd`-composed rows to QEMU `ramfb`, not a raw SystemUI source buffer or selftest-owned sidecar composition,
+  - host required proof, reject proof, OS-target selftest build, QEMU visible marker proof, and `scripts/fmt-clippy-deny.sh` are green.
+- Closure remains pending by operator hold:
+  - `just test-all`,
+  - `just ci-network`,
+  - `make clean`, `make build`, `make test`, `make run`.
+- Carry forward TASK-0055C honesty: this proves visible SystemUI first-frame only, not input, cursor, GPU, dirty-rect display service behavior, perf budgets, full display integration, dev-preset/start-profile matrix, or kernel/core production-grade display closure.
+- Keep startup profile/dev-preset semantics separate from the `visible-bootstrap` harness marker profile.
 
 ## Carry-forward guardrails
 

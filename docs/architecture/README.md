@@ -98,8 +98,9 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 - `windowd` headless contract: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` (`TASK-0055` Done)
 - `windowd` visible bootstrap contract: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` (`TASK-0055B` Done)
+- `windowd` visible SystemUI first-frame contract: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` (`TASK-0055C` In Progress)
 - Dedicated architecture decision: `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
-- Scope rule: headless `TASK-0055` closure must not be interpreted as visible scanout/input/perf closure; those remain follow-up scope (`TASK-0055B`, `TASK-0055C`, `TASK-0056B`, `TASK-0251`).
+- Scope rule: headless `TASK-0055` and visible `TASK-0055B`/`TASK-0055C` closure must not be interpreted as input/perf/full-display closure; those remain follow-up scope (`TASK-0056B`, `TASK-0056C`, `TASK-0251`).
 
 ## On-device inference
 

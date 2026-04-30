@@ -22,6 +22,10 @@ pub const DISPLAY_BOOTSTRAP_MARKER: &str = "display: bootstrap on";
 pub const DISPLAY_MODE_MARKER: &str = "display: mode 1280x800 argb8888";
 pub const DISPLAY_FIRST_SCANOUT_MARKER: &str = "display: first scanout ok";
 pub const SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER: &str = "SELFTEST: display bootstrap guest ok";
+pub const VISIBLE_BACKEND_MARKER: &str = "windowd: backend=visible";
+pub const PRESENT_VISIBLE_MARKER: &str = "windowd: present visible ok";
+pub const SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER: &str = "systemui: first frame visible";
+pub const SELFTEST_UI_VISIBLE_PRESENT_MARKER: &str = "SELFTEST: ui visible present ok";
 
 pub fn present_marker(ack: PresentAck) -> String {
     format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)

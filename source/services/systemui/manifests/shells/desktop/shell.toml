@@ -1,0 +1,21 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Minimal SystemUI desktop shell seed for TASK-0055C.
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "desktop"
+kind = "desktop"
+dsl_root = "ui/shells/desktop"
+supported_profiles = ["desktop"]
+
+[first_frame]
+width = 160
+height = 100
+
+[features]
+launcher = false
+multiwindow = false
+quick_settings = false
+settings_entry = false

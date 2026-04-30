@@ -92,6 +92,35 @@ impl SurfaceBuffer {
             pixels,
         })
     }
+
+    pub fn from_bgra_pixels(
+        caller: CallerCtx,
+        handle_id: u64,
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+    ) -> Result<Self> {
+        validate_dimensions(width, height)?;
+        let stride = checked_stride(width)?;
+        let len = checked_len(stride, height)?;
+        if pixels.len() != len {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        Ok(Self {
+            handle: VmoHandle {
+                id: VmoHandleId::new(handle_id),
+                owner: caller.caller_id(),
+                rights: VmoRights::read_write(),
+                byte_len: len,
+                surface_buffer: true,
+            },
+            width,
+            height,
+            stride,
+            format: PixelFormat::Bgra8888,
+            pixels,
+        })
+    }
 }
 
 pub(crate) fn validate_buffer(caller: CallerCtx, buffer: &SurfaceBuffer) -> Result<()> {

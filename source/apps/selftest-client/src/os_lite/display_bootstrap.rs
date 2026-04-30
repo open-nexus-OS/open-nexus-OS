@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Visible QEMU `ramfb` bootstrap path for TASK-0055B.
+//! CONTEXT: Visible QEMU `ramfb` bootstrap path for TASK-0055B/TASK-0055C.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: QEMU marker ladder plus `windowd` host reject tests.
+//! TEST_COVERAGE: QEMU marker ladder plus `windowd`/`ui_windowd_host` host reject tests.
 
 use nexus_abi::{
     cap_query, mmio_map, page_flags, vmo_create, vmo_map_page, vmo_write, CapQuery, Handle,
@@ -51,13 +51,13 @@ pub(crate) fn enabled() -> bool {
     option_env!("NEXUS_DISPLAY_BOOTSTRAP") == Some("1")
 }
 
-pub(crate) fn run() -> Option<windowd::VisibleBootstrapEvidence> {
+pub(crate) fn run() -> Option<windowd::VisibleSystemUiEvidence> {
     run_result().ok()
 }
 
-pub(crate) fn run_result() -> Result<windowd::VisibleBootstrapEvidence, BootstrapFailure> {
+pub(crate) fn run_result() -> Result<windowd::VisibleSystemUiEvidence, BootstrapFailure> {
     let evidence =
-        windowd::run_visible_bootstrap_smoke().map_err(|_| BootstrapFailure::WindowdEvidence)?;
+        windowd::run_visible_systemui_smoke().map_err(|_| BootstrapFailure::WindowdEvidence)?;
     let mode = evidence.mode.validate().map_err(|_| BootstrapFailure::InvalidMode)?;
     let fb_len = mode.byte_len().map_err(|_| BootstrapFailure::InvalidMode)?;
     let framebuffer = vmo_create(fb_len).map_err(|_| BootstrapFailure::FramebufferVmo)?;
@@ -69,9 +69,9 @@ pub(crate) fn run_result() -> Result<windowd::VisibleBootstrapEvidence, Bootstra
     let cap = windowd::VisibleDisplayCapability { byte_len: fb_len, mapped: true, writable: true };
     windowd::validate_visible_bootstrap_capability(mode, cap)
         .map_err(|_| BootstrapFailure::InvalidDisplayCapability)?;
-    write_windowd_seed(framebuffer, mode, &evidence.seed_surface)?;
+    write_windowd_composed_rows(framebuffer, mode, &evidence)?;
     configure_ramfb(fb_query.base, mode)?;
-    windowd::visible_marker_postflight_ready(Some(evidence))
+    windowd::visible_systemui_marker_postflight_ready(Some(evidence))
         .map_err(|_| BootstrapFailure::WindowdEvidence)
 }
 
@@ -81,31 +81,15 @@ fn query_cap(handle: Handle) -> Option<CapQuery> {
     Some(query)
 }
 
-fn write_windowd_seed(
+fn write_windowd_composed_rows(
     handle: Handle,
     mode: windowd::VisibleBootstrapMode,
-    seed: &windowd::SurfaceBuffer,
+    evidence: &windowd::VisibleSystemUiEvidence,
 ) -> Result<(), BootstrapFailure> {
-    if seed.width == 0
-        || seed.height == 0
-        || seed.stride < seed.width * 4
-        || seed.format != windowd::PixelFormat::Bgra8888
-    {
-        return Err(BootstrapFailure::FrameWrite);
-    }
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        let sy = (y % seed.height) as usize;
-        let seed_row_base = sy * seed.stride as usize;
-        for x in 0..mode.width {
-            let sx = (x % seed.width) as usize;
-            let src = seed_row_base + (sx * 4);
-            let dst = (x as usize) * 4;
-            row[dst..dst + 4].copy_from_slice(
-                seed.pixels.get(src..src + 4).ok_or(BootstrapFailure::FrameWrite)?,
-            );
-        }
+        evidence.copy_composed_row(y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }

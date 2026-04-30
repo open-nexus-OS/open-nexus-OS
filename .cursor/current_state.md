@@ -148,20 +148,31 @@
   - `TASK-0055D` still owns rich dev display/start-profile presets; `visible-bootstrap` must not be reused as a SystemUI start profile.
   - `TASK-0288`/`TASK-0290` and related kernel lanes still own perf/latency and zero-copy/kernel production-grade closure.
 
-## TASK-0055C prep state
+## TASK-0055C implementation state
 
-- `TASK-0055C` is now active execution (`In Progress`) with dedicated contract seed `RFC-0049` (`In Progress`).
-- Task header is aligned to repo reality:
-  - explicit dependencies (`TASK-0055`, `TASK-0055B`),
-  - explicit follow-ups (`TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0251`),
-  - security/authority invariants, red flags, and Gate E mapping are present.
-- Carry-in contract boundary remains explicit:
-  - `RFC-0048`/`TASK-0055B` prove visible bootstrap plumbing only,
-  - `TASK-0055C` must prove real visible `windowd` + SystemUI first-frame behavior without claiming input/perf/kernel closure.
-- Tracking sync done:
-  - previous 55B handoff archived at `.cursor/handoff/archive/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`,
-  - `TASK-0055B` added to `Done` in `tasks/IMPLEMENTATION-ORDER.md`,
-  - `RFC-0049` added to `docs/rfcs/README.md` and linked from `TASK-0055C`.
+- `TASK-0055C` remains active execution (`In Progress`) with `RFC-0049` (`In Progress`).
+- Implemented so far:
+  - `source/services/systemui/` is split into small `profile`, `shell`, and `frame` modules,
+  - SystemUI has minimal repo-owned TOML seeds for `desktop` profile + shell,
+  - `windowd` visible-present evidence now composes the deterministic SystemUI first frame into the visible 1280x800 frame on host and exposes composed rows for OS/QEMU,
+  - `selftest-client` writes `windowd`-composed rows to QEMU `ramfb`, not a raw SystemUI source buffer or selftest-owned sidecar composition,
+  - `selftest-client`, proof-manifest, and `scripts/qemu-test.sh` use the 55C visible marker ladder.
+- Green evidence so far:
+  - `cargo test -p systemui -- --nocapture`,
+  - `cargo test -p windowd -p ui_windowd_host -- --nocapture`,
+  - OS-target `selftest-client` visible build check with `NEXUS_DISPLAY_BOOTSTRAP=1`,
+  - `cargo test -p selftest-client -- --nocapture`,
+  - `cargo test -p windowd -p ui_windowd_host -p systemui -- --nocapture`,
+  - `cargo test -p ui_windowd_host reject -- --nocapture`,
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`,
+  - `scripts/fmt-clippy-deny.sh`.
+- Observed 55C QEMU ladder: `display: bootstrap on`, `display: mode 1280x800 argb8888`,
+  `windowd: backend=visible`, `windowd: present visible ok`, `display: first scanout ok`,
+  `systemui: first frame visible`, `SELFTEST: ui visible present ok`.
+- Closure is not yet claimed. Per operator hold, `just test-all`, `just ci-network`, and
+  `make clean` → `make build` → `make test` → `make run` remain pending.
+- Scope boundary remains explicit: no input/cursor/focus, perf/smoothness, full display integration,
+  dev-preset/start-profile matrix, GPU, or kernel/core production-grade closure claim.
 
 ## TASK-0047 closure gaps remediated host-first
 

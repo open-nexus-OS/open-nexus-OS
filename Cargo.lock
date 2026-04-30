@@ -3028,9 +3028,6 @@ dependencies = [
 [[package]]
 name = "systemui"
 version = "0.1.0"
-dependencies = [
- "compositor",
-]
 
 [[package]]
 name = "tar"
@@ -3548,6 +3545,9 @@ dependencies = [
 [[package]]
 name = "windowd"
 version = "0.1.0"
+dependencies = [
+ "systemui",
+]
 
 [[package]]
 name = "windows-link"

@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: `windowd` headless surface/layer/present authority for TASK-0055.
+//! CONTEXT: `windowd` surface/layer/present authority for headless and visible UI proofs.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 3 unit tests, integration coverage in `ui_windowd_host`/`launcher`/`selftest-client`
+//! TEST_COVERAGE: unit tests, integration coverage in `ui_windowd_host`/`launcher`/`selftest-client`
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
@@ -33,9 +33,10 @@ pub use ids::{CallerCtx, CallerId, CommitSeq, PresentSeq, SurfaceId, VmoHandleId
 pub use legacy::render_frame;
 pub use markers::{
     marker_postflight_ready, present_marker, DISPLAY_BOOTSTRAP_MARKER,
-    DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, LAUNCHER_MARKER, READY_MARKER,
-    SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER, SELFTEST_LAUNCHER_PRESENT_MARKER,
-    SELFTEST_RESIZE_MARKER, SYSTEMUI_MARKER,
+    DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, LAUNCHER_MARKER, PRESENT_VISIBLE_MARKER,
+    READY_MARKER, SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER, SELFTEST_LAUNCHER_PRESENT_MARKER,
+    SELFTEST_RESIZE_MARKER, SELFTEST_UI_VISIBLE_PRESENT_MARKER,
+    SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, SYSTEMUI_MARKER, VISIBLE_BACKEND_MARKER,
 };
 pub use server::{
     InputStubStatus, PresentAck, UiProfile, WindowServer, WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT,
@@ -43,8 +44,10 @@ pub use server::{
 };
 pub use smoke::{
     bootstrap_pixel_bgra, run_headless_ui_smoke, run_visible_bootstrap_smoke,
-    validate_visible_bootstrap_capability, visible_marker_postflight_ready, UiSmokeEvidence,
+    run_visible_systemui_smoke, validate_visible_bootstrap_capability,
+    visible_marker_postflight_ready, visible_systemui_marker_postflight_ready, UiSmokeEvidence,
     VisibleBootstrapEvidence, VisibleBootstrapMode, VisibleDisplayCapability,
+    VisibleSystemUiEvidence,
 };
 
 #[cfg(not(all(nexus_env = "os", target_os = "none")))]
@@ -84,6 +87,22 @@ mod tests {
         assert!(visible_marker_postflight_ready(Some(evidence)).is_ok());
         assert_eq!(
             visible_marker_postflight_ready(None),
+            Err(WindowdError::MarkerBeforePresentState)
+        );
+    }
+
+    #[test]
+    fn visible_systemui_smoke_requires_present_before_marker() {
+        let evidence = run_visible_systemui_smoke().expect("visible systemui smoke");
+        assert!(evidence.ready);
+        assert!(evidence.backend_visible);
+        assert!(evidence.systemui_first_frame);
+        assert_eq!(evidence.first_present.seq.raw(), 1);
+        assert_eq!(evidence.frame_source.width, 160);
+        assert_eq!(evidence.frame_source.height, 100);
+        assert!(visible_systemui_marker_postflight_ready(Some(evidence)).is_ok());
+        assert_eq!(
+            visible_systemui_marker_postflight_ready(None),
             Err(WindowdError::MarkerBeforePresentState)
         );
     }

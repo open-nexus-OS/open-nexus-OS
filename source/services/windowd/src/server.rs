@@ -245,12 +245,18 @@ impl WindowServer {
         if damage_count == 0 {
             return Err(WindowdError::MarkerBeforePresentState);
         }
+        #[cfg(not(all(nexus_env = "os", target_os = "none")))]
+        let frame = self.compose_frame()?;
         let ack =
             PresentAck { seq: PresentSeq::new(self.next_present_seq), damage_rects: damage_count };
         self.next_present_seq =
             self.next_present_seq.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
         for surface in &mut self.surfaces {
             surface.damage.clear();
+        }
+        #[cfg(not(all(nexus_env = "os", target_os = "none")))]
+        {
+            self.last_frame = Some(frame);
         }
         self.last_present = Some(ack);
         Ok(ack)

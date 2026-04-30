@@ -238,6 +238,23 @@ This closes only the bootstrap scanout path. Visible SystemUI/launcher profile
 selection, input, cursor, dirty-rect display services, perf budgets, virtio-gpu,
 and kernel/core production-grade display closure remain follow-up scope.
 
+### TASK-0055C visible windowd present + SystemUI first frame
+
+`TASK-0055C` proves that visible QEMU output can be fed by the real
+`windowd` present lifecycle with a deterministic SystemUI first frame. The
+`visible-bootstrap` profile remains only a harness/marker profile.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| TOML-backed `desktop` SystemUI profile/shell seed and deterministic BGRA first-frame pixels/checksum | host behavior assertions | `cargo test -p systemui -- --nocapture` |
+| Visible present evidence uses `windowd` composition (full composed frame on host, composed rows in OS to fit selftest heap), not a raw SystemUI source-buffer write; invalid mode/capability/pre-marker paths reject | host behavior/reject assertions | `cargo test -p windowd -p ui_windowd_host -- --nocapture` and `cargo test -p ui_windowd_host reject -- --nocapture` |
+| `selftest-client` visible SystemUI path compiles for the OS target | OS target compile assertion | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` |
+| Visible marker ladder (`windowd: backend=visible`, `windowd: present visible ok`, `systemui: first frame visible`, `SELFTEST: ui visible present ok`) with proof-manifest verification | single-VM QEMU visible SystemUI proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
+
+This slice still does not prove input, cursor/focus/click, display-service
+integration, dirty-rect scanout, frame-budget smoothness, dev display/profile
+preset matrices, or kernel/core production-grade display closure.
+
 ## Workflow checklist
 
 1. Extend userspace tests first and run `cargo test --workspace` until green.

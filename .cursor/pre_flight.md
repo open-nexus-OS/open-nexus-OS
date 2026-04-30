@@ -77,6 +77,7 @@ This is the anti-fake-success gate.
 ## Task-0055C automatic addendum (when applicable)
 - [ ] `cargo test -p windowd -p ui_windowd_host -p systemui -- --nocapture` is green.
 - [ ] `cargo test -p ui_windowd_host reject -- --nocapture` is green for visible-present reject paths.
+- [ ] Host evidence proves QEMU scanout is fed from `windowd` composition (full frame or composed rows), not a raw SystemUI source buffer.
 - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green for visible present marker ladder.
 - [ ] Deterministic visible markers appear in order:
   - [ ] `windowd: backend=visible`

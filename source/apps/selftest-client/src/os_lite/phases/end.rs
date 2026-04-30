@@ -25,10 +25,15 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
         if let Some(evidence) = display_bootstrap::run() {
             emit_line(windowd::DISPLAY_BOOTSTRAP_MARKER);
             emit_line(windowd::DISPLAY_MODE_MARKER);
-            let present_marker = windowd::present_marker(evidence.first_present);
-            emit_line(present_marker.as_str());
+            if evidence.backend_visible {
+                emit_line(windowd::VISIBLE_BACKEND_MARKER);
+            }
+            emit_line(windowd::PRESENT_VISIBLE_MARKER);
             emit_line(windowd::DISPLAY_FIRST_SCANOUT_MARKER);
-            emit_line(windowd::SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER);
+            if evidence.systemui_first_frame {
+                emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
+            }
+            emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         }
     } else if let Ok(evidence) = windowd::run_headless_ui_smoke() {
         if evidence.ready {

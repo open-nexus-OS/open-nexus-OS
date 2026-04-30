@@ -202,6 +202,7 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [ ] Single present authority boundary is enforced:
   - [ ] no parallel compositor/debug renderer path is introduced,
   - [ ] visible present runs through the same `windowd` lifecycle authority as headless present,
+  - [ ] QEMU scanout is fed from `windowd` composition (full frame or composed rows), not a raw SystemUI source buffer,
   - [ ] harness profile semantics are kept separate from startup profile semantics.
 - [ ] Visible present + SystemUI first-frame contract is proven:
   - [ ] `windowd: backend=visible` marker appears only when visible backend is active,

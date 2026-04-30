@@ -219,7 +219,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | Done | Visible QEMU `ramfb` bootstrap path proven with marker-honesty hardening and full closure gates green |
 
 Current queue head: `TASK-0055C` / visible SystemUI first frame in QEMU.
-Current contract status: `RFC-0048` (`Done`, 2026-04-29); `TASK-0055B` is `Done` after marker-honesty/scanout-source hardening and full closure gates. Visible bootstrap only; no visible SystemUI/input/kernel-VMO production closure claim.
+Current contract status: `RFC-0049` (`Done`, 2026-04-30); `TASK-0055C` is `In Review` after composed-frame visible-present hardening and focused proofs. No input/cursor/perf/full-display/kernel-VMO production closure claim.
 
 ---
 

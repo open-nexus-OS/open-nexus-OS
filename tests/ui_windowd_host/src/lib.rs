@@ -1,10 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: TASK-0055 host behavior proofs for `windowd`.
+//! CONTEXT: TASK-0055/0055B/0055C host behavior proofs for `windowd`.
 //! OWNERS: @ui @runtime
-//! STATUS: Done
+//! STATUS: Functional
+//! API_STABILITY: Stable
 //! TEST_COVERAGE: `cargo test -p ui_windowd_host -- --nocapture`, `cargo test -p ui_windowd_host capnp -- --nocapture`
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 mod surface_capnp {
     include!(concat!(env!("OUT_DIR"), "/surface_capnp.rs"));
@@ -27,10 +29,13 @@ mod tests {
     use crate::{input_capnp, layer_capnp, surface_capnp, vsync_capnp};
     use windowd::{
         marker_postflight_ready, present_marker, run_visible_bootstrap_smoke,
-        validate_visible_bootstrap_capability, visible_marker_postflight_ready, CallerCtx,
+        run_visible_systemui_smoke, validate_visible_bootstrap_capability,
+        visible_marker_postflight_ready, visible_systemui_marker_postflight_ready, CallerCtx,
         CommitSeq, InputStubStatus, Layer, PixelFormat, PresentAck, PresentSeq, Rect,
         SurfaceBuffer, SurfaceId, VisibleBootstrapMode, VisibleDisplayCapability, VmoHandleId,
-        VmoRights, WindowServer, WindowdConfig, WindowdError,
+        VmoRights, WindowServer, WindowdConfig, WindowdError, PRESENT_VISIBLE_MARKER,
+        SELFTEST_UI_VISIBLE_PRESENT_MARKER, SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER,
+        VISIBLE_BACKEND_MARKER,
     };
 
     const LAUNCHER: CallerCtx = CallerCtx::from_service_metadata(0x55);
@@ -322,6 +327,47 @@ mod tests {
             visible_marker_postflight_ready(None),
             Err(WindowdError::MarkerBeforePresentState)
         );
+    }
+
+    #[test]
+    fn visible_systemui_present_uses_systemui_frame_source() {
+        let evidence = match run_visible_systemui_smoke() {
+            Ok(evidence) => evidence,
+            Err(err) => panic!("visible systemui failed: {err:?}"),
+        };
+        assert!(evidence.ready);
+        assert!(evidence.backend_visible);
+        assert!(evidence.systemui_first_frame);
+        assert_eq!(evidence.first_present.seq.raw(), 1);
+        assert_eq!(evidence.frame_source.width, 160);
+        assert_eq!(evidence.frame_source.height, 100);
+        assert_eq!(evidence.frame_source.stride, 640);
+        assert_eq!(evidence.frame_source.format, PixelFormat::Bgra8888);
+        assert_eq!(evidence.frame_source.pixels[0..4], [0x80, 0x50, 0x20, 0xff]);
+        let composed_frame = evidence.composed_frame.as_ref().expect("host composed frame");
+        assert_eq!(composed_frame.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+        assert_eq!(composed_frame.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+        assert_eq!(composed_frame.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
+        assert_eq!(composed_frame.pixels[0..4], evidence.frame_source.pixels[0..4]);
+        let inner_pixel = (20 * composed_frame.stride as usize) + (12 * 4);
+        assert_eq!(composed_frame.pixels[inner_pixel..inner_pixel + 4], [0x24, 0x28, 0x34, 0xff]);
+        let mut row = [0xff; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
+        evidence.copy_composed_row(20, &mut row).expect("copy composed row");
+        assert_eq!(row[12 * 4..(12 * 4) + 4], [0x24, 0x28, 0x34, 0xff]);
+        assert_eq!(row[200 * 4..(200 * 4) + 4], [0, 0, 0, 0]);
+        assert_eq!(visible_systemui_marker_postflight_ready(Some(evidence.clone())), Ok(evidence));
+    }
+
+    #[test]
+    fn test_reject_visible_systemui_marker_before_present_state() {
+        assert_eq!(
+            visible_systemui_marker_postflight_ready(None),
+            Err(WindowdError::MarkerBeforePresentState)
+        );
+        assert_eq!(VISIBLE_BACKEND_MARKER, "windowd: backend=visible");
+        assert_eq!(PRESENT_VISIBLE_MARKER, "windowd: present visible ok");
+        assert_eq!(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, "systemui: first frame visible");
+        assert_eq!(SELFTEST_UI_VISIBLE_PRESENT_MARKER, "SELFTEST: ui visible present ok");
     }
 
     #[test]

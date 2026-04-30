@@ -103,3 +103,40 @@ written/configured. Harness acceptance is verified after the run by
 This does not prove visible SystemUI/launcher profile selection, input, cursor,
 multi-display, virtio-gpu, display service dirty-rect behavior, or frame-budget
 performance.
+
+## TASK-0055C visible windowd present + SystemUI first frame
+
+TASK-0055C replaces the visible bootstrap pattern claim with a real visible
+`windowd` + SystemUI first-frame path. The same `visible-bootstrap`
+proof-manifest profile remains a harness/marker profile; it is not a SystemUI
+start-profile or dev-preset matrix.
+
+```bash
+cargo test -p windowd -p ui_windowd_host -p systemui -- --nocapture
+cargo test -p ui_windowd_host reject -- --nocapture
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
+```
+
+The SystemUI first-frame source is intentionally tiny but not monolithic:
+`source/services/systemui/` owns a TOML-backed `desktop` profile/shell seed and
+small `profile`, `shell`, and `frame` modules. Host tests prove deterministic
+manifest validation, profile/shell compatibility, stable BGRA first-frame
+pixels, row-copy behavior, and pre-visible marker rejection. Host evidence
+stores the full `windowd`-composed 1280x800 frame. The OS/QEMU path writes
+`windowd`-composed rows to `ramfb` to stay inside the current selftest heap, so
+the marker ladder still proves the present lifecycle rather than a sidecar
+framebuffer copy.
+
+Expected visible marker ladder:
+
+- `display: bootstrap on`
+- `display: mode 1280x800 argb8888`
+- `windowd: backend=visible`
+- `windowd: present visible ok`
+- `display: first scanout ok`
+- `systemui: first frame visible`
+- `SELFTEST: ui visible present ok`
+
+This slice still does not prove input, cursor/focus/click, display-service
+integration, dev display/profile presets, frame-budget smoothness, or
+kernel/core production-grade display closure.

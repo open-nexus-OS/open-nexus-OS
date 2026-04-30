@@ -1,16 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Headless smoke scenario used to gate marker emission on real present state.
+//! CONTEXT: Headless and visible smoke scenarios used to gate markers on real present state.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: No direct tests
+//! TEST_COVERAGE: `cargo test -p windowd -p ui_windowd_host -- --nocapture`
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use crate::buffer::{PixelFormat, SurfaceBuffer};
 use crate::error::{Result, WindowdError};
-use crate::frame::Layer;
+use crate::frame::{Frame, Layer};
 use crate::geometry::{checked_len, checked_stride, Rect};
 use crate::ids::{CallerCtx, CommitSeq};
 use crate::server::{
@@ -80,6 +80,51 @@ pub struct VisibleBootstrapEvidence {
     pub seed_surface: SurfaceBuffer,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisibleSystemUiEvidence {
+    pub ready: bool,
+    pub backend_visible: bool,
+    pub systemui_first_frame: bool,
+    pub mode: VisibleBootstrapMode,
+    pub first_present: PresentAck,
+    pub frame_source: SurfaceBuffer,
+    pub composed_frame: Option<Frame>,
+}
+
+impl VisibleSystemUiEvidence {
+    pub fn copy_composed_row(&self, y: u32, row: &mut [u8]) -> Result<()> {
+        let row_len = self.mode.stride as usize;
+        if row.len() < row_len {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        row[..row_len].fill(0);
+        if let Some(frame) = &self.composed_frame {
+            if frame.width != self.mode.width
+                || frame.height != self.mode.height
+                || frame.stride != self.mode.stride
+            {
+                return Err(WindowdError::InvalidDimensions);
+            }
+            let src = y as usize * frame.stride as usize;
+            row[..row_len].copy_from_slice(
+                frame.pixels.get(src..src + row_len).ok_or(WindowdError::BufferLengthMismatch)?,
+            );
+            return Ok(());
+        }
+        if y < self.frame_source.height {
+            let source_row_len = self.frame_source.width as usize * 4;
+            let src = y as usize * self.frame_source.stride as usize;
+            row[..source_row_len].copy_from_slice(
+                self.frame_source
+                    .pixels
+                    .get(src..src + source_row_len)
+                    .ok_or(WindowdError::BufferLengthMismatch)?,
+            );
+        }
+        Ok(())
+    }
+}
+
 pub fn validate_visible_bootstrap_capability(
     mode: VisibleBootstrapMode,
     cap: VisibleDisplayCapability,
@@ -94,6 +139,12 @@ pub fn validate_visible_bootstrap_capability(
 pub fn visible_marker_postflight_ready(
     evidence: Option<VisibleBootstrapEvidence>,
 ) -> Result<VisibleBootstrapEvidence> {
+    evidence.ok_or(WindowdError::MarkerBeforePresentState)
+}
+
+pub fn visible_systemui_marker_postflight_ready(
+    evidence: Option<VisibleSystemUiEvidence>,
+) -> Result<VisibleSystemUiEvidence> {
     evidence.ok_or(WindowdError::MarkerBeforePresentState)
 }
 
@@ -167,5 +218,53 @@ pub fn run_visible_bootstrap_smoke() -> Result<VisibleBootstrapEvidence> {
         mode,
         first_present,
         seed_surface: surface,
+    })
+}
+
+pub fn run_visible_systemui_smoke() -> Result<VisibleSystemUiEvidence> {
+    let mode = VisibleBootstrapMode::fixed()?.validate()?;
+    let mut server = WindowServer::new(WindowdConfig::visible_bootstrap())?;
+    server.load_systemui(UiProfile::Desktop)?;
+    let systemui = CallerCtx::from_service_metadata(0x57);
+    let first_frame =
+        systemui::compose_first_frame().map_err(|_| WindowdError::InvalidDimensions)?;
+    let surface = SurfaceBuffer::from_bgra_pixels(
+        systemui,
+        30,
+        first_frame.width,
+        first_frame.height,
+        first_frame.pixels,
+    )?;
+    let surface_id = server.create_surface(systemui, surface.clone())?;
+    server.queue_buffer(
+        systemui,
+        surface_id,
+        surface.clone(),
+        &[Rect::new(0, 0, surface.width, surface.height)],
+    )?;
+    server.commit_scene(
+        CallerCtx::system(),
+        CommitSeq::new(1),
+        &[Layer { surface: surface_id, x: 0, y: 0, z: 0 }],
+    )?;
+    let first_present = server.present_bootstrap_scanout_tick()?;
+    let composed_frame = server.last_frame().cloned();
+    #[cfg(not(all(nexus_env = "os", target_os = "none")))]
+    let systemui_first_frame = composed_frame
+        .as_ref()
+        .map(|frame| frame.pixels.get(0..4) == surface.pixels.get(0..4))
+        .unwrap_or(false);
+    #[cfg(all(nexus_env = "os", target_os = "none"))]
+    let systemui_first_frame =
+        server.systemui_loaded() && first_present.seq.raw() == 1 && first_present.damage_rects > 0;
+    Ok(VisibleSystemUiEvidence {
+        ready: server.initialized(),
+        backend_visible: mode.width == VISIBLE_BOOTSTRAP_WIDTH
+            && mode.height == VISIBLE_BOOTSTRAP_HEIGHT,
+        systemui_first_frame: server.systemui_loaded() && systemui_first_frame,
+        mode,
+        first_present,
+        frame_source: surface,
+        composed_frame,
     })
 }

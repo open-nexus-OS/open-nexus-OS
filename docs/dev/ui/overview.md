@@ -70,6 +70,7 @@ Important second-level roots:
 - Performance philosophy: `docs/dev/ui/foundations/quality/performance-philosophy.md`
 - Testing & goldens: `docs/dev/ui/foundations/quality/testing.md`, `docs/dev/ui/foundations/quality/goldens.md`
 - Headless `windowd` present proof: `docs/dev/ui/foundations/quality/testing.md` (`TASK-0055` section)
+- Visible SystemUI first-frame proof: `docs/dev/ui/foundations/quality/testing.md` (`TASK-0055C` section)
 - Accessibility semantics: `docs/accessibility/semantics.md`
 - System delegation: `docs/dev/ui/system-experiences/system-delegation/overview.md`
 - Document access: `docs/dev/ui/system-experiences/document-access/README.md`

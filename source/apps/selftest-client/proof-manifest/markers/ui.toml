@@ -38,10 +38,26 @@ proves = "visible QEMU scanout bootstrap path was selected by the boot-mode knob
 phase = "end"
 proves = "visible bootstrap accepted exactly the fixed 1280x800 ARGB8888 ramfb mode"
 
+[marker."windowd: backend=visible"]
+phase = "end"
+proves = "windowd selected the visible backend for the TASK-0055C present path"
+
+[marker."windowd: present visible ok"]
+phase = "end"
+proves = "windowd composed the visible frame and visible-present evidence exists after the guest-side ramfb target is writable"
+
 [marker."display: first scanout ok"]
 phase = "end"
-proves = "selftest configured ramfb only after windowd visible-bootstrap present evidence"
+proves = "selftest configured ramfb only after windowd visible-present evidence"
+
+[marker."systemui: first frame visible"]
+phase = "end"
+proves = "the TOML-backed SystemUI desktop shell frame was the visible-present source"
 
 [marker."SELFTEST: display bootstrap guest ok"]
 phase = "end"
-proves = "selftest completed the guest-side ramfb bootstrap path; harness verification accepts the full visible-bootstrap ladder after the run"
+proves = "legacy TASK-0055B guest-side ramfb bootstrap marker; not emitted by the TASK-0055C visible SystemUI ladder"
+
+[marker."SELFTEST: ui visible present ok"]
+phase = "end"
+proves = "selftest completed the visible windowd present path with a deterministic SystemUI first frame"

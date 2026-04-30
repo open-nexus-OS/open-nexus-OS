@@ -482,16 +482,18 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "${expected_sequence[@]:0:$(( ${#expected_sequence[@]} - 7 ))}"
     "display: bootstrap on"
     "display: mode 1280x800 argb8888"
-    "windowd: present ok (seq=1 dmg=1)"
+    "windowd: backend=visible"
+    "windowd: present visible ok"
     "display: first scanout ok"
-    "SELFTEST: display bootstrap guest ok"
+    "systemui: first frame visible"
+    "SELFTEST: ui visible present ok"
     "SELFTEST: end"
   )
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
   if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
-    RUN_UNTIL_MARKER="SELFTEST: display bootstrap guest ok"
+    RUN_UNTIL_MARKER="SELFTEST: ui visible present ok"
   fi
 fi
 
@@ -1151,6 +1153,25 @@ if grep -aFq "SELFTEST: display bootstrap guest ok" "$UART_LOG"; then
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=end missing_marker='$m'" >&2
       echo "[error] Display visible marker appeared before required scanout proof: $m" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+      exit 1
+    fi
+  done
+fi
+
+# TASK-0055C visible-present fake-green guard: the UI visible marker summarizes
+# a configured visible backend, visible present, scanout, and SystemUI first frame.
+if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
+  for m in \
+    "display: bootstrap on" \
+    "display: mode 1280x800 argb8888" \
+    "windowd: backend=visible" \
+    "windowd: present visible ok" \
+    "display: first scanout ok" \
+    "systemui: first frame visible"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+      echo "[error] UI visible marker appeared before required visible-present proof: $m" >&2
       print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
       exit 1
     fi

@@ -142,7 +142,7 @@ Vom CPU-Renderer bis zum ersten echten sichtbaren Input in QEMU.
 | TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots (Done; host renderer/snapshot proof floor green) |
 | TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync (Done; headless present + generated IDL roundtrip + reject proofs green) |
 | TASK-0055B | UI v1c: visible QEMU scanout bootstrap (Done; marker-honesty hardening + full closure gates green) |
-| TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU |
+| TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU (In Review) |
 | TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing |
 | TASK-0056B | UI v2a: visible input — cursor + focus + click |
 

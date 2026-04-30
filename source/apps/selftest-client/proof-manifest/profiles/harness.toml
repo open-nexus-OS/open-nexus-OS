@@ -20,7 +20,7 @@ runner = "scripts/qemu-test.sh"
 extends = "full"
 # Marker/proof profile only. This is not a future SystemUI launcher/start
 # profile (`desktop`, `tv`, `mobile`, etc.); it opts the harness into the
-# TASK-0055B QEMU ramfb scanout boot mode and visible marker ladder.
+# TASK-0055B/55C QEMU ramfb scanout boot mode and visible SystemUI marker ladder.
 env = { NEXUS_DISPLAY_BOOTSTRAP = "1", QEMU_DISPLAY_BACKEND = "gtk" }
 
 [profile.smp]

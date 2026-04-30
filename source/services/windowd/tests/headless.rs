@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Window manager daemon headless behavior tests.
+//! CONTEXT: Window manager daemon headless and visible-present behavior tests.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: headless and visible-bootstrap integration tests
+//! TEST_COVERAGE: headless, visible-bootstrap, and visible SystemUI smoke tests
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #[test]
@@ -41,6 +41,28 @@ fn visible_bootstrap_smoke_produces_mode_and_present_evidence() {
     assert_eq!(evidence.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
     assert_eq!(evidence.seed_surface.width, 64);
     assert_eq!(evidence.seed_surface.height, 48);
+    assert_eq!(evidence.first_present.seq.raw(), 1);
+    assert_eq!(evidence.first_present.damage_rects, 1);
+}
+
+#[test]
+fn visible_systemui_smoke_produces_first_frame_present_evidence() {
+    let evidence = match windowd::run_visible_systemui_smoke() {
+        Ok(evidence) => evidence,
+        Err(err) => panic!("visible systemui smoke failed: {err:?}"),
+    };
+    assert!(evidence.ready);
+    assert!(evidence.backend_visible);
+    assert!(evidence.systemui_first_frame);
+    assert_eq!(evidence.mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+    assert_eq!(evidence.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+    assert_eq!(evidence.frame_source.width, 160);
+    assert_eq!(evidence.frame_source.height, 100);
+    let composed_frame = evidence.composed_frame.as_ref().expect("host composed frame");
+    assert_eq!(composed_frame.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+    assert_eq!(composed_frame.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+    assert_eq!(composed_frame.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
+    assert_eq!(composed_frame.pixels[0..4], evidence.frame_source.pixels[0..4]);
     assert_eq!(evidence.first_present.seq.raw(), 1);
     assert_eq!(evidence.first_present.damage_rects, 1);
 }
