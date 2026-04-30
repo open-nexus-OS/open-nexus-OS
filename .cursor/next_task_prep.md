@@ -76,7 +76,8 @@
 - Active queue head is `TASK-0056B` (v2a visible input — cursor/focus/click baseline).
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
-- Preserve scope boundaries: no cursor polish (`TASK-0056B`), no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`).
+- `RFC-0051` is `In Progress` as contract seed and linked from task + RFC index.
+- Preserve scope boundaries: no HID/input device stack closure (`TASK-0253`), no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no display-service integration closure (`TASK-0251`).
 - Implementation checkpoint:
   - closure rerun host scheduler/input proofs are green (`cargo test -p windowd -p launcher -p ui_v2a_host -- --nocapture`),
   - closure rerun reject suite is green (`cargo test -p ui_v2a_host reject -- --nocapture`),

@@ -16,6 +16,8 @@
 - **completed_contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `Done`
+- **active_prep_task**: `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` — `In Progress`
+- **active_prep_contract**: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` — `In Progress`
 - **active_contract_carry_in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (visible bootstrap baseline)
 - **completed_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`
@@ -43,6 +45,13 @@
 - Closure sync completed for touched headers, ADR/architecture/testing docs, task/RFC notes, and marker-honesty gating. `SELFTEST: ui v2 input ok` now requires both real input routing and launcher click evidence.
 - Closure gate reruns are green: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 - Scope boundary remains unchanged: no `TASK-0056B` cursor polish, no `TASK-0056C` perf/latency closure, no `TASK-0199`/`TASK-0200` WM-v2 breadth, no kernel production-grade claim, and no independent screenshot/GTK visual-proof claim.
+
+## TASK-0056B preparation state
+
+- `TASK-0056B` is the active prep task (`In Progress`) with `RFC-0051` as contract seed (`In Progress`).
+- Prep scope is explicit and minimal: visible cursor movement, visible focus transfer, and one deterministic visible click response in QEMU.
+- Authority/security baseline is frozen for prep: no second input lane outside `windowd`, fail-closed stale/unauthorized routes, bounded input state, and marker honesty for visible-input markers.
+- Follow-up ownership remains explicit: `TASK-0056C` (perf/latency), `TASK-0199`/`TASK-0200` (WM/compositor-v2 breadth), `TASK-0253` (HID/input OS path), `TASK-0251` (display service integration).
 
 ## Locked carry-in constraints from TASK-0046
 

@@ -257,6 +257,47 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/rules/07-behavior-first-proofs.mdc`
 - `.cursor/rules/10-security-services.mdc`
 
+### @task_0056b_context
+- Status: `TASK-0056B` is `In Progress`; `RFC-0051` is `In Progress`; 55C/56 remain done carry-in baseline.
+- Scope baseline: visible cursor/focus/click proof on top of existing 56 routed input semantics.
+- Gate alignment: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`).
+- Marker contract (56B target):
+  - `windowd: input visible on`
+  - `windowd: cursor move visible`
+  - `windowd: focus visible`
+  - `launcher: click visible ok`
+  - `SELFTEST: ui visible input ok`
+- Explicit non-claims: no HID/input device stack closure (`TASK-0253`), no perf/latency closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no kernel production-grade claim.
+- `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`
+- `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
+- `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`
+- `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `scripts/qemu-test.sh`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/10-security-services.mdc`
+
+### @task_0056b_touched
+- `source/services/windowd/`
+- `userspace/apps/launcher/` or SystemUI proof surface path
+- `tests/ui_v2a_host/`
+- `source/apps/selftest-client/`
+- `source/apps/selftest-client/proof-manifest/`
+- `scripts/qemu-test.sh`
+- `docs/dev/ui/input/input.md`
+- `docs/dev/ui/foundations/quality/testing.md`
+- `docs/architecture/README.md`
+- `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
+- `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`
+- `tasks/STATUS-BOARD.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0056_touched
 - `source/services/windowd/`
 - `source/services/windowd/idl/`

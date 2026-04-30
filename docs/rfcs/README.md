@@ -95,6 +95,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed (Done; TASK-0055B Done)
 - RFC-0049: UI v1d windowd visible present + SystemUI first-frame contract seed (Done; TASK-0055C execution SSOT)
 - RFC-0050: UI v2a present scheduler + double-buffer + input routing contract (Done; TASK-0056 execution closure complete, next follow-up is `TASK-0056B`)
+- RFC-0051: UI v2a visible input (cursor + focus + click) contract seed (In Progress; TASK-0056B execution SSOT)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
@@ -201,3 +202,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md
 - RFC-0050: UI v2a present scheduler + double-buffer + input routing contract (Done; TASK-0056 execution closure complete, next follow-up is `TASK-0056B`)
   - docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md
+- RFC-0051: UI v2a visible input (cursor + focus + click) contract seed (In Progress; TASK-0056B execution SSOT)
+  - docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md

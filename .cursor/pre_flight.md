@@ -268,6 +268,14 @@ This is the anti-fake-success gate.
 - [x] Host scheduler/input-routing proofs are green.
 - [x] QEMU v2a marker profile is green.
 
+## Active prep snapshot (TASK-0056B + RFC-0051, 2026-04-30)
+- [x] `TASK-0056` / `RFC-0050` remain synchronized as `Done` carry-in baseline.
+- [x] `TASK-0056B` is active prep SSOT (`In Progress`).
+- [x] `RFC-0051` contract seed exists and is linked from task + RFC index.
+- [x] `TASK-0056B` header includes dependencies/follow-ups, security invariants, red flags, and Gate E mapping.
+- [ ] Host visible-input proofs are green.
+- [ ] QEMU visible-input marker profile is green.
+
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:
   - [ ] target behavior is stated in 1-3 lines,

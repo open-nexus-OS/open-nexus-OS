@@ -331,6 +331,14 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Host scheduler/input routing proofs are green.
 - [x] QEMU v2a marker profile is green.
 
+## Active prep snapshot (TASK-0056B + RFC-0051, 2026-04-30)
+- [x] `TASK-0056` / `RFC-0050` are closed as `Done` carry-in baseline.
+- [x] `TASK-0056B` is active prep SSOT (`In Progress`).
+- [x] `RFC-0051` contract seed exists and is linked from task + RFC index.
+- [x] 56B scope boundaries are explicit (no 56C/0199/0200/0253/0251 scope absorption).
+- [ ] Host visible-input proofs are green.
+- [ ] QEMU visible-input marker profile is green.
+
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:
   - [ ] target behavior is explicit,
