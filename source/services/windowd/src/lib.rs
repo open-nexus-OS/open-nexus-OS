@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: `windowd` surface/layer/present authority for headless and visible UI proofs.
+//! CONTEXT: `windowd` surface/layer/present/input authority for headless, visible, and v2a UI proofs.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: unit tests, integration coverage in `ui_windowd_host`/`launcher`/`selftest-client`
+//! TEST_COVERAGE: unit tests plus integration coverage in `ui_windowd_host`, `ui_v2a_host`, `launcher`, and `selftest-client`
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
@@ -29,23 +29,31 @@ pub use cli::{execute, help};
 pub use error::{Result, WindowdError};
 pub use frame::{Frame, Layer};
 pub use geometry::Rect;
-pub use ids::{CallerCtx, CallerId, CommitSeq, PresentSeq, SurfaceId, VmoHandleId};
+pub use ids::{
+    CallerCtx, CallerId, CommitSeq, FenceId, FrameIndex, InputSeq, PresentSeq, SurfaceId,
+    VmoHandleId,
+};
 pub use legacy::render_frame;
 pub use markers::{
-    marker_postflight_ready, present_marker, DISPLAY_BOOTSTRAP_MARKER,
-    DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, LAUNCHER_MARKER, PRESENT_VISIBLE_MARKER,
-    READY_MARKER, SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER, SELFTEST_LAUNCHER_PRESENT_MARKER,
-    SELFTEST_RESIZE_MARKER, SELFTEST_UI_VISIBLE_PRESENT_MARKER,
+    focus_marker, marker_postflight_ready, present_marker, DISPLAY_BOOTSTRAP_MARKER,
+    DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, INPUT_ON_MARKER, LAUNCHER_CLICK_OK_MARKER,
+    LAUNCHER_MARKER, PRESENT_SCHEDULER_ON_MARKER, PRESENT_VISIBLE_MARKER, READY_MARKER,
+    SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER, SELFTEST_LAUNCHER_PRESENT_MARKER,
+    SELFTEST_RESIZE_MARKER, SELFTEST_UI_V2_INPUT_OK_MARKER, SELFTEST_UI_V2_PRESENT_OK_MARKER,
+    SELFTEST_UI_VISIBLE_PRESENT_MARKER,
     SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, SYSTEMUI_MARKER, VISIBLE_BACKEND_MARKER,
 };
 pub use server::{
-    InputStubStatus, PresentAck, UiProfile, WindowServer, WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT,
-    VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_HZ, VISIBLE_BOOTSTRAP_WIDTH,
+    BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PresentAck, PresentFenceStatus,
+    PresentFrameAck, ScheduledPresentAck, UiProfile, WindowServer, WindowdConfig,
+    VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_HZ,
+    VISIBLE_BOOTSTRAP_WIDTH,
 };
 pub use smoke::{
     bootstrap_pixel_bgra, run_headless_ui_smoke, run_visible_bootstrap_smoke,
-    run_visible_systemui_smoke, validate_visible_bootstrap_capability,
-    visible_marker_postflight_ready, visible_systemui_marker_postflight_ready, UiSmokeEvidence,
+    run_visible_systemui_smoke, run_ui_v2a_smoke, validate_visible_bootstrap_capability,
+    v2a_marker_postflight_ready, visible_marker_postflight_ready,
+    visible_systemui_marker_postflight_ready, UiSmokeEvidence, UiV2aEvidence,
     VisibleBootstrapEvidence, VisibleBootstrapMode, VisibleDisplayCapability,
     VisibleSystemUiEvidence,
 };

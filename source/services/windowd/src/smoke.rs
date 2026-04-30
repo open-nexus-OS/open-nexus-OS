@@ -1,21 +1,21 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Headless and visible smoke scenarios used to gate markers on real present state.
+//! CONTEXT: Headless, visible, and v2a smoke scenarios used to gate markers on real present/input state.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: `cargo test -p windowd -p ui_windowd_host -- --nocapture`
+//! TEST_COVERAGE: Covered by `windowd`, `ui_windowd_host`, and `ui_v2a_host` tests plus visible-bootstrap QEMU proof
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use crate::buffer::{PixelFormat, SurfaceBuffer};
 use crate::error::{Result, WindowdError};
 use crate::frame::{Frame, Layer};
 use crate::geometry::{checked_len, checked_stride, Rect};
-use crate::ids::{CallerCtx, CommitSeq};
+use crate::ids::{CallerCtx, CommitSeq, FrameIndex, SurfaceId};
 use crate::server::{
-    PresentAck, UiProfile, WindowServer, WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT,
-    VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_WIDTH,
+    InputEventKind, PresentAck, PresentFenceStatus, ScheduledPresentAck, UiProfile, WindowServer,
+    WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_WIDTH,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +91,16 @@ pub struct VisibleSystemUiEvidence {
     pub composed_frame: Option<Frame>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiV2aEvidence {
+    pub present_scheduler_on: bool,
+    pub input_on: bool,
+    pub focused_surface: SurfaceId,
+    pub launcher_click_ok: bool,
+    pub scheduled_present: ScheduledPresentAck,
+    pub latest_fence: PresentFenceStatus,
+}
+
 impl VisibleSystemUiEvidence {
     pub fn copy_composed_row(&self, y: u32, row: &mut [u8]) -> Result<()> {
         let row_len = self.mode.stride as usize;
@@ -145,6 +155,10 @@ pub fn visible_marker_postflight_ready(
 pub fn visible_systemui_marker_postflight_ready(
     evidence: Option<VisibleSystemUiEvidence>,
 ) -> Result<VisibleSystemUiEvidence> {
+    evidence.ok_or(WindowdError::MarkerBeforePresentState)
+}
+
+pub fn v2a_marker_postflight_ready(evidence: Option<UiV2aEvidence>) -> Result<UiV2aEvidence> {
     evidence.ok_or(WindowdError::MarkerBeforePresentState)
 }
 
@@ -266,5 +280,73 @@ pub fn run_visible_systemui_smoke() -> Result<VisibleSystemUiEvidence> {
         first_present,
         frame_source: surface,
         composed_frame,
+    })
+}
+
+pub fn run_ui_v2a_smoke() -> Result<UiV2aEvidence> {
+    let mut server = WindowServer::new(WindowdConfig::default())?;
+    server.load_systemui(UiProfile::Desktop)?;
+    let launcher = CallerCtx::from_service_metadata(0x55);
+    let background = CallerCtx::from_service_metadata(0x57);
+    let launcher_initial = SurfaceBuffer::solid(launcher, 40, 8, 8, [0x20, 0x80, 0xf0, 0xff])?;
+    let background_initial =
+        SurfaceBuffer::solid(background, 41, 16, 16, [0x10, 0x20, 0x40, 0xff])?;
+    let launcher_surface = server.create_surface(launcher, launcher_initial.clone())?;
+    let background_surface = server.create_surface(background, background_initial.clone())?;
+    server.queue_buffer(
+        launcher,
+        launcher_surface,
+        launcher_initial,
+        &[Rect::new(0, 0, 8, 8)],
+    )?;
+    server.queue_buffer(
+        background,
+        background_surface,
+        background_initial,
+        &[Rect::new(0, 0, 16, 16)],
+    )?;
+    server.commit_scene(
+        CallerCtx::system(),
+        CommitSeq::new(1),
+        &[
+            Layer { surface: background_surface, x: 0, y: 0, z: 0 },
+            Layer { surface: launcher_surface, x: 2, y: 2, z: 10 },
+        ],
+    )?;
+
+    let frame_one = SurfaceBuffer::solid(launcher, 42, 8, 8, [0x30, 0x90, 0xf0, 0xff])?;
+    let frame_two = SurfaceBuffer::solid(launcher, 43, 8, 8, [0x60, 0xb0, 0x20, 0xff])?;
+    server.acquire_back_buffer(launcher, launcher_surface, FrameIndex::new(1), frame_one)?;
+    let first_fence =
+        server.present_frame(launcher, launcher_surface, FrameIndex::new(1), &[Rect::new(0, 0, 8, 8)])?;
+    server.acquire_back_buffer(launcher, launcher_surface, FrameIndex::new(2), frame_two)?;
+    let latest_fence_ack =
+        server.present_frame(launcher, launcher_surface, FrameIndex::new(2), &[Rect::new(2, 2, 4, 4)])?;
+    let scheduled_present = server
+        .present_scheduler_tick()?
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
+    let coalesced_status = server.present_fence_status(first_fence.fence_id)?;
+    let latest_fence = server.present_fence_status(latest_fence_ack.fence_id)?;
+    if !coalesced_status.signaled || !coalesced_status.coalesced || !latest_fence.signaled {
+        return Err(WindowdError::FenceNotReady);
+    }
+
+    let pointer = server.route_pointer_down(3, 3)?;
+    let keyboard = server.route_keyboard(0x20)?;
+    let delivered = server.take_input_events(launcher, launcher_surface)?;
+    let launcher_click_ok = pointer.surface == launcher_surface
+        && keyboard.surface == launcher_surface
+        && delivered.iter().any(|event| event.kind == InputEventKind::PointerDown)
+        && delivered.iter().any(|event| matches!(event.kind, InputEventKind::Keyboard { .. }));
+    let focused_surface = server.focused_surface().ok_or(WindowdError::NoFocusedSurface)?;
+    Ok(UiV2aEvidence {
+        present_scheduler_on: server.scheduler_enabled()
+            && scheduled_present.frames_coalesced == 1
+            && scheduled_present.fences_signaled == 2,
+        input_on: server.input_enabled(),
+        focused_surface,
+        launcher_click_ok,
+        scheduled_present,
+        latest_fence,
     })
 }

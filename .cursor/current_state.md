@@ -2,7 +2,7 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-30)**: `TASK-0055C`/`RFC-0049` remain `Done`; `TASK-0056` and its new contract seed `RFC-0050` are now `In Progress` as the active Gate-E baseline slice.
+- **last_decision (2026-04-30)**: `TASK-0055C`/`RFC-0049` remain `Done`; `TASK-0056` stays active while `RFC-0050` is now `Done` as the contract authority.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
@@ -15,7 +15,7 @@
 - **completed_task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`
 - **active_task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `In Progress`
-- **active_contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `In Progress`
+- **completed_contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `Done`
 - **active_contract_carry_in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (visible bootstrap baseline)
 - **completed_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`
@@ -26,6 +26,23 @@
 - **next_queue_head**: `TASK-0056` is active. Do not infer visible cursor polish/perf/full WM/display closure from 56 baseline scope.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
+
+## TASK-0056 implementation state
+
+- `TASK-0056` remains `In Progress`; contract phases for double-buffered present, scheduler/fences, and input routing are implemented and proven, but final closure gates are intentionally deferred by user instruction.
+- Implemented in the existing `windowd` authority path:
+  - frame-indexed back-buffer acquisition and bounded pending present state,
+  - deterministic scheduler tick coalescing and post-present minimal fence signaling,
+  - committed-layer hit-test, focus-follows-click, keyboard delivery, and bounded input event queues.
+- Proofs green so far:
+  - closure rerun `cargo test -p windowd -p launcher -p ui_v2a_host -- --nocapture` — 22 tests across the three target packages,
+  - closure rerun `cargo test -p ui_v2a_host reject -- --nocapture` — 5 reject-filtered tests,
+  - `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`,
+  - OS-target `selftest-client` visible-bootstrap build check,
+  - closure rerun `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` with `verify-uart` accepted through `SELFTEST: ui v2 input ok`.
+- Closure sync completed for touched headers, ADR/architecture/testing docs, task/RFC notes, and marker-honesty gating. `SELFTEST: ui v2 input ok` now requires both real input routing and launcher click evidence.
+- Deferred and unclaimed until the user asks to run them: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
+- Scope boundary remains unchanged: no `TASK-0056B` cursor polish, no `TASK-0056C` perf/latency closure, no `TASK-0199`/`TASK-0200` WM-v2 breadth, no kernel production-grade claim, and no independent screenshot/GTK visual-proof claim.
 
 ## Locked carry-in constraints from TASK-0046
 

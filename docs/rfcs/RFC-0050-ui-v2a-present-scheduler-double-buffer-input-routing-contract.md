@@ -1,6 +1,6 @@
-# RFC-0050: UI v2a present scheduler + double-buffer + input routing contract seed
+# RFC-0050: UI v2a present scheduler + double-buffer + input routing contract
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui
 - Created: 2026-04-30
 - Last Updated: 2026-04-30
@@ -14,13 +14,14 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract freeze + authority boundaries)**: 🟨
-- **Phase 1 (scheduler + fence semantics + proofs)**: ⬜
-- **Phase 2 (input routing + focus semantics + proofs)**: ⬜
+- **Phase 0 (contract freeze + authority boundaries)**: ✅
+- **Phase 1 (scheduler + fence semantics + proofs)**: ✅
+- **Phase 2 (input routing + focus semantics + proofs)**: ✅
 
 Definition:
 
 - "Complete" means the contract is defined and the proof gates are green (host tests + OS/QEMU markers). It does not mean immutable forever.
+- RFC contract phases are implemented and proven; this contract is now closed as `Done`.
 
 ## Scope boundaries (anti-drift)
 
@@ -144,23 +145,40 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 - `SELFTEST: ui v2 present ok`
 - `SELFTEST: ui v2 input ok`
 
+### Evidence so far (2026-04-30)
+
+- Closure rerun `cargo test -p windowd -p launcher -p ui_v2a_host -- --nocapture` — green, 22 tests across the three target packages.
+- Closure rerun `cargo test -p ui_v2a_host reject -- --nocapture` — green, 5 reject-filtered tests.
+- `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture` — green.
+- OS-target visible selftest build check with `NEXUS_DISPLAY_BOOTSTRAP=1` — green.
+- Closure rerun `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` — green; `verify-uart` accepted the visible-bootstrap profile through `SELFTEST: ui v2 input ok`.
+- Closure sync updated touched headers, ADR/architecture/testing docs, task/RFC notes, and input-ok marker gating.
+
+Deferred by explicit user instruction before final closure:
+
+- `scripts/fmt-clippy-deny.sh`
+- `just test-all`
+- `just ci-network`
+- `make clean`, `make build`, `make test`, `make run`
+
 ## Alternatives considered
 
 - Extend 55C marker-only ladder without host-side routing assertions (rejected: high fake-green risk).
 - Split scheduler and input into separate baseline tasks before contract freeze (rejected for now: fragments authority semantics and slows Gate-E baseline closure).
 
-## Open questions
+## Decisions during implementation
 
-- Should v2a fence errors include explicit timeout classification now, or defer to v2c hardening? (owner: @ui, decision during Phase 1)
-- Do we need a dedicated `just test-os ui-v2a` profile before closure, or keep `visible-bootstrap` with stricter marker profile wiring? (owner: @ui, before Phase 2 proof closeout)
+- Fence timeout classification is deferred to v2c/perf hardening; v2a exposes minimal post-present fence status only.
+- v2a uses the existing `visible-bootstrap` harness profile with stricter marker tail wiring instead of adding a new `ui-v2a` profile in this slice.
+- The QEMU proof remains UART/proof-manifest evidence, not an independent screenshot or GTK refresh proof.
 
 ## Implementation Checklist
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: authority boundaries + boundedness + marker honesty frozen in `TASK-0056` and this RFC — proof: `docs+task sync review`
-- [ ] **Phase 1**: deterministic present scheduler + minimal fence semantics proven — proof: `cargo test -p ui_v2a_host -- --nocapture`
-- [ ] **Phase 2**: deterministic input hit-test/focus/keyboard routing proven — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
+- [x] **Phase 0**: authority boundaries + boundedness + marker honesty frozen in `TASK-0056` and this RFC — proof: `docs+task sync review`
+- [x] **Phase 1**: deterministic present scheduler + minimal fence semantics proven — proof: `cargo test -p ui_v2a_host -- --nocapture`
+- [x] **Phase 2**: deterministic input hit-test/focus/keyboard routing proven — proof: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
 - [x] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

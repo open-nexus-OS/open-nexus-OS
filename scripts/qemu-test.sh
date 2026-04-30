@@ -487,13 +487,19 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "display: first scanout ok"
     "systemui: first frame visible"
     "SELFTEST: ui visible present ok"
+    "windowd: present scheduler on"
+    "windowd: input on"
+    "windowd: focus -> 1"
+    "launcher: click ok"
+    "SELFTEST: ui v2 present ok"
+    "SELFTEST: ui v2 input ok"
     "SELFTEST: end"
   )
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
   if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
-    RUN_UNTIL_MARKER="SELFTEST: ui visible present ok"
+    RUN_UNTIL_MARKER="SELFTEST: ui v2 input ok"
   fi
 fi
 

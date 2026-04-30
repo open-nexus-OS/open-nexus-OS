@@ -325,7 +325,7 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 
 ## Active prep snapshot (TASK-0056 + RFC-0050, 2026-04-30)
 - [x] `TASK-0056` switched to `In Progress` and remains execution SSOT for v2a baseline.
-- [x] `RFC-0050` contract seed exists and is `In Progress`.
+- [x] `RFC-0050` contract exists and is `Done`.
 - [x] TASK/RFC links are synchronized (task header + RFC index).
 - [x] 56 scope boundaries are explicit (no 56B/56C/0199/0200/kernel scope absorption).
 - [ ] Host scheduler/input routing proofs are green.

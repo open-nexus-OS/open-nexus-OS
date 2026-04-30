@@ -61,3 +61,27 @@ proves = "legacy TASK-0055B guest-side ramfb bootstrap marker; not emitted by th
 [marker."SELFTEST: ui visible present ok"]
 phase = "end"
 proves = "selftest completed the visible windowd present path with a deterministic SystemUI first frame"
+
+[marker."windowd: present scheduler on"]
+phase = "end"
+proves = "windowd v2a present scheduler path was activated by real frame-indexed present state"
+
+[marker."windowd: input on"]
+phase = "end"
+proves = "windowd v2a input routing path was activated by real pointer/focus/keyboard delivery state"
+
+[marker."windowd: focus -> 1"]
+phase = "end"
+proves = "windowd updated focus to the deterministic launcher surface after a routed click"
+
+[marker."launcher: click ok"]
+phase = "end"
+proves = "launcher observed a routed click and updated its double-buffered demo state"
+
+[marker."SELFTEST: ui v2 present ok"]
+phase = "end"
+proves = "selftest observed windowd v2a scheduler evidence after a real present tick"
+
+[marker."SELFTEST: ui v2 input ok"]
+phase = "end"
+proves = "selftest observed windowd v2a focus and input delivery evidence"

@@ -30,6 +30,12 @@ pub enum WindowdError {
     BufferLengthMismatch,
     MarkerBeforePresentState,
     InvalidDisplayCapability,
+    InvalidFrameIndex,
+    StalePresentSequence,
+    SchedulerQueueFull,
+    FenceNotReady,
+    InputEventQueueFull,
+    NoFocusedSurface,
 }
 
 pub type Result<T> = core::result::Result<T, WindowdError>;

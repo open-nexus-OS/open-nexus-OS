@@ -3275,6 +3275,16 @@ name = "ui_renderer"
 version = "0.1.0"
 
 [[package]]
+name = "ui_v2a_host"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
+ "launcher",
+ "windowd",
+]
+
+[[package]]
 name = "ui_windowd_host"
 version = "0.1.0"
 dependencies = [

@@ -155,6 +155,51 @@ UART markers (order tolerant):
 - `just ci-network`
 - `make clean`, `make build`, `make test`, `make run` (in order)
 
+### Evidence so far (2026-04-30)
+
+Implemented and proven:
+
+- `windowd` owns the v2a double-buffer/scheduler/input authority path:
+  - frame-indexed back-buffer acquisition,
+  - bounded per-surface pending present state,
+  - deterministic coalescing of rapid submits,
+  - minimal fences signaled only after scheduler tick processing,
+  - hit-test/focus/keyboard routing from committed layer ordering.
+- `launcher` uses the v2a path only as a client/demo; `launcher: click ok` requires a routed click state.
+- `selftest-client` emits v2a markers only after `windowd::run_ui_v2a_smoke()` returns real scheduler/input evidence; `SELFTEST: ui v2 input ok` additionally requires launcher click evidence.
+- `visible-bootstrap` remains a marker/proof profile, not a desktop/start-profile or screenshot proof.
+
+Green proofs:
+
+- Closure rerun `cargo test -p windowd -p launcher -p ui_v2a_host -- --nocapture` — 22 tests across the three target packages.
+- Closure rerun `cargo test -p ui_v2a_host reject -- --nocapture` — 5 reject-filtered tests.
+- `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`.
+- `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite`.
+- Closure rerun `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
+- Header/doc closure sync was completed for touched Rust headers, `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`, `docs/architecture/README.md`, `docs/testing/index.md`, and `docs/dev/ui/foundations/quality/testing.md`.
+
+Observed v2a QEMU marker ladder:
+
+- `windowd: present scheduler on`
+- `windowd: input on`
+- `windowd: focus -> 1`
+- `launcher: click ok`
+- `SELFTEST: ui v2 present ok`
+- `SELFTEST: ui v2 input ok`
+
+Not yet run by user request, so no `Done` claim yet:
+
+- `scripts/fmt-clippy-deny.sh`
+- `just test-all`
+- `just ci-network`
+- `make clean`, `make build`, `make test`, `make run`
+
+Known claim boundaries after review:
+
+- v2a back buffers are modeled as validated VMO-shaped `SurfaceBuffer` submissions under `windowd`; this does not claim kernel VMO acquire/reuse/seal production semantics.
+- OS/QEMU input proof is a deterministic `windowd` v2a smoke path in `selftest-client`; it does not claim low-level HID/touch pipeline closure.
+- `visible-bootstrap` proves guest-side marker/proof-manifest evidence; it does not claim an independent GTK screenshot/display refresh proof.
+
 ## Touched paths (allowlist)
 
 - `source/services/windowd/` + `source/services/windowd/idl/` (extend)
@@ -163,6 +208,9 @@ UART markers (order tolerant):
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v2a.sh` (delegating)
 - `docs/dev/ui/input/input.md` + `docs/dev/ui/foundations/rendering/renderer.md` (new/extend)
+- `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`, `docs/architecture/README.md`, `docs/testing/index.md`, `docs/dev/ui/foundations/quality/testing.md` (closure documentation sync)
+- `Cargo.toml` (workspace registration for `tests/ui_v2a_host`)
+- `scripts/qemu-test.sh` (visible-bootstrap marker tail extended for v2a proof)
 
 ## Plan (small PRs)
 

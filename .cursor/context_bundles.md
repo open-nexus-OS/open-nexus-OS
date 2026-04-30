@@ -237,7 +237,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0056_context
-- Status: `TASK-0056` is `In Progress`; `RFC-0050` is `In Progress`; `TASK-0055C`/`RFC-0049` remain done carry-in baseline.
+- Status: `TASK-0056` is `In Progress`; `RFC-0050` is `Done`; `TASK-0055C`/`RFC-0049` remain done carry-in baseline.
 - Scope baseline: double-buffered surface present, deterministic present scheduler/fence semantics, deterministic hit-test/focus/keyboard routing.
 - Gate alignment: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`).
 - Marker contract (v2a baseline):

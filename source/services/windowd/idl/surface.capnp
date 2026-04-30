@@ -24,6 +24,27 @@ struct QueueBufferRequest {
   damage @7 :List(DamageRect);
 }
 
+struct AcquireBackBufferRequest {
+  surfaceId @0 :UInt64;
+  frameIndex @1 :UInt64;
+  width @2 :UInt32;
+  height @3 :UInt32;
+  strideBytes @4 :UInt32;
+  format @5 :PixelFormat;
+  vmoHandle @6 :UInt64;
+}
+
+struct PresentFrameRequest {
+  surfaceId @0 :UInt64;
+  frameIndex @1 :UInt64;
+  damage @2 :List(DamageRect);
+}
+
+struct PresentFrameAck {
+  fenceId @0 :UInt64;
+  frameIndex @1 :UInt64;
+}
+
 struct DamageRect {
   x @0 :UInt32;
   y @1 :UInt32;
@@ -51,4 +72,6 @@ enum SurfaceError {
   invalidDamage @11;
   tooManySurfaces @12;
   tooManyDamageRects @13;
+  invalidFrameIndex @14;
+  schedulerQueueFull @15;
 }

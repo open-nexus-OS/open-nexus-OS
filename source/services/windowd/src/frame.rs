@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: No direct tests
+//! TEST_COVERAGE: Composition and hit-test behavior covered by `ui_windowd_host` and `ui_v2a_host`
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use alloc::vec::Vec;
@@ -20,6 +20,21 @@ pub struct Layer {
     pub x: i32,
     pub y: i32,
     pub z: i16,
+}
+
+impl Layer {
+    pub(crate) fn contains_point(self, surface_width: u32, surface_height: u32, x: i32, y: i32) -> bool {
+        let Ok(width) = i32::try_from(surface_width) else {
+            return false;
+        };
+        let Ok(height) = i32::try_from(surface_height) else {
+            return false;
+        };
+        x >= self.x
+            && y >= self.y
+            && x < self.x.saturating_add(width)
+            && y < self.y.saturating_add(height)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

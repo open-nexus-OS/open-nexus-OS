@@ -255,6 +255,22 @@ This slice still does not prove input, cursor/focus/click, display-service
 integration, dirty-rect scanout, frame-budget smoothness, dev display/profile
 preset matrices, or kernel/core production-grade display closure.
 
+### TASK-0056 v2a present scheduler + input routing
+
+`TASK-0056` proves the first double-buffered present scheduler and input routing
+baseline in `windowd`. The host suite is the behavior authority; QEMU markers are
+accepted only through the proof-manifest verified `visible-bootstrap` profile.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| Frame-indexed back-buffer acquisition, deterministic rapid-submit coalescing, no-damage skip, and minimal post-present fence signaling | host behavior assertions | `cargo test -p ui_v2a_host -- --nocapture` |
+| Stale/unauthorized/invalid frame index, scheduler queue/damage caps, no-focus keyboard, input backlog cap, and postflight log-only rejects | host reject assertions | `cargo test -p ui_v2a_host reject -- --nocapture` |
+| v2a marker ladder (`windowd: present scheduler on`, `windowd: input on`, `windowd: focus -> 1`, `launcher: click ok`, `SELFTEST: ui v2 present ok`, `SELFTEST: ui v2 input ok`) with proof-manifest verification | single-VM QEMU v2a proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
+
+This slice remains a functional baseline only. It does not prove cursor visuals,
+real HID/touch input, latency budgets, WM-lite/compositor-v2 breadth,
+screenshot/GTK refresh evidence, or kernel/core zero-copy production closure.
+
 ## Workflow checklist
 
 1. Extend userspace tests first and run `cargo test --workspace` until green.
@@ -348,14 +364,14 @@ seen and ensure log caps are in effect. `just test-os` wraps
 
 ### Manifest-driven workflow (TASK-0023B Phase 4)
 
-The QEMU marker ladder, harness profile catalog, and runtime selftest profile catalog all live in **`source/apps/selftest-client/proof-manifest.toml`**. This file is the single source of truth (SSOT). `scripts/qemu-test.sh`, `tools/os2vm.sh`, the `selftest-client` build, and the `nexus-proof-manifest` host CLI all read from it; nothing else is allowed to declare markers, profile env, or phase order.
+The QEMU marker ladder, harness profile catalog, and runtime selftest profile catalog live under **`source/apps/selftest-client/proof-manifest/manifest.toml`** and its included `markers/`, `profiles/`, and `phases.toml` files. This proof-manifest tree is the single source of truth (SSOT). `scripts/qemu-test.sh`, `tools/os2vm.sh`, the `selftest-client` build, and the `nexus-proof-manifest` host CLI all read from it; nothing else is allowed to declare markers, profile env, or phase order.
 
 #### Profile catalog
 
 | Kind     | Profile         | Driver                          | Purpose |
 |---       |---              |---                              |---|
 | Harness  | `full`          | `scripts/qemu-test.sh`          | Default 12-phase ladder (`just test-os` / `just ci-os-full`). |
-| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B visible `ramfb` marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile. |
+| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B/0055C/0056 visible `ramfb`, SystemUI, and v2a marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile or screenshot proof. |
 | Harness  | `smp`           | `scripts/qemu-test.sh`          | SMP-only marker contract; consumed by `just ci-os-smp` (SMP=2 strict + SMP=1 parity). |
 | Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
 | Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |

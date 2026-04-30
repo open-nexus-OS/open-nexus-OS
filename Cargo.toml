@@ -22,7 +22,8 @@ members = [
     "tests/vfs_e2e",
     "tests/updates_host",
     "tests/ui_host_snap",
-    "tests/ui_windowd_host"
+    "tests/ui_windowd_host",
+    "tests/ui_v2a_host"
 ]
 resolver = "2"
 exclude = [

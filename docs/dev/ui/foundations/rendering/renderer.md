@@ -20,6 +20,18 @@ By default:
 
 The renderer should not become the hidden owner of layout caches or retained-tree mutation.
 
+## v2a present baseline
+
+`TASK-0056` adds a renderer-facing present baseline through `windowd`:
+
+- clients acquire a bounded back buffer and present by frame index,
+- `windowd` coalesces rapid submits deterministically at scheduler tick time,
+- no-damage/no-state-change skips present without emitting success markers,
+- minimal v2a fences are signaled only after the present tick processes the frame,
+- markers summarize bounded metadata only and do not dump frame contents.
+
+The proof path is CPU-backed for host and QEMU tolerance, but the contract is not CPU-only: future GPU or device-class backends should preserve the same surface ownership, frame-index, damage, and fence semantics.
+
 ## Backend posture
 
 Different backends may render differently, but should preserve the same pipeline contract:

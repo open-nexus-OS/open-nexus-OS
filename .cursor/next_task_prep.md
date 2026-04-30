@@ -11,7 +11,7 @@
 ## Active execution
 
 - **task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `In Progress`.
-- **contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `In Progress`.
+- **contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `Done`.
 - **contract carry-in**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`.
 - **carry-in baseline**: `TASK-0055` / `RFC-0047` / `TASK-0055B` / `RFC-0048` / `TASK-0055C` / `RFC-0049` are `Done`.
 
@@ -75,8 +75,15 @@
 
 - Active queue head is `TASK-0056` (v2a present scheduler + double-buffer + input routing baseline).
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
-- `TASK-0056` and `RFC-0050` are both `In Progress` and linked as execution SSOT + contract seed.
+- `TASK-0056` remains `In Progress`; `RFC-0050` is `Done` as the closed contract authority.
 - Preserve scope boundaries: no cursor polish (`TASK-0056B`), no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`).
+- Implementation checkpoint:
+  - closure rerun host scheduler/input proofs are green (`cargo test -p windowd -p launcher -p ui_v2a_host -- --nocapture`),
+  - closure rerun reject suite is green (`cargo test -p ui_v2a_host reject -- --nocapture`),
+  - carry-in UI regression proof is green (`cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`),
+  - closure rerun visible-bootstrap v2a QEMU marker proof is green through `SELFTEST: ui v2 input ok` (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`),
+  - touched headers, ADR/architecture/testing docs, task/RFC notes, and marker-honesty gating are synced.
+- Closure gates still deferred by user instruction: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 
 ## Carry-forward guardrails
 

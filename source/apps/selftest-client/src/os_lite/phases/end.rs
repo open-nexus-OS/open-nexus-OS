@@ -6,7 +6,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU marker ladder (just test-os) — terminator marker.
+//! TEST_COVERAGE: QEMU marker ladders (`just test-os`, `just test-os visible-bootstrap`) — terminator and UI/v2a markers.
 //!
 //! Extracted in Cut P2-13 of TASK-0023B. Marker order and marker strings are
 //! byte-identical to the pre-cut body. Returns `!` because the cooperative
@@ -17,7 +17,7 @@
 
 use nexus_abi::yield_;
 
-use crate::markers::emit_line;
+use crate::markers::{emit_bytes, emit_line, emit_u64};
 use crate::os_lite::{context::PhaseCtx, display_bootstrap};
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
@@ -34,6 +34,26 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                 emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
             }
             emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+            if let Ok(v2a) = windowd::run_ui_v2a_smoke() {
+                if v2a.present_scheduler_on {
+                    emit_line(windowd::PRESENT_SCHEDULER_ON_MARKER);
+                }
+                if v2a.input_on {
+                    emit_line(windowd::INPUT_ON_MARKER);
+                    emit_bytes(b"windowd: focus -> ");
+                    emit_u64(v2a.focused_surface.raw());
+                    emit_bytes(b"\n");
+                    if v2a.launcher_click_ok {
+                        emit_line(windowd::LAUNCHER_CLICK_OK_MARKER);
+                    }
+                }
+                if v2a.present_scheduler_on {
+                    emit_line(windowd::SELFTEST_UI_V2_PRESENT_OK_MARKER);
+                }
+                if v2a.input_on && v2a.launcher_click_ok {
+                    emit_line(windowd::SELFTEST_UI_V2_INPUT_OK_MARKER);
+                }
+            }
         }
     } else if let Ok(evidence) = windowd::run_headless_ui_smoke() {
         if evidence.ready {

@@ -140,3 +140,39 @@ Expected visible marker ladder:
 This slice still does not prove input, cursor/focus/click, display-service
 integration, dev display/profile presets, frame-budget smoothness, or
 kernel/core production-grade display closure.
+
+## TASK-0056 v2a present scheduler + input routing
+
+TASK-0056 adds the first functional v2a real-time baseline inside the existing
+`windowd` authority path. Host tests are the primary proof that scheduler/fence
+and routing semantics are real; QEMU markers summarize the same evidence after a
+small v2a smoke path.
+
+```bash
+cargo test -p ui_v2a_host -- --nocapture
+cargo test -p ui_v2a_host reject -- --nocapture
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
+```
+
+Host proof requirements:
+
+- rapid frame-indexed submits coalesce deterministically,
+- minimal fences are unsignaled before the scheduler tick and signaled after it,
+- no-damage/no-state-change skips present and emits no success marker,
+- overlapping surfaces route pointer focus to the topmost committed layer,
+- keyboard delivery targets the focused surface only,
+- stale/unauthorized/oversize scheduler and input paths reject fail-closed.
+
+Expected v2a marker ladder under `visible-bootstrap`:
+
+- `windowd: present scheduler on`
+- `windowd: input on`
+- `windowd: focus -> 1`
+- `launcher: click ok`
+- `SELFTEST: ui v2 present ok`
+- `SELFTEST: ui v2 input ok`
+
+This slice does not prove visible cursor polish, real HID/touch device input,
+click-to-frame latency budgets, WM-lite behavior, screenshot/GTK refresh
+evidence, GPU/display-driver integration, or kernel/MM/zero-copy production
+closure.
