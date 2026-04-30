@@ -10,8 +10,8 @@
 
 ## Active execution
 
-- **task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `In Progress`.
-- **contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `In Progress` (execution task SSOT link established).
+- **task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Done`.
+- **contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`.
 - **contract carry-in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`.
 - **carry-in baseline**: `TASK-0055` / `RFC-0047` are `Done` and remain the headless-only proof floor.
 
@@ -71,20 +71,11 @@
 - Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
 - Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
 
-## Active task prep prompt (TASK-0055C)
+## Active task prep prompt (TASK-0055D)
 
-- Current execution SSOT is `TASK-0055C` visible SystemUI first frame in QEMU.
-- Contract seed for this slice is `RFC-0049` (`In Progress`), with `RFC-0048` retained as carry-in visible-bootstrap baseline.
-- Implementation is partially proven:
-  - minimal TOML-backed SystemUI `desktop` profile/shell seed exists,
-  - visible `windowd` present composes the deterministic SystemUI first frame into the visible 1280x800 frame on host and exposes composed rows for OS/QEMU,
-  - `selftest-client` writes `windowd`-composed rows to QEMU `ramfb`, not a raw SystemUI source buffer or selftest-owned sidecar composition,
-  - host required proof, reject proof, OS-target selftest build, QEMU visible marker proof, and `scripts/fmt-clippy-deny.sh` are green.
-- Closure remains pending by operator hold:
-  - `just test-all`,
-  - `just ci-network`,
-  - `make clean`, `make build`, `make test`, `make run`.
-- Carry forward TASK-0055C honesty: this proves visible SystemUI first-frame only, not input, cursor, GPU, dirty-rect display service behavior, perf budgets, full display integration, dev-preset/start-profile matrix, or kernel/core production-grade display closure.
+- Current queue head is `TASK-0055D` (deterministic QEMU dev display/profile presets).
+- `TASK-0055C`/`RFC-0049` are closed with composed-frame visible-present proof and closure gates green.
+- Carry forward 55C boundaries: no input/cursor/perf/full-display closure was claimed.
 - Keep startup profile/dev-preset semantics separate from the `visible-bootstrap` harness marker profile.
 
 ## Carry-forward guardrails

@@ -12,7 +12,7 @@
 
 - **Phase 0 (visible present contract)**: ✅ implemented; host + QEMU marker proof green
 - **Phase 1 (SystemUI first-frame contract)**: ✅ implemented; TOML-backed desktop shell seed + composed-frame host proof green
-- **Phase 2 (hardening + Gate E sync)**: 🟨 partial; reject/fmt/QEMU proof green, full closure gates still pending
+- **Phase 2 (hardening + Gate E sync)**: ✅ implemented; reject/fmt/QEMU plus `test-all`/`ci-network`/`make` gates green
 
 Definition:
 
@@ -145,7 +145,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 - [x] **Phase 0**: visible present contract + marker gating — proof: `cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
 - [x] **Phase 1**: minimal visible SystemUI first-frame contract — proof: `cd /home/jenning/open-nexus-OS && cargo test -p systemui -- --nocapture`
-- [ ] **Phase 2**: hardening + Gate E sync for this slice — proof: `cd /home/jenning/open-nexus-OS && scripts/fmt-clippy-deny.sh && just test-all && just ci-network`
+- [x] **Phase 2**: hardening + Gate E sync for this slice — proof: `cd /home/jenning/open-nexus-OS && scripts/fmt-clippy-deny.sh && just test-all && just ci-network && make clean && make build && make test && make run`
 - [x] Task linked with stop conditions + proof commands.
 - [x] QEMU markers appear in `scripts/qemu-test.sh` and pass.
 - [x] Security-relevant negative tests exist (`test_reject_*`).

@@ -196,10 +196,10 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0055c_context
-- Status: `TASK-0055C` is `In Progress`; `RFC-0049` is `In Progress`; `TASK-0055B`/`RFC-0048` remain `Done` carry-in baseline.
+- Status: `TASK-0055C` is `Done`; `RFC-0049` is `Done`; `TASK-0055B`/`RFC-0048` remain `Done` carry-in baseline.
 - Scope target: visible `windowd` present + minimal SystemUI first frame in QEMU, reusing the same present lifecycle authority as the headless path.
 - Current repo reality: `source/services/systemui/` has a minimal TOML-backed `desktop` profile/shell seed and modular `profile`/`shell`/`frame` seams; `windowd` visible-present evidence composes that SystemUI first frame into the visible 1280x800 frame on host and exposes composed rows for OS/QEMU; `selftest-client` writes those `windowd`-composed rows to QEMU `ramfb`; proof-manifest and `scripts/qemu-test.sh` carry the 55C marker ladder.
-- Green so far: required host proof, reject proof, OS-target selftest visible build check, QEMU `visible-bootstrap` marker proof, and `scripts/fmt-clippy-deny.sh`. Full closure still awaits `just test-all`, `just ci-network`, and `make clean/build/test/run`.
+- Green closure: required host proof, reject proof, OS-target selftest visible build check, QEMU `visible-bootstrap` marker proof, `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean/build/test/run`.
 - Proof intent: deterministic visible markers for backend/present/systemui-first-frame/selftest-visible-present; no fake-success marker paths.
 - Gate alignment: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`) contribution only.
 - Explicit non-claims: no input/cursor/focus (`TASK-0056B`), no perf/smoothness closure (`TASK-0056C` + kernel lanes), no full display daemon closure (`TASK-0251`).

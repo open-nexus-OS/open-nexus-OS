@@ -1,8 +1,8 @@
 # Current Handoff: TASK-0055C implementation (visible SystemUI first frame)
 
 **Date**: 2026-04-30  
-**Active task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `In Progress`  
-**Active contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `In Progress`  
+**Completed task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Done`  
+**Completed contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`  
 **Active contract carry-in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (`TASK-0055B`)  
 **Carry-in baseline**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` / `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`  
 **Gate policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, `production-floor`)  
@@ -18,7 +18,7 @@
   - `windowd: present visible ok`
   - `systemui: first frame visible`
   - `SELFTEST: ui visible present ok`
-- `TASK-0055C`, `RFC-0049`, and UI testing docs are synced to the current partial-closure state.
+- `TASK-0055C`, `RFC-0049`, and UI testing docs are synced to Done status.
 
 ## Green evidence so far
 
@@ -31,9 +31,7 @@
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
 - `scripts/fmt-clippy-deny.sh`
 
-## Pending closure gates
-
-Operator requested these only run later:
+## Closure gates executed
 
 - `just test-all`
 - `just ci-network`

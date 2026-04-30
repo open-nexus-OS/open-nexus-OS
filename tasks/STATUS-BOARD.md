@@ -217,9 +217,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | Done | Host-first renderer/snapshot proof floor complete; no OS/QEMU present marker claim |
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | Done | Headless state-machine, generated IDL roundtrip, marker, postflight, and reject proofs complete |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | Done | Visible QEMU `ramfb` bootstrap path proven with marker-honesty hardening and full closure gates green |
+| ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | Done | Composed-frame visible present proven (host full frame + OS row path) with QEMU marker ladder and closure gates green |
 
-Current queue head: `TASK-0055C` / visible SystemUI first frame in QEMU.
-Current contract status: `RFC-0049` (`Done`, 2026-04-30); `TASK-0055C` is `In Review` after composed-frame visible-present hardening and focused proofs. No input/cursor/perf/full-display/kernel-VMO production closure claim.
+Current queue head: `TASK-0055D` / deterministic QEMU dev display/profile presets.
+Current contract status: `RFC-0049` (`Done`, 2026-04-30); `TASK-0055C` is `Done` after composed-frame visible-present hardening, QEMU marker proof, and closure gates green. No input/cursor/perf/full-display/kernel-VMO production closure claim.
 
 ---
 

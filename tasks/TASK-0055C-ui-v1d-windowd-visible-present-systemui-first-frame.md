@@ -1,6 +1,6 @@
 ---
 title: TASK-0055C UI v1d: windowd visible present + SystemUI first frame in QEMU
-status: In Review
+status: Done
 owner: @ui
 created: 2026-03-28
 depends-on:
@@ -130,6 +130,12 @@ Green so far:
 - `cargo test -p ui_windowd_host reject -- --nocapture`
 - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
 - `scripts/fmt-clippy-deny.sh`
+- `just test-all`
+- `just ci-network`
+- `make clean`
+- `make build`
+- `make test`
+- `make run`
 
 Closure delta after critical review:
 
@@ -148,7 +154,7 @@ Observed visible marker ladder:
 - `systemui: first frame visible`
 - `SELFTEST: ui visible present ok`
 
-Closure still pending by explicit operator hold:
+Closure gates now green:
 
 - `just test-all`
 - `just ci-network`
