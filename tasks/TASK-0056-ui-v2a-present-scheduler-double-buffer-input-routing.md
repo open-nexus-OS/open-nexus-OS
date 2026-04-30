@@ -1,6 +1,6 @@
 ---
 title: TASK-0056 UI v2a: double-buffered surfaces + present scheduler (vsync/fences/latency) + input routing (hit-test/focus)
-status: In Progress
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on:
@@ -187,12 +187,12 @@ Observed v2a QEMU marker ladder:
 - `SELFTEST: ui v2 present ok`
 - `SELFTEST: ui v2 input ok`
 
-Not yet run by user request, so no `Done` claim yet:
+Closure gates now green:
 
 - `scripts/fmt-clippy-deny.sh`
 - `just test-all`
 - `just ci-network`
-- `make clean`, `make build`, `make test`, `make run`
+- `make clean`, `make build`, `make test`, `make run` (in order)
 
 Known claim boundaries after review:
 

@@ -23,7 +23,13 @@ pub struct Layer {
 }
 
 impl Layer {
-    pub(crate) fn contains_point(self, surface_width: u32, surface_height: u32, x: i32, y: i32) -> bool {
+    pub(crate) fn contains_point(
+        self,
+        surface_width: u32,
+        surface_height: u32,
+        x: i32,
+        y: i32,
+    ) -> bool {
         let Ok(width) = i32::try_from(surface_width) else {
             return false;
         };

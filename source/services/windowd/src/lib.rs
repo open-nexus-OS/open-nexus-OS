@@ -40,21 +40,20 @@ pub use markers::{
     LAUNCHER_MARKER, PRESENT_SCHEDULER_ON_MARKER, PRESENT_VISIBLE_MARKER, READY_MARKER,
     SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER, SELFTEST_LAUNCHER_PRESENT_MARKER,
     SELFTEST_RESIZE_MARKER, SELFTEST_UI_V2_INPUT_OK_MARKER, SELFTEST_UI_V2_PRESENT_OK_MARKER,
-    SELFTEST_UI_VISIBLE_PRESENT_MARKER,
-    SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, SYSTEMUI_MARKER, VISIBLE_BACKEND_MARKER,
+    SELFTEST_UI_VISIBLE_PRESENT_MARKER, SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, SYSTEMUI_MARKER,
+    VISIBLE_BACKEND_MARKER,
 };
 pub use server::{
-    BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PresentAck, PresentFenceStatus,
-    PresentFrameAck, ScheduledPresentAck, UiProfile, WindowServer, WindowdConfig,
-    VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_HZ,
+    BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PresentAck,
+    PresentFenceStatus, PresentFrameAck, ScheduledPresentAck, UiProfile, WindowServer,
+    WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_HZ,
     VISIBLE_BOOTSTRAP_WIDTH,
 };
 pub use smoke::{
-    bootstrap_pixel_bgra, run_headless_ui_smoke, run_visible_bootstrap_smoke,
-    run_visible_systemui_smoke, run_ui_v2a_smoke, validate_visible_bootstrap_capability,
-    v2a_marker_postflight_ready, visible_marker_postflight_ready,
-    visible_systemui_marker_postflight_ready, UiSmokeEvidence, UiV2aEvidence,
-    VisibleBootstrapEvidence, VisibleBootstrapMode, VisibleDisplayCapability,
+    bootstrap_pixel_bgra, run_headless_ui_smoke, run_ui_v2a_smoke, run_visible_bootstrap_smoke,
+    run_visible_systemui_smoke, v2a_marker_postflight_ready, validate_visible_bootstrap_capability,
+    visible_marker_postflight_ready, visible_systemui_marker_postflight_ready, UiSmokeEvidence,
+    UiV2aEvidence, VisibleBootstrapEvidence, VisibleBootstrapMode, VisibleDisplayCapability,
     VisibleSystemUiEvidence,
 };
 

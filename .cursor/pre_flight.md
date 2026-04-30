@@ -262,11 +262,11 @@ This is the anti-fake-success gate.
 
 ## Active prep snapshot (TASK-0056 + RFC-0050, 2026-04-30)
 - [x] `TASK-0055C` remains synchronized as `Done` carry-in baseline.
-- [x] `TASK-0056` is now `In Progress`.
+- [x] `TASK-0056` is now `Done`.
 - [x] `RFC-0050` contract seed is created and linked from task + RFC index.
 - [x] `TASK-0056` header includes dependencies/follow-ups, security invariants, red flags, and Gate E mapping.
-- [ ] Host scheduler/input-routing proofs are green.
-- [ ] QEMU v2a marker profile is green.
+- [x] Host scheduler/input-routing proofs are green.
+- [x] QEMU v2a marker profile is green.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:

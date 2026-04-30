@@ -143,7 +143,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Windowing, UI & Graphics
 
-- Progress: `3 / 73` done (`4%`)
+- Progress: `4 / 73` done (`5%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0275`
 
@@ -218,10 +218,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | Done | Headless state-machine, generated IDL roundtrip, marker, postflight, and reject proofs complete |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | Done | Visible QEMU `ramfb` bootstrap path proven with marker-honesty hardening and full closure gates green |
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | Done | Composed-frame visible present proven (host full frame + OS row path) with QEMU marker ladder and closure gates green |
-| ⏳ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | In Progress | Host/reject/QEMU proofs green; header/doc/marker-honesty closure synced; final user-blocked gates pending |
+| ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | Done | Host/reject/QEMU proofs and closure gates (`fmt-clippy-deny`, `test-all`, `ci-network`, `make clean/build/test/run`) are green |
 
-Current queue head: `TASK-0056` / v2a present scheduler + double-buffer + input routing baseline.
-Current contract status: `RFC-0049` (`Done`, 2026-04-30) remains carry-in; `RFC-0050` is `Done` while `TASK-0056` execution closure remains in progress.
+Current queue head: `TASK-0056B` / v2a visible input (cursor/focus/click) baseline follow-up.
+Current contract status: `RFC-0049` (`Done`, 2026-04-30) remains carry-in; `RFC-0050` is `Done` with `TASK-0056` execution closure complete.
 
 ---
 

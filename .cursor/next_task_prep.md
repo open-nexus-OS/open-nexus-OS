@@ -8,9 +8,9 @@
 - **completed predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`.
 - **archived predecessor handoff**: `.cursor/handoff/archive/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md`.
 
-## Active execution
+## Current execution snapshot
 
-- **task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `In Progress`.
+- **task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `Done`.
 - **contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `Done`.
 - **contract carry-in**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`.
 - **carry-in baseline**: `TASK-0055` / `RFC-0047` / `TASK-0055B` / `RFC-0048` / `TASK-0055C` / `RFC-0049` are `Done`.
@@ -71,11 +71,11 @@
 - Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
 - Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
 
-## Active task prep prompt (TASK-0056)
+## Active task prep prompt (TASK-0056B)
 
-- Active queue head is `TASK-0056` (v2a present scheduler + double-buffer + input routing baseline).
+- Active queue head is `TASK-0056B` (v2a visible input — cursor/focus/click baseline).
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
-- `TASK-0056` remains `In Progress`; `RFC-0050` is `Done` as the closed contract authority.
+- `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
 - Preserve scope boundaries: no cursor polish (`TASK-0056B`), no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`).
 - Implementation checkpoint:
   - closure rerun host scheduler/input proofs are green (`cargo test -p windowd -p launcher -p ui_v2a_host -- --nocapture`),
@@ -83,7 +83,7 @@
   - carry-in UI regression proof is green (`cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`),
   - closure rerun visible-bootstrap v2a QEMU marker proof is green through `SELFTEST: ui v2 input ok` (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`),
   - touched headers, ADR/architecture/testing docs, task/RFC notes, and marker-honesty gating are synced.
-- Closure gates still deferred by user instruction: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
+- Closure gates are green: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 
 ## Carry-forward guardrails
 

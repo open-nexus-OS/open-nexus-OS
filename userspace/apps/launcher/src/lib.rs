@@ -58,9 +58,7 @@ pub fn click_demo() -> Result<ClickDemoEvidence, WindowdError> {
     let highlighted = SurfaceBuffer::solid(launcher, 201, 32, 24, [0x30, 0xe0, 0x60, 0xff])?;
     server.acquire_back_buffer(launcher, surface, FrameIndex::new(1), highlighted)?;
     server.present_frame(launcher, surface, FrameIndex::new(1), &[Rect::new(0, 0, 32, 24)])?;
-    let present = server
-        .present_scheduler_tick()?
-        .ok_or(WindowdError::MarkerBeforePresentState)?;
+    let present = server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
     let click = server.route_pointer_down(4, 4)?;
     let delivered = server.take_input_events(launcher, surface)?;
     let highlighted = click.surface == surface

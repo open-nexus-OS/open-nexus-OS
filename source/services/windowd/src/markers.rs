@@ -9,8 +9,8 @@
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use crate::error::{Result, WindowdError};
-use crate::server::PresentAck;
 use crate::ids::SurfaceId;
+use crate::server::PresentAck;
 use alloc::format;
 use alloc::string::String;
 

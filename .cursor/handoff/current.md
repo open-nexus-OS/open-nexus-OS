@@ -1,9 +1,9 @@
-# Current Handoff: TASK-0056 implementation checkpoint (v2a present scheduler + double-buffer + input routing)
+# Current Handoff: TASK-0056 closeout (v2a present scheduler + double-buffer + input routing)
 
 **Date**: 2026-04-30  
 **Completed task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Done`  
 **Completed contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`  
-**Active task (execution SSOT)**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `In Progress`  
+**Completed task (execution SSOT)**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `Done`  
 **Completed contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `Done`  
 **Gate policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, `production-floor`)  
 
@@ -14,9 +14,9 @@
 - `TASK-0055C`/`RFC-0049` visible first SystemUI frame is `Done`.
 - 56 must extend the same `windowd` authority path; no sidecar present/input authority.
 
-## TASK-0056 implementation checkpoint
+## TASK-0056 closeout checkpoint
 
-- RFC seed for 56 exists and is linked in both task and RFC index.
+- RFC contract for 56 is `Done` and linked in both task and RFC index.
 - 56 task header is synchronized (`depends-on`, `follow-up-tasks`, Gate E mapping, security invariants, red flags).
 - Implemented in `windowd` only:
   - double-buffer surface present contract,
@@ -48,7 +48,7 @@ Observed v2a marker ladder:
 - `SELFTEST: ui v2 present ok`
 - `SELFTEST: ui v2 input ok`
 
-Deferred by user instruction; do not claim `Done` until run:
+Closure gates now green:
 
 - `scripts/fmt-clippy-deny.sh`
 - `just test-all`

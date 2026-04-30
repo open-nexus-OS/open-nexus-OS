@@ -324,12 +324,12 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Scope boundary remains explicit: visible present + first frame only; no input/perf/kernel closure claims.
 
 ## Active prep snapshot (TASK-0056 + RFC-0050, 2026-04-30)
-- [x] `TASK-0056` switched to `In Progress` and remains execution SSOT for v2a baseline.
+- [x] `TASK-0056` is `Done` and remains execution SSOT for v2a baseline closeout evidence.
 - [x] `RFC-0050` contract exists and is `Done`.
 - [x] TASK/RFC links are synchronized (task header + RFC index).
 - [x] 56 scope boundaries are explicit (no 56B/56C/0199/0200/kernel scope absorption).
-- [ ] Host scheduler/input routing proofs are green.
-- [ ] QEMU v2a marker profile is green.
+- [x] Host scheduler/input routing proofs are green.
+- [x] QEMU v2a marker profile is green.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

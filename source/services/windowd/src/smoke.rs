@@ -293,12 +293,7 @@ pub fn run_ui_v2a_smoke() -> Result<UiV2aEvidence> {
         SurfaceBuffer::solid(background, 41, 16, 16, [0x10, 0x20, 0x40, 0xff])?;
     let launcher_surface = server.create_surface(launcher, launcher_initial.clone())?;
     let background_surface = server.create_surface(background, background_initial.clone())?;
-    server.queue_buffer(
-        launcher,
-        launcher_surface,
-        launcher_initial,
-        &[Rect::new(0, 0, 8, 8)],
-    )?;
+    server.queue_buffer(launcher, launcher_surface, launcher_initial, &[Rect::new(0, 0, 8, 8)])?;
     server.queue_buffer(
         background,
         background_surface,
@@ -317,14 +312,21 @@ pub fn run_ui_v2a_smoke() -> Result<UiV2aEvidence> {
     let frame_one = SurfaceBuffer::solid(launcher, 42, 8, 8, [0x30, 0x90, 0xf0, 0xff])?;
     let frame_two = SurfaceBuffer::solid(launcher, 43, 8, 8, [0x60, 0xb0, 0x20, 0xff])?;
     server.acquire_back_buffer(launcher, launcher_surface, FrameIndex::new(1), frame_one)?;
-    let first_fence =
-        server.present_frame(launcher, launcher_surface, FrameIndex::new(1), &[Rect::new(0, 0, 8, 8)])?;
+    let first_fence = server.present_frame(
+        launcher,
+        launcher_surface,
+        FrameIndex::new(1),
+        &[Rect::new(0, 0, 8, 8)],
+    )?;
     server.acquire_back_buffer(launcher, launcher_surface, FrameIndex::new(2), frame_two)?;
-    let latest_fence_ack =
-        server.present_frame(launcher, launcher_surface, FrameIndex::new(2), &[Rect::new(2, 2, 4, 4)])?;
-    let scheduled_present = server
-        .present_scheduler_tick()?
-        .ok_or(WindowdError::MarkerBeforePresentState)?;
+    let latest_fence_ack = server.present_frame(
+        launcher,
+        launcher_surface,
+        FrameIndex::new(2),
+        &[Rect::new(2, 2, 4, 4)],
+    )?;
+    let scheduled_present =
+        server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
     let coalesced_status = server.present_fence_status(first_fence.fence_id)?;
     let latest_fence = server.present_fence_status(latest_fence_ack.fence_id)?;
     if !coalesced_status.signaled || !coalesced_status.coalesced || !latest_fence.signaled {

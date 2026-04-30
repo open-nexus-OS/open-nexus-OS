@@ -84,9 +84,8 @@ mod tests {
         let latest = buffer(11, 4, 4, [0xff, 0, 0, 0xff]);
 
         assert_eq!(
-            srv.acquire_back_buffer(LAUNCHER, surface, FrameIndex::new(1), first).map(|lease| {
-                (lease.surface.raw(), lease.frame_index.raw())
-            }),
+            srv.acquire_back_buffer(LAUNCHER, surface, FrameIndex::new(1), first)
+                .map(|lease| { (lease.surface.raw(), lease.frame_index.raw()) }),
             Ok((surface.raw(), 1))
         );
         let first_ack = match srv.present_frame(
@@ -103,9 +102,8 @@ mod tests {
             Ok(false)
         );
         assert_eq!(
-            srv.acquire_back_buffer(LAUNCHER, surface, FrameIndex::new(2), latest).map(|lease| {
-                (lease.surface.raw(), lease.frame_index.raw())
-            }),
+            srv.acquire_back_buffer(LAUNCHER, surface, FrameIndex::new(2), latest)
+                .map(|lease| { (lease.surface.raw(), lease.frame_index.raw()) }),
             Ok((surface.raw(), 2))
         );
         let latest_ack = match srv.present_frame(
@@ -174,10 +172,9 @@ mod tests {
         let top_events = srv.take_input_events(OTHER, top).expect("top events");
         assert_eq!(top_events.len(), 2);
         assert!(top_events.iter().any(|event| event.kind == InputEventKind::PointerDown));
-        assert!(top_events.iter().any(|event| matches!(
-            event.kind,
-            InputEventKind::Keyboard { key_code: 0x41 }
-        )));
+        assert!(top_events
+            .iter()
+            .any(|event| matches!(event.kind, InputEventKind::Keyboard { key_code: 0x41 })));
         assert_eq!(srv.take_input_events(LAUNCHER, bottom), Ok(Vec::new()));
     }
 
@@ -313,7 +310,10 @@ mod tests {
             assert!(srv.route_pointer_down(1, 1).is_ok());
         }
         assert_eq!(srv.route_pointer_down(1, 1), Err(WindowdError::InputEventQueueFull));
-        assert_eq!(srv.take_input_events(LAUNCHER, SurfaceId::new(999)), Err(WindowdError::StaleSurfaceId));
+        assert_eq!(
+            srv.take_input_events(LAUNCHER, SurfaceId::new(999)),
+            Err(WindowdError::StaleSurfaceId)
+        );
         assert_eq!(srv.focused_surface(), Some(surface));
     }
 
@@ -397,9 +397,8 @@ mod tests {
             capnp::message::ReaderOptions::new(),
         )
         .expect("read input");
-        let delivery = input_reader
-            .get_root::<input_capnp::input_delivery::Reader>()
-            .expect("delivery root");
+        let delivery =
+            input_reader.get_root::<input_capnp::input_delivery::Reader>().expect("delivery root");
         assert_eq!(delivery.get_surface_id(), surface_id);
         assert_eq!(delivery.get_kind(), Ok(input_capnp::InputDeliveryKind::PointerDown));
     }

@@ -314,7 +314,10 @@ impl WindowServer {
             return Err(WindowdError::InvalidDimensions);
         }
         if surface.last_presented_frame.is_some_and(|last| frame_index <= last)
-            || surface.pending_present.as_ref().is_some_and(|pending| frame_index <= pending.frame_index)
+            || surface
+                .pending_present
+                .as_ref()
+                .is_some_and(|pending| frame_index <= pending.frame_index)
         {
             return Err(WindowdError::StalePresentSequence);
         }
@@ -339,8 +342,7 @@ impl WindowServer {
         if frame_index.raw() == 0 {
             return Err(WindowdError::InvalidFrameIndex);
         }
-        let surface_idx =
-            self.surface_index(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        let surface_idx = self.surface_index(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
         if self.surfaces[surface_idx].owner != caller.caller_id() {
             return Err(WindowdError::Unauthorized);
         }
@@ -383,10 +385,8 @@ impl WindowServer {
         if let Some(previous) = surface.pending_present.take() {
             coalesced_fences.extend_from_slice(&previous.coalesced_fences);
             coalesced_fences.push(previous.fence_id);
-            coalesced_frames = previous
-                .coalesced_frames
-                .checked_add(1)
-                .ok_or(WindowdError::ArithmeticOverflow)?;
+            coalesced_frames =
+                previous.coalesced_frames.checked_add(1).ok_or(WindowdError::ArithmeticOverflow)?;
             merged_damage.extend_from_slice(&previous.damage);
         }
         merged_damage.extend_from_slice(damage);
@@ -399,11 +399,7 @@ impl WindowServer {
             coalesced_frames,
             coalesced_fences,
         });
-        self.fences.push(FenceRecord {
-            id: fence_id,
-            frame_index,
-            state: FenceState::Pending,
-        });
+        self.fences.push(FenceRecord { id: fence_id, frame_index, state: FenceState::Pending });
         self.scheduler_enabled = true;
         Ok(PresentFrameAck { fence_id, frame_index })
     }
