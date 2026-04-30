@@ -191,6 +191,41 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] input routing remains `TASK-0056B`,
   - [ ] kernel/perf closure remains delegated to owning follow-ups.
 
+## TASK-0055C class stop conditions (UI v1d visible present + SystemUI first frame)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0055C` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0049` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` status matches RFC reality.
+- [ ] Gate scope honesty is preserved:
+  - [ ] Gate E `production-floor` visible-present alignment stays explicit,
+  - [ ] no input/cursor/perf/kernel production-grade claim is made.
+- [ ] Single present authority boundary is enforced:
+  - [ ] no parallel compositor/debug renderer path is introduced,
+  - [ ] visible present runs through the same `windowd` lifecycle authority as headless present,
+  - [ ] harness profile semantics are kept separate from startup profile semantics.
+- [ ] Visible present + SystemUI first-frame contract is proven:
+  - [ ] `windowd: backend=visible` marker appears only when visible backend is active,
+  - [ ] `windowd: present visible ok` appears only after real visible present,
+  - [ ] `systemui: first frame visible` appears only after real first shell frame,
+  - [ ] `SELFTEST: ui visible present ok` summarizes completed visible-present path.
+- [ ] Security and fail-closed behavior are proven:
+  - [ ] invalid visible mode/capability/present preconditions reject,
+  - [ ] pre-visible success-marker attempts reject,
+  - [ ] logs/markers expose bounded metadata only.
+- [ ] Required proof floor is green:
+  - [ ] `cargo test -p windowd -p ui_windowd_host -p systemui -- --nocapture`,
+  - [ ] `cargo test -p ui_windowd_host reject -- --nocapture`,
+  - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`,
+  - [ ] `scripts/fmt-clippy-deny.sh`,
+  - [ ] `just test-all`,
+  - [ ] `just ci-network`,
+  - [ ] `make clean`, `make build`, `make test`, `make run`.
+- [ ] Follow-up scope remains explicit:
+  - [ ] rich display/start presets remain `TASK-0055D`,
+  - [ ] input routing remains `TASK-0056B`,
+  - [ ] present/input perf closure remains `TASK-0056C`,
+  - [ ] fuller display integration remains `TASK-0251`.
+
 ## Active progress snapshot (TASK-0055B done, 2026-04-29)
 - [x] `TASK-0055B` is synchronized to `Done`.
 - [x] `RFC-0048` is synchronized to `Done`.
@@ -245,6 +280,13 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Security/authority invariants for visible bootstrap are explicit in task and contract seed.
 - [x] Red flags and anti-fake-success marker policy are explicit and aligned with Gate E scope.
 - [x] Active scope is bootstrap-visible first frame only; input/perf/kernel closure claims remain out of scope.
+
+## Active prep snapshot (TASK-0055C + RFC-0049, 2026-04-30)
+- [x] `TASK-0055C` is active prep (`Draft`) and remains execution SSOT.
+- [x] `RFC-0049` contract seed is created and linked from task + RFC index (`Draft`).
+- [x] 55C task text now includes dependencies/follow-ups, security invariants, red flags, and Gate E mapping.
+- [x] 55B closeout handoff is archived and `IMPLEMENTATION-ORDER` tracks `TASK-0055B` as done.
+- [x] Scope boundary remains explicit: visible present + first frame only; no input/perf/kernel closure claims.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

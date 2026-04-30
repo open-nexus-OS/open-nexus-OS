@@ -195,6 +195,41 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0055c_context
+- Status: `TASK-0055C` is `Draft` (active prep); `RFC-0049` is `Draft` as contract seed; `TASK-0055B`/`RFC-0048` remain `Done` carry-in baseline.
+- Scope target: visible `windowd` present + minimal SystemUI first frame in QEMU, reusing the same present lifecycle authority as the headless path.
+- Proof intent: deterministic visible markers for backend/present/systemui-first-frame/selftest-visible-present; no fake-success marker paths.
+- Gate alignment: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`) contribution only.
+- Explicit non-claims: no input/cursor/focus (`TASK-0056B`), no perf/smoothness closure (`TASK-0056C` + kernel lanes), no full display daemon closure (`TASK-0251`).
+- `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md`
+- `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`
+- `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`
+- `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
+- `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md`
+- `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `docs/testing/index.md`
+- `scripts/qemu-test.sh`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/10-security-services.mdc`
+
+### @task_0055c_touched
+- `source/services/windowd/`
+- `source/services/systemui/` (or corresponding userspace/systemui first-frame path)
+- `source/apps/selftest-client/`
+- `source/apps/selftest-client/proof-manifest/`
+- `scripts/qemu-test.sh`
+- `docs/dev/ui/overview.md`
+- `docs/dev/ui/foundations/quality/testing.md`
+- `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`
+- `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0012_context
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md`
 - `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md`
@@ -816,6 +851,9 @@ Kontext strikt: @core_context @task_0054_context @quality_gates @task_0054_touch
 
 ## Standard instruction line (TASK-0055B)
 Kontext strikt: @core_context @task_0055b_context @quality_gates @task_0055b_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0055C)
+Kontext strikt: @core_context @task_0055c_context @quality_gates @task_0055c_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

@@ -74,6 +74,20 @@ This is the anti-fake-success gate.
 - [ ] `just ci-network` is green.
 - [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
 
+## Task-0055C automatic addendum (when applicable)
+- [ ] `cargo test -p windowd -p ui_windowd_host -p systemui -- --nocapture` is green.
+- [ ] `cargo test -p ui_windowd_host reject -- --nocapture` is green for visible-present reject paths.
+- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green for visible present marker ladder.
+- [ ] Deterministic visible markers appear in order:
+  - [ ] `windowd: backend=visible`
+  - [ ] `windowd: present visible ok`
+  - [ ] `systemui: first frame visible`
+  - [ ] `SELFTEST: ui visible present ok`
+- [ ] `scripts/fmt-clippy-deny.sh` is green.
+- [ ] `just test-all` is green.
+- [ ] `just ci-network` is green.
+- [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks

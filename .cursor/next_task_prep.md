@@ -10,8 +10,9 @@
 
 ## Active execution
 
-- **task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Queued`.
-- **contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (carry-in visible bootstrap contract).
+- **task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `In Progress`.
+- **contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `In Progress` (execution task SSOT link established).
+- **contract carry-in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`.
 - **carry-in baseline**: `TASK-0055` / `RFC-0047` are `Done` and remain the headless-only proof floor.
 
 ## TASK-0054 closure checks
@@ -73,6 +74,7 @@
 ## Active task prep prompt (TASK-0055C)
 
 - Next execution SSOT is `TASK-0055C` visible SystemUI first frame in QEMU.
+- Contract seed for this slice is now `RFC-0049` (`In Progress`), with `RFC-0048` retained as carry-in visible-bootstrap baseline.
 - Carry forward TASK-0055B honesty: visible bootstrap proves a fixed `ramfb` pattern path only, not real SystemUI/launcher profile selection, input, cursor, GPU, dirty-rect display service behavior, perf budgets, or kernel/core production-grade display closure.
 - Keep startup profile semantics separate from harness marker profiles.
 

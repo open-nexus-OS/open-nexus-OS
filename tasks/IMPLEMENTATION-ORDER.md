@@ -102,6 +102,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0047 | Policy as Code v1: unified policy engine | 2026-04-26 |
 | ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | 2026-04-27 |
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | 2026-04-27 |
+| ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | 2026-04-29 |
 
 ---
 

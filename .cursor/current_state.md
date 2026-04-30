@@ -2,7 +2,7 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-29)**: `TASK-0055B`/`RFC-0048` closure-hardening is complete and both are `Done` after all required gates re-ran green in order (`scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean/build/test/run`, plus `just test-os visible-bootstrap` and targeted host/OS checks).
+- **last_decision (2026-04-30)**: 55C execution is now started: `TASK-0055C` is `In Progress` and contract seed `RFC-0049` is `In Progress`; `TASK-0055B`/`RFC-0048` remain `Done` carry-in baseline.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
@@ -12,8 +12,9 @@
 
 ## Active execution state
 
-- **active_task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `Queued` (next execution slice)
-- **active_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (carry-in contract for visible bootstrap only)
+- **active_task**: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` — `In Progress`
+- **active_contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `In Progress`
+- **active_contract_carry_in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (visible bootstrap baseline)
 - **completed_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` — `Done`
@@ -146,6 +147,21 @@
   - `TASK-0056B` still owns input routing/focus/click/cursor.
   - `TASK-0055D` still owns rich dev display/start-profile presets; `visible-bootstrap` must not be reused as a SystemUI start profile.
   - `TASK-0288`/`TASK-0290` and related kernel lanes still own perf/latency and zero-copy/kernel production-grade closure.
+
+## TASK-0055C prep state
+
+- `TASK-0055C` is now active execution (`In Progress`) with dedicated contract seed `RFC-0049` (`In Progress`).
+- Task header is aligned to repo reality:
+  - explicit dependencies (`TASK-0055`, `TASK-0055B`),
+  - explicit follow-ups (`TASK-0055D`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0251`),
+  - security/authority invariants, red flags, and Gate E mapping are present.
+- Carry-in contract boundary remains explicit:
+  - `RFC-0048`/`TASK-0055B` prove visible bootstrap plumbing only,
+  - `TASK-0055C` must prove real visible `windowd` + SystemUI first-frame behavior without claiming input/perf/kernel closure.
+- Tracking sync done:
+  - previous 55B handoff archived at `.cursor/handoff/archive/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`,
+  - `TASK-0055B` added to `Done` in `tasks/IMPLEMENTATION-ORDER.md`,
+  - `RFC-0049` added to `docs/rfcs/README.md` and linked from `TASK-0055C`.
 
 ## TASK-0047 closure gaps remediated host-first
 
