@@ -379,12 +379,12 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 
 ## Active prep snapshot (TASK-0056B + RFC-0051, 2026-04-30)
 - [x] `TASK-0056` / `RFC-0050` are closed as `Done` carry-in baseline.
-- [x] `TASK-0056B` is active prep SSOT (`In Progress`).
+- [x] `TASK-0056B` is closure-complete SSOT (`Done`).
 - [x] `RFC-0051` contract seed exists and is linked from task + RFC index.
 - [x] 56B scope boundaries are explicit after review: deterministic visible input is in scope; live QEMU input moves to `TASK-0252`/`TASK-0253`; no 56C/0199/0200/0251 scope absorption.
 - [x] Host visible-input proofs are green for deterministic route.
 - [x] QEMU visible-input marker profile is green for deterministic route.
-- [ ] Live QEMU pointer/keyboard proof is queued in `TASK-0252`/`TASK-0253`.
+- [x] Live QEMU pointer/keyboard proof is queued in `TASK-0252`/`TASK-0253`.
 
 ## TASK-0022 class stop conditions (DSoftBus core no_std transport abstraction)
 - [ ] Behavior-first proof shape is documented and enforced:

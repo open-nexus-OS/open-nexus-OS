@@ -1,6 +1,6 @@
 ---
 title: TASK-0056B UI v2a extension: visible input v0 (cursor + hover + focus + click) in QEMU
-status: In Progress
+status: Done
 owner: @ui
 created: 2026-03-28
 depends-on:
@@ -146,7 +146,7 @@ Visual proof:
   not just a static final pixel
 - live host-mouse interaction is explicitly deferred to the next input tasks, not claimed by 56B
 
-### Evidence so far (2026-04-30)
+### Evidence so far (2026-05-03)
 
 - Implemented in the existing `windowd` authority path:
   - `windowd`-owned pointer position via routed pointer movement,
@@ -169,15 +169,11 @@ Visual proof:
   cursor start position, hover/cursor end position, then final focus/click state.
 - Scope correction after review: real host-mouse/device input is not integrated into 56B.
   It is moved directly after 56B as `TASK-0252` + `TASK-0253`.
-- Remaining before `Done`: rerun/confirm focused 56B proofs, then run the quality gates below
-  when explicitly approved.
-
-Quality gates required before `Done`:
-
-- `scripts/fmt-clippy-deny.sh`
-- `just test-all`
-- `just ci-network`
-- `make clean`, `make build`, `make test`, `make run` (in order)
+- Closure quality gates are green:
+  - `scripts/fmt-clippy-deny.sh`
+  - `just test-all`
+  - `just ci-network`
+  - `make clean`, `make build`, `make test`, `make run` (in order)
 
 ## Touched paths (allowlist)
 

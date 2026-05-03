@@ -101,15 +101,16 @@ fn list_env_json_format_emits_object() {
 fn list_markers_full_is_byte_identical_lower_bound() {
     // The manifest currently carries 439 declared markers; profile `full`
     // expects all of them whose `emit_when` matches and whose
-    // `forbidden_when` does not. The current ~464 marker count includes
-    // TASK-0055 headless markers and TASK-0055B visible-bootstrap markers; if
+    // `forbidden_when` does not. The current ~476 marker count includes
+    // TASK-0055/0055B/0055C/0056/0056B marker ladders and follow-up
+    // profile-gated expansions; if
     // it drifts, the harness must be told.
     let (code, stdout, stderr) = run(&["list-markers", "--profile=full", &manifest_arg()]);
     assert_eq!(code, 0, "stderr=`{stderr}`");
     let count = stdout.lines().filter(|l| !l.is_empty()).count();
     assert!(
-        (390..=470).contains(&count),
-        "list-markers full produced {count} markers; expected ~464 (range 390..=470)"
+        (390..=520).contains(&count),
+        "list-markers full produced {count} markers; expected ~476 (range 390..=520)"
     );
 }
 

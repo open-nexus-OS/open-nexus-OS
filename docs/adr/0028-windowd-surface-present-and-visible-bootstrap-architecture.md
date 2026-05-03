@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-The UI stack now has a closed headless baseline (`TASK-0055` / `RFC-0047`), a closed visible bootstrap follow-up (`TASK-0055B` / `RFC-0048`), a closed visible SystemUI first-frame slice (`TASK-0055C` / `RFC-0049`), a closed v2a present/input slice (`TASK-0056` / `RFC-0050`), and an in-progress deterministic visible-input slice (`TASK-0056B` / `RFC-0051`). We need one clear architecture authority for `windowd` module boundaries, marker honesty, and follow-up scope handoff.
+The UI stack now has a closed headless baseline (`TASK-0055` / `RFC-0047`), a closed visible bootstrap follow-up (`TASK-0055B` / `RFC-0048`), a closed visible SystemUI first-frame slice (`TASK-0055C` / `RFC-0049`), a closed v2a present/input slice (`TASK-0056` / `RFC-0050`), and a closed deterministic visible-input slice (`TASK-0056B` / `RFC-0051`). We need one clear architecture authority for `windowd` module boundaries, marker honesty, and follow-up scope handoff.
 
 Without a dedicated ADR, module headers and architecture docs risk drifting across:
 - `windowd` authority ownership (surface/layer/present sequencing),
@@ -52,7 +52,7 @@ Adopt a dedicated `windowd` architecture contract with these rules:
 
 ## Current State
 
-- `TASK-0056` / `RFC-0050` are `Done`; `TASK-0056B` / `RFC-0051` remain `In Progress` until final quality gates are run.
+- `TASK-0056` / `RFC-0050` and `TASK-0056B` / `RFC-0051` are `Done`.
 - `TASK-0056B` currently claims only deterministic visible input in QEMU: routed cursor movement, hover affordance, focus affordance, and click-visible proof surface state.
 - The live input pipeline is intentionally next in the fast lane (`TASK-0252` then `TASK-0253`) instead of being implemented as a 56B-only `inputd-light` path.
 

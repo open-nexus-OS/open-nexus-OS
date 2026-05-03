@@ -258,7 +258,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/rules/10-security-services.mdc`
 
 ### @task_0056b_context
-- Status: `TASK-0056B` is `In Progress`; `RFC-0051` is `In Progress`; 55C/56 remain done carry-in baseline. Host/reject/deterministic-QEMU 56B proofs are green; live QEMU pointer/keyboard input is moved to the immediate `TASK-0252`/`TASK-0253` lane.
+- Status: `TASK-0056B` is `Done`; `RFC-0051` is `Done`; 55C/56 remain done carry-in baseline. Host/reject/deterministic-QEMU 56B proofs and closure gates are green; live QEMU pointer/keyboard input is moved to the immediate `TASK-0252`/`TASK-0253` lane.
 - Scope baseline: deterministic visible cursor/hover/focus/click proof on top of existing 56 routed input semantics, with `windowd` as the single hit-test/hover/focus/click authority.
 - Scope correction: host mouse/keyboard input must enter the guest through the real QEMU input pipeline in `TASK-0252`/`TASK-0253`; 56B must not grow an inputd-light path.
 - Gate alignment: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` Gate E (`Windowing, UI & Graphics`, `production-floor`).

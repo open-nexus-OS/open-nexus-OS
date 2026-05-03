@@ -71,12 +71,12 @@
 - Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
 - Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
 
-## Active task prep prompt (TASK-0056B)
+## Active task prep prompt (TASK-0252)
 
-- Active queue head is `TASK-0056B` (v2a visible input — cursor/hover/focus/click baseline).
+- Active queue head is `TASK-0252` (input v1.0a host HID/touch/keymaps/repeat/accel core).
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
-- `RFC-0051` is `In Progress` as contract seed and linked from task + RFC index.
+- `TASK-0056B` and `RFC-0051` are `Done` and locked as deterministic visible-input carry-in.
 - Preserve scope boundaries after review: 56B is deterministic visible input only; live QEMU pointer/keyboard moves to `TASK-0252`/`TASK-0253`; no perf closure (`TASK-0056C`), no WM/compositor-v2 breadth (`TASK-0199`/`TASK-0200`), no display-service integration closure (`TASK-0251`).
 - Implementation checkpoint (deterministic visible-input route):
   - 56B host visible-input proof is green (`cargo test -p ui_v2a_host -- --nocapture`) with 19 tests,
@@ -89,7 +89,7 @@
   - `TASK-0252` host input core,
   - `TASK-0253` OS/QEMU `inputd`/HID pipeline for live pointer/keyboard,
   - `TASK-0056C` responsiveness after the live path exists.
-- Pending before `Done` by explicit user instruction: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
+- Closure gates for `TASK-0056B` are complete: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 
 ## Fast-lane uplift checkpoint
 

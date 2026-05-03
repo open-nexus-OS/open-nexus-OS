@@ -60,12 +60,7 @@ mod tests {
 
     fn pixel(frame: &windowd::Frame, x: u32, y: u32) -> [u8; 4] {
         let idx = (y as usize * frame.stride as usize) + (x as usize * 4);
-        [
-            frame.pixels[idx],
-            frame.pixels[idx + 1],
-            frame.pixels[idx + 2],
-            frame.pixels[idx + 3],
-        ]
+        [frame.pixels[idx], frame.pixels[idx + 1], frame.pixels[idx + 2], frame.pixels[idx + 3]]
     }
 
     fn surface_with_scene(srv: &mut WindowServer, width: u32, height: u32) -> SurfaceId {
@@ -78,12 +73,7 @@ mod tests {
             srv.commit_scene(
                 CallerCtx::system(),
                 CommitSeq::new(1),
-                &[Layer {
-                    surface,
-                    x: 0,
-                    y: 0,
-                    z: 0
-                }],
+                &[Layer { surface, x: 0, y: 0, z: 0 }],
             ),
             Ok(())
         );
@@ -112,8 +102,7 @@ mod tests {
             Err(err) => panic!("first present failed: {err:?}"),
         };
         assert_eq!(
-            srv.present_fence_status(first_ack.fence_id)
-                .map(|status| status.signaled),
+            srv.present_fence_status(first_ack.fence_id).map(|status| status.signaled),
             Ok(false)
         );
         assert_eq!(
@@ -139,17 +128,10 @@ mod tests {
         assert_eq!(scheduled.damage_rects, 2);
         assert_eq!(scheduled.frames_coalesced, 1);
         assert_eq!(scheduled.fences_signaled, 2);
-        assert_eq!(
-            pixel(srv.last_frame().expect("frame"), 0, 0),
-            [0xff, 0, 0, 0xff]
-        );
+        assert_eq!(pixel(srv.last_frame().expect("frame"), 0, 0), [0xff, 0, 0, 0xff]);
 
-        let first_status = srv
-            .present_fence_status(first_ack.fence_id)
-            .expect("first fence");
-        let latest_status = srv
-            .present_fence_status(latest_ack.fence_id)
-            .expect("latest fence");
+        let first_status = srv.present_fence_status(first_ack.fence_id).expect("first fence");
+        let latest_status = srv.present_fence_status(latest_ack.fence_id).expect("latest fence");
         assert!(first_status.signaled);
         assert!(first_status.coalesced);
         assert_eq!(first_status.present_seq.map(|seq| seq.raw()), Some(1));
@@ -164,10 +146,7 @@ mod tests {
         let _surface = surface_with_scene(&mut srv, 4, 4);
         assert_eq!(srv.present_scheduler_tick(), Ok(None));
         assert_eq!(srv.last_scheduled_present(), None);
-        assert_eq!(
-            v2a_marker_postflight_ready(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(v2a_marker_postflight_ready(None), Err(WindowdError::MarkerBeforePresentState));
     }
 
     #[test]
@@ -182,18 +161,8 @@ mod tests {
                 CallerCtx::system(),
                 CommitSeq::new(1),
                 &[
-                    Layer {
-                        surface: bottom,
-                        x: 0,
-                        y: 0,
-                        z: 0
-                    },
-                    Layer {
-                        surface: top,
-                        x: 2,
-                        y: 2,
-                        z: 10
-                    },
+                    Layer { surface: bottom, x: 0, y: 0, z: 0 },
+                    Layer { surface: top, x: 2, y: 2, z: 10 },
                 ],
             ),
             Ok(())
@@ -206,9 +175,7 @@ mod tests {
         assert_eq!(keyboard.surface, top);
         let top_events = srv.take_input_events(OTHER, top).expect("top events");
         assert_eq!(top_events.len(), 2);
-        assert!(top_events
-            .iter()
-            .any(|event| event.kind == InputEventKind::PointerDown));
+        assert!(top_events.iter().any(|event| event.kind == InputEventKind::PointerDown));
         assert!(top_events
             .iter()
             .any(|event| matches!(event.kind, InputEventKind::Keyboard { key_code: 0x41 })));
@@ -217,16 +184,10 @@ mod tests {
 
     #[test]
     fn launcher_click_demo_marker_requires_real_routed_click_state() {
-        assert_eq!(
-            launcher::click_marker(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(launcher::click_marker(None), Err(WindowdError::MarkerBeforePresentState));
         let evidence = launcher::click_demo().expect("click demo");
         assert!(evidence.highlighted);
-        assert_eq!(
-            launcher::click_marker(Some(&evidence)),
-            Ok(LAUNCHER_CLICK_OK_MARKER)
-        );
+        assert_eq!(launcher::click_marker(Some(&evidence)), Ok(LAUNCHER_CLICK_OK_MARKER));
     }
 
     #[test]
@@ -235,21 +196,12 @@ mod tests {
         assert!(evidence.present_scheduler_on);
         assert!(evidence.input_on);
         assert!(evidence.launcher_click_ok);
-        assert_eq!(
-            focus_marker(evidence.focused_surface),
-            "windowd: focus -> 1"
-        );
+        assert_eq!(focus_marker(evidence.focused_surface), "windowd: focus -> 1");
         assert_eq!(PRESENT_SCHEDULER_ON_MARKER, "windowd: present scheduler on");
         assert_eq!(INPUT_ON_MARKER, "windowd: input on");
-        assert_eq!(
-            SELFTEST_UI_V2_PRESENT_OK_MARKER,
-            "SELFTEST: ui v2 present ok"
-        );
+        assert_eq!(SELFTEST_UI_V2_PRESENT_OK_MARKER, "SELFTEST: ui v2 present ok");
         assert_eq!(SELFTEST_UI_V2_INPUT_OK_MARKER, "SELFTEST: ui v2 input ok");
-        assert_eq!(
-            v2a_marker_postflight_ready(Some(evidence.clone())),
-            Ok(evidence)
-        );
+        assert_eq!(v2a_marker_postflight_ready(Some(evidence.clone())), Ok(evidence));
     }
 
     #[test]
@@ -283,14 +235,8 @@ mod tests {
         assert_eq!(CURSOR_MOVE_VISIBLE_MARKER, "windowd: cursor move visible");
         assert_eq!(HOVER_VISIBLE_MARKER, "windowd: hover visible");
         assert_eq!(FOCUS_VISIBLE_MARKER, "windowd: focus visible");
-        assert_eq!(
-            LAUNCHER_CLICK_VISIBLE_OK_MARKER,
-            "launcher: click visible ok"
-        );
-        assert_eq!(
-            SELFTEST_UI_VISIBLE_INPUT_OK_MARKER,
-            "SELFTEST: ui visible input ok"
-        );
+        assert_eq!(LAUNCHER_CLICK_VISIBLE_OK_MARKER, "launcher: click visible ok");
+        assert_eq!(SELFTEST_UI_VISIBLE_INPUT_OK_MARKER, "SELFTEST: ui visible input ok");
     }
 
     #[test]
@@ -346,13 +292,8 @@ mod tests {
             Err(WindowdError::InvalidFrameIndex)
         );
         assert_eq!(
-            srv.present_frame(
-                LAUNCHER,
-                surface,
-                FrameIndex::new(77),
-                &[Rect::new(0, 0, 1, 1)]
-            )
-            .map(|_| ()),
+            srv.present_frame(LAUNCHER, surface, FrameIndex::new(77), &[Rect::new(0, 0, 1, 1)])
+                .map(|_| ()),
             Err(WindowdError::InvalidFrameIndex)
         );
         assert_eq!(
@@ -409,17 +350,10 @@ mod tests {
             Rect::new(14, 0, 1, 1),
             Rect::new(15, 0, 1, 1),
         ];
-        assert!(srv
-            .present_frame(LAUNCHER, surface, FrameIndex::new(1), &damage)
-            .is_ok());
+        assert!(srv.present_frame(LAUNCHER, surface, FrameIndex::new(1), &damage).is_ok());
         assert_eq!(
-            srv.present_frame(
-                LAUNCHER,
-                surface,
-                FrameIndex::new(2),
-                &[Rect::new(0, 1, 1, 1)]
-            )
-            .map(|_| ()),
+            srv.present_frame(LAUNCHER, surface, FrameIndex::new(2), &[Rect::new(0, 1, 1, 1)])
+                .map(|_| ()),
             Err(WindowdError::TooManyDamageRects)
         );
     }
@@ -428,17 +362,11 @@ mod tests {
     fn test_reject_input_event_queue_and_keyboard_without_focus() {
         let mut srv = server();
         let surface = surface_with_scene(&mut srv, 4, 4);
-        assert_eq!(
-            srv.route_keyboard(0x41),
-            Err(WindowdError::NoFocusedSurface)
-        );
+        assert_eq!(srv.route_keyboard(0x41), Err(WindowdError::NoFocusedSurface));
         for _ in 0..32 {
             assert!(srv.route_pointer_down(1, 1).is_ok());
         }
-        assert_eq!(
-            srv.route_pointer_down(1, 1),
-            Err(WindowdError::InputEventQueueFull)
-        );
+        assert_eq!(srv.route_pointer_down(1, 1), Err(WindowdError::InputEventQueueFull));
         assert_eq!(
             srv.take_input_events(LAUNCHER, SurfaceId::new(999)),
             Err(WindowdError::StaleSurfaceId)
@@ -458,28 +386,16 @@ mod tests {
     fn test_reject_cursor_move_outside_visible_bounds() {
         let mut srv = server();
         let _surface = surface_with_scene(&mut srv, 4, 4);
-        assert_eq!(
-            srv.route_pointer_move(-1, 1),
-            Err(WindowdError::InvalidPointerPosition)
-        );
-        assert_eq!(
-            srv.route_pointer_move(64, 1),
-            Err(WindowdError::InvalidPointerPosition)
-        );
+        assert_eq!(srv.route_pointer_move(-1, 1), Err(WindowdError::InvalidPointerPosition));
+        assert_eq!(srv.route_pointer_move(64, 1), Err(WindowdError::InvalidPointerPosition));
         assert_eq!(srv.pointer_position(), None);
     }
 
     #[test]
     fn test_reject_focus_visible_without_committed_hit_surface() {
         let mut srv = server();
-        assert_eq!(
-            srv.route_pointer_down(4, 4),
-            Err(WindowdError::StaleSurfaceId)
-        );
-        assert_eq!(
-            srv.render_visible_input_frame(),
-            Err(WindowdError::NoCommittedScene)
-        );
+        assert_eq!(srv.route_pointer_down(4, 4), Err(WindowdError::StaleSurfaceId));
+        assert_eq!(srv.render_visible_input_frame(), Err(WindowdError::NoCommittedScene));
     }
 
     #[test]
@@ -496,10 +412,7 @@ mod tests {
     fn test_reject_unauthorized_visible_input_delivery() {
         let mut srv = server();
         let surface = surface_with_scene(&mut srv, 4, 4);
-        assert_eq!(
-            srv.take_input_events(OTHER, surface),
-            Err(WindowdError::Unauthorized)
-        );
+        assert_eq!(srv.take_input_events(OTHER, surface), Err(WindowdError::Unauthorized));
     }
 
     #[test]
@@ -510,10 +423,7 @@ mod tests {
             let delivery = srv.route_pointer_move(1, 1).expect("pointer move");
             assert_eq!(delivery.surface.raw(), 1);
         }
-        assert_eq!(
-            srv.route_pointer_move(1, 1),
-            Err(WindowdError::InputEventQueueFull)
-        );
+        assert_eq!(srv.route_pointer_move(1, 1), Err(WindowdError::InputEventQueueFull));
     }
 
     #[test]
@@ -606,13 +516,9 @@ mod tests {
             capnp::message::ReaderOptions::new(),
         )
         .expect("read input");
-        let delivery = input_reader
-            .get_root::<input_capnp::input_delivery::Reader>()
-            .expect("delivery root");
+        let delivery =
+            input_reader.get_root::<input_capnp::input_delivery::Reader>().expect("delivery root");
         assert_eq!(delivery.get_surface_id(), surface_id);
-        assert_eq!(
-            delivery.get_kind(),
-            Ok(input_capnp::InputDeliveryKind::PointerDown)
-        );
+        assert_eq!(delivery.get_kind(), Ok(input_capnp::InputDeliveryKind::PointerDown));
     }
 }

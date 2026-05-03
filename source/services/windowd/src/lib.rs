@@ -76,18 +76,13 @@ mod tests {
     fn smoke_markers_require_real_present() {
         let lines = execute(&[]);
         assert_eq!(lines[0], READY_MARKER);
-        assert!(lines
-            .iter()
-            .any(|line| line == "windowd: present ok (seq=1 dmg=1)"));
+        assert!(lines.iter().any(|line| line == "windowd: present ok (seq=1 dmg=1)"));
         assert!(lines.contains(&String::from(SELFTEST_RESIZE_MARKER)));
     }
 
     #[test]
     fn marker_postflight_rejects_missing_present() {
-        assert_eq!(
-            marker_postflight_ready(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(marker_postflight_ready(None), Err(WindowdError::MarkerBeforePresentState));
     }
 
     #[test]
@@ -126,27 +121,15 @@ mod tests {
     fn visible_bootstrap_rejects_invalid_mode_and_capability() {
         let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
         assert_eq!(
-            VisibleBootstrapMode {
-                width: 1024,
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { width: 1024, ..mode }.validate(),
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(
-            VisibleBootstrapMode {
-                stride: mode.stride - 4,
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { stride: mode.stride - 4, ..mode }.validate(),
             Err(WindowdError::InvalidStride)
         );
         assert_eq!(
-            VisibleBootstrapMode {
-                format: PixelFormat::Unsupported(1),
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { format: PixelFormat::Unsupported(1), ..mode }.validate(),
             Err(WindowdError::UnsupportedFormat)
         );
         assert_eq!(

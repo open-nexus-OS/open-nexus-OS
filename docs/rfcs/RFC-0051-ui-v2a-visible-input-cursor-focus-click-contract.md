@@ -1,9 +1,9 @@
 # RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui
 - Created: 2026-04-30
-- Last Updated: 2026-04-30
+- Last Updated: 2026-05-03
 - Links:
   - Tasks: `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` (execution + proof)
   - ADRs: `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
@@ -112,7 +112,7 @@ cd /home/jenning/open-nexus-OS && cargo test -p windowd -p launcher -- --nocaptu
 cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
 ```
 
-This proof uses a deterministic two-position selftest pointer/click sequence routed into `windowd`.
+This proof uses a deterministic staged selftest pointer/click sequence routed into `windowd`.
 Live QEMU pointer/keyboard device proof is required immediately afterward by `TASK-0252`/`TASK-0253`, not by 56B.
 
 ### Deterministic markers (if applicable)
@@ -124,7 +124,7 @@ Live QEMU pointer/keyboard device proof is required immediately afterward by `TA
 - `launcher: click visible ok`
 - `SELFTEST: ui visible input ok`
 
-### Evidence so far (2026-04-30)
+### Evidence so far (2026-05-03)
 
 - `cargo test -p ui_v2a_host -- --nocapture` — green, 19 tests.
 - `cargo test -p ui_v2a_host reject -- --nocapture` — green, 12 reject-filtered tests.
@@ -137,7 +137,7 @@ Live QEMU pointer/keyboard device proof is required immediately afterward by `TA
   fixed 1280x800 `ramfb` mode before scanout and writes a three-stage sequence:
   cursor start position, hover/cursor end position, then final focus/click state.
 
-Deferred by explicit user instruction before final task Done claim:
+Closure quality gates confirmed green before final Done claim:
 
 - `scripts/fmt-clippy-deny.sh`
 - `just test-all`

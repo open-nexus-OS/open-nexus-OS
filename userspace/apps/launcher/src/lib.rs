@@ -39,16 +39,9 @@ pub fn draw_first_frame() -> Result<PresentAck, WindowdError> {
     server.commit_scene(
         CallerCtx::system(),
         CommitSeq::new(1),
-        &[Layer {
-            surface,
-            x: 0,
-            y: 0,
-            z: 0,
-        }],
+        &[Layer { surface, x: 0, y: 0, z: 0 }],
     )?;
-    server
-        .present_tick()?
-        .ok_or(WindowdError::MarkerBeforePresentState)
+    server.present_tick()?.ok_or(WindowdError::MarkerBeforePresentState)
 }
 
 pub fn first_frame_marker(ack: Option<PresentAck>) -> Result<&'static str, WindowdError> {
@@ -67,38 +60,20 @@ pub fn click_demo() -> Result<ClickDemoEvidence, WindowdError> {
     server.commit_scene(
         CallerCtx::system(),
         CommitSeq::new(1),
-        &[Layer {
-            surface,
-            x: 0,
-            y: 0,
-            z: 0,
-        }],
+        &[Layer { surface, x: 0, y: 0, z: 0 }],
     )?;
     let highlighted = SurfaceBuffer::solid(launcher, 201, 32, 24, [0x30, 0xe0, 0x60, 0xff])?;
     server.acquire_back_buffer(launcher, surface, FrameIndex::new(1), highlighted)?;
-    server.present_frame(
-        launcher,
-        surface,
-        FrameIndex::new(1),
-        &[Rect::new(0, 0, 32, 24)],
-    )?;
-    let present = server
-        .present_scheduler_tick()?
-        .ok_or(WindowdError::MarkerBeforePresentState)?;
+    server.present_frame(launcher, surface, FrameIndex::new(1), &[Rect::new(0, 0, 32, 24)])?;
+    let present = server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
     let click = server.route_pointer_down(4, 4)?;
     let delivered = server.take_input_events(launcher, surface)?;
     let highlighted = click.surface == surface
-        && delivered
-            .iter()
-            .any(|event| event.kind == InputEventKind::PointerDown);
+        && delivered.iter().any(|event| event.kind == InputEventKind::PointerDown);
     if !highlighted {
         return Err(WindowdError::MarkerBeforePresentState);
     }
-    Ok(ClickDemoEvidence {
-        surface,
-        highlighted,
-        present,
-    })
+    Ok(ClickDemoEvidence { surface, highlighted, present })
 }
 
 pub fn click_marker(evidence: Option<&ClickDemoEvidence>) -> Result<&'static str, WindowdError> {
@@ -137,10 +112,7 @@ mod tests {
 
     #[test]
     fn launcher_marker_requires_present_ack() {
-        assert_eq!(
-            first_frame_marker(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(first_frame_marker(None), Err(WindowdError::MarkerBeforePresentState));
         let ack = draw_first_frame().expect("first frame ack");
         assert_eq!(ack.seq.raw(), 1);
         assert_eq!(first_frame_marker(Some(ack)), Ok(LAUNCHER_MARKER));
@@ -148,10 +120,7 @@ mod tests {
 
     #[test]
     fn launcher_click_marker_requires_routed_click_state() {
-        assert_eq!(
-            click_marker(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(click_marker(None), Err(WindowdError::MarkerBeforePresentState));
         let evidence = click_demo().expect("click demo");
         assert_eq!(evidence.surface.raw(), 1);
         assert_eq!(click_marker(Some(&evidence)), Ok(LAUNCHER_CLICK_OK_MARKER));
@@ -159,16 +128,10 @@ mod tests {
 
     #[test]
     fn launcher_visible_click_marker_requires_visible_routed_state() {
-        assert_eq!(
-            visible_click_marker(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(visible_click_marker(None), Err(WindowdError::MarkerBeforePresentState));
         let mut evidence = visible_click_demo().expect("visible click demo");
         assert_eq!(evidence.surface.raw(), 1);
-        assert_eq!(
-            visible_click_marker(Some(&evidence)),
-            Ok(LAUNCHER_CLICK_VISIBLE_OK_MARKER)
-        );
+        assert_eq!(visible_click_marker(Some(&evidence)), Ok(LAUNCHER_CLICK_VISIBLE_OK_MARKER));
         evidence.clicked_visible = false;
         assert_eq!(
             visible_click_marker(Some(&evidence)),

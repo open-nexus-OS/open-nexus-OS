@@ -40,11 +40,7 @@ pub const LAUNCHER_CLICK_VISIBLE_OK_MARKER: &str = "launcher: click visible ok";
 pub const SELFTEST_UI_VISIBLE_INPUT_OK_MARKER: &str = "SELFTEST: ui visible input ok";
 
 pub fn present_marker(ack: PresentAck) -> String {
-    format!(
-        "windowd: present ok (seq={} dmg={})",
-        ack.seq.raw(),
-        ack.damage_rects
-    )
+    format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)
 }
 
 pub fn focus_marker(surface: SurfaceId) -> String {

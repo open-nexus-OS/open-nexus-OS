@@ -68,10 +68,7 @@ pub(crate) fn run() -> Option<BootstrapEvidence> {
 pub(crate) fn run_result() -> Result<BootstrapEvidence, BootstrapFailure> {
     let evidence =
         windowd::run_visible_systemui_smoke().map_err(|_| BootstrapFailure::WindowdEvidence)?;
-    let mode = evidence
-        .mode
-        .validate()
-        .map_err(|_| BootstrapFailure::InvalidMode)?;
+    let mode = evidence.mode.validate().map_err(|_| BootstrapFailure::InvalidMode)?;
     let fb_len = mode.byte_len().map_err(|_| BootstrapFailure::InvalidMode)?;
     let framebuffer = vmo_create(fb_len).map_err(|_| BootstrapFailure::FramebufferVmo)?;
     let fb_query = query_cap(framebuffer).ok_or(BootstrapFailure::InvalidFramebufferCap)?;
@@ -79,11 +76,7 @@ pub(crate) fn run_result() -> Result<BootstrapEvidence, BootstrapFailure> {
         return Err(BootstrapFailure::InvalidFramebufferCap);
     }
 
-    let cap = windowd::VisibleDisplayCapability {
-        byte_len: fb_len,
-        mapped: true,
-        writable: true,
-    };
+    let cap = windowd::VisibleDisplayCapability { byte_len: fb_len, mapped: true, writable: true };
     windowd::validate_visible_bootstrap_capability(mode, cap)
         .map_err(|_| BootstrapFailure::InvalidDisplayCapability)?;
     write_windowd_composed_rows(framebuffer, mode, &evidence)?;
@@ -101,10 +94,7 @@ pub(crate) fn run_result() -> Result<BootstrapEvidence, BootstrapFailure> {
     settle_visible_display();
     write_windowd_visible_input_rows(framebuffer, mode, &visible_input)?;
     settle_visible_display();
-    Ok(BootstrapEvidence {
-        systemui,
-        visible_input,
-    })
+    Ok(BootstrapEvidence { systemui, visible_input })
 }
 
 fn settle_visible_display() {
@@ -120,12 +110,7 @@ fn settle_visible_display() {
 }
 
 fn query_cap(handle: Handle) -> Option<CapQuery> {
-    let mut query = CapQuery {
-        kind_tag: 0,
-        reserved: 0,
-        base: 0,
-        len: 0,
-    };
+    let mut query = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     cap_query(handle, &mut query).ok()?;
     Some(query)
 }
@@ -138,9 +123,7 @@ fn write_windowd_composed_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence
-            .copy_composed_row(y, &mut row)
-            .map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence.copy_composed_row(y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -155,9 +138,7 @@ fn write_windowd_visible_input_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence
-            .copy_composed_row(mode, y, &mut row)
-            .map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence.copy_composed_row(mode, y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -172,9 +153,7 @@ fn write_windowd_visible_cursor_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence
-            .copy_cursor_row(mode, y, &mut row)
-            .map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence.copy_cursor_row(mode, y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -189,9 +168,7 @@ fn write_windowd_visible_hover_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence
-            .copy_hover_row(mode, y, &mut row)
-            .map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence.copy_hover_row(mode, y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -234,17 +211,12 @@ fn configure_ramfb(
     let control = ((select as u32) << 16) | FW_CFG_DMA_CTL_SELECT | FW_CFG_DMA_CTL_WRITE;
     write_be_u32(&mut access[0..4], control);
     write_be_u32(&mut access[4..8], RAMFB_CONFIG_LEN as u32);
-    write_be_u64(
-        &mut access[8..16],
-        dma_query.base + RAMFB_CONFIG_OFFSET as u64,
-    );
+    write_be_u64(&mut access[8..16], dma_query.base + RAMFB_CONFIG_OFFSET as u64);
     vmo_write(dma_vmo, DMA_ACCESS_OFFSET, &access).map_err(|_| BootstrapFailure::DmaVmo)?;
 
     let dma_access_pa = dma_query.base + DMA_ACCESS_OFFSET as u64;
     trigger_dma(dma_access_pa);
-    wait_dma_complete()
-        .then_some(())
-        .ok_or(BootstrapFailure::DmaFailed)
+    wait_dma_complete().then_some(()).ok_or(BootstrapFailure::DmaFailed)
 }
 
 fn fw_cfg_signature_ok() -> bool {

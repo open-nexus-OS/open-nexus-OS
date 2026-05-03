@@ -1,10 +1,10 @@
-# Current Handoff: TASK-0056B implementation checkpoint (visible input cursor/hover/focus/click)
+# Current Handoff: TASK-0056B closeout complete (visible input cursor/hover/focus/click)
 
-**Date**: 2026-04-30  
+**Date**: 2026-05-03  
 **Completed task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `Done`  
 **Completed contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `Done`  
-**Active task**: `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` — `In Progress` (deterministic visible input; live QEMU input moved to `TASK-0252`/`TASK-0253`)
-**Active contract**: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` — `In Progress` (Phase 3 re-scoped to `TASK-0252`/`TASK-0253`)
+**Completed task**: `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` — `Done` (deterministic visible input; live QEMU input moved to `TASK-0252`/`TASK-0253`)
+**Completed contract**: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` — `Done` (Phase 3 re-scoped to `TASK-0252`/`TASK-0253`)
 **Gate policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, `production-floor`)  
 
 ## Carry-in baseline (must stay true)
@@ -45,9 +45,9 @@
 - Prove hover affordance, host-mouse click on the proof surface, and minimal keyboard delivery.
 - Add marker honesty guards so live-pointer success cannot be satisfied by deterministic selftest injection alone.
 
-## Remaining before Done
+## Closure quality gates
 
-- Do not run until user explicitly approves:
+- Green in sequence:
   - `scripts/fmt-clippy-deny.sh`,
   - `just test-all`,
   - `just ci-network`,

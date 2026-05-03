@@ -2,7 +2,7 @@
 
 ## Current architecture state
 
-- **last_decision (2026-04-30)**: `TASK-0056`/`RFC-0050` are now `Done` after all closure gates turned green; queue head moves to `TASK-0056B`.
+- **last_decision (2026-05-03)**: `TASK-0056B`/`RFC-0051` are now `Done` after deterministic visible-input closure gates turned green; queue head moves to `TASK-0252`.
 - **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
   - Cap'n Proto remains canonical for runtime/persistence config snapshots,
   - JSON remains authoring/validation plus derived CLI/debug view only,
@@ -16,8 +16,8 @@
 - **completed_contract**: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` — `Done`
-- **active_prep_task**: `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` — `In Progress`
-- **active_prep_contract**: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` — `In Progress`
+- **completed_task**: `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` — `Done`
+- **completed_contract**: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` — `Done`
 - **active_contract_carry_in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (visible bootstrap baseline)
 - **completed_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`
@@ -25,7 +25,7 @@
 - **completed_contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
-- **next_queue_head**: `TASK-0056B` is next. Do not infer visible cursor polish/perf/full WM/display closure from 56 baseline scope.
+- **next_queue_head**: `TASK-0252` is next. Do not infer live QEMU pointer/keyboard closure from 56B deterministic scope.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 
@@ -48,7 +48,7 @@
 
 ## TASK-0056B implementation state
 
-- `TASK-0056B` remains `In Progress` with `RFC-0051` as `In Progress`; host/reject/deterministic-QEMU proof phases are green and live QEMU input has been re-scoped to the immediate `TASK-0252`/`TASK-0253` follow-up lane.
+- `TASK-0056B` is `Done` with `RFC-0051` as `Done`; host/reject/deterministic-QEMU proof phases and closure quality gates are green, and live QEMU input remains the immediate `TASK-0252`/`TASK-0253` follow-up lane.
 - Implemented in the existing `windowd` authority path:
   - routed pointer movement records bounded pointer state and produces deterministic visible cursor pixels,
   - routed pointer-down transfers focus and renders deterministic focus affordance pixels,
@@ -70,7 +70,7 @@
   Required live-input work moves to `TASK-0252`/`TASK-0253`: proper QEMU pointer/keyboard sources,
   bounded dispatch into `windowd`/IME, visible hover/click state, and markers that cannot be
   satisfied by deterministic selftest injection alone.
-- Deferred by explicit user instruction: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
+- Closure gates now green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 - Scope remains explicit: no `TASK-0252`/`TASK-0253` live input pipeline in 56B, no `TASK-0056C` perf/latency, no `TASK-0199`/`TASK-0200` WM/compositor-v2 breadth, no `TASK-0251` display service integration, and no kernel production-grade claim.
 - Fast-lane uplift after user review: downstream UI/SystemUI tasks now carry an Orbital-Level UX gate using Open Nexus/OHOS/Zircon-style authorities. Before `TASK-0119`/`TASK-0120` can claim desktop/launcher quality, the lane must prove visible greeter/dev-session, live pointer/keyboard basics (`TASK-0252`/`TASK-0253`), text/IME/OSK basics (`TASK-0146`/`TASK-0147` after `TASK-0059`), scroll, launcher/app-window flow, Quick Settings, and SVG-source UI assets without adopting Orbital architecture.
 

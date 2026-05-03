@@ -470,10 +470,7 @@ const FW_CFG_MMIO_BASE: usize = 0x1010_0000;
 const FW_CFG_MMIO_LEN: usize = 0x1000;
 
 fn virtio_mmio_window(slot: usize) -> (usize, usize) {
-    (
-        VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE,
-        VIRTIO_MMIO_STRIDE,
-    )
+    (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)
 }
 
 fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>)> {
@@ -540,11 +537,7 @@ fn debug_write_hex(value: usize) {
     const NIBBLES: usize = core::mem::size_of::<usize>() * 2;
     for shift in (0..NIBBLES).rev() {
         let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
         debug_write_byte(ch);
     }
 }
@@ -1197,13 +1190,7 @@ where
         net_slot,
         DEVICE_MMIO_CAP_SLOT,
     )?;
-    grant_mmio_with_wait(
-        rngd_pid,
-        "rngd",
-        "device.mmio.rng",
-        rng_slot,
-        DEVICE_MMIO_CAP_SLOT,
-    )?;
+    grant_mmio_with_wait(rngd_pid, "rngd", "device.mmio.rng", rng_slot, DEVICE_MMIO_CAP_SLOT)?;
     grant_mmio_with_wait(
         selftest_pid,
         "selftest-client",
@@ -2146,12 +2133,7 @@ where
 
     let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
         nexus_ipc::reqrep::FrameStash::new();
-    match updated_boot_attempt(
-        &mut upd_pending,
-        upd_req,
-        init_reply_send,
-        pol_ctl_route_rsp,
-    ) {
+    match updated_boot_attempt(&mut upd_pending, upd_req, init_reply_send, pol_ctl_route_rsp) {
         Ok(Some(slot)) => {
             let ok = bundlemgrd_set_active_slot(
                 &mut upd_pending,
@@ -2482,13 +2464,11 @@ where
                 debug_write_bytes(b"init: route vfsd lookup svc=");
                 debug_write_str(chan.svc_name);
                 debug_write_bytes(b" has_slots=");
-                debug_write_byte(
-                    if chan.vfs_send_slot.is_some() && chan.vfs_recv_slot.is_some() {
-                        b'Y'
-                    } else {
-                        b'N'
-                    },
-                );
+                debug_write_byte(if chan.vfs_send_slot.is_some() && chan.vfs_recv_slot.is_some() {
+                    b'Y'
+                } else {
+                    b'N'
+                });
                 debug_write_byte(b'\n');
                 match (chan.vfs_send_slot, chan.vfs_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
@@ -3095,13 +3075,7 @@ fn decode_init_health_ok_req(frame: &[u8]) -> bool {
 }
 
 fn encode_init_health_ok_rsp(status: u8) -> [u8; 5] {
-    [
-        INIT_HEALTH_MAGIC0,
-        INIT_HEALTH_MAGIC1,
-        INIT_HEALTH_VERSION,
-        INIT_HEALTH_OP_OK | 0x80,
-        status,
-    ]
+    [INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_VERSION, INIT_HEALTH_OP_OK | 0x80, status]
 }
 
 fn decode_init_health_ok_req_with_optional_nonce(frame: &[u8]) -> Option<Option<u32>> {
@@ -3154,13 +3128,8 @@ fn updated_health_ok(
     let len = nexus_abi::updated::encode_health_ok_req(&mut req)
         .ok_or(InitError::Map("updated health_ok encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     // Avoid deadline-based blocking IPC in bring-up; use explicit nsec()-bounded NONBLOCK loops.
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
@@ -3258,13 +3227,8 @@ fn updated_get_status(
     let len = nexus_abi::updated::encode_get_status_req(&mut req)
         .ok_or(InitError::Map("updated status encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
     let mut i: usize = 0;

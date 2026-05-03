@@ -58,17 +58,11 @@ fn visible_systemui_smoke_produces_first_frame_present_evidence() {
     assert_eq!(evidence.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
     assert_eq!(evidence.frame_source.width, 160);
     assert_eq!(evidence.frame_source.height, 100);
-    let composed_frame = evidence
-        .composed_frame
-        .as_ref()
-        .expect("host composed frame");
+    let composed_frame = evidence.composed_frame.as_ref().expect("host composed frame");
     assert_eq!(composed_frame.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
     assert_eq!(composed_frame.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
     assert_eq!(composed_frame.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
-    assert_eq!(
-        composed_frame.pixels[0..4],
-        evidence.frame_source.pixels[0..4]
-    );
+    assert_eq!(composed_frame.pixels[0..4], evidence.frame_source.pixels[0..4]);
     assert_eq!(evidence.first_present.seq.raw(), 1);
     assert_eq!(evidence.first_present.damage_rects, 1);
 }
@@ -92,21 +86,15 @@ fn visible_input_smoke_produces_cursor_focus_and_click_evidence() {
     assert_eq!(evidence.scheduled_present.damage_rects, 1);
     let mode = windowd::VisibleBootstrapMode::fixed().expect("fixed visible mode");
     let mut row = vec![0u8; mode.stride as usize];
-    evidence
-        .copy_cursor_row(mode, 200, &mut row)
-        .expect("scaled cursor row");
+    evidence.copy_cursor_row(mode, 200, &mut row).expect("scaled cursor row");
     let scaled_start_cursor_x = 240usize;
     let cursor = scaled_start_cursor_x * 4;
     assert_eq!(row[cursor..cursor + 4], windowd::VISIBLE_CURSOR_BGRA);
-    evidence
-        .copy_hover_row(mode, 140, &mut row)
-        .expect("scaled hover row");
+    evidence.copy_hover_row(mode, 140, &mut row).expect("scaled hover row");
     let scaled_hover_x = 160usize;
     let hover = scaled_hover_x * 4;
     assert_eq!(row[hover..hover + 4], windowd::VISIBLE_HOVER_BGRA);
-    evidence
-        .copy_composed_row(mode, 470, &mut row)
-        .expect("scaled visible input row");
+    evidence.copy_composed_row(mode, 470, &mut row).expect("scaled visible input row");
     let scaled_cursor_x = 720usize;
     let cursor = scaled_cursor_x * 4;
     assert_eq!(row[cursor..cursor + 4], windowd::VISIBLE_CURSOR_BGRA);

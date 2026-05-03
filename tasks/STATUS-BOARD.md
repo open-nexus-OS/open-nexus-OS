@@ -143,7 +143,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Windowing, UI & Graphics
 
-- Progress: `4 / 76` done (`5%`)
+- Progress: `5 / 76` done (`7%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
@@ -219,9 +219,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | Done | Visible QEMU `ramfb` bootstrap path proven with marker-honesty hardening and full closure gates green |
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | Done | Composed-frame visible present proven (host full frame + OS row path) with QEMU marker ladder and closure gates green |
 | ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | Done | Host/reject/QEMU proofs and closure gates (`fmt-clippy-deny`, `test-all`, `ci-network`, `make clean/build/test/run`) are green |
+| ✅ TASK-0056B | UI v2a: visible input — cursor + hover + focus + click | Done | Deterministic host/reject/QEMU proofs and closure gates are green; live QEMU pointer/keyboard follow-up remains `TASK-0252`/`TASK-0253` |
 
-Current queue head: `TASK-0056B` / v2a visible input (cursor/hover/focus/click) baseline follow-up.
-Current contract status: `RFC-0051` is `In Progress`; 56B deterministic host/reject/QEMU proofs are green through `SELFTEST: ui visible input ok`; live QEMU pointer/keyboard moves to `TASK-0252`/`TASK-0253`; final quality gates remain pending explicit user approval.
+Current queue head: `TASK-0252` / input v1.0a host HID/touch/keymaps/repeat/accel core.
+Current contract status: `RFC-0051` is `Done`; 56B deterministic visible-input closure is complete and live QEMU pointer/keyboard work continues in `TASK-0252`/`TASK-0253`.
 
 ---
 
