@@ -1,5 +1,24 @@
 # Next Task Preparation (Drift-Free)
 
+## Active execution snapshot (TASK-0252 / RFC-0052)
+
+- **active task**: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` — `In Progress`.
+- **active contract seed**: `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` — `In Progress`.
+- **proof posture**: host-first Soll behavior + `test_reject_*` first; no marker-only closure in 0252.
+- **scope split locked**:
+  - 0252 = host core libraries/tests,
+  - 0253 = OS/QEMU `hidrawd`/`touchd`/`inputd` + live marker ladder.
+
+## TASK-0252 prep hardening (2026-05-03)
+
+- [x] `.cursor/handoff/current.md` archived to `.cursor/handoff/archive/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`.
+- [x] `TASK-0252` moved to `In Progress` and explicitly depends on `TASK-0056B`.
+- [x] `TASK-0252` now includes a dedicated security/authority invariants section.
+- [x] Red-flag coverage now includes scope drift and explicit mitigations.
+- [x] Gate-E (`production-floor`) mapping added via `TRACK-PRODUCTION-GATES-KERNEL-SERVICES`.
+- [x] Touched-path drift fixed (`userspace/*` crate layout and `docs/dev/ui/input/input.md` docs path).
+- [x] RFC contract seed added and linked: `RFC-0052`.
+
 ## Completed execution
 
 - **task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`.

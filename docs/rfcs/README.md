@@ -96,6 +96,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0049: UI v1d windowd visible present + SystemUI first-frame contract seed (Done; TASK-0055C execution SSOT)
 - RFC-0050: UI v2a present scheduler + double-buffer + input routing contract (Done; TASK-0056 execution closure complete, next follow-up is `TASK-0056B`)
 - RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract seed (Done; TASK-0056B closure proofs + quality gates green, live QEMU input intentionally follows in `TASK-0252`/`TASK-0253`)
+- RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) contract seed (In Progress; execution SSOT is `TASK-0252`, live marker closure intentionally delegated to `TASK-0253`)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
@@ -204,3 +205,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md
 - RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract seed (Done; TASK-0056B closure proofs + quality gates green, live QEMU input intentionally follows in `TASK-0252`/`TASK-0253`)
   - docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md
+- RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) contract seed (In Progress; execution SSOT `TASK-0252`)
+  - docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md

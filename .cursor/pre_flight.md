@@ -119,11 +119,29 @@ This is the anti-fake-success gate.
   - [x] `launcher: click visible ok`
   - [x] `SELFTEST: ui visible input ok`
 - [x] 56B does not emit live-input markers or claim live host pointer input.
-- [ ] `TASK-0252`/`TASK-0253` remain queued immediately after 56B for live QEMU pointer/keyboard proof.
+- [x] `TASK-0252` is active and `TASK-0253` remains immediate follow-up for live QEMU pointer/keyboard proof.
 - [ ] `scripts/fmt-clippy-deny.sh` is green (pending explicit user approval to run).
 - [ ] `just test-all` is green (pending explicit user approval to run).
 - [ ] `just ci-network` is green (pending explicit user approval to run).
 - [ ] `make clean` -> `make build` -> `make test` -> `make run` is green (pending explicit user approval to run).
+
+## Task-0252 automatic addendum (when applicable)
+- [ ] `cargo test -p input_v1_0_host -- --nocapture` is green for host input-core contract tests.
+- [ ] Required Soll-behavior suites are green:
+  - [ ] keymap EN/DE mapping vectors,
+  - [ ] repeat delay/rate timing with simulated time source,
+  - [ ] pointer acceleration monotonic + bounded behavior,
+  - [ ] touch sequence ordering (`down -> move* -> up`).
+- [ ] Required reject suites are green (`test_reject_*`):
+  - [ ] malformed HID report rejects,
+  - [ ] malformed touch sequence rejects,
+  - [ ] invalid repeat config rejects,
+  - [ ] invalid accel config rejects.
+- [ ] No success markers are added for 0252 closure (host assertions remain the proof authority).
+- [ ] `scripts/fmt-clippy-deny.sh` is green.
+- [ ] `just test-all` is green.
+- [ ] `just ci-network` is green.
+- [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
 
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)

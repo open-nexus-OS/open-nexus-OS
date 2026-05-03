@@ -309,6 +309,38 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0252_context
+- Status: `TASK-0252` is `In Progress`; `RFC-0052` is `In Progress` as the active host-first input-core contract seed.
+- Scope: deterministic host-only input core for HID parse, touch normalize, keymaps, key repeat, and pointer acceleration.
+- Proof posture: Soll-behavior tests + `test_reject_*` first; marker-only closure is forbidden in 0252.
+- Authority split: 0252 provides reusable core libraries only; OS/QEMU `hidrawd`/`touchd`/`inputd` and live marker ladder remain `TASK-0253`.
+- Rust floor: newtypes, explicit ownership, `#[must_use]` where decision-bearing, no unsafe `Send`/`Sync` shortcuts.
+- `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md`
+- `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`
+- `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md`
+- `docs/dev/ui/input/input.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/10-security-services.mdc`
+
+### @task_0252_touched
+- `userspace/hid/`
+- `userspace/touch/`
+- `userspace/keymaps/`
+- `userspace/key-repeat/`
+- `userspace/pointer-accel/`
+- `tests/input_v1_0_host/`
+- `docs/dev/ui/input/input.md`
+- `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md`
+- `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`
+- `docs/rfcs/README.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0056_touched
 - `source/services/windowd/`
 - `source/services/windowd/idl/`
@@ -955,6 +987,9 @@ Kontext strikt: @core_context @task_0055c_context @quality_gates @task_0055c_tou
 
 ## Standard instruction line (TASK-0056)
 Kontext strikt: @core_context @task_0056_context @quality_gates @task_0056_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0252)
+Kontext strikt: @core_context @task_0252_context @quality_gates @task_0252_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

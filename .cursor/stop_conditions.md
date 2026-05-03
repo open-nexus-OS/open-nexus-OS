@@ -307,6 +307,37 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] no live-input markers are emitted by 56B,
   - [ ] `SELFTEST: ui visible input ok` summarizes deterministic visible-input proof.
 
+## TASK-0252 class stop conditions (Input v1.0a host-first core)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0252` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0052` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` entry matches RFC reality.
+- [ ] Scope honesty is preserved:
+  - [ ] in scope: host core crates (`hid`, `touch`, `keymaps`, `key-repeat`, `pointer-accel`) + host tests,
+  - [ ] out of scope: DTB/device wiring, OS/QEMU service integration, `nx input` CLI (`TASK-0253`).
+- [ ] Single-authority and anti-drift constraints are enforced:
+  - [ ] one shared keymap authority surface is used (no duplicate keymap tables),
+  - [ ] routing/hit-test/focus authority is not absorbed into 0252.
+- [ ] Behavior-first proof floor is green:
+  - [ ] `cargo test -p input_v1_0_host -- --nocapture`,
+  - [ ] keymap EN/DE vectors are deterministic,
+  - [ ] repeat timing is deterministic under injectable/simulated time,
+  - [ ] pointer acceleration is monotonic + bounded,
+  - [ ] touch normalization preserves deterministic `down -> move* -> up` ordering.
+- [ ] Security and reject discipline is green:
+  - [ ] malformed HID/touch inputs reject fail-closed with stable classes,
+  - [ ] invalid repeat/accel configuration rejects fail-closed,
+  - [ ] no host-locale/environment leakage in keymap resolution,
+  - [ ] required `test_reject_*` suites exist and pass.
+- [ ] Rust quality floor is enforced:
+  - [ ] newtypes protect ambiguous IDs/codes/ranges where relevant,
+  - [ ] ownership boundaries are explicit (no hidden global mutable state),
+  - [ ] `#[must_use]` is applied to decision-bearing return values where sensible,
+  - [ ] no unsafe `Send`/`Sync` shortcut traits.
+- [ ] Proof honesty is preserved:
+  - [ ] no success-marker closure is claimed for 0252,
+  - [ ] closure evidence is test assertions and deterministic reject behavior only.
+
 ## Active progress snapshot (TASK-0055B done, 2026-04-29)
 - [x] `TASK-0055B` is synchronized to `Done`.
 - [x] `RFC-0048` is synchronized to `Done`.
