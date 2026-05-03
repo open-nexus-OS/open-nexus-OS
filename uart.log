@@ -354,26 +354,26 @@ PT: heap alloc
 [INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x12f00 flags=0x5
 [INFO selftest] KSELFTEST: map flags bits=0x1b
 PT: heap alloc
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412f00 memsz=0x1272b8 flags=0x4
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412f00 memsz=0x1279f0 flags=0x4
 [INFO selftest] KSELFTEST: map flags bits=0x13
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1053a1b8 memsz=0x80e49 flags=0x6
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1053a8f0 memsz=0x80711 flags=0x6
 [INFO selftest] KSELFTEST: map flags bits=0x17
 PT: heap alloc
 PT: heap alloc
 [INFO selftest] KSELFTEST: text page entry=0x000000002020005b va=0x0000000010400000
 [INFO selftest] KSELFTEST: data page entry=0x000000002024e8d7 va=0x000000001053a000
-[INFO selftest] KSELFTEST: derived gp=0x1053a9b8 from .sdata/.data
-[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x1053a9b8
-[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x1053a9b8
+[INFO selftest] KSELFTEST: derived gp=0x1053b0f0 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x1053b0f0
+[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x1053b0f0
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x1053a9b8
+[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x1053b0f0
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [INFO selftest] KSELFTEST: spawn ok pid=17
 [INFO selftest] KSELFTEST: init frame:
   sepc=0x0000000010400000
-  gp=0x000000001053a9b8
+  gp=0x000000001053b0f0
   sp=0x0000000020008000
   sstatus=0x0000000000040020
   SPP=0 (U-mode=0, S-mode=1)
@@ -384,7 +384,7 @@ CAP: new exit
 [INFO kmain] KMAIN: skip S-mode task pid=15 (SPP=1)
 [INFO kmain] KMAIN: skip S-mode task pid=16 (SPP=1)
 [INFO kmain] KMAIN: switch to U-mode pid=17 sepc=0x10400000 sp=0x20008000
-ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x000000008041fdb0 sp=0x0000000020008000 gp=0x000000001053a9b8 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
+ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x000000008041fdb0 sp=0x0000000020008000 gp=0x000000001053b0f0 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
 AS: activating satp=0x80006000000803fc
 AS: pc check va=0x0000000080209000
 AS: sp check va=0x0000000080645000
@@ -921,7 +921,7 @@ PT: heap alloc
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x43b48 sp(x2)=0x20008000 gp(x3)=0x577a8
+[INFO task] SPAWN-FRAME: sepc=0x43b96 sp(x2)=0x20008000 gp(x3)=0x57ee0
 [DEBUG sched] enqueue: pid=33 qos=Normal
 init: up selftest-client
 init: ready
