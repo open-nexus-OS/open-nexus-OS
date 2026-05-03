@@ -9,6 +9,7 @@ Current related docs:
 
 - `docs/dev/ui/foundations/visual/colors.md`
 - `docs/dev/ui/foundations/visual/theme.md`
+- `docs/dev/ui/foundations/visual/cursor-themes.md`
 - `docs/dev/ui/foundations/visual/typography.md`
 - `docs/dev/ui/foundations/visual/font-library.md`
 - `docs/dev/ui/foundations/visual/icons.md`

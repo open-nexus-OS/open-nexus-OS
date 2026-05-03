@@ -7,6 +7,7 @@ Themes define token values (colors, typography scales, spacing, corner radii) us
 
 See also: `docs/dev/ui/foundations/visual/colors.md` (semantic tokens + palettes + presets).
 See also: `docs/dev/ui/foundations/visual/materials.md` (translucent “glass” materials + update policy).
+See also: `docs/dev/ui/foundations/visual/cursor-themes.md` (cursor-family mapping, HiDPI sizes, high-contrast defaults).
 
 Authoring:
 
@@ -15,6 +16,22 @@ Authoring:
 Optional runtime artifact:
 
 - `*.nxtheme` (Cap'n Proto; compiled)
+
+## Cursor Theme Tokens
+
+Cursor theming belongs to visual foundations and should be configured as deterministic
+theme/profile policy (not ad-hoc app overrides).
+
+Recommended minimum token surface:
+
+- cursor theme family (`cursor.theme_family`)
+- mode mapping (`light`, `dark`, `black`)
+- size mapping by `dpiClass` (`low`, `normal`, `high`)
+- fallback policy (`nearest-available`, tie-break rules)
+
+For BreezeX-oriented defaults and accessibility constraints, use:
+
+- `docs/dev/ui/foundations/visual/cursor-themes.md`
 
 ## Example (illustrative)
 
