@@ -62,6 +62,76 @@ proves = "legacy TASK-0055B guest-side ramfb bootstrap marker; not emitted by th
 phase = "end"
 proves = "selftest completed the visible windowd present path with a deterministic SystemUI first frame"
 
+[marker."hidrawd: ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the bounded hidrawd ingest adapter was initialized before live-input proofs"
+
+[marker."hidrawd: device kbd"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the deterministic keyboard source for the visible proof was registered"
+
+[marker."hidrawd: device mouse"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the deterministic mouse source for the visible proof was registered"
+
+[marker."touchd: ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the bounded touch ingest adapter was initialized before touch proof vectors"
+
+[marker."inputd: ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the bounded inputd merge/config/route core was initialized"
+
+[marker."inputd: keymap=de"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the canonical visible proof uses the deterministic de keymap configuration"
+
+[marker."inputd: repeat start code=4"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "repeat scheduling started from a real key press for the canonical A-key proof vector"
+
+[marker."inputd: dispatch windowd cursor=(36,28)"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "inputd drove the existing windowd pointer authority to the deterministic visible cursor target"
+
+[marker."systemui: imed show"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the bounded IME/SystemUI show hook fired only after verified text-focus transition"
+
+[marker."systemui: imed hide"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the bounded IME/SystemUI hide hook fired only after verified focus exit"
+
+[marker."SELFTEST: input keymap de ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed the deterministic de keymap resolution through inputd"
+
+[marker."SELFTEST: input cursor ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed the real hidrawd/inputd/windowd cursor and click-visible path"
+
+[marker."SELFTEST: input touch ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed the bounded touchd/inputd normalized touch sequence"
+
+[marker."SELFTEST: input repeat ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed deterministic repeat scheduling through the inputd path"
+
 [marker."windowd: present scheduler on"]
 phase = "end"
 proves = "windowd v2a present scheduler path was activated by real frame-indexed present state"

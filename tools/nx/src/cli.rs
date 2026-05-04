@@ -5,7 +5,7 @@
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Covered by `nx` command tests.
+//! TEST_COVERAGE: 27 unit tests and 11 integration tests in the `nx` crate.
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -34,6 +34,20 @@ impl Cli {
                 IdlAction::Check(a) => a.json,
             },
             Commands::Postflight(args) => args.json,
+            Commands::Input(args) => match &args.action {
+                InputAction::Layouts(a) => a.json,
+                InputAction::Status(a) => a.json,
+                InputAction::Proof(a) => a.json,
+                InputAction::Devices(a) => a.json,
+                InputAction::Keymap(args) => match &args.action {
+                    InputKeymapAction::Get(a) => a.json,
+                    InputKeymapAction::Set(a) => a.json,
+                },
+                InputAction::Test(args) => match &args.action {
+                    InputTestAction::Type(a) => a.json,
+                },
+                InputAction::Cursor(a) => a.json,
+            },
             Commands::Doctor(args) => args.json,
             Commands::Dsl(args) => args.json,
             Commands::Config(args) => match &args.action {
@@ -60,6 +74,7 @@ pub(crate) enum Commands {
     Inspect(InspectArgs),
     Idl(IdlArgs),
     Postflight(PostflightArgs),
+    Input(InputArgs),
     Doctor(DoctorArgs),
     Dsl(DslArgs),
     Config(ConfigArgs),
@@ -139,6 +154,76 @@ pub(crate) struct PostflightArgs {
     pub(crate) topic: String,
     #[arg(long, default_value_t = 40)]
     pub(crate) tail: usize,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct InputArgs {
+    #[command(subcommand)]
+    pub(crate) action: InputAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum InputAction {
+    Layouts(InputJsonArgs),
+    Status(InputJsonArgs),
+    Proof(InputJsonArgs),
+    Devices(InputJsonArgs),
+    Keymap(InputKeymapArgs),
+    Test(InputTestArgs),
+    Cursor(InputCursorArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct InputJsonArgs {
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct InputKeymapArgs {
+    #[command(subcommand)]
+    pub(crate) action: InputKeymapAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum InputKeymapAction {
+    Get(InputJsonArgs),
+    Set(InputKeymapSetArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct InputKeymapSetArgs {
+    pub(crate) layout: String,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct InputTestArgs {
+    #[command(subcommand)]
+    pub(crate) action: InputTestAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum InputTestAction {
+    Type(InputTypeArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct InputTypeArgs {
+    pub(crate) text: String,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct InputCursorArgs {
+    #[arg(allow_hyphen_values = true)]
+    pub(crate) x: i32,
+    #[arg(allow_hyphen_values = true)]
+    pub(crate) y: i32,
     #[arg(long)]
     pub(crate) json: bool,
 }

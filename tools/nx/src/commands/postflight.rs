@@ -19,6 +19,7 @@ use std::time::Instant;
 
 fn postflight_topics() -> BTreeMap<&'static str, &'static str> {
     BTreeMap::from([
+        ("input", "postflight-input-v1_0.sh"),
         ("kspawn", "postflight-kspawn.sh"),
         ("loader", "postflight-loader.sh"),
         ("loader-v1_1", "postflight-loader-v1_1.sh"),

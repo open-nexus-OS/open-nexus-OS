@@ -9,6 +9,7 @@
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 use crate::{MonotonicNs, RepeatConfig, RepeatError, RepeatKey};
+use alloc::vec::Vec;
 
 const MAX_EVENTS_PER_TICK: usize = 64;
 

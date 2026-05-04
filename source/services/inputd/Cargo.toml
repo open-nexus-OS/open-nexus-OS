@@ -1,0 +1,25 @@
+[package]
+name = "inputd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "inputd"
+path = "src/lib.rs"
+
+[features]
+default = []
+os-lite = ["dep:nexus-abi", "dep:nexus-service-entry"]
+
+[dependencies]
+hid = { path = "../../../userspace/hid" }
+hidrawd = { path = "../hidrawd" }
+touch = { path = "../../../userspace/touch" }
+touchd = { path = "../touchd" }
+keymaps = { path = "../../../userspace/keymaps" }
+key-repeat = { path = "../../../userspace/key-repeat" }
+pointer-accel = { path = "../../../userspace/pointer-accel" }
+windowd = { path = "../windowd" }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

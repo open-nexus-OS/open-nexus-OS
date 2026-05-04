@@ -1,0 +1,18 @@
+[package]
+name = "hidrawd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "hidrawd"
+path = "src/lib.rs"
+
+[features]
+default = []
+os-lite = ["dep:nexus-abi", "dep:nexus-service-entry"]
+
+[dependencies]
+hid = { path = "../../../userspace/hid" }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

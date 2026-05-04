@@ -25,10 +25,12 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 mod frame;
+mod ime_overlay;
 mod profile;
 mod shell;
 
 pub use frame::{compose_first_frame, frame_checksum, FirstFrame};
+pub use ime_overlay::ImeOverlayState;
 pub use profile::{
     desktop_profile, parse_profile_manifest, validate_profile, DeviceInput, DisplayDefaults,
     ProfileManifest, SystemUiError,
@@ -90,7 +92,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        checksum, compose_first_frame, desktop_profile, desktop_shell, execute,
+        checksum, compose_first_frame, desktop_profile, desktop_shell, execute, ImeOverlayState,
         parse_profile_manifest, parse_shell_manifest, validate_profile_shell, SystemUiError,
     };
 
@@ -171,5 +173,18 @@ settings_entry = false
             parse_shell_manifest(invalid_shell).map(|_| ()),
             Err(SystemUiError::IncompatibleShell)
         );
+    }
+
+    #[test]
+    fn ime_overlay_tracks_show_hide_edges() {
+        let mut overlay = ImeOverlayState::new();
+        assert!(!overlay.visible());
+        assert!(overlay.show());
+        assert!(overlay.visible());
+        assert!(!overlay.show());
+        assert!(overlay.hide());
+        assert!(!overlay.visible());
+        assert_eq!(overlay.show_events(), 1);
+        assert_eq!(overlay.hide_events(), 1);
     }
 }

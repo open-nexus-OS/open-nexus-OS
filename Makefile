@@ -88,7 +88,7 @@ ifeq ($(MODE),container)
 		    --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --release && \
 		  echo "[1c/2] RFC-0009 dep-gate (OS graph)"; \
 		  forbidden="parking_lot parking_lot_core getrandom"; \
-		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd"; \
+		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd hidrawd touchd inputd"; \
 		  found=0; \
 		  for svc in $$services; do \
 		    tree_output=$$($(CARGO_BIN) +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \
@@ -136,6 +136,7 @@ else
 	  -p keystored -p rngd -p policyd -p logd -p metricsd \
 	  -p samgrd -p bundlemgrd -p statefsd -p updated -p timed \
 	  -p packagefsd -p vfsd -p execd -p netstackd -p dsoftbusd \
+	  -p hidrawd -p touchd -p inputd \
 	  -p selftest-client \
 	  --target $(RV_TARGET) --no-default-features --features os-lite --release
 	@$(MAKE) dep-gate

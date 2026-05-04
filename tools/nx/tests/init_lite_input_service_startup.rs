@@ -1,0 +1,106 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+//! CONTEXT: Init-lite input service startup contract tests
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Internal test
+//! TEST_COVERAGE: `cargo test -p nx --test init_lite_input_service_startup`
+//! ADR: docs/adr/0017-service-architecture.md
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+const INPUT_SERVICES: [&str; 3] = ["hidrawd", "touchd", "inputd"];
+
+#[test]
+fn input_services_are_default_init_lite_candidates() {
+    let build_rs = read_repo_file("source/apps/init-lite/build.rs");
+
+    for service in INPUT_SERVICES {
+        assert!(
+            build_rs.contains(&format!("\"{service}\"")),
+            "init-lite default candidates must include input service `{service}`"
+        );
+    }
+}
+
+#[test]
+fn input_services_are_in_profile_gated_qemu_payload_list() {
+    let qemu_test = read_repo_file("scripts/qemu-test.sh");
+    let run_qemu = read_repo_file("scripts/run-qemu-rv64.sh");
+    let makefile = read_repo_file("Makefile");
+
+    for service in INPUT_SERVICES {
+        assert_service_list_contains(&qemu_test, service, "scripts/qemu-test.sh");
+        assert!(
+            makefile.contains(&format!("-p {service}")),
+            "`Makefile` should compile input service `{service}` for OS builds"
+        );
+    }
+    assert!(
+        qemu_test.contains("INPUT_V1_0B_SERVICE_STARTUP")
+            && qemu_test.contains(",hidrawd,touchd,inputd"),
+        "`scripts/qemu-test.sh` must gate input service startup explicitly"
+    );
+    assert!(
+        run_qemu.contains("hidrawd|touchd|inputd"),
+        "`scripts/run-qemu-rv64.sh` must keep bounded stack support for explicit input service lists"
+    );
+}
+
+#[test]
+fn input_services_use_bounded_os_stack_pages() {
+    let qemu_test = read_repo_file("scripts/qemu-test.sh");
+    let run_qemu = read_repo_file("scripts/run-qemu-rv64.sh");
+
+    assert!(
+        qemu_test.contains("for svc in HIDRAWD TOUCHD INPUTD")
+            && qemu_test.contains("export \"$stack_var=1\""),
+        "`scripts/qemu-test.sh` must bound input service stack pages"
+    );
+    assert!(
+        run_qemu.contains("hidrawd|touchd|inputd") && run_qemu.contains("\"1\""),
+        "`scripts/run-qemu-rv64.sh` must bound input service stack pages"
+    );
+}
+
+#[test]
+fn qemu_marker_ladder_requires_input_service_startup() {
+    let qemu_test = read_repo_file("scripts/qemu-test.sh");
+    let bringup_manifest =
+        read_repo_file("source/apps/selftest-client/proof-manifest/markers/bringup.toml");
+
+    for service in INPUT_SERVICES {
+        for marker in [
+            format!("init: start {service}"),
+            format!("init: up {service}"),
+            format!("{service}: os service payload ready"),
+        ] {
+            assert!(
+                qemu_test.contains(&marker),
+                "`scripts/qemu-test.sh` expected sequence must require `{marker}`"
+            );
+            assert!(
+                bringup_manifest.contains(&format!("[marker.\"{marker}\"]")),
+                "proof-manifest bringup markers must declare `{marker}`"
+            );
+        }
+    }
+}
+
+fn assert_service_list_contains(haystack: &str, service: &str, source: &str) {
+    assert!(
+        haystack.contains(service),
+        "{source} must include input service `{service}` in its init-lite service payload list"
+    );
+}
+
+fn read_repo_file(relative: impl AsRef<Path>) -> String {
+    let path = repo_root().join(relative);
+    fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
+}
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}

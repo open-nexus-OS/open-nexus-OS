@@ -12,6 +12,13 @@
 - **perf boundary honesty**:
   - 0253 must enforce bounded/deterministic handling,
   - perf/latency closure remains in `TASK-0056C`.
+- **current progress snapshot**:
+  - host/service slice is landed and green for `hidrawd`, `touchd`, `inputd`, `ime`, `systemui`, `settingsd`, and `nx`,
+  - `nx input` and `nx postflight input` now exist as host diagnostics / delegate surfaces,
+  - the `visible-bootstrap` path has been swapped to the real `hidrawd|touchd -> inputd -> windowd` route and its narrow OS proof is green.
+- **remaining closure caution**:
+  - do not claim full `TASK-0253` Gate-E closure until the deferred broad gates are explicitly rerun,
+  - latency/perf closure remains follow-up scope in `TASK-0056C`.
 
 ## Latest closure snapshot (TASK-0252 / RFC-0052)
 

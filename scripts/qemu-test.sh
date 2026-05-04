@@ -224,9 +224,24 @@ fi
 # TASK-0014: enforce canonical os-lite service payload set for deterministic QEMU proofs.
 # Keep this fixed so marker contracts do not depend on inherited shell environment.
 export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
+if [[ "${RUN_PHASE:-}" == "input-startup" ]]; then
+  export INPUT_V1_0B_SERVICE_STARTUP=1
+fi
+if [[ "${INPUT_V1_0B_SERVICE_STARTUP:-0}" == "1" ]]; then
+  export INIT_LITE_SERVICE_LIST="${INIT_LITE_SERVICE_LIST%,},hidrawd,touchd,inputd"
+fi
 if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
   # Keep added observability service footprint bounded in bring-up proofs.
   export INIT_LITE_SERVICE_METRICSD_STACK_PAGES=1
+fi
+if [[ "${INPUT_V1_0B_SERVICE_STARTUP:-0}" == "1" ]]; then
+  for svc in HIDRAWD TOUCHD INPUTD; do
+    stack_var="INIT_LITE_SERVICE_${svc}_STACK_PAGES"
+    if [[ -z "${!stack_var:-}" ]]; then
+      # TASK-0253 service entries perform bounded init-only proof work; keep their stacks small.
+      export "$stack_var=1"
+    fi
+  done
 fi
 # #region agent log (H1: qemu-test effective config in make path)
 agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
@@ -243,6 +258,7 @@ fi
 # A "phase" is a named slice of the marker ladder. Failures should report the first failing phase.
 declare -a PHASES=(
   "bring-up"
+  "input-startup"
   "mmio"
   "routing"
   "ota"
@@ -253,6 +269,7 @@ declare -a PHASES=(
 )
 declare -A PHASE_START_MARKER=(
   ["bring-up"]="init: start"
+  ["input-startup"]="init: start"
   ["mmio"]="execd: ready"
   ["routing"]="SELFTEST: ipc routing keystored ok"
   ["ota"]="SELFTEST: ota stage ok"
@@ -263,6 +280,7 @@ declare -A PHASE_START_MARKER=(
 )
 declare -A PHASE_END_MARKER=(
   ["bring-up"]="execd: ready"
+  ["input-startup"]="inputd: os service payload ready"
   ["mmio"]="SELFTEST: cap query vmo ok"
   ["routing"]="SELFTEST: ipc routing ok"
   ["ota"]="SELFTEST: ota rollback ok"
@@ -476,6 +494,34 @@ expected_sequence=(
   "SELFTEST: ui resize ok"
   "SELFTEST: end"
 )
+
+if [[ "${INPUT_V1_0B_SERVICE_STARTUP:-0}" == "1" ]]; then
+  input_startup_sequence=(
+    "init: start hidrawd"
+    "init: up hidrawd"
+    "init: start touchd"
+    "init: up touchd"
+    "init: start inputd"
+    "init: up inputd"
+    "hidrawd: os service payload ready"
+    "touchd: os service payload ready"
+    "inputd: os service payload ready"
+  )
+  expanded_sequence=()
+  input_inserted=0
+  for marker in "${expected_sequence[@]}"; do
+    expanded_sequence+=("$marker")
+    if [[ "$marker" == "execd: ready" ]]; then
+      expanded_sequence+=("${input_startup_sequence[@]}")
+      input_inserted=1
+    fi
+  done
+  if [[ "$input_inserted" != "1" ]]; then
+    echo "[error] failed to insert TASK-0253 input startup markers into expected sequence" >&2
+    exit 2
+  fi
+  expected_sequence=("${expanded_sequence[@]}")
+fi
 
 if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
   expected_sequence=(

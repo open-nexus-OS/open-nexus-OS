@@ -90,6 +90,47 @@ mod tests {
     }
 
     #[test]
+    fn test_input_layouts_json_contract() {
+        let root = TempDir::new().expect("tempdir");
+        let cli = Cli::parse_from(["nx", "input", "layouts", "--json"]);
+        let (class, _, _, data) = execute(cli, &test_cfg(root.path())).expect("must succeed");
+        assert_eq!(class, ExitClass::Success);
+        let data = data.expect("data");
+        assert_eq!(data["default_layout"], json!("de"));
+        assert_eq!(data["supported_layouts"][1], json!("de"));
+    }
+
+    #[test]
+    fn test_input_keymap_set_json_contract() {
+        let root = TempDir::new().expect("tempdir");
+        let cli = Cli::parse_from(["nx", "input", "keymap", "set", "de", "--json"]);
+        let (class, _, _, data) = execute(cli, &test_cfg(root.path())).expect("must succeed");
+        assert_eq!(class, ExitClass::Success);
+        let data = data.expect("data");
+        assert_eq!(data["layout"], json!("de"));
+        assert_eq!(data["preflight_only"], json!(true));
+    }
+
+    #[test]
+    fn test_input_cursor_rejects_negative_position() {
+        let root = TempDir::new().expect("tempdir");
+        let cli = Cli::parse_from(["nx", "input", "cursor", "-1", "5", "--json"]);
+        let err = execute(cli, &test_cfg(root.path())).expect_err("must reject negative cursor");
+        assert_eq!(err.class, ExitClass::ValidationReject);
+    }
+
+    #[test]
+    fn test_input_type_reports_unicode_shape() {
+        let root = TempDir::new().expect("tempdir");
+        let cli = Cli::parse_from(["nx", "input", "test", "type", "Hello, 世界!", "--json"]);
+        let (class, _, _, data) = execute(cli, &test_cfg(root.path())).expect("must succeed");
+        assert_eq!(class, ExitClass::Success);
+        let data = data.expect("data");
+        assert_eq!(data["scalar_count"], json!(10));
+        assert_eq!(data["utf8_bytes"], json!(14));
+    }
+
+    #[test]
     fn test_postflight_failure_passthrough() {
         let root = TempDir::new().expect("tempdir");
         let tools = root.path().join("tools");

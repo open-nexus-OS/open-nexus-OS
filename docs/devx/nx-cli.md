@@ -50,6 +50,32 @@ cargo run -p nx -- inspect nxb path/to/bundle.nxb --json
 - `nx postflight <topic> [--tail <N>] [--json]`
   - topic is strict allowlist mapping to existing `tools/postflight-*.sh`
   - uses delegate exit code as truth
+- `nx input layouts [--json]`
+  - lists the deterministic shared layout IDs currently supported by the
+    RFC-0052 / `TASK-0253` input stack (`us`, `de`, `jp`, `kr`, `zh`)
+- `nx input devices [--json]`
+  - lists the deterministic proof-profile devices currently exercised by the
+    `TASK-0253` live-input proof (`kbd-7`, `mouse-8`, `touch-9`)
+- `nx input keymap get [--json]`
+  - reports the canonical default layout for the current live-input slice
+- `nx input keymap set <layout> [--json]`
+  - validates layout selection fail-closed and returns the canonical
+    `nx: input keymap=<layout>` marker string as host preflight metadata
+  - current scope is preflight only; this command does not yet mutate a live daemon
+- `nx input test type <text> [--json]`
+  - validates a bounded text probe and reports scalar/UTF-8 shape for the
+    current IME-hook-only slice
+  - current scope is preflight only; no live typing is injected
+- `nx input cursor <x> <y> [--json]`
+  - validates bounded cursor coordinates and returns the canonical
+    `nx: input cursor set (x,y)` marker string as host preflight metadata
+  - current scope is preflight only; no live cursor is moved
+- `nx input status [--json]`
+  - reports the locked authority chain (`hidrawd -> touchd -> inputd -> windowd`)
+    plus the bounded IME/settings scope for `TASK-0253`
+- `nx input proof [--json]`
+  - prints the canonical host proof commands for the live-input slice plus the
+    `nx postflight input` delegate topic
 - `nx dsl fmt|lint|build [<args...>] [--json]`
   - delegates to backend in `NX_DSL_BACKEND`
   - returns `unsupported` (`6`) when backend is not configured/available
@@ -82,6 +108,14 @@ cargo run -p nx -- inspect nxb path/to/bundle.nxb --json
 2. Map that key to a fixed executable path under `tools/`.
 3. Add positive and reject tests (`unknown-topic` and delegate non-zero path).
 4. Keep shell injection impossible: never build delegate command via string interpolation.
+
+Current live-input topic:
+
+- `nx postflight input`
+  - delegates to `tools/postflight-input-v1_0.sh`
+  - runs the narrow host proof floor for `input_v1_0_host`, `hidrawd`, `touchd`,
+    and `inputd`
+  - does not replace the broader closure gates; those remain task-controlled
 
 ## Subcommand extension contract
 

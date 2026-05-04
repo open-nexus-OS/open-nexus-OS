@@ -144,6 +144,7 @@ This is the anti-fake-success gate.
 - [x] `make clean` -> `make build` -> `make test` -> `make run` is green (rerun on explicit user request).
 
 ## Task-0253 automatic addendum (when applicable)
+- [ ] `cargo test -p input_v1_0_host -- --nocapture` is green as the RFC-0052 carry-in authority baseline.
 - [ ] `cargo test -p hidrawd -- --nocapture` is green for bounded HID raw ingest behavior.
 - [ ] `cargo test -p touchd -- --nocapture` is green for bounded touch ingest behavior.
 - [ ] `cargo test -p inputd -- --nocapture` is green for routing/normalization behavior.
@@ -151,14 +152,25 @@ This is the anti-fake-success gate.
   - [ ] malformed/truncated/oversized HID report rejects,
   - [ ] malformed/out-of-order touch event rejects,
   - [ ] stale/unauthorized capability or route rejects,
+  - [ ] invalid keymap/repeat/accel config rejects,
   - [ ] bounded queue overflow rejects.
 - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green for live input marker ladder in this slice.
 - [ ] Deterministic marker ladder appears in order and only after real state transitions:
-  - [ ] `hidrawd: ingest ok`
-  - [ ] `touchd: ingest ok`
-  - [ ] `inputd: route ok`
-  - [ ] `windowd: input live ok`
-  - [ ] `SELFTEST: input live ok`
+  - [ ] `hidrawd: ready`
+  - [ ] `hidrawd: device kbd`
+  - [ ] `hidrawd: device mouse`
+  - [ ] `touchd: ready`
+  - [ ] `inputd: ready`
+  - [ ] `inputd: keymap=de`
+  - [ ] `inputd: repeat start code=4`
+  - [ ] `inputd: dispatch windowd cursor=(36,28)`
+  - [ ] `systemui: imed show`
+  - [ ] `systemui: imed hide`
+  - [ ] `SELFTEST: input keymap de ok`
+  - [ ] `SELFTEST: input cursor ok`
+  - [ ] `SELFTEST: input touch ok`
+  - [ ] `SELFTEST: input repeat ok`
+- [ ] Marker verification stays manifest/harness-driven; marker-only grep closure is rejected.
 - [ ] `scripts/fmt-clippy-deny.sh` is green.
 - [ ] `just test-all` is green.
 - [ ] `just ci-network` is green.

@@ -23,6 +23,12 @@ struct PointerEvent {
   kind @2 :PointerKind;
 }
 
+struct TouchEvent {
+  x @0 :Int32;
+  y @1 :Int32;
+  phase @2 :TouchPhase;
+}
+
 struct KeyboardEvent {
   keyCode @0 :UInt32;
 }
@@ -40,6 +46,15 @@ enum PointerKind {
 enum InputDeliveryKind {
   pointerDown @0;
   keyboard @1;
+  touchDown @2;
+  touchMove @3;
+  touchUp @4;
+}
+
+enum TouchPhase {
+  down @0;
+  move @1;
+  up @2;
 }
 
 enum InputError {

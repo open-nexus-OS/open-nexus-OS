@@ -36,6 +36,21 @@
 - Implement `hidrawd`, `touchd`, and `inputd` as the single OS/QEMU live-input pipeline using `TASK-0252` crates.
 - Wire `windowd`/SystemUI/IME hooks without moving hit-test/focus authority out of `windowd`.
 - Add deterministic selftests + marker ladder with reject-path coverage for malformed/stale/unauthorized inputs.
+- Current slice landed:
+  - host-verified `hidrawd` / `touchd` / `inputd` service crates and `test_reject_*` floors,
+  - bounded `ime` show/hide stub state, `systemui` overlay hook state, canonical `settingsd` input key constants, expanded `nx input` + `nx postflight input`, and service IDL seed files,
+  - RFC-0052 carry-in crates are now OS-target compatible at library level,
+  - `inputd` now routes touch through `windowd` instead of recording touch-only dispatches,
+  - `selftest-client` `visible-bootstrap` now drives the in-process `hidrawd|touchd -> inputd -> windowd` path and emits the canonical 0253 ladder under `verify-uart`.
+- Remaining closure blockers (still open):
+  - the OS/QEMU proof is still in-process from `selftest-client`, not separate daemon startup/wiring for `hidrawd` / `touchd` / `inputd`,
+  - `nx input keymap set`, `nx input cursor`, and `nx input test type` are host preflight helpers only,
+  - broad closure gates remain deferred until explicitly requested and should only be rerun after the functional gaps above close.
+- Broad closure gates were intentionally not run in this slice:
+  - `scripts/fmt-clippy-deny.sh`,
+  - `just test-all`,
+  - `just ci-network`,
+  - `make clean`, `make build`, `make test`, `make run`.
 - Preserve non-claims:
   - no perf-budget closure in 0253 (belongs to `TASK-0056C`),
   - no full IME/OSK behavior in 0253 (belongs to `TASK-0146`/`TASK-0147`).

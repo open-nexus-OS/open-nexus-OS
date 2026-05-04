@@ -41,4 +41,5 @@ impl fmt::Display for TouchError {
     }
 }
 
+#[cfg(not(all(nexus_env = "os", target_os = "none")))]
 impl std::error::Error for TouchError {}

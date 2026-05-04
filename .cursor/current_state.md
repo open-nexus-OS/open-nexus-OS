@@ -91,6 +91,25 @@
   - deterministic marker + assertion proof is required,
   - marker-only closure is forbidden,
   - quality gates (`fmt-clippy-deny`, `test-all`, `ci-network`, `make clean/build/test/run`) remain required before `Done`.
+- Progress in the current slice:
+  - new host/service seams landed under `source/services/hidrawd/`, `source/services/touchd/`, and `source/services/inputd/`,
+  - bounded host proofs are green for `cargo test -p hidrawd -- --nocapture`, `cargo test -p touchd -- --nocapture`, and `cargo test -p inputd -- --nocapture`,
+  - bounded `ime`/`systemui` hook stubs, `settingsd` input snapshot wiring, canonical input key constants, expanded `nx input` subcommands, and `nx postflight input` landed as host-verified hardening surfaces,
+  - service IDL seed files now exist for `hidrawd`, `touchd`, and `inputd`,
+  - `inputd` now routes touch events through `windowd` instead of only logging normalized touch dispatches,
+  - RFC-0052 carry-in crates are now OS-target compatible at library level, and the `selftest-client` `visible-bootstrap` OS-lite build links the in-process `hidrawd|touchd -> inputd -> windowd` proof path,
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green with the canonical 0253 marker ladder present and `verify-uart` accepted.
+- Remaining closure gaps before `TASK-0253` / `RFC-0053` can honestly move to `Done`:
+  - the QEMU proof still exercises the live-input stack in-process from `selftest-client`; it does not yet prove separate OS service startup / wiring for `hidrawd`, `touchd`, and `inputd`,
+  - `nx input keymap set`, `nx input cursor`, and `nx input test type` are currently bounded host preflight helpers, not live daemon-affecting commands,
+  - the task/RFC contract still promises broader service/runtime closure (real startup path, bounded live service API use, later SystemUI/global-shortcut consumers) than is currently proven,
+  - broad closure gates remain intentionally deferred until explicitly requested:
+    - `scripts/fmt-clippy-deny.sh`,
+    - `just test-all`,
+    - `just ci-network`,
+    - `make clean` -> `make build` -> `make test` -> `make run`.
+- Broad closure gates remain intentionally deferred until explicitly requested:
+  - rerun them only after the remaining functional closure gaps are resolved, otherwise marker-green drift would remain possible.
 
 ## TASK-0252 execution state
 

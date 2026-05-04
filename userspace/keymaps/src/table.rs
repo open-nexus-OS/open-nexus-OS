@@ -186,6 +186,7 @@ pub mod de {
 }
 
 pub mod jp {
+    use alloc::vec::Vec;
     use hid::KeyboardUsage;
 
     use super::{action, entry, text, us, MappingEntry};
@@ -230,6 +231,7 @@ pub mod jp {
 }
 
 pub mod kr {
+    use alloc::vec::Vec;
     use hid::KeyboardUsage;
 
     use super::{entry, text, us, MappingEntry};
@@ -256,6 +258,7 @@ pub mod kr {
 }
 
 pub mod zh {
+    use alloc::vec::Vec;
     use hid::KeyboardUsage;
 
     use super::{entry, text, us, MappingEntry};

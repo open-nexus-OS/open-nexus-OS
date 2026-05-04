@@ -1076,7 +1076,14 @@ build_os_once() {
     set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$BUILD_TARGET_DIR/$TARGET/release/$svc"
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     if [[ -z "${!stack_var:-}" ]]; then
-      set_env_var "$stack_var" "8"
+      case "$svc" in
+        hidrawd|touchd|inputd)
+          set_env_var "$stack_var" "1"
+          ;;
+        *)
+          set_env_var "$stack_var" "8"
+          ;;
+      esac
     fi
   done
 

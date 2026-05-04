@@ -13,14 +13,22 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract freeze + proof vectors)**: ⬜
-- **Phase 1 (service wiring + reject floor)**: ⬜
-- **Phase 2 (hardening + Gate-E closure sync)**: ⬜
+- **Phase 0 (contract freeze + proof vectors)**: ✅
+- **Phase 1 (service wiring + reject floor)**: ✅ host/service slice landed and green
+- **Phase 2 (hardening + Gate-E closure sync)**: partial; host hardening, IDL seeds, touch routing, and narrow live marker replacement landed, but runtime/daemon closure is still open
 
 Definition:
 
 - "Complete" means the OS/QEMU live-input contract is implemented and the required host + OS proofs are green.
 - "Complete" does not include latency/perf-budget closure; that remains `TASK-0056C`.
+- Current implementation reality:
+  - `hidrawd`, `touchd`, and `inputd` now exist as host-verified service crates with deterministic reject suites,
+  - bounded `ime` / `systemui` hook seams, canonical `settingsd` input keys, service IDL seeds, and expanded `nx input` / `nx postflight input` surfaces exist,
+  - the RFC-0052 carry-in crates now compile for the OS target at library level,
+  - `inputd` now routes touch through `windowd` instead of only recording normalized touch dispatches,
+  - the `selftest-client` `visible-bootstrap` path now drives the in-process `hidrawd|touchd -> inputd -> windowd` sequence and the narrow QEMU proof is green under `verify-uart`,
+  - separate daemon startup / QEMU device wiring for `hidrawd`, `touchd`, and `inputd` is still not proven,
+  - broad closure gates remain deferred until explicitly rerun.
 
 ## Scope boundaries (anti-drift)
 
@@ -141,6 +149,13 @@ cd /home/jenning/open-nexus-OS && cargo test -p input_v1_0_host -- --nocapture
 ```
 
 Carry-in host floor from RFC-0052 remains required as algorithmic authority baseline.
+Task-local host proofs must then extend that floor with:
+
+```bash
+cd /home/jenning/open-nexus-OS && cargo test -p hidrawd -- --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p touchd -- --nocapture
+cd /home/jenning/open-nexus-OS && cargo test -p inputd -- --nocapture
+```
 
 ### Proof (OS/QEMU)
 
@@ -156,8 +171,8 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 - `touchd: ready`
 - `inputd: ready`
 - `inputd: keymap=de`
-- `inputd: repeat start code=...`
-- `inputd: dispatch windowd cursor=(x,y)`
+- `inputd: repeat start code=4`
+- `inputd: dispatch windowd cursor=(36,28)`
 - `systemui: imed show`
 - `systemui: imed hide`
 - `SELFTEST: input keymap de ok`
@@ -171,10 +186,14 @@ Reject-proof requirements (must exist as `test_reject_*` class proofs):
 - malformed touch sample/sequence rejects,
 - stale/invalid subscriber or route target rejects,
 - invalid keymap/repeat/accel config rejects,
+- bounded queue overflow rejects,
 - marker-before-state attempts reject (marker honesty).
 
 Quality-gate closure before `Done`:
 
+- `just dep-gate`
+- `just diag-os`
+- `just diag-host`
 - `scripts/fmt-clippy-deny.sh`
 - `just test-all`
 - `just ci-network`
@@ -196,9 +215,13 @@ Perf boundary honesty:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: contract + Soll/reject vectors frozen — proof: `task+RFC review`
-- [ ] **Phase 1**: service wiring + reject floor green — proof: `TASK-0253 required host/os proofs`
+- [x] **Phase 0**: contract + Soll/reject vectors frozen — proof: `task+RFC review`
+- [x] **Phase 1**: service wiring + reject floor green — proof: `TASK-0253 required host/os proofs`
 - [ ] **Phase 2**: hardening + Gate-E sync green — proof: `quality gates + docs sync`
-- [ ] Task linked with stop conditions + proof commands.
-- [ ] Marker verification uses proof-manifest/harness ordering (no grep-only closure).
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] Task linked with stop conditions + proof commands.
+- [x] Host `hidrawd` / `touchd` / `inputd` packages and reject suites are green.
+- [x] Host hardening surfaces exist for `ime`, `systemui`, `settingsd`, `nx input`, and `nx postflight input`.
+- [x] Marker verification uses proof-manifest/harness ordering (no grep-only closure).
+- [x] Security-relevant negative tests exist (`test_reject_*`).
+- [x] RFC-0052 carry-in crates are OS-target compatible so the real live-input path can link into `selftest-client`.
+- [ ] Broad closure gates rerun explicitly for final Gate-E closure.

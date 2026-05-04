@@ -48,8 +48,9 @@ pub use markers::{
 pub use server::{
     BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PointerPosition, PresentAck,
     PresentFenceStatus, PresentFrameAck, ScheduledPresentAck, UiProfile, WindowServer,
-    WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_HZ,
-    VISIBLE_BOOTSTRAP_WIDTH, VISIBLE_CURSOR_BGRA, VISIBLE_FOCUS_BGRA, VISIBLE_HOVER_BGRA,
+    WindowdConfig, TouchInputPhase, VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT,
+    VISIBLE_BOOTSTRAP_HZ, VISIBLE_BOOTSTRAP_WIDTH, VISIBLE_CURSOR_BGRA, VISIBLE_FOCUS_BGRA,
+    VISIBLE_HOVER_BGRA,
 };
 pub use smoke::{
     bootstrap_pixel_bgra, run_headless_ui_smoke, run_ui_v2a_smoke, run_visible_bootstrap_smoke,

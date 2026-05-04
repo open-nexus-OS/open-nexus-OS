@@ -355,6 +355,20 @@ seen and ensure log caps are in effect. `just test-os` wraps
     - pointer acceleration is monotonic, bounded, and safe for extreme deltas
     - `test_reject_*` coverage exists for malformed HID/touch inputs and invalid repeat/accel configuration
   - no QEMU markers or `SELFTEST: ... ok` strings are part of 0252 closure; live-input markers remain `TASK-0253` scope
+- Input v1.0b live-input proof floor (`TASK-0253` / `RFC-0053`):
+  - `cargo test -p hidrawd -- --nocapture`
+  - `cargo test -p touchd -- --nocapture`
+  - `cargo test -p inputd -- --nocapture`
+  - `cargo test -p settingsd -- --nocapture`
+  - `cargo test -p nx -- --nocapture`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
+  - proves Soll-Verhalten for the currently landed live-input slice:
+    - `hidrawd` keyboard/mouse ingest rejects malformed boot-protocol input deterministically
+    - `touchd` deterministic synthetic touches remain bounded and normalized
+    - `inputd` routes keyboard, pointer, and touch through `windowd` authority with bounded queues
+    - IME show/hide hooks remain bounded stubs only
+    - `visible-bootstrap` marker verification covers the in-process `hidrawd|touchd -> inputd -> windowd` proof path under `verify-uart`
+  - does **not** yet prove separate OS daemon startup/device wiring for `hidrawd`, `touchd`, and `inputd`; broad closure gates remain task-controlled
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
 - QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
 - QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)
@@ -381,7 +395,7 @@ The QEMU marker ladder, harness profile catalog, and runtime selftest profile ca
 | Kind     | Profile         | Driver                          | Purpose |
 |---       |---              |---                              |---|
 | Harness  | `full`          | `scripts/qemu-test.sh`          | Default 12-phase ladder (`just test-os` / `just ci-os-full`). |
-| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B/0055C/0056 visible `ramfb`, SystemUI, and v2a marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile or screenshot proof. |
+| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B/0055C/0056 visible `ramfb`, SystemUI, and v2a marker ladder plus the current `TASK-0253` in-process live-input marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile, screenshot proof, or separate-daemon service proof. |
 | Harness  | `smp`           | `scripts/qemu-test.sh`          | SMP-only marker contract; consumed by `just ci-os-smp` (SMP=2 strict + SMP=1 parity). |
 | Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
 | Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |

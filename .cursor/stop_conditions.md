@@ -350,12 +350,29 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] parser/keymap/repeat/accel behavior stays in 0252 host crates (no duplicate logic in daemons),
   - [ ] `windowd` remains hit-test/hover/focus/click authority.
 - [ ] Behavior-first proof floor is green:
+  - [ ] `cargo test -p input_v1_0_host -- --nocapture` remains green as the RFC-0052 carry-in authority baseline,
   - [ ] service-level host/unit tests for `hidrawd`, `touchd`, and `inputd` are green,
   - [ ] deterministic OS marker ladder proves live ingestion/routing only after real transitions,
   - [ ] required `test_reject_*` suites are green for malformed/stale/unauthorized/overflow paths.
+- [ ] Deterministic live-input marker contract is synchronized across task/RFC/harness:
+  - [ ] `hidrawd: ready`,
+  - [ ] `hidrawd: device kbd`,
+  - [ ] `hidrawd: device mouse`,
+  - [ ] `touchd: ready`,
+  - [ ] `inputd: ready`,
+  - [ ] `inputd: keymap=de`,
+  - [ ] `inputd: repeat start code=4`,
+  - [ ] `inputd: dispatch windowd cursor=(36,28)`,
+  - [ ] `systemui: imed show`,
+  - [ ] `systemui: imed hide`,
+  - [ ] `SELFTEST: input keymap de ok`,
+  - [ ] `SELFTEST: input cursor ok`,
+  - [ ] `SELFTEST: input touch ok`,
+  - [ ] `SELFTEST: input repeat ok`.
 - [ ] Security and fail-closed discipline is green:
   - [ ] malformed/truncated/oversized HID/touch payloads reject before unsafe propagation,
   - [ ] stale/unauthorized route injections reject,
+  - [ ] invalid keymap/repeat/accel config rejects fail-closed,
   - [ ] bounded queue limits enforce deterministic overflow reject behavior.
 - [ ] Rust quality floor is enforced:
   - [ ] newtypes protect ambiguous IDs/codes/ranges where relevant,
@@ -369,7 +386,8 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] `make clean`, `make build`, `make test`, `make run`.
 - [ ] Marker honesty is preserved:
   - [ ] no marker-only closure claims,
-  - [ ] marker semantics are paired with deterministic assertions and cannot be emitted by stubs.
+  - [ ] marker semantics are paired with deterministic assertions and cannot be emitted by stubs,
+  - [ ] proof-manifest / harness ordering remains the acceptance authority for the OS ladder.
 
 ## Active progress snapshot (TASK-0253 prep, 2026-05-04)
 - [x] `TASK-0252` / `RFC-0052` are synchronized to `Done` as carry-in authority.

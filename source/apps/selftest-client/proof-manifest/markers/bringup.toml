@@ -99,8 +99,44 @@ phase = "bringup"
 [marker."init: up dsoftbusd"]
 phase = "bringup"
 
+[marker."init: start hidrawd"]
+phase = "bringup"
+proves = "TASK-0253 hidrawd is embedded as an init-lite OS service image"
+
+[marker."init: up hidrawd"]
+phase = "bringup"
+proves = "TASK-0253 hidrawd service image was spawned by init-lite"
+
+[marker."init: start touchd"]
+phase = "bringup"
+proves = "TASK-0253 touchd is embedded as an init-lite OS service image"
+
+[marker."init: up touchd"]
+phase = "bringup"
+proves = "TASK-0253 touchd service image was spawned by init-lite"
+
+[marker."init: start inputd"]
+phase = "bringup"
+proves = "TASK-0253 inputd is embedded as an init-lite OS service image"
+
+[marker."init: up inputd"]
+phase = "bringup"
+proves = "TASK-0253 inputd service image was spawned by init-lite"
+
 [marker."init: ready"]
 phase = "bringup"
+
+[marker."hidrawd: os service payload ready"]
+phase = "bringup"
+proves = "TASK-0253 hidrawd OS service entry initialized its bounded keyboard and mouse device state"
+
+[marker."touchd: os service payload ready"]
+phase = "bringup"
+proves = "TASK-0253 touchd OS service entry initialized its bounded synthetic touch fixture state"
+
+[marker."inputd: os service payload ready"]
+phase = "bringup"
+proves = "TASK-0253 inputd OS service entry validated the bounded live-input configuration"
 
 [marker."keystored: ready"]
 phase = "bringup"

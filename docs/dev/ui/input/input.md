@@ -78,3 +78,54 @@ pointer-accel configuration. This slice still does not claim live OS/QEMU input
 ingestion, `inputd`/`hidrawd`/`touchd`, DTB/device wiring, `nx input`, IME/OSK
 behavior, gestures, or any transfer of hit-test/focus authority away from
 `windowd`; those remain follow-up scope in `TASK-0253` and later IME tasks.
+
+## v1.0b OS/QEMU live-input slice
+
+`TASK-0253` layers the first service-level live-input path on top of the 0252
+host authority without moving hit-test, hover, focus, or click ownership out of
+`windowd`.
+
+Current landed host slice:
+
+- `source/services/hidrawd/` wraps the RFC-0052 boot keyboard/mouse parsers and
+  maps malformed input into stable daemon-local reject classes.
+- `source/services/touchd/` wraps the RFC-0052 touch normalizer and includes a
+  deterministic synthetic-touch fixture mode for proof-oriented tests.
+- `source/services/inputd/` owns bounded config validation, queueing, repeat
+  ticking, pointer acceleration reuse, and routing into the existing
+  `windowd::route_pointer_move()`, `route_pointer_down()`, `route_keyboard()`,
+  and `route_touch()` authority seams.
+- `source/services/ime/` and `source/services/systemui/` currently expose only
+  bounded show/hide hook state for this slice. Full IME/OSK behavior remains
+  follow-up scope in `TASK-0146` / `TASK-0147`.
+- `source/services/settingsd/` now exposes a host-verified input settings
+  snapshot plus canonical key constants that translate layout/repeat/accel keys
+  into `inputd` config.
+- `source/services/{hidrawd,touchd,inputd}/idl/*.capnp` now exist as contract
+  seed files for the service-facing subscribe/keymap surfaces.
+- `nx input` now covers `layouts`, `status`, `proof`, `devices`, `keymap get`,
+  `keymap set`, `test type`, and `cursor`; the mutating commands are still
+  bounded host preflight helpers, not live daemon RPCs.
+
+Host proof floor added by this slice:
+
+- `cargo test -p hidrawd -- --nocapture`
+- `cargo test -p touchd -- --nocapture`
+- `cargo test -p inputd -- --nocapture`
+
+Narrow OS/QEMU proof state now landed:
+
+- the reused RFC-0052 carry-in crates compile for the OS target at library
+  level, so `selftest-client` can link the real live-input path,
+- `visible-bootstrap` no longer falls back to `windowd::run_visible_input_smoke()`
+  for 0253 closure; it now drives deterministic `hidrawd`, `touchd`, and `inputd`
+  service sequences, including touch routing, into `windowd`,
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green
+  with the canonical marker ladder and `verify-uart` acceptance.
+
+Still out of scope for this slice:
+
+- separate-daemon startup / QEMU device wiring proof for `hidrawd`, `touchd`,
+  and `inputd`,
+- perf / latency-budget closure (`TASK-0056C`),
+- broad repo closure gates until they are explicitly rerun.

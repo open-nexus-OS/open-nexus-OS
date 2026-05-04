@@ -15,6 +15,7 @@
 //! TEST_COVERAGE: Integration coverage in `tests/input_v1_0_host/tests/pointer_accel_contract.rs`.
 //! ADR: docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md
 
+#![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
 #![forbid(unsafe_code)]
 
 mod config;

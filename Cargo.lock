@@ -1110,6 +1110,15 @@ name = "hid"
 version = "0.1.0"
 
 [[package]]
+name = "hidrawd"
+version = "0.1.0"
+dependencies = [
+ "hid",
+ "nexus-abi",
+ "nexus-service-entry",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1280,6 +1289,22 @@ dependencies = [
  "keymaps",
  "pointer-accel",
  "touch",
+]
+
+[[package]]
+name = "inputd"
+version = "0.1.0"
+dependencies = [
+ "hid",
+ "hidrawd",
+ "key-repeat",
+ "keymaps",
+ "nexus-abi",
+ "nexus-service-entry",
+ "pointer-accel",
+ "touch",
+ "touchd",
+ "windowd",
 ]
 
 [[package]]
@@ -2752,6 +2777,11 @@ dependencies = [
  "ed25519-dalek",
  "exec-payloads",
  "execd",
+ "hid",
+ "hidrawd",
+ "ime",
+ "inputd",
+ "keymaps",
  "keystored",
  "net-virtio",
  "nexus-abi",
@@ -2775,7 +2805,10 @@ dependencies = [
  "sha2",
  "smoltcp",
  "statefs",
+ "systemui",
  "tar",
+ "touch",
+ "touchd",
  "updates",
  "vfsd",
  "windowd",
@@ -2847,6 +2880,8 @@ version = "0.1.0"
 name = "settingsd"
 version = "0.1.0"
 dependencies = [
+ "inputd",
+ "keymaps",
  "settings",
 ]
 
@@ -3229,6 +3264,15 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 [[package]]
 name = "touch"
 version = "0.1.0"
+
+[[package]]
+name = "touchd"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+ "touch",
+]
 
 [[package]]
 name = "tracing"

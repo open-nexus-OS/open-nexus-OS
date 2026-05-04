@@ -6,4 +6,6 @@ license = "Apache-2.0"
 
 [dependencies]
 settings = { path = "../../../userspace/settings" }
+inputd = { path = "../inputd" }
+keymaps = { path = "../../../userspace/keymaps" }
 

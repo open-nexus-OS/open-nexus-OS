@@ -316,7 +316,15 @@ prepare_service_payloads() {
     set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$elf_path"
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     if [[ -z "${!stack_var:-}" ]]; then
-      set_env_var "$stack_var" "8"
+      case "$svc" in
+        hidrawd|touchd|inputd)
+          # TASK-0253 proof services run bounded init-only payload entries.
+          set_env_var "$stack_var" "1"
+          ;;
+        *)
+          set_env_var "$stack_var" "8"
+          ;;
+      esac
     fi
   done
 }

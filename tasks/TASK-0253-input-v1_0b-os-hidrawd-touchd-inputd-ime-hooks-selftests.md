@@ -153,8 +153,8 @@ UART markers:
 - `touchd: ready`
 - `inputd: ready`
 - `inputd: keymap=de`
-- `inputd: repeat start code=…`
-- `inputd: dispatch windowd cursor=(x,y)`
+- `inputd: repeat start code=4`
+- `inputd: dispatch windowd cursor=(36,28)`
 - `systemui: imed show`
 - `systemui: imed hide`
 - `SELFTEST: input keymap de ok`
@@ -165,8 +165,13 @@ UART markers:
 Additional closure floor:
 
 - marker order is deterministic and profile-verified via the canonical harness,
+- `cargo test -p input_v1_0_host -- --nocapture` stays green as the RFC-0052 carry-in authority baseline,
 - required reject-path tests exist for malformed HID/touch and invalid keymap/repeat/accel/routing settings,
+- proof-manifest / harness verification remains the OS acceptance authority; marker-only grep closure is forbidden,
 - quality gates are green before `Done` claim:
+  - `just dep-gate`
+  - `just diag-os`
+  - `just diag-host`
   - `scripts/fmt-clippy-deny.sh`
   - `just test-all`
   - `just ci-network`

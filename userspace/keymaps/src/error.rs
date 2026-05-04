@@ -40,4 +40,5 @@ impl fmt::Display for KeymapError {
     }
 }
 
+#[cfg(not(all(nexus_env = "os", target_os = "none")))]
 impl std::error::Error for KeymapError {}

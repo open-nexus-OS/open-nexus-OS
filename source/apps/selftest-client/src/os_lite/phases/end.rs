@@ -34,6 +34,42 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                 emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
             }
             emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+            if evidence.live_input.hid_ready {
+                emit_line(crate::markers::M_HIDRAWD_READY);
+            }
+            if evidence.live_input.hid_keyboard_ready {
+                emit_line(crate::markers::M_HIDRAWD_DEVICE_KBD);
+            }
+            if evidence.live_input.hid_mouse_ready {
+                emit_line(crate::markers::M_HIDRAWD_DEVICE_MOUSE);
+            }
+            if evidence.live_input.touch_ready {
+                emit_line(crate::markers::M_TOUCHD_READY);
+            }
+            if evidence.live_input.input_ready {
+                emit_line(crate::markers::M_INPUTD_READY);
+                emit_line(crate::markers::M_INPUTD_KEYMAP_DE);
+                emit_line(crate::markers::M_INPUTD_REPEAT_START_CODE_4);
+                emit_line(crate::markers::M_INPUTD_DISPATCH_WINDOWD_CURSOR_36_28);
+            }
+            if evidence.live_input.ime_show {
+                emit_line(crate::markers::M_SYSTEMUI_IMED_SHOW);
+            }
+            if evidence.live_input.ime_hide {
+                emit_line(crate::markers::M_SYSTEMUI_IMED_HIDE);
+            }
+            if evidence.live_input.keymap_de_ok {
+                emit_line(crate::markers::M_SELFTEST_INPUT_KEYMAP_DE_OK);
+            }
+            if evidence.live_input.cursor_ok {
+                emit_line(crate::markers::M_SELFTEST_INPUT_CURSOR_OK);
+            }
+            if evidence.live_input.touch_ok {
+                emit_line(crate::markers::M_SELFTEST_INPUT_TOUCH_OK);
+            }
+            if evidence.live_input.repeat_ok {
+                emit_line(crate::markers::M_SELFTEST_INPUT_REPEAT_OK);
+            }
             if let Ok(v2a) = windowd::run_ui_v2a_smoke() {
                 if v2a.present_scheduler_on {
                     emit_line(windowd::PRESENT_SCHEDULER_ON_MARKER);

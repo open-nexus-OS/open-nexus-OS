@@ -44,6 +44,14 @@ os-lite = [
     "dep:crash",
     "dep:nexus-vmo",
     "dep:windowd",
+    "dep:hid",
+    "dep:hidrawd",
+    "dep:touch",
+    "dep:touchd",
+    "dep:inputd",
+    "dep:ime",
+    "dep:systemui",
+    "dep:keymaps",
 ]
 # Optional: legacy/bounded smoltcp-over-virtio probe for bring-up debugging.
 # Keep off by default to avoid marker drift and unused-code warnings.
@@ -82,6 +90,14 @@ statefs = { path = "../../../userspace/statefs", default-features = false, optio
 crash = { path = "../../../userspace/crash", default-features = false, optional = true }
 nexus-vmo = { path = "../../../userspace/memory", default-features = false, features = ["os-lite"], optional = true }
 windowd = { path = "../../../source/services/windowd", optional = true }
+hid = { path = "../../../userspace/hid", optional = true }
+hidrawd = { path = "../../../source/services/hidrawd", optional = true }
+touch = { path = "../../../userspace/touch", optional = true }
+touchd = { path = "../../../source/services/touchd", optional = true }
+inputd = { path = "../../../source/services/inputd", optional = true }
+ime = { path = "../../../source/services/ime", optional = true }
+systemui = { path = "../../../source/services/systemui", optional = true }
+keymaps = { path = "../../../userspace/keymaps", optional = true }
 smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-icmp", "socket-udp", "medium-ethernet"], optional = true }
 nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"], optional = true }
 

@@ -12,6 +12,7 @@ pub(crate) mod config;
 pub(crate) mod doctor;
 pub(crate) mod dsl;
 pub(crate) mod idl;
+pub(crate) mod input;
 pub(crate) mod inspect;
 pub(crate) mod new;
 pub(crate) mod policy;
@@ -54,6 +55,7 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Inspect(args) => inspect::handle_inspect(args),
         Commands::Idl(args) => idl::handle_idl(args, cfg),
         Commands::Postflight(args) => postflight::handle_postflight(args, cfg),
+        Commands::Input(args) => input::handle_input(args),
         Commands::Doctor(args) => doctor::handle_doctor(args),
         Commands::Dsl(args) => dsl::handle_dsl(args, cfg),
         Commands::Config(args) => config::handle_config(args, cfg),

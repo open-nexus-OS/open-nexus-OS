@@ -78,6 +78,9 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         "execd",
         "netstackd",
         "dsoftbusd",
+        "hidrawd",
+        "touchd",
+        "inputd",
         "selftest-client",
     ];
 

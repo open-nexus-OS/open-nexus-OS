@@ -9,6 +9,7 @@
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 use crate::{HidError, HidEvent, MouseButton, RelativeAxis, TimestampNs};
+use alloc::vec::Vec;
 
 const MOUSE_REPORT_LEN: usize = 3;
 const BUTTON_MASK: u8 = 0b111;

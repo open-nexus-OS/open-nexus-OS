@@ -9,6 +9,7 @@
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 use hid::KeyboardUsage;
+use alloc::vec::Vec;
 
 use crate::{
     table::{self, lookup, MappingEntry},

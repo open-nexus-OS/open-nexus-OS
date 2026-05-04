@@ -75,6 +75,16 @@ pub enum InputEventKind {
     PointerMove { x: i32, y: i32 },
     PointerDown,
     Keyboard { key_code: u32 },
+    TouchDown { x: i32, y: i32 },
+    TouchMove { x: i32, y: i32 },
+    TouchUp { x: i32, y: i32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TouchInputPhase {
+    Down,
+    Move,
+    Up,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -625,6 +635,24 @@ impl WindowServer {
         self.ensure_input_capacity()?;
         self.input_enabled = true;
         self.push_input_delivery(surface_id, InputEventKind::Keyboard { key_code })
+    }
+
+    pub fn route_touch(&mut self, x: i32, y: i32, phase: TouchInputPhase) -> Result<InputDelivery> {
+        let position = self.validate_pointer_position(x, y)?;
+        let surface_id = self.hit_test(x, y).ok_or(WindowdError::StaleSurfaceId)?;
+        self.ensure_input_capacity()?;
+        self.pointer_position = Some(position);
+        self.last_pointer_hit = Some(surface_id);
+        self.input_enabled = true;
+        if matches!(phase, TouchInputPhase::Down) {
+            self.focused_surface = Some(surface_id);
+        }
+        let kind = match phase {
+            TouchInputPhase::Down => InputEventKind::TouchDown { x, y },
+            TouchInputPhase::Move => InputEventKind::TouchMove { x, y },
+            TouchInputPhase::Up => InputEventKind::TouchUp { x, y },
+        };
+        self.push_input_delivery(surface_id, kind)
     }
 
     pub fn take_input_events(

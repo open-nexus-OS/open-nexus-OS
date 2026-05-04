@@ -5,7 +5,7 @@
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 8 integration tests.
+//! TEST_COVERAGE: 11 integration tests.
 //!
 //! TEST_SCOPE:
 //!   - Process exit-class and JSON-envelope contracts
@@ -53,6 +53,39 @@ fn test_cli_reject_unknown_postflight_json_exit_and_shape() {
     assert_eq!(json["ok"], false);
     assert_eq!(json["class"], "validation_reject");
     assert_eq!(json["code"], 3);
+}
+
+#[test]
+fn test_cli_input_layouts_json_exit_and_shape() {
+    let root = tempdir().expect("tempdir");
+    let output = run_nx(&["input", "layouts", "--json"], root.path(), None);
+    assert_eq!(output.status.code(), Some(0));
+    let json = stdout_json(&output);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["class"], "success");
+    assert_eq!(json["data"]["default_layout"], "de");
+    assert!(json["data"]["supported_layouts"].as_array().expect("layouts").len() >= 5);
+}
+
+#[test]
+fn test_cli_input_keymap_set_json_exit_and_shape() {
+    let root = tempdir().expect("tempdir");
+    let output = run_nx(&["input", "keymap", "set", "de", "--json"], root.path(), None);
+    assert_eq!(output.status.code(), Some(0));
+    let json = stdout_json(&output);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["layout"], "de");
+    assert_eq!(json["data"]["preflight_only"], true);
+}
+
+#[test]
+fn test_cli_input_cursor_reject_json_exit_and_shape() {
+    let root = tempdir().expect("tempdir");
+    let output = run_nx(&["input", "cursor", "-1", "5", "--json"], root.path(), None);
+    assert_eq!(output.status.code(), Some(3));
+    let json = stdout_json(&output);
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["class"], "validation_reject");
 }
 
 #[test]
