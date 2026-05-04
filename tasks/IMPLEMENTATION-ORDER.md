@@ -106,6 +106,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | 2026-04-30 |
 | ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | 2026-04-30 |
 | ✅ TASK-0056B | UI v2a: visible input — cursor + hover + focus + click | 2026-05-03 |
+| ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core | 2026-05-04 |
 
 ---
 
@@ -148,7 +149,7 @@ Vom CPU-Renderer bis zum sichtbaren deterministischen Input-Proof und dann direk
 | TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU (Done; composed-frame visible-present proof + closure gates green) |
 | TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing (Done; host/reject/QEMU proofs + fmt/clippy/ci-network + make clean/build/test/run green) |
 | TASK-0056B | UI v2a: visible input — cursor + hover + focus + click (Done; deterministic host/reject/QEMU proofs + closure gates green; live device input follows in 0252/0253) |
-| TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (pulled forward; foundation for real inputd) |
+| TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (Done; host-first contract closed with full gate reruns green) |
 | TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks (pulled forward; live QEMU pointer/keyboard floor) |
 | TASK-0056C | UI v2a: present/input perf latency + coalescing (after real input pipeline; required before scroll/animation/launcher UX claims) |
 

@@ -1,6 +1,6 @@
 ---
 title: TASK-0252 Input v1.0a (host-first): HID/touch event core + keymaps + key repeat + pointer acceleration + deterministic tests
-status: In Progress
+status: Done
 owner: @ui
 created: 2025-12-29
 depends-on:

@@ -345,6 +345,16 @@ seen and ensure log caps are in effect. `just test-os` wraps
     - canonical BGRA golden comparison with PNG metadata ignored
     - fail-closed update/path traversal/input reject classes
     - no host-only fake OS/QEMU success markers
+- Input v1.0a host-core proof floor (`TASK-0252` / `RFC-0052`):
+  - `cargo test -p input_v1_0_host -- --nocapture`
+  - proves Soll-Verhalten, not implementation detail coupling:
+    - USB-HID boot keyboard/mouse parsing emits deterministic logical events
+    - touch normalization preserves ordered `down -> move* -> up`
+    - shared base keymaps cover deterministic `us`, `de`, `jp`, `kr`, and `zh` vectors without locale probing
+    - repeat timing is driven by injected monotonic time rather than wall-clock behavior
+    - pointer acceleration is monotonic, bounded, and safe for extreme deltas
+    - `test_reject_*` coverage exists for malformed HID/touch inputs and invalid repeat/accel configuration
+  - no QEMU markers or `SELFTEST: ... ok` strings are part of 0252 closure; live-input markers remain `TASK-0253` scope
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
 - QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
 - QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)

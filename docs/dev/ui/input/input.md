@@ -50,3 +50,31 @@ into `TASK-0252`/`TASK-0253` immediately after 56B rather than implemented as a
 56B inputd-light path. This slice still does not claim the full HID/touch/keymap/IME
 input stack, gestures, drag/drop, latency budgets, WM-v2 behavior, or kernel
 production-grade closure.
+
+## v1.0a host input core
+
+`TASK-0252` implements the host-first input-core authority that later `inputd`
+and IME work must reuse instead of duplicating:
+
+- `userspace/hid/` parses USB-HID boot keyboard and mouse reports into
+  deterministic logical events with stable reject classes,
+- `userspace/touch/` normalizes transport-neutral touch samples into bounded
+  `down -> move* -> up` sequences,
+- `userspace/keymaps/` is the shared base keymap authority for `us`, `de`,
+  `jp`, `kr`, and `zh`, including deterministic modifier handling and the
+  shared `Ctrl+Space` IME-switch primitive,
+- `userspace/key-repeat/` provides deterministic repeat scheduling over an
+  injectable monotonic time source,
+- `userspace/pointer-accel/` provides a bounded monotonic linear acceleration
+  curve.
+
+Host closure for this slice is behavior-first and marker-free:
+
+- `cargo test -p input_v1_0_host -- --nocapture`
+
+The host proof package freezes Soll vectors and `test_reject_*` behavior for HID
+malformed frames, touch lifecycle rejects, invalid repeat settings, and invalid
+pointer-accel configuration. This slice still does not claim live OS/QEMU input
+ingestion, `inputd`/`hidrawd`/`touchd`, DTB/device wiring, `nx input`, IME/OSK
+behavior, gestures, or any transfer of hit-test/focus authority away from
+`windowd`; those remain follow-up scope in `TASK-0253` and later IME tasks.

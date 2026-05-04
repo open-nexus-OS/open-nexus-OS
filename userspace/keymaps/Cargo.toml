@@ -1,0 +1,12 @@
+[package]
+name = "keymaps"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "keymaps"
+path = "src/lib.rs"
+
+[dependencies]
+hid = { path = "../hid" }

@@ -1,9 +1,9 @@
 # RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration)
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui
 - Created: 2026-05-03
-- Last Updated: 2026-05-03
+- Last Updated: 2026-05-04
 - Links:
   - Tasks: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` (execution + proof)
   - Related RFCs:
@@ -12,9 +12,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract + Soll-test vectors freeze)**: 🟨
-- **Phase 1 (host core implementation + reject proofs)**: ⬜
-- **Phase 2 (hardening + 0253 integration readiness)**: ⬜
+- **Phase 0 (contract + Soll-test vectors freeze)**: 🟩
+- **Phase 1 (host core implementation + reject proofs)**: 🟩
+- **Phase 2 (hardening + 0253 integration readiness)**: 🟩
 
 Definition:
 
@@ -79,7 +79,7 @@ After deterministic visible-input closure (`TASK-0056B`), the next honest step i
 - `touch` crate:
   - normalize touch source samples into ordered `down/move/up` events with deterministic coordinate handling.
 - `keymaps` crate:
-  - table-driven mappings for at least `us` and `de` in this phase, with extensible layout table contract for `jp/ko/zh`,
+  - table-driven mappings for `us`, `de`, `jp`, `kr`, and `zh` in this phase,
   - deterministic modifier handling (including AltGr path for DE),
   - no locale/env probing.
 - `key-repeat` crate:
@@ -119,7 +119,7 @@ Module/layout contract:
   - do not add unsafe `Send`/`Sync` or global mutable parser state,
   - do not emit success markers for behavior that is not asserted by tests.
 - **Open risks**:
-  - initial layout coverage beyond `us`/`de` may remain partial; gaps must be explicit and fail closed.
+  - later IME work must extend the shared keymap authority instead of silently layering service-local overrides.
 
 ## Failure model (normative)
 
@@ -159,9 +159,18 @@ Required proof classes:
 - Build directly in `inputd` service first (rejected: duplicates parser/mapper logic and harms host-first determinism).
 - Keep one combined input-core crate (rejected: higher drift/ownership risk and harder long-term maintenance).
 
-## Open questions
+## Implementation status notes
 
-- Should Phase 1 require full `jp/ko/zh` behavior proofs or only contract scaffolding + fail-closed placeholders? (Owner: @ui; decide before Phase 1 completion.)
+- Host-first crates now exist under `userspace/hid/`, `userspace/touch/`, `userspace/keymaps/`,
+  `userspace/key-repeat/`, and `userspace/pointer-accel/`.
+- The shared keymap authority now carries explicit deterministic base behavior for
+  `us`, `de`, `jp`, `kr`, and `zh`; `kr`/`zh` are no longer placeholder `us` clones.
+- The primary host proof package is `tests/input_v1_0_host/`, and
+  `cargo test -p input_v1_0_host -- --nocapture` is green with Soll vectors plus
+  `test_reject_*` coverage.
+- Full repo-wide quality gates for the execution task were rerun on explicit user
+  request and are green (`just test-all`, `just ci-network`, `make clean/build/test/run`,
+  and `scripts/fmt-clippy-deny.sh`).
 
 ---
 
@@ -169,9 +178,9 @@ Required proof classes:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: contract signatures + Soll/reject test vectors frozen — proof: `review task+RFC contract alignment`
-- [ ] **Phase 1**: host core behavior + reject proofs green — proof: `cargo test -p input_v1_0_host -- --nocapture`
-- [ ] **Phase 2**: hardening + integration-readiness docs synced — proof: `docs/task sync review`
-- [ ] Task linked with stop conditions + proof commands.
-- [ ] Marker contract explicitly N/A for 0252 and delegated to `TASK-0253`.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: contract signatures + Soll/reject test vectors frozen — proof: `review task+RFC contract alignment`
+- [x] **Phase 1**: host core behavior + reject proofs green — proof: `cargo test -p input_v1_0_host -- --nocapture`
+- [x] **Phase 2**: hardening + integration-readiness docs synced — proof: `docs/task sync review`
+- [x] Task linked with stop conditions + proof commands.
+- [x] Marker contract explicitly N/A for 0252 and delegated to `TASK-0253`.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

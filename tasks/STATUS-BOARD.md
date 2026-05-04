@@ -220,9 +220,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | Done | Composed-frame visible present proven (host full frame + OS row path) with QEMU marker ladder and closure gates green |
 | ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | Done | Host/reject/QEMU proofs and closure gates (`fmt-clippy-deny`, `test-all`, `ci-network`, `make clean/build/test/run`) are green |
 | ✅ TASK-0056B | UI v2a: visible input — cursor + hover + focus + click | Done | Deterministic host/reject/QEMU proofs and closure gates are green; live QEMU pointer/keyboard follow-up remains `TASK-0252`/`TASK-0253` |
+| ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core | Done | Host-first proofs + reject suites green; closure gates rerun green; live QEMU marker closure remains `TASK-0253` |
 
-Current queue head: `TASK-0252` / input v1.0a host HID/touch/keymaps/repeat/accel core.
-Current contract status: `RFC-0051` is `Done`; 56B deterministic visible-input closure is complete and live QEMU pointer/keyboard work continues in `TASK-0252`/`TASK-0253`.
+Current queue head: `TASK-0253` / input v1.0b OS/QEMU hidrawd + touchd + inputd + IME hooks + selftests.
+Current contract status: `RFC-0051` and `RFC-0052` are `Done`; live QEMU pointer/keyboard marker closure continues in `TASK-0253`.
 
 ---
 

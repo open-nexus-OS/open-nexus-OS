@@ -310,7 +310,7 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0252_context
-- Status: `TASK-0252` is `In Progress`; `RFC-0052` is `In Progress` as the active host-first input-core contract seed.
+- Status: `TASK-0252` is `Done`; `RFC-0052` is `Done`; follow-on live OS/QEMU input closure remains `TASK-0253`.
 - Scope: deterministic host-only input core for HID parse, touch normalize, keymaps, key repeat, and pointer acceleration.
 - Proof posture: Soll-behavior tests + `test_reject_*` first; marker-only closure is forbidden in 0252.
 - Authority split: 0252 provides reusable core libraries only; OS/QEMU `hidrawd`/`touchd`/`inputd` and live marker ladder remain `TASK-0253`.

@@ -54,7 +54,10 @@ Adopt a dedicated `windowd` architecture contract with these rules:
 
 - `TASK-0056` / `RFC-0050` and `TASK-0056B` / `RFC-0051` are `Done`.
 - `TASK-0056B` currently claims only deterministic visible input in QEMU: routed cursor movement, hover affordance, focus affordance, and click-visible proof surface state.
-- The live input pipeline is intentionally next in the fast lane (`TASK-0252` then `TASK-0253`) instead of being implemented as a 56B-only `inputd-light` path.
+- `TASK-0252` has now landed the host-first input core (`hid`, `touch`, `keymaps`, `key-repeat`,
+  `pointer-accel`) plus `tests/input_v1_0_host/` as the canonical host proof package.
+- The remaining live input pipeline still proceeds intentionally as `TASK-0253` instead of being
+  implemented as a 56B-only `inputd-light` path.
 
 ## Consequences
 - **Positive**

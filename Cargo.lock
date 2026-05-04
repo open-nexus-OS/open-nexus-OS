@@ -1106,6 +1106,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hid"
+version = "0.1.0"
+
+[[package]]
 name = "icu_collections"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1268,6 +1272,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "input_v1_0_host"
+version = "0.1.0"
+dependencies = [
+ "hid",
+ "key-repeat",
+ "keymaps",
+ "pointer-accel",
+ "touch",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1334,6 +1349,17 @@ dependencies = [
  "serde_json",
  "unicode-general-category",
  "uuid-simd",
+]
+
+[[package]]
+name = "key-repeat"
+version = "0.1.0"
+
+[[package]]
+name = "keymaps"
+version = "0.1.0"
+dependencies = [
+ "hid",
 ]
 
 [[package]]
@@ -2090,6 +2116,10 @@ checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
 dependencies = [
  "plotters-backend",
 ]
+
+[[package]]
+name = "pointer-accel"
+version = "0.1.0"
 
 [[package]]
 name = "policy"
@@ -3195,6 +3225,10 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "touch"
+version = "0.1.0"
 
 [[package]]
 name = "tracing"

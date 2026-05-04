@@ -1,9 +1,9 @@
 # Next Task Preparation (Drift-Free)
 
-## Active execution snapshot (TASK-0252 / RFC-0052)
+## Latest closure snapshot (TASK-0252 / RFC-0052)
 
-- **active task**: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` — `In Progress`.
-- **active contract seed**: `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` — `In Progress`.
+- **completed task**: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` — `Done`.
+- **completed contract seed**: `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` — `Done`.
 - **proof posture**: host-first Soll behavior + `test_reject_*` first; no marker-only closure in 0252.
 - **scope split locked**:
   - 0252 = host core libraries/tests,
@@ -90,9 +90,9 @@
 - Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
 - Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
 
-## Active task prep prompt (TASK-0252)
+## Next task prep prompt (TASK-0253)
 
-- Active queue head is `TASK-0252` (input v1.0a host HID/touch/keymaps/repeat/accel core).
+- Next queue head is `TASK-0253` (input v1.0b OS/QEMU hidrawd/touchd/inputd/IME hooks + selftests).
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
 - `TASK-0056B` and `RFC-0051` are `Done` and locked as deterministic visible-input carry-in.
@@ -104,10 +104,22 @@
   - `selftest-client` compile/test check is green (`cargo test -p selftest-client -- --nocapture`),
   - visible-bootstrap 56B QEMU marker proof is green through `SELFTEST: ui visible input ok` (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`),
   - touched docs/task/RFC/status/handoff notes are synced to partial-closure reality.
-- Immediate follow-up after 56B:
-  - `TASK-0252` host input core,
+- Immediate follow-up after 0252 closure:
   - `TASK-0253` OS/QEMU `inputd`/HID pipeline for live pointer/keyboard,
   - `TASK-0056C` responsiveness after the live path exists.
+- 0252 closure checkpoint:
+  - new crates: `userspace/hid`, `userspace/touch`, `userspace/keymaps`, `userspace/key-repeat`, `userspace/pointer-accel`,
+  - new proof package: `tests/input_v1_0_host`,
+  - primary host proof is green: `cargo test -p input_v1_0_host -- --nocapture`,
+  - host diagnostics are green: `just diag-host`,
+  - fmt/clippy/deny gate is green: `scripts/fmt-clippy-deny.sh`.
+- User execution preference for the current slice:
+  - do not auto-run `just test-all`, `just ci-network`, or `make clean/build/test/run`;
+    only run them when explicitly requested.
+- Explicit reruns requested by the user are green:
+  - `just test-all`,
+  - `just ci-network`,
+  - `make clean` -> `make build` -> `make test` -> `make run`.
 - Closure gates for `TASK-0056B` are complete: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 
 ## Fast-lane uplift checkpoint

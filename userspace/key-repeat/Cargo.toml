@@ -1,0 +1,9 @@
+[package]
+name = "key-repeat"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "key_repeat"
+path = "src/lib.rs"

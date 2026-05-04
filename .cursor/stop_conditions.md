@@ -338,6 +338,24 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] no success-marker closure is claimed for 0252,
   - [ ] closure evidence is test assertions and deterministic reject behavior only.
 
+## Active progress snapshot (TASK-0252 host core done, 2026-05-04)
+- [x] Host-first crates exist under `userspace/hid/`, `userspace/touch/`, `userspace/keymaps/`,
+  `userspace/key-repeat/`, and `userspace/pointer-accel/`.
+- [x] `tests/input_v1_0_host/` exists with Soll vectors and `test_reject_*` coverage for HID,
+  touch, repeat, and accel behavior.
+- [x] Primary host proof floor is green:
+  - [x] `cargo test -p input_v1_0_host -- --nocapture`
+  - [x] `just diag-host`
+  - [x] `scripts/fmt-clippy-deny.sh`
+- [x] Scope boundary remains explicit:
+  - [x] no DTB/device wiring or OS/QEMU service integration,
+  - [x] no `nx input` CLI,
+  - [x] no hit-test/focus/routing authority moved out of `windowd`.
+- [x] Broader repo gates were rerun on explicit user request and are green:
+  - [x] `just test-all`
+  - [x] `just ci-network`
+  - [x] `make clean`, `make build`, `make test`, `make run`
+
 ## Active progress snapshot (TASK-0055B done, 2026-04-29)
 - [x] `TASK-0055B` is synchronized to `Done`.
 - [x] `RFC-0048` is synchronized to `Done`.
