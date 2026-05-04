@@ -143,6 +143,27 @@ This is the anti-fake-success gate.
 - [x] `just ci-network` is green (rerun on explicit user request).
 - [x] `make clean` -> `make build` -> `make test` -> `make run` is green (rerun on explicit user request).
 
+## Task-0253 automatic addendum (when applicable)
+- [ ] `cargo test -p hidrawd -- --nocapture` is green for bounded HID raw ingest behavior.
+- [ ] `cargo test -p touchd -- --nocapture` is green for bounded touch ingest behavior.
+- [ ] `cargo test -p inputd -- --nocapture` is green for routing/normalization behavior.
+- [ ] Required `test_reject_*` suites are green:
+  - [ ] malformed/truncated/oversized HID report rejects,
+  - [ ] malformed/out-of-order touch event rejects,
+  - [ ] stale/unauthorized capability or route rejects,
+  - [ ] bounded queue overflow rejects.
+- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green for live input marker ladder in this slice.
+- [ ] Deterministic marker ladder appears in order and only after real state transitions:
+  - [ ] `hidrawd: ingest ok`
+  - [ ] `touchd: ingest ok`
+  - [ ] `inputd: route ok`
+  - [ ] `windowd: input live ok`
+  - [ ] `SELFTEST: input live ok`
+- [ ] `scripts/fmt-clippy-deny.sh` is green.
+- [ ] `just test-all` is green.
+- [ ] `just ci-network` is green.
+- [ ] `make clean` -> `make build` -> `make test` -> `make run` is green.
+
 ## Manual (agent verifies, then documents proof)
 - [ ] Acceptance Criteria satisfied (task + linked RFC/ADR)
 - [ ] Tests validate the desired behavior (Soll-Zustand), not implementation quirks

@@ -341,6 +341,45 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0253_context
+- Status: `TASK-0253` is `In Progress`; `RFC-0053` is `In Progress` as the active OS/QEMU live-input contract seed.
+- Scope: live OS/QEMU ingestion via `hidrawd` + `touchd` into `inputd`, with bounded routing to existing UI authorities.
+- Proof posture: deterministic marker order plus behavior assertions and `test_reject_*`; no marker-only closure.
+- Authority split: RFC-0052 crates remain the only parser/keymap/repeat/accel authority; `windowd` remains hit-test/focus authority.
+- Perf boundary: measurable/bounded behavior in 0253; latency-budget closure remains `TASK-0056C`.
+- `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md`
+- `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
+- `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md`
+- `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/10-security-services.mdc`
+
+### @task_0253_touched
+- `source/services/hidrawd/`
+- `source/services/touchd/`
+- `source/services/inputd/`
+- `source/services/windowd/`
+- `source/services/windowd/idl/input.capnp`
+- `source/services/ime/`
+- `source/services/systemui/`
+- `source/services/settingsd/`
+- `tools/nx/`
+- `source/apps/selftest-client/`
+- `source/apps/selftest-client/proof-manifest/`
+- `tools/postflight-input-v1_0.sh`
+- `docs/dev/ui/input/input.md`
+- `docs/devx/nx-cli.md`
+- `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md`
+- `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
+- `docs/rfcs/README.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0056_touched
 - `source/services/windowd/`
 - `source/services/windowd/idl/`
@@ -990,6 +1029,9 @@ Kontext strikt: @core_context @task_0056_context @quality_gates @task_0056_touch
 
 ## Standard instruction line (TASK-0252)
 Kontext strikt: @core_context @task_0252_context @quality_gates @task_0252_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0253)
+Kontext strikt: @core_context @task_0253_context @quality_gates @task_0253_touched. Kein @codebase Scan.
 
 ## Standard instruction line (DSoftBus production closure)
 Kontext strikt: @core_context @dsoftbus_production_closure_context @quality_gates @task_0020_touched. Kein @codebase Scan.

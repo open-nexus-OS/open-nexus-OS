@@ -338,6 +338,46 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] no success-marker closure is claimed for 0252,
   - [ ] closure evidence is test assertions and deterministic reject behavior only.
 
+## TASK-0253 class stop conditions (Input v1.0b OS/QEMU live input integration)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0253` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0053` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` entry matches RFC reality.
+- [ ] Scope honesty is preserved:
+  - [ ] in scope: `hidrawd` + `touchd` + `inputd`, bounded hooks into `windowd`/SystemUI/IME, and deterministic selftests/markers,
+  - [ ] out of scope: perf-budget closure (`TASK-0056C`), full IME/OSK behavior (`TASK-0146`/`TASK-0147`), and kernel redesign.
+- [ ] Authority split is preserved:
+  - [ ] parser/keymap/repeat/accel behavior stays in 0252 host crates (no duplicate logic in daemons),
+  - [ ] `windowd` remains hit-test/hover/focus/click authority.
+- [ ] Behavior-first proof floor is green:
+  - [ ] service-level host/unit tests for `hidrawd`, `touchd`, and `inputd` are green,
+  - [ ] deterministic OS marker ladder proves live ingestion/routing only after real transitions,
+  - [ ] required `test_reject_*` suites are green for malformed/stale/unauthorized/overflow paths.
+- [ ] Security and fail-closed discipline is green:
+  - [ ] malformed/truncated/oversized HID/touch payloads reject before unsafe propagation,
+  - [ ] stale/unauthorized route injections reject,
+  - [ ] bounded queue limits enforce deterministic overflow reject behavior.
+- [ ] Rust quality floor is enforced:
+  - [ ] newtypes protect ambiguous IDs/codes/ranges where relevant,
+  - [ ] ownership boundaries are explicit across ingest and routing seams,
+  - [ ] `#[must_use]` is applied to decision-bearing outcomes where sensible,
+  - [ ] no unsafe `Send`/`Sync` shortcut traits.
+- [ ] Quality-gate floor is green before Done:
+  - [ ] `scripts/fmt-clippy-deny.sh`,
+  - [ ] `just test-all`,
+  - [ ] `just ci-network`,
+  - [ ] `make clean`, `make build`, `make test`, `make run`.
+- [ ] Marker honesty is preserved:
+  - [ ] no marker-only closure claims,
+  - [ ] marker semantics are paired with deterministic assertions and cannot be emitted by stubs.
+
+## Active progress snapshot (TASK-0253 prep, 2026-05-04)
+- [x] `TASK-0252` / `RFC-0052` are synchronized to `Done` as carry-in authority.
+- [x] `TASK-0253` is active (`In Progress`) and linked to `RFC-0053` (`In Progress`).
+- [x] Header follow-ups and red-flag/perf-boundary notes are synchronized in task/rfc/workfiles.
+- [x] Scope split is explicit: host-core behavior in 0252; OS/QEMU service integration in 0253.
+- [x] `.cursor` workfiles are updated for active 0253 execution posture.
+
 ## Active progress snapshot (TASK-0252 host core done, 2026-05-04)
 - [x] Host-first crates exist under `userspace/hid/`, `userspace/touch/`, `userspace/keymaps/`,
   `userspace/key-repeat/`, and `userspace/pointer-accel/`.

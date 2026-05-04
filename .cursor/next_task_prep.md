@@ -1,5 +1,18 @@
 # Next Task Preparation (Drift-Free)
 
+## Active execution snapshot (TASK-0253 / RFC-0053)
+
+- **active task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Progress`.
+- **active contract seed**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `In Progress`.
+- **carry-in closed**: `TASK-0252` / `RFC-0052` are `Done` and remain the only host-core input authority.
+- **proof posture**: deterministic marker ladder + assertion-backed behavior proofs + `test_reject_*`; marker-only closure is forbidden.
+- **scope split locked**:
+  - 0253 = OS/QEMU ingestion/services and integration hooks,
+  - 0252 = parser/keymap/repeat/accel host core behavior.
+- **perf boundary honesty**:
+  - 0253 must enforce bounded/deterministic handling,
+  - perf/latency closure remains in `TASK-0056C`.
+
 ## Latest closure snapshot (TASK-0252 / RFC-0052)
 
 - **completed task**: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` — `Done`.
@@ -90,9 +103,10 @@
 - Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
 - Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
 
-## Next task prep prompt (TASK-0253)
+## Active task prep prompt (TASK-0253)
 
 - Next queue head is `TASK-0253` (input v1.0b OS/QEMU hidrawd/touchd/inputd/IME hooks + selftests).
+- Active contract seed is `RFC-0053` and must stay synced with task-scope decisions.
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
 - `TASK-0056B` and `RFC-0051` are `Done` and locked as deterministic visible-input carry-in.

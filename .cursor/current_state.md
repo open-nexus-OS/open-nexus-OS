@@ -20,6 +20,8 @@
 - **completed_contract**: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` — `Done`
+- **active_task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Progress`
+- **active_contract_seed**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `In Progress`
 - **active_contract_carry_in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (visible bootstrap baseline)
 - **completed_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`
@@ -27,7 +29,7 @@
 - **completed_contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
-- **next_queue_head**: `TASK-0253` remains the immediate follow-up for live QEMU pointer/keyboard ingestion and marker closure.
+- **next_queue_head**: `TASK-0253` is active; next closure target is live QEMU pointer/keyboard ingestion and marker honesty.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 
@@ -75,6 +77,20 @@
 - Closure gates now green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run`.
 - Scope remains explicit: no `TASK-0252`/`TASK-0253` live input pipeline in 56B, no `TASK-0056C` perf/latency, no `TASK-0199`/`TASK-0200` WM/compositor-v2 breadth, no `TASK-0251` display service integration, and no kernel production-grade claim.
 - Fast-lane uplift after user review: downstream UI/SystemUI tasks now carry an Orbital-Level UX gate using Open Nexus/OHOS/Zircon-style authorities. Before `TASK-0119`/`TASK-0120` can claim desktop/launcher quality, the lane must prove visible greeter/dev-session, live pointer/keyboard basics (`TASK-0252`/`TASK-0253`), text/IME/OSK basics (`TASK-0146`/`TASK-0147` after `TASK-0059`), scroll, launcher/app-window flow, Quick Settings, and SVG-source UI assets without adopting Orbital architecture.
+
+## TASK-0253 execution state
+
+- `TASK-0253` is `In Progress`; `RFC-0053` is `In Progress` as the active OS/QEMU live-input contract seed.
+- Scope posture is service-level live-input ingestion and routing, not host-core algorithm authority:
+  - in-scope: `hidrawd`, `touchd`, `inputd`, bounded `windowd`/SystemUI/IME hook integration, `nx input` diagnostics,
+  - out-of-scope: perf-budget closure (`TASK-0056C`), full IME/OSK behavior (`TASK-0146`/`TASK-0147`), kernel redesign.
+- Authority split is explicit and non-negotiable:
+  - reuse RFC-0052 crates for HID/touch/keymap/repeat/accel behavior,
+  - keep `windowd` as hit-test/hover/focus/click authority.
+- Gate-E alignment for this active slice:
+  - deterministic marker + assertion proof is required,
+  - marker-only closure is forbidden,
+  - quality gates (`fmt-clippy-deny`, `test-all`, `ci-network`, `make clean/build/test/run`) remain required before `Done`.
 
 ## TASK-0252 execution state
 
