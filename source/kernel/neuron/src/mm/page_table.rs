@@ -13,6 +13,7 @@ extern crate alloc;
 use alloc::{boxed::Box, vec, vec::Vec};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use bitflags::bitflags;
 
@@ -20,6 +21,23 @@ use bitflags::bitflags;
 pub const PAGE_SIZE: usize = 4096;
 /// Number of entries per Sv39 page-table page.
 const PT_ENTRIES: usize = 512;
+/// Size of an Sv39 level-1 leaf mapping.
+pub const HUGE_PAGE_SIZE_2M: usize = 2 * 1024 * 1024;
+
+static HEAP_PT_PAGES_LIVE: AtomicUsize = AtomicUsize::new(0);
+static HEAP_PT_PAGES_TOTAL: AtomicUsize = AtomicUsize::new(0);
+static HEAP_PT_PAGES_PEAK: AtomicUsize = AtomicUsize::new(0);
+
+/// Heap-backed page-table allocation counters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PageTableAllocationStats {
+    /// Heap-backed page-table pages currently live.
+    pub heap_live: usize,
+    /// Heap-backed page-table pages ever allocated.
+    pub heap_total: usize,
+    /// Peak heap-backed page-table pages live at one time.
+    pub heap_peak: usize,
+}
 
 bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,7 +76,9 @@ struct PageTablePage {
 
 impl PageTablePage {
     const fn new() -> Self {
-        Self { entries: [0; PT_ENTRIES] }
+        Self {
+            entries: [0; PT_ENTRIES],
+        }
     }
 }
 
@@ -93,18 +113,42 @@ impl PageTable {
             // early bring-up; higher-level code must ensure single use or add a manager.
             let ptr: *mut PageTablePage = core::ptr::addr_of_mut!(PT_STATIC_ROOT);
             let root = NonNull::new_unchecked(ptr);
-            return Self { root, owned: vec![], _not_send_sync: PhantomData };
+            return Self {
+                root,
+                owned: vec![],
+                _not_send_sync: PhantomData,
+            };
         }
         #[cfg(not(feature = "pt_static_root"))]
         {
             let root = Self::alloc_page();
-            Self { root, owned: vec![root], _not_send_sync: PhantomData }
+            Self {
+                root,
+                owned: vec![root],
+                _not_send_sync: PhantomData,
+            }
         }
     }
 
     /// Returns the physical page number of the root page suitable for SATP.
     pub fn root_ppn(&self) -> usize {
         self.root.as_ptr() as usize / PAGE_SIZE
+    }
+
+    /// Returns page-table pages owned by this address space.
+    #[must_use]
+    pub fn allocated_pages(&self) -> usize {
+        self.owned.len()
+    }
+
+    /// Returns global heap-backed page-table allocation counters.
+    #[must_use]
+    pub fn allocation_stats() -> PageTableAllocationStats {
+        PageTableAllocationStats {
+            heap_live: HEAP_PT_PAGES_LIVE.load(Ordering::Relaxed),
+            heap_total: HEAP_PT_PAGES_TOTAL.load(Ordering::Relaxed),
+            heap_peak: HEAP_PT_PAGES_PEAK.load(Ordering::Relaxed),
+        }
     }
 
     /// Looks up the entry mapped at `va` if it exists.
@@ -120,10 +164,10 @@ impl PageTable {
                 return None;
             }
             let is_leaf = entry & LEAF_PERMS.bits() != 0;
-            if level == indices.len() - 1 {
-                return if is_leaf { Some(entry) } else { None };
-            }
             if is_leaf {
+                return Some(entry);
+            }
+            if level == indices.len() - 1 {
                 return None;
             }
             let next = ((entry >> 10) << 12) as *mut PageTablePage;
@@ -233,6 +277,61 @@ impl PageTable {
             table = next;
         }
         Ok(())
+    }
+
+    /// Installs a 2 MiB Sv39 leaf mapping.
+    pub(crate) fn map_2m(
+        &mut self,
+        va: usize,
+        pa: usize,
+        flags: PageFlags,
+    ) -> Result<(), MapError> {
+        if va % HUGE_PAGE_SIZE_2M != 0 || pa % HUGE_PAGE_SIZE_2M != 0 {
+            return Err(MapError::Unaligned);
+        }
+        if !is_canonical_sv39(va) {
+            return Err(MapError::OutOfRange);
+        }
+        if flags.intersection(LEAF_PERMS).is_empty() || !flags.contains(PageFlags::VALID) {
+            return Err(MapError::InvalidFlags);
+        }
+        if flags.contains(PageFlags::WRITE) && flags.contains(PageFlags::EXECUTE) {
+            return Err(MapError::PermissionDenied);
+        }
+
+        let indices = vpn_indices(va);
+        let mut effective_flags = flags | PageFlags::ACCESSED;
+        if flags.contains(PageFlags::WRITE) {
+            effective_flags |= PageFlags::DIRTY;
+        }
+        let mut table = self.root;
+        for (level, index) in indices.iter().enumerate() {
+            let entry = unsafe { &mut (*table.as_ptr()).entries[*index] };
+            if level == 1 {
+                if *entry & PageFlags::VALID.bits() != 0 {
+                    return Err(MapError::Overlap);
+                }
+                let ppn = pa / PAGE_SIZE;
+                *entry = (ppn << 10) | effective_flags.bits();
+                return Ok(());
+            }
+
+            if *entry & PageFlags::VALID.bits() != 0 {
+                if *entry & LEAF_PERMS.bits() != 0 {
+                    return Err(MapError::Overlap);
+                }
+                let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+                table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
+                continue;
+            }
+
+            let next = Self::alloc_page();
+            self.owned.push(next);
+            let ppn = next.as_ptr() as usize / PAGE_SIZE;
+            *entry = (ppn << 10) | PageFlags::VALID.bits();
+            table = next;
+        }
+        Err(MapError::OutOfRange)
     }
 
     /// Updates the leaf flags at `va` by OR-ing with `set`.
@@ -366,20 +465,11 @@ impl PageTable {
                     core::ptr::addr_of_mut!(PT_STATIC_POOL);
                 let first: *mut PageTablePage = base as *mut PageTablePage;
                 let page_ptr: *mut PageTablePage = first.add(idx);
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = write!(u, "PT: pool idx={}\n", idx);
-                }
                 return NonNull::new_unchecked(page_ptr);
             }
         }
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "PT: heap alloc\n");
-        }
         let boxed = Box::new(PageTablePage::new());
+        record_heap_page_alloc();
         unsafe { NonNull::new_unchecked(Box::into_raw(boxed)) }
     }
 
@@ -438,6 +528,7 @@ impl Drop for PageTable {
             for page in self.owned.drain(..) {
                 // SAFETY: every pointer originates from `alloc_page` and is unique.
                 unsafe { drop(Box::from_raw(page.as_ptr())) };
+                record_heap_page_free();
             }
         }
         #[cfg(feature = "bringup_identity")]
@@ -453,12 +544,102 @@ impl Drop for PageTable {
                 }
                 // SAFETY: non-static pointers originate from Box allocations in `alloc_page`.
                 unsafe { drop(Box::from_raw(page.as_ptr())) };
+                record_heap_page_free();
             }
         }
     }
 }
 
-const LEAF_PERMS: PageFlags = PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
+fn record_heap_page_alloc() {
+    let live = HEAP_PT_PAGES_LIVE.fetch_add(1, Ordering::Relaxed) + 1;
+    HEAP_PT_PAGES_TOTAL.fetch_add(1, Ordering::Relaxed);
+    let mut peak = HEAP_PT_PAGES_PEAK.load(Ordering::Relaxed);
+    while live > peak {
+        match HEAP_PT_PAGES_PEAK.compare_exchange_weak(
+            peak,
+            live,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(observed) => peak = observed,
+        }
+    }
+}
+
+fn record_heap_page_free() {
+    HEAP_PT_PAGES_LIVE.fetch_sub(1, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_2m_translates_entire_huge_page() {
+        let mut table = PageTable::new();
+        table
+            .map_2m(
+                HUGE_PAGE_SIZE_2M,
+                HUGE_PAGE_SIZE_2M * 2,
+                PageFlags::VALID | PageFlags::READ,
+            )
+            .expect("2m mapping");
+
+        assert_eq!(
+            table.translate(HUGE_PAGE_SIZE_2M),
+            Some(HUGE_PAGE_SIZE_2M * 2)
+        );
+        assert_eq!(
+            table.translate(HUGE_PAGE_SIZE_2M + PAGE_SIZE),
+            Some(HUGE_PAGE_SIZE_2M * 2 + PAGE_SIZE)
+        );
+        assert_eq!(
+            table.leaf_flags(HUGE_PAGE_SIZE_2M).expect("leaf flags"),
+            PageFlags::VALID | PageFlags::READ | PageFlags::ACCESSED
+        );
+    }
+
+    #[test]
+    fn map_2m_rejects_unaligned_or_wx_mappings() {
+        let mut table = PageTable::new();
+        assert_eq!(
+            table.map_2m(PAGE_SIZE, 0, PageFlags::VALID | PageFlags::READ),
+            Err(MapError::Unaligned)
+        );
+        assert_eq!(
+            table.map_2m(
+                0,
+                0,
+                PageFlags::VALID | PageFlags::WRITE | PageFlags::EXECUTE
+            ),
+            Err(MapError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn allocation_stats_track_owned_page_lifetime() {
+        let before = PageTable::allocation_stats();
+        {
+            let mut table = PageTable::new();
+            table
+                .map(0, 0, PageFlags::VALID | PageFlags::READ)
+                .expect("map");
+            let during = PageTable::allocation_stats();
+            assert!(during.heap_live >= before.heap_live + 1);
+            assert!(during.heap_total >= before.heap_total + 1);
+            assert!(during.heap_peak >= during.heap_live);
+            assert!(table.allocated_pages() >= 1);
+        }
+        let after = PageTable::allocation_stats();
+        assert_eq!(after.heap_live, before.heap_live);
+        assert!(after.heap_total >= before.heap_total + 1);
+    }
+}
+
+const LEAF_PERMS: PageFlags = PageFlags::READ
+    .union(PageFlags::WRITE)
+    .union(PageFlags::EXECUTE);
 
 fn vpn_indices(va: usize) -> [usize; 3] {
     let vpn0 = (va >> 12) & 0x1ff;

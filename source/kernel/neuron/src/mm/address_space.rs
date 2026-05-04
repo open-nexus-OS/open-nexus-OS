@@ -13,17 +13,39 @@ extern crate alloc;
 use alloc::{collections::BTreeSet, vec::Vec};
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::types::{Asid, Pid};
 
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use super::page_table::PAGE_SIZE;
 use super::page_table::{MapError, PageFlags, PageTable};
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use super::page_table::{HUGE_PAGE_SIZE_2M, PAGE_SIZE};
 
 /// Maximum ASIDs made available by the allocator.
 const MAX_ASIDS: usize = 256;
 const WORD_BITS: usize = core::mem::size_of::<u64>() * 8;
 const BITMAP_WORDS: usize = (MAX_ASIDS + WORD_BITS - 1) / WORD_BITS;
+
+static ADDRESS_SPACES_CREATED: AtomicUsize = AtomicUsize::new(0);
+static ADDRESS_SPACES_DESTROYED: AtomicUsize = AtomicUsize::new(0);
+static ADDRESS_SPACES_LIVE: AtomicUsize = AtomicUsize::new(0);
+static ADDRESS_SPACES_PEAK: AtomicUsize = AtomicUsize::new(0);
+static ADDRESS_SPACE_PT_PAGES_PEAK: AtomicUsize = AtomicUsize::new(0);
+
+/// Address-space lifecycle and page-table pressure counters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AddressSpaceStats {
+    /// Address spaces created since boot.
+    pub created: usize,
+    /// Address spaces destroyed since boot.
+    pub destroyed: usize,
+    /// Address spaces currently live.
+    pub live: usize,
+    /// Peak live address spaces.
+    pub live_peak: usize,
+    /// Largest page-table page count observed for one address space.
+    pub per_space_pt_pages_peak: usize,
+}
 
 /// Handle referencing a tracked address space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -90,7 +112,12 @@ impl AddressSpace {
     fn new(asid: Asid) -> Result<Self, MapError> {
         let mut page_table = PageTable::new();
         map_kernel_segments(&mut page_table)?;
-        Ok(Self { page_table, asid, owners: BTreeSet::new(), _not_send_sync: PhantomData })
+        Ok(Self {
+            page_table,
+            asid,
+            owners: BTreeSet::new(),
+            _not_send_sync: PhantomData,
+        })
     }
 
     /// Returns the hardware ASID backing this address space.
@@ -110,6 +137,12 @@ impl AddressSpace {
         let asid = (self.asid.as_raw() as usize) << 44;
         let ppn = self.page_table.root_ppn();
         mode | asid | ppn
+    }
+
+    /// Returns page-table pages owned by this address space.
+    #[must_use]
+    pub fn page_table_pages(&self) -> usize {
+        self.page_table.allocated_pages()
     }
 
     fn page_table_mut(&mut self) -> &mut PageTable {
@@ -141,14 +174,20 @@ static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let mgr =
-            Self { spaces: Vec::new(), asids: AsidAllocator::new(), _not_send_sync: PhantomData };
+        let mgr = Self {
+            spaces: Vec::new(),
+            asids: AsidAllocator::new(),
+            _not_send_sync: PhantomData,
+        };
         mgr
     }
 
     /// Allocates a fresh address space and returns its handle.
     pub fn create(&mut self) -> Result<AsHandle, AddressSpaceError> {
-        let asid = self.asids.allocate().ok_or(AddressSpaceError::AsidExhausted)?;
+        let asid = self
+            .asids
+            .allocate()
+            .ok_or(AddressSpaceError::AsidExhausted)?;
         let space = match AddressSpace::new(asid) {
             Ok(space) => space,
             Err(err) => {
@@ -156,6 +195,8 @@ impl AddressSpaceManager {
                 return Err(AddressSpaceError::from(err));
             }
         };
+        let pt_pages = space.page_table_pages();
+        record_address_space_create(pt_pages);
         for (index, slot) in self.spaces.iter_mut().enumerate() {
             if slot.is_none() {
                 *slot = Some(space);
@@ -164,6 +205,18 @@ impl AddressSpaceManager {
         }
         self.spaces.push(Some(space));
         Ok(AsHandle::from_index(self.spaces.len() - 1))
+    }
+
+    /// Returns address-space lifecycle counters.
+    #[must_use]
+    pub fn stats(&self) -> AddressSpaceStats {
+        AddressSpaceStats {
+            created: ADDRESS_SPACES_CREATED.load(Ordering::Relaxed),
+            destroyed: ADDRESS_SPACES_DESTROYED.load(Ordering::Relaxed),
+            live: ADDRESS_SPACES_LIVE.load(Ordering::Relaxed),
+            live_peak: ADDRESS_SPACES_PEAK.load(Ordering::Relaxed),
+            per_space_pt_pages_peak: ADDRESS_SPACE_PT_PAGES_PEAK.load(Ordering::Relaxed),
+        }
     }
 
     /// Returns a shared reference to the address space identified by `handle`.
@@ -188,12 +241,20 @@ impl AddressSpaceManager {
         let space = self.get(handle)?;
         #[cfg(feature = "selftest_no_satp")]
         let _ = &space; // silence unused when SATP switching is disabled
-        #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
+        #[cfg(all(
+            target_arch = "riscv64",
+            target_os = "none",
+            not(feature = "selftest_no_satp")
+        ))]
         {
             // CRITICAL: Separate function to ensure all logs/temporaries drop BEFORE AS switch
             do_preflight_checks_and_switch(space.satp_value());
         }
-        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_no_satp"))]
+        #[cfg(all(
+            target_arch = "riscv64",
+            target_os = "none",
+            feature = "selftest_no_satp"
+        ))]
         {
             // Skip SATP switch for bring-up; emit post-switch marker directly
             fence_i();
@@ -220,7 +281,10 @@ impl AddressSpaceManager {
         set: PageFlags,
     ) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
-        space.page_table_mut().set_leaf_flags(va, set).map_err(AddressSpaceError::from)
+        space
+            .page_table_mut()
+            .set_leaf_flags(va, set)
+            .map_err(AddressSpaceError::from)
     }
 
     #[cfg(all(
@@ -253,7 +317,10 @@ impl AddressSpaceManager {
     /// Destroys an address space once no task references remain.
     #[must_use]
     pub fn destroy(&mut self, handle: AsHandle) -> Result<(), AddressSpaceError> {
-        let slot = self.spaces.get_mut(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
+        let slot = self
+            .spaces
+            .get_mut(handle.index())
+            .ok_or(AddressSpaceError::InvalidHandle)?;
         let asid = match slot.as_ref() {
             None => return Err(AddressSpaceError::InvalidHandle),
             Some(space) if space.refcount() != 0 => return Err(AddressSpaceError::InUse),
@@ -261,6 +328,7 @@ impl AddressSpaceManager {
         };
         *slot = None;
         self.asids.free(asid);
+        record_address_space_destroy();
         Ok(())
     }
 
@@ -274,7 +342,10 @@ impl AddressSpaceManager {
         flags: PageFlags,
     ) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
-        let res = space.page_table_mut().map(va, pa, flags).map_err(AddressSpaceError::from);
+        let res = space
+            .page_table_mut()
+            .map(va, pa, flags)
+            .map_err(AddressSpaceError::from);
         // Ensure kernel text/UART pages are marked GLOBAL to remain visible across ASIDs
         if res.is_ok() {
             if va >= 0x8000_0000 && va < 0x8100_0000 {
@@ -299,6 +370,28 @@ impl AddressSpaceManager {
             }
         }
         res
+    }
+}
+
+fn record_address_space_create(page_table_pages: usize) {
+    ADDRESS_SPACES_CREATED.fetch_add(1, Ordering::Relaxed);
+    let live = ADDRESS_SPACES_LIVE.fetch_add(1, Ordering::Relaxed) + 1;
+    update_peak(&ADDRESS_SPACES_PEAK, live);
+    update_peak(&ADDRESS_SPACE_PT_PAGES_PEAK, page_table_pages);
+}
+
+fn record_address_space_destroy() {
+    ADDRESS_SPACES_DESTROYED.fetch_add(1, Ordering::Relaxed);
+    ADDRESS_SPACES_LIVE.fetch_sub(1, Ordering::Relaxed);
+}
+
+fn update_peak(counter: &AtomicUsize, value: usize) {
+    let mut current = counter.load(Ordering::Relaxed);
+    while value > current {
+        match counter.compare_exchange_weak(current, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(observed) => current = observed,
+        }
     }
 }
 
@@ -404,7 +497,9 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         return Err(MapError::OutOfRange);
     }
     let guard_bytes = kernel_stack_guard_bytes();
-    let mapped_start = stack_start.checked_add(guard_bytes).ok_or(MapError::OutOfRange)?;
+    let mapped_start = stack_start
+        .checked_add(guard_bytes)
+        .ok_or(MapError::OutOfRange)?;
     // DATA/BSS identity range may already cover the low portion of the stack; avoid remapping.
     let map_from = core::cmp::max(mapped_start, data_end);
     log_info!(
@@ -535,7 +630,9 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
 
     // Identity-map the per-service VMO arena at the fixed base used by VMO_POOL.
     let vmo_base = align_up(super::USER_VMO_ARENA_BASE);
-    let vmo_end = vmo_base.checked_add(super::USER_VMO_ARENA_LEN).ok_or(MapError::OutOfRange)?;
+    let vmo_end = vmo_base
+        .checked_add(super::USER_VMO_ARENA_LEN)
+        .ok_or(MapError::OutOfRange)?;
     if let Err(e) = map_identity_range(
         table,
         vmo_base,
@@ -588,8 +685,16 @@ fn map_identity_range(
     }
     let mut addr = start;
     while addr < end {
-        table.map(addr, addr, flags)?;
-        addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
+        let remaining = end.checked_sub(addr).ok_or(MapError::OutOfRange)?;
+        if addr % HUGE_PAGE_SIZE_2M == 0 && remaining >= HUGE_PAGE_SIZE_2M {
+            table.map_2m(addr, addr, flags)?;
+            addr = addr
+                .checked_add(HUGE_PAGE_SIZE_2M)
+                .ok_or(MapError::OutOfRange)?;
+        } else {
+            table.map(addr, addr, flags)?;
+            addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
+        }
     }
     Ok(())
 }
@@ -623,7 +728,8 @@ fn align_up(addr: usize) -> usize {
     if rem == 0 {
         addr
     } else {
-        addr.checked_add(PAGE_SIZE - rem).unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
+        addr.checked_add(PAGE_SIZE - rem)
+            .unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
     }
 }
 
@@ -638,7 +744,11 @@ fn fence_i() {
 #[allow(dead_code)]
 fn fence_i() {}
 
-#[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
+#[cfg(all(
+    target_arch = "riscv64",
+    target_os = "none",
+    not(feature = "selftest_no_satp")
+))]
 #[inline(never)]
 fn do_preflight_checks_and_switch(satp_val: usize) {
     const LOG_LIMIT: usize = 16;
@@ -719,7 +829,7 @@ fn ensure_rx_guard() {
 #[allow(dead_code)]
 fn ensure_rx_guard() {}
 
-#[cfg(all(test, target_arch = "riscv64", target_os = "none"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -732,6 +842,37 @@ mod tests {
             let asid = manager.get(handle).unwrap().asid();
             assert!(seen.insert(asid));
         }
-        assert_eq!(manager.create().unwrap_err(), AddressSpaceError::AsidExhausted);
+        assert_eq!(
+            manager.create().unwrap_err(),
+            AddressSpaceError::AsidExhausted
+        );
+    }
+
+    #[test]
+    fn destroy_reclaims_address_space_and_updates_stats() {
+        let mut manager = AddressSpaceManager::new();
+        let before = manager.stats();
+        let handle = manager.create().expect("create address space");
+        let created = manager.stats();
+        assert_eq!(created.live, before.live + 1);
+        assert!(created.created >= before.created + 1);
+        assert!(created.per_space_pt_pages_peak >= manager.get(handle).unwrap().page_table_pages());
+
+        manager.destroy(handle).expect("destroy address space");
+        let after = manager.stats();
+        assert_eq!(after.live, before.live);
+        assert!(after.destroyed >= before.destroyed + 1);
+        assert_eq!(manager.get(handle), Err(AddressSpaceError::InvalidHandle));
+    }
+
+    #[test]
+    fn destroy_rejects_address_space_with_owner() {
+        let mut manager = AddressSpaceManager::new();
+        let handle = manager.create().expect("create address space");
+        let pid = Pid::from_raw(42);
+        manager.attach(handle, pid).expect("attach owner");
+        assert_eq!(manager.destroy(handle), Err(AddressSpaceError::InUse));
+        manager.detach(handle, pid).expect("detach owner");
+        manager.destroy(handle).expect("destroy after detach");
     }
 }

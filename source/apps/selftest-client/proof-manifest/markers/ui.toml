@@ -160,6 +160,10 @@ proves = "selftest observed windowd v2a focus and input delivery evidence"
 phase = "end"
 proves = "windowd visible-input path was activated after routed pointer/focus/click state changed"
 
+[marker."windowd: full-window color visible"]
+phase = "end"
+proves = "windowd rendered a full-window colored visible-input proof scene, not a partial placeholder surface"
+
 [marker."windowd: cursor move visible"]
 phase = "end"
 proves = "windowd rendered deterministic cursor pixels after a routed pointer move"
@@ -174,8 +178,12 @@ proves = "windowd rendered deterministic focus affordance after click-driven foc
 
 [marker."launcher: click visible ok"]
 phase = "end"
-proves = "launcher proof surface visibly changed state after a routed click delivery"
+proves = "bottom-left proof square visibly changed state after a routed click delivery"
+
+[marker."windowd: keyboard visible"]
+phase = "end"
+proves = "right-side proof square visibly changed state after routed keyboard delivery"
 
 [marker."SELFTEST: ui visible input ok"]
 phase = "end"
-proves = "selftest observed cursor, hover, focus, and click-visible evidence from windowd authority"
+proves = "selftest observed full-window, cursor, hover, focus, click, and keyboard-visible evidence from windowd authority"

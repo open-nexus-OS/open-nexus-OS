@@ -10,23 +10,31 @@
 
 extern crate alloc;
 
+use alloc::vec::Vec;
 use nexus_abi::{
     cap_query, mmio_map, nsec, page_flags, vmo_create, vmo_map_page, vmo_write, yield_, CapQuery,
     Handle,
 };
-use alloc::vec::Vec;
 
 const VISIBLE_INPUT_PROOF_WIDTH: u32 = 64;
 const VISIBLE_INPUT_PROOF_HEIGHT: u32 = 48;
-const VISIBLE_INPUT_SURFACE_X: i32 = 8;
-const VISIBLE_INPUT_SURFACE_Y: i32 = 8;
-const VISIBLE_INPUT_SURFACE_WIDTH: u32 = 32;
-const VISIBLE_INPUT_SURFACE_HEIGHT: u32 = 24;
-const VISIBLE_INPUT_CURSOR_START_X: i32 = 12;
+const VISIBLE_INPUT_SURFACE_X: i32 = 0;
+const VISIBLE_INPUT_SURFACE_Y: i32 = 0;
+const VISIBLE_INPUT_SURFACE_WIDTH: u32 = VISIBLE_INPUT_PROOF_WIDTH;
+const VISIBLE_INPUT_SURFACE_HEIGHT: u32 = VISIBLE_INPUT_PROOF_HEIGHT;
+const VISIBLE_INPUT_CURSOR_START_X: i32 = 24;
 const VISIBLE_INPUT_CURSOR_START_Y: i32 = 12;
-const VISIBLE_INPUT_CURSOR_END_X: i32 = 36;
-const VISIBLE_INPUT_CURSOR_END_Y: i32 = 28;
-const VISIBLE_INPUT_INITIAL_BGRA: [u8; 4] = [0x20, 0x80, 0xf0, 0xff];
+const VISIBLE_INPUT_CURSOR_END_X: i32 = 8;
+const VISIBLE_INPUT_CURSOR_END_Y: i32 = 40;
+const VISIBLE_INPUT_LEFT_SQUARE_X: u32 = 4;
+const VISIBLE_INPUT_LEFT_SQUARE_Y: u32 = 36;
+const VISIBLE_INPUT_RIGHT_SQUARE_X: u32 = 52;
+const VISIBLE_INPUT_RIGHT_SQUARE_Y: u32 = 18;
+const VISIBLE_INPUT_SQUARE_SIZE: u32 = 8;
+const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
+const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
+const VISIBLE_INPUT_LEFT_HOVER_BGRA: [u8; 4] = [0x20, 0xd0, 0xf8, 0xff];
+const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
 const LIVE_INPUT_REPEAT_CODE: u32 = 0x04;
 const LIVE_INPUT_TOUCH_BOUNDS: u32 = 128;
 
@@ -100,7 +108,10 @@ pub(crate) fn run() -> Option<BootstrapEvidence> {
 pub(crate) fn run_result() -> Result<BootstrapEvidence, BootstrapFailure> {
     let evidence =
         windowd::run_visible_systemui_smoke().map_err(|_| BootstrapFailure::WindowdEvidence)?;
-    let mode = evidence.mode.validate().map_err(|_| BootstrapFailure::InvalidMode)?;
+    let mode = evidence
+        .mode
+        .validate()
+        .map_err(|_| BootstrapFailure::InvalidMode)?;
     let fb_len = mode.byte_len().map_err(|_| BootstrapFailure::InvalidMode)?;
     let framebuffer = vmo_create(fb_len).map_err(|_| BootstrapFailure::FramebufferVmo)?;
     let fb_query = query_cap(framebuffer).ok_or(BootstrapFailure::InvalidFramebufferCap)?;
@@ -108,7 +119,11 @@ pub(crate) fn run_result() -> Result<BootstrapEvidence, BootstrapFailure> {
         return Err(BootstrapFailure::InvalidFramebufferCap);
     }
 
-    let cap = windowd::VisibleDisplayCapability { byte_len: fb_len, mapped: true, writable: true };
+    let cap = windowd::VisibleDisplayCapability {
+        byte_len: fb_len,
+        mapped: true,
+        writable: true,
+    };
     windowd::validate_visible_bootstrap_capability(mode, cap)
         .map_err(|_| BootstrapFailure::InvalidDisplayCapability)?;
     write_windowd_composed_rows(framebuffer, mode, &evidence)?;
@@ -125,7 +140,13 @@ pub(crate) fn run_result() -> Result<BootstrapEvidence, BootstrapFailure> {
     settle_visible_display();
     write_windowd_visible_input_rows(framebuffer, mode, &visible_input)?;
     settle_visible_display();
-    Ok(BootstrapEvidence { systemui, visible_input, live_input })
+    write_windowd_visible_keyboard_rows(framebuffer, mode, &visible_input)?;
+    settle_visible_display();
+    Ok(BootstrapEvidence {
+        systemui,
+        visible_input,
+        live_input,
+    })
 }
 
 fn run_live_visible_input_proof(
@@ -137,16 +158,15 @@ fn run_live_visible_input_proof(
         hz: 60,
     })
     .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let initial = windowd::SurfaceBuffer::solid(
+    let initial = visible_input_scene_surface(
         launcher,
         50,
-        VISIBLE_INPUT_SURFACE_WIDTH,
-        VISIBLE_INPUT_SURFACE_HEIGHT,
-        VISIBLE_INPUT_INITIAL_BGRA,
-    )
-    .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let surface =
-        server.create_surface(launcher, initial.clone()).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+        VISIBLE_INPUT_LEFT_IDLE_BGRA,
+        VISIBLE_INPUT_RIGHT_IDLE_BGRA,
+    )?;
+    let surface = server
+        .create_surface(launcher, initial.clone())
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     server
         .queue_buffer(
             launcher,
@@ -172,7 +192,9 @@ fn run_live_visible_input_proof(
             }],
         )
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let _ = server.present_tick().map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let _ = server
+        .present_tick()
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
 
     let mut hid_service = hidrawd::HidrawdService::new();
     let keyboard_id = hidrawd::DeviceId::new(7);
@@ -182,23 +204,29 @@ fn run_live_visible_input_proof(
 
     let bounds = touch::TouchBounds::new(LIVE_INPUT_TOUCH_BOUNDS, LIVE_INPUT_TOUCH_BOUNDS)
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let mut touch_service = touchd::TouchdService::new(bounds, touchd::SyntheticTouchMode::ProofFixture);
+    let mut touch_service =
+        touchd::TouchdService::new(bounds, touchd::SyntheticTouchMode::ProofFixture);
     touch_service.register_device(touchd::TouchDeviceId::new(9));
 
     let config = inputd::InputdConfig::new("de", 100, 10, 64, 1, 1, 96, 32, 0, 0)
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let mut input_service =
-        inputd::InputdService::new(server, config).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let mut input_service = inputd::InputdService::new(server, config)
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
 
     let start_batch = hid_service
         .ingest_mouse_report(
             mouse_id,
             hid::TimestampNs::new(1),
-            &[0, VISIBLE_INPUT_CURSOR_START_X as u8, VISIBLE_INPUT_CURSOR_START_Y as u8],
+            &[
+                0,
+                VISIBLE_INPUT_CURSOR_START_X as u8,
+                VISIBLE_INPUT_CURSOR_START_Y as u8,
+            ],
         )
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let start_dispatches =
-        input_service.apply_hid_batch(&start_batch).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let start_dispatches = input_service
+        .apply_hid_batch(&start_batch)
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let cursor_start_position = input_service
         .router()
         .pointer_position()
@@ -209,7 +237,11 @@ fn run_live_visible_input_proof(
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let cursor_start_visible = matches!(
         start_dispatches.as_slice(),
-        [inputd::InputDispatch::PointerMove { x: VISIBLE_INPUT_CURSOR_START_X, y: VISIBLE_INPUT_CURSOR_START_Y, .. }]
+        [inputd::InputDispatch::PointerMove {
+            x: VISIBLE_INPUT_CURSOR_START_X,
+            y: VISIBLE_INPUT_CURSOR_START_Y,
+            ..
+        }]
     ) && pixel_eq(
         &cursor_frame,
         cursor_start_position.x,
@@ -228,11 +260,46 @@ fn run_live_visible_input_proof(
             ],
         )
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let move_dispatches =
-        input_service.apply_hid_batch(&move_batch).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let move_dispatches = input_service
+        .apply_hid_batch(&move_batch)
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let cursor_position = input_service
         .router()
         .pointer_position()
+        .ok_or(BootstrapFailure::VisibleInputEvidence)?;
+    let hover_surface = visible_input_scene_surface(
+        launcher,
+        51,
+        VISIBLE_INPUT_LEFT_HOVER_BGRA,
+        VISIBLE_INPUT_RIGHT_IDLE_BGRA,
+    )?;
+    input_service
+        .router_mut()
+        .acquire_back_buffer(
+            launcher,
+            surface,
+            windowd::FrameIndex::new(1),
+            hover_surface,
+        )
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    input_service
+        .router_mut()
+        .present_frame(
+            launcher,
+            surface,
+            windowd::FrameIndex::new(1),
+            &[windowd::Rect::new(
+                0,
+                0,
+                VISIBLE_INPUT_SURFACE_WIDTH,
+                VISIBLE_INPUT_SURFACE_HEIGHT,
+            )],
+        )
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let _ = input_service
+        .router_mut()
+        .present_scheduler_tick()
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?
         .ok_or(BootstrapFailure::VisibleInputEvidence)?;
     let hover_frame = input_service
         .router_mut()
@@ -241,7 +308,11 @@ fn run_live_visible_input_proof(
     let cursor_move_visible = cursor_start_visible
         && matches!(
             move_dispatches.as_slice(),
-            [inputd::InputDispatch::PointerMove { x: VISIBLE_INPUT_CURSOR_END_X, y: VISIBLE_INPUT_CURSOR_END_Y, .. }]
+            [inputd::InputDispatch::PointerMove {
+                x: VISIBLE_INPUT_CURSOR_END_X,
+                y: VISIBLE_INPUT_CURSOR_END_Y,
+                ..
+            }]
         )
         && cursor_position != cursor_start_position
         && pixel_eq(
@@ -253,27 +324,34 @@ fn run_live_visible_input_proof(
     let hover_visible = input_service.router().last_pointer_hit() == Some(surface)
         && pixel_eq(
             &hover_frame,
-            VISIBLE_INPUT_SURFACE_X,
-            VISIBLE_INPUT_SURFACE_Y,
-            windowd::VISIBLE_HOVER_BGRA,
+            VISIBLE_INPUT_LEFT_SQUARE_X as i32 + 1,
+            VISIBLE_INPUT_LEFT_SQUARE_Y as i32 + 1,
+            VISIBLE_INPUT_LEFT_HOVER_BGRA,
         )?;
 
     let down_batch = hid_service
         .ingest_mouse_report(mouse_id, hid::TimestampNs::new(3), &[0b001, 0, 0])
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let down_dispatches =
-        input_service.apply_hid_batch(&down_batch).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let down_dispatches = input_service
+        .apply_hid_batch(&down_batch)
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let delivered = input_service
         .router_mut()
         .take_input_events(launcher, surface)
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let routed_click = matches!(
         down_dispatches.as_slice(),
-        [inputd::InputDispatch::PointerDown { x: VISIBLE_INPUT_CURSOR_END_X, y: VISIBLE_INPUT_CURSOR_END_Y, .. }]
+        [inputd::InputDispatch::PointerDown {
+            x: VISIBLE_INPUT_CURSOR_END_X,
+            y: VISIBLE_INPUT_CURSOR_END_Y,
+            ..
+        }]
     ) && delivered
         .iter()
         .any(|event| matches!(event.kind, windowd::InputEventKind::PointerMove { .. }))
-        && delivered.iter().any(|event| event.kind == windowd::InputEventKind::PointerDown);
+        && delivered
+            .iter()
+            .any(|event| event.kind == windowd::InputEventKind::PointerDown);
     if !routed_click {
         return Err(BootstrapFailure::VisibleInputEvidence);
     }
@@ -290,24 +368,22 @@ fn run_live_visible_input_proof(
         && ime_service.visible()
         && ime_overlay.visible();
 
-    let highlighted = windowd::SurfaceBuffer::solid(
+    let highlighted = visible_input_scene_surface(
         launcher,
-        51,
-        VISIBLE_INPUT_SURFACE_WIDTH,
-        VISIBLE_INPUT_SURFACE_HEIGHT,
+        52,
         windowd::VISIBLE_INPUT_CLICK_BGRA,
-    )
-    .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+        VISIBLE_INPUT_RIGHT_IDLE_BGRA,
+    )?;
     input_service
         .router_mut()
-        .acquire_back_buffer(launcher, surface, windowd::FrameIndex::new(1), highlighted)
+        .acquire_back_buffer(launcher, surface, windowd::FrameIndex::new(2), highlighted)
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     input_service
         .router_mut()
         .present_frame(
             launcher,
             surface,
-            windowd::FrameIndex::new(1),
+            windowd::FrameIndex::new(2),
             &[windowd::Rect::new(
                 0,
                 0,
@@ -333,8 +409,12 @@ fn run_live_visible_input_proof(
             VISIBLE_INPUT_SURFACE_Y,
             windowd::VISIBLE_FOCUS_BGRA,
         )?;
-    let launcher_click_visible =
-        pixel_eq(&visible_frame, 24, 18, windowd::VISIBLE_INPUT_CLICK_BGRA)?;
+    let launcher_click_visible = pixel_eq(
+        &visible_frame,
+        VISIBLE_INPUT_LEFT_SQUARE_X as i32 + 1,
+        VISIBLE_INPUT_LEFT_SQUARE_Y as i32 + 1,
+        windowd::VISIBLE_INPUT_CLICK_BGRA,
+    )?;
 
     let keymap_batch = hid_service
         .ingest_keyboard_report(
@@ -343,24 +423,85 @@ fn run_live_visible_input_proof(
             &[0, 0, 0x2f, 0, 0, 0, 0, 0],
         )
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let keymap_dispatches =
-        input_service.apply_hid_batch(&keymap_batch).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let keymap_dispatches = input_service
+        .apply_hid_batch(&keymap_batch)
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let keymap_delivered = input_service
         .router_mut()
         .take_input_events(launcher, surface)
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let keymap_de_ok = matches!(
         keymap_dispatches.as_slice(),
-        [inputd::InputDispatch::Keyboard { output: keymaps::KeyOutput::Text('ü'), repeated: false, .. }]
-    ) && keymap_delivered
-        .iter()
-        .any(|event| matches!(event.kind, windowd::InputEventKind::Keyboard { key_code: 0x2f }));
+        [inputd::InputDispatch::Keyboard {
+            output: keymaps::KeyOutput::Text('ü'),
+            repeated: false,
+            ..
+        }]
+    ) && keymap_delivered.iter().any(|event| {
+        matches!(
+            event.kind,
+            windowd::InputEventKind::Keyboard { key_code: 0x2f }
+        )
+    });
+    let keyboard_surface = visible_input_scene_surface(
+        launcher,
+        53,
+        windowd::VISIBLE_INPUT_CLICK_BGRA,
+        windowd::VISIBLE_INPUT_KEYBOARD_BGRA,
+    )?;
+    input_service
+        .router_mut()
+        .acquire_back_buffer(
+            launcher,
+            surface,
+            windowd::FrameIndex::new(3),
+            keyboard_surface,
+        )
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    input_service
+        .router_mut()
+        .present_frame(
+            launcher,
+            surface,
+            windowd::FrameIndex::new(3),
+            &[windowd::Rect::new(
+                0,
+                0,
+                VISIBLE_INPUT_SURFACE_WIDTH,
+                VISIBLE_INPUT_SURFACE_HEIGHT,
+            )],
+        )
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let _ = input_service
+        .router_mut()
+        .present_scheduler_tick()
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?
+        .ok_or(BootstrapFailure::VisibleInputEvidence)?;
+    let keyboard_frame = input_service
+        .router()
+        .last_frame()
+        .cloned()
+        .ok_or(BootstrapFailure::VisibleInputEvidence)?;
+    let keyboard_visible = keymap_de_ok
+        && pixel_eq(
+            &keyboard_frame,
+            VISIBLE_INPUT_RIGHT_SQUARE_X as i32 + 1,
+            VISIBLE_INPUT_RIGHT_SQUARE_Y as i32 + 1,
+            windowd::VISIBLE_INPUT_KEYBOARD_BGRA,
+        )?;
+    let full_window_visible = pixel_eq(&keyboard_frame, 16, 16, VISIBLE_INPUT_BGRA)?
+        || pixel_eq(&keyboard_frame, 16, 16, [0x24, 0x38, 0xa0, 0xff])?;
 
     let keymap_release = hid_service
-        .ingest_keyboard_report(keyboard_id, hid::TimestampNs::new(5), &[0, 0, 0, 0, 0, 0, 0, 0])
+        .ingest_keyboard_report(
+            keyboard_id,
+            hid::TimestampNs::new(5),
+            &[0, 0, 0, 0, 0, 0, 0, 0],
+        )
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let _ =
-        input_service.apply_hid_batch(&keymap_release).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let _ = input_service
+        .apply_hid_batch(&keymap_release)
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
 
     let repeat_press = hid_service
         .ingest_keyboard_report(
@@ -369,8 +510,9 @@ fn run_live_visible_input_proof(
             &[0, 0, LIVE_INPUT_REPEAT_CODE as u8, 0, 0, 0, 0, 0],
         )
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
-    let repeat_start =
-        input_service.apply_hid_batch(&repeat_press).map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    let repeat_start = input_service
+        .apply_hid_batch(&repeat_press)
+        .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let repeated = input_service
         .tick_repeat(100_000_006)
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
@@ -396,7 +538,14 @@ fn run_live_visible_input_proof(
         }]
     ) && repeat_delivered
         .iter()
-        .filter(|event| matches!(event.kind, windowd::InputEventKind::Keyboard { key_code: LIVE_INPUT_REPEAT_CODE }))
+        .filter(|event| {
+            matches!(
+                event.kind,
+                windowd::InputEventKind::Keyboard {
+                    key_code: LIVE_INPUT_REPEAT_CODE
+                }
+            )
+        })
         .count()
         == 2;
 
@@ -405,7 +554,11 @@ fn run_live_visible_input_proof(
         .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
     let touch_dispatches = touch_events
         .into_iter()
-        .map(|event| input_service.apply_touch_event(event).map_err(|_| BootstrapFailure::VisibleInputEvidence))
+        .map(|event| {
+            input_service
+                .apply_touch_event(event)
+                .map_err(|_| BootstrapFailure::VisibleInputEvidence)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let touch_delivered = input_service
         .router_mut()
@@ -423,9 +576,18 @@ fn run_live_visible_input_proof(
     ) && matches!(
         touch_delivered.as_slice(),
         [
-            windowd::InputDelivery { kind: windowd::InputEventKind::TouchDown { x: 20, y: 20 }, .. },
-            windowd::InputDelivery { kind: windowd::InputEventKind::TouchMove { x: 28, y: 22 }, .. },
-            windowd::InputDelivery { kind: windowd::InputEventKind::TouchUp { x: 28, y: 22 }, .. },
+            windowd::InputDelivery {
+                kind: windowd::InputEventKind::TouchDown { x: 20, y: 20 },
+                ..
+            },
+            windowd::InputDelivery {
+                kind: windowd::InputEventKind::TouchMove { x: 28, y: 22 },
+                ..
+            },
+            windowd::InputDelivery {
+                kind: windowd::InputEventKind::TouchUp { x: 28, y: 22 },
+                ..
+            },
         ]
     );
 
@@ -447,17 +609,21 @@ fn run_live_visible_input_proof(
         input_visible_on: input_service.router().input_enabled()
             && cursor_move_visible
             && hover_visible
-            && focus_visible,
+            && focus_visible
+            && keyboard_visible,
+        full_window_visible,
         cursor_move_visible,
         hover_visible,
         focus_visible,
         launcher_click_visible,
+        keyboard_visible,
         focused_surface,
         cursor_start_position,
         cursor_position,
         scheduled_present,
         cursor_frame: Some(cursor_frame),
         hover_frame: Some(hover_frame),
+        keyboard_frame: Some(keyboard_frame),
         visible_frame: Some(visible_frame),
     };
     let live_input = LiveInputEvidence {
@@ -476,7 +642,74 @@ fn run_live_visible_input_proof(
     Ok((visible_input, live_input))
 }
 
-fn pixel_eq(frame: &windowd::Frame, x: i32, y: i32, expected: [u8; 4]) -> Result<bool, BootstrapFailure> {
+fn visible_input_scene_surface(
+    caller: windowd::CallerCtx,
+    frame_index: u64,
+    left_square: [u8; 4],
+    right_square: [u8; 4],
+) -> Result<windowd::SurfaceBuffer, BootstrapFailure> {
+    let mut surface = windowd::SurfaceBuffer::solid(
+        caller,
+        frame_index,
+        VISIBLE_INPUT_SURFACE_WIDTH,
+        VISIBLE_INPUT_SURFACE_HEIGHT,
+        VISIBLE_INPUT_BGRA,
+    )
+    .map_err(|_| BootstrapFailure::VisibleInputEvidence)?;
+    for y in 0..surface.height {
+        for x in 0..surface.width {
+            let bgra = visible_input_scene_pixel_bgra(x, y, left_square, right_square);
+            let idx = (y as usize * surface.stride as usize) + (x as usize * 4);
+            surface.pixels[idx..idx + 4].copy_from_slice(&bgra);
+        }
+    }
+    Ok(surface)
+}
+
+fn visible_input_scene_pixel_bgra(
+    x: u32,
+    y: u32,
+    left_square: [u8; 4],
+    right_square: [u8; 4],
+) -> [u8; 4] {
+    if rect_contains(
+        x,
+        y,
+        VISIBLE_INPUT_LEFT_SQUARE_X,
+        VISIBLE_INPUT_LEFT_SQUARE_Y,
+        VISIBLE_INPUT_SQUARE_SIZE,
+        VISIBLE_INPUT_SQUARE_SIZE,
+    ) {
+        left_square
+    } else if rect_contains(
+        x,
+        y,
+        VISIBLE_INPUT_RIGHT_SQUARE_X,
+        VISIBLE_INPUT_RIGHT_SQUARE_Y,
+        VISIBLE_INPUT_SQUARE_SIZE,
+        VISIBLE_INPUT_SQUARE_SIZE,
+    ) {
+        right_square
+    } else {
+        let stripe = ((x / 8) + (y / 8)) & 1;
+        if stripe == 0 {
+            VISIBLE_INPUT_BGRA
+        } else {
+            [0x24, 0x38, 0xa0, 0xff]
+        }
+    }
+}
+
+fn rect_contains(x: u32, y: u32, left: u32, top: u32, width: u32, height: u32) -> bool {
+    x >= left && x < left.saturating_add(width) && y >= top && y < top.saturating_add(height)
+}
+
+fn pixel_eq(
+    frame: &windowd::Frame,
+    x: i32,
+    y: i32,
+    expected: [u8; 4],
+) -> Result<bool, BootstrapFailure> {
     if x < 0 || y < 0 {
         return Ok(false);
     }
@@ -505,7 +738,12 @@ fn settle_visible_display() {
 }
 
 fn query_cap(handle: Handle) -> Option<CapQuery> {
-    let mut query = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut query = CapQuery {
+        kind_tag: 0,
+        reserved: 0,
+        base: 0,
+        len: 0,
+    };
     cap_query(handle, &mut query).ok()?;
     Some(query)
 }
@@ -518,7 +756,9 @@ fn write_windowd_composed_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence.copy_composed_row(y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence
+            .copy_composed_row(y, &mut row)
+            .map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -533,7 +773,9 @@ fn write_windowd_visible_input_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence.copy_composed_row(mode, y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence
+            .copy_composed_row(mode, y, &mut row)
+            .map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -548,7 +790,9 @@ fn write_windowd_visible_cursor_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence.copy_cursor_row(mode, y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence
+            .copy_cursor_row(mode, y, &mut row)
+            .map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -563,7 +807,26 @@ fn write_windowd_visible_hover_rows(
     let row_len = mode.stride as usize;
     let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
     for y in 0..mode.height {
-        evidence.copy_hover_row(mode, y, &mut row).map_err(|_| BootstrapFailure::FrameWrite)?;
+        evidence
+            .copy_hover_row(mode, y, &mut row)
+            .map_err(|_| BootstrapFailure::FrameWrite)?;
+        let offset = y as usize * row_len;
+        vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
+    }
+    Ok(())
+}
+
+fn write_windowd_visible_keyboard_rows(
+    handle: Handle,
+    mode: windowd::VisibleBootstrapMode,
+    evidence: &windowd::UiVisibleInputEvidence,
+) -> Result<(), BootstrapFailure> {
+    let row_len = mode.stride as usize;
+    let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
+    for y in 0..mode.height {
+        evidence
+            .copy_keyboard_row(mode, y, &mut row)
+            .map_err(|_| BootstrapFailure::FrameWrite)?;
         let offset = y as usize * row_len;
         vmo_write(handle, offset, &row[..row_len]).map_err(|_| BootstrapFailure::FrameWrite)?;
     }
@@ -606,12 +869,17 @@ fn configure_ramfb(
     let control = ((select as u32) << 16) | FW_CFG_DMA_CTL_SELECT | FW_CFG_DMA_CTL_WRITE;
     write_be_u32(&mut access[0..4], control);
     write_be_u32(&mut access[4..8], RAMFB_CONFIG_LEN as u32);
-    write_be_u64(&mut access[8..16], dma_query.base + RAMFB_CONFIG_OFFSET as u64);
+    write_be_u64(
+        &mut access[8..16],
+        dma_query.base + RAMFB_CONFIG_OFFSET as u64,
+    );
     vmo_write(dma_vmo, DMA_ACCESS_OFFSET, &access).map_err(|_| BootstrapFailure::DmaVmo)?;
 
     let dma_access_pa = dma_query.base + DMA_ACCESS_OFFSET as u64;
     trigger_dma(dma_access_pa);
-    wait_dma_complete().then_some(()).ok_or(BootstrapFailure::DmaFailed)
+    wait_dma_complete()
+        .then_some(())
+        .ok_or(BootstrapFailure::DmaFailed)
 }
 
 fn fw_cfg_signature_ok() -> bool {

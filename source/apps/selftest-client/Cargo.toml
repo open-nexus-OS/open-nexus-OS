@@ -72,7 +72,7 @@ vfsd = { path = "../../../source/services/vfsd", optional = true }
 execd = { path = "../../../source/services/execd", optional = true }
 nexus-init = { path = "../../../source/init/nexus-init", features = ["os-lite"], optional = true }
 
-nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true }
+nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true, features = ["heap-512k"] }
 nexus-abi = { path = "../../../source/libs/nexus-abi", optional = true }
 nexus-hal = { path = "../../../source/libs/nexus-hal", optional = true }
 nexus-net = { path = "../../../userspace/nexus-net", optional = true }

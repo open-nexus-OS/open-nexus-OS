@@ -84,11 +84,23 @@ struct AlignedPage([u8; PAGE_SIZE]);
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 static mut CHILD_DATA_PAGE: AlignedPage = AlignedPage([0; PAGE_SIZE]);
 
-#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "selftest_priv_stack",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 const SELFTEST_STACK_PAGES: usize = 8;
-#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "selftest_priv_stack",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 const SELFTEST_STACK_BYTES: usize = SELFTEST_STACK_PAGES * PAGE_SIZE;
-#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "selftest_priv_stack",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 #[link_section = ".bss.selftest_stack_body"]
 #[used]
 static mut SELFTEST_STACK: [u8; SELFTEST_STACK_BYTES] = [0; SELFTEST_STACK_BYTES];
@@ -97,13 +109,22 @@ static mut SELFTEST_STACK: [u8; SELFTEST_STACK_BYTES] = [0; SELFTEST_STACK_BYTES
 pub struct Context<'a> {
     #[allow(dead_code)]
     pub hal: &'a VirtMachine,
-    #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     pub router: &'a mut Router,
     #[allow(dead_code)]
     pub address_spaces: &'a mut AddressSpaceManager,
-    #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     pub tasks: &'a mut TaskTable,
-    #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     pub scheduler: &'a mut Scheduler,
 }
 
@@ -179,8 +200,13 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
             core::ptr::write_volatile((ptr + idx) as *mut u8, *byte);
         }
     }
-    let cap =
-        Capability { kind: CapabilityKind::Vmo { base: ptr, len: PAGE_SIZE }, rights: Rights::MAP };
+    let cap = Capability {
+        kind: CapabilityKind::Vmo {
+            base: ptr,
+            len: PAGE_SIZE,
+        },
+        rights: Rights::MAP,
+    };
     let caps = tasks.bootstrap_mut().caps_mut();
     // Reserve bootstrap cap slots:
     // - slot 0: bootstrap endpoint
@@ -202,8 +228,13 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         let mut table = SyscallTable::new();
         api::install_handlers(&mut table);
         let timer = ctx.hal.timer();
-        let mut sys_ctx =
-            api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
+        let mut sys_ctx = api::Context::new(
+            ctx.scheduler,
+            ctx.tasks,
+            ctx.router,
+            ctx.address_spaces,
+            timer,
+        );
 
         let h = table
             .dispatch(SYSCALL_AS_CREATE, &mut sys_ctx, &Args::new([0; 6]))
@@ -219,8 +250,12 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             table
                 .dispatch(SYSCALL_VMO_CREATE, &mut sys_ctx, &vmo_create_args)
                 .expect("vmo_create syscall");
-            let cap =
-                sys_ctx.tasks.bootstrap_mut().caps_mut().get(VMO_SLOT).expect("vmo cap present");
+            let cap = sys_ctx
+                .tasks
+                .bootstrap_mut()
+                .caps_mut()
+                .get(VMO_SLOT)
+                .expect("vmo cap present");
             let (base, len) = match cap.kind {
                 CapabilityKind::Vmo { base, len } => (base, len),
                 _ => panic!("unexpected cap kind"),
@@ -273,7 +308,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             PROT_READ,
             MAP_FLAG_USER,
         ]);
-        table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &map_args).expect("as_map syscall");
+        table
+            .dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &map_args)
+            .expect("as_map syscall");
         log_info!(target: "selftest", "KSELFTEST: as map ok");
 
         let entry = child_new_as_entry as usize;
@@ -298,10 +335,15 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         unsafe {
             core::arch::asm!("mv {0}, gp", out(reg) current_gp);
         }
-        let gp = if current_gp == 0 { user_stack_top.wrapping_add(0x800) } else { current_gp };
+        let gp = if current_gp == 0 {
+            user_stack_top.wrapping_add(0x800)
+        } else {
+            current_gp
+        };
         let spawn_args = Args::new([entry, user_stack_top, handle_raw, 0, gp, 0]);
-        child_pid =
-            table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).expect("spawn syscall");
+        child_pid = table
+            .dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args)
+            .expect("spawn syscall");
         verbose!("KSELFTEST: after spawn (raw)\n");
         // Force a few yields to exercise trap fastpath and encourage scheduling
         syscall_yield();
@@ -353,8 +395,11 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 {
                     let satp_now = riscv::register::satp::read().bits();
-                    let expected =
-                        ctx.address_spaces.get(handle).map(|s| s.satp_value()).unwrap_or(0);
+                    let expected = ctx
+                        .address_spaces
+                        .get(handle)
+                        .map(|s| s.satp_value())
+                        .unwrap_or(0);
                     if satp_now != expected {
                         crate::selftest::assert::report_failure("witness: satp mismatch");
                     }
@@ -475,8 +520,13 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
     let mut table = SyscallTable::new();
     api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
-    let mut sys_ctx =
-        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+    );
     const PROT_READ: usize = 1 << 0;
     const PROT_WRITE: usize = 1 << 1;
     const PROT_EXEC: usize = 1 << 2;
@@ -507,8 +557,13 @@ fn run_exit_wait_selftests(ctx: &mut Context<'_>) {
     let mut table = SyscallTable::new();
     api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
-    let mut sys_ctx =
-        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+    );
 
     let entry = child_exit_zero as usize;
     let spawn_args = Args::new([entry, 0, 0, 0, 0, 0]);
@@ -546,7 +601,11 @@ fn run_exit_wait_selftests(ctx: &mut Context<'_>) {
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
-    verbose!("KSELFTEST: call_on_stack enter sp=0x{:x} func=0x{:x}\n", new_sp, entry as usize);
+    verbose!(
+        "KSELFTEST: call_on_stack enter sp=0x{:x} func=0x{:x}\n",
+        new_sp,
+        entry as usize
+    );
     unsafe {
         core::arch::asm!(
             // Save current sp in t0, switch to child stack, call entry, restore sp
@@ -721,15 +780,26 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
 
     // --- recv waiters FIFO ---
     let ep = ctx.router.create_endpoint(1, None).unwrap();
-    let r1 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
-    let r2 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
-    let r3 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let r1 = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let r2 = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let r3 = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     for pid in [r1, r2, r3] {
         ctx.tasks.set_current(pid);
         let _ = ctx.router.register_recv_waiter(ep, pid.as_raw());
-        ctx.tasks
-            .block_current(BlockReason::IpcRecv { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
+        ctx.tasks.block_current(
+            BlockReason::IpcRecv {
+                endpoint: ep,
+                deadline_ns: 0,
+            },
+            ctx.scheduler,
+        );
     }
 
     // Send one message, then wake the next recv waiter and check it is r1.
@@ -753,15 +823,26 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
     let fill = crate::ipc::Message::new(hdr_fill, Vec::new(), None);
     let _ = ctx.router.send(ep2, fill);
 
-    let s1 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
-    let s2 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
-    let s3 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let s1 = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let s2 = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let s3 = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     for pid in [s1, s2, s3] {
         ctx.tasks.set_current(pid);
         let _ = ctx.router.register_send_waiter(ep2, pid.as_raw());
-        ctx.tasks
-            .block_current(BlockReason::IpcSend { endpoint: ep2, deadline_ns: 0 }, ctx.scheduler);
+        ctx.tasks.block_current(
+            BlockReason::IpcSend {
+                endpoint: ep2,
+                deadline_ns: 0,
+            },
+            ctx.scheduler,
+        );
     }
 
     // Drain one message, then wake the next send waiter and check it is s1.
@@ -783,8 +864,12 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     use alloc::vec::Vec;
 
     // Create two lightweight dummy tasks (no AS/stack allocation) that we can block/wake.
-    let sender_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
-    let recv_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let sender_pid = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let recv_pid = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     // Endpoint with depth=1 and one message already enqueued => "full".
     let ep = ctx.router.create_endpoint(1, None).unwrap();
@@ -795,8 +880,18 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     // Simulate sender hitting QueueFull in blocking mode: register waiter + block task.
     ctx.tasks.set_current(sender_pid);
     let _ = ctx.router.register_send_waiter(ep, sender_pid.as_raw());
-    ctx.tasks.block_current(BlockReason::IpcSend { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
-    let blocked_ok = ctx.tasks.task(sender_pid).map(|t| t.is_blocked()).unwrap_or(false);
+    ctx.tasks.block_current(
+        BlockReason::IpcSend {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
+    let blocked_ok = ctx
+        .tasks
+        .task(sender_pid)
+        .map(|t| t.is_blocked())
+        .unwrap_or(false);
 
     // Receiver drains one message and wakes one send-waiter (same as sys_ipc_recv_v1 does).
     ctx.tasks.set_current(recv_pid);
@@ -810,7 +905,11 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
             | crate::task::WakeOutcome::EnqueueRejected => {}
         }
     }
-    let woke_ok = ctx.tasks.task(sender_pid).map(|t| !t.is_blocked()).unwrap_or(false);
+    let woke_ok = ctx
+        .tasks
+        .task(sender_pid)
+        .map(|t| !t.is_blocked())
+        .unwrap_or(false);
 
     if blocked_ok && woke_ok {
         log_info!(target: "selftest", "KSELFTEST: ipc send unblock ok");
@@ -863,8 +962,12 @@ fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
     use crate::task::BlockReason;
     // Create a real endpoint in the global router, register blocked send/recv waiters, then close it
     // and ensure both waiters are woken.
-    let recv_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
-    let send_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let recv_pid = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let send_pid = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     let ep = match ctx.router.create_endpoint(1, None) {
         Ok(id) => id,
@@ -876,11 +979,23 @@ fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
 
     ctx.tasks.set_current(recv_pid);
     let _ = ctx.router.register_recv_waiter(ep, recv_pid.as_raw());
-    ctx.tasks.block_current(BlockReason::IpcRecv { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
+    ctx.tasks.block_current(
+        BlockReason::IpcRecv {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
 
     ctx.tasks.set_current(send_pid);
     let _ = ctx.router.register_send_waiter(ep, send_pid.as_raw());
-    ctx.tasks.block_current(BlockReason::IpcSend { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
+    ctx.tasks.block_current(
+        BlockReason::IpcSend {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
 
     let waiters = match ctx.router.close_endpoint(ep) {
         Ok(w) => w,
@@ -899,8 +1014,16 @@ fn run_ipc_close_wakes_waiters_selftest(ctx: &mut Context<'_>) {
         }
     }
 
-    let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
-    let send_ok = ctx.tasks.task(send_pid).map(|t| !t.is_blocked()).unwrap_or(false);
+    let recv_ok = ctx
+        .tasks
+        .task(recv_pid)
+        .map(|t| !t.is_blocked())
+        .unwrap_or(false);
+    let send_ok = ctx
+        .tasks
+        .task(send_pid)
+        .map(|t| !t.is_blocked())
+        .unwrap_or(false);
     if recv_ok && send_ok {
         log_info!(target: "selftest", "KSELFTEST: ipc close wakes ok");
     } else {
@@ -918,8 +1041,12 @@ fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
     // Close-on-exit semantics are implemented by closing all endpoints owned by the exiting PID.
     // Verify that draining wakes registered send/recv waiters.
     let owner: u32 = 7;
-    let recv_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
-    let send_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let recv_pid = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let send_pid = ctx
+        .tasks
+        .selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
 
     let ep = match ctx.router.create_endpoint(1, Some(owner)) {
         Ok(id) => id,
@@ -931,11 +1058,23 @@ fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
 
     ctx.tasks.set_current(recv_pid);
     let _ = ctx.router.register_recv_waiter(ep, recv_pid.as_raw());
-    ctx.tasks.block_current(BlockReason::IpcRecv { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
+    ctx.tasks.block_current(
+        BlockReason::IpcRecv {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
 
     ctx.tasks.set_current(send_pid);
     let _ = ctx.router.register_send_waiter(ep, send_pid.as_raw());
-    ctx.tasks.block_current(BlockReason::IpcSend { endpoint: ep, deadline_ns: 0 }, ctx.scheduler);
+    ctx.tasks.block_current(
+        BlockReason::IpcSend {
+            endpoint: ep,
+            deadline_ns: 0,
+        },
+        ctx.scheduler,
+    );
 
     let waiters = ctx.router.close_endpoints_for_owner(owner);
     for pid in waiters {
@@ -948,8 +1087,16 @@ fn run_ipc_owner_exit_wakes_waiters_selftest(ctx: &mut Context<'_>) {
         }
     }
 
-    let recv_ok = ctx.tasks.task(recv_pid).map(|t| !t.is_blocked()).unwrap_or(false);
-    let send_ok = ctx.tasks.task(send_pid).map(|t| !t.is_blocked()).unwrap_or(false);
+    let recv_ok = ctx
+        .tasks
+        .task(recv_pid)
+        .map(|t| !t.is_blocked())
+        .unwrap_or(false);
+    let send_ok = ctx
+        .tasks
+        .task(send_pid)
+        .map(|t| !t.is_blocked())
+        .unwrap_or(false);
     if recv_ok && send_ok {
         log_info!(target: "selftest", "KSELFTEST: ipc owner-exit wakes ok");
     } else {
@@ -969,12 +1116,27 @@ fn run_spawn_reason_selftest() {
     use crate::task::{spawn_fail_reason, SpawnError, SpawnFailReason};
 
     let cases = [
-        (SpawnError::InvalidEntryPoint, SpawnFailReason::InvalidPayload),
-        (SpawnError::InvalidStackPointer, SpawnFailReason::InvalidPayload),
+        (
+            SpawnError::InvalidEntryPoint,
+            SpawnFailReason::InvalidPayload,
+        ),
+        (
+            SpawnError::InvalidStackPointer,
+            SpawnFailReason::InvalidPayload,
+        ),
         (SpawnError::StackExhausted, SpawnFailReason::OutOfMemory),
-        (SpawnError::Capability(CapError::NoSpace), SpawnFailReason::CapTableFull),
-        (SpawnError::Ipc(IpcError::NoSpace), SpawnFailReason::EndpointQuota),
-        (SpawnError::AddressSpace(AddressSpaceError::AsidExhausted), SpawnFailReason::MapFailed),
+        (
+            SpawnError::Capability(CapError::NoSpace),
+            SpawnFailReason::CapTableFull,
+        ),
+        (
+            SpawnError::Ipc(IpcError::NoSpace),
+            SpawnFailReason::EndpointQuota,
+        ),
+        (
+            SpawnError::AddressSpace(AddressSpaceError::AsidExhausted),
+            SpawnFailReason::MapFailed,
+        ),
     ];
 
     for (_idx, (err, expected)) in cases.iter().enumerate() {
@@ -1004,7 +1166,10 @@ fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
 
     // 1) Cap table churn: fill, drain, refill.
     let mut table = CapTable::with_capacity(8);
-    let cap = Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE };
+    let cap = Capability {
+        kind: CapabilityKind::EndpointFactory,
+        rights: Rights::MANAGE,
+    };
     let mut slots = [0usize; 8];
     for slot in slots.iter_mut() {
         *slot = match table.allocate(cap) {
@@ -1161,7 +1326,8 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
     if !matches!(
-        ctx.scheduler.selftest_enqueue_on_cpu(target, probe_pid, QosClass::Normal),
+        ctx.scheduler
+            .selftest_enqueue_on_cpu(target, probe_pid, QosClass::Normal),
         EnqueueOutcome::Enqueued
     ) {
         log_error!(target: "selftest", "KSELFTEST: work stealing FAIL enqueue");
@@ -1185,14 +1351,16 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
     if !matches!(
-        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal),
+        ctx.scheduler
+            .selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal),
         EnqueueOutcome::Enqueued
     ) {
         log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL enqueue-0");
         return;
     }
     if !matches!(
-        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal),
+        ctx.scheduler
+            .selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal),
         EnqueueOutcome::Enqueued
     ) {
         log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL enqueue-1");
@@ -1219,7 +1387,11 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos FAIL enqueue");
         return;
     }
-    if ctx.scheduler.selftest_try_steal_for_class(boot, QosClass::Normal).is_none() {
+    if ctx
+        .scheduler
+        .selftest_try_steal_for_class(boot, QosClass::Normal)
+        .is_none()
+    {
         log_info!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos ok");
     } else {
         log_error!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos FAIL");
@@ -1227,7 +1399,10 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
 
     ctx.scheduler.selftest_reset_cpu(boot);
     ctx.scheduler.selftest_reset_cpu(target);
-    if matches!(ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
+    if matches!(
+        ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal),
+        EnqueueOutcome::Rejected(_)
+    ) {
         panic!("scheduler selftest bootstrap enqueue rejected");
     }
 }
@@ -1239,8 +1414,13 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     let mut table = SyscallTable::new();
     api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
-    let mut sys_ctx =
-        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer);
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+    );
 
     // Load init ELF and get entry point
     let load_result = load_init_elf(&mut sys_ctx);
@@ -1248,7 +1428,7 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         Ok(result) => result,
         Err(err) => {
             log_info!(target: "selftest", "KSELFTEST: init load failed: {}", err);
-            return;
+            panic!("boot gate: init load failed");
         }
     };
 
@@ -1265,13 +1445,19 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     // capability/lifecycle gates (RFC-0005 hardening) can reliably treat init-lite as
     // the temporary authority during bring-up.
     sys_ctx.tasks.set_current(Pid::KERNEL);
-    let spawn_args =
-        Args::new([entry_pc, stack_top, as_handle.to_raw() as usize, 0, global_pointer, 0]);
+    let spawn_args = Args::new([
+        entry_pc,
+        stack_top,
+        as_handle.to_raw() as usize,
+        0,
+        global_pointer,
+        0,
+    ]);
     let init_pid = match table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args) {
         Ok(pid) => pid,
         Err(err) => {
             log_info!(target: "selftest", "KSELFTEST: spawn failed: {:?}", err);
-            return;
+            panic!("boot gate: init spawn failed");
         }
     };
 
@@ -1657,7 +1843,12 @@ fn load_init_elf(
         }
     }
 
-    let gp = global_pointer.ok_or("missing gp (no __global_pointer$ and no .sdata/.data)")?;
+    let gp = global_pointer.unwrap_or_else(|| {
+        // Stripped tiny ELFs may have neither a symtab `__global_pointer$` nor named data
+        // sections. Match the normal exec policy: derive a conservative RISC-V gp from the first
+        // writable PT_LOAD, falling back to entry+0x800 only for payloads without writable data.
+        first_rw_page.unwrap_or(e_entry).saturating_add(0x800)
+    });
     // Seed SP two pages below the mapped top, 16-byte aligned (stay clear of the boundary).
     let stack_sp = (mapped_top - 2 * PAGE_SIZE) & !0xf;
 
@@ -1753,7 +1944,11 @@ fn log_symbol_words(space: &crate::mm::address_space::AddressSpace, virt: usize,
             );
         }
     } else {
-        let _ = writeln!(uart, "[ERROR selftest] {} missing mapping va=0x{:016x}", label, virt);
+        let _ = writeln!(
+            uart,
+            "[ERROR selftest] {} missing mapping va=0x{:016x}",
+            label, virt
+        );
     }
 }
 
@@ -1803,7 +1998,11 @@ pub fn entry(_ctx: &mut Context<'_>) {
     log_info!(target: "selftest", "SELFTEST: host build noop");
 }
 
-#[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "selftest_priv_stack",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
     unsafe extern "C" fn shim(arg: *mut c_void) {
         let ctx_ptr = arg as *mut Context<'static>;
@@ -1830,7 +2029,11 @@ pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
     }
 }
 
-#[cfg(not(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none")))]
+#[cfg(not(all(
+    feature = "selftest_priv_stack",
+    target_arch = "riscv64",
+    target_os = "none"
+)))]
 #[allow(dead_code)]
 pub fn entry_on_private_stack(ctx: &mut Context<'_>) {
     entry(ctx);

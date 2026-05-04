@@ -64,13 +64,23 @@ impl Fixture {
         let dir = tempdir::Dir::new();
         let manifest = dir.path.join("proof-manifest.toml");
         std::fs::write(&manifest, FIXTURE_TOML).expect("write fixture");
-        Self { _dir: dir, manifest }
+        Self {
+            _dir: dir,
+            manifest,
+        }
     }
 
     fn write_uart(&self, name: &str, body: &str) -> PathBuf {
         let p = self._dir.path.join(name);
         let mut f = std::fs::File::create(&p).expect("create uart file");
         f.write_all(body.as_bytes()).expect("write uart body");
+        p
+    }
+
+    fn write_uart_bytes(&self, name: &str, body: &[u8]) -> PathBuf {
+        let p = self._dir.path.join(name);
+        let mut f = std::fs::File::create(&p).expect("create uart file");
+        f.write_all(body).expect("write uart body");
         p
     }
 }
@@ -105,7 +115,10 @@ mod tempdir {
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(BIN).args(args).output().expect("invoke nexus-proof-manifest CLI");
+    let out = Command::new(BIN)
+        .args(args)
+        .output()
+        .expect("invoke nexus-proof-manifest CLI");
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -121,6 +134,23 @@ fn accept_full_profile_with_clean_uart() {
         "[QEMU] SELFTEST: bringup ok\n\
          some unrelated noise\n\
          SELFTEST: end\n",
+    );
+    let (code, stdout, stderr) = run(&[
+        "verify-uart",
+        "--profile=full",
+        &format!("--manifest={}", f.manifest.display()),
+        &format!("--uart={}", uart.display()),
+    ]);
+    assert_eq!(code, 0, "expected ok; stdout=`{stdout}` stderr=`{stderr}`");
+    assert!(stdout.contains("[verify-uart] ok"), "stdout=`{stdout}`");
+}
+
+#[test]
+fn accept_uart_with_non_utf8_noise() {
+    let f = Fixture::new();
+    let uart = f.write_uart_bytes(
+        "binary-noise.log",
+        b"\xff\xfe\x00SELFTEST: bringup ok\nsome noise\nSELFTEST: end\n",
     );
     let (code, stdout, stderr) = run(&[
         "verify-uart",
@@ -197,9 +227,15 @@ fn json_format_emits_structured_violations() {
     ]);
     assert_ne!(code, 0);
     let trimmed = stdout.trim();
-    assert!(trimmed.starts_with('{') && trimmed.ends_with('}'), "stdout=`{trimmed}`");
+    assert!(
+        trimmed.starts_with('{') && trimmed.ends_with('}'),
+        "stdout=`{trimmed}`"
+    );
     assert!(trimmed.contains("\"forbidden\":["), "stdout=`{trimmed}`");
-    assert!(trimmed.contains("transport selected tcp"), "stdout=`{trimmed}`");
+    assert!(
+        trimmed.contains("transport selected tcp"),
+        "stdout=`{trimmed}`"
+    );
 }
 
 #[test]
@@ -217,8 +253,11 @@ fn missing_uart_file_exits_two() {
 #[test]
 fn missing_uart_arg_exits_one() {
     let f = Fixture::new();
-    let (code, _stdout, stderr) =
-        run(&["verify-uart", "--profile=full", &format!("--manifest={}", f.manifest.display())]);
+    let (code, _stdout, stderr) = run(&[
+        "verify-uart",
+        "--profile=full",
+        &format!("--manifest={}", f.manifest.display()),
+    ]);
     assert_eq!(code, 1, "expected usage error exit code; stderr=`{stderr}`");
     assert!(stderr.contains("--uart="), "stderr=`{stderr}`");
 }

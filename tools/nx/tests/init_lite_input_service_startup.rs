@@ -26,22 +26,27 @@ fn input_services_are_default_init_lite_candidates() {
 }
 
 #[test]
-fn input_services_are_in_profile_gated_qemu_payload_list() {
+fn input_services_are_in_default_qemu_payload_list() {
     let qemu_test = read_repo_file("scripts/qemu-test.sh");
     let run_qemu = read_repo_file("scripts/run-qemu-rv64.sh");
     let makefile = read_repo_file("Makefile");
 
     for service in INPUT_SERVICES {
         assert_service_list_contains(&qemu_test, service, "scripts/qemu-test.sh");
+        assert_service_list_contains(&run_qemu, service, "scripts/run-qemu-rv64.sh");
         assert!(
             makefile.contains(&format!("-p {service}")),
             "`Makefile` should compile input service `{service}` for OS builds"
         );
     }
     assert!(
-        qemu_test.contains("INPUT_V1_0B_SERVICE_STARTUP")
-            && qemu_test.contains(",hidrawd,touchd,inputd"),
-        "`scripts/qemu-test.sh` must gate input service startup explicitly"
+        !qemu_test.contains("INPUT_V1_0B_SERVICE_STARTUP"),
+        "`scripts/qemu-test.sh` must not hide input service startup behind task-specific profile gating"
+    );
+    assert!(
+        qemu_test.contains("RUN_PHASE\" == \"input-startup\"")
+            && qemu_test.contains("\"inputd: os service payload ready\""),
+        "`scripts/qemu-test.sh` must keep a focused input-startup proof ladder for real service payload readiness"
     );
     assert!(
         run_qemu.contains("hidrawd|touchd|inputd"),
@@ -53,6 +58,7 @@ fn input_services_are_in_profile_gated_qemu_payload_list() {
 fn input_services_use_bounded_os_stack_pages() {
     let qemu_test = read_repo_file("scripts/qemu-test.sh");
     let run_qemu = read_repo_file("scripts/run-qemu-rv64.sh");
+    let makefile = read_repo_file("Makefile");
 
     assert!(
         qemu_test.contains("for svc in HIDRAWD TOUCHD INPUTD")
@@ -62,6 +68,11 @@ fn input_services_use_bounded_os_stack_pages() {
     assert!(
         run_qemu.contains("hidrawd|touchd|inputd") && run_qemu.contains("\"1\""),
         "`scripts/run-qemu-rv64.sh` must bound input service stack pages"
+    );
+    assert!(
+        makefile.contains("hidrawd|touchd|inputd")
+            && makefile.contains("INIT_LITE_SERVICE_$${upper}_STACK_PAGES=1"),
+        "`Makefile` init-lite embeds must bound input service stack pages"
     );
 }
 

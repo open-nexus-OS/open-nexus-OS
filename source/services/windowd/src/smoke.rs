@@ -16,21 +16,30 @@ use crate::ids::{CallerCtx, CommitSeq, FrameIndex, SurfaceId};
 use crate::server::{
     InputEventKind, PointerPosition, PresentAck, PresentFenceStatus, ScheduledPresentAck,
     UiProfile, WindowServer, WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT,
-    VISIBLE_BOOTSTRAP_WIDTH, VISIBLE_CURSOR_BGRA, VISIBLE_FOCUS_BGRA, VISIBLE_HOVER_BGRA,
+    VISIBLE_BOOTSTRAP_WIDTH, VISIBLE_CURSOR_BGRA, VISIBLE_FOCUS_BGRA,
 };
 
 const VISIBLE_INPUT_PROOF_WIDTH: u32 = 64;
 const VISIBLE_INPUT_PROOF_HEIGHT: u32 = 48;
-const VISIBLE_INPUT_SURFACE_X: i32 = 8;
-const VISIBLE_INPUT_SURFACE_Y: i32 = 8;
-const VISIBLE_INPUT_SURFACE_WIDTH: u32 = 32;
-const VISIBLE_INPUT_SURFACE_HEIGHT: u32 = 24;
-const VISIBLE_INPUT_CURSOR_START_X: i32 = 12;
+const VISIBLE_INPUT_SURFACE_X: i32 = 0;
+const VISIBLE_INPUT_SURFACE_Y: i32 = 0;
+const VISIBLE_INPUT_SURFACE_WIDTH: u32 = VISIBLE_INPUT_PROOF_WIDTH;
+const VISIBLE_INPUT_SURFACE_HEIGHT: u32 = VISIBLE_INPUT_PROOF_HEIGHT;
+const VISIBLE_INPUT_CURSOR_START_X: i32 = 24;
 const VISIBLE_INPUT_CURSOR_START_Y: i32 = 12;
-const VISIBLE_INPUT_CURSOR_END_X: i32 = 36;
-const VISIBLE_INPUT_CURSOR_END_Y: i32 = 28;
-const VISIBLE_INPUT_INITIAL_BGRA: [u8; 4] = [0x20, 0x80, 0xf0, 0xff];
+const VISIBLE_INPUT_CURSOR_END_X: i32 = 8;
+const VISIBLE_INPUT_CURSOR_END_Y: i32 = 40;
+const VISIBLE_INPUT_LEFT_SQUARE_X: u32 = 4;
+const VISIBLE_INPUT_LEFT_SQUARE_Y: u32 = 36;
+const VISIBLE_INPUT_RIGHT_SQUARE_X: u32 = 52;
+const VISIBLE_INPUT_RIGHT_SQUARE_Y: u32 = 18;
+const VISIBLE_INPUT_SQUARE_SIZE: u32 = 8;
+const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
+const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
+const VISIBLE_INPUT_LEFT_HOVER_BGRA: [u8; 4] = [0x20, 0xd0, 0xf8, 0xff];
 pub const VISIBLE_INPUT_CLICK_BGRA: [u8; 4] = [0x30, 0xe0, 0x60, 0xff];
+const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
+pub const VISIBLE_INPUT_KEYBOARD_BGRA: [u8; 4] = [0xf0, 0x80, 0x20, 0xff];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UiSmokeEvidence {
@@ -118,16 +127,19 @@ pub struct UiV2aEvidence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiVisibleInputEvidence {
     pub input_visible_on: bool,
+    pub full_window_visible: bool,
     pub cursor_move_visible: bool,
     pub hover_visible: bool,
     pub focus_visible: bool,
     pub launcher_click_visible: bool,
+    pub keyboard_visible: bool,
     pub focused_surface: SurfaceId,
     pub cursor_start_position: PointerPosition,
     pub cursor_position: PointerPosition,
     pub scheduled_present: ScheduledPresentAck,
     pub cursor_frame: Option<Frame>,
     pub hover_frame: Option<Frame>,
+    pub keyboard_frame: Option<Frame>,
     pub visible_frame: Option<Frame>,
 }
 
@@ -147,7 +159,10 @@ impl VisibleSystemUiEvidence {
             }
             let src = y as usize * frame.stride as usize;
             row[..row_len].copy_from_slice(
-                frame.pixels.get(src..src + row_len).ok_or(WindowdError::BufferLengthMismatch)?,
+                frame
+                    .pixels
+                    .get(src..src + row_len)
+                    .ok_or(WindowdError::BufferLengthMismatch)?,
             );
             return Ok(());
         }
@@ -187,6 +202,15 @@ impl UiVisibleInputEvidence {
     pub fn copy_hover_row(&self, mode: VisibleBootstrapMode, y: u32, row: &mut [u8]) -> Result<()> {
         copy_scaled_frame_row(self.hover_frame.as_ref(), mode, y, row)
     }
+
+    pub fn copy_keyboard_row(
+        &self,
+        mode: VisibleBootstrapMode,
+        y: u32,
+        row: &mut [u8],
+    ) -> Result<()> {
+        copy_scaled_frame_row(self.keyboard_frame.as_ref(), mode, y, row)
+    }
 }
 
 fn copy_scaled_frame_row(
@@ -206,9 +230,10 @@ fn copy_scaled_frame_row(
     if y >= mode.height || frame.width == 0 || frame.height == 0 {
         return Ok(());
     }
-    let src_y =
-        ((y as u64).checked_mul(u64::from(frame.height)).ok_or(WindowdError::ArithmeticOverflow)?
-            / u64::from(mode.height)) as usize;
+    let src_y = ((y as u64)
+        .checked_mul(u64::from(frame.height))
+        .ok_or(WindowdError::ArithmeticOverflow)?
+        / u64::from(mode.height)) as usize;
     for x in 0..mode.width {
         let src_x = ((x as u64)
             .checked_mul(u64::from(frame.width))
@@ -218,9 +243,14 @@ fn copy_scaled_frame_row(
             .checked_mul(frame.stride as usize)
             .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
             .ok_or(WindowdError::ArithmeticOverflow)?;
-        let dst = (x as usize).checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = (x as usize)
+            .checked_mul(4)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         row[dst..dst + 4].copy_from_slice(
-            frame.pixels.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?,
+            frame
+                .pixels
+                .get(src..src + 4)
+                .ok_or(WindowdError::BufferLengthMismatch)?,
         );
     }
     Ok(())
@@ -258,12 +288,15 @@ pub fn visible_input_marker_postflight_ready(
 ) -> Result<UiVisibleInputEvidence> {
     let evidence = evidence.ok_or(WindowdError::MarkerBeforePresentState)?;
     if evidence.input_visible_on
+        && evidence.full_window_visible
         && evidence.cursor_move_visible
         && evidence.hover_visible
         && evidence.focus_visible
         && evidence.launcher_click_visible
+        && evidence.keyboard_visible
         && evidence.cursor_frame.is_some()
         && evidence.hover_frame.is_some()
+        && evidence.keyboard_frame.is_some()
         && evidence.visible_frame.is_some()
     {
         Ok(evidence)
@@ -274,12 +307,77 @@ pub fn visible_input_marker_postflight_ready(
 
 pub fn bootstrap_pixel_bgra(x: u32, y: u32) -> [u8; 4] {
     let tile = ((x / 80) + (y / 80)) & 1;
-    let (r, g, b) = if tile == 0 { (0x20, 0x80, 0xf0) } else { (0x10, 0x20, 0x40) };
+    let (r, g, b) = if tile == 0 {
+        (0x20, 0x80, 0xf0)
+    } else {
+        (0x10, 0x20, 0x40)
+    };
     if (560..720).contains(&x) && (320..480).contains(&y) {
         [0x30, 0xe0, 0x60, 0xff]
     } else {
         [b, g, r, 0xff]
     }
+}
+
+fn visible_input_scene_surface(
+    caller: CallerCtx,
+    frame_index: u64,
+    left_square: [u8; 4],
+    right_square: [u8; 4],
+) -> Result<SurfaceBuffer> {
+    let mut surface = SurfaceBuffer::solid(
+        caller,
+        frame_index,
+        VISIBLE_INPUT_SURFACE_WIDTH,
+        VISIBLE_INPUT_SURFACE_HEIGHT,
+        VISIBLE_INPUT_BGRA,
+    )?;
+    for y in 0..surface.height {
+        for x in 0..surface.width {
+            let bgra = visible_input_scene_pixel_bgra(x, y, left_square, right_square);
+            let idx = (y as usize * surface.stride as usize) + (x as usize * 4);
+            surface.pixels[idx..idx + 4].copy_from_slice(&bgra);
+        }
+    }
+    Ok(surface)
+}
+
+fn visible_input_scene_pixel_bgra(
+    x: u32,
+    y: u32,
+    left_square: [u8; 4],
+    right_square: [u8; 4],
+) -> [u8; 4] {
+    if rect_contains(
+        x,
+        y,
+        VISIBLE_INPUT_LEFT_SQUARE_X,
+        VISIBLE_INPUT_LEFT_SQUARE_Y,
+        VISIBLE_INPUT_SQUARE_SIZE,
+        VISIBLE_INPUT_SQUARE_SIZE,
+    ) {
+        left_square
+    } else if rect_contains(
+        x,
+        y,
+        VISIBLE_INPUT_RIGHT_SQUARE_X,
+        VISIBLE_INPUT_RIGHT_SQUARE_Y,
+        VISIBLE_INPUT_SQUARE_SIZE,
+        VISIBLE_INPUT_SQUARE_SIZE,
+    ) {
+        right_square
+    } else {
+        let stripe = ((x / 8) + (y / 8)) & 1;
+        if stripe == 0 {
+            VISIBLE_INPUT_BGRA
+        } else {
+            [0x24, 0x38, 0xa0, 0xff]
+        }
+    }
+}
+
+fn rect_contains(x: u32, y: u32, left: u32, top: u32, width: u32, height: u32) -> bool {
+    x >= left && x < left.saturating_add(width) && y >= top && y < top.saturating_add(height)
 }
 
 pub fn run_headless_ui_smoke() -> Result<UiSmokeEvidence> {
@@ -292,7 +390,12 @@ pub fn run_headless_ui_smoke() -> Result<UiSmokeEvidence> {
     server.commit_scene(
         CallerCtx::system(),
         CommitSeq::new(1),
-        &[Layer { surface, x: 8, y: 8, z: 0 }],
+        &[Layer {
+            surface,
+            x: 8,
+            y: 8,
+            z: 0,
+        }],
     )?;
     let first_present = match server.present_tick()? {
         Some(ack) => ack,
@@ -303,7 +406,12 @@ pub fn run_headless_ui_smoke() -> Result<UiSmokeEvidence> {
     server.commit_scene(
         CallerCtx::system(),
         CommitSeq::new(2),
-        &[Layer { surface, x: 8, y: 8, z: 0 }],
+        &[Layer {
+            surface,
+            x: 8,
+            y: 8,
+            z: 0,
+        }],
     )?;
     if server.present_tick()?.is_none() {
         return Err(WindowdError::MarkerBeforePresentState);
@@ -330,11 +438,21 @@ pub fn run_visible_bootstrap_smoke() -> Result<VisibleBootstrapEvidence> {
         }
     }
     let surface_id = server.create_surface(launcher, surface.clone())?;
-    server.queue_buffer(launcher, surface_id, surface.clone(), &[Rect::new(0, 0, 64, 48)])?;
+    server.queue_buffer(
+        launcher,
+        surface_id,
+        surface.clone(),
+        &[Rect::new(0, 0, 64, 48)],
+    )?;
     server.commit_scene(
         CallerCtx::system(),
         CommitSeq::new(1),
-        &[Layer { surface: surface_id, x: 8, y: 8, z: 0 }],
+        &[Layer {
+            surface: surface_id,
+            x: 8,
+            y: 8,
+            z: 0,
+        }],
     )?;
     let first_present = server.present_bootstrap_scanout_tick()?;
     Ok(VisibleBootstrapEvidence {
@@ -369,7 +487,12 @@ pub fn run_visible_systemui_smoke() -> Result<VisibleSystemUiEvidence> {
     server.commit_scene(
         CallerCtx::system(),
         CommitSeq::new(1),
-        &[Layer { surface: surface_id, x: 0, y: 0, z: 0 }],
+        &[Layer {
+            surface: surface_id,
+            x: 0,
+            y: 0,
+            z: 0,
+        }],
     )?;
     let first_present = server.present_bootstrap_scanout_tick()?;
     let composed_frame = server.last_frame().cloned();
@@ -403,7 +526,12 @@ pub fn run_ui_v2a_smoke() -> Result<UiV2aEvidence> {
         SurfaceBuffer::solid(background, 41, 16, 16, [0x10, 0x20, 0x40, 0xff])?;
     let launcher_surface = server.create_surface(launcher, launcher_initial.clone())?;
     let background_surface = server.create_surface(background, background_initial.clone())?;
-    server.queue_buffer(launcher, launcher_surface, launcher_initial, &[Rect::new(0, 0, 8, 8)])?;
+    server.queue_buffer(
+        launcher,
+        launcher_surface,
+        launcher_initial,
+        &[Rect::new(0, 0, 8, 8)],
+    )?;
     server.queue_buffer(
         background,
         background_surface,
@@ -414,8 +542,18 @@ pub fn run_ui_v2a_smoke() -> Result<UiV2aEvidence> {
         CallerCtx::system(),
         CommitSeq::new(1),
         &[
-            Layer { surface: background_surface, x: 0, y: 0, z: 0 },
-            Layer { surface: launcher_surface, x: 2, y: 2, z: 10 },
+            Layer {
+                surface: background_surface,
+                x: 0,
+                y: 0,
+                z: 0,
+            },
+            Layer {
+                surface: launcher_surface,
+                x: 2,
+                y: 2,
+                z: 10,
+            },
         ],
     )?;
 
@@ -435,8 +573,9 @@ pub fn run_ui_v2a_smoke() -> Result<UiV2aEvidence> {
         FrameIndex::new(2),
         &[Rect::new(2, 2, 4, 4)],
     )?;
-    let scheduled_present =
-        server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
+    let scheduled_present = server
+        .present_scheduler_tick()?
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
     let coalesced_status = server.present_fence_status(first_fence.fence_id)?;
     let latest_fence = server.present_fence_status(latest_fence_ack.fence_id)?;
     if !coalesced_status.signaled || !coalesced_status.coalesced || !latest_fence.signaled {
@@ -448,9 +587,15 @@ pub fn run_ui_v2a_smoke() -> Result<UiV2aEvidence> {
     let delivered = server.take_input_events(launcher, launcher_surface)?;
     let launcher_click_ok = pointer.surface == launcher_surface
         && keyboard.surface == launcher_surface
-        && delivered.iter().any(|event| event.kind == InputEventKind::PointerDown)
-        && delivered.iter().any(|event| matches!(event.kind, InputEventKind::Keyboard { .. }));
-    let focused_surface = server.focused_surface().ok_or(WindowdError::NoFocusedSurface)?;
+        && delivered
+            .iter()
+            .any(|event| event.kind == InputEventKind::PointerDown)
+        && delivered
+            .iter()
+            .any(|event| matches!(event.kind, InputEventKind::Keyboard { .. }));
+    let focused_surface = server
+        .focused_surface()
+        .ok_or(WindowdError::NoFocusedSurface)?;
     Ok(UiV2aEvidence {
         present_scheduler_on: server.scheduler_enabled()
             && scheduled_present.frames_coalesced == 1
@@ -470,31 +615,43 @@ pub fn run_visible_input_smoke() -> Result<UiVisibleInputEvidence> {
         height: VISIBLE_INPUT_PROOF_HEIGHT,
         hz: 60,
     })?;
-    let initial = SurfaceBuffer::solid(
+    let initial = visible_input_scene_surface(
         launcher,
         50,
-        VISIBLE_INPUT_SURFACE_WIDTH,
-        VISIBLE_INPUT_SURFACE_HEIGHT,
-        VISIBLE_INPUT_INITIAL_BGRA,
+        VISIBLE_INPUT_LEFT_IDLE_BGRA,
+        VISIBLE_INPUT_RIGHT_IDLE_BGRA,
     )?;
     let surface = server.create_surface(launcher, initial.clone())?;
     server.queue_buffer(
         launcher,
         surface,
         initial,
-        &[Rect::new(0, 0, VISIBLE_INPUT_SURFACE_WIDTH, VISIBLE_INPUT_SURFACE_HEIGHT)],
+        &[Rect::new(
+            0,
+            0,
+            VISIBLE_INPUT_SURFACE_WIDTH,
+            VISIBLE_INPUT_SURFACE_HEIGHT,
+        )],
     )?;
     server.commit_scene(
         CallerCtx::system(),
         CommitSeq::new(1),
-        &[Layer { surface, x: VISIBLE_INPUT_SURFACE_X, y: VISIBLE_INPUT_SURFACE_Y, z: 0 }],
+        &[Layer {
+            surface,
+            x: VISIBLE_INPUT_SURFACE_X,
+            y: VISIBLE_INPUT_SURFACE_Y,
+            z: 0,
+        }],
     )?;
-    let _ = server.present_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
+    let _ = server
+        .present_tick()?
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
 
     let cursor_move =
         server.route_pointer_move(VISIBLE_INPUT_CURSOR_START_X, VISIBLE_INPUT_CURSOR_START_Y)?;
-    let cursor_start_position =
-        server.pointer_position().ok_or(WindowdError::InvalidPointerPosition)?;
+    let cursor_start_position = server
+        .pointer_position()
+        .ok_or(WindowdError::InvalidPointerPosition)?;
     let cursor_frame = server.render_visible_input_frame()?;
     let cursor_start_visible = cursor_move.surface == surface
         && pixel_eq(
@@ -506,48 +663,87 @@ pub fn run_visible_input_smoke() -> Result<UiVisibleInputEvidence> {
 
     let cursor_move =
         server.route_pointer_move(VISIBLE_INPUT_CURSOR_END_X, VISIBLE_INPUT_CURSOR_END_Y)?;
-    let cursor_position = server.pointer_position().ok_or(WindowdError::InvalidPointerPosition)?;
+    let cursor_position = server
+        .pointer_position()
+        .ok_or(WindowdError::InvalidPointerPosition)?;
+    let hover_surface = visible_input_scene_surface(
+        launcher,
+        51,
+        VISIBLE_INPUT_LEFT_HOVER_BGRA,
+        VISIBLE_INPUT_RIGHT_IDLE_BGRA,
+    )?;
+    server.acquire_back_buffer(launcher, surface, FrameIndex::new(1), hover_surface)?;
+    server.present_frame(
+        launcher,
+        surface,
+        FrameIndex::new(1),
+        &[Rect::new(
+            0,
+            0,
+            VISIBLE_INPUT_SURFACE_WIDTH,
+            VISIBLE_INPUT_SURFACE_HEIGHT,
+        )],
+    )?;
+    let _ = server
+        .present_scheduler_tick()?
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
     let hover_frame = server.render_visible_input_frame()?;
     let cursor_move_visible = cursor_start_visible
         && cursor_move.surface == surface
         && cursor_position != cursor_start_position
-        && pixel_eq(&hover_frame, cursor_position.x, cursor_position.y, VISIBLE_CURSOR_BGRA)?;
+        && pixel_eq(
+            &hover_frame,
+            cursor_position.x,
+            cursor_position.y,
+            VISIBLE_CURSOR_BGRA,
+        )?;
     let hover_visible = server.last_pointer_hit() == Some(surface)
         && pixel_eq(
             &hover_frame,
-            VISIBLE_INPUT_SURFACE_X,
-            VISIBLE_INPUT_SURFACE_Y,
-            VISIBLE_HOVER_BGRA,
+            VISIBLE_INPUT_LEFT_SQUARE_X as i32 + 1,
+            VISIBLE_INPUT_LEFT_SQUARE_Y as i32 + 1,
+            VISIBLE_INPUT_LEFT_HOVER_BGRA,
         )?;
 
     let click =
         server.route_pointer_down(VISIBLE_INPUT_CURSOR_END_X, VISIBLE_INPUT_CURSOR_END_Y)?;
     let delivered = server.take_input_events(launcher, surface)?;
     let routed_click = click.surface == surface
-        && delivered.iter().any(|event| matches!(event.kind, InputEventKind::PointerMove { .. }))
-        && delivered.iter().any(|event| event.kind == InputEventKind::PointerDown);
+        && delivered
+            .iter()
+            .any(|event| matches!(event.kind, InputEventKind::PointerMove { .. }))
+        && delivered
+            .iter()
+            .any(|event| event.kind == InputEventKind::PointerDown);
     if !routed_click {
         return Err(WindowdError::MarkerBeforePresentState);
     }
 
-    let highlighted = SurfaceBuffer::solid(
+    let highlighted = visible_input_scene_surface(
         launcher,
-        51,
-        VISIBLE_INPUT_SURFACE_WIDTH,
-        VISIBLE_INPUT_SURFACE_HEIGHT,
+        52,
         VISIBLE_INPUT_CLICK_BGRA,
+        VISIBLE_INPUT_RIGHT_IDLE_BGRA,
     )?;
-    server.acquire_back_buffer(launcher, surface, FrameIndex::new(1), highlighted)?;
+    server.acquire_back_buffer(launcher, surface, FrameIndex::new(2), highlighted)?;
     server.present_frame(
         launcher,
         surface,
-        FrameIndex::new(1),
-        &[Rect::new(0, 0, VISIBLE_INPUT_SURFACE_WIDTH, VISIBLE_INPUT_SURFACE_HEIGHT)],
+        FrameIndex::new(2),
+        &[Rect::new(
+            0,
+            0,
+            VISIBLE_INPUT_SURFACE_WIDTH,
+            VISIBLE_INPUT_SURFACE_HEIGHT,
+        )],
     )?;
-    let scheduled_present =
-        server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
-    let visible_frame =
-        server.last_frame().cloned().ok_or(WindowdError::MarkerBeforePresentState)?;
+    let scheduled_present = server
+        .present_scheduler_tick()?
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
+    let visible_frame = server
+        .last_frame()
+        .cloned()
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
     let focus_visible = server.focused_surface() == Some(surface)
         && pixel_eq(
             &visible_frame,
@@ -555,24 +751,74 @@ pub fn run_visible_input_smoke() -> Result<UiVisibleInputEvidence> {
             VISIBLE_INPUT_SURFACE_Y,
             VISIBLE_FOCUS_BGRA,
         )?;
-    let launcher_click_visible = pixel_eq(&visible_frame, 24, 18, VISIBLE_INPUT_CLICK_BGRA)?;
-    let focused_surface = server.focused_surface().ok_or(WindowdError::NoFocusedSurface)?;
+    let launcher_click_visible = pixel_eq(
+        &visible_frame,
+        VISIBLE_INPUT_LEFT_SQUARE_X as i32 + 1,
+        VISIBLE_INPUT_LEFT_SQUARE_Y as i32 + 1,
+        VISIBLE_INPUT_CLICK_BGRA,
+    )?;
+    let keyboard = server.route_keyboard(0x2f)?;
+    let keyboard_delivered = server.take_input_events(launcher, surface)?;
+    let keyboard_surface = visible_input_scene_surface(
+        launcher,
+        53,
+        VISIBLE_INPUT_CLICK_BGRA,
+        VISIBLE_INPUT_KEYBOARD_BGRA,
+    )?;
+    server.acquire_back_buffer(launcher, surface, FrameIndex::new(3), keyboard_surface)?;
+    server.present_frame(
+        launcher,
+        surface,
+        FrameIndex::new(3),
+        &[Rect::new(
+            0,
+            0,
+            VISIBLE_INPUT_SURFACE_WIDTH,
+            VISIBLE_INPUT_SURFACE_HEIGHT,
+        )],
+    )?;
+    let _ = server
+        .present_scheduler_tick()?
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
+    let keyboard_frame = server
+        .last_frame()
+        .cloned()
+        .ok_or(WindowdError::MarkerBeforePresentState)?;
+    let keyboard_visible = keyboard.surface == surface
+        && keyboard_delivered
+            .iter()
+            .any(|event| matches!(event.kind, InputEventKind::Keyboard { key_code: 0x2f }))
+        && pixel_eq(
+            &keyboard_frame,
+            VISIBLE_INPUT_RIGHT_SQUARE_X as i32 + 1,
+            VISIBLE_INPUT_RIGHT_SQUARE_Y as i32 + 1,
+            VISIBLE_INPUT_KEYBOARD_BGRA,
+        )?;
+    let full_window_visible = pixel_eq(&keyboard_frame, 16, 16, VISIBLE_INPUT_BGRA)?
+        || pixel_eq(&keyboard_frame, 16, 16, [0x24, 0x38, 0xa0, 0xff])?;
+    let focused_surface = server
+        .focused_surface()
+        .ok_or(WindowdError::NoFocusedSurface)?;
 
     Ok(UiVisibleInputEvidence {
         input_visible_on: server.input_enabled()
             && cursor_move_visible
             && hover_visible
-            && focus_visible,
+            && focus_visible
+            && keyboard_visible,
+        full_window_visible,
         cursor_move_visible,
         hover_visible,
         focus_visible,
         launcher_click_visible,
+        keyboard_visible,
         focused_surface,
         cursor_start_position,
         cursor_position,
         scheduled_present,
         cursor_frame: Some(cursor_frame),
         hover_frame: Some(hover_frame),
+        keyboard_frame: Some(keyboard_frame),
         visible_frame: Some(visible_frame),
     })
 }

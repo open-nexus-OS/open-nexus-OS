@@ -9,4 +9,12 @@ fn main() {
     // Use canonicalize to ensure only a single absolute path reaches the linker
     let abs_script = linker_script.canonicalize().expect("kernel.ld must exist");
     println!("cargo:rustc-link-arg=-T{}", abs_script.display());
+
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(|path| path.parent())
+        .and_then(|path| path.parent())
+        .expect("neuron-boot must live under source/kernel");
+    let map_path = repo_root.join("neuron-boot.map");
+    println!("cargo:rustc-link-arg=-Map={}", map_path.display());
 }

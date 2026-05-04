@@ -78,7 +78,10 @@ pub mod os {
     pub type ServiceResult<E> = core::result::Result<(), E>;
 
     // Bring-up sizing: keep service heaps bounded to avoid exhausting the kernel's early linear map.
-    // 384KiB is enough for logd/policyd bring-up while still staying under early-kernel memory limits.
+    // Most services stay at 384KiB; heavy proof clients may opt into 512KiB explicitly.
+    #[cfg(feature = "heap-512k")]
+    const HEAP_SIZE: usize = 512 * 1024;
+    #[cfg(not(feature = "heap-512k"))]
     const HEAP_SIZE: usize = 384 * 1024;
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
@@ -90,7 +93,11 @@ pub mod os {
 
     impl Bump {
         const fn empty() -> Self {
-            Self { start: 0, end: 0, current: 0 }
+            Self {
+                start: 0,
+                end: 0,
+                current: 0,
+            }
         }
 
         fn init(&mut self, base: usize, size: usize) {
@@ -134,7 +141,10 @@ pub mod os {
 
     impl LockedBump {
         const fn new() -> Self {
-            Self { inner: SpinLock::new(Bump::empty()), ready: AtomicBool::new(false) }
+            Self {
+                inner: SpinLock::new(Bump::empty()),
+                ready: AtomicBool::new(false),
+            }
         }
 
         fn ensure_init(&self) {
@@ -541,7 +551,8 @@ pub mod os {
             _ => {
                 let enabled = option_env!("INIT_LITE_LOG_TOPICS")
                     .map(|spec| {
-                        spec.split(',').any(|token| token.trim().eq_ignore_ascii_case("probe"))
+                        spec.split(',')
+                            .any(|token| token.trim().eq_ignore_ascii_case("probe"))
                     })
                     .unwrap_or(false);
                 STATE.store(if enabled { 1 } else { 0 }, Ordering::Relaxed);

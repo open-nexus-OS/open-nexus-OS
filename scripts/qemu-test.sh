@@ -223,26 +223,18 @@ fi
 
 # TASK-0014: enforce canonical os-lite service payload set for deterministic QEMU proofs.
 # Keep this fixed so marker contracts do not depend on inherited shell environment.
-export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,selftest-client"
-if [[ "${RUN_PHASE:-}" == "input-startup" ]]; then
-  export INPUT_V1_0B_SERVICE_STARTUP=1
-fi
-if [[ "${INPUT_V1_0B_SERVICE_STARTUP:-0}" == "1" ]]; then
-  export INIT_LITE_SERVICE_LIST="${INIT_LITE_SERVICE_LIST%,},hidrawd,touchd,inputd"
-fi
+export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,hidrawd,touchd,inputd,selftest-client"
 if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
   # Keep added observability service footprint bounded in bring-up proofs.
   export INIT_LITE_SERVICE_METRICSD_STACK_PAGES=1
 fi
-if [[ "${INPUT_V1_0B_SERVICE_STARTUP:-0}" == "1" ]]; then
-  for svc in HIDRAWD TOUCHD INPUTD; do
-    stack_var="INIT_LITE_SERVICE_${svc}_STACK_PAGES"
-    if [[ -z "${!stack_var:-}" ]]; then
-      # TASK-0253 service entries perform bounded init-only proof work; keep their stacks small.
-      export "$stack_var=1"
-    fi
-  done
-fi
+for svc in HIDRAWD TOUCHD INPUTD; do
+  stack_var="INIT_LITE_SERVICE_${svc}_STACK_PAGES"
+  if [[ -z "${!stack_var:-}" ]]; then
+    # Input service entries perform bounded init-only proof work; keep their stacks small.
+    export "$stack_var=1"
+  fi
+done
 # #region agent log (H1: qemu-test effective config in make path)
 agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
   "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"debug_log\":\"$DEBUG_LOG\"}"
@@ -367,6 +359,12 @@ expected_sequence=(
   "init: up netstackd"
   "init: start dsoftbusd"
   "init: up dsoftbusd"
+  "init: start hidrawd"
+  "init: up hidrawd"
+  "init: start touchd"
+  "init: up touchd"
+  "init: start inputd"
+  "init: up inputd"
   "init: ready"
   # Service readiness markers are emitted asynchronously by the spawned processes.
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
@@ -383,6 +381,9 @@ expected_sequence=(
   "vfsd: ready"
   "vfsd: namespace ready"
   "execd: ready"
+  "hidrawd: os service payload ready"
+  "touchd: os service payload ready"
+  "inputd: os service payload ready"
   "timed: ready"
   "netstackd: ready"
   "net: virtio-net up"
@@ -495,34 +496,6 @@ expected_sequence=(
   "SELFTEST: end"
 )
 
-if [[ "${INPUT_V1_0B_SERVICE_STARTUP:-0}" == "1" ]]; then
-  input_startup_sequence=(
-    "init: start hidrawd"
-    "init: up hidrawd"
-    "init: start touchd"
-    "init: up touchd"
-    "init: start inputd"
-    "init: up inputd"
-    "hidrawd: os service payload ready"
-    "touchd: os service payload ready"
-    "inputd: os service payload ready"
-  )
-  expanded_sequence=()
-  input_inserted=0
-  for marker in "${expected_sequence[@]}"; do
-    expanded_sequence+=("$marker")
-    if [[ "$marker" == "execd: ready" ]]; then
-      expanded_sequence+=("${input_startup_sequence[@]}")
-      input_inserted=1
-    fi
-  done
-  if [[ "$input_inserted" != "1" ]]; then
-    echo "[error] failed to insert TASK-0253 input startup markers into expected sequence" >&2
-    exit 2
-  fi
-  expected_sequence=("${expanded_sequence[@]}")
-fi
-
 if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
   expected_sequence=(
     "${expected_sequence[@]:0:$(( ${#expected_sequence[@]} - 7 ))}"
@@ -540,10 +513,12 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "SELFTEST: ui v2 present ok"
     "SELFTEST: ui v2 input ok"
     "windowd: input visible on"
+            "windowd: full-window color visible"
     "windowd: cursor move visible"
     "windowd: hover visible"
     "windowd: focus visible"
     "launcher: click visible ok"
+            "windowd: keyboard visible"
     "SELFTEST: ui visible input ok"
     "SELFTEST: end"
   )
@@ -590,6 +565,23 @@ if [[ -n "$RUN_PHASE" ]]; then
   if [[ -z "${PHASE_END_MARKER[$RUN_PHASE]:-}" ]]; then
     print_phase_help
     exit 2
+  fi
+  if [[ "$RUN_PHASE" == "input-startup" ]]; then
+    expected_sequence=(
+      "neuron vers."
+      "KSELFTEST: spawn reasons ok"
+      "KSELFTEST: resource sentinel ok"
+      "init: start"
+      "init: start hidrawd"
+      "init: up hidrawd"
+      "init: start touchd"
+      "init: up touchd"
+      "init: start inputd"
+      "init: up inputd"
+      "hidrawd: os service payload ready"
+      "touchd: os service payload ready"
+      "inputd: os service payload ready"
+    )
   fi
   phase_end="${PHASE_END_MARKER[$RUN_PHASE]}"
   phase_end_idx=$(find_marker_index "$phase_end" "${expected_sequence[@]}" || true)

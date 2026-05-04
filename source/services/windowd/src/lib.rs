@@ -37,18 +37,19 @@ pub use legacy::render_frame;
 pub use markers::{
     focus_marker, marker_postflight_ready, present_marker, CURSOR_MOVE_VISIBLE_MARKER,
     DISPLAY_BOOTSTRAP_MARKER, DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER,
-    FOCUS_VISIBLE_MARKER, HOVER_VISIBLE_MARKER, INPUT_ON_MARKER, INPUT_VISIBLE_ON_MARKER,
-    LAUNCHER_CLICK_OK_MARKER, LAUNCHER_CLICK_VISIBLE_OK_MARKER, LAUNCHER_MARKER,
-    PRESENT_SCHEDULER_ON_MARKER, PRESENT_VISIBLE_MARKER, READY_MARKER,
-    SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER, SELFTEST_LAUNCHER_PRESENT_MARKER,
-    SELFTEST_RESIZE_MARKER, SELFTEST_UI_V2_INPUT_OK_MARKER, SELFTEST_UI_V2_PRESENT_OK_MARKER,
-    SELFTEST_UI_VISIBLE_INPUT_OK_MARKER, SELFTEST_UI_VISIBLE_PRESENT_MARKER,
-    SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, SYSTEMUI_MARKER, VISIBLE_BACKEND_MARKER,
+    FOCUS_VISIBLE_MARKER, FULL_WINDOW_VISIBLE_MARKER, HOVER_VISIBLE_MARKER, INPUT_ON_MARKER,
+    INPUT_VISIBLE_ON_MARKER, KEYBOARD_VISIBLE_MARKER, LAUNCHER_CLICK_OK_MARKER,
+    LAUNCHER_CLICK_VISIBLE_OK_MARKER, LAUNCHER_MARKER, PRESENT_SCHEDULER_ON_MARKER,
+    PRESENT_VISIBLE_MARKER, READY_MARKER, SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER,
+    SELFTEST_LAUNCHER_PRESENT_MARKER, SELFTEST_RESIZE_MARKER, SELFTEST_UI_V2_INPUT_OK_MARKER,
+    SELFTEST_UI_V2_PRESENT_OK_MARKER, SELFTEST_UI_VISIBLE_INPUT_OK_MARKER,
+    SELFTEST_UI_VISIBLE_PRESENT_MARKER, SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, SYSTEMUI_MARKER,
+    VISIBLE_BACKEND_MARKER,
 };
 pub use server::{
     BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PointerPosition, PresentAck,
-    PresentFenceStatus, PresentFrameAck, ScheduledPresentAck, UiProfile, WindowServer,
-    WindowdConfig, TouchInputPhase, VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT,
+    PresentFenceStatus, PresentFrameAck, ScheduledPresentAck, TouchInputPhase, UiProfile,
+    WindowServer, WindowdConfig, VISIBLE_BOOTSTRAP_FORMAT, VISIBLE_BOOTSTRAP_HEIGHT,
     VISIBLE_BOOTSTRAP_HZ, VISIBLE_BOOTSTRAP_WIDTH, VISIBLE_CURSOR_BGRA, VISIBLE_FOCUS_BGRA,
     VISIBLE_HOVER_BGRA,
 };
@@ -59,6 +60,7 @@ pub use smoke::{
     visible_marker_postflight_ready, visible_systemui_marker_postflight_ready, UiSmokeEvidence,
     UiV2aEvidence, UiVisibleInputEvidence, VisibleBootstrapEvidence, VisibleBootstrapMode,
     VisibleDisplayCapability, VisibleSystemUiEvidence, VISIBLE_INPUT_CLICK_BGRA,
+    VISIBLE_INPUT_KEYBOARD_BGRA,
 };
 
 #[cfg(not(all(nexus_env = "os", target_os = "none")))]
@@ -77,13 +79,18 @@ mod tests {
     fn smoke_markers_require_real_present() {
         let lines = execute(&[]);
         assert_eq!(lines[0], READY_MARKER);
-        assert!(lines.iter().any(|line| line == "windowd: present ok (seq=1 dmg=1)"));
+        assert!(lines
+            .iter()
+            .any(|line| line == "windowd: present ok (seq=1 dmg=1)"));
         assert!(lines.contains(&String::from(SELFTEST_RESIZE_MARKER)));
     }
 
     #[test]
     fn marker_postflight_rejects_missing_present() {
-        assert_eq!(marker_postflight_ready(None), Err(WindowdError::MarkerBeforePresentState));
+        assert_eq!(
+            marker_postflight_ready(None),
+            Err(WindowdError::MarkerBeforePresentState)
+        );
     }
 
     #[test]
@@ -122,15 +129,27 @@ mod tests {
     fn visible_bootstrap_rejects_invalid_mode_and_capability() {
         let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
         assert_eq!(
-            VisibleBootstrapMode { width: 1024, ..mode }.validate(),
+            VisibleBootstrapMode {
+                width: 1024,
+                ..mode
+            }
+            .validate(),
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(
-            VisibleBootstrapMode { stride: mode.stride - 4, ..mode }.validate(),
+            VisibleBootstrapMode {
+                stride: mode.stride - 4,
+                ..mode
+            }
+            .validate(),
             Err(WindowdError::InvalidStride)
         );
         assert_eq!(
-            VisibleBootstrapMode { format: PixelFormat::Unsupported(1), ..mode }.validate(),
+            VisibleBootstrapMode {
+                format: PixelFormat::Unsupported(1),
+                ..mode
+            }
+            .validate(),
             Err(WindowdError::UnsupportedFormat)
         );
         assert_eq!(
@@ -150,10 +169,12 @@ mod tests {
     fn visible_input_smoke_requires_routed_visible_state() {
         let evidence = run_visible_input_smoke().expect("visible input smoke");
         assert!(evidence.input_visible_on);
+        assert!(evidence.full_window_visible);
         assert!(evidence.cursor_move_visible);
         assert!(evidence.hover_visible);
         assert!(evidence.focus_visible);
         assert!(evidence.launcher_click_visible);
+        assert!(evidence.keyboard_visible);
         assert_eq!(evidence.focused_surface.raw(), 1);
         assert!(visible_input_marker_postflight_ready(Some(evidence)).is_ok());
         assert_eq!(

@@ -94,6 +94,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
             if visible_input.input_visible_on {
                 emit_line(windowd::INPUT_VISIBLE_ON_MARKER);
             }
+            if visible_input.full_window_visible {
+                emit_line(windowd::FULL_WINDOW_VISIBLE_MARKER);
+            }
             if visible_input.cursor_move_visible {
                 emit_line(windowd::CURSOR_MOVE_VISIBLE_MARKER);
             }
@@ -106,11 +109,16 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
             if visible_input.launcher_click_visible {
                 emit_line(windowd::LAUNCHER_CLICK_VISIBLE_OK_MARKER);
             }
+            if visible_input.keyboard_visible {
+                emit_line(windowd::KEYBOARD_VISIBLE_MARKER);
+            }
             if visible_input.input_visible_on
+                && visible_input.full_window_visible
                 && visible_input.cursor_move_visible
                 && visible_input.hover_visible
                 && visible_input.focus_visible
                 && visible_input.launcher_click_visible
+                && visible_input.keyboard_visible
             {
                 emit_line(windowd::SELFTEST_UI_VISIBLE_INPUT_OK_MARKER);
             }
