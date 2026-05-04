@@ -15,7 +15,7 @@
 
 - **Phase 0 (contract freeze + proof vectors)**: ✅
 - **Phase 1 (service wiring + reject floor)**: ✅ host/service slice landed and green
-- **Phase 2 (hardening + Gate-E closure sync)**: partial; host hardening, IDL seeds, touch routing, and narrow live marker replacement landed, but runtime/daemon closure is still open
+- **Phase 2 (hardening + Gate-E closure sync)**: partial; host hardening, IDL seeds, touch routing, narrow live marker replacement, and profile-gated init-lite startup markers landed, but kernel/runtime service-scale closure is still open
 
 Definition:
 
@@ -27,7 +27,8 @@ Definition:
   - the RFC-0052 carry-in crates now compile for the OS target at library level,
   - `inputd` now routes touch through `windowd` instead of only recording normalized touch dispatches,
   - the `selftest-client` `visible-bootstrap` path now drives the in-process `hidrawd|touchd -> inputd -> windowd` sequence and the narrow QEMU proof is green under `verify-uart`,
-  - separate daemon startup / QEMU device wiring for `hidrawd`, `touchd`, and `inputd` is still not proven,
+  - minimal OS service payload entries and startup markers now exist for `hidrawd`, `touchd`, and `inputd`,
+  - separate daemon startup in the normal service set currently exposes a kernel/runtime scale blocker: additional service address spaces/page tables exhaust the current 2 MiB kernel heap before later exec proofs complete,
   - broad closure gates remain deferred until explicitly rerun.
 
 ## Scope boundaries (anti-drift)
@@ -37,12 +38,14 @@ This RFC is a design seed / contract. Execution sequencing and closure proof run
 - **This RFC owns**:
   - deterministic OS/QEMU ingestion path from HID/touch sources to `inputd`,
   - routing contract from `inputd` to existing UI authorities (`windowd`/SystemUI/IME hooks),
-  - fail-closed reject model and marker-honesty model for live-input closure.
+  - fail-closed reject model and marker-honesty model for live-input closure,
+  - narrow kernel/runtime service-scale prerequisites needed to run the 0253 services as real init-lite service processes.
 - **This RFC does NOT own**:
   - host input-core algorithms already owned by RFC-0052 (`hid`, `touch`, `keymaps`, `repeat`, `pointer-accel`),
   - `windowd` hit-test/focus authority (owned by RFC-0050/0051),
   - IME/OSK full behavior and text stack breadth (`TASK-0146`/`TASK-0147`),
-  - latency budget/perf closure (`TASK-0056C`).
+  - latency budget/perf closure (`TASK-0056C`),
+  - broad kernel redesign beyond the service-scale fixes required for this proof.
 
 ### Relationship to tasks (single execution truth)
 
@@ -61,10 +64,11 @@ This RFC is a design seed / contract. Execution sequencing and closure proof run
   - `windowd`/SystemUI/IME hook integration without authority drift.
 - Define proof obligations that combine behavior assertions and marker verification (no grep-only closure).
 - Keep implementation modular and maintainable with explicit Rust API/ownership discipline.
+- Define the runtime prerequisites for running the input stack as real OS services without kernel heap exhaustion.
 
 ## Non-Goals
 
-- Kernel redesign or broad MMIO model changes.
+- Broad kernel redesign or broad MMIO model changes.
 - New authority for hit-test/focus/hover/click outside `windowd`.
 - Full IME semantics, OSK behavior, or advanced text shaping.
 - Latency-budget claims for smoothness/perf scenes (`TASK-0056C`).
@@ -75,6 +79,7 @@ This RFC is a design seed / contract. Execution sequencing and closure proof run
 - **Determinism**: equivalent source vectors produce equivalent `InputEvent` outcomes.
 - **No fake success**: markers are emitted only after the associated state transition is asserted.
 - **Bounded resources**: bounded subscriptions, bounded input queues, bounded retry loops, bounded marker payloads.
+- **Kernel/runtime scalability**: the normal QEMU service set plus `hidrawd`/`touchd`/`inputd` must not rely on a marker-only or script-gated workaround for kernel heap exhaustion.
 - **Fail-closed**: malformed frames/stale channels/invalid configs reject with stable classes.
 - **No parser/keymap drift**: all parsing/keymap/repeat/accel behavior reuses RFC-0052 crates.
 
@@ -114,6 +119,8 @@ Suggested module shape (non-normative but recommended):
 - **Phase 0**: freeze marker/order contract and Soll + reject vectors.
 - **Phase 1**: implement source services + `inputd` routing with reject floor.
 - **Phase 2**: harden settings/CLI/postflight seams and synchronize Gate-E quality evidence.
+- **Phase 3**: fix kernel/runtime service-scale blockers so the three input services can run as real init-lite service processes in the normal proof path.
+- **Phase 4**: replace marker-only visual assertions with a diagnosable visible-bootstrap scene: full colored window, mouse-following pixel, hover/click square, and keyboard-input square.
 
 ## Security considerations
 
@@ -163,6 +170,19 @@ cd /home/jenning/open-nexus-OS && cargo test -p inputd -- --nocapture
 cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
 ```
 
+This proof must eventually run with the normal QEMU service set plus real
+`hidrawd`, `touchd`, and `inputd` init-lite service processes. A profile-gated
+startup marker is useful for local triage, but it is not sufficient for `Done`
+while the normal service set still trips kernel heap OOM.
+
+The final visible proof must be visual and diagnosable:
+
+- full colored window background,
+- one pixel follows live mouse motion,
+- bottom-left square changes color on hover and click,
+- right-side square changes color on keyboard input,
+- UI-side logs/errors identify observed state transitions and failure causes.
+
 ### Deterministic markers (required, non-exhaustive)
 
 - `hidrawd: ready`
@@ -170,6 +190,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 - `hidrawd: device mouse`
 - `touchd: ready`
 - `inputd: ready`
+- `hidrawd: os service payload ready`
+- `touchd: os service payload ready`
+- `inputd: os service payload ready`
 - `inputd: keymap=de`
 - `inputd: repeat start code=4`
 - `inputd: dispatch windowd cursor=(36,28)`

@@ -41,9 +41,13 @@
   - bounded `ime` show/hide stub state, `systemui` overlay hook state, canonical `settingsd` input key constants, expanded `nx input` + `nx postflight input`, and service IDL seed files,
   - RFC-0052 carry-in crates are now OS-target compatible at library level,
   - `inputd` now routes touch through `windowd` instead of recording touch-only dispatches,
-  - `selftest-client` `visible-bootstrap` now drives the in-process `hidrawd|touchd -> inputd -> windowd` path and emits the canonical 0253 ladder under `verify-uart`.
+  - `selftest-client` `visible-bootstrap` now drives the in-process `hidrawd|touchd -> inputd -> windowd` path and emits the canonical 0253 ladder under `verify-uart`,
+  - commit `f24011b` captured this implementation slice,
+  - minimal OS service payload entries and profile-gated init-lite startup markers now exist for `hidrawd`, `touchd`, and `inputd`.
 - Remaining closure blockers (still open):
-  - the OS/QEMU proof is still in-process from `selftest-client`, not separate daemon startup/wiring for `hidrawd` / `touchd` / `inputd`,
+  - separate OS service startup exposes a kernel/runtime scale blocker: adding the three input service tasks to the normal service set drives the 2 MiB kernel heap to OOM during later exec proofs,
+  - do not continue solving this with script conditionals; the next plan must address kernel/runtime service scaling directly (page-table/AS allocation, service lifecycle/reaping, resource diagnostics),
+  - `visible-bootstrap` must become a real visual live-input proof: colored full-window background, pointer-following pixel, left-bottom hover/click color square, and right-side keyboard-input color square with UI-side logs/errors,
   - `nx input keymap set`, `nx input cursor`, and `nx input test type` are host preflight helpers only,
   - broad closure gates remain deferred until explicitly requested and should only be rerun after the functional gaps above close.
 - Broad closure gates were intentionally not run in this slice:

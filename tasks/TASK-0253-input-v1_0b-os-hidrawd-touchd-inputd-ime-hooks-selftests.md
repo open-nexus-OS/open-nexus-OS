@@ -6,6 +6,7 @@ created: 2025-12-29
 depends-on:
   - TASK-0252
 follow-up-tasks:
+  - Kernel/runtime service-scale closure for init-lite multi-service proofs
   - TASK-0056C
   - TASK-0146
   - TASK-0147
@@ -46,6 +47,9 @@ Gate alignment:
 - Latency/perf closure remains explicit follow-up scope in `TASK-0056C`; 0253 must
   provide deterministic, bounded, and measurable live-input behavior without
   claiming perf-budget closure.
+- Scope is expanded narrowly to include kernel/runtime service-scale fixes required
+  to boot `hidrawd`, `touchd`, and `inputd` as real init-lite service processes
+  without kernel heap exhaustion. This is not permission for broad kernel redesign.
 
 ## Goal
 
@@ -83,10 +87,24 @@ On OS/QEMU:
    - `nx input devices`, `nx input keymap set de`, `nx input keymap get`, `nx input test type "Hello, 世界!"`, `nx input cursor 640 400`
    - markers: `nx: input keymap=de`, `nx: input cursor set (640,400)`
 8. **OS selftests + postflight**.
+9. **Kernel/runtime service-scale closure**:
+   - fix the kernel/runtime blocker that currently appears when the three input
+     services are added to the normal QEMU service set: additional service address
+     spaces/page tables exhaust the 2 MiB kernel heap before later exec proofs finish,
+   - add resource-category diagnostics so future failures identify page-table,
+     address-space, stack, cap-table, IPC, or VMO pressure instead of forcing log guessing,
+   - prove the normal service set plus input services can continue through the
+     required visible-bootstrap proof without script-only profile exceptions.
+10. **Visible live-input scene proof**:
+    the final visible-bootstrap proof should render a full colored window, one
+    visible pixel that moves live with the mouse, a bottom-left square that
+    changes color on hover and click, and a right-side square that changes color
+    on keyboard input. UI logs/errors must expose enough structured state to
+    debug failures without guessing.
 
 ## Non-Goals
 
-- Kernel changes.
+- Broad kernel redesign beyond the narrow service-scale work required for this proof.
 - Full IME engine (handled by `TASK-0146`/`TASK-0147`).
 - Real hardware (QEMU HID/touch only).
 
@@ -165,6 +183,14 @@ UART markers:
 Additional closure floor:
 
 - marker order is deterministic and profile-verified via the canonical harness,
+- normal OS/QEMU service startup proves `hidrawd`, `touchd`, and `inputd` as real init-lite service processes without kernel heap OOM or script-only profile exceptions,
+- kernel/runtime resource diagnostics identify the pressure category when service-scale proofs fail,
+- visible-bootstrap proves real visible behavior, not only markers:
+  - full colored window,
+  - one pixel follows live mouse motion,
+  - bottom-left square changes color on hover and click,
+  - right-side square changes color on keyboard input,
+  - UI-side logs/errors expose the observed state transitions,
 - `cargo test -p input_v1_0_host -- --nocapture` stays green as the RFC-0052 carry-in authority baseline,
 - required reject-path tests exist for malformed HID/touch and invalid keymap/repeat/accel/routing settings,
 - proof-manifest / harness verification remains the OS acceptance authority; marker-only grep closure is forbidden,

@@ -83,7 +83,8 @@
 - `TASK-0253` is `In Progress`; `RFC-0053` is `In Progress` as the active OS/QEMU live-input contract seed.
 - Scope posture is service-level live-input ingestion and routing, not host-core algorithm authority:
   - in-scope: `hidrawd`, `touchd`, `inputd`, bounded `windowd`/SystemUI/IME hook integration, `nx input` diagnostics,
-  - out-of-scope: perf-budget closure (`TASK-0056C`), full IME/OSK behavior (`TASK-0146`/`TASK-0147`), kernel redesign.
+  - expanded in-scope for honest closure: narrow kernel/runtime service-scale work needed to boot additional init-lite service processes without kernel-heap OOM,
+  - out-of-scope: perf-budget closure (`TASK-0056C`), full IME/OSK behavior (`TASK-0146`/`TASK-0147`), broad kernel redesign.
 - Authority split is explicit and non-negotiable:
   - reuse RFC-0052 crates for HID/touch/keymap/repeat/accel behavior,
   - keep `windowd` as hit-test/hover/focus/click authority.
@@ -92,15 +93,19 @@
   - marker-only closure is forbidden,
   - quality gates (`fmt-clippy-deny`, `test-all`, `ci-network`, `make clean/build/test/run`) remain required before `Done`.
 - Progress in the current slice:
+  - commit `f24011b` captured the host/service live-input implementation slice,
   - new host/service seams landed under `source/services/hidrawd/`, `source/services/touchd/`, and `source/services/inputd/`,
   - bounded host proofs are green for `cargo test -p hidrawd -- --nocapture`, `cargo test -p touchd -- --nocapture`, and `cargo test -p inputd -- --nocapture`,
   - bounded `ime`/`systemui` hook stubs, `settingsd` input snapshot wiring, canonical input key constants, expanded `nx input` subcommands, and `nx postflight input` landed as host-verified hardening surfaces,
   - service IDL seed files now exist for `hidrawd`, `touchd`, and `inputd`,
   - `inputd` now routes touch events through `windowd` instead of only logging normalized touch dispatches,
   - RFC-0052 carry-in crates are now OS-target compatible at library level, and the `selftest-client` `visible-bootstrap` OS-lite build links the in-process `hidrawd|touchd -> inputd -> windowd` proof path,
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green with the canonical 0253 marker ladder present and `verify-uart` accepted.
+  - `hidrawd`, `touchd`, and `inputd` now have minimal OS service payload entries and profile-gated init-lite startup markers,
+  - focused OS builds for the three input services and a narrow init-lite embed build are green.
 - Remaining closure gaps before `TASK-0253` / `RFC-0053` can honestly move to `Done`:
-  - the QEMU proof still exercises the live-input stack in-process from `selftest-client`; it does not yet prove separate OS service startup / wiring for `hidrawd`, `touchd`, and `inputd`,
+  - adding the three input services to the normal QEMU service set currently exposes a kernel/runtime scale blocker: the 2 MiB kernel heap is exhausted during later exec proofs after extra service address spaces/page tables are created,
+  - the next slice must fix kernel/runtime service scaling instead of adding more script conditionals; likely areas are page-table allocation ownership, address-space/kernel mapping cost, service lifecycle/reaping, and resource diagnostics,
+  - the visible-bootstrap proof still needs to graduate from in-process proof to a visual, diagnosable live-input scene driven by real service startup: full colored window, pointer-following pixel, hover/click color square, keyboard-input color square,
   - `nx input keymap set`, `nx input cursor`, and `nx input test type` are currently bounded host preflight helpers, not live daemon-affecting commands,
   - the task/RFC contract still promises broader service/runtime closure (real startup path, bounded live service API use, later SystemUI/global-shortcut consumers) than is currently proven,
   - broad closure gates remain intentionally deferred until explicitly requested:

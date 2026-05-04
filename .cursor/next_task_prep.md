@@ -15,9 +15,14 @@
 - **current progress snapshot**:
   - host/service slice is landed and green for `hidrawd`, `touchd`, `inputd`, `ime`, `systemui`, `settingsd`, and `nx`,
   - `nx input` and `nx postflight input` now exist as host diagnostics / delegate surfaces,
-  - the `visible-bootstrap` path has been swapped to the real `hidrawd|touchd -> inputd -> windowd` route and its narrow OS proof is green.
+  - the `visible-bootstrap` path has been swapped to the real `hidrawd|touchd -> inputd -> windowd` route and its narrow OS proof is green,
+  - commit `f24011b` captured the current implementation slice,
+  - minimal init-lite OS service payload startup for `hidrawd`, `touchd`, and `inputd` is now wired behind a focused startup proof.
 - **remaining closure caution**:
-  - do not claim full `TASK-0253` Gate-E closure until the deferred broad gates are explicitly rerun,
+  - do not claim full `TASK-0253` Gate-E closure until the kernel/runtime service-scale blocker is fixed and deferred broad gates are explicitly rerun,
+  - observed blocker: adding the three input services to the normal QEMU service set exhausts the current 2 MiB kernel heap before the exec-tail proofs finish,
+  - next plan must solve kernel/runtime scalability, not add more harness-only conditionals,
+  - final `visible-bootstrap` target must be a visual live-input scene with UI diagnostics: full colored window, mouse-following pixel, hover/click square, and keyboard-input square,
   - latency/perf closure remains follow-up scope in `TASK-0056C`.
 
 ## Latest closure snapshot (TASK-0252 / RFC-0052)
